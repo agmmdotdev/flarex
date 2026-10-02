@@ -17,6 +17,7 @@ import { fxSystemApplicationPublicationsV1, fxSystemApplicationAnalysesV1, fxCon
   fxControlSchemaVersions } from "../schema";
 import type { AppRowTransaction } from "../appRows";
 import type { FlarexMetadataDatabase } from "../deployments";
+import type { ApplicationWriteOwnershipCatalog } from "./Catalog";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { ApplicationWriteOwnershipError } from "./Model";
 import { isLogicalSchemaAdmissionManifest, readLogicalSchemaAdmissionEvidence,
@@ -25,10 +26,11 @@ import type { ApplicationWriteOwnershipHistoryBudget } from "./Policy";
 
 /** Complete, bounded publication history over stable catalog identities, including inactive revisions. */
 export const readPreviouslyApplicationWritableTables = Effect.fn("ApplicationWriteOwnership.readPublicationHistory")(
-  function* (tx: AppRowTransaction, controlDb: FlarexMetadataDatabase, input: Readonly<{
+  function* (tx: AppRowTransaction, catalog: ApplicationWriteOwnershipCatalog, input: Readonly<{
     scopeId: ScopeId; deploymentId: string; revisionId: string;
     schemaVersionId: CatalogSchemaVersionId;
   }>, budget: ApplicationWriteOwnershipHistoryBudget): Effect.fn.Return<ReadonlySet<CatalogTableId>, ApplicationWriteOwnershipError> {
+    const controlDb = catalog.transaction;
     const legacy = yield* query(tx.select(publicationProjection(fxSystemApplicationPublicationsV1))
       .from(fxSystemApplicationPublicationsV1).where(and(eq(fxSystemApplicationPublicationsV1.scopeId, input.scopeId),
         ne(fxSystemApplicationPublicationsV1.revisionId, input.revisionId))).limit(65));
@@ -109,9 +111,9 @@ export const readPreviouslyApplicationWritableTables = Effect.fn("ApplicationWri
       const schema = yield* Effect.fromResult(applicationSchemaPublicationFrame(manifest).pipe(Result.mapError(failure)));
       const catalogFrame = manifest.version === 1 ? applicationFunctionCatalogPublicationFrameV1(manifest)
         : applicationFunctionCatalogPublicationFrameV2(manifest);
-      const catalog = yield* Effect.fromResult(Result.mapError(catalogFrame, failure));
+      const catalogBytes = yield* Effect.fromResult(Result.mapError(catalogFrame, failure));
       if (!bytesEqualFullScan(yield* digest(schema), publication.schemaSha256) ||
-        !bytesEqualFullScan(yield* digest(catalog), publication.functionCatalogSha256)) return yield* invalid();
+        !bytesEqualFullScan(yield* digest(catalogBytes), publication.functionCatalogSha256)) return yield* invalid();
       const commitment = { scopeId: input.scopeId, revisionId: publication.revisionId,
         candidateId: publication.candidateId, analysisId: publication.analysisId,
         sourceArtifactRootSha256: hex(publication.sourceArtifactRootSha256), manifestSha256: hex(publication.manifestSha256),
@@ -123,8 +125,8 @@ export const readPreviouslyApplicationWritableTables = Effect.fn("ApplicationWri
         if (!bytesEqualFullScan(yield* digest(frame), publication.publicationSha256)) return yield* invalid();
         const schemaVersionId = CatalogSchemaVersionIdSchema.make(`application_${hex(publication.schemaSha256)}`);
         yield* chargeSchemaArtifact(controlDb, input.deploymentId, schemaVersionId, budget);
-        const bound = yield* makeApplicationSchemaAuthorityPublisher({ db: controlDb, runTransaction: run => controlDb.transaction(run) })
-          .readPublished({ deploymentId: input.deploymentId, manifest }).pipe(Effect.mapError(failure));
+        const bound = yield* makeApplicationSchemaAuthorityPublisher({ db: catalog.database, runTransaction: run => catalog.database.transaction(run) })
+          .readPublished({ deploymentId: input.deploymentId, manifest }, controlDb).pipe(Effect.mapError(failure));
         for (const table of bound.tables) writable.add(table.tableId);
       } else {
         if (!("deploymentId" in publication) || publication.deploymentId !== input.deploymentId) return yield* invalid();

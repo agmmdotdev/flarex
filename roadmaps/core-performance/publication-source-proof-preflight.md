@@ -11,8 +11,9 @@ format. Handoff reconciliation is documentation only; further implementation
 and experiments wait for the next session. No additional live measurement,
 resources, capture-cap change or runtime correction is selected. The next goal is
 the [complete standalone read refactor](./orchestration-target-design.md#next-goal-complete-standalone-read-refactor)
-in the next session, after explicit accepted-design amendments and focused scope
-selection; that proposal is not current runtime permission.
+under its [selected first-slice preflight](./standalone-read-redesign-preflight.md)
+and accepted integrity amendment. That successor is design-selected and not yet
+implemented; this failed publication candidate remains excluded from its baseline.
 
 ## Outcome And Scope
 

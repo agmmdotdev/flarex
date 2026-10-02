@@ -7,10 +7,41 @@ import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstra
 import { makeLogicalDocumentWorkingSet, type LogicalDocuments, type LogicalDocumentChanges,
   type LogicalDocumentReadTestHooks } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentSourceAdmission, type LogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
+import { requireLogicalDocumentReadAdmission, type LogicalDocumentReadAdmission } from "../logicalDocuments/documentAdmission";
+import type { LogicalReadAdmissionError } from "../logicalDocuments/readAdmission";
+import type { LogicalStorageReadReadiness } from "../logicalDocuments/model";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
 import { cmsError, cmsLimits, CmsTransactionError } from "./model";
 import type { CmsRequestLifetime } from "./lifetime";
+
+const projectReadAdmission = (cause: LogicalReadAdmissionError) => cmsError(
+  cause.reason === "sourceMismatch" || cause.reason === "bindingMissing" || cause.reason === "notReady"
+    ? "bindingChanged" : cause.reason, cause);
+
+/** Managed reads borrow the selected metadata owner's mechanics and transaction. */
+export const makeSourceCmsReadDocuments = Effect.fn("CmsDocuments.makeSourceRead")(function* (
+  admission: LogicalDocumentReadAdmission, tx: FlarexMetadataTransaction,
+  lifetime: CmsRequestLifetime, creationTime: AppCreationTimeV1,
+  testHooks?: CmsDocumentReadTestHooks,
+) {
+  const state = yield* requireLogicalDocumentReadAdmission(admission, tx).pipe(Effect.mapError(projectReadAdmission));
+  const selected = state.readReadiness;
+  const readReadiness: LogicalStorageReadReadiness<CmsTransactionError> = {
+    ...selected,
+    requireDemand: (demandTx, demand) => selected.requireDemand(demandTx, demand).pipe(Effect.mapError(projectReadAdmission)),
+  };
+  const working = yield* makeLogicalDocumentWorkingSet({
+    tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
+    tables: selected.mechanics.tables,
+    searchDefinitions: selected.mechanics.searchDefinitions,
+    readReadiness,
+    requireAdmission: requireLogicalDocumentReadAdmission(admission, tx).pipe(Effect.asVoid, Effect.mapError(projectReadAdmission)),
+    validateDocument: () => Effect.fail(cmsError("invalidAuthority")),
+    error: cmsError, uniqueConflict: () => cmsError("invalidAuthority"), limits: cmsLimits,
+  }, creationTime, [], [], testHooks);
+  return working.documents;
+});
 
 export type CmsDocuments = LogicalDocuments<CmsTransactionError>;
 export type CmsDocumentReadTestHooks = LogicalDocumentReadTestHooks<CmsTransactionError>;
@@ -28,6 +59,7 @@ const deletionSets = new WeakMap<object, Readonly<{
   admission: CmsAdmission;
   lifetime: CmsRequestLifetime;
   requireDeletion: (documentId: string) => Effect.Effect<Readonly<{ documentId: AppDocumentIdV1; tableName: string }>, CmsTransactionError>;
+  settlementChanges?: LogicalDocumentChanges;
 }>>();
 
 /** Payload owns the collection view of a core-attested pending deletion. */
@@ -43,6 +75,29 @@ export const requireCmsPendingDeletion = Effect.fn("CmsDocuments.requirePendingD
   return Object.freeze({ ...row, collectionSlug: collection.collectionSlug });
 });
 
+/** Settlement borrows final absence from the exact consumed document closure. */
+export const requireCmsClosedPendingDeletion = Effect.fn("CmsDocuments.requireClosedPendingDeletion")(function* (
+  token: CmsPendingDeletions, admission: CmsAdmission, lifetime: CmsRequestLifetime, documentId: AppDocumentIdV1,
+) {
+  const state = deletionSets.get(token);
+  if (state === undefined || state.admission !== admission || state.lifetime !== lifetime ||
+    state.settlementChanges === undefined || !lifetime.isClosing()) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const admitted = yield* requireCmsAdmission(admission);
+  const deleted = state.settlementChanges.changes.find(change => change.documentId === documentId && change.kind === "deleted");
+  const row = deleted ?? (state.settlementChanges.noFinalRows.includes(documentId)
+    ? state.settlementChanges.dependencies.find(dependency => dependency.documentId === documentId) : undefined);
+  if (row === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const definition = admitted.schema.tables.find(table => table.tableId === row.tableId);
+  if (deleted === undefined) {
+    const last = state.settlementChanges.attempts.findLast(attempt => attempt.documentId === documentId);
+    if (last?.operation !== "delete" || last.after !== null || last.tableId !== row.tableId ||
+      last.tableName !== definition?.logicalName) return yield* Effect.fail(cmsError("invalidAuthority"));
+  }
+  const collection = definition === undefined ? undefined : admitted.configuration.tables.find(table => table.logicalTableName === definition.logicalName);
+  if (collection === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+  return Object.freeze({ documentId: row.documentId, collectionSlug: collection.collectionSlug });
+});
+
 /** Only a closed, internally derived set can enter Application materialization. */
 export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure")(function* (
   closure: CmsDocumentClosure, admission: CmsAdmission, lifetime: CmsRequestLifetime,
@@ -52,6 +107,10 @@ export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure"
     return yield* Effect.fail(cmsError("invalidAuthority"));
   }
   yield* requireCmsAdmission(admission);
+  const pending = deletionSets.get(state.pendingDeletions);
+  if (pending === undefined || pending.admission !== admission || pending.lifetime !== lifetime ||
+    pending.settlementChanges !== undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+  deletionSets.set(state.pendingDeletions, Object.freeze({ ...pending, settlementChanges: state }));
   closures.delete(closure);
   return state;
 });
@@ -108,15 +167,31 @@ export const makeSourceCmsDocuments = Effect.fn("CmsDocuments.makeSource")(funct
   const state = yield* requireLogicalDocumentSourceAdmission(admission, tx).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
   const requireAdmission = requireLogicalDocumentSourceAdmission(admission, tx).pipe(
     Effect.asVoid, Effect.mapError(cause => cmsError("invalidAuthority", cause)));
+  const sourceReadReadiness = state.readReadiness;
+  const readReadiness: LogicalStorageReadReadiness<CmsTransactionError> = sourceReadReadiness.kind === "full"
+    ? sourceReadReadiness : Object.freeze({ ...sourceReadReadiness,
+      requireDemand: (demandTx, demand) => sourceReadReadiness.requireDemand(demandTx, demand).pipe(Effect.mapError(cause =>
+          cmsError(cause.reason === "sourceMismatch" || cause.reason === "bindingMissing" || cause.reason === "notReady"
+            ? "bindingChanged" : cause.reason, cause))),
+    });
   const working = yield* makeLogicalDocumentWorkingSet({
     tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
-    tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName })),
+    tables: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.tables :
+      state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName })),
+    ...(readReadiness.kind === "queryRequired" ? {
+      ...(readReadiness.mechanics.relationalCapabilities === undefined ? {} : {
+        relationalCapabilities: readReadiness.mechanics.relationalCapabilities,
+      }),
+      searchDefinitions: readReadiness.mechanics.searchDefinitions,
+    } : {}),
+    readReadiness,
     limits: cmsLimits, error: cmsError,
     uniqueConflict: uniqueConstraint => new CmsTransactionError({ reason: "uniqueConflict", uniqueConstraint }),
     requireAdmission,
     validateDocument: write => Effect.fromResult(state.validate(write).pipe(Result.mapError(cause =>
       cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
-  }, creationTime, state.unique, state.indexes.filter(index => index.access.kind === "developer"), testHooks);
+  }, creationTime, state.unique,
+    readReadiness.kind === "queryRequired" ? [] : state.indexes.filter(index => index.access.kind === "developer"), testHooks);
   const close = Effect.fn("CmsDocuments.closeSource")(function* () {
     const changes = yield* working.close();
     // SAFETY: this token is registered only after the admitted working set closes.

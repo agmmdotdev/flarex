@@ -4,6 +4,8 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { and, asc, desc, gt, lte, sql } from "drizzle-orm";
+import { Effect } from "effect";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 import {
   type FlarexMetadataDatabase,
@@ -149,11 +151,15 @@ export function createSharedScopeAuthorityBootstrapper(
 async function captureBootstrapFrontier(
   db: FlarexMetadataDatabase,
 ): Promise<SharedScopeAuthorityBootstrapFrontier> {
-  const rows = await db
-    .select({ deploymentId: deployments.deploymentId })
-    .from(deployments)
-    .orderBy(desc(deployments.deploymentId))
-    .limit(1);
+  const rows = await db.transaction(async tx => {
+    try {
+      await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+      return await tx.select({ deploymentId: deployments.deploymentId })
+        .from(deployments).orderBy(desc(deployments.deploymentId)).limit(1);
+    } finally {
+      closeInstallationAdmission(tx);
+    }
+  });
   const last = rows[0];
   if (last === undefined) {
     return Object.freeze({
@@ -183,39 +189,40 @@ async function runBootstrapBatch(
         "an empty frontier cannot have an after cursor",
       );
     }
-    return { status: "complete", frontier, items: [] };
   }
-  await requireCursorWithinFrontier(db, after, frontier.through);
+  if (frontier.kind !== "empty") await requireCursorWithinFrontier(db, after, frontier.through);
 
-  const rows = await db
-    .select()
-    .from(deployments)
-    .where(
-      and(
-        after === undefined
-          ? undefined
-          : gt(deployments.deploymentId, after.deploymentId),
-        lte(
-          deployments.deploymentId,
-          frontier.through.deploymentId,
-        ),
-      ),
-    )
-    .orderBy(asc(deployments.deploymentId))
-    .limit(input.limit + 1);
+  const rows = await db.transaction(async tx => {
+    try {
+      await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+      if (frontier.kind === "empty") return [];
+      return await tx
+        .select()
+        .from(deployments)
+        .where(and(
+          after === undefined ? undefined : gt(deployments.deploymentId, after.deploymentId),
+          lte(deployments.deploymentId, frontier.through.deploymentId),
+        ))
+        .orderBy(asc(deployments.deploymentId))
+        .limit(input.limit + 1);
+    } finally {
+      closeInstallationAdmission(tx);
+    }
+  });
+  if (frontier.kind === "empty") return { status: "complete", frontier, items: [] };
   const hasMore = rows.length > input.limit;
   const page = rows.slice(0, input.limit);
   const items: SharedScopeAuthorityBootstrapItemResult[] = [];
 
   for (const deployment of page) {
-    const item = await db.transaction((tx) =>
-      bootstrapExistingSharedScopeAuthorityInTransaction(
-        tx,
-        deployment,
-        physicalLocator,
-        randomUuid,
-      ),
-    );
+    const item = await db.transaction(async tx => {
+      await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+      try {
+        return await bootstrapExistingSharedScopeAuthorityInTransaction(tx, deployment, physicalLocator, randomUuid);
+      } finally {
+        closeInstallationAdmission(tx);
+      }
+    });
     items.push(item);
   }
 
@@ -247,7 +254,10 @@ async function verifyBootstrapFrontier(
     frontier.kind === "empty"
       ? sql`false`
       : sql`d.deployment_id <= ${frontier.through.deploymentId}`;
-  const rawResult: unknown = await db.execute(sql`
+  const rawResult: unknown = await db.transaction(async tx => {
+    try {
+      await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+      return await tx.execute(sql`
     with scope_cardinality as (
       select s.deployment_id, count(*) as scope_count
       from fx_control_scope s
@@ -292,6 +302,10 @@ async function verifyBootstrapFrontier(
       ) as orphan_clocks
     from deployment_inventory
   `);
+    } finally {
+      closeInstallationAdmission(tx);
+    }
+  });
   const row = parityResultRows(rawResult)[0];
   const counts = {
     deployments: parityBigIntField(row, "deployments"),

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { Session } from "node:inspector/promises";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { Effect, Schema } from "effect";
@@ -11,29 +12,47 @@ import { ProductStatus } from "@medusajs/framework/utils/portable";
 import { ProductModuleService } from "@medusajs/product/services";
 import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
 import type NativeProductModuleService from "../../../../../third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service";
-import { moduleIntegrationTestRunner as nativeRunner } from "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner";
+import { moduleIntegrationTestRunner as nativeRunner } from "./native-runner";
 import { mikroOrmModuleTestPersistenceAdapter } from "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter";
 import { productIntegrationTestRunner, getLogicalProductRunnerFixture } from "../../../test/support/logical-product-runner";
+import { makeCommerceReadHost } from "../../../../persistence-postgres/src/commerceTransaction/read/host";
+import { logicalCommerceBatchResources } from "../../../../persistence-postgres/src/commerceTransaction/resources";
+import { nativeRetrievalRelevantDemand } from "./fixtures";
 import { observeNativeRetrievalService, observePromotedRetrievalPrototype,
   observeRetrievalPgClients, observeRetrievalAcceptingComponents,
-  observeRetrievalPgProtocol, destroyIdleRetrievalPoolClients,
+  observeRetrievalPgProtocol, destroyIdleRetrievalPoolClients, prepareNativeRetrievalConnectionReset,
   type RetrievalComponentSpan, type RetrievalObservation, type RetrievalProtocolObservation } from "./observation";
 import { openRetrievalServerObserver, readRetrievalRuntimeSettings, retrievalServerDifference,
   requireRetrievalServerObservedCalls, selectRetrievalServerDatabases, type RetrievalDatabaseIdentity } from "./server";
 
 const root = new URL("../../../../../", import.meta.url);
 const output = new URL("./", import.meta.url);
-const mode = Schema.decodeUnknownSync(Schema.Literals(["quiet", "trace", "server"]))(process.env.NATIVE_RETRIEVAL_MODE ?? "quiet");
+const mode = Schema.decodeUnknownSync(Schema.Literals(["quiet", "trace", "server", "cpu"]))(process.env.NATIVE_RETRIEVAL_MODE ?? "quiet");
+let cpuSession: Session | undefined;
 const componentSpans = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
   process.env.NATIVE_RETRIEVAL_COMPONENT_SPANS ?? "0") === "1";
 const coldPoolClient = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
   process.env.NATIVE_RETRIEVAL_COLD_POOL_CLIENT ?? "0") === "1";
+const managedRead = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
+  process.env.NATIVE_RETRIEVAL_MANAGED_READ ?? "0") === "1";
+const coldPreparation = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
+  process.env.NATIVE_RETRIEVAL_COLD_PREPARATION ?? "0") === "1";
+if (coldPreparation && !managedRead) throw new Error("Cold preparation requires the managed read profile");
 const protocolTracing = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
   process.env.NATIVE_RETRIEVAL_PROTOCOL ?? "0") === "1";
 if (protocolTracing && mode !== "trace") throw new Error("Protocol observation requires separate trace mode");
 const decodeCount = Schema.decodeUnknownSync(Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 10_000 })));
+const metadataAxis = process.env.NATIVE_RETRIEVAL_METADATA_AXIS;
+if (metadataAxis === undefined && process.env.NATIVE_RETRIEVAL_METADATA_COUNT !== undefined)
+  throw new Error("Metadata count requires an explicit metadata axis");
+const metadataScale = metadataAxis === undefined ? undefined : {
+  axis: Schema.decodeUnknownSync(Schema.Literals(["tables", "indexes", "relations", "otherSourceDefinitions"]))(metadataAxis),
+  count: Schema.decodeUnknownSync(Schema.Literals([1, 100]))(decodeCount(process.env.NATIVE_RETRIEVAL_METADATA_COUNT ?? "1")),
+};
+const relevantCount = process.env.NATIVE_RETRIEVAL_RELEVANT_COUNT === undefined ? undefined
+  : Schema.decodeUnknownSync(Schema.Literals([1, 10, 100]))(decodeCount(process.env.NATIVE_RETRIEVAL_RELEVANT_COUNT));
 const warmups = decodeCount(process.env.NATIVE_RETRIEVAL_WARMUPS ?? "5");
-const sampleCount = decodeCount(process.env.NATIVE_RETRIEVAL_SAMPLES ?? (mode === "quiet" ? "30" : "1"));
+const sampleCount = decodeCount(process.env.NATIVE_RETRIEVAL_SAMPLES ?? (mode === "quiet" ? "100" : "1"));
 if (sampleCount === 0) throw new Error("Retrieval requires at least one sample");
 const nativeDatabase = process.env.NATIVE_RETRIEVAL_DATABASE;
 if (nativeDatabase === undefined || !/^[a-zA-Z0-9_]+$/.test(nativeDatabase))
@@ -49,11 +68,23 @@ const scalarConfig: FindConfig<ProductTypes.ProductDTO> = {
 const collectionConfig: FindConfig<ProductTypes.ProductDTO> = {
   select: ["id", "title", "handle", "collection.id", "collection.title"], relations: ["collection"],
 };
-const cases = [
-  { name: "scalar", config: scalarConfig, expected: seed },
-  { name: "collection", config: collectionConfig, expected: { id: seed.id, title: seed.title,
+interface RetrievalCase {
+  readonly name: string;
+  readonly operation: "retrieve" | "list";
+  readonly config: FindConfig<ProductTypes.ProductDTO>;
+  readonly filters?: { readonly id: string[] };
+  readonly id?: string;
+  readonly expected: unknown;
+}
+const relevantSeed = relevantCount === undefined ? undefined : nativeRetrievalRelevantDemand(relevantCount, "scalar");
+const cases: readonly RetrievalCase[] = relevantCount === undefined ? [
+  { name: "scalar", operation: "retrieve", config: scalarConfig, expected: seed },
+  { name: "collection", operation: "retrieve", config: collectionConfig, expected: { id: seed.id, title: seed.title,
     handle: seed.handle, collection_id: collection.id, collection: { id: collection.id, title: collection.title } } },
-] as const;
+] : (["scalar", "collection"] as const).map(name => {
+  const demand = nativeRetrievalRelevantDemand(relevantCount, name);
+  return { name, operation: "list", config: demand.config, filters: demand.filters, expected: demand.expected };
+});
 type Lane = "native" | "flarex";
 interface Sample {
   lane: Lane;
@@ -80,6 +111,7 @@ const parityResults: Array<{ demand: string; lane: Lane; result: unknown }> = []
 const setup: Record<string, number> = {};
 const missingErrors: Partial<Record<Lane, { name: string; message: string; type?: string }>> = {};
 let nativeSetupStarted = 0;
+let nativeInstance: NativeProductModuleService | undefined;
 let flarexSetupStarted = 0;
 let server: Awaited<ReturnType<typeof openRetrievalServerObserver>> | undefined;
 let selectedDatabaseIdentities: readonly RetrievalDatabaseIdentity[] | undefined;
@@ -87,9 +119,9 @@ const runtimeSettings: Partial<Record<Lane | "flarexControl", Awaited<ReturnType
 const runtimeSettingsAfter: typeof runtimeSettings = {};
 let runtimeStable: boolean | undefined;
 let sourcesBefore: Awaited<ReturnType<typeof sourceEvidence>> | undefined;
-let nativeInstance: NativeProductModuleService | undefined;
 let activeStage: "bootstrap" | "runtimeSettings" | "publicSeed" | "parity" | "nativeMissingErrors" | "measurement" | "runtimeSettingsAfter" = "bootstrap";
 let measurementComplete = false;
+let metadataEvidence: Pick<ReturnType<typeof getLogicalProductRunnerFixture>["currency"], "metadataCounts" | "metadataScaling"> | undefined;
 
 // Error summaries are an explicit diagnostic projection. Exact native type and
 // message are asserted separately, including wrapped Commerce adapter causes.
@@ -103,6 +135,16 @@ function errorSummary(cause: unknown): { name: string; message: string; type?: s
     ...(type === undefined ? {} : { type }) };
 }
 
+function nativeManager(service: NativeProductModuleService): object {
+  const base: unknown = Reflect.get(service, "baseRepository_");
+  if (base === null || typeof base !== "object") throw new Error("Missing native base repository for settings");
+  const getManager: unknown = Reflect.get(base, "getFreshManager");
+  if (typeof getManager !== "function") throw new Error("Missing native manager accessor");
+  const manager: unknown = Reflect.apply(getManager, base, []);
+  if (manager === null || typeof manager !== "object") throw new Error("Missing actual native manager");
+  return manager;
+}
+
 const hash = (text: string | Uint8Array) => createHash("sha256").update(text).digest("hex");
 async function sourceEvidence() {
   const paths = ["third_party/medusa/SOURCE.json", "pnpm-lock.yaml", "packages/medusa-adapter/package.json",
@@ -113,6 +155,11 @@ async function sourceEvidence() {
     "packages/medusa-adapter/src/product-commands/reads.ts", "packages/medusa-adapter/src/product-module.ts",
     "packages/medusa-adapter/test/support/logical-product-runner.ts",
     "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+    "packages/medusa-adapter/test/support/logical-product-fixture.ts",
+    "packages/persistence-postgres/test/logicalReadMetadataScalingTestSupport.ts",
+    "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/fixtures.ts",
+    "packages/medusa-adapter/src/commerce-module.ts", "packages/medusa-adapter/src/module-definition.ts",
+    "packages/medusa-adapter/src/product-module.ts",
     "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts", "packages/medusa-adapter/vitest.native-retrieval.config.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
@@ -122,6 +169,8 @@ async function sourceEvidence() {
     "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
             "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
     "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+    "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts",
+    "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/native-runner.ts",
     "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
     "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
     "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
@@ -160,8 +209,18 @@ async function sourceEvidence() {
     "packages/persistence-postgres/src/appRows.ts", "packages/persistence-postgres/src/postgres.ts",
     "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
     "packages/persistence-postgres/drizzle/meta/_journal.json"];
+  if (managedRead) paths.push("packages/persistence-postgres/src/installationLifecycle.ts",
+    "packages/persistence-postgres/src/postgresInstallationMaintenance.ts",
+    "packages/persistence-postgres/src/applicationStandaloneBinding.ts",
+    "packages/persistence-postgres/src/standaloneReadTransaction.ts",
+    "packages/persistence-postgres/src/standaloneReadSnapshot.ts",
+    "packages/persistence-postgres/src/logicalReadMetadata.ts",
+    "packages/persistence-postgres/src/logicalDocuments/readAdmission.ts",
+    "packages/persistence-postgres/src/commerceTransaction/read/host.ts",
+    "packages/persistence-postgres/src/commerceTransaction/read/configuration.ts");
   const sources = await Promise.all(paths.map(async path => ({ path, bytes: await readFile(new URL(path, root)) })));
-  const methodNames = ["retrieveProduct", "getProductFindConfig_", "buildVariantImagesFromProduct"];
+  const methodNames = ["retrieveProduct", "getProductFindConfig_", "buildVariantImagesFromProduct",
+    ...(relevantCount === undefined ? [] : ["listProducts"])];
   const methodHashes = sources.filter(source => source.path.endsWith("/product-module-service.ts")).map(source => {
     const parsed = ts.createSourceFile(source.path, source.bytes.toString("utf8"), ts.ScriptTarget.Latest, true);
     const methods: Record<string, string> = {};
@@ -202,11 +261,13 @@ describe("paired genuine native Product retrieval", () => {
     resolve: fileURLToPath(new URL("third_party/medusa/upstream/packages/modules/product", root)),
     persistenceAdapter: mikroOrmModuleTestPersistenceAdapter,
     hooks: { beforeModuleInit: async () => { setup.nativeSchemaPreparationMs = performance.now() - nativeSetupStarted; },
-      afterModuleInit: async (_app, instance) => {
-        nativeInstance = instance;
+      afterModuleInit: async (_app, service) => {
+        nativeInstance = service;
         setup.nativeSchemaAndModuleConstructionMs = performance.now() - nativeSetupStarted;
       } },
-    testSuite: ({ service: native }) => {
+    testSuite: ({ service: native, withFreshModule }) => {
+      const useNative = <T>(work: (service: NativeProductModuleService) => Promise<T>) => coldPreparation
+        ? withFreshModule(work) : work(native);
       productIntegrationTestRunner({ moduleName: "product", testSuite: ({ service: flarex }) => {
         beforeAll(async () => {
           setup.flarexFixtureAndHostConstructionMs = performance.now() - flarexSetupStarted;
@@ -215,12 +276,15 @@ describe("paired genuine native Product retrieval", () => {
           try {
             const sourcesAfter = await sourceEvidence();
             const sourceStable = sourcesBefore !== undefined && JSON.stringify(sourcesAfter) === JSON.stringify(sourcesBefore);
-            const settings = { mode, componentSpans, coldPoolClient, protocolTracing, warmups, sampleCount, concurrency: 1, nativeDatabase,
+            const settings = { mode, componentSpans, coldPoolClient, managedRead, coldPreparation, protocolTracing, warmups, sampleCount, concurrency: 1, nativeDatabase,
+              metadataScale, relevantCount, metadataEvidence,
+              preparationProfile: coldPreparation ? "actual native module init/read/shutdown and new managed Flarex host/read/close charged per request; installed schema and shared pools retained" : "retained hosts",
               logicalDatabase: runtimeSettings.flarex?.database ?? "unavailable", selectedDatabaseIdentities,
               node: process.version, platform: process.platform, architecture: process.arch,
-              nativeLifetime: "existing MikroORM module and per-call injected manager; no benchmark-owned context",
+              nativeLifetime: coldPreparation ? "fresh real native module per callback over the runner-owned shared Knex connection" : "existing MikroORM module and per-call injected manager; no benchmark-owned context",
               flarexLifetime: "existing standalone CommerceHost.read with actual fresh request lifetime",
               flarexPhysicalConnectionProfile: coldPoolClient ? "coldPoolClient; target/control idle clients destroyed outside request, connect/authentication and first Parse inside request" : "existing retained pools",
+              nativePhysicalConnectionProfile: coldPoolClient ? "idle Knex sockets destroyed and empty pool reinitialized outside request; connect/authentication inside request" : "existing retained pool",
               protocolCoverage: protocolTracing ? "actual pg Connection method submissions; values and SQL bodies omitted; not server completion or wire bytes" : "unavailable; protocol observation disabled",
               diagnosticConnectionSettings: server?.settings ?? "unavailable in this mode", runtimeSettings, runtimeSettingsAfter,
               diagnosticObserverIdentity: server?.observerIdentity ?? "unavailable in this mode",
@@ -230,36 +294,43 @@ describe("paired genuine native Product retrieval", () => {
             await mkdir(output, { recursive: true });
             const label = process.env.NATIVE_RETRIEVAL_RUN_LABEL ?? new Date().toISOString().replaceAll(":", "-");
             if (!/^[a-zA-Z0-9_.-]+$/.test(label)) throw new Error("Invalid retrieval evidence label");
+            if (cpuSession !== undefined) {
+              const { profile } = await cpuSession.post("Profiler.stop");
+              cpuSession.disconnect();
+              cpuSession = undefined;
+              await writeFile(new URL(`${mode}-${label}.cpuprofile`, output), JSON.stringify(profile), { flag: "wx" });
+            }
             await writeFile(new URL(`${mode}-${label}.json`, output), JSON.stringify({
               sourcesBefore, sourcesAfter, checkpoint: process.env.NATIVE_RETRIEVAL_CHECKPOINT ?? "unavailable; source hashes recorded",
               status: measurementComplete ? (sourceStable ? "measurementPassed" : "sourceDriftFailed") : `${activeStage}Failed`,
               activeStage, runtimeStable, parityPassed: activeStage === "nativeMissingErrors" || activeStage === "measurement" || activeStage === "runtimeSettingsAfter",
               observedSuccessfulRetrievals: parityResults.length + samples.filter(sample => sample.outcome === "success").length,
               settings, settingsSha256: hash(JSON.stringify(settings)), seed, collection,
-              cases, setup, parityResults, missingErrors, samples,
+              cases, relevantSeed, setup, parityResults, missingErrors, samples,
               notes: ["All raw samples retained; assertions and diagnostic encoding are outside quiet intervals.",
                 "Optional component spans include tracer overhead; nested inclusive span distributions are not additive and unobserved spans are not zero-duration proof.",
                 "Server diagnostics include instrumentation overhead and are separate from quiet latency.",
                 "Query JSON bytes are not network wire bytes. Inclusive call or parent/nested server times are not additive."] }, null, 2), { flag: "wx" });
             if (sourcesBefore !== undefined) expect(sourcesAfter).toStrictEqual(sourcesBefore);
-          } finally { await server?.close(); }
+          } finally { cpuSession?.disconnect(); await server?.close(); }
         });
         it("preserves complete scalar and collection DTOs, native errors and raw paired samples", async () => {
           activeStage = "runtimeSettings";
           sourcesBefore = await sourceEvidence();
-          const base: unknown = Reflect.get(native, "baseRepository_");
-          if (base === null || typeof base !== "object") throw new Error("Missing native base repository for settings");
-          const getManager: unknown = Reflect.get(base, "getFreshManager");
-          if (typeof getManager !== "function") throw new Error("Missing native manager accessor");
-          const manager: unknown = Reflect.apply(getManager, base, []);
-          if (manager === null || typeof manager !== "object") throw new Error("Missing actual native manager");
-          const execute: unknown = Reflect.get(manager, "execute");
-          if (typeof execute !== "function") throw new Error("Missing actual native manager.execute");
           const fixture = getLogicalProductRunnerFixture();
+          metadataEvidence = { metadataCounts: fixture.currency.metadataCounts, metadataScaling: fixture.currency.metadataScaling };
+          let resetNativeConnections: (() => Promise<number>) | undefined;
           const captureRuntimeSettings = async () => ({
-            native: await readRetrievalRuntimeSettings(async sql => Reflect.apply(execute, manager, [sql])),
+            native: await useNative(async service => {
+              const manager = nativeManager(service);
+              resetNativeConnections ??= prepareNativeRetrievalConnectionReset(manager);
+              const execute: unknown = Reflect.get(manager, "execute");
+              if (typeof execute !== "function") throw new Error("Missing actual native manager.execute");
+              return readRetrievalRuntimeSettings(async sql => Reflect.apply(execute, manager, [sql]));
+            }),
             flarex: await readRetrievalRuntimeSettings(async sql => (await fixture.currency.persistence.query(sql)).rows),
-            flarexControl: await readRetrievalRuntimeSettings(async sql => (await fixture.currency.control.query(sql)).rows),
+            flarexControl: await readRetrievalRuntimeSettings(async sql =>
+              (await (fixture.currency.managedRead?.control ?? fixture.currency.control).query(sql)).rows),
           });
           Object.assign(runtimeSettings, await captureRuntimeSettings());
           if (runtimeSettings.native === undefined || runtimeSettings.flarex === undefined || runtimeSettings.flarexControl === undefined)
@@ -294,51 +365,101 @@ describe("paired genuine native Product retrieval", () => {
           }
           activeStage = "publicSeed";
           const seedStarted = performance.now();
-          await native.createProductCollections(collection);
-          await native.createProducts({ ...seed, collection_id: collection.id });
+          await useNative(async service => {
+            if (relevantSeed === undefined) {
+              await service.createProductCollections(collection);
+              await service.createProducts({ ...seed, collection_id: collection.id });
+            } else {
+              await service.createProductCollections(relevantSeed.collections);
+              await service.createProducts(relevantSeed.products);
+            }
+          });
           setup.nativePublicSeedMs = performance.now() - seedStarted;
           const flarexSeedStarted = performance.now();
-          await flarex.createProductCollections(collection);
-          await flarex.createProducts({ ...seed, collection_id: collection.id });
+          if (relevantSeed === undefined) {
+            await flarex.createProductCollections(collection);
+            await flarex.createProducts({ ...seed, collection_id: collection.id });
+          } else {
+            await flarex.createProductCollections(relevantSeed.collections);
+            await flarex.createProducts(relevantSeed.products);
+          }
           setup.flarexPublicSeedMs = performance.now() - flarexSeedStarted;
           const { product, reader } = getLogicalProductRunnerFixture();
-          const retrieve = (lane: Lane, id: string, config: FindConfig<ProductTypes.ProductDTO>,
-            components?: ReturnType<typeof observeRetrievalAcceptingComponents>) => lane === "native"
-            ? native.retrieveProduct(id, structuredClone(config))
-            : Effect.runPromise(reader.read(product.runtime.commands.retrieve,
-              { id, config: { select: [...(config.select ?? [])], relations: [...(config.relations ?? [])] } }).pipe(
+          const retrieve = (lane: Lane, demand: RetrievalCase,
+            components?: ReturnType<typeof observeRetrievalAcceptingComponents>, observations?: RetrievalObservation[]) => lane === "native"
+            ? useNative(async service => {
+              const observedService = coldPreparation ? service : nativeInstance;
+              if (observations !== undefined && observedService === undefined)
+                throw new Error("Missing actual native service for warm observation");
+              const restore = observations === undefined || observedService === undefined ? undefined : observeNativeRetrievalService(observedService, observations,
+                demand.operation === "retrieve" ? "retrieveProduct" : "listProducts");
+              try {
+                if (demand.operation === "retrieve") return await service.retrieveProduct(demand.id ?? seed.id, structuredClone(demand.config));
+                if (demand.filters === undefined) throw new Error("Missing relevant Product selection");
+                return await service.listProducts(structuredClone(demand.filters), structuredClone(demand.config));
+              } finally { restore?.(); }
+            })
+            : Effect.runPromise(Effect.gen(function* () {
+              if (coldPreparation && product.managedReadHostInput === undefined)
+                return yield* Effect.fail(new Error("Missing managed host input"));
+              const selectedReader = coldPreparation
+                && product.managedReadHostInput !== undefined ? yield* makeCommerceReadHost({ ...product.managedReadHostInput,
+                  logicalResources: logicalCommerceBatchResources })
+                : reader;
+              return yield* Effect.gen(function* () {
+                const config = { select: [...(demand.config.select ?? [])], relations: [...(demand.config.relations ?? [])] };
+                if (demand.operation === "retrieve") return yield* selectedReader.read(product.runtime.commands.retrieve,
+                  { id: demand.id ?? seed.id, config });
+                if (demand.filters === undefined || relevantCount === undefined)
+                  return yield* Effect.fail(new Error("Missing relevant Product selection"));
+                return yield* selectedReader.read(product.runtime.commands.list,
+                  { filters: { id: [...demand.filters.id] }, config: { ...config, order: { id: "ASC" }, take: relevantCount } });
+              }).pipe(Effect.ensuring(coldPreparation ? selectedReader.close : Effect.void));
+            }).pipe(
                 components === undefined ? effect => effect : Effect.withTracer(components.tracer)));
           activeStage = "parity";
           for (const demand of cases) {
-            const nativeResult = await retrieve("native", seed.id, demand.config);
+            const nativeResult = await retrieve("native", demand);
             parityResults.push({ demand: demand.name, lane: "native", result: nativeResult });
-            const flarexResult = await retrieve("flarex", seed.id, demand.config);
+            const flarexResult = await retrieve("flarex", demand);
             parityResults.push({ demand: demand.name, lane: "flarex", result: flarexResult });
             expect(nativeResult).toStrictEqual(demand.expected);
             expect(flarexResult).toStrictEqual(nativeResult);
           }
           activeStage = "nativeMissingErrors";
           for (const lane of ["native", "flarex"] as const) {
-            try { await retrieve(lane, "prod_native_missing", scalarConfig); throw new Error("Missing product unexpectedly succeeded"); }
+            try { await retrieve(lane, { name: "missing", operation: "retrieve", id: "prod_native_missing", config: scalarConfig,
+              expected: undefined }); throw new Error("Missing product unexpectedly succeeded"); }
             catch (cause) { missingErrors[lane] = errorSummary(cause); }
           }
           expect(missingErrors.native?.type).toBe("not_found");
           expect(missingErrors.flarex?.type).toBe(missingErrors.native?.type);
           expect(missingErrors.flarex?.message).toBe(missingErrors.native?.message);
           activeStage = "measurement";
+          if (mode === "cpu") {
+            cpuSession = new Session();
+            cpuSession.connect();
+            await cpuSession.post("Profiler.enable");
+            await cpuSession.post("Profiler.start");
+          }
           for (const demand of cases) for (let index = -warmups; index < sampleCount; index++) {
             const order: readonly Lane[] = index % 2 === 0 ? ["native", "flarex"] : ["flarex", "native"];
             for (const lane of order) {
               const observations: RetrievalObservation[] = [];
               const protocol: RetrievalProtocolObservation[] = [];
               let coldPoolReset: Sample["coldPoolReset"];
-              if (coldPoolClient && lane === "flarex") {
+              if (coldPoolClient) {
                 const resetStarted = performance.now();
-                const pools = [fixture.currency.persistence, fixture.currency.control].map(owner => {
+                const pools = lane === "native" ? [] : [fixture.currency.persistence,
+                  fixture.currency.managedRead?.control ?? fixture.currency.control].map(owner => {
                   if (!("pool" in owner) || !(owner.pool instanceof Pool)) throw new Error("Cold retrieval requires actual PostgreSQL fixture pools");
                   return owner.pool;
                 });
                 const destroyedConnections: number[] = [];
+                if (lane === "native") {
+                  if (resetNativeConnections === undefined) throw new Error("Missing actual native shared connection reset");
+                  destroyedConnections.push(await resetNativeConnections());
+                }
                 for (const pool of new Set(pools)) destroyedConnections.push(await destroyIdleRetrievalPoolClients(pool));
                 coldPoolReset = { destroyedConnections, elapsedMs: performance.now() - resetStarted };
               }
@@ -349,14 +470,13 @@ describe("paired genuine native Product retrieval", () => {
                 if (mode === "trace" && index >= 0) {
                   cleanups.push(observeRetrievalPgClients(observations));
                   if (protocolTracing) cleanups.push(observeRetrievalPgProtocol(protocol));
-                  if (nativeInstance === undefined) throw new Error("Missing actual native Product instance for observation");
-                  cleanups.push(lane === "native" ? observeNativeRetrievalService(nativeInstance, observations)
-                    : observePromotedRetrievalPrototype(ProductModuleService.prototype, observations));
+                  if (lane === "flarex") cleanups.push(observePromotedRetrievalPrototype(ProductModuleService.prototype, observations,
+                    demand.operation === "retrieve" ? "retrieveProduct" : "listProducts"));
                 }
                 const started = performance.now();
                 let result: unknown;
                 try {
-                  result = await retrieve(lane, seed.id, demand.config, components);
+                  result = await retrieve(lane, demand, components, mode === "trace" && index >= 0 ? observations : undefined);
                 } catch (cause) {
                   const elapsedMs = performance.now() - started;
                   const sample: Sample = { lane, demand: demand.name, sample: index, warmup: index < 0,
@@ -382,10 +502,21 @@ describe("paired genuine native Product retrieval", () => {
                     throw observationError;
                   }
                   const observed = sample.acceptingComponents;
-                  expect(observed.filter(span => (span.name === "ApplicationActivation.validateBindingBasisOwned" ||
-                    span.name === "ApplicationActivation.withPreparedBindingBasis") && span.outcome === "success")).toHaveLength(1);
-                  expect(observed.filter(span => span.name === "ApplicationReadiness.validateStoredIssuedReadiness" &&
-                    span.outcome === "success")).toHaveLength(1);
+                  if (managedRead) {
+                    expect(observed.filter(span => span.name === "ApplicationActivation.withStandaloneBinding" &&
+                      span.outcome === "success")).toHaveLength(1);
+                    for (const name of ["StandaloneReadTransaction.enter", "LogicalReadMetadata.authenticateAndRegister",
+                      "PreparedMetadataEpoch.acceptFinalBatch"]) {
+                      expect(observed.filter(span => span.name === name && span.outcome === "success")).toHaveLength(1);
+                    }
+                    if (!coldPreparation) expect(observed.filter(span => span.name === "LogicalReadMetadata.checkCurrent"))
+                      .toHaveLength(0);
+                  } else {
+                    expect(observed.filter(span => (span.name === "ApplicationActivation.validateBindingBasisOwned" ||
+                      span.name === "ApplicationActivation.withPreparedBindingBasis") && span.outcome === "success")).toHaveLength(1);
+                    expect(observed.filter(span => span.name === "ApplicationReadiness.validateStoredIssuedReadiness" &&
+                      span.outcome === "success")).toHaveLength(1);
+                  }
                 }
                 // Preserve the complete DTO after EVERY invocation. No post-hoc projection.
                 expect(result).toStrictEqual(demand.expected);
@@ -394,12 +525,28 @@ describe("paired genuine native Product retrieval", () => {
                     .toHaveLength(observations.filter(entry => entry.kind === "sql").length);
                   expect(protocol.every(entry => entry.outcome === "returned")).toBe(true);
                   if (lane === "flarex") {
+                    if (managedRead) {
+                      const entries = observations.filter(entry => entry.kind === "sql" && entry.label.includes("fx_lock_read_scope_placement"));
+                      expect(entries).toHaveLength(1);
+                      const entry = entries[0];
+                      if (entry === undefined) throw new Error("Missing named standalone entry statement");
+                      const expectedName = `fx_sr_${hash(entry.label).slice(0, 56)}`;
+                      const binds = protocol.filter(value => value.method === "bind" && value.statementName?.startsWith("fx_sr_"));
+                      expect(binds).toHaveLength(1);
+                      expect(binds[0]?.statementName).toBe(expectedName);
+                      const parses = protocol.filter(value => value.method === "parse" && value.statementName?.startsWith("fx_sr_"));
+                      expect(parses).toHaveLength(coldPoolClient ? 1 : 0);
+                      for (const value of parses) {
+                        expect(value.statementName).toBe(expectedName);
+                        expect(value.sqlSha256).toBe(hash(entry.label));
+                      }
+                    }
                     const names = new Set(protocol.filter(entry => entry.method === "bind" &&
                       entry.statementName?.startsWith("fx_pm_")).map(entry => entry.statementName));
-                    expect(names.size).toBe(2);
+                    if (!managedRead) expect(names.size).toBe(2);
                     const parsed = protocol.filter(entry => entry.method === "parse" && entry.statementName?.startsWith("fx_pm_"));
                     for (const entry of parsed) expect(entry.statementName).toBe(`fx_pm_${entry.sqlSha256?.slice(0, 56)}`);
-                    if (coldPoolClient) expect(parsed).toHaveLength(2);
+                    if (coldPoolClient && !managedRead) expect(parsed).toHaveLength(2);
                   }
                 }
               } finally {
@@ -435,7 +582,7 @@ describe("paired genuine native Product retrieval", () => {
           if (!runtimeStable) throw new Error("Retrieval runtime identity or settings changed during measurement");
           measurementComplete = true;
         });
-      } }, { protectedRuntime: true });
+      } }, { protectedRuntime: true, managedRead, ...(metadataScale === undefined ? {} : { readMetadataScale: metadataScale }) });
     },
   });
 });

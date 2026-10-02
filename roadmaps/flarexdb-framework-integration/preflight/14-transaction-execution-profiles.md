@@ -10,6 +10,15 @@ adapter workarounds. Target runtime migration is pending.
 
 ## Status And Scope
 
+The [selected standalone read redesign](../../core-performance/standalone-read-redesign-preflight.md)
+amends preparation, serving readiness and installation integrity for its named
+read-only Commerce/CMS consumers. It preserves actual native snapshot and
+callback lifetimes and creates no universal transaction/journal API. The
+installation maintenance interlock must protect all affected users of shared
+structures; other profiles keep their own acceptance and settlement contracts.
+This target is not yet implemented. The contracts below remain the baseline
+except where that coherent cutover explicitly replaces a named reader.
+
 Status: accepted architecture direction and source-backed preflight;
 the private scalar transaction/store is implemented under
 [its concrete contract](./15-scalar-relational-transaction-and-store.md).

@@ -13,7 +13,8 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import type { CmsMaterializationTestHooks } from "../src/cmsTransaction/testSupport";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import {
   fxAppRowCurrent,

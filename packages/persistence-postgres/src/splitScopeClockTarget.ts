@@ -2,7 +2,8 @@ import type {
   ScopeEpoch,
   ScopeId,
 } from "flarex-protocol/storage-authority";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -59,27 +60,37 @@ export function createLocatedSplitScopeClockTarget(
     physicalLocator: capturedLocator,
     ensureInitialClock: (input) =>
       db.transaction(async (tx) => {
-        // Drizzle 0.45 rolls back only when this Promise callback rejects.
-        // Delete the projection when the transaction boundary becomes Effect-native.
-        const initialized = Result.getOrThrow(
-          await insertInitialScopeClockInTransactionResult(tx, {
-            scopeId: input.scopeId,
-            initialEpoch: input.initialEpoch,
-          }),
-        );
-        if (!isExactInitialScopeClock(initialized.clock, input)) {
-          throw new SplitScopeInitialClockConflictError(
-            input,
-            initialized.clock,
+        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+        try {
+          // Drizzle 0.45 rolls back only when this Promise callback rejects.
+          // Delete the projection when the transaction boundary becomes Effect-native.
+          // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: transaction - Drizzle 0.45 requires callback rejection to roll back; throw the original clock failure while finally closes installation admission.
+          const initialized = Result.getOrThrow(
+            await insertInitialScopeClockInTransactionResult(tx, {
+              scopeId: input.scopeId,
+              initialEpoch: input.initialEpoch,
+            }),
           );
+          if (!isExactInitialScopeClock(initialized.clock, input)) {
+            throw new SplitScopeInitialClockConflictError(
+              input,
+              initialized.clock,
+            );
+          }
+          return {
+            status: initialized.created
+              ? EnsureSplitScopeInitialClockStatuses.created
+              : EnsureSplitScopeInitialClockStatuses.alreadyInitialized,
+            clock: initialized.clock,
+          } satisfies EnsureSplitScopeInitialClockResult;
+        } finally {
+          closeInstallationAdmission(tx);
         }
-        return {
-          status: initialized.created
-            ? EnsureSplitScopeInitialClockStatuses.created
-            : EnsureSplitScopeInitialClockStatuses.alreadyInitialized,
-          clock: initialized.clock,
-        } satisfies EnsureSplitScopeInitialClockResult;
       }),
-    getCurrentClock: (scopeId) => getScopeClock(db, scopeId),
+    getCurrentClock: scopeId => db.transaction(async tx => {
+      await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+      try { return await getScopeClock(tx, scopeId); }
+      finally { closeInstallationAdmission(tx); }
+    }),
   } satisfies LocatedSplitScopeClockTarget;
 }

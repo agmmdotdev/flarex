@@ -9,10 +9,8 @@ import {
   type AppDocumentIdV1,
 } from "flarex-protocol/app-document-id";
 import { isJsonObject, type Json } from "flarex-protocol/json";
-import type {
-  CmsHostInput,
-  CmsHostTestHooks,
-} from "../src/cmsTransaction/host";
+import type { CmsHostInput } from "../src/cmsTransaction/host";
+import type { CmsHostTestHooks } from "../src/cmsTransaction/testSupport";
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import {
   prepareCmsApplication,

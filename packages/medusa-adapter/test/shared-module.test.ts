@@ -3,7 +3,7 @@ import { Effect, Option } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { model } from "@medusajs/utils/dml/model";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { prepareCommerceModule, commerceInternalService } from "../src/commerce-module";
+import { prepareCommerceModule, prepareCommerceInternalService } from "../src/commerce-module";
 import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
 import { commerceRepositoryContext } from "../src/commerce-repository-context";
 import { withCommerceService } from "../src/commerce-service-bridge";
@@ -12,6 +12,7 @@ import { makeCommerceCommandContext } from "../../persistence-postgres/src/comme
 
 const Volume = model.define("Volume", { isbn: model.text().primaryKey(), title: model.text() });
 const Edition = model.define("Edition", { serial: model.text().primaryKey() });
+const bindVolumeService = prepareCommerceInternalService(Volume);
 const fixture = Effect.gen(function* () {
   const owner = yield* Effect.acquireRelease(Effect.sync(makeCommercePromiseOwner), owner => owner.close);
   const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(reason => commerceError(reason), commerceLimits, {}, {}, "module-construction", "read"), lifetime => lifetime.close);
@@ -94,7 +95,7 @@ describe("shared module preparation and repository construction", () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const { owner, root, calls, registration } = yield* fixture;
       const module = prepareCommerceModule(owner, registration);
-      const service = module.internalService(Volume);
+      const service = bindVolumeService(new (module.persistence.createRepository(Volume))(), module.persistence);
       const context = { manager: root.manager, transactionManager: root.manager };
       const rows = yield* Effect.promise(() => service.list({}, {}, context));
       expect(rows).toEqual([{ isbn: "book", title: "Title" }]);
@@ -126,10 +127,10 @@ describe("shared module preparation and repository construction", () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const { owner, root, repository, registration, calls } = yield* fixture;
       const module = prepareCommerceModule(owner, registration);
-      const alias = commerceInternalService(Volume, { ...repository, find: () => owner.run(Effect.fail(commerceError("unsupportedProfile"))) }, module.persistence);
+      const alias = bindVolumeService({ ...repository, find: () => owner.run(Effect.fail(commerceError("unsupportedProfile"))) }, module.persistence);
       const context = { manager: root.manager, transactionManager: root.manager };
       yield* Effect.promise(() => expect(alias.list({}, {}, context)).rejects.toMatchObject({ reason: "unsupportedProfile" }));
-      yield* Effect.promise(() => module.internalService(Volume).list({}, {}, context));
+      yield* Effect.promise(() => bindVolumeService(new (module.persistence.createRepository(Volume))(), module.persistence).list({}, {}, context));
       expect(calls).toHaveLength(1);
     })));
   });

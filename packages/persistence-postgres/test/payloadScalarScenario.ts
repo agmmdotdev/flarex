@@ -15,7 +15,7 @@ import { makePayloadConformanceRuntime, type PayloadConformanceRuntime } from ".
 import { makePayloadRuntime, type PayloadHostInput } from "../../payload-adapter/src/runtime";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { payloadScalarFields, payloadScalarContentIdentity,
-  payloadPostsCollectionDefinition } from "../../payload-adapter/src/conformanceProfile";
+  payloadPostsCollectionDefinition } from "../../payload-adapter/src/testing/profiles";
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";

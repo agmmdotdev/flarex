@@ -3,12 +3,13 @@ import { Effect, Exit, Fiber } from "effect";
 import { and, asc, eq } from "drizzle-orm";
 import { isJsonObject } from "flarex-protocol/json";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
-import { makeCmsHost, defineCmsCommand, type CmsHostInput } from "../src/cmsTransaction/host";
+import { makeCmsHost, type CmsHostInput } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
-import { payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/testing/profiles";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../src/payloadPreferences/factsSchema";
-import { fxSystemCommits, fxSystemScopeClocks } from "../src/schema";
+import { fxSystemCommits, fxSystemScopeClocks, fxAppRowCurrent, fxAppRowRevisions } from "../src/schema";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
 import { compactRetainedCommitHistoryPageEffect, createRetainedCommitHistoryCompactionPort } from "../src/retainedCommitHistoryCompaction";
 import { createLocatedRetainedHistoryFloorTargetInternal } from "../src/retainedHistoryFloorObservation";
@@ -36,11 +37,22 @@ export async function payloadPreferencePublicationScenario(input: {
       yield* ctx.nested(conformance.runtime.commands.delete, { collection: "posts", id: args.first ?? null });
       return yield* ctx.nested(conformance.runtime.commands.delete, { collection: "posts", id: args.second ?? null });
     }) });
-    const composition = { ...hostInput, commands: [...Object.values(conformance.runtime.commands), pair], expectedContentIdentity: payloadScalarContentIdentity,
+    const createAndDelete = defineCmsCommand({ name: "create-delete-net-zero", mode: "write", run: Effect.fn("PreferenceTest.createDeleteNetZero")(function* (ctx) {
+      const created = yield* ctx.nested(conformance.runtime.commands.create, { collection: "posts", data: { title: "delete-net-zero", publishedAt: "2026-01-01" } });
+      if (!isJsonObject(created) || typeof created.id !== "string") return yield* Effect.fail(cmsError("invalidInput"));
+      return yield* ctx.nested(conformance.runtime.commands.delete, { collection: "posts", id: created.id });
+    }) });
+    const composition = { ...hostInput, commands: [...Object.values(conformance.runtime.commands), pair, createAndDelete], expectedContentIdentity: payloadScalarContentIdentity,
       materialization: { ...hostInput.materialization, afterTransactionStep: async (event: { step: string }) => {
         if (event.step === failedStep) throw new Error(`Injected ${event.step}`);
       } } };
-    const host = await runEffect(makeCmsHost(composition, { afterPreferenceFacts: () => failFacts ? Effect.fail(cmsError("resourceFailure")) : Effect.void }));
+    let closedNoFinalRows: readonly string[] = [];
+    let cleanupEvidence: unknown;
+    const host = await runEffect(makeCmsHost(composition, {
+      afterDocumentClosure: evidence => Effect.sync(() => { closedNoFinalRows = evidence.noFinalRows; }),
+      afterPreferenceCleanup: evidence => Effect.sync(() => { cleanupEvidence = evidence; }),
+      afterPreferenceFacts: () => failFacts ? Effect.fail(cmsError("resourceFailure")) : Effect.void,
+    }));
     const create = async (title: string) => {
       const value = await runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
       if (!isJsonObject(value) || typeof value.id !== "string") throw new Error("Missing Payload ID");
@@ -49,6 +61,21 @@ export async function payloadPreferencePublicationScenario(input: {
     const facts = () => persistence.drizzle.select().from(fxSystemCommitPayloadPreferenceDeletions).orderBy(asc(fxSystemCommitPayloadPreferenceDeletions.commitSeq), asc(fxSystemCommitPayloadPreferenceDeletions.changeOrdinal));
     const inventory = async () => ({ application: await input.inventory(), preferences: await input.readPreferenceIds(), facts: await facts() });
     const remove = (id: string, key = host.newRequestKey()) => runEffect(host.run(key, conformance.runtime.commands.delete, { collection: "posts", id }));
+    const rowInventory = async () => ({
+      rows: await persistence.drizzle.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId),
+      revisions: await persistence.drizzle.select().from(fxAppRowRevisions).orderBy(fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
+    });
+    const beforeNetZero = { rows: await rowInventory(), preferences: await input.readPreferenceIds(), facts: await facts() };
+    const netZeroKey = host.newRequestKey();
+    const netZeroExecutions = conformance.observations.executions();
+    const netZero = await runEffect(host.run(netZeroKey, createAndDelete, {}));
+    if (!isJsonObject(netZero) || typeof netZero.id !== "string") throw new Error("Missing net-zero Payload ID");
+    expect(netZero).toMatchObject({ title: "delete-net-zero" });
+    expect(closedNoFinalRows).toEqual([netZero.id]);
+    expect(cleanupEvidence).toEqual([{ collectionSlug: "posts", documentId: netZero.id, key: `collection-posts-${netZero.id}`, preferenceIds: [] }]);
+    expect(await runEffect(host.run(netZeroKey, createAndDelete, {}))).toEqual(netZero);
+    expect(conformance.observations.executions()).toBe(netZeroExecutions + 2);
+    expect({ rows: await rowInventory(), preferences: await input.readPreferenceIds(), facts: await facts() }).toEqual(beforeNetZero);
     const empty = await create("delete-empty");
     const emptyFacts = await facts();
     const emptyKey = host.newRequestKey();

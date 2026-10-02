@@ -2,6 +2,9 @@ import type { AppRowTransaction } from "./appRows";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { ApplicationWriteOwnershipHistoryBudget } from "./applicationWriteOwnership/Policy";
 import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
+import { withApplicationWriteOwnershipCatalog } from "./applicationWriteOwnership/Catalog";
+import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
+import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "./transactionSessionAttemptKernel";
 import { Effect, Result } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
@@ -23,6 +26,7 @@ import {
 import {
   appUniqueConstraintDefinitionsMatchMembers,
   AppUniqueConstraintSetClosureCorruptionV1Error,
+  AppUniqueConstraintSetClosurePersistenceV1Error,
   readAppUniqueConstraintSetClosureV1Effect,
   type LocatedAppUniqueConstraintSetClosureV1,
   type ReadAppUniqueConstraintSetClosureV1Error,
@@ -35,6 +39,8 @@ import {
   type InvalidAppUniqueKeyContractV1Error,
 } from "./appUniqueKeyContract";
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import { runEffectTransaction } from "./effectTransaction";
 
 export interface LocateAppUniqueConstraintDefinitionsV1Input {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
@@ -47,6 +53,7 @@ export interface LocateAppUniqueConstraintDefinitionsV1Input {
 export interface AppUniqueConstraintDefinitionPortV1 {
   readonly locate: (
     input: LocateAppUniqueConstraintDefinitionsV1Input,
+    reader?: FlarexMetadataTransaction,
   ) => Effect.Effect<
     ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1> | null,
     ReadAppUniqueConstraintSetClosureV1Error
@@ -85,9 +92,10 @@ export function createAppUniqueConstraintDefinitionPortV1(
   let retained: LocatedAppUniqueConstraintSetClosureV1 | null = null;
   const port = Object.freeze({
     locate: Effect.fn("AppUniqueConstraintDefinition.locate")(
-      function* (input: LocateAppUniqueConstraintDefinitionsV1Input) {
+      function (input: LocateAppUniqueConstraintDefinitionsV1Input, reader?: FlarexMetadataTransaction) {
+        const locate = (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
         const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(
-          controlDb,
+          tx,
           input.deploymentId,
           input.scopeId,
           input.schemaVersionId,
@@ -99,7 +107,7 @@ export function createAppUniqueConstraintDefinitionPortV1(
         if (snapshot === null || snapshot.closure.deploymentId !== input.deploymentId ||
           snapshot.closure.schemaVersionId !== input.schemaVersionId) {
           snapshot = yield* readAppUniqueConstraintSetClosureV1Effect(
-            controlDb, input.deploymentId, input.schemaVersionId,
+            controlDb, input.deploymentId, input.schemaVersionId, undefined, tx,
           );
           if (snapshot === null) return null;
           retained = snapshot;
@@ -112,6 +120,13 @@ export function createAppUniqueConstraintDefinitionPortV1(
           }));
         }
         return definitions;
+        });
+        return reader === undefined
+          ? runEffectTransaction<Effect.Success<ReturnType<typeof locate>>, Effect.Error<ReturnType<typeof locate>>,
+            AppUniqueConstraintSetClosurePersistenceV1Error, FlarexMetadataTransaction>(callback => controlDb.transaction(callback),
+            "Unique definitions control acquisition rolled back", locate,
+            cause => new AppUniqueConstraintSetClosurePersistenceV1Error({ operation: "locateDefinitionsTransaction", cause }))
+          : locate(reader);
       },
     ),
   });
@@ -166,7 +181,12 @@ export function lowerCanonicalAppUniqueConstraintV1Result(
 /** Reuse the nominal control-catalog composition for ownership recovery. */
 export const readApplicationOwnershipForUniqueDefinitions = Effect.fn("AppUniqueConstraintDefinition.readOwnership")(function (
   port: AppUniqueConstraintDefinitionPortV1 | undefined, tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget,
+  target?: LocatedReadCommittedAttemptTargetV1,
 ) {
-  return readApplicationWriteOwnershipInTransaction(tx, scopeId, budget,
-    port === undefined ? undefined : appUniqueConstraintDefinitionPortsV1.get(port));
+  const controlDatabase = port === undefined ? undefined : appUniqueConstraintDefinitionPortsV1.get(port);
+  return controlDatabase === undefined
+    ? readApplicationWriteOwnershipInTransaction(tx, scopeId, budget)
+    : target === undefined ? Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }))
+    : withApplicationWriteOwnershipCatalog(controlDatabase, hasLocatedReadCommittedTargetDatabaseV1(target, controlDatabase) ? tx : undefined,
+      catalog => readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, catalog));
 });

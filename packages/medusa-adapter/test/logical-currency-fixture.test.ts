@@ -10,7 +10,8 @@ import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../../p
 import { prepareSourceCmsDocumentDelta, validateSourceCmsDocumentContribution } from "../../persistence-postgres/src/cmsTransaction/contribution";
 import { cmsError, cmsLimits } from "../../persistence-postgres/src/cmsTransaction/model";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
-import { defineCmsCommand, makeCmsHost } from "../../persistence-postgres/src/cmsTransaction/host";
+import { defineCmsCommand } from "../../persistence-postgres/src/cmsTransaction/commands";
+import { makeCmsHost } from "../../persistence-postgres/src/cmsTransaction/host";
 import { DataBindingError } from "../../persistence-postgres/src/frameworkSchema/binding/errors";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";

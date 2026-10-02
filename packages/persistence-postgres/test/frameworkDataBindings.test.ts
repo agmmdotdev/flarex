@@ -49,7 +49,7 @@ describe("private data bindings", { timeout: 180_000 }, () => {
     const artifacts = makePGliteFrameworkSchemaArtifactAdmissionFixture(target);
     const physical = await exercisePhysicalBindings(
       fixture,
-      migrationTarget,
+      migrationTarget.schema,
       artifacts.repository,
       lifecycle.frame,
       lifecycle.head,

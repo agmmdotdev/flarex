@@ -40,6 +40,8 @@ import {
 import type { PreparedAppSchemaPublicationV1 } from
   "./appSchemaPublicationPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { runEffectTransaction } from "./effectTransaction";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   deployments,
   fxControlApplicationSchemaAuthoritiesV1,
@@ -105,7 +107,7 @@ export interface ApplicationSchemaAuthorityPublisher<Failure> {
   readonly readPublished: (input: {
     readonly deploymentId: string;
     readonly manifest: unknown;
-  }) => Effect.Effect<
+  }, reader?: FlarexMetadataTransaction) => Effect.Effect<
     ApplicationSchemaAuthority,
     ApplicationSchemaAuthorityError | ReadSchemaVersionArtifactError
   >;
@@ -181,7 +183,7 @@ export function makeApplicationSchemaAuthorityPublisher(
     function* (input: {
       readonly deploymentId: string;
       readonly manifest: unknown;
-    }): Effect.fn.Return<
+    }, reader?: FlarexMetadataTransaction): Effect.fn.Return<
       ApplicationSchemaAuthority,
       ApplicationSchemaAuthorityError | ReadSchemaVersionArtifactError
     > {
@@ -217,11 +219,14 @@ export function makeApplicationSchemaAuthorityPublisher(
       const schemaVersionId = CatalogSchemaVersionIdSchema.make(
         `application_${applicationSchemaSha256}`,
       );
-      const artifact = yield* getSchemaVersionArtifactByIdEffect(
-        repository.db,
-        input.deploymentId,
-        schemaVersionId,
-      );
+      const artifact = yield* (reader !== undefined ? getSchemaVersionArtifactByIdEffect(reader, input.deploymentId, schemaVersionId) :
+        runEffectTransaction<Effect.Success<ReturnType<typeof getSchemaVersionArtifactByIdEffect>>,
+        ReadSchemaVersionArtifactError, ApplicationSchemaAuthorityError, FlarexMetadataTransaction>(
+        callback => repository.db.transaction(callback),
+        "Application published authority acquisition failed",
+        tx => getSchemaVersionArtifactByIdEffect(tx, input.deploymentId, schemaVersionId),
+        cause => authorityFailureValue("resourceFailure", cause, "readPublished"),
+      ));
       if (artifact === null) {
         return yield* authorityFailure(
           "projectionMismatch",

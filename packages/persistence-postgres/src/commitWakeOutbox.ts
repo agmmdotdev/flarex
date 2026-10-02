@@ -19,6 +19,7 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
   fxSystemCommitWakes,
@@ -331,7 +332,11 @@ export function createCommitWakeOutboxRepositoryV1(
       );
       const result = yield* executeTransaction(
         "claimForCommit",
-        () => db.transaction((tx) => claimForCommitTransaction(tx, input)),
+        () => db.transaction(async tx => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try { return await claimForCommitTransaction(tx, input); }
+          finally { closeInstallationAdmission(tx); }
+        }),
       );
       return yield* Effect.fromResult(result);
     },
@@ -349,7 +354,11 @@ export function createCommitWakeOutboxRepositoryV1(
       );
       const result = yield* executeTransaction(
         "claimReadyBatch",
-        () => db.transaction((tx) => claimReadyBatchTransaction(tx, input)),
+        () => db.transaction(async tx => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try { return await claimReadyBatchTransaction(tx, input); }
+          finally { closeInstallationAdmission(tx); }
+        }),
       );
       return yield* Effect.fromResult(result);
     },
@@ -364,7 +373,11 @@ export function createCommitWakeOutboxRepositoryV1(
       );
       const result = yield* executeTransaction(
         "settleClaim",
-        () => db.transaction((tx) => settleClaimTransaction(tx, input)),
+        () => db.transaction(async tx => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try { return await settleClaimTransaction(tx, input); }
+          finally { closeInstallationAdmission(tx); }
+        }),
       );
       return yield* Effect.fromResult(result);
     },

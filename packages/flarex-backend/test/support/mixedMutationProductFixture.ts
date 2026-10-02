@@ -120,12 +120,13 @@ import { makeBorrowedLogicalAttempt } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError } from
   "@flarex/persistence-postgres/internal/logical-participant-admission";
-import { CmsTransactionError, makeBorrowedCmsAttempt } from
+import { CmsTransactionError } from
   "@flarex/persistence-postgres/internal/cms-adapter";
 import { prepareLogicalDocumentSourceAdmission } from
   "@flarex/persistence-postgres/internal/logical-document-admission";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
 import { makePayloadRuntime } from "@flarex/payload-adapter/internal/runtime";
+import { projectPayloadParticipantFailure } from "@flarex/payload-adapter/internal/participant";
 import {
   mixedPayloadPostsCollections,
   mixedPayloadSuccessProfile, mixedPayloadCaughtFailureProfile, mixedPayloadDeniedProfile,
@@ -190,10 +191,14 @@ export interface MixedMutationFinalEntryTestContext {
 type PricingFixture = Awaited<ReturnType<typeof prepareLogicalPricingHost>>;
 type LinkFixture = Awaited<ReturnType<typeof prepareLogicalVariantPricingLinkHost>>;
 type ProductSeed = Awaited<ReturnType<typeof seedNativeProductAttemptGraph>>;
-type PayloadRuntime = Effect.Success<ReturnType<typeof makeMixedPayloadSuccessRuntime>>;
-export type MixedPayloadProfileKind = "success" | "caughtFailure" | "denied" | "promisedId" |
+type MixedPayloadConformanceRuntime = Effect.Success<ReturnType<typeof makeMixedPayloadSuccessRuntime>>;
+export type MixedPayloadProfileKind = "ordinary" | "success" | "caughtFailure" | "denied" | "promisedId" |
   "foreignId" | "removedId" | "unresolvedId" | "inspection";
+const ordinaryPayloadRevision = createHash("sha256").update(
+  "payload@3.88.0/posts.scalar/local-create-updateByID-findByID/compiled-access/no-hooks-v1").digest("hex");
 const mixedPayloadProfiles = Object.freeze({
+  ordinary: { profile: Object.freeze({ revisionSha256: ordinaryPayloadRevision,
+    participant: `payload.posts.${ordinaryPayloadRevision}` }), make: makePayloadRuntime },
   success: { profile: mixedPayloadSuccessProfile, make: makeMixedPayloadSuccessRuntime },
   caughtFailure: { profile: mixedPayloadCaughtFailureProfile, make: makeMixedPayloadCaughtFailureRuntime },
   denied: { profile: mixedPayloadDeniedProfile, make: makeMixedPayloadDeniedRuntime },
@@ -214,14 +219,6 @@ function mapProductInvocationFailure(cause: CommerceTransactionError | LogicalPa
   });
 }
 
-function mapPayloadInvocationFailure(cause: CmsTransactionError | LogicalParticipantAdmissionError): LogicalParticipantInvocationError {
-  return new LogicalParticipantInvocationError({
-    kind: cause.reason === "resourceFailure" || cause.reason === "storedCorruption" ||
-      cause.reason === "statementFailure" || cause.reason === "decisionUncertain"
-      ? "infrastructure" : "rejection",
-    cause,
-  });
-}
 type CreatedActivation = Extract<Effect.Success<ReturnType<
   ReturnType<typeof createApplicationMutationSessionActivationPersistenceV1>["activateEffect"]
 >>, { status: "created" }>;
@@ -232,9 +229,9 @@ export interface MixedMutationProductFixture {
   readonly product: ProductFixture;
   readonly pricing?: PricingFixture;
   readonly link?: LinkFixture;
-  readonly payload?: Readonly<{ profile: PayloadRuntime["profile"];
-    runtimeHistory: readonly PayloadRuntime[];
-    current: () => PayloadRuntime | undefined }>;
+  readonly payload?: Readonly<{ profile: MixedPayloadConformanceRuntime["profile"];
+    runtimeHistory: readonly MixedPayloadConformanceRuntime[];
+    current: () => MixedPayloadConformanceRuntime | undefined }>;
   readonly seed: ProductSeed["seed"];
   readonly baseline: ProductSeed["baseline"];
   readonly application: CurrencyFixture["application"];
@@ -793,20 +790,24 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     let lastBorrowedWorkflowInvoke: ((value: Json) => Promise<unknown>) | undefined;
     const retryContexts: Array<PointMutationOccRuntimeNeutralRunnerInputV1["context"]> = [];
     const retryReturnedValues: unknown[] = [];
-    const payloadRuntimeHistory: PayloadRuntime[] = [];
-    const payloadRuntimes = new WeakMap<object, PayloadRuntime>();
+    const payloadRuntimeHistory: MixedPayloadConformanceRuntime[] = [];
+    const payloadRuntimes = new WeakMap<object, Effect.Success<ReturnType<typeof makePayloadRuntime>>>();
     const payloadScopes = new Set<Scope.Scope>();
-    const ensurePayloadRuntime = (attemptHandle: object) => Effect.gen(function* () {
+    const ensurePayloadRuntime = Effect.fn("MixedFixture.ensurePayloadRuntime")(function* (attemptHandle: object) {
       const existing = payloadRuntimes.get(attemptHandle);
       if (existing !== undefined) return existing;
       if (selectedPayload === undefined || compiledPayload === undefined)
         return yield* Effect.fail(new CmsTransactionError({ reason: "invalidAuthority" }));
       const scope = yield* Scope.make();
-      const runtime = yield* Scope.provide(scope)(selectedPayload.make(compiledPayload)).pipe(
+      const construction: Effect.Effect<MixedPayloadConformanceRuntime |
+        Effect.Success<ReturnType<typeof makePayloadRuntime>>, CmsTransactionError, Scope.Scope> =
+        selectedPayload.make(compiledPayload);
+      const constructed = yield* Scope.provide(scope)(construction).pipe(
         Effect.onError(() => Scope.close(scope, Exit.succeed(undefined))));
+      const runtime = "runtime" in constructed ? constructed.runtime : constructed;
       payloadRuntimes.set(attemptHandle, runtime);
       payloadScopes.add(scope);
-      payloadRuntimeHistory.push(runtime);
+      if ("observations" in constructed) payloadRuntimeHistory.push(constructed);
       return runtime;
     });
     const closePayloadScopes = Effect.gen(function* () {
@@ -882,29 +883,20 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           profileRevision: payloadProfileRevision!,
           sources: [{ selection: payloadPrepared,
             methods: ["payload-create", "payload-update", "payload-findByID"] }] },
-        borrow: (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) => Effect.gen(function* () {
-          const runtime = yield* ensurePayloadRuntime(borrowedInput.attempt);
-          const cms = yield* makeBorrowedCmsAttempt({
-            ...borrowedInput, admission: borrowedInput.admissions[0]!,
-          });
-          return Object.freeze({
-            abort: cms.abort,
-            currentUsage: cms.currentUsage,
-            invoke: (method: string, args: Json) => Effect.gen(function* () {
+        borrow: Effect.fn("MixedFixture.borrowPayload")(function* (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) {
+          const runtime = yield* ensurePayloadRuntime(borrowedInput.attempt).pipe(
+            Effect.mapError(projectPayloadParticipantFailure));
+          const borrowed = yield* runtime.borrowParticipant(borrowedInput);
+          return Object.freeze({ ...borrowed,
+            invoke: Effect.fn("MixedFixture.observePayload")(function* (method: string, args: Json) {
               nativeInvokeCount.set(method, (nativeInvokeCount.get(method) ?? 0) + 1);
-              const result = yield* cms.withinDeadline(runtime.invoke(cms.context, method, args));
-              const closed = yield* cms.close;
-              yield* input.hooks?.afterPayloadBeforeAck?.(method, result) ?? Effect.void;
-              const sourceKey = compiledPayload?.sourceContract.sourceKey;
-              if (sourceKey === undefined)
-                return yield* Effect.fail(new CmsTransactionError({ reason: "invalidAuthority" }));
-              return Object.freeze({ result, changes: closed.changes,
-                eventIntents: closed.events.map(intent => Object.freeze({
-                  sourceKey, intent })),
-                workBytes: closed.workBytes, workCalls: closed.workCalls });
-            }).pipe(Effect.mapError(mapPayloadInvocationFailure)),
+              const completed = yield* borrowed.invoke(method, args);
+              yield* (input.hooks?.afterPayloadBeforeAck?.(method, completed.result) ?? Effect.void).pipe(
+                Effect.mapError(projectPayloadParticipantFailure));
+              return completed;
+            }),
           });
-        }).pipe(Effect.mapError(mapPayloadInvocationFailure)),
+        }),
       }]), ...(workflowBinding === undefined ? [] : [{
         participant: "medusa.workflow",
         admission: { participant: "medusa.workflow", operationMethods: ["run"],

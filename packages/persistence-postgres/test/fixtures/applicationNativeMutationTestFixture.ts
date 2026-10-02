@@ -154,8 +154,7 @@ import {
   fxSystemCommits,
   fxSystemScopeClocks,
 } from "../../src/schema";
-import { getScopeAuthorityProvisioningReceipt } from
-  "../../src/scopeAuthorityProvisioningReceipt";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "../../src/scopeAuthorityControlRead";
 import { createAppDeveloperIndexQueryPortV1 } from "../../src/sessionJournalStore";
 import type {
   ScopePhysicalLocator,
@@ -252,8 +251,8 @@ export interface ApplicationNativeMutationFixture<
     manifest: ApplicationManifestV1,
   ) => Promise<ApplicationSchemaAuthority>;
   readonly sessionAuthority: Readonly<{
-    readonly scopeMetadata: Persistence;
-    readonly provisioningReceipts: ReturnType<typeof fixtureProvisioningReceipts>;
+    readonly scopeMetadata: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["scopeMetadata"];
+    readonly provisioningReceipts: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["provisioningReceipts"];
     readonly scopeSessionTargets: Readonly<{
       readonly resolve: (locator: ScopePhysicalLocator) =>
         Promise<LocatedScopeClockReader>;
@@ -261,8 +260,8 @@ export interface ApplicationNativeMutationFixture<
     readonly applicationControlDb: FlarexMetadataDatabase;
   }>;
   readonly currentEpochAuthority: Readonly<{
-    readonly scopeMetadata: Persistence;
-    readonly provisioningReceipts: ReturnType<typeof fixtureProvisioningReceipts>;
+    readonly scopeMetadata: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["scopeMetadata"];
+    readonly provisioningReceipts: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["provisioningReceipts"];
     readonly scopeEpochTargets: Readonly<{
       readonly resolve: (locator: ScopePhysicalLocator) =>
         Promise<LocatedScopeClockReader>;
@@ -600,7 +599,7 @@ async function createApplicationNativeMutationFixture<
     lane.locateSession,
   );
   const sessionAuthority = Object.freeze({
-    scopeMetadata: control,
+    scopeMetadata: authorityPorts.scopeMetadata,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeSessionTargets: authorityPorts.scopeClockTargets,
     applicationControlDb: control.drizzle,
@@ -824,7 +823,7 @@ async function createApplicationNativeMutationFixture<
     return currentActive;
   };
   const currentEpochAuthority = Object.freeze({
-    scopeMetadata: control,
+    scopeMetadata: authorityPorts.scopeMetadata,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeEpochTargets: Object.freeze({
       resolve: async (locator: ScopePhysicalLocator) =>
@@ -1007,23 +1006,14 @@ async function createApplicationNativeMutationFixture<
   });
 }
 
-function fixtureProvisioningReceipts(
-  control: ApplicationNativeMutationPersistence,
-) {
-  return Object.freeze({
-    getScopeAuthorityProvisioningReceipt: (scopeId: ApplicationAnalysisAuthority["scopeId"]) =>
-      getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
-  });
-}
-
 function fixtureAuthorityPorts(
   control: ApplicationNativeMutationPersistence,
   authority: ApplicationAnalysisAuthority,
   locateSession: (locator: ScopePhysicalLocator) => LocatedScopeClockReader,
 ) {
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
   return Object.freeze({
-    scopeMetadata: control,
-    provisioningReceipts: fixtureProvisioningReceipts(control),
+    ...controlReader,
     scopeClockTargets: Object.freeze({
       resolve: async (locator: ScopePhysicalLocator) => {
         const target = locateSession(locator);
@@ -1516,7 +1506,7 @@ export function composeApplicationNativeMutationReadiness(
       authority: authorityPorts,
     }, uniqueConstraints);
   const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: control,
+    scopeMetadata: authorityPorts.scopeMetadata,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeSessionTargets: {
       resolve: async () => {

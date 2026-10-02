@@ -5,6 +5,7 @@ import type { JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../../databaseTimestamp";
+import { readStandaloneReadSnapshot } from "../../standaloneReadSnapshot";
 import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
   authenticateProtectedTargetMetadataSnapshot,
   type ProtectedTargetMetadataEvidence } from "../../preparedMetadataEpoch";
@@ -331,12 +332,20 @@ const readBindingHeadRecord = Effect.fn("DataBindingRepository.readHeadRecord")(
     const rows = yield* bindingStatement(lock === "none" ? query : query.for(lock));
     const row = rows[0];
     if (row === undefined) return Option.none();
+    return Option.some(yield* restoreBindingHeadRecord(row, location));
+  },
+);
+
+const restoreBindingHeadRecord = Effect.fn("DataBindingRepository.restoreHeadRecord")(
+  function* (row: Readonly<Omit<typeof heads.$inferSelect, "canonicalBytes"> & { canonicalBytes: Uint8Array | null }>,
+    location: BindingLocation) {
     const head = yield* decode(
       row,
       "flarex.data-binding-head",
       isDataBindingHeadFrame,
     );
     if (
+      row.scopeId !== location.scopeId || row.storageGeneration !== location.storageGeneration ||
       head.frame.scopeId !== location.scopeId ||
       head.frame.storageGeneration !== location.storageGeneration ||
       head.frame.sequence !== row.sequence.toString() ||
@@ -344,7 +353,7 @@ const readBindingHeadRecord = Effect.fn("DataBindingRepository.readHeadRecord")(
       head.frame.activationSha256 !== row.activationSha256
     )
       return yield* Effect.fail(bindingError("storedCorruption"));
-    return Option.some(head);
+    return head;
   },
 );
 export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
@@ -372,7 +381,10 @@ export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.read
     if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
       preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
       Effect.mapError(cause => bindingError("resourceFailure", cause)));
-    const selectedHead = yield* readBindingHeadRecord(tx, location, "share");
+    const snapshot = preparation === undefined ? undefined :
+      readStandaloneReadSnapshot(tx, preparation.protection.database, location.scopeId);
+    const selectedHead = snapshot === undefined ? yield* readBindingHeadRecord(tx, location, "share") :
+      snapshot.bindingHead === null ? Option.none() : Option.some(yield* restoreBindingHeadRecord(snapshot.bindingHead, location));
     if (Option.isNone(selectedHead)) return Option.none();
     const head = selectedHead.value;
     const retained = preparation?.structure;

@@ -60,7 +60,7 @@ excluded connection identity; deciding what an outcome means stays with callers.
   Extracting only the happy-path BEGIN/COMMIT loop would leave duplicated cleanup.
 
 Direct PostgreSQL composition consumers are artifact admission/control tests,
-`frameworkCoordinatorPostgresFixture`, `commerceHostFixture`, framework binding
+`retainedPhysicalInstallationFixture`, `commerceHostFixture`, framework binding
 PostgreSQL tests and Medusa Product installation tests. Relational, CMS/Payload,
 Currency and Product hosts consume the relational adapter indirectly. Update
 these compositions and failure hooks without weakening assertions. PGlite

@@ -15,6 +15,15 @@ const acceptingSpanNames = new Set([
   "ApplicationReadiness.loadPhysicalReadiness",
   "PreparedMetadataEpoch.authenticateTargetSnapshot",
   "PreparedMetadataEpoch.guard",
+  "ApplicationActivation.withStandaloneBinding",
+  "ApplicationBindingProjection.withStandaloneEvidence",
+  "LogicalReadAdmission.with",
+  "LogicalReadMetadata.checkCurrent",
+  "LogicalReadMetadata.authenticateAndRegister",
+  "StandaloneReadTransaction.enter",
+  "PreparedMetadataEpoch.acceptFinalBatch",
+  "LogicalStorageReadiness.inspectReadDemand",
+  "InstallationLifecycle.acquire",
 ]);
 
 export interface RetrievalComponentSpan {
@@ -126,13 +135,16 @@ function observeMethod(owner: object, key: string, label: string,
   cleanups.push(() => { Object.defineProperty(installedOwner, key, originalDescriptor); });
 }
 
-function observeRetrievalService(service: object, entries: RetrievalObservation[], observeRoot: boolean) {
+type ProductReadMethod = "retrieveProduct" | "listProducts";
+function observeRetrievalService(service: object, entries: RetrievalObservation[], observeRoot: boolean,
+  method: ProductReadMethod) {
   const cleanups: Array<() => void> = [];
   try {
-    if (observeRoot) observeMethod(service, "retrieveProduct", "ProductModuleService.retrieveProduct", entries, cleanups);
+    if (observeRoot) observeMethod(service, method, `ProductModuleService.${method}`, entries, cleanups);
     const internal: unknown = Reflect.get(service, "productService_");
     if (internal === null || typeof internal !== "object") throw new Error("Missing native Product internal service");
-    observeMethod(internal, "retrieve", "MedusaInternalService.retrieve", entries, cleanups);
+    const internalMethod = method === "retrieveProduct" ? "retrieve" : "list";
+    observeMethod(internal, internalMethod, `MedusaInternalService.${internalMethod}`, entries, cleanups);
     const repository: unknown = Reflect.get(internal, "__productRepository__");
     if (repository === null || typeof repository !== "object") throw new Error("Missing native Product repository");
     observeMethod(repository, "find", "ProductRepository.find", entries, cleanups);
@@ -148,20 +160,20 @@ function observeRetrievalService(service: object, entries: RetrievalObservation[
   }
 }
 
-export const observeNativeRetrievalService = (service: object, entries: RetrievalObservation[]) =>
-  observeRetrievalService(service, entries, true);
+export const observeNativeRetrievalService = (service: object, entries: RetrievalObservation[],
+  method: ProductReadMethod = "retrieveProduct") => observeRetrievalService(service, entries, true, method);
 
 /** A promoted Product instance is constructed per real request. Observe its
  * actual instance at entry instead of constructing a benchmark-only service. */
 export function observePromotedRetrievalPrototype(prototype: object,
-  entries: RetrievalObservation[]) {
-  const original: unknown = Reflect.get(prototype, "retrieveProduct");
+  entries: RetrievalObservation[], method: ProductReadMethod = "retrieveProduct") {
+  const original: unknown = Reflect.get(prototype, method);
   if (typeof original !== "function") throw new Error("Missing promoted retrieval method");
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, "retrieveProduct");
-  Object.defineProperty(prototype, "retrieveProduct", { configurable: true, writable: true,
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, method);
+  Object.defineProperty(prototype, method, { configurable: true, writable: true,
     value: new Proxy(original, { apply(target, receiver: object, args) {
-      const restore = observeRetrievalService(receiver, entries, false);
-      const start: RetrievalObservation = { kind: "call", label: "ProductModuleService.retrieveProduct", startedMs: performance.now() };
+      const restore = observeRetrievalService(receiver, entries, false, method);
+      const start: RetrievalObservation = { kind: "call", label: `ProductModuleService.${method}`, startedMs: performance.now() };
       entries.push(start);
       try {
         const result: unknown = Reflect.apply(target, receiver, args);
@@ -173,8 +185,8 @@ export function observePromotedRetrievalPrototype(prototype: object,
     } }),
   });
   return () => {
-    if (descriptor === undefined) Reflect.deleteProperty(prototype, "retrieveProduct");
-    else Object.defineProperty(prototype, "retrieveProduct", descriptor);
+    if (descriptor === undefined) Reflect.deleteProperty(prototype, method);
+    else Object.defineProperty(prototype, method, descriptor);
   };
 }
 
@@ -329,4 +341,43 @@ export async function destroyIdleRetrievalPoolClients(pool: Pool): Promise<numbe
   finally { for (const client of clients) client.release(true); }
   if (pool.totalCount !== 0) throw new Error("Cold retrieval did not empty the physical pool");
   return count;
+}
+
+/** Capture the actual runner-owned Knex client while its manager is live.
+ * Later resets retain only that shared client, including after module disposal.
+ * Knex destroys idle sockets and creates an empty pool; authentication remains
+ * inside the next measured request. */
+export function prepareNativeRetrievalConnectionReset(manager: object): () => Promise<number> {
+  const getConnection: unknown = Reflect.get(manager, "getConnection");
+  if (typeof getConnection !== "function") throw new Error("Missing native connection accessor");
+  const connection: unknown = Reflect.apply(getConnection, manager, []);
+  if (connection === null || typeof connection !== "object") throw new Error("Missing native connection");
+  const getKnex: unknown = Reflect.get(connection, "getKnex");
+  if (typeof getKnex !== "function") throw new Error("Missing native Knex accessor");
+  const knex: unknown = Reflect.apply(getKnex, connection, []);
+  if ((typeof knex !== "object" && typeof knex !== "function") || knex === null) throw new Error("Missing native Knex");
+  const client: unknown = Reflect.get(knex, "client");
+  if (client === null || typeof client !== "object") throw new Error("Missing native Knex client");
+  const count = (name: string) => {
+    const pool: unknown = Reflect.get(client, "pool");
+    if (pool === null || typeof pool !== "object") throw new Error("Missing native pool");
+    const method: unknown = Reflect.get(pool, name);
+    if (typeof method !== "function") throw new Error(`Missing native pool ${name}`);
+    const result: unknown = Reflect.apply(method, pool, []);
+    if (typeof result !== "number" || !Number.isSafeInteger(result) || result < 0) throw new Error("Invalid native pool count");
+    return result;
+  };
+  return async () => {
+    if (count("numUsed") !== 0 || count("numPendingAcquires") !== 0 || count("numPendingCreates") !== 0)
+      throw new Error("Native reconnect requires an idle pool");
+    const destroyed = count("numFree");
+    const destroy: unknown = Reflect.get(client, "destroy");
+    const initialize: unknown = Reflect.get(client, "initializePool");
+    if (typeof destroy !== "function" || typeof initialize !== "function") throw new Error("Missing native pool lifecycle");
+    await Reflect.apply(destroy, client, []);
+    Reflect.apply(initialize, client, []);
+    if (count("numFree") !== 0 || count("numUsed") !== 0 || count("numPendingCreates") !== 0)
+      throw new Error("Native reset created a physical connection outside the request");
+    return destroyed;
+  };
 }

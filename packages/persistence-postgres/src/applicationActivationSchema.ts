@@ -20,6 +20,30 @@ import { bytea, fxSystemApplicationReadinessV1 } from "./schema";
 /** Concrete persisted readiness contract selected by one Application activation. */
 export type ApplicationActivationReadinessContractVersion = 1 | 2 | 3;
 
+/** Installer-protected immutable projection, published by the activation owner.
+ * Serving credentials have SELECT and a constrained publisher, never raw DML. */
+export const fxSystemApplicationReadBindings = pgTable("fx_system_application_read_binding", {
+  scopeId: text("scope_id").$type<ScopeId>().notNull(),
+  activationSequence: bigint("activation_sequence", { mode: "bigint" }).notNull(),
+  revisionId: text("revision_id").notNull(),
+  readinessContractVersion: integer("readiness_contract_version").$type<ApplicationActivationReadinessContractVersion>().notNull(),
+  readinessSha256: bytea("readiness_sha256").notNull(),
+  activationSha256: bytea("activation_sha256").notNull(),
+  bindingSha256: bytea("binding_sha256").notNull(),
+  bindingBytes: bytea("binding_bytes").notNull(),
+}, table => [
+  primaryKey({ name: "fx_application_read_binding_pk", columns: [table.scopeId, table.activationSequence] }),
+  foreignKey({ name: "fx_application_read_binding_activation_fk",
+    columns: [table.scopeId, table.activationSequence, table.revisionId, table.readinessContractVersion, table.readinessSha256, table.activationSha256],
+    foreignColumns: [fxSystemApplicationActivations.scopeId, fxSystemApplicationActivations.activationSequence,
+      fxSystemApplicationActivations.revisionId, fxSystemApplicationActivations.readinessContractVersion,
+      fxSystemApplicationActivations.readinessSha256, fxSystemApplicationActivations.activationSha256] }).onDelete("restrict"),
+  check("fx_application_read_binding_bounds", sql`${table.activationSequence} > 0
+    and octet_length(${table.bindingBytes}) between 1 and 16384
+    and octet_length(${table.bindingSha256}) = 32 and octet_length(${table.readinessSha256}) = 32
+    and octet_length(${table.activationSha256}) = 32`),
+]);
+
 /**
  * The one Application activation history. The physical table is unversioned;
  * frame versions discriminate the two concrete readiness compatibility

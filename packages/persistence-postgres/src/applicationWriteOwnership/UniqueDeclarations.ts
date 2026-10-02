@@ -19,6 +19,8 @@ import {
 } from "../appUniqueConstraintDefinitions";
 import type { ApplicationSchemaTableBinding } from "../applicationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "../deployments";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { runEffectTransaction } from "../effectTransaction";
 import type { StableTableCatalogTransaction } from "../stableTableCatalog";
 import { ApplicationWriteOwnershipError } from "./Model";
 
@@ -67,14 +69,23 @@ export const prepareApplicationUniqueDeclarationsInTransaction = Effect.fn("Appl
 
 /** Correlate the whole prepared set for managed tables, including declared absence. */
 export const applicationUniqueDeclarationsMatch = Effect.fn("ApplicationUniqueDeclarations.match")(
-  function* (db: FlarexMetadataDatabase, manifest: ApplicationManifestWithRelations, bound: BoundSchema) {
+  function* (db: FlarexMetadataDatabase, manifest: ApplicationManifestWithRelations, bound: BoundSchema,
+    reader?: FlarexMetadataTransaction) {
     if (manifest.version === 2) return true;
     const plans = yield* declarations(manifest, bound);
     const managed = new Set<CatalogTableId>(bound.tables.filter(table =>
       manifest.schema.writePolicies.configuration.tables.some(configured => configured.logicalTableName === table.logicalName)
     ).map(table => table.tableId));
-    const members = yield* listAppUniqueConstraintDefinitionSetMembersV1Effect(db, bound.deploymentId,
-      bound.schemaVersionId, MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1).pipe(Effect.mapError(projectFailure));
+    const members = yield* (reader !== undefined ? listAppUniqueConstraintDefinitionSetMembersV1Effect(reader, bound.deploymentId,
+      bound.schemaVersionId, MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1).pipe(Effect.mapError(projectFailure)) :
+      runEffectTransaction<Effect.Success<ReturnType<typeof listAppUniqueConstraintDefinitionSetMembersV1Effect>>,
+      ApplicationWriteOwnershipError, ApplicationWriteOwnershipError, FlarexMetadataTransaction>(
+      callback => db.transaction(callback),
+      "Application unique declaration acquisition rolled back",
+      tx => listAppUniqueConstraintDefinitionSetMembersV1Effect(tx, bound.deploymentId,
+        bound.schemaVersionId, MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1).pipe(Effect.mapError(projectFailure)),
+      cause => new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause }),
+    ));
     const actual = members.filter(member => managed.has(member.tableId));
     if (actual.length !== plans.length) return false;
     for (const plan of plans) {

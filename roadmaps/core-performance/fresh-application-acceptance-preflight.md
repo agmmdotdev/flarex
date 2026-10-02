@@ -1,5 +1,11 @@
 # Fresh binding and Application acceptance
 
+Successor: the [selected complete standalone read redesign](./standalone-read-redesign-preflight.md)
+replaces repeated structural attestation with managed installation integrity and
+compact fresh guards for named read callers. This document remains the delivered
+baseline, not a requirement to preserve its predicate-evaluation mechanism in
+that successor. Current runtime and unmigrated profiles remain unchanged.
+
 Status: **implemented under the approved focused contract; selected component and
 bounded connected correctness established.**
 The declared connected measurement milestone is captured; the original full mixed

@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { Result } from "effect";
 import { makePayloadPopulation, payloadPopulationIds } from "../../payload-adapter/src/testing";
-import { payloadRelationConfiguration } from "../../payload-adapter/src/conformanceProfile";
+import { payloadRelationConfiguration } from "../../payload-adapter/src/testing/profiles";
 
 import { makePayloadCollectionRuntime } from "../../payload-adapter/src/collectionRuntime";
 

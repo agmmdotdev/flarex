@@ -2,7 +2,7 @@ import type { Effect } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { AppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { CatalogIndexId, CatalogIndexDefinitionId, CatalogTableId, CatalogUniqueConstraintDefinitionId } from "flarex-protocol/catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
@@ -55,6 +55,32 @@ export type LogicalDocumentReadTransaction<Failure> = <A, E>(
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>,
 ) => Effect.Effect<A, E | Failure>;
 
+/** A trusted storage owner selects these mechanics after compiling the actual
+ * query. Parameters, user projections and a method name grant no readiness. */
+export type LogicalStorageReadDemand =
+  | Readonly<{ kind: "rows"; tableId: CatalogTableId }>
+  | Readonly<{ kind: "index"; tableId: CatalogTableId; indexDefinitionId: CatalogIndexDefinitionId }>
+  | Readonly<{ kind: "unique"; tableId: CatalogTableId; uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionId }>
+  | Readonly<{ kind: "search"; tableId: CatalogTableId; logicalIndexId: CatalogIndexId }>;
+
+export type LogicalDocumentTable = Readonly<{ tableId: CatalogTableId; logicalName: string;
+  relational?: RelationalTableDefinition; relationalMechanics?: PreparedLogicalRelationalTableMechanics }>;
+
+declare const readMechanicsBrand: unique symbol;
+/** Immutable table mechanics issued and bounded by the existing host lease. */
+export interface PreparedLogicalDocumentReadMechanics {
+  readonly [readMechanicsBrand]: true;
+  readonly tables: readonly LogicalDocumentTable[];
+  readonly relationalCapabilities: readonly RelationalPersistenceCapability[] | undefined;
+  readonly searchDefinitions: readonly LogicalSearchDefinition[];
+}
+
+export type LogicalStorageReadReadiness<Failure> =
+  | Readonly<{ kind: "full" }>
+  | Readonly<{ kind: "queryRequired";
+      mechanics: PreparedLogicalDocumentReadMechanics;
+      requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) => Effect.Effect<void, Failure> }>;
+
 /** Immutable decoded rows from the same journal point table that serves App
  * syscalls. This is evaluator hydration; the journal remains the pending owner. */
 export type LogicalPendingDocumentSeed = Readonly<{
@@ -84,14 +110,16 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly clock: ScopeClockRecord;
   /** Fixed historical view for a logical attempt. Unsupported candidate paths refuse. */
   readonly snapshotCommitSeq?: CommitSeq;
-  readonly tables: readonly Readonly<{ tableId: CatalogTableId; logicalName: string; relational?: RelationalTableDefinition;
-    relationalMechanics?: PreparedLogicalRelationalTableMechanics }>[];
+  readonly tables: readonly LogicalDocumentTable[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;
   /** Durable operations check live admission here. A finite root supplies a
    * tentative local gate; every readTransaction still checks live authority. */
   readonly requireAdmission: Effect.Effect<void, Failure>;
+  /** Existing full-admission profiles retain their complete source proof.
+   * Selected read profiles must supply their transaction-owned demand guard. */
+  readonly readReadiness?: LogicalStorageReadReadiness<Failure>;
   readonly validateDocument: (write: LogicalDocumentWrite) => Effect.Effect<void, Failure>;
   readonly error: LogicalDocumentFailure<Failure>;
   readonly uniqueConflict: (constraint: Readonly<{ tableName: string; orderedFields: readonly string[] }>) => Failure;

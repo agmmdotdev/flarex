@@ -46,7 +46,7 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
   const catalog = (yield* runEffectTransaction(work => control.drizzle.transaction(work), "Arrange joint catalog",
     (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
       const definitions = yield* ensureLogicalStorageDefinitions(tx, deploymentId, schemaVersionId);
-      const closure = yield* prepareAppUniqueConstraintSetClosureV1Effect(tx, { deploymentId, schemaVersionId });
+      const closure = yield* prepareAppUniqueConstraintSetClosureV1Effect(control.drizzle, { deploymentId, schemaVersionId }, tx);
       yield* closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure);
       return definitions;
     }), cause => new Error("Joint catalog transaction", { cause })));

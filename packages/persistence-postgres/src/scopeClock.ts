@@ -57,13 +57,13 @@ export interface ScopeClockRecord {
 const exactAttemptClockObservations = new WeakMap<FlarexMetadataTransaction, Readonly<{
   clock: ScopeClockRecord;
   revocation: TransactionAuthorizationRevocationEpoch;
-  lock: "share" | "attempt";
+  lock: "snapshot" | "share" | "attempt";
   lifetime: object;
 }>>();
 
 export function openExactAttemptScopeClockObservation(
   tx: FlarexMetadataTransaction, clock: ScopeClockRecord,
-  revocation: TransactionAuthorizationRevocationEpoch, lock: "share" | "attempt",
+  revocation: TransactionAuthorizationRevocationEpoch, lock: "snapshot" | "share" | "attempt",
 ): void {
   if (exactAttemptClockObservations.has(tx)) throw new Error("Exact attempt clock scope already opened");
   exactAttemptClockObservations.set(tx, Object.freeze({ clock: copyScopeClockObservation(clock), revocation, lock, lifetime: Object.freeze({}) }));
@@ -615,7 +615,7 @@ function decodeScopeClockFieldResult<Value>(
   ));
 }
 
-function decodeScopeAuthorizationRevocationEpochResult(
+export function decodeScopeAuthorizationRevocationEpochResult(
   scopeId: string,
   value: unknown,
 ): Result.Result<

@@ -207,7 +207,7 @@ export async function listScopeMetadata(
 
 type ScopeMetadataRow = typeof fxControlScopes.$inferSelect;
 
-function decodeScopeMetadataRecord(
+export function decodeScopeMetadataRecord(
   row: ScopeMetadataRow,
 ): ScopeMetadataRecord {
   if (!isNonBlankString(row.scopeId)) {

@@ -855,6 +855,34 @@
       "when": 1790860000000,
       "tag": "0121_exact_running_attempt_tail",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1790946400000,
+      "tag": "0122_installation_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1790946500000,
+      "tag": "0123_application_read_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1790946600000,
+      "tag": "0124_logical_read_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1790946700000,
+      "tag": "0125_colocated_read_installation",
+      "breakpoints": true
     }
   ]
 }

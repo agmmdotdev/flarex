@@ -5,7 +5,7 @@ import { Modules } from "@medusajs/framework/utils/portable";
 import type { DAL, IEventBusModuleService, ModulePersistenceAdapter, ModulePersistenceMutationService } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceInternalService } from "./commerce-module";
+import { prepareCommerceInternalService } from "./commerce-module";
 import { defineCommerceModule, CommerceModuleDefinitionError, type CommerceModuleExtension } from "./module-definition";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureCommerceInput } from "./commerce-input";
@@ -80,13 +80,6 @@ function bindProduct(ctx: CommerceCommandContext, owner: CommercePromiseOwner, m
   };
 }
 
-const productExtensions = {
-  productCategoryService: { mode: "replace", requires: ["categoryTree"], create: ({ binding, persistence }) => binding.createCategory(persistence) },
-  productImageProductService: { mode: "add", requires: ["imageUpdateAlias"],
-    create: ({ binding, persistence }) => commerceInternalService(ProductImage, binding.imageAlias, persistence),
-  },
-} satisfies Record<string, CommerceModuleExtension<ReturnType<typeof bindProduct>>>;
-
 /** One integration-owned definition per supported entry profile. The application
  * never registers repositories or chooses these profiles from request input. */
 export function defineProductModule(metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
@@ -99,12 +92,19 @@ export function defineProductModule(metadata: ProductRuntimeMetadata, profile: P
       }));
       entities.set(model, entity);
     }
+    const bindImageService = prepareCommerceInternalService(ProductImage);
+    const extensions = {
+      productCategoryService: { mode: "replace", requires: ["categoryTree"],
+        create: ({ binding, persistence }) => binding.createCategory(persistence) },
+      productImageProductService: { mode: "add", requires: ["imageUpdateAlias"],
+        create: ({ binding, persistence }) => bindImageService(binding.imageAlias, persistence) },
+    } satisfies Record<string, CommerceModuleExtension<ReturnType<typeof bindProduct>>>;
     return yield* defineCommerceModule({
       name: "flarex-product-local", models: productModels,
       profile: { name: profile, capabilities: ["categoryTree", "imageUpdateAlias"],
         bind: (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => bindProduct(ctx, owner, metadata, entities, profile),
       },
-      extensions: productExtensions,
+      extensions,
       service: ({ binding, dependencies, context }) => {
         const service = new ProductModuleService({
           ...dependencies,

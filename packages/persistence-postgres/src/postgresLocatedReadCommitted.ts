@@ -1,8 +1,10 @@
 import type { Client, PoolClient } from "pg";
+import { Effect } from "effect";
 
 import type { AppRowTransaction } from "./appRows";
 import { flarexSchema } from "./schema";
 import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedTransactionFailureIssueV1,
@@ -145,6 +147,7 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
       async (tx): Promise<Result> => {
         state.phase = "configuring";
         await tx.setTransaction({ isolationLevel: "read committed" });
+        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
         state.phase = "runningCallback";
         try {
           const result = await work(tx);
@@ -154,6 +157,8 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
           state.phase = "callbackRejected";
           state.callbackCause = cause;
           throw cause;
+        } finally {
+          closeInstallationAdmission(tx);
         }
       },
     ));
@@ -218,6 +223,7 @@ export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
         async (tx): Promise<Result> => {
           state.phase = "configuring";
           await tx.setTransaction({ isolationLevel: "read committed" });
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
           state.phase = "runningCallback";
           try {
             const result = await work(tx);
@@ -227,6 +233,8 @@ export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
             state.phase = "callbackRejected";
             state.callbackCause = cause;
             throw cause;
+          } finally {
+            closeInstallationAdmission(tx);
           }
         },
       ));

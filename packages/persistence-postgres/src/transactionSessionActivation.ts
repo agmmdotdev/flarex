@@ -132,6 +132,7 @@ import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import { ScopeExecutionAuthorityError } from "./scopeExecution/Errors";
 import { liveScopeExecution } from "./scopeExecution/ScopeExecution";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 import { defineScopedWriteOperation } from
   "./scopeExecution/ScopedTransaction";
 import {
@@ -1680,8 +1681,14 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input: LocatedPointMutationSessionAttemptLoadInputV1,
     ) => Effect.uninterruptible(Effect.tryPromise({
       try: () =>
-        db.transaction((tx) =>
-          loadAttemptInTransaction(tx, input, afterLoadLock)),
+        db.transaction(async tx => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try {
+            return await loadAttemptInTransaction(tx, input, afterLoadLock);
+          } finally {
+            closeInstallationAdmission(tx);
+          }
+        }),
       catch: mapAttemptLoadTransactionError,
     })),
     [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]: <Result, Failure>(
@@ -1728,9 +1735,15 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     ): Promise<Result> => db.transaction(async (tx) => {
       await tx.setTransaction({
         isolationLevel: "repeatable read",
-        accessMode: "read only",
       });
-      return work(tx);
+      // The installation row SHARE latch requires a read-write SQL session;
+      // the private detached loader still exposes only its read operation.
+      await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+      try {
+        return await work(tx);
+      } finally {
+        closeInstallationAdmission(tx);
+      }
     }),
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
@@ -1754,12 +1767,18 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
     ) => Effect.uninterruptible(Effect.tryPromise({
       try: () =>
-        db.transaction((tx) =>
-          terminalizeAttemptInTransaction(
-            tx,
-            input,
-            afterTerminalizationEvent,
-          )),
+        db.transaction(async tx => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try {
+            return await terminalizeAttemptInTransaction(
+              tx,
+              input,
+              afterTerminalizationEvent,
+            );
+          } finally {
+            closeInstallationAdmission(tx);
+          }
+        }),
       catch: (cause) => mapAttemptTerminalizationTransactionError(
         input.operation,
         cause,
@@ -2666,6 +2685,7 @@ export function createDefaultLocatedReadCommittedTransactionRunnerV1(
     try {
       return await db.transaction(async (tx) => {
         await tx.setTransaction({ isolationLevel: "read committed" });
+        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
         state.phase = "running";
         try {
           const result = await work(tx);
@@ -2675,6 +2695,8 @@ export function createDefaultLocatedReadCommittedTransactionRunnerV1(
           state.phase = "rejected";
           state.callbackCause = cause;
           throw cause;
+        } finally {
+          closeInstallationAdmission(tx);
         }
       });
     } catch (cause) {
@@ -2725,6 +2747,8 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
     return Effect.uninterruptible(
       Effect.tryPromise({
         try: () => db.transaction(async (tx): Promise<Result> => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try {
           const locked = await lockExactRunningAttemptInTransaction(
             tx,
             input,
@@ -2752,6 +2776,9 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
           } finally {
             closeExactAttemptScopeClockObservation(tx);
             closeProtectedMetadataFinalGuardScope(tx);
+          }
+          } finally {
+            closeInstallationAdmission(tx);
           }
         }),
         catch: (cause) => new ExactRunningAttemptTransactionV1Error({

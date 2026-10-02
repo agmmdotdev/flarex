@@ -68,6 +68,7 @@ import {
 } from "./appUniqueConstraintCommitV1";
 import {
   locateAppUniqueConstraintDefinitionsForSchemaEffect,
+  isLocatedAppUniqueConstraintDefinitionV1,
   type LocatedAppUniqueConstraintDefinitionV1,
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
@@ -90,6 +91,8 @@ import {
   type ReadAppUniqueConstraintSetClosureV1Error,
 } from "./appUniqueConstraintSetClosureV1";
 import { AppUniqueConstraintCatalogPersistenceError } from "./appUniqueConstraintDefinitions";
+import { runEffectTransaction } from "./effectTransaction";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   AppSchemaCandidateValidationPersistenceError,
   claimCurrentAppSchemaCandidateValidationHeadEffect,
@@ -134,7 +137,7 @@ import {
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
-import { getScopeMetadata } from "./scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import { fxSystemUniqueConstraintBuilds } from "./schema";
@@ -368,6 +371,7 @@ const uniquePreparations = new WeakMap<object, Readonly<{
   scopeId: ScopeId;
   snapshot: BuildSnapshot;
   tableIds: ReadonlyArray<CatalogTableId>;
+  membersById: ReadonlyMap<CatalogUniqueConstraintDefinitionId, BuildSnapshot["members"][number]>;
 }>>();
 
 /** The host allocation meters hidden catalog state without borrowing its ports. */
@@ -375,7 +379,8 @@ export const chargeUniqueConstraintPreparation = Effect.fn("AppUniqueConstraintS
   (preparation: AppUniqueConstraintSetPreparation) => {
     const state = uniquePreparations.get(preparation);
     return state === undefined ? Effect.fail(new PreparedHostRuntimeError({ reason: "invalidPayload" }))
-      : chargeHostPreparation({ scopeId: state.scopeId, snapshot: state.snapshot, tableIds: state.tableIds });
+      : chargeHostPreparation({ scopeId: state.scopeId, snapshot: state.snapshot, tableIds: state.tableIds,
+          definitionIds: [...state.membersById.keys()] });
   },
 );
 
@@ -390,7 +395,8 @@ export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBu
       blocksAllTables: true, tableIds: [] as const });
     const preparation: AppUniqueConstraintSetPreparation = Object.freeze({ [uniquePreparationBrand]: true as const });
     uniquePreparations.set(preparation, Object.freeze({ port, scopeId: captured.scopeId,
-      snapshot: buildSnapshot(captured, closure), tableIds: uniqueConstraintTableIds(closure) }));
+      snapshot: buildSnapshot(captured, closure), tableIds: uniqueConstraintTableIds(closure),
+      membersById: new Map(closure.members.map(member => [member.uniqueConstraintDefinitionId, member])) }));
     return Object.freeze({ status: "prepared" as const, preparation });
   },
 );
@@ -418,14 +424,26 @@ export const acceptPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstrai
  * preparation lifetime. No whole-set eligibility evidence is issued. */
 export const selectPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.selectPreparedCatalog")(
   function* (port: AppUniqueConstraintSetEligibilityPortV1, preparation: AppUniqueConstraintSetPreparation,
-    tableIds: readonly CatalogTableId[]) {
+    tableIds: readonly CatalogTableId[], definitionIds?: readonly CatalogUniqueConstraintDefinitionId[]) {
     const state = uniquePreparations.get(preparation);
     if (state === undefined || state.port !== port)
       return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
     const tables = new Set(tableIds);
+    const members: BuildSnapshot["members"][number][] = [];
+    if (definitionIds === undefined) members.push(...state.snapshot.members.filter(member => tables.has(member.tableId)));
+    else {
+      if (new Set(definitionIds).size !== definitionIds.length)
+        return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+      for (const definitionId of definitionIds) {
+        const member = state.membersById.get(definitionId);
+        if (member === undefined || !tables.has(member.tableId))
+          return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+        members.push(member);
+      }
+    }
     const selection = Object.freeze({ schemaVersionId: state.snapshot.schemaVersionId,
-      members: Object.freeze(state.snapshot.members.filter(member => tables.has(member.tableId))) });
-    const selectedTableIds = Object.freeze(state.tableIds.filter(id => tables.has(id)));
+      members: Object.freeze(members) });
+    const selectedTableIds = Object.freeze([...new Set(members.map(member => member.tableId))]);
     const inspectSelected = Effect.fn("AppUniqueConstraintSetBuild.inspectSelectedPreparedCatalog")(function* (
       tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
       coverageHint?: IndexCoverageContext,
@@ -442,6 +460,29 @@ export const selectPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstrai
     return Object.freeze({ inspectSelected });
   },
 );
+
+/** Exact query-selected definitions use the existing build/coverage owner.
+ * Complete closure preparation remains with activation and write admission. */
+export const inspectSelectedAppUniqueConstraintDefinitions = Effect.fn("AppUniqueConstraintSetBuild.inspectReadDefinitions")(function* (
+  input: AppUniqueConstraintSetEligibilityInputV1,
+  definitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
+  tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+) {
+  if (authority.deploymentId !== input.deploymentId || authority.scopeId !== input.scopeId ||
+    definitions.length === 0 || definitions.some(definition => !isLocatedAppUniqueConstraintDefinitionV1(definition) ||
+      definition.deploymentId !== input.deploymentId || definition.scopeId !== input.scopeId || definition.schemaVersionId !== input.schemaVersionId))
+    return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+  yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+  const members: BuildSnapshot["members"] = definitions.map(definition => ({
+    logicalUniqueConstraintId: definition.logicalUniqueConstraintId,
+    uniqueConstraintDefinitionId: definition.uniqueConstraintDefinitionId,
+    tableId: definition.tableId, physicalSpecSha256Hex: definition.physicalSpecSha256Hex,
+  }));
+  const readiness = yield* inspectBuildReadinessWithLockedClock(tx, authority,
+    { schemaVersionId: input.schemaVersionId, members }, definitions.map(definition => definition.tableId), clock,
+    undefined, "concurrentProgress");
+  return readiness.status === "not_ready" ? readiness : Object.freeze({ status: "ready" as const, definitionCount: definitions.length });
+});
 const eligibilityEvidencePorts = new WeakMap<
   object,
   AppUniqueConstraintSetEligibilityPortV1
@@ -585,7 +626,7 @@ const loadEligibilityWithClockLock = Effect.fn(
     { deploymentId: prepared.snapshot.deploymentId, scopeId: prepared.scopeId },
     {
       ...ports.authority,
-      scopeMetadata: { getScopeMetadata: selectedScopeId => getScopeMetadata(ports.controlDb, selectedScopeId) },
+      ...makeInstallationProtectedScopeAuthorityControlReader(ports.controlDb),
     },
   );
   if (located.authority.scopeId !== prepared.scopeId) {
@@ -785,10 +826,10 @@ const decodeBuildStateResult = Schema.decodeUnknownResult(
 
 /** Called only through the activation owner's transaction-bound catalog reader. */
 export const readUniqueMaintenanceRequirements = Effect.fn("AppUniqueConstraintBuild.readMaintenanceRequirements")(
-  function* (db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: string) {
+  function* (db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: string, reader?: FlarexMetadataTransaction) {
     const id = yield* Effect.fromResult(decodeSchemaVersionIdResult(schemaVersionId))
       .pipe(Effect.mapError(cause => new UniqueMaintenanceError({ reason: "storedState", cause })));
-    const closure = yield* readAppUniqueConstraintSetClosureV1Effect(db, deploymentId, id).pipe(Effect.mapError(cause => {
+    const closure = yield* readAppUniqueConstraintSetClosureV1Effect(db, deploymentId, id, undefined, reader).pipe(Effect.mapError(cause => {
       if (cause instanceof AppUniqueConstraintSetClosurePersistenceV1Error || cause instanceof AppUniqueConstraintCatalogPersistenceError) {
         const providerCause = cause.cause instanceof DrizzleQueryError ? cause.cause.cause : cause.cause;
         return new UniqueMaintenanceError({ reason: "resourceFailure", retryable: isRetryableSqlTransactionCause(providerCause), cause });
@@ -906,7 +947,7 @@ export const reconcileAppUniqueConstraintSetBuildV1Effect = Effect.fn(
   const snapshot = buildSnapshot(decoded, locatedClosure);
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
+    { ...ports.authority, ...makeInstallationProtectedScopeAuthorityControlReader(ports.controlDb) },
   );
   return yield* runReconciliationTransaction(
     located.target,
@@ -934,7 +975,7 @@ export const advanceAppUniqueConstraintSetBackfillV1Effect = Effect.fn(
   );
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
+    { ...ports.authority, ...makeInstallationProtectedScopeAuthorityControlReader(ports.controlDb) },
   );
   if (locatedClosure === null) {
     return yield* Effect.fail(
@@ -949,15 +990,17 @@ export const advanceAppUniqueConstraintSetBackfillV1Effect = Effect.fn(
   const tableIds = [
     ...new Set(locatedClosure.members.map((member) => member.tableId)),
   ].toSorted((left, right) => left - right);
-  const definitions =
-    yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(
-      ports.controlDb,
+  const definitions = yield* runEffectTransaction<Effect.Success<ReturnType<typeof locateAppUniqueConstraintDefinitionsForSchemaEffect>>,
+    Effect.Error<ReturnType<typeof locateAppUniqueConstraintDefinitionsForSchemaEffect>>, AppUniqueConstraintCatalogPersistenceError,
+    FlarexMetadataTransaction>(callback => ports.controlDb.transaction(callback),
+    "Unique build definition acquisition rolled back", tx => locateAppUniqueConstraintDefinitionsForSchemaEffect(
+      tx,
       decoded.deploymentId,
       located.authority.scopeId,
       decoded.schemaVersionId,
       tableIds,
       locatedClosure.members.length,
-    );
+    ), cause => new AppUniqueConstraintCatalogPersistenceError({ operation: "locateBuildDefinitions", cause }));
   if (
     definitions === null ||
     !appUniqueConstraintDefinitionsMatchMembers(definitions, locatedClosure.members)
@@ -1020,7 +1063,7 @@ export const reclaimSupersededAppUniqueConstraintSetBuildEffect = Effect.fn(
   }
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...state.ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.ports.controlDb, scopeId) } },
+    { ...state.ports.authority, ...makeInstallationProtectedScopeAuthorityControlReader(state.ports.controlDb) },
   );
   const snapshot = yield* prepareReclamationSnapshot(
     state.ports,

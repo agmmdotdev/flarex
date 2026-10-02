@@ -1,6 +1,7 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq } from "drizzle-orm";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 import {
   type ScopeId,
 } from "flarex-protocol/storage-authority";
@@ -165,14 +166,14 @@ export function createSharedScopeAuthorityProvisioner(
 
   return {
     ensure: (input) =>
-      db.transaction((tx) =>
-        ensureSharedScopeAuthorityInTransaction(
-          tx,
-          input,
-          physicalLocator,
-          randomUuid,
-        ),
-      ),
+      db.transaction(async tx => {
+        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+        try {
+          return await ensureSharedScopeAuthorityInTransaction(tx, input, physicalLocator, randomUuid);
+        } finally {
+          closeInstallationAdmission(tx);
+        }
+      }),
   } satisfies SharedScopeAuthorityProvisioner;
 }
 

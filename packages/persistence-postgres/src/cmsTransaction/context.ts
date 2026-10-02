@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Json } from "flarex-protocol/json";
-import type { CmsCommand, CmsCommandContext } from "./host";
+import type { CmsCommand, CmsCommandContext } from "./commands";
 import type { CmsRequestLifetime } from "./lifetime";
 import type { CmsRequestContext, CmsTransactionError } from "./model";
 

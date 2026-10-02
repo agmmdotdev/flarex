@@ -8,6 +8,7 @@
     "./internal/collections": "./src/collections.ts",
     "./internal/profile": "./src/profile.ts",
     "./internal/runtime": "./src/runtime.ts",
+    "./internal/participant": "./src/participant/binding.ts",
     "./internal/testing": "./src/testing.ts"
   },
   "dependencies": {

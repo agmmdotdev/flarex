@@ -1,4 +1,5 @@
-import { Data, Effect } from "effect";
+import { Cause, Data, Effect, Exit } from "effect";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { compileLogicalSourceUniqueConstraints, compileLogicalSourceIndexes, compileLogicalSourceSearches,
@@ -20,6 +21,12 @@ import { prepareSchemaCreationTimeIndexDefinitions, ensureAppCreationTimeIndexDe
   prepareOrderedIndexDefinitionBinding, ensureAppDeveloperIndexDefinitionBindingV1InTransaction } from "./appIndexDefinitions";
 import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   getAppUniqueConstraintIdentityByNameEffect } from "./appUniqueConstraintDefinitions";
+import { publishLogicalReadMetadata } from "./logicalReadMetadata";
+import { fxControlSchemaVersions } from "./schema";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
+import { runEffectTransaction } from "./effectTransaction";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
+export { type LogicalSourceReadPin, LogicalSourceReadPinSchema } from "./logicalReadMetadata";
 
 export class LogicalStorageDefinitionError extends Data.TaggedError("LogicalStorageDefinitionError")<{
   readonly reason: "missingSchema" | "tableBindingChanged" | "incompleteBinding" | "uniqueSetMismatch" | "resourceFailure";
@@ -37,16 +44,23 @@ const requirementIssuers = new WeakMap<object, Readonly<{ db: FlarexMetadataData
  * serving readiness. Per-source preparation cannot substitute for this read. */
 export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitions.readRequirements")(function* (
   db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
+  reader?: FlarexMetadataTransaction,
 ) {
-  const artifact = yield* readSchemaVersionArtifactByIdEffect(db, deploymentId, schemaVersionId);
-  if (artifact === null) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "missingSchema" }));
-  return yield* prepareLogicalStorageRequirementsFromArtifact(db, artifact);
+  const read = (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
+    const artifact = yield* readSchemaVersionArtifactByIdEffect(tx, deploymentId, schemaVersionId);
+    if (artifact === null) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "missingSchema" }));
+    return yield* prepareLogicalStorageRequirementsFromArtifact(db, artifact, tx);
+  });
+  return yield* (reader !== undefined ? read(reader) : runEffectTransaction<Effect.Success<ReturnType<typeof read>>,
+    Effect.Error<ReturnType<typeof read>>, LogicalStorageDefinitionError, FlarexMetadataTransaction>(callback => db.transaction(callback),
+    "Logical storage catalog acquisition rolled back", read, cause => new LogicalStorageDefinitionError({ reason: "resourceFailure", cause })));
 });
 
 /** The artifact reader has already authenticated canonical bytes and digest.
  * Compile the complete topology once in the caller's existing catalog lifetime. */
 export const prepareLogicalStorageRequirementsFromArtifact = Effect.fn("LogicalStorageDefinitions.prepareRequirements")(function* (
   db: FlarexMetadataDatabase, artifact: SchemaVersionArtifact,
+  reader?: FlarexMetadataTransaction,
 ) {
   const artifactBytes = artifact.manifestBytes.slice();
   const artifactDigest = artifact.manifestSha256.slice();
@@ -83,12 +97,17 @@ export const prepareLogicalStorageRequirementsFromArtifact = Effect.fn("LogicalS
     ordered.push({ localName: requirement.localName, descriptor: requirement.descriptor,
       physicalSpec: requirement.physicalSpec, tableId: table.tableId });
   }
-  for (const binding of evidence.tableBindings) {
-    const current = yield* getStableTableIdentityByValidatedIdEffect(db, { deploymentId, tableId: binding.tableId });
-    if (current === null || current.namespace !== binding.table.namespace || current.logicalName !== binding.table.logicalName) {
-      return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "tableBindingChanged" }));
+  const verifyTables = (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
+    for (const binding of evidence.tableBindings) {
+      const current = yield* getStableTableIdentityByValidatedIdEffect(tx, { deploymentId, tableId: binding.tableId });
+      if (current === null || current.namespace !== binding.table.namespace || current.logicalName !== binding.table.logicalName) {
+        return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "tableBindingChanged" }));
+      }
     }
-  }
+  });
+  yield* (reader !== undefined ? verifyTables(reader) : runEffectTransaction<void, Effect.Error<ReturnType<typeof verifyTables>>,
+    LogicalStorageDefinitionError, FlarexMetadataTransaction>(callback => db.transaction(callback),
+    "Logical stable table acquisition rolled back", verifyTables, cause => new LogicalStorageDefinitionError({ reason: "resourceFailure", cause })));
   // Byte/date descendants retain mutable native storage, so the projection
   // lends detached copies while the issuer retains the authenticated originals.
   const requirements = Object.freeze({ artifact: ownedArtifact, evidence: snapshotDecodedProtocolPlainData(evidence),
@@ -114,11 +133,12 @@ export const requirePreparedLogicalStorageRequirements = Effect.fn("LogicalStora
 export const verifyLogicalUniqueDefinitionSet = Effect.fn("LogicalStorageDefinitions.verifyUniqueSet")(function* (
   db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
   members: readonly AppUniqueConstraintSetMemberV1[],
+  reader?: FlarexMetadataTransaction,
 ) {
-  const requirements = yield* readLogicalStorageRequirements(db, deploymentId, schemaVersionId);
+  const requirements = yield* readLogicalStorageRequirements(db, deploymentId, schemaVersionId, reader);
   if (members.length !== requirements.unique.length) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "uniqueSetMismatch" }));
   for (const declaration of requirements.unique) {
-    const identity = yield* getAppUniqueConstraintIdentityByNameEffect(db, { deploymentId, tableId: declaration.tableId, descriptor: declaration.descriptor });
+    const identity = yield* getAppUniqueConstraintIdentityByNameEffect(reader ?? db, { deploymentId, tableId: declaration.tableId, descriptor: declaration.descriptor });
     const member = identity === null ? undefined : members.find(candidate => candidate.logicalUniqueConstraintId === identity.logicalUniqueConstraintId);
     if (member === undefined || member.tableId !== declaration.tableId) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "uniqueSetMismatch" }));
     const canonical = yield* Effect.tryPromise({
@@ -136,7 +156,7 @@ export const ensureLogicalStorageDefinitions = Effect.fn("LogicalStorageDefiniti
   tx: StableTableCatalogTransaction, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
 ) {
   yield* lockSchemaManifestBindingDeploymentEffect(tx, deploymentId);
-  const requirements = yield* readLogicalStorageRequirements(tx, deploymentId, schemaVersionId);
+  const requirements = yield* readLogicalStorageRequirements(tx, deploymentId, schemaVersionId, tx);
   const intrinsic = yield* prepareSchemaCreationTimeIndexDefinitions(tx, deploymentId, schemaVersionId);
   for (const prepared of intrinsic) yield* ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, prepared);
   const ordered = [];
@@ -161,6 +181,50 @@ export const ensureLogicalStorageDefinitions = Effect.fn("LogicalStorageDefiniti
       tableId: declaration.tableId, descriptor: declaration.descriptor, physicalSpec: declaration.physicalSpec });
     unique.push(yield* ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared));
   }
+  yield* publishLogicalReadMetadata(tx, requirements, ordered.map(member => member.definition),
+    unique.map(member => member.definition), search);
   return Object.freeze({ requirements, ordered: Object.freeze(ordered), search: Object.freeze(search),
     unique: Object.freeze(unique) });
+});
+
+/** Installer-only maintenance. Each bounded page is consumed sequentially;
+ * serving requests never create missing projections or admit legacy catalogs. */
+export const backfillLogicalReadProjections = Effect.fn("LogicalStorageDefinitions.backfillReadProjections")(function* (
+  database: FlarexMetadataDatabase,
+) {
+  let after: Readonly<{ deploymentId: string; schemaVersionId: CatalogSchemaVersionId }> | undefined;
+  for (;;) {
+    const page = yield* Effect.suspend(() => {
+      const rollback = new Error("Logical read projection maintenance rolled back");
+      const body = (tx: StableTableCatalogTransaction) => Effect.gen(function* () {
+        const rows = yield* runDrizzleStatementEffect(tx.select({ deploymentId: fxControlSchemaVersions.deploymentId,
+          schemaVersionId: fxControlSchemaVersions.schemaVersionId }).from(fxControlSchemaVersions).where(and(
+          sql`${fxControlSchemaVersions.manifestJson}->>'kind' = 'logicalSchemaAdmission'`,
+          after === undefined ? undefined : or(sql`${fxControlSchemaVersions.deploymentId} > ${after.deploymentId}`,
+            and(eq(fxControlSchemaVersions.deploymentId, after.deploymentId), sql`${fxControlSchemaVersions.schemaVersionId} > ${after.schemaVersionId}`)),
+        )).orderBy(asc(fxControlSchemaVersions.deploymentId), asc(fxControlSchemaVersions.schemaVersionId)).limit(16),
+        cause => new LogicalStorageDefinitionError({ reason: "resourceFailure", cause }));
+        for (const row of rows) yield* ensureLogicalStorageDefinitions(tx, row.deploymentId, row.schemaVersionId);
+        return rows;
+      });
+      let callbackCause: Cause.Cause<Effect.Error<ReturnType<typeof body>>> | undefined;
+      // Maintenance owns the dedicated backend. Protected DML triggers verify
+      // its exact draining PID/backend_start; a serving admission cannot enter
+      // a draining installation. Finish settlement before leaving each page.
+      return Effect.uninterruptible(Effect.tryPromise({ try: () => database.transaction(async tx => {
+        const exit = await Effect.runPromiseExit(body(tx));
+        if (Exit.isFailure(exit)) { callbackCause = exit.cause; throw rollback; }
+        return exit.value;
+      }), catch: cause => cause }).pipe(
+        // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: transaction - owns all foreign settlement rejections and restores captured callback Cause for the exact rollback sentinel, combining distinct settlement failure.
+        Effect.catch(cause => {
+        if (callbackCause !== undefined && cause === rollback) return Effect.failCause(callbackCause);
+        const resource = new LogicalStorageDefinitionError({ reason: "resourceFailure", cause });
+        return callbackCause === undefined ? Effect.fail(resource)
+          : Effect.failCause(Cause.combine(callbackCause, Cause.fail(resource)));
+      })));
+    });
+    if (page.length === 0) return;
+    after = page.at(-1);
+  }
 });

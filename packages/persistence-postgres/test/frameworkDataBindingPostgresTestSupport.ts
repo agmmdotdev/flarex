@@ -12,7 +12,7 @@ import type { PoolClient } from "pg";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { ApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
 import { composeApplicationNativeMutationReadiness } from "./fixtures/applicationNativeMutationTestFixture";
-import { getScopeAuthorityProvisioningReceipt } from "../src/scopeAuthorityProvisioningReceipt";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "../src/scopeAuthorityControlRead";
 import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
@@ -51,14 +51,11 @@ export async function reopenBindingHost(
   runnerOptions: PostgresLocatedReadCommittedRunnerOptionsV1 = {},
   afterAcceptance?: () => Effect.Effect<void>,
 ) {
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
   const authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
     ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> =
     {
-      scopeMetadata: control,
-      provisioningReceipts: {
-        getScopeAuthorityProvisioningReceipt: (scopeId) =>
-          getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
-      },
+      ...controlReader,
       scopeClockTargets: {
         resolve: async (locator) => {
           const located = createLocatedPointMutationSessionActivationTargetV1(
@@ -86,7 +83,7 @@ export async function reopenBindingHost(
     control,
     authority,
     {
-      scopeMetadata: control,
+      scopeMetadata: authority.scopeMetadata,
       provisioningReceipts: authority.provisioningReceipts,
       scopeSessionTargets: authority.scopeClockTargets,
       applicationControlDb: control.drizzle,

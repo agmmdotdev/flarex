@@ -1,6 +1,7 @@
 import { Clock, Deferred, Effect, Fiber, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import {
   makePostgresRelationalSession,

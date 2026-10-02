@@ -1,11 +1,16 @@
-import { sql } from "drizzle-orm";
-import { Data, Effect } from "effect";
+import { sql, type SQL } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
 import { copyBytesToArrayBuffer, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxSystemPreparedMetadataEpoch } from "./schema";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { runningAttemptTailProtectionSql } from "./exactRunningAttemptTail";
+import { acquireInstallationAdmission, lockInstallationForCurrentTransaction,
+  isManagedInstallationTransaction, managedInstallationMetadataIncarnation, managedInstallationSchema,
+  managedInstallationIdentity,
+  isCoLocatedInstallationTransaction,
+  type PreparedInstallation } from "./installationLifecycle";
 
 /** Immutable target projection and complete sidecar membership. Control,
  * coverage, live heads and physical catalogs keep their owned fresh proofs. */
@@ -29,10 +34,15 @@ const coveredTables = [
   "fx_system_application_readiness_relation",
   "fx_system_application_readiness_function",
   "fx_system_application_activation",
+  "fx_system_application_active_head",
   "fx_system_application_write_ownership",
   "fx_system_data_binding_candidate",
   "fx_system_data_binding_physical_lane",
   "fx_system_data_binding_activation",
+  "fx_system_application_read_binding",
+  "fx_control_logical_read_source",
+  "fx_control_logical_read_table",
+  "fx_control_logical_read_access",
 ] as const;
 
 export class PreparedMetadataEpochError extends Data.TaggedError("PreparedMetadataEpochError")<{
@@ -179,11 +189,68 @@ declare const protectedMetadataBrand: unique symbol;
 export interface ProtectedMetadataPreparation {
   readonly [protectedMetadataBrand]: true;
 }
-const preparations = new WeakMap<object, Readonly<{ database: FlarexMetadataDatabase; identity: ProtectedMetadataEpochIdentity }>>();
-const finalGuardScopes = new WeakMap<object, Map<FlarexMetadataDatabase, Readonly<{
+const preparations = new WeakMap<object, Readonly<{ database: FlarexMetadataDatabase; identity: ProtectedMetadataEpochIdentity;
+  installation?: PreparedInstallation }>>();
+const finalGuardScopes = new WeakMap<object, Map<string, Readonly<{
+  database: FlarexMetadataDatabase;
   prepared: ProtectedMetadataPreparation;
   expected: ProtectedMetadataEpochIdentity;
 }>>>();
+const managedSnapshots = new WeakMap<object, Map<PreparedInstallation, ProtectedMetadataEpochIdentity>>();
+const pendingFinalGuardBatches = new WeakMap<object, ReadonlyArray<Readonly<{
+  key: string; database: FlarexMetadataDatabase; prepared: ProtectedMetadataPreparation;
+  expected: ProtectedMetadataEpochIdentity;
+}>>>();
+const epochIdentitySchema = Schema.Struct({ databaseName: Schema.NonEmptyString,
+  namespaceOid: Schema.BigInt.check(Schema.isGreaterThanBigInt(0n)),
+  incarnation: Schema.String.check(Schema.isUUID()),
+  generation: Schema.BigInt.check(Schema.isGreaterThanBigInt(0n)), login: Schema.NonEmptyString });
+const decodeEpochIdentity = Schema.decodeUnknownEffect(epochIdentitySchema);
+const positiveIntegerText = Schema.String.check(Schema.isPattern(/^[1-9][0-9]*$/));
+const decodeManagedEpochRows = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({
+  ...epochIdentitySchema.fields, namespaceOid: positiveIntegerText, generation: positiveIntegerText,
+  actualDatabase: Schema.NonEmptyString, sameLogin: Schema.Boolean,
+})]));
+const decodeFinalGuardRows = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ valid: Schema.Boolean })]));
+
+/** Only a pair-admitted accepting query may record its actual bounded epoch
+ * projection. Reuse ends with this transaction; final NOWAIT remains fresh. */
+export const recordManagedMetadataEpochSnapshot = Effect.fn("PreparedMetadataEpoch.recordManagedSnapshot")(
+  function* (tx: FlarexMetadataTransaction, database: FlarexMetadataDatabase,
+    installation: PreparedInstallation, raw: unknown) {
+    const installed = managedInstallationIdentity(installation, database);
+    const metadataIncarnation = managedInstallationMetadataIncarnation(installation, database);
+    if (installed === undefined || metadataIncarnation === undefined ||
+      !isCoLocatedInstallationTransaction(tx, database, installation))
+      return yield* Effect.fail(issue("unprotectedRuntime"));
+    const identity = yield* decodeEpochIdentity(raw).pipe(
+      Effect.mapError(cause => issue("invalidEpoch", cause)));
+    if (identity.databaseName !== installed.databaseName || identity.namespaceOid.toString() !== installed.namespaceOid ||
+      identity.incarnation !== metadataIncarnation || identity.login !== installed.login)
+      return yield* Effect.fail(issue("changed"));
+    const snapshots = managedSnapshots.get(tx) ?? new Map();
+    const prior = snapshots.get(installation);
+    if (prior !== undefined && (!sameInstallation(identity, prior) || identity.generation !== prior.generation))
+      return yield* Effect.fail(issue("changed"));
+    snapshots.set(installation, Object.freeze(identity));
+    managedSnapshots.set(tx, snapshots);
+  },
+);
+
+/** Transaction entry owns this interlock before any scope/head/clock lock.
+ * A protected preparation authenticates immutable bytes; admission stays fresh. */
+export const acquireProtectedMetadataInstallationAdmission = Effect.fn("PreparedMetadataEpoch.acquireInstallation")(
+  function* (prepared: ProtectedMetadataPreparation, database: FlarexMetadataDatabase,
+    tx: FlarexMetadataTransaction) {
+    const state = preparations.get(prepared);
+    if (state === undefined || state.database !== database)
+      return yield* Effect.fail(issue("unprotectedRuntime"));
+    yield* (state.installation === undefined ? lockInstallationForCurrentTransaction(tx) :
+      acquireInstallationAdmission(state.installation, database, tx)).pipe(
+      Effect.mapError(cause => issue(cause.reason === "busy" ? "busy" :
+        cause.reason === "changed" ? "changed" : "unprotectedRuntime", cause)));
+  },
+);
 
 const readIdentity = Effect.fn("PreparedMetadataEpoch.readIdentity")(function* (
   db: FlarexMetadataDatabase | FlarexMetadataTransaction,
@@ -248,12 +315,14 @@ const readIdentity = Effect.fn("PreparedMetadataEpoch.readIdentity")(function* (
  * migration credential cannot mint this capability and keeps full hash checks. */
 export const prepareProtectedMetadata = Effect.fn("PreparedMetadataEpoch.prepare")(function* (
   database: FlarexMetadataDatabase,
+  installation?: PreparedInstallation,
 ) {
-  const identity = yield* readIdentity(database, false);
+  const identity = installation === undefined ? yield* readIdentity(database, false) :
+    yield* readManagedIdentity(database, database, installation, false);
   // SAFETY: only this issuer records a newly frozen token in the private
   // WeakMap; consumers cannot manufacture a recognized preparation.
   const token = Object.freeze({}) as ProtectedMetadataPreparation;
-  preparations.set(token, Object.freeze({ database, identity }));
+  preparations.set(token, Object.freeze({ database, identity, ...(installation === undefined ? {} : { installation }) }));
   return token;
 });
 
@@ -264,7 +333,11 @@ export const captureProtectedMetadataEpoch = Effect.fn("PreparedMetadataEpoch.ca
 ) {
   const state = preparations.get(prepared);
   if (state === undefined || state.database !== database) return yield* Effect.fail(issue("unprotectedRuntime"));
-  const current = yield* readIdentity(tx, false);
+  if (state.installation !== undefined && !isManagedInstallationTransaction(tx, database, state.installation))
+    return yield* Effect.fail(issue("unprotectedRuntime"));
+  const snapshot = state.installation === undefined ? undefined : managedSnapshots.get(tx)?.get(state.installation);
+  const current = snapshot ?? (state.installation === undefined ? yield* readIdentity(tx, false) :
+    yield* readManagedIdentity(tx, database, state.installation, false));
   if (!sameInstallation(current, state.identity)) return yield* Effect.fail(issue("changed"));
   return current;
 });
@@ -289,17 +362,50 @@ export const guardProtectedMetadataEpoch = Effect.fn("PreparedMetadataEpoch.guar
   const state = preparations.get(prepared);
   if (state === undefined || state.database !== database ||
     !sameInstallation(expected, state.identity)) return yield* Effect.fail(issue("unprotectedRuntime"));
-  const current = yield* readIdentity(tx, true);
+  if (state.installation !== undefined && !isManagedInstallationTransaction(tx, database, state.installation))
+    return yield* Effect.fail(issue("unprotectedRuntime"));
+  const current = state.installation === undefined ? yield* readIdentity(tx, true) :
+    yield* readManagedIdentity(tx, database, state.installation, true);
   if (!sameInstallation(current, expected) || current.generation !== expected.generation)
     return yield* Effect.fail(issue("changed"));
+});
+
+/** Installer-only structural proof. Serving callers use the installed policy. */
+export const attestProtectedMetadataInstallation = Effect.fn("PreparedMetadataEpoch.attestInstallation")(
+  (database: FlarexMetadataDatabase) => readIdentity(database, false),
+);
+
+const readManagedIdentity = Effect.fn("PreparedMetadataEpoch.readManagedIdentity")(function* (
+  db: FlarexMetadataDatabase | FlarexMetadataTransaction, database: FlarexMetadataDatabase,
+  installation: PreparedInstallation, lock: boolean,
+) {
+  const schemaName = managedInstallationSchema(installation, database);
+  const incarnation = managedInstallationMetadataIncarnation(installation, database);
+  if (schemaName === undefined || incarnation === undefined) return yield* Effect.fail(issue("unprotectedRuntime"));
+  const source = lock ? sql`${sql.identifier(schemaName)}.fx_lock_prepared_metadata_epoch()` :
+    sql`${sql.identifier(schemaName)}.fx_system_prepared_metadata_epoch`;
+  const rows = yield* Effect.tryPromise({
+    try: () => db.select({
+      databaseName: sql<string>`epoch.database_name`, namespaceOid: sql<string>`epoch.namespace_oid::text`,
+      incarnation: sql<string>`epoch.incarnation::text`, generation: sql<string>`epoch.generation::text`,
+      login: sql<string>`session_user`, actualDatabase: sql<string>`current_database()`,
+      sameLogin: sql<boolean>`current_user = session_user`,
+    }).from(sql`${source} as epoch`).limit(2),
+    catch: cause => issue(isLockUnavailable(cause) ? "busy" : "resourceFailure", cause),
+  });
+  const [row] = yield* decodeManagedEpochRows(rows).pipe(Effect.mapError(cause => issue("invalidEpoch", cause)));
+  if (row.databaseName !== row.actualDatabase || row.incarnation !== incarnation || !row.sameLogin)
+    return yield* Effect.fail(issue("invalidEpoch"));
+  return Object.freeze({ databaseName: row.databaseName, namespaceOid: BigInt(row.namespaceOid),
+    incarnation: row.incarnation, generation: BigInt(row.generation), login: row.login }) satisfies ProtectedMetadataEpochIdentity;
 });
 
 const sameInstallation = (left: ProtectedMetadataEpochIdentity, right: ProtectedMetadataEpochIdentity) =>
   left.databaseName === right.databaseName && left.namespaceOid === right.namespaceOid &&
   left.incarnation === right.incarnation && left.login === right.login;
 
-/** Only the exact running-attempt transaction kernel opens and flushes this
- * scope. A cached admission attempted from another transaction fails closed. */
+/** The running-attempt kernel and managed standalone accepting owner open and
+ * flush this scope. Admission from another transaction still fails closed. */
 export function openProtectedMetadataFinalGuardScope(tx: FlarexMetadataTransaction): void {
   if (finalGuardScopes.has(tx)) throw new Error("Protected metadata guard scope already opened");
   finalGuardScopes.set(tx, new Map());
@@ -307,6 +413,8 @@ export function openProtectedMetadataFinalGuardScope(tx: FlarexMetadataTransacti
 
 export function closeProtectedMetadataFinalGuardScope(tx: FlarexMetadataTransaction): void {
   finalGuardScopes.delete(tx);
+  managedSnapshots.delete(tx);
+  pendingFinalGuardBatches.delete(tx);
 }
 
 /** Callers outside the exact running-attempt owner use their full live proof. */
@@ -320,23 +428,77 @@ export const registerProtectedMetadataFinalGuard = Effect.fn("PreparedMetadataEp
 ) {
   const scope = finalGuardScopes.get(tx);
   if (scope === undefined) return yield* Effect.fail(issue("unprotectedRuntime"));
-  const prior = scope.get(database);
+  const state = preparations.get(prepared);
+  if (state === undefined || state.database !== database || !sameInstallation(expected, state.identity))
+    return yield* Effect.fail(issue("unprotectedRuntime"));
+  const key = expected.namespaceOid.toString();
+  const prior = scope.get(key);
   if (prior !== undefined && (!sameInstallation(prior.expected, expected) ||
     prior.expected.generation !== expected.generation)) {
     return yield* Effect.fail(issue("changed"));
   }
-  scope.set(database, Object.freeze({ prepared, expected }));
+  scope.set(key, Object.freeze({ database, prepared, expected }));
 });
+
+/** One bounded final submission compares each original registered anchor.
+ * Functions retain FOR SHARE NOWAIT; no current verdict is retained. */
+export const prepareProtectedMetadataFinalGuardBatch = Effect.fn("PreparedMetadataEpoch.prepareFinalBatch")(
+  function* (tx: FlarexMetadataTransaction) {
+    const scope = finalGuardScopes.get(tx);
+    if (scope === undefined || scope.size < 1 || scope.size > 2)
+      return yield* Effect.fail(issue("unprotectedRuntime"));
+    const guards = [...scope.entries()].map(([key, guard]) => ({ key, ...guard }))
+      .toSorted((left, right) => left.expected.namespaceOid < right.expected.namespaceOid ? -1 : 1);
+    const terms: SQL[] = [];
+    for (const [index, guard] of guards.entries()) {
+      const state = preparations.get(guard.prepared);
+      if (state === undefined || state.database !== guard.database || state.installation === undefined ||
+        !sameInstallation(guard.expected, state.identity) ||
+        !isManagedInstallationTransaction(tx, guard.database, state.installation))
+        return yield* Effect.fail(issue("unprotectedRuntime"));
+      const schemaName = managedInstallationSchema(state.installation, guard.database);
+      if (schemaName === undefined) return yield* Effect.fail(issue("unprotectedRuntime"));
+      const name = sql.identifier(`epoch_guard_${index}`);
+      terms.push(sql`${name} as materialized (select
+        epoch.database_name = ${guard.expected.databaseName} and epoch.database_name = current_database()
+        and epoch.namespace_oid = ${guard.expected.namespaceOid.toString()}::bigint
+        and epoch.incarnation = ${guard.expected.incarnation}::uuid
+        and epoch.generation = ${guard.expected.generation.toString()}::bigint
+        and session_user = ${guard.expected.login} and current_user = session_user as valid
+        from ${sql.identifier(schemaName)}.fx_lock_prepared_metadata_epoch() epoch)`);
+    }
+    const checks = guards.map((_, index) => sql`coalesce((select bool_and(valid)
+      from ${sql.identifier(`epoch_guard_${index}`)}),false)`);
+    pendingFinalGuardBatches.set(tx, Object.freeze(guards));
+    return Object.freeze({ source: sql`(with ${sql.join(terms, sql`, `)}
+      select ${sql.join(checks, sql` and `)} as valid)` });
+  },
+);
+
+export const acceptProtectedMetadataFinalGuardBatch = Effect.fn("PreparedMetadataEpoch.acceptFinalBatch")(
+  function* (tx: FlarexMetadataTransaction, rows: unknown) {
+    const pending = pendingFinalGuardBatches.get(tx), scope = finalGuardScopes.get(tx);
+    if (pending === undefined || scope === undefined || pending.length !== scope.size || pending.some(guard => {
+      const current = scope.get(guard.key);
+      return current?.database !== guard.database || current.prepared !== guard.prepared ||
+        !sameInstallation(current.expected, guard.expected) || current.expected.generation !== guard.expected.generation;
+    })) return yield* Effect.fail(issue("unprotectedRuntime"));
+    const [row] = yield* decodeFinalGuardRows(rows)
+      .pipe(Effect.mapError(cause => issue("invalidEpoch", cause)));
+    if (!row.valid) return yield* Effect.fail(issue("changed"));
+    closeProtectedMetadataFinalGuardScope(tx);
+  },
+);
 
 export const flushProtectedMetadataFinalGuards = Effect.fn("PreparedMetadataEpoch.flushFinalGuards")(function* (
   tx: FlarexMetadataTransaction,
 ) {
   const scope = finalGuardScopes.get(tx);
   if (scope === undefined) return yield* Effect.fail(issue("unprotectedRuntime"));
-  for (const [database, guard] of scope) {
-    yield* guardProtectedMetadataEpoch(guard.prepared, database, guard.expected, tx);
+  for (const guard of scope.values()) {
+    yield* guardProtectedMetadataEpoch(guard.prepared, guard.database, guard.expected, tx);
   }
-  finalGuardScopes.delete(tx);
+  closeProtectedMetadataFinalGuardScope(tx);
 });
 
 function isLockUnavailable(value: unknown): boolean {

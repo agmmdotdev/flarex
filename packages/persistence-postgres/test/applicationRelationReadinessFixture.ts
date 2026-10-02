@@ -44,7 +44,7 @@ import { createPhysicalDefinitionLifecyclePort } from "../src/physicalDefinition
 import { createPGliteLocatedPointMutationSessionActivationTargetV1, createPGliteLocatedSplitScopeClockTarget, createPGliteSplitScopeAuthorityProvisioner } from "../src/pglite";
 import { createPointCommitPublisherPortV1 } from "../src/pointCommitTransaction";
 import { isLocatedReadCommittedAttemptTargetV1 } from "../src/transactionSessionAttemptKernel";
-import { getScopeAuthorityProvisioningReceipt } from "../src/scopeAuthorityProvisioningReceipt";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "../src/scopeAuthorityControlRead";
 import type { SplitScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
 import { fxSystemScopeClocks } from "../src/schema";
@@ -335,7 +335,12 @@ export async function relationReadinessFixture(
   ensureRelationBuildTestWebCrypto();
   fixtureOrdinal += 1;
   const resource = options.persistence ?? await createMigratedPGlitePersistence();
-  const fixtureLocator = options.physicalLocator ?? LOCATOR;
+  const fixtureLocator = options.physicalLocator ?? await (async () => {
+    // File-scoped Postgres migrations live in the connection's selected schema.
+    const schemaName = (await resource.query<{ name: unknown }>("select current_schema() as name")).rows[0]?.name;
+    if (typeof schemaName !== "string" || schemaName.length === 0) throw new Error("Missing fixture schema");
+    return { ...LOCATOR, schemaName };
+  })();
   const persistence: ApplicationNativeMutationPersistence = resource;
   const controlResource = options.controlPersistence ?? (options.writePolicy === true && !("pool" in resource) ? await createMigratedPGlitePersistence() : resource);
   const control: ApplicationNativeMutationPersistence = controlResource;
@@ -389,16 +394,13 @@ export async function relationReadinessFixture(
     if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) throw new Error("Expected a read-committed session target");
     return pointTarget;
   } };
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
   const authorityPorts = Object.freeze({
-    scopeMetadata: control,
-    provisioningReceipts: {
-      getScopeAuthorityProvisioningReceipt: (scopeId: typeof authority.scopeId) =>
-        getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
-    },
+    ...controlReader,
     scopeClockTargets: options.bindingAdmission === true ? scopeSessionTargets : { resolve: async () => locatedTarget },
   });
   const pointCommitAuthority = Object.freeze({
-    scopeMetadata: control,
+    scopeMetadata: authorityPorts.scopeMetadata,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeSessionTargets,
     applicationControlDb: control.drizzle,
@@ -579,7 +581,7 @@ export async function relationReadinessFixture(
       authority: authorityPorts,
     }, uniqueConstraints);
   const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: control,
+    scopeMetadata: authorityPorts.scopeMetadata,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeSessionTargets: {
       resolve: async () => {

@@ -15,16 +15,18 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type Atom
 import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
 import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import type { CommerceCommand } from "../../../persistence-postgres/src/commerceTransaction/commands";
+import { makeCommerceReadHost, type CommerceReadHost } from "../../../persistence-postgres/src/commerceTransaction/read/host";
+import { getCommerceCommand, type CommerceCommand } from "../../../persistence-postgres/src/commerceTransaction/commands";
 import { fxSystemCommitEvents } from "../../../persistence-postgres/src/commitEvents/schema";
 import type { ProductRunnerOptions, ProductTestService } from "./runner-contract";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalProductHost } from "./logical-product-fixture";
+import type { LogicalReadMetadataScale } from "../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
 
 type Fixture = {
   currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
-  reader: Effect.Success<ReturnType<typeof makeCommerceHost>>;
+  reader: CommerceReadHost;
   writer: Effect.Success<ReturnType<typeof makeAtomicCommerceHost>>;
   root: ReturnType<typeof defineAtomicCommerceCommand>;
   participant: ReturnType<typeof defineAtomicCommerceParticipant>;
@@ -182,25 +184,37 @@ const service = new Proxy<object>({}, {
 }) as ProductTestService; // Test-only compatibility boundary for the original full-service callback.
 
 export function productIntegrationTestRunner(options: ProductRunnerOptions,
-  fixtureOptions?: Readonly<{ protectedRuntime?: boolean }>) {
+  fixtureOptions?: Readonly<{ protectedRuntime?: boolean; managedRead?: boolean; readMetadataScale?: LogicalReadMetadataScale }>) {
   describe(options.injectedDependencies ? "Product injected event bus" : "Product service", () => {
     let cleanup: Array<() => Promise<void>> = [];
     beforeAll(async () => {
       if (options.moduleName !== "product") throw new Error("Only Product is admitted");
       const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
       if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product driver");
-      if (fixtureOptions?.protectedRuntime === true && driver !== "postgres")
+      if ((fixtureOptions?.protectedRuntime === true || fixtureOptions?.managedRead === true) && driver !== "postgres")
         throw new Error("Protected Product runtime requires PostgreSQL");
       cleanup = [];
       try {
         const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true,
-          ...(fixtureOptions?.protectedRuntime === true ? { protectedRuntime: true } : {}) });
+          ...(fixtureOptions?.readMetadataScale === undefined ? {} : { readMetadataScale: fixtureOptions.readMetadataScale }),
+          ...(fixtureOptions?.protectedRuntime === true ? { protectedRuntime: true } : {}),
+          ...(fixtureOptions?.managedRead === true ? { managedRead: true } : {}) });
         const product = await prepareLogicalProductHost(fixture);
         cleanup.push(() => Effect.runPromise(product.host.close));
         await Effect.runPromise(product.host.initialize([]));
         const commands = Object.values(product.runtime.commands);
-        const reader = await Effect.runPromise(makeCommerceHost({ ...product.hostInput, commands,
-          logicalResources: logicalCommerceBatchResources }));
+        const prepareReader = () => {
+          if (fixtureOptions?.managedRead === true) {
+            const input = product.managedReadHostInput;
+            if (input === undefined) throw new Error("Missing managed Product reader installation");
+            return makeCommerceReadHost({ ...input,
+              commands: commands.filter(command => getCommerceCommand(command)?.mode === "read"),
+              logicalResources: logicalCommerceBatchResources });
+          }
+          return makeCommerceHost({ ...product.hostInput, commands,
+            logicalResources: logicalCommerceBatchResources });
+        };
+        const reader = await Effect.runPromise(prepareReader());
         cleanup.push(() => Effect.runPromise(reader.close));
         const metadata = await Effect.runPromise(captureProductSchema("native-product-logical-suite")
           .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));

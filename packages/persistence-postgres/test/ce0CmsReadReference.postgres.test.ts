@@ -6,11 +6,9 @@ import {
   useFileScopedPostgresPersistence,
 } from "./postgresHelpers";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
-import {
-  defineCmsCommand,
-  makeCmsHost,
-  type CmsHostTestHooks,
-} from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
+import { type CmsHostTestHooks } from "../src/cmsTransaction/testSupport";
 import { cmsError } from "../src/cmsTransaction/model";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import {

@@ -1,6 +1,6 @@
 import { Data, Effect, Result } from "effect";
 import { and, desc, eq, or, sql } from "drizzle-orm";
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -14,6 +14,7 @@ import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { getStableLogicalIndexIdentityByNameEffect } from "./stableLogicalIndexCatalog";
 import { readAppTableWriteFrontiersInTransactionEffect, type AppRowTableFrontierCorruptionError } from "./appRows";
 import { readPreparedIndexCoverageTableFrontiers, type IndexCoverageContext } from "./indexBuildStates";
+import { runEffectTransaction } from "./effectTransaction";
 
 const physicalSearchIndexReady = (physical: Readonly<{
   index: string; table: string; column: string; operator: string;
@@ -69,24 +70,91 @@ const failure = (reason: LogicalSearchBuildError["reason"], cause?: unknown) =>
 export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")(function* (
   controlDb: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
   construction: Readonly<{ kind: "fresh" }> | Readonly<{ kind: "prepared"; requirements: PreparedLogicalStorageRequirements }>,
+  reader?: FlarexMetadataTransaction,
 ) {
-  const requirements = yield* (construction.kind === "fresh" ? readLogicalStorageRequirements(controlDb, deploymentId, schemaVersionId) :
+  const acquire = (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
+  const requirements = yield* (construction.kind === "fresh" ? readLogicalStorageRequirements(controlDb, deploymentId, schemaVersionId, tx) :
     requirePreparedLogicalStorageRequirements(controlDb, deploymentId, schemaVersionId, construction.requirements));
   const definitions = [];
   for (const requirement of requirements.search) {
-    const identity = yield* getStableLogicalIndexIdentityByNameEffect(controlDb, {
+    const identity = yield* getStableLogicalIndexIdentityByNameEffect(tx, {
       deploymentId, tableId: requirement.tableId, descriptor: requirement.descriptor,
     }).pipe(Effect.mapError(cause => failure("definitionMissing", cause)));
     if (identity === null) return yield* Effect.fail(failure("definitionMissing"));
     definitions.push(Object.freeze({ tableId: requirement.tableId, logicalIndexId: identity.logicalIndexId,
       sourceSha256: requirement.sourceSha256, kind: requirement.kind }));
   }
-  const selected = Object.freeze(definitions);
+  return Object.freeze(definitions);
+  });
+  const selected = yield* (reader === undefined ? runEffectTransaction<Effect.Success<ReturnType<typeof acquire>>,
+    Effect.Error<ReturnType<typeof acquire>>, LogicalSearchBuildError, FlarexMetadataTransaction>(callback => controlDb.transaction(callback),
+    "Logical search catalog acquisition rolled back", acquire, cause => failure("statementFailure", cause)) : acquire(reader));
 
+  const inspectDefinitions = makeLogicalSearchReadinessInspector(deploymentId);
+
+  /** Only an empty target table can be marked ready without a backfill. The
+   * scope lock excludes writes until the coverage row is committed. */
+  const advanceEmpty = Effect.fn("LogicalSearchBuild.advanceEmpty")(function* (
+    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
+  ) {
+    if (authority.deploymentId !== deploymentId) return yield* Effect.fail(failure("scopeMismatch"));
+    const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId)
+      .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+    if (clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration ||
+      clock.storageGenerationFence !== authority.storageGenerationFence)
+      return yield* Effect.fail(failure("scopeMismatch"));
+    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.scopeId))
+      .pipe(Effect.mapError(cause => failure("scopeMismatch", cause)));
+    const missing: typeof selected[number][] = [];
+    for (const definition of selected) {
+      const existing = yield* runDrizzleStatementEffect(tx.select().from(fxSystemSearchBuildStates).where(and(
+        eq(fxSystemSearchBuildStates.scopeUuid, scope.scopeUuid),
+        eq(fxSystemSearchBuildStates.tableId, definition.tableId),
+        eq(fxSystemSearchBuildStates.logicalIndexId, definition.logicalIndexId),
+      )).limit(1), cause => failure("statementFailure", cause));
+      const frontier = yield* runDrizzleStatementEffect(tx.select({ commitSeq: fxAppRowCurrent.commitSeq })
+        .from(fxAppRowCurrent).where(and(eq(fxAppRowCurrent.scopeUuid, scope.scopeUuid),
+          eq(fxAppRowCurrent.tableId, definition.tableId)))
+        .orderBy(desc(fxAppRowCurrent.commitSeq)).limit(1), cause => failure("statementFailure", cause));
+      const tableFrontier = frontier[0]?.commitSeq ?? 0n;
+      const state = existing[0];
+      if (state !== undefined) {
+        if (state.sourceSha256 !== definition.sourceSha256 || state.lifecycle !== "ready" ||
+          state.coveredThroughCommitSeq < tableFrontier)
+          return Object.freeze({ status: "not_ready" as const, reason: "uncovered" as const });
+        continue;
+      }
+      if (tableFrontier !== 0n)
+        return Object.freeze({ status: "not_ready" as const, reason: "populated" as const });
+      missing.push(definition);
+    }
+    for (const definition of missing) {
+      yield* runDrizzleStatementEffect(tx.insert(fxSystemSearchBuildStates).values({
+        scopeUuid: scope.scopeUuid, tableId: definition.tableId, logicalIndexId: definition.logicalIndexId,
+        sourceSha256: definition.sourceSha256, lifecycle: "ready", coveredThroughCommitSeq: clock.lastCommitSeq,
+      }), cause => failure("statementFailure", cause));
+    }
+    return Object.freeze({ status: "ready" as const, definitionCount: selected.length });
+  });
+  const inspect = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    coverage?: IndexCoverageContext) => inspectDefinitions(selected, tx, authority, clock, coverage);
+  const selectTables = (tables: readonly CatalogTableId[]) => {
+    const tableSet = new Set(tables);
+    const inspected = Object.freeze(selected.filter(definition => tableSet.has(definition.tableId)));
+    return Object.freeze({ inspectSelected: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
+      clock: ScopeClockRecord, coverage?: IndexCoverageContext) => inspectDefinitions(inspected, tx, authority, clock, coverage) });
+  };
+  return Object.freeze({ advanceEmpty, inspect, selectTables, definitionCount: selected.length });
+});
+
+export type LogicalSearchReadDefinition = Readonly<{ tableId: CatalogTableId; logicalIndexId: CatalogIndexId; sourceSha256: string; kind: "text" | "jsonContainment" }>;
+
+/** The existing physical/build/frontier proof, shared by full and demanded search. */
+export function makeLogicalSearchReadinessInspector(deploymentId: string) {
   /** A serving decision observes every declared search index and the current
    * row frontier. A missing or stale coverage row never grants search reads. */
   const inspectDefinitions = Effect.fn("LogicalSearchBuild.inspectDefinitions")(function* (
-    inspected: typeof selected, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    inspected: readonly LogicalSearchReadDefinition[], tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     coverage?: IndexCoverageContext,
   ) {
     const tableIds = Object.freeze([...new Set(inspected.map(definition => definition.tableId))]);
@@ -177,57 +245,5 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     return Object.freeze({ status: "not_ready" as const, reason: "uncovered" as const });
   });
 
-  /** Only an empty target table can be marked ready without a backfill. The
-   * scope lock excludes writes until the coverage row is committed. */
-  const advanceEmpty = Effect.fn("LogicalSearchBuild.advanceEmpty")(function* (
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-  ) {
-    if (authority.deploymentId !== deploymentId) return yield* Effect.fail(failure("scopeMismatch"));
-    const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId)
-      .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
-    if (clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration ||
-      clock.storageGenerationFence !== authority.storageGenerationFence)
-      return yield* Effect.fail(failure("scopeMismatch"));
-    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.scopeId))
-      .pipe(Effect.mapError(cause => failure("scopeMismatch", cause)));
-    const missing: typeof selected[number][] = [];
-    for (const definition of selected) {
-      const existing = yield* runDrizzleStatementEffect(tx.select().from(fxSystemSearchBuildStates).where(and(
-        eq(fxSystemSearchBuildStates.scopeUuid, scope.scopeUuid),
-        eq(fxSystemSearchBuildStates.tableId, definition.tableId),
-        eq(fxSystemSearchBuildStates.logicalIndexId, definition.logicalIndexId),
-      )).limit(1), cause => failure("statementFailure", cause));
-      const frontier = yield* runDrizzleStatementEffect(tx.select({ commitSeq: fxAppRowCurrent.commitSeq })
-        .from(fxAppRowCurrent).where(and(eq(fxAppRowCurrent.scopeUuid, scope.scopeUuid),
-          eq(fxAppRowCurrent.tableId, definition.tableId)))
-        .orderBy(desc(fxAppRowCurrent.commitSeq)).limit(1), cause => failure("statementFailure", cause));
-      const tableFrontier = frontier[0]?.commitSeq ?? 0n;
-      const state = existing[0];
-      if (state !== undefined) {
-        if (state.sourceSha256 !== definition.sourceSha256 || state.lifecycle !== "ready" ||
-          state.coveredThroughCommitSeq < tableFrontier)
-          return Object.freeze({ status: "not_ready" as const, reason: "uncovered" as const });
-        continue;
-      }
-      if (tableFrontier !== 0n)
-        return Object.freeze({ status: "not_ready" as const, reason: "populated" as const });
-      missing.push(definition);
-    }
-    for (const definition of missing) {
-      yield* runDrizzleStatementEffect(tx.insert(fxSystemSearchBuildStates).values({
-        scopeUuid: scope.scopeUuid, tableId: definition.tableId, logicalIndexId: definition.logicalIndexId,
-        sourceSha256: definition.sourceSha256, lifecycle: "ready", coveredThroughCommitSeq: clock.lastCommitSeq,
-      }), cause => failure("statementFailure", cause));
-    }
-    return Object.freeze({ status: "ready" as const, definitionCount: selected.length });
-  });
-  const inspect = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    coverage?: IndexCoverageContext) => inspectDefinitions(selected, tx, authority, clock, coverage);
-  const selectTables = (tables: readonly CatalogTableId[]) => {
-    const tableSet = new Set(tables);
-    const inspected = Object.freeze(selected.filter(definition => tableSet.has(definition.tableId)));
-    return Object.freeze({ inspectSelected: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-      clock: ScopeClockRecord, coverage?: IndexCoverageContext) => inspectDefinitions(inspected, tx, authority, clock, coverage) });
-  };
-  return Object.freeze({ advanceEmpty, inspect, selectTables, definitionCount: selected.length });
-});
+  return inspectDefinitions;
+}

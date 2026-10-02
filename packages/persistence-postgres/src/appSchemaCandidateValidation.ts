@@ -1,3 +1,5 @@
+import { runEffectTransaction } from "./effectTransaction";
+import { SchemaVersionArtifactPersistenceError } from "./schemaVersionArtifacts";
 import {
   prepareCandidateDocumentValidator,
   type CandidateDocumentValidator,
@@ -100,7 +102,7 @@ import {
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
-import { getScopeMetadata } from "./scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import {
   captureScopePhysicalLocator,
@@ -454,7 +456,7 @@ export const loadAppSchemaCandidateReadinessEffect = Effect.fn(
     input,
     {
       ...state.authority,
-      scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) },
+      ...makeInstallationProtectedScopeAuthorityControlReader(state.controlDb),
     },
   );
   if (located.authority.scopeId !== input.scopeId) {
@@ -759,9 +761,7 @@ export const prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
     }
     const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
       { deploymentId: capture.authority.deploymentId, scopeId: capture.authority.scopeId },
-      { ...state.candidateValidation.authority, scopeMetadata: {
-        getScopeMetadata: scopeId => getScopeMetadata(state.candidateValidation.controlDb, scopeId),
-      } },
+      { ...state.candidateValidation.authority, ...makeInstallationProtectedScopeAuthorityControlReader(state.candidateValidation.controlDb) },
     ).pipe(Effect.mapError(mapCandidateWriteGuardError));
     if (!trustedAuthoritiesEqual(located.authority, capture.authority)) {
       return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
@@ -1067,7 +1067,7 @@ export const prepareAppSchemaCandidateValidationInstallEffect = Effect.fn(
   const snapshot = yield* loadCandidateSnapshot(controlDb, decoded, "install");
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
+    { ...authority, ...makeInstallationProtectedScopeAuthorityControlReader(controlDb) },
   );
   const prepared = Object.freeze({
     [preparedCandidateInstallBrand]: true as const,
@@ -1175,7 +1175,7 @@ export const loadAppSchemaCandidateValidationEffect = Effect.fn(
   const decoded = yield* Effect.fromResult(decodeInputResult(input, "load"));
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
+    { ...authority, ...makeInstallationProtectedScopeAuthorityControlReader(controlDb) },
   );
   return yield* runLocatedTransaction(located.target, "load", (tx) =>
     loadInTransaction(tx, located.authority, decoded));
@@ -1244,7 +1244,7 @@ export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
   }
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: input.deploymentId, scopeId: input.scopeId },
-    { ...state.candidateValidation.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.candidateValidation.controlDb, scopeId) } },
+    { ...state.candidateValidation.authority, ...makeInstallationProtectedScopeAuthorityControlReader(state.candidateValidation.controlDb) },
   ).pipe(Effect.mapError(mapCandidateWriteGuardError));
   if (located.authority.scopeId !== input.scopeId) {
     return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
@@ -1413,7 +1413,7 @@ export const advanceAppSchemaCandidateValidationEffect = Effect.fn(
   const snapshot = yield* loadCandidateSnapshot(controlDb, decoded, "advance");
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
+    { ...authority, ...makeInstallationProtectedScopeAuthorityControlReader(controlDb) },
   );
   return yield* runLocatedTransaction(located.target, "advance", (tx) =>
     advanceInTransaction(
@@ -1441,7 +1441,7 @@ export const settleAppSchemaCandidateValidationEffect = Effect.fn(
   const snapshot = yield* loadCandidateSnapshot(controlDb, decoded, "settle");
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
+    { ...authority, ...makeInstallationProtectedScopeAuthorityControlReader(controlDb) },
   );
   return yield* runLocatedTransaction(located.target, "settle", (tx) =>
     settleInTransaction(
@@ -1503,10 +1503,12 @@ const loadCandidateSnapshot = Effect.fn(
   operation: "install" | "advance" | "settle",
 ): Effect.fn.Return<CandidateSnapshot, ReadSchemaVersionArtifactError |
   AppSchemaCandidateValidationOperationV1Error> {
-  const artifact = yield* readSchemaVersionArtifactByIdEffect(
-    controlDb,
-    input.deploymentId,
-    input.schemaVersionId,
+  const artifact = yield* runEffectTransaction<Effect.Success<ReturnType<typeof readSchemaVersionArtifactByIdEffect>>,
+    ReadSchemaVersionArtifactError, SchemaVersionArtifactPersistenceError, AppRowTransaction>(
+    callback => controlDb.transaction(callback),
+    "Candidate validation snapshot acquisition failed",
+    tx => readSchemaVersionArtifactByIdEffect(tx, input.deploymentId, input.schemaVersionId),
+    cause => new SchemaVersionArtifactPersistenceError({ operation: "readById", cause }),
   );
   if (artifact === null) {
     return yield* Effect.fail(operationError(operation, "corruption"));

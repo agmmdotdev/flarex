@@ -5,7 +5,7 @@ import {
   withTemporaryPostgresPersistencePair,
 } from "./postgresHelpers";
 import { createApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
-import { makePostgresFrameworkMigrationFixtureTarget } from "./frameworkMigrationPostgresFixture";
+import { makeFrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import { makeCatalogControlSessionStarter } from "../src/catalogControlSession";
 import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
@@ -34,12 +34,12 @@ describe.skipIf(postgresUrl === null)(
           runtimeHostIdentity: "flarex.test/binding-host", compatibilityDate: "2026-09-05",
           physicalLocator: { kind: "database_per_scope", databaseKey: "application_native_mutation_target", schemaName },
         }, { control, target });
-        const migrationTarget = await makePostgresFrameworkMigrationFixtureTarget({
-          persistence: target, deploymentId: fixture.deploymentId,
+        const migrationTarget = await runEffect(makeFrameworkSchemaTarget({
+          database: target.drizzle, deploymentId: fixture.deploymentId,
           canonicalPhysicalDatabaseIdentity: "native-binding-fixture",
           physicalLocator: fixture.active.basis.authority.physicalLocator,
-        });
-        await exerciseExactBindingScope(fixture, migrationTarget.schema);
+        }));
+        await exerciseExactBindingScope(fixture, migrationTarget);
       });
     });
     it("proves the same binding lifecycle and physical evidence under an ordinary role", async () => {
@@ -65,15 +65,15 @@ describe.skipIf(postgresUrl === null)(
           },
           { control, target },
         );
-        const migrationTarget = await makePostgresFrameworkMigrationFixtureTarget({
-            persistence: target,
+        const migrationTarget = await runEffect(makeFrameworkSchemaTarget({
+            database: target.drizzle,
             deploymentId: fixture.deploymentId,
             canonicalPhysicalDatabaseIdentity: "native-binding-fixture",
             physicalLocator: fixture.active.basis.authority.physicalLocator,
-          });
+          }));
         const lifecycle = await exerciseBindingLifecycle(
           fixture,
-          migrationTarget.schema,
+          migrationTarget,
           true,
         );
         const repository = Result.getOrThrow(

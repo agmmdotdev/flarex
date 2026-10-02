@@ -48,6 +48,9 @@ import {
   type InvalidAppUniqueKeyContractV1Error,
 } from "./appUniqueKeyContract";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import { decodeCapturedPublishedCurrentAppRowEffect, projectBoundedCurrentAppRowPoint,
+  type AppRowRevisionV1, type CurrentAppRowReadLimits, type ReadAppRowError } from "./appRows";
+import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import {
   fxAppRowRevisions,
   fxAppRowCurrent,
@@ -1474,6 +1477,57 @@ const authenticateSlotRead = Effect.fn("AppUniqueKeys.authenticateSlotRead")(fun
 type SlotReadError = Effect.Error<ReturnType<typeof prepareSlotRead>> |
   Effect.Error<ReturnType<typeof authenticateSlotRead>> | AppUniqueKeyPersistenceError;
 type SlotOwner = Effect.Success<ReturnType<typeof authenticateSlotRead>>;
+
+/** One committed slot and its exact current revision share a statement cut.
+ * Slot authentication precedes consumer checks and lazy canonical body decoding.
+ * Pending publication ownership remains with the separate slot-batch owner. */
+export const withCommittedAppUniqueKeyRowInTransactionEffect = Effect.fn("AppUniqueKeys.withCommittedOwnerRow")(
+  function* <Value, Failure, Requirements>(tx: AppUniqueKeyTransaction,
+    input: Omit<SlotReadInput, "pendingCommitSeq"> & CurrentAppRowReadLimits & { readonly minimumCommitSeq: CommitSeq },
+    slotError: (cause: SlotReadError) => Failure, rowError: (cause: ReadAppRowError) => Failure,
+    use: (capture: Readonly<{ owner: Option.Option<SlotOwner>;
+      readOwner: Effect.Effect<Readonly<{ row: AppRowRevisionV1; readAt: CommitSeq }>, Failure> }>) => Effect.Effect<Value, Failure, Requirements>,
+    observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2],
+  ): Effect.fn.Return<Value, Failure, Requirements> {
+    const prepared = yield* prepareSlotRead(input).pipe(Effect.mapError(slotError));
+    const expected = prepared.expected;
+    const query = expected === null ? undefined : tx.select({ claim: fxAppUniqueKeys,
+      ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
+      publishedThrough: fxSystemScopeClocks.lastCommitSeq, pendingFact: sql<boolean>`false`,
+      ...projectBoundedCurrentAppRowPoint(input, { commitSeq: sql`${fxSystemScopeClocks.lastCommitSeq}`,
+        epoch: sql`${fxSystemScopeClocks.epoch}` }),
+    }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
+      eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
+      eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
+    )).leftJoin(fxAppRowRevisions, and(
+      eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+      eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+    )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).where(and(
+      eq(fxAppUniqueKeys.scopeUuid, prepared.scope.scopeUuid), eq(fxAppUniqueKeys.constraintId, prepared.identity.constraintId),
+      eq(fxAppUniqueKeys.localeKey, expected.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, expected.canonicalKeySha256),
+    )).limit(2);
+    if (query !== undefined) observeDrizzleQuery("currentCapture", query, observer);
+    const rows = query === undefined ? [] : yield* persistenceEffect(query).pipe(Effect.mapError(slotError));
+    if (rows.length > 1) return yield* Effect.fail(slotError(corruption("one unique-key slot has multiple owners")));
+    const stored = rows[0];
+    const owner = stored === undefined ? Option.none<SlotOwner>() :
+      Option.some(yield* authenticateSlotRead(prepared, stored).pipe(Effect.mapError(slotError)));
+    let active = true;
+    let decoded: Readonly<{ row: AppRowRevisionV1; readAt: CommitSeq }> | undefined;
+    const readOwner = Effect.gen(function* () {
+      if (!active || stored === undefined || Option.isNone(owner))
+        return yield* Effect.fail(slotError(corruption("committed owner row capture is closed or absent")));
+      if (decoded !== undefined) return decoded;
+      const captured = yield* decodeCapturedPublishedCurrentAppRowEffect(
+        { scopeId: input.scopeId, tableId: owner.value.tableId, rowId: owner.value.rowId }, input, stored,
+      ).pipe(Effect.mapError(rowError));
+      if (captured.row === null) return yield* Effect.fail(slotError(corruption("slot owner is not a live revision")));
+      decoded = Object.freeze({ row: captured.row, readAt: captured.readAt });
+      return decoded;
+    });
+    return yield* use(Object.freeze({ owner, readOwner })).pipe(
+      Effect.ensuring(Effect.sync(() => { active = false; })));
+  });
 
 /** Exact slots across bounded ordinal demands. Repeated observations retain
  * their consumer order; pending owners require this publication's finished fact. */

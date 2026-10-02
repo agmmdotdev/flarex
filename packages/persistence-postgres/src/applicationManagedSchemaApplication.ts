@@ -5,8 +5,11 @@ import { Data, Effect } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import {
+  AppIndexDefinitionReadPersistenceError,
   locateAppIndexDefinitionByIdEffect,
 } from "./appIndexDefinitions";
+import { runEffectTransaction } from "./effectTransaction";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   advanceAppSchemaCandidateValidationEffect,
   hasAppSchemaCandidateValidationComposition,
@@ -25,7 +28,7 @@ import {
   ensureAppUniqueConstraintSetClosureV1Effect,
 } from "./appUniqueConstraintSetClosureV1";
 import type { FlarexMetadataDatabase } from "./deployments";
-import { getScopeMetadata } from "./scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
@@ -356,22 +359,28 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
       "candidateAuthorityChanged",
     );
   }
-  for (const requirement of requirements.definitions) {
-    const definition = yield* locateAppIndexDefinitionByIdEffect(
-      state.controlDb,
-      located.authority.scopeId,
-      requirement.indexDefinitionId,
-    );
-    if (definition === null) {
-      return yield* applicationFailure(
-        "physicalBuild",
-        "candidateAuthorityChanged",
-      );
-    }
+  type Definition = NonNullable<Effect.Success<ReturnType<typeof locateAppIndexDefinitionByIdEffect>>>;
+  const definitions = yield* runEffectTransaction<ReadonlyArray<Definition>,
+    ApplicationManagedSchemaApplicationError | Effect.Error<ReturnType<typeof locateAppIndexDefinitionByIdEffect>>,
+    AppIndexDefinitionReadPersistenceError, FlarexMetadataTransaction>(
+    callback => state.controlDb.transaction(callback),
+    "Managed schema build definition acquisition rolled back",
+    tx => Effect.gen(function* () {
+      const collected: Definition[] = [];
+      for (const requirement of requirements.definitions) {
+        const definition = yield* locateAppIndexDefinitionByIdEffect(tx, located.authority.scopeId, requirement.indexDefinitionId);
+        if (definition === null) return yield* applicationFailure("physicalBuild", "candidateAuthorityChanged");
+        collected.push(definition);
+      }
+      return collected;
+    }),
+    cause => new AppIndexDefinitionReadPersistenceError("readByDefinitionId", cause),
+  );
+  for (const definition of definitions) {
     const buildInput = Object.freeze({
       deploymentId: state.deploymentId,
       scopeId: located.authority.scopeId,
-      indexDefinitionId: requirement.indexDefinitionId,
+      indexDefinitionId: definition.indexDefinitionId,
       pageSize: MAX_APP_ORDERED_INDEX_BUILD_PAGE_SIZE_V1,
     });
     switch (definition.access.kind) {
@@ -478,7 +487,7 @@ const requireLocatedState = Effect.fn(
   const state = yield* requireState(port);
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: state.deploymentId, scopeId },
-    { ...state.authority, scopeMetadata: { getScopeMetadata: selectedScopeId => getScopeMetadata(state.controlDb, selectedScopeId) } },
+    { ...state.authority, ...makeInstallationProtectedScopeAuthorityControlReader(state.controlDb) },
   );
   if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, state.targetDb)) {
     return yield* applicationFailure(

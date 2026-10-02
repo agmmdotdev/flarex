@@ -1,9 +1,16 @@
 import { Effect, type Scope } from "effect";
-import type { CmsCommand, CmsHost, CmsHostInput, CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
-import { makePayloadComposition } from "./composition";
+import type { CmsCommand, CmsHost, CmsHostInput, SourceCmsHostInput, CmsReadHost, CmsReadHostInput, CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
+import type { LogicalParticipantBorrow } from "@flarex/persistence-postgres/session-journal-store";
+import { makePayloadNative } from "./runtime/native";
+import { bindPayloadDirect } from "./direct/binding";
+import { bindPayloadParticipant } from "./participant/binding";
 import { requireCompiledPayloadCollections, type CompiledPayloadCollections } from "./collections";
 
-export type PayloadHostInput<Failure> = Omit<CmsHostInput<Failure>, "commands" | "expectedContentIdentity">;
+export type PayloadHostInput<Failure> =
+  | Omit<CmsHostInput<Failure>, "commands" | "expectedContentIdentity">
+  | Omit<SourceCmsHostInput<Failure>, "commands" | "expectedContentIdentity">;
+
+export type PayloadReadHostInput<Failure> = Omit<CmsReadHostInput<Failure>, "commands" | "expectedContentIdentity">;
 
 export interface PayloadRuntime {
   readonly commands: Readonly<{
@@ -11,6 +18,8 @@ export interface PayloadRuntime {
     find: CmsCommand; findByID: CmsCommand; count: CmsCommand;
   }>;
   readonly bind: <Failure>(input: PayloadHostInput<Failure>) => Effect.Effect<CmsHost, CmsTransactionError>;
+  readonly bindRead: <Failure>(input: PayloadReadHostInput<Failure>) => Effect.Effect<CmsReadHost, CmsTransactionError>;
+  readonly borrowParticipant: LogicalParticipantBorrow;
 }
 
 /** Each checked configuration has its own scoped Payload instance and borrowed requests. */
@@ -18,4 +27,7 @@ export const makePayloadRuntime: (
   compiled: CompiledPayloadCollections,
 ) => Effect.Effect<PayloadRuntime, CmsTransactionError, Scope.Scope> =
   Effect.fn("PayloadAdapter.makeRuntime")(compiled => requireCompiledPayloadCollections(compiled).pipe(
-    Effect.andThen(makePayloadComposition(compiled)), Effect.map(composition => composition.runtime)));
+    Effect.andThen(makePayloadNative(compiled)), Effect.map(native => ({
+      commands: native.commands, ...bindPayloadDirect(native),
+      borrowParticipant: bindPayloadParticipant(native.commands, compiled.sourceContract.sourceKey),
+    }))));

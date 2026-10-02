@@ -6,6 +6,7 @@ import { Effect, Result } from "effect";
 import { PreparedHostRuntimeError } from "../preparedHostRuntime";
 import { LogicalDocumentMaterializationError } from "../logicalDocuments/materialization";
 import { LogicalRelationalAdmissionError } from "../logicalDocuments/relationalAdmission";
+import { LogicalReadAdmissionError } from "../logicalDocuments/readAdmission";
 import { LogicalParticipantAdmissionError } from "../logicalDocuments/participantAdmission";
 import { DataBindingError } from "../frameworkSchema/binding/errors";
 import { TrustedScopeAuthorityPortError } from "../scopeAuthorityResolution";
@@ -50,6 +51,9 @@ export const commerceRequestHash = makeLivePrivateSha256V1({
 /** Expected errors only. Effect.mapError preserves interruption and defects. */
 export const projectCommerceRequestFailure = (cause: unknown): CommerceTransactionError => {
   if (cause instanceof CommerceTransactionError) return cause;
+  if (cause instanceof LogicalReadAdmissionError) return commerceError(
+    cause.reason === "sourceMismatch" || cause.reason === "bindingMissing" || cause.reason === "notReady"
+      ? "bindingChanged" : cause.reason, cause);
   if (cause instanceof DataBindingError && cause.reason === "logicalSchemaMismatch")
     return commerceError("bindingChanged", cause);
   if (cause instanceof LogicalRelationalAdmissionError && cause.reason === "unsupportedProfile")

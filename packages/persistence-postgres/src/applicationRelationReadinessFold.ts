@@ -8,6 +8,7 @@ import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
 import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
+import { withApplicationWriteOwnershipCatalog } from "./applicationWriteOwnership/Catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { applicationUniqueDeclarationsMatch } from "./applicationWriteOwnership/UniqueDeclarations";
 import {
@@ -411,7 +412,7 @@ export const acceptPreparedApplicationRelationActiveRead = Effect.fn("Applicatio
       state.repository.context.physicalDefinitionLifecycle, current.physicalLifecycle, tx,
     );
     const controlDb = state.repository.context.controlDb;
-    const catalog = hasLocatedReadCommittedTargetDatabaseV1(current.target, controlDb) ? tx : controlDb;
+    const catalog = hasLocatedReadCommittedTargetDatabaseV1(current.target, controlDb) ? tx : undefined;
     const validated = yield* validatePreparedFoldInTransaction(tx, current, state.repository.context, clock, "storedActive", catalog);
     if ("status" in validated) return yield* failure("authorityChanged");
     const replay = yield* loadStoredRelationReadinessReplay(tx, validated.prepared, validated);
@@ -496,6 +497,7 @@ export function makeApplicationRelationReadinessFoldRepository(
           preparation.prepared,
           captured,
           state,
+          preparation.target,
         ),
       );
     },
@@ -524,6 +526,7 @@ export function makeApplicationRelationReadinessFoldRepository(
         preparation.prepared,
         captured,
         state,
+        preparation.target,
       ),
     );
   });
@@ -551,6 +554,7 @@ export function makeApplicationRelationReadinessFoldRepository(
         preparation.prepared,
         captured,
         state,
+        preparation.target,
       ),
     );
   });
@@ -1321,7 +1325,7 @@ const validatePreparedFoldInTransaction = Effect.fn(
   context: ApplicationRelationReadinessFoldContext,
   clock: ScopeClockRecord,
   relationMode: "current" | "storedActive" = "current",
-  catalog: FlarexMetadataDatabase = context.controlDb,
+  catalogReader?: FlarexMetadataTransaction,
 ): Effect.fn.Return<
   ValidatedPreparedFold | Extract<
     ApplicationRelationReadinessFoldResult,
@@ -1361,7 +1365,7 @@ const validatePreparedFoldInTransaction = Effect.fn(
     if (!storedBundlesEqual(prepared.bundle, current)) {
       return yield* failure("storedState");
     }
-    const uniqueDeclarationsMatch = yield* applicationUniqueDeclarationsMatch(catalog, current.manifest, prepared.schema).pipe(
+    const uniqueDeclarationsMatch = yield* applicationUniqueDeclarationsMatch(context.controlDb, current.manifest, prepared.schema, catalogReader).pipe(
       Effect.mapError(cause => failureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", false, cause)));
     if (!uniqueDeclarationsMatch) return notReady(current.revision.revisionId, "uniqueDeclarationMismatch");
     if (relationMode === "current") {
@@ -1463,11 +1467,12 @@ const validatePreparedFoldInTransaction = Effect.fn(
         context.relations,
       );
     }
-    const writeOwnership = yield* prepareApplicationWriteOwnershipInTransaction(tx, catalog, {
+    const writeOwnership = prepared.schema.writePolicy === null ? null : yield* withApplicationWriteOwnershipCatalog(
+      context.controlDb, catalogReader, catalog => prepareApplicationWriteOwnershipInTransaction(tx, catalog, {
       scopeId: clock.scopeId, deploymentId: prepared.bundle.deploymentId,
       schemaVersionId: prepared.schema.schemaVersionId,
       revisionId: prepared.bundle.revision.revisionId, policy: prepared.schema.writePolicy,
-    }, prepared.ownershipBudget).pipe(Effect.mapError(cause => failureValue("storedState", false, cause)));
+    }, prepared.ownershipBudget)).pipe(Effect.mapError(cause => failureValue("storedState", false, cause)));
     return Object.freeze({ prepared, physical, relations, writeOwnership });
 });
 
@@ -1630,6 +1635,7 @@ const settleInTransaction = Effect.fn(
   prepared: PreparedFold,
   context: ApplicationRelationReadinessFoldContext,
   repositoryState: FoldRepositoryState,
+  target: LocatedReadCommittedAttemptTargetV1,
 ): Effect.fn.Return<
   ApplicationRelationReadinessFoldResult,
   | InternalApplicationRelationReadinessFoldError
@@ -1643,6 +1649,8 @@ const settleInTransaction = Effect.fn(
       prepared,
       context,
       clock,
+      "current",
+      hasLocatedReadCommittedTargetDatabaseV1(target, context.controlDb) ? tx : undefined,
     );
     if ("status" in validated) return validated;
     const readyAt = yield* readinessReadyAt(
@@ -1687,6 +1695,7 @@ const readReadyInTransaction = Effect.fn(
   prepared: PreparedFold,
   context: ApplicationRelationReadinessFoldContext,
   repositoryState: FoldRepositoryState,
+  target: LocatedReadCommittedAttemptTargetV1,
 ): Effect.fn.Return<
   ApplicationRelationReadinessFoldResult,
   | InternalApplicationRelationReadinessFoldError
@@ -1700,6 +1709,8 @@ const readReadyInTransaction = Effect.fn(
     prepared,
     context,
     clock,
+    "current",
+    hasLocatedReadCommittedTargetDatabaseV1(target, context.controlDb) ? tx : undefined,
   );
   if ("status" in validated) return validated;
   const replay = yield* loadStoredRelationReadinessReplay(
@@ -1727,6 +1738,7 @@ const readActiveReadyInTransaction = Effect.fn(
   prepared: PreparedFold,
   context: ApplicationRelationReadinessFoldContext,
   repositoryState: FoldRepositoryState,
+  target: LocatedReadCommittedAttemptTargetV1,
 ): Effect.fn.Return<
   ApplicationRelationReadinessFoldResult,
   | InternalApplicationRelationReadinessFoldError
@@ -1741,6 +1753,7 @@ const readActiveReadyInTransaction = Effect.fn(
     context,
     clock,
     "storedActive",
+    hasLocatedReadCommittedTargetDatabaseV1(target, context.controlDb) ? tx : undefined,
   );
   if ("status" in validated) return validated;
   const replay = yield* loadStoredRelationReadinessReplay(
@@ -1917,9 +1930,10 @@ const validateIssuedRelationReadinessForActivation = Effect.fn(
     tx,
     // Issued evidence is reusable; consumption belongs to this validation call.
     Object.freeze({ ...issuedState.prepared, ownershipBudget: new ApplicationWriteOwnershipHistoryBudget() }),
-    catalog === undefined ? repositoryState.context : { ...repositoryState.context, controlDb: catalog.tx },
+    repositoryState.context,
     currentClock,
     expectedKind === "active" ? "storedActive" : "current",
+    catalog?.tx,
   );
   if ("status" in validated) return validated;
   const replay = yield* loadStoredRelationReadinessReplay(
@@ -2784,11 +2798,16 @@ function failureValue(
 /** Recover using the same trusted catalog as readiness, without exporting its database. */
 export const readApplicationRelationOwnershipInTransaction = Effect.fn("ApplicationRelationReadinessFold.readOwnership")(function* (
   repository: ApplicationRelationReadinessFoldRepository, tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget, catalogLease?: ApplicationActivationCatalogLease,
+  target?: LocatedReadCommittedAttemptTargetV1,
+  targetDatabase?: FlarexMetadataDatabase,
 ) {
   const state = repositoryStates.get(repository);
   const catalog = catalogLease === undefined ? undefined : activationCatalogLeases.get(catalogLease);
   if (state === undefined || (catalogLease !== undefined && (catalog === undefined || issuedReadyResults.get(catalog.issued)?.repository !== state))) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
-  return yield* readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, catalog?.tx ?? state.context.controlDb);
+  return yield* withApplicationWriteOwnershipCatalog(state.context.controlDb,
+    catalog?.tx ?? (targetDatabase === state.context.controlDb ||
+      (target !== undefined && hasLocatedReadCommittedTargetDatabaseV1(target, state.context.controlDb)) ? tx : undefined),
+    held => readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, held));
 });
 
 /** Activation-only related requirements; never release the existing catalog lease
@@ -2824,8 +2843,8 @@ export const readApplicationRelationActivationUniqueRequirements = Effect.fn("Ap
       return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
     }
     const db = state.repository.context.controlDb;
-    return yield* readUniqueMaintenanceRequirements(catalog?.tx ?? (hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db),
-      state.deploymentId, schemaVersionId);
+    return yield* readUniqueMaintenanceRequirements(db, state.deploymentId, schemaVersionId,
+      catalog?.tx ?? (hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : undefined));
   },
 );
 

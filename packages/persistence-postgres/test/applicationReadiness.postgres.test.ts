@@ -96,8 +96,7 @@ import {
   preparePhysicalDefinitionLifecycleReadinessEffect,
   preparePhysicalDefinitionLifecycleSubjectEffect,
 } from "../src/physicalDefinitionLifecycle";
-import { getScopeAuthorityProvisioningReceipt } from
-  "../src/scopeAuthorityProvisioningReceipt";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "../src/scopeAuthorityControlRead";
 import { fxSystemApplicationFunctionsV1, fxSystemApplicationPublicationsV1,
   fxSystemApplicationTaskCatalogsV1, fxSystemApplicationTaskDefinitionsV1 } from "../src/schema";
 import { resolveLocatedTrustedScopeAuthorityEffect } from
@@ -880,12 +879,9 @@ async function readinessFixture(
     target.drizzle,
     LOCATOR,
   );
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
   const authorityPorts = Object.freeze({
-    scopeMetadata: control,
-    provisioningReceipts: {
-      getScopeAuthorityProvisioningReceipt: (scopeId: typeof authority.scopeId) =>
-        getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
-    },
+    ...controlReader,
     scopeClockTargets: { resolve: async () => locatedTarget },
   });
   const candidateValidation = createAppSchemaCandidateValidationPort({
@@ -901,7 +897,7 @@ async function readinessFixture(
       authority: authorityPorts,
     }, uniqueConstraints);
   const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: control,
+    scopeMetadata: authorityPorts.scopeMetadata,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeSessionTargets: {
       resolve: async () => {

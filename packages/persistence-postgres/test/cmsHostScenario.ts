@@ -22,7 +22,8 @@ import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperInde
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
 
 import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
-import { defineCmsCommand, makeCmsHost, type CmsCommandContext } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand, type CmsCommandContext } from "../src/cmsTransaction/commands";
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { PointCommitTransactionProofStepV1 } from "../src/pointCommitTransaction";

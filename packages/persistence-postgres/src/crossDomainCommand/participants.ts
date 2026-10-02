@@ -6,7 +6,7 @@ import { makeSourceApplicationInsertParticipant, ApplicationCommandError,
   applicationCommandError } from "../applicationDocumentMaterialization/insertParticipant";
 import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../cmsTransaction/documents";
 import { makeCmsCommandContext } from "../cmsTransaction/context";
-import type { CmsCommandContext } from "../cmsTransaction/host";
+import type { CmsCommandContext } from "../cmsTransaction/commands";
 import { cmsError, CmsTransactionError } from "../cmsTransaction/model";
 import { makeLogicalCommerceParticipant, consumeLogicalCommerceClosure } from "../commerceTransaction/logicalParticipant";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
@@ -24,7 +24,7 @@ import { compositeError, type CompositeFailure } from "./model";
 import type { CurrencyAnnouncementArguments } from "./request";
 import type { CurrencyAnnouncementTestHooks } from "./testSupport";
 import type { getCommerceCommand } from "../commerceTransaction/commands";
-import type { getCmsCommand } from "../cmsTransaction/host";
+import type { getCmsCommand } from "../cmsTransaction/commands";
 
 interface LogicalParticipantInput {
   readonly tx: FlarexMetadataTransaction;

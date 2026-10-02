@@ -13,7 +13,8 @@ import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority"
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import { fxAppRowRevisions, fxSystemScopeClocks } from "../src/schema";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";

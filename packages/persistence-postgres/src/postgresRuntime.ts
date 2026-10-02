@@ -15,6 +15,7 @@ import {
   createFlarexRuntimePersistenceTransaction,
 } from "./runtimePersistenceTransaction";
 import { flarexSchema } from "./schema";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 export interface PostgresQueryClient {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
@@ -117,7 +118,11 @@ export const runPostgresTransactionEffect = Effect.fn(
       ) satisfies FlarexPersistenceTx,
     );
     const callbackExit = yield* Effect.exit(
-      restore(Effect.suspend(() => run(transaction))),
+      restore(lockInstallationForCurrentTransaction(database).pipe(
+        Effect.mapError(cause => new PostgresTransactionBeginError({ cause })),
+        Effect.andThen(() => run(transaction)),
+        Effect.ensuring(Effect.sync(() => closeInstallationAdmission(database))),
+      )),
     );
     if (Exit.isFailure(callbackExit)) {
       yield* rollbackPostgresTransaction(client, options);

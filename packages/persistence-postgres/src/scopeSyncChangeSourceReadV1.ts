@@ -165,19 +165,11 @@ export function createScopeSyncChangeSourceReaderV1(
       ScopeSyncChangeSourceSqlV1Error,
       AppRowTransaction
     >(
-      callback => db.transaction(callback),
+      // Admission takes a row SHARE latch, so SQL READ ONLY is unavailable.
+      // This private reader retains only its read operation and one snapshot.
+      callback => db.transaction(callback, { isolationLevel: "repeatable read" }),
       "Scope sync source read rolled back.",
       tx => Effect.gen(function* () {
-        yield* Effect.tryPromise({
-          try: () => tx.setTransaction({
-            isolationLevel: "repeatable read",
-            accessMode: "read only",
-          }),
-          catch: cause => new ScopeSyncChangeSourceSqlV1Error({
-            operation: "readAfter",
-            cause,
-          }),
-        });
         yield* configureTransactionTimeout(
           tx,
           input.maximumElapsedMilliseconds,

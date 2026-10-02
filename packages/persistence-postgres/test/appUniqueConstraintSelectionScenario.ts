@@ -12,6 +12,7 @@ import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { readOwnershipUniqueClosure } from "../src/applicationWriteOwnership/UniqueEvidence";
+import { withApplicationWriteOwnershipCatalog } from "../src/applicationWriteOwnership/Catalog";
 import { ApplicationWriteOwnershipHistoryBudget } from "../src/applicationWriteOwnership/Policy";
 
 /** Closed catalog authority and deliberate corruption, identical on both drivers. */
@@ -165,8 +166,9 @@ export async function appUniqueConstraintSelectionScenario(
     expect(await runEffectFailure(prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle,
       { deploymentId, schemaVersionId: emptySchema })))
       .toMatchObject({ _tag: "AppUniqueConstraintSetClosureResourceError", reason: "digestUnavailable", cause });
-    expect(await runEffectFailure(readOwnershipUniqueClosure(persistence.drizzle, deploymentId,
-      emptySchema, new ApplicationWriteOwnershipHistoryBudget())))
+    expect(await runEffectFailure(withApplicationWriteOwnershipCatalog(persistence.drizzle, undefined,
+      catalog => readOwnershipUniqueClosure(catalog, deploymentId,
+        emptySchema, new ApplicationWriteOwnershipHistoryBudget()))))
       .toMatchObject({ reason: "resourceFailure", cause: {
         _tag: "AppUniqueConstraintSetClosureResourceError", reason: "digestUnavailable", cause,
       } });

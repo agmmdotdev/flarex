@@ -43,6 +43,7 @@ import {
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { runEffectTransaction } from "./effectTransaction";
+import { AppUniqueConstraintSetClosurePersistenceV1Error } from "./appUniqueConstraintSetClosureV1";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   getAppIndexDefinitionByIdEffect,
@@ -76,7 +77,7 @@ import {
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
-import { getScopeMetadata } from "./scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import {
   captureScopePhysicalLocator,
@@ -480,10 +481,12 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
       field: "requirementSnapshot",
     }));
   }
-  const uniqueClosure = yield* readAppUniqueConstraintSetClosureV1Effect(
-    state.controlDb,
-    snapshot.deploymentId,
-    snapshot.schemaVersionId,
+  const uniqueClosure = yield* runEffectTransaction<Effect.Success<ReturnType<typeof readAppUniqueConstraintSetClosureV1Effect>>,
+    ReadAppUniqueConstraintSetClosureV1Error, AppUniqueConstraintSetClosurePersistenceV1Error, AppRowTransaction>(
+    callback => state.controlDb.transaction(callback),
+    "Physical lifecycle unique closure acquisition failed",
+    tx => readAppUniqueConstraintSetClosureV1Effect(state.controlDb, snapshot.deploymentId, snapshot.schemaVersionId, undefined, tx),
+    cause => new AppUniqueConstraintSetClosurePersistenceV1Error({ operation: "read", cause }),
   );
   if (uniqueClosure === null || uniqueClosure.closure.deploymentId !== snapshot.deploymentId ||
     uniqueClosure.closure.schemaVersionId !== snapshot.schemaVersionId) {
@@ -493,7 +496,7 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
     { deploymentId: snapshot.deploymentId, scopeId },
     {
       ...state.authority,
-      scopeMetadata: { getScopeMetadata: selectedScopeId => getScopeMetadata(state.controlDb, selectedScopeId) },
+      ...makeInstallationProtectedScopeAuthorityControlReader(state.controlDb),
     },
   );
   if (located.authority.scopeId !== scopeId) {
@@ -569,6 +572,8 @@ export const validatePhysicalDefinitionLifecycleReadinessCatalogEffect =
       reader,
       state.deploymentId,
       state.schemaVersionId,
+      undefined,
+      reader === tx ? tx : undefined,
     );
     if (
       closure === null ||
@@ -793,7 +798,7 @@ export const preparePhysicalDefinitionLifecycleSubjectEffect = Effect.fn(
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: subject.deploymentId, scopeId: subject.scopeId },
     { ...state.authority,
-      scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) } },
+      ...makeInstallationProtectedScopeAuthorityControlReader(state.controlDb) },
   );
   const prepared = Object.freeze({ [preparedBrand]: true as const });
   preparedStates.set(prepared, Object.freeze({

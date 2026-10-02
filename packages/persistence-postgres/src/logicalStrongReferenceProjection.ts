@@ -2,6 +2,8 @@ import { Data, Effect } from "effect";
 import { logicalTableKey, type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import { runEffectTransaction } from "./effectTransaction";
 import type { PublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
 import type { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
 import { getStableLogicalIndexIdentityByNameEffect } from "./stableLogicalIndexCatalog";
@@ -17,7 +19,19 @@ export class LogicalStrongReferenceProjectionError extends Data.TaggedError("Log
 /** Prepare target-side publication policy from one authenticated control
  * snapshot. No target transaction or framework runtime supplies these facts. */
 export const prepareLogicalStrongReferenceProjections = Effect.fn("LogicalStrongReferences.prepareProjection")(
-  function* (db: FlarexMetadataDatabase, deploymentId: string, scopeId: ScopeId,
+  function (db: FlarexMetadataDatabase, deploymentId: string, scopeId: ScopeId,
+    requirements: Effect.Success<ReturnType<typeof readLogicalStorageRequirements>>,
+    definitions: PublishedPhysicalRequirementSnapshotV1["definitions"], reader?: FlarexMetadataTransaction) {
+    const acquire = (tx: FlarexMetadataTransaction) => prepareLogicalStrongReferenceProjectionsFromReader(tx, deploymentId, scopeId, requirements, definitions);
+    return reader === undefined ? runEffectTransaction<Effect.Success<ReturnType<typeof acquire>>, Effect.Error<ReturnType<typeof acquire>>,
+      LogicalStrongReferenceProjectionError, FlarexMetadataTransaction>(callback => db.transaction(callback),
+      "Logical strong reference catalog acquisition rolled back", acquire,
+      cause => new LogicalStrongReferenceProjectionError({ reason: "resourceFailure", cause })) : acquire(reader);
+  },
+);
+
+const prepareLogicalStrongReferenceProjectionsFromReader = Effect.fn("LogicalStrongReferences.prepareProjectionFromReader")(
+  function* (db: FlarexMetadataTransaction, deploymentId: string, scopeId: ScopeId,
     requirements: Effect.Success<ReturnType<typeof readLogicalStorageRequirements>>,
     definitions: PublishedPhysicalRequirementSnapshotV1["definitions"]) {
     const { candidate } = requirements.evidence;

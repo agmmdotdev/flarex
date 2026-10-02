@@ -92,7 +92,7 @@ import {
   type LiveAppRowRevisionV1,
 } from "../appRows";
 import type { FlarexMetadataDatabase } from "../deployments";
-import { getScopeMetadata } from "../scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "../scopeAuthorityControlRead";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
 import { hasExactOwnDataKeys } from "../exactOwnDataKeys";
 import {
@@ -402,7 +402,7 @@ const locateBuildContext = Effect.fn(
   const locatedAuthority = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: input.deploymentId, scopeId: input.scopeId },
     { ...state.authority,
-      scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) } },
+      ...makeInstallationProtectedScopeAuthorityControlReader(state.controlDb) },
   );
   const definitions = yield* state.relationCommit.locate({
     deploymentId: input.deploymentId,

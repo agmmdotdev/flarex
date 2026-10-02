@@ -12,7 +12,7 @@ import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction } from "
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import { makeCmsCommandContext } from "./context";
-import type { CmsCommandContext } from "./host";
+import type { CmsCommandContext } from "./commands";
 import { cmsError, cmsLimits, CmsTransactionError,
   type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 

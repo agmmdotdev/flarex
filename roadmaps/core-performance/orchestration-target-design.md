@@ -1,165 +1,56 @@
 # Orchestration Refactor Targets
 
-Status: **design proposal; current work paused for handoff. The owner-selected
-next goal is a complete standalone-read refactor, to be examined and implemented
-in the next session after its accepted-design amendments and focused scope are
-selected. No larger runtime implementation is active.** This document selects a recommended
-direction, not an accepted runtime contract or a numerical performance ceiling.
-The [orchestration reassessment](./orchestration-simplification-preflight.md)
-owns the research gate. The [native retrieval measurement
-preflight](./native-retrieval-measurement-preflight.md) owns the matched native
-control and its evidence limits. Its [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#read-construction-comparison)
-retains delivered [read-admission construction](./read-admission-construction-preflight.md)
-and fresh Application acceptance evidence. The next selected planning goal is
-the complete standalone read below. Runtime work still requires the
-selected semantic contract and focused implementation scope.
+Status: **the accepted standalone-read replacement is implemented for its local
+profiles.** Consumer and installation cutover is complete. The owner accepts the
+recorded latency for now; full performance targets remain unproven and tuning is
+paused. The finite execution proposal below retains its separate owning gates.
 
-The [accepted DB design](../../design-notes/flarex-db-accepted-design.md),
-[mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md),
-[package boundaries](../16-package-boundaries.md), and repository Medusa/Payload
-integration skills govern authority and placement. Slices
-[11](../mixed-mutation-core/11-attempt-admission-preflight.md),
-[16](../mixed-mutation-core/16-batched-read-execution-preflight.md),
-[17](../mixed-mutation-core/17-batched-settlement-preflight.md) and
-[19](../mixed-mutation-core/19-aggregate-entry-preflight.md) remain the implemented
-contracts until an explicit amendment and connected cutover replace them.
+## Standalone Read Refactor
 
-## Deferred Finite Outcome And Scope
+The [first implementation preflight](./standalone-read-redesign-preflight.md)
+owns the complete outcome: managed installation integrity, reusable authenticated
+immutable preparation, query-required serving readiness and compact fresh
+authority through the genuine standalone native read. These are selected
+mechanism replacements, not indefinite proposals awaiting another general
+direction decision.
 
-This finite graph is deferred background, not the owner-selected next goal.
-It has no new runtime activation from the standalone-read direction. The next
-goal and its required amendments are specified in the following section.
+The [accepted design amendment](../../design-notes/flarex-db-accepted-design.md#selected-standalone-read-replacement)
+permits replacing repeated role/catalog/trigger attestation once the managed
+writer/maintenance contract is implemented and proven. It retains fresh access,
+scope/placement/version identity, revocation, required mutable eligibility and
+snapshot behavior. No cached live verdict or pooled-session assumption is valid.
+Do not freeze today's attestation frequency while calling its SQL compact.
 
-Make the private finite Application/Medusa/Payload graph follow actual native
-storage demand, one owned pending/dependency evaluator, and one final atomic
-settlement. Remove repeated source-wide readiness and duplicate contribution
-processing where they do not establish a required invariant. Preserve native
-behavior, scope and placement confinement, exact observations, rollback-only,
-bounded resources, fencing, and correlated durable outcomes.
+The first consumers are real standalone Product scalar and selected collection
+retrievals, plus actual shared standalone consumers affected by the replacement.
+Their matched warm gates are paired added overhead <=2/5 ms median/P95 and total
+request <=5/10 ms. Cold/preparation misses, reconnect, schema growth and concurrent
+writer behavior are also required gates; exact measurement rules live only in
+the preflight. These targets are unmeasured engineering goals.
 
-Start with real Product retrieval because it exposes platform work around a
-small native demand. Deliver the target through the existing Product update plus
-Application graph, Product plus actual Payload Local API graph, and finite mixed
-workflow. This is a connected execution redesign across existing owners, not a
-new framework transaction API or a general query interpreter. Public developer
-APIs, new Product create admission, arbitrary hooks, workflow waits/remote effects,
-advanced schema migration, hosted activation and host lifecycle changes remain
-outside this proposal.
+Use existing metadata, query and host owners. Move full structural verification
+to managed installation changes, not every cold Worker. Extend bounded immutable
+leases without selecting Worker pooling. Preserve native callbacks and actual
+standalone snapshot lifetimes. Replace displaced selected-reader assembly in the
+same slice, retaining full-proof paths only for named other consumers.
 
-## Next Goal: Complete Standalone Read Refactor
+The failed publication candidate remains preserved separately and is not the
+implementation baseline. No new publication experiment precedes this slice.
+The [main roadmap](./README.md) owns order and status;
+[reassessment](./orchestration-simplification-preflight.md) owns the architectural
+challenge record. Their old planning-only labels are superseded for this scope.
 
-The owner selects a larger connected standalone-read goal for the next session:
-**query-specific readiness, reusable authenticated immutable preparation and
-compact fresh authority checks**, carried through the real native read. This is
-the next goal and a required design discussion, not accepted runtime permission
-for the proposals below. Current work stops at the documented handoff. The failed
-publication candidate and its withdrawn construction experiment are separate;
-no further publication matrix is selected.
+## Deferred Finite Proposal
 
-Start with the existing standalone CommerceHost Product scalar and selected
-collection/population demands and genuine native control. Inventory the existing
-logical-storage CMS/Payload read consumers that share the selected owners before
-cutover, and standalone Application query consumers where the same owner change
-actually reaches them; retain their real invocation/Local API, access and
-visibility behavior. Ordinary Application/durable-operation, relation-native and private finite profiles do not
-inherit this change by analogy. Name any affected profile explicitly. There is no
-private retrieval decoder widening, public API, host-lifetime activation, new
-publisher or settlement/recovery redesign in this goal.
+Everything below describes the separate finite/mixed target and its retained
+source analysis. It is **not the selected first slice**, and its unresolved
+terminal durability decisions or historical numerical-ceiling deferrals do not
+block the standalone decision above. Current finite entry/seal/publication and
+recovery semantics remain until their own coherent replacement is selected.
+Historical line numbers and counts below identify the inspected baseline and
+must be rechecked before a finite implementation.
 
-### Required Accepted-Design Amendments
-
-The new standalone-read goal has no accepted-design amendment at handoff. The
-existing uncommitted publication-capture amendments belong to the frozen failed
-candidate and do not grant this new goal authority. The next preflight must
-select the following amendments explicitly against the current accepted text
-before runtime changes:
-
-| Current accepted design owner | Required decision or retained invariant |
-| --- | --- |
-| [Prepared Execution Integrity](../../design-notes/flarex-db-accepted-design.md#prepared-execution-integrity): immediate accepting verification, reuse under explicit host lifetime, standalone full source proof, and the finite-only readiness exception | **Amend the named standalone read profile** from full-source-wide serving readiness to the exact authenticated query-required closure. Specify unused-definition refusal timing and distinguish a read proof from full entry/write/publication admission. Extend immutable preparation beyond the delivered request capture only under a selected bounded lifetime and invalidation contract. |
-| Same section: standalone initial snapshot attestation/direct tail, original protected epoch, exact issuer/database/transaction/scope/clock/fence and fresh heads/activation/build/lifecycle/revocation | **Retain fresh live verdicts.** Narrow mutable physical/lifecycle/coverage proof only to the complete exact query dependency closure. Head/activation, method, scope/incarnation, role/catalog, original epoch/protection and required tail remain fresh. Reusable artifacts cannot cache authority, fence, deadline, grant or storage eligibility. Compact composition does not omit a predicate or substitute a readiness root. Any materially different protection contract requires its own explicit amendment. |
-| [Shared Commit Authority And Execution Profiles](../../design-notes/flarex-db-accepted-design.md#shared-commit-authority-and-execution-profiles) and [Shared Framework Transaction Ownership](../../design-notes/flarex-db-accepted-design.md#shared-framework-transaction-ownership) | Record exactly which standalone Commerce/CMS read profile changes; preserve independent atomic commands, finite full entry/final proof, ordinary full-live callers and one trusted outer settlement owner. The publication composition grants no standalone reuse. |
-| [One Snapshot Token](../../design-notes/flarex-db-accepted-design.md#one-snapshot-token) | Immutable metadata reuse cannot reuse result data, a live database verdict or a dependency token across requests. Each read retains its actual accepting snapshot, missing/tombstone/order/visibility and transitive relation consistency. No MVCC, token or isolation amendment is selected. |
-| [Declarative V2 Metadata, Readiness, And Activation](../../design-notes/flarex-db-accepted-design.md#declarative-v2-metadata-readiness-and-activation) and [Authority And Scope](../../design-notes/flarex-db-accepted-design.md#authority-and-scope) | Distinguish query-serving readiness from global build/activation readiness. Keep revision/head activation and scope-clock/fence, scope/deployment/schema/placement identity and physical eligibility authoritative. No activation-policy, schema or durable-format change is selected. |
-| [Medusa Boundary](../../design-notes/flarex-db-accepted-design.md#medusa-boundary), [Payload Boundary](../../design-notes/flarex-db-accepted-design.md#payload-boundary) and [Required Correctness Gates](../../design-notes/flarex-db-accepted-design.md#required-correctness-gates) | Retain native DTO/error/projection/relation/visibility and applicable access/hook behavior. Add demand-completeness, unrelated-schema scaling and fresh invalidation witnesses to the named read profile; preserve existing concurrency, cancellation, cleanup and settlement gates. No framework API expansion is selected. |
-
-Required owning preflight reconciliation is the existing
-[read-admission construction](./read-admission-construction-preflight.md)
-(request-owned full readiness and preparation lifetime),
-[fresh Application acceptance](./fresh-application-acceptance-preflight.md)
-(full source readiness and original protected precheck/tail),
-[framework execution profiles](../flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md)
-(actual standalone owner/transaction/callback contracts), and
-[native retrieval measurement](./native-retrieval-measurement-preflight.md)
-(matched native demand and result/error comparison). Their delivered contracts
-remain current; this inventory is not an amendment by itself. Existing finite
-slices 13/15/16/19 keep their recorded scope unless separately selected.
-
-### Complete Demand And Preparation Contract To Select
-
-Trusted query/storage owners must derive a bounded complete closure from the
-actual normalized query, not an adapter method name, caller list or source-wide
-digest. Include root projection/filter/sort/access path, selected collection and
-populate work, transitive relation target/reverse membership and visibility,
-search/ordered/unique obligations actually needed by that read, and each required
-physical definition and coverage frontier, including relevant executable method/
-function/cold requirements. Dynamic dependent native reads must
-extend or freshly check their genuine required closure before storage. Unknown
-or incomplete demand refuses; no method-name bypass or silent cheap fallback is
-selected. A full read with many required relations remains fully charged.
-
-Reusable immutable preparation must bind authenticated source identity, revision,
-schema and exact query demand plus required definition/codec topology, scope and
-placement provenance and the actual protected installation/incarnation where
-applicable. The next owner selects the nominal issuer, existing construction
-owner, bounded lifetime/capacity/eviction, invalidation and release contract;
-cross-request reuse is a proposal, not a new retained host lifetime. Source,
-revision/schema/demand, incarnation or protection changes invalidate eligibility.
-Login/role/catalog changes and live head/activation/revocation/fence/deadline/
-method/storage changes must still refuse through fresh checks. Select explicitly
-whether invalidation refuses or permits bounded new preparation before business;
-do not hide retries, epoch rebasing, dual engines or cached verdicts.
-
-The connected cutover must migrate the actual preparation, query-closure,
-Application acceptance, logical readiness and standalone native consumer owners,
-then remove displaced full-source read assembly/repeated immutable preparation
-for those named callers. Keep distinct full-admission/write/recovery callers and
-their obligations. Inventory internal API breaks and retained consumers with
-removal gates; no durable-data deletion or format migration is selected.
-
-### Acceptance Gates For The Complete Goal
-
-- Matched complete standalone scalar and populated/collection native latency
-  comparison, with full DTO and missing/error parity, actual cold/warm lifetimes,
-  cold preparation, preparation cache hit/miss/invalidation, complete
-  setup/authentication/native/full-output/cleanup work and observation/artifact
-  costs. Matched quiet native control and separate detailed attribution retain
-  every original failure. Query-count improvement alone is insufficient.
-- Independent unrelated-schema growth holds the native query, selected records
-  and relevant definitions fixed while varying same-source unrequested tables,
-  indexes and relations, then other sources. Selected query-required work must
-  remain bounded; separately scale actual required rows/relations/definitions and
-  bytes, charging their real demand. Do not hide work in cache warming, cold
-  preparation or setup, claim constant cost for growing query demand, or omit
-  global setup from total-work accounting.
-- Used index/search/unique/relation/physical damage refuses; unrelated definition
-  damage follows the explicitly selected read-only timing amendment. Invalid
-  scope/schema/placement/issuer, stale revision/epoch/head, role/catalog changes,
-  fence/revocation/deadline/method loss and reconnect/invalidation cannot reuse a
-  cached admission. Preserve strict resource limits and exact Cause/cleanup.
-- Short SQL owners, no transaction across untrusted callbacks, correct snapshot
-  isolation and one settlement owner. Connected Application/Commerce/CMS/Payload
-  regressions, PGlite and ordinary-role PostgreSQL races/refusals, affected types,
-  source guards/lint, both reviews and cleanup remain required.
-
-The next focused preflight must predeclare concrete latency and scaling budgets,
-native/profile equivalence, finite matrix and accounting before implementation.
-The next session must examine this complete outcome and those budgets.
-Publication server evidence remains
-invalid/partial and the workflow startup variation has no established cause;
-neither selects a host remedy or closes whole-goal latency acceptance.
-
-## Source findings and their limits
+### Source findings and their limits
 
 | Current finding | Consequence for the proposal |
 | --- | --- |

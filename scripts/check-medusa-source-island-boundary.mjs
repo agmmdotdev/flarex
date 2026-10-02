@@ -59,12 +59,33 @@ const preparedTargetMetadataTest = "packages/flarex-backend/test/preparedTargetM
 const preparedTargetMetadataTestImports = new Map([
   ["../../medusa-adapter/test/support/logical-currency-fixture", "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
 ]);
+// Existing publication measurements reuse the authored observer through these
+// exact test consumers. Adjacent files and runtime code inherit no permission.
+const publicationServerTestImports = new Map([
+  ["packages/flarex-backend/test/publicationPerformance.postgres.test.ts",
+    "../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+  ["packages/flarex-backend/test/support/publicationPerformanceReport.ts",
+    "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+  ["packages/flarex-backend/test/support/publicationPerformanceServer.ts",
+    "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+]);
+const publicationServerOwner = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts";
 const nativeRetrievalScenario = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts";
 const nativeRetrievalObservation = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts";
 const nativeRetrievalConfig = "packages/medusa-adapter/vitest.native-retrieval.config.ts";
+const nativeRetrievalRunner = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/native-runner.ts";
+const nativeRunnerSource = "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts";
+const nativeRunnerImports = new Set([
+  "../../../../../third_party/medusa/upstream/packages/core/framework/dist/logger",
+  "../../../../../third_party/medusa/upstream/packages/core/framework/dist/modules-sdk",
+  "../../../../../third_party/medusa/upstream/packages/core/framework/dist/utils",
+  "../../../../../third_party/medusa/upstream/node_modules/ulid",
+  ...["database", "init-modules", "mock-event-bus-service", "module-test-persistence-adapter", "module-test-runner",
+    "test-worker-identity"].map(name =>
+    `../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/${name}`),
+]);
 const nativeRetrievalImports = new Set([
   "../../../../../third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service",
-  "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner",
   "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter",
 ]);
 // Exact forensic inputs and the pinned bootstrap path are data allowances, not
@@ -79,6 +100,7 @@ const nativeRetrievalScenarioPaths = new Set([
   "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
   "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
   "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+  nativeRunnerSource,
   "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
   "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
   "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
@@ -99,12 +121,19 @@ function admitsNativeRetrievalOwner(promotion) {
       promotion.files.some(file => file.target === target && file.classification === "authored"));
 }
 
+/** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion */
+function admitsNativeRetrievalRunner(promotion) {
+  return admitsNativeRetrievalOwner(promotion) && promotion?.files.some(file =>
+    file.target === nativeRetrievalRunner && file.classification === "testHarnessPort" && file.source === nativeRunnerSource) === true;
+}
+
 /** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
  * @param {string} relativePath @param {ts.StringLiteralLike} node */
 function admitsNativeRetrievalPath(promotion, relativePath, node) {
   if (!admitsNativeRetrievalOwner(promotion)) return false;
   const parent = node.parent;
   if (relativePath === nativeRetrievalScenario && nativeRetrievalScenarioPaths.has(node.text)) {
+    if (node.text === nativeRunnerSource && !admitsNativeRetrievalRunner(promotion)) return false;
     if (ts.isArrayLiteralExpression(parent) && ts.isVariableDeclaration(parent.parent)
       && ts.isIdentifier(parent.parent.name) && parent.parent.name.text === "paths") {
       /** @type {ts.Node | undefined} */
@@ -204,7 +233,8 @@ function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
     : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports
       : relativePath === mixedProductWorkerdTest ? mixedProductWorkerdTestImports
         : relativePath === preparedTargetMetadataTest ? preparedTargetMetadataTestImports : undefined;
-  const target = permitted?.get(specifier);
+  const target = permitted?.get(specifier) ??
+    (publicationServerTestImports.get(relativePath) === specifier ? publicationServerOwner : undefined);
   return target !== undefined && promotion?.files.some(file =>
     file.target === target && file.classification === "authored") === true;
 }
@@ -380,6 +410,8 @@ export function analyzeMedusaSourceIslandBoundary(input) {
     if (admitsSelectedMixedTestImport(promotion, relativePath, specifier)) return undefined;
     if (relativePath === nativeRetrievalScenario && admitsNativeRetrievalOwner(promotion)
       && nativeRetrievalImports.has(specifier)) return undefined;
+    if (relativePath === nativeRetrievalRunner && admitsNativeRetrievalRunner(promotion)
+      && nativeRunnerImports.has(specifier)) return undefined;
     if ((specifier.toLowerCase().startsWith("file:") || isPortableAbsolutePath(specifier)) && normalized(specifier).toLowerCase().includes("/packages/medusa-")) {
       return `must not bypass Currency exports through "${specifier}"`;
     }

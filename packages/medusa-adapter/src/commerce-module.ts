@@ -39,16 +39,20 @@ function repositoryConstructor(repository: DAL.RepositoryService): new () => DAL
   };
 }
 
-/** Also used by explicit module-owned aliases with a deliberately restricted
- * repository. Specialized services retain their own constructor and contract. */
-export function commerceInternalService<Model extends ModulePersistenceModel>(
-  model: Model, repository: DAL.RepositoryService, persistence: ModulePersistenceAdapter,
-) {
-  return new (MedusaInternalService(model))<object, Model>({
-    [lowerCaseFirst(model.name) + "Repository"]: repository,
+/** Prepare the immutable native class with its module definition. Each binder
+ * call creates a fresh service for the supplied request-owned repository and
+ * persistence adapter, including explicit restricted aliases. */
+export function prepareCommerceInternalService<Model extends ModulePersistenceModel>(model: Model) {
+  const Service = MedusaInternalService(model);
+  const repositoryKey = lowerCaseFirst(model.name) + "Repository";
+  return (repository: DAL.RepositoryService, persistence: ModulePersistenceAdapter) => new Service<object, Model>({
+    [repositoryKey]: repository,
     [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
   });
 }
+
+export type CommerceInternalService<Model extends ModulePersistenceModel> =
+  ReturnType<ReturnType<typeof prepareCommerceInternalService<Model>>>;
 
 /** Synchronous Medusa preparation/constructor boundary. Its refusals latch on
  * the existing Promise owner even if framework code catches the exception.
@@ -87,7 +91,5 @@ export function prepareCommerceModule(owner: CommercePromiseOwner, registration:
   return {
     persistence,
     baseRepository: new (persistence.createBaseRepository())(),
-    internalService: <Model extends ModulePersistenceModel>(model: Model) =>
-      commerceInternalService(model, new (persistence.createRepository(model))(), persistence),
   };
 }

@@ -1,17 +1,31 @@
 import { Cause, Effect, Exit } from "effect";
+import { acquireInstallationAdmission, closeInstallationAdmission, lockInstallationForCurrentTransaction,
+  type PreparedInstallation } from "./installationLifecycle";
+import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 
 /** Shared lifecycle bridge for Effect work owned by a Promise transaction. */
-export function runEffectTransaction<Value, Failure, SettlementFailure, Tx>(
+export function runEffectTransaction<Value, Failure, SettlementFailure, Tx extends FlarexMetadataTransaction>(
   start: (callback: (tx: Tx) => Promise<Value>) => Promise<Value>,
   rollbackMessage: string,
   body: (tx: Tx) => Effect.Effect<Value, Failure>,
   settlementFailure: (cause: unknown) => SettlementFailure,
+  installation?: Readonly<{ token: PreparedInstallation; database: FlarexMetadataDatabase }>,
 ): Effect.Effect<Value, Failure | SettlementFailure> {
   return Effect.suspend(() => {
-    let callbackCause: Cause.Cause<Failure> | undefined;
+    let callbackCause: Cause.Cause<Failure | SettlementFailure> | undefined;
     const rollback = new Error(rollbackMessage);
     const transaction = start(async tx => {
-      const exit = await Effect.runPromiseExit(body(tx));
+      // Admission precedes the body, including its scope/head locks. The
+      // installation owner uses its separate private maintenance connection.
+      const exit = await Effect.runPromiseExit(
+        (installation === undefined ? lockInstallationForCurrentTransaction(tx)
+          : acquireInstallationAdmission(installation.token, installation.database, tx)).pipe(
+          Effect.mapError(settlementFailure),
+          Effect.andThen(() => body(tx)),
+          Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))),
+        ),
+      );
       if (Exit.isFailure(exit)) {
         callbackCause = exit.cause;
         throw rollback;

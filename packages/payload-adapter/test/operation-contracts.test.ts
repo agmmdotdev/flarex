@@ -1,12 +1,13 @@
 import { expect, expectTypeOf, it } from "vitest";
-import { Result } from "effect";
-import { cmsLimits } from "@flarex/persistence-postgres/internal/cms-adapter";
+import { Result, type Effect } from "effect";
+import { cmsLimits, type CmsReadHost } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { decodePayloadPaging, makePayloadQuery } from "../src/query";
 import { payloadResults, type PayloadCountResult, type PayloadDocument, type PayloadPageResult } from "../src/results";
 import type { PayloadCreateInput, PayloadUpdateInput, PayloadFindByIdInput } from "../src/inputs";
 import { payloadIsManagedField, payloadRelatedPostsField, type PayloadContentProfile } from "../src/contract";
-import { payloadPostsCollection, payloadContentFields, payloadScalarConfiguration } from "../src/conformanceProfile";
+import { payloadPostsCollection, payloadContentFields, payloadScalarConfiguration } from "../src/testing/profiles";
 import { makePayloadCollectionRuntime } from "../src/collectionRuntime";
+import type { PayloadRuntime } from "../src/runtime";
 
 const collection = makePayloadCollectionRuntime(payloadScalarConfiguration.tables[0]!);
 const { decode: decodePayloadWhere, adapter: payloadAdapterWhere } = makePayloadQuery(collection);
@@ -77,4 +78,13 @@ it("preserves operation argument and result types at the JSON boundary", () => {
   expectTypeOf<PayloadDocument["id"]>().toEqualTypeOf<string>();
   expectTypeOf<PayloadPageResult["docs"][number]>().toEqualTypeOf<PayloadDocument>();
   expectTypeOf<PayloadCountResult["totalDocs"]>().toEqualTypeOf<number>();
+});
+
+it("binds direct readers without write capabilities", () => {
+  type ReadHost = Effect.Success<ReturnType<PayloadRuntime["bindRead"]>>;
+  expectTypeOf<ReadHost>().toEqualTypeOf<CmsReadHost>();
+  // @ts-expect-error Direct readers cannot execute write commands.
+  expectTypeOf<ReadHost["run"]>();
+  // @ts-expect-error Direct readers cannot create write request keys.
+  expectTypeOf<ReadHost["newRequestKey"]>();
 });

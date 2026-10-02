@@ -29,6 +29,7 @@ import {
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { isLogicalSchemaAdmissionManifest } from "./logicalSchemaAdmissionEvidence";
 import { verifyLogicalUniqueDefinitionSet } from "./logicalStorageDefinitions";
 import { runEffectTransaction } from "./effectTransaction";
@@ -189,7 +190,18 @@ export type ReadAppUniqueConstraintSetClosureV1Error =
   | AppUniqueConstraintSetClosurePersistenceV1Error
   | ReadAppUniqueConstraintDefinitionV1Error;
 
-export const readAppUniqueConstraintSetClosureV1Effect = Effect.fn(
+/** One bounded control snapshot; transaction owners may borrow their admitted reader. */
+export const readAppUniqueConstraintSetClosureV1Effect = Effect.fn("AppUniqueConstraintSetClosure.readControl")(
+  function* (db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
+    maximumDefinitions = MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1, reader?: FlarexMetadataTransaction) {
+    return yield* (reader !== undefined ? readAppUniqueConstraintSetClosureInTransaction(reader, deploymentId, schemaVersionId, maximumDefinitions) :
+      runEffectTransaction<LocatedAppUniqueConstraintSetClosureV1 | null, ReadAppUniqueConstraintSetClosureV1Error,
+        AppUniqueConstraintSetClosurePersistenceV1Error, FlarexMetadataTransaction>(callback => db.transaction(callback), "Unique closure control acquisition rolled back",
+        tx => readAppUniqueConstraintSetClosureInTransaction(tx, deploymentId, schemaVersionId, maximumDefinitions),
+        cause => new AppUniqueConstraintSetClosurePersistenceV1Error({ operation: "readClosureTransaction", cause })));
+  });
+
+const readAppUniqueConstraintSetClosureInTransaction = Effect.fn(
   "AppUniqueConstraintSetClosure.read",
 )(function* (
   db: FlarexMetadataDatabase,
@@ -230,18 +242,28 @@ export const readAppUniqueConstraintSetClosureV1Effect = Effect.fn(
   return Object.freeze({ closure, members: canonical.members });
 });
 
-export const prepareAppUniqueConstraintSetClosureV1Effect = Effect.fn(
+export const prepareAppUniqueConstraintSetClosureV1Effect = Effect.fn("AppUniqueConstraintSetClosure.prepareControl")(
+  function* (db: FlarexMetadataDatabase, input: PrepareAppUniqueConstraintSetClosureV1Input, reader?: FlarexMetadataTransaction) {
+    return yield* (reader !== undefined ? prepareAppUniqueConstraintSetClosureFromReader(db, input, reader) :
+      runEffectTransaction<PreparedAppUniqueConstraintSetClosureV1, PrepareAppUniqueConstraintSetClosureV1Error,
+        AppUniqueConstraintSetClosurePersistenceV1Error, FlarexMetadataTransaction>(callback => db.transaction(callback), "Unique closure preparation rolled back",
+        tx => prepareAppUniqueConstraintSetClosureFromReader(db, input, tx),
+        cause => new AppUniqueConstraintSetClosurePersistenceV1Error({ operation: "prepareControlTransaction", cause })));
+  });
+
+const prepareAppUniqueConstraintSetClosureFromReader = Effect.fn(
   "AppUniqueConstraintSetClosure.prepare",
 )(function* (
   db: FlarexMetadataDatabase,
   input: PrepareAppUniqueConstraintSetClosureV1Input,
+  reader: FlarexMetadataTransaction,
 ): Effect.fn.Return<
   PreparedAppUniqueConstraintSetClosureV1,
   PrepareAppUniqueConstraintSetClosureV1Error
 > {
   const decoded = yield* Effect.fromResult(decodeInputResult(input));
   const artifact = yield* readSchemaVersionArtifactByIdEffect(
-    db,
+    reader,
     decoded.deploymentId,
     decoded.schemaVersionId,
   );
@@ -252,13 +274,13 @@ export const prepareAppUniqueConstraintSetClosureV1Effect = Effect.fn(
     }));
   }
   const members = yield* listAppUniqueConstraintDefinitionSetMembersV1Effect(
-    db,
+    reader,
     decoded.deploymentId,
     decoded.schemaVersionId,
     MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   );
   if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
-    yield* verifyLogicalUniqueDefinitionSet(db, decoded.deploymentId, decoded.schemaVersionId, members).pipe(
+    yield* verifyLogicalUniqueDefinitionSet(db, decoded.deploymentId, decoded.schemaVersionId, members, reader).pipe(
       Effect.mapError(cause => cause._tag === "SchemaVersionArtifactPersistenceError" ||
         cause._tag === "StableTableIdentityPersistenceError" || cause._tag === "AppUniqueConstraintCatalogPersistenceError" ||
         ((cause._tag === "LogicalSchemaAdmissionEvidenceError" || cause._tag === "LogicalStorageDefinitionError") && cause.reason === "resourceFailure")

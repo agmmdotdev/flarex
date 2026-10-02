@@ -6,7 +6,7 @@ import { fxAppRowCurrent } from "../schema";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ApplicationSchemaBindingV3 } from "flarex-protocol/internal/application-schema-binding";
 import type { AppRowTransaction } from "../appRows";
-import type { FlarexMetadataDatabase } from "../deployments";
+import type { ApplicationWriteOwnershipCatalog } from "./Catalog";
 import { fxSystemApplicationReadiness } from "../applicationRelationSchema";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { canonicalizeApplicationWriteOwnership } from "./Codec";
@@ -18,13 +18,13 @@ import { prepareApplicationOwnershipSuccessor } from "./Successor";
 
 /** The existing readiness/activation scope-clock lock serializes this proof with publication. */
 export const prepareApplicationWriteOwnershipInTransaction = Effect.fn("ApplicationWriteOwnership.prepareInTransaction")(
-  function* (tx: AppRowTransaction, controlDb: FlarexMetadataDatabase, input: Readonly<{
+  function* (tx: AppRowTransaction, catalog: ApplicationWriteOwnershipCatalog, input: Readonly<{
     scopeId: ScopeId; deploymentId: string; revisionId: string;
     schemaVersionId: CatalogSchemaVersionId;
     policy: Pick<ApplicationSchemaBindingV3, "writePolicies" | "writePolicySetSha256"> | null;
   }>, budget: ApplicationWriteOwnershipHistoryBudget): Effect.fn.Return<CanonicalApplicationWriteOwnership | null, ApplicationWriteOwnershipError> {
     if (input.policy === null) return null;
-    const snapshot = yield* readApplicationWriteOwnershipInTransaction(tx, input.scopeId, budget, controlDb);
+    const snapshot = yield* readApplicationWriteOwnershipInTransaction(tx, input.scopeId, budget, catalog);
     const retainedActivation = snapshot.history.find(owned => owned.frame.revisionId === input.revisionId);
     const priorReadiness = retainedActivation ?? (yield* readRetainedOwnershipPlan(tx, input.scopeId, input.revisionId, budget));
     if (priorReadiness !== null) {
@@ -50,11 +50,11 @@ export const prepareApplicationWriteOwnershipInTransaction = Effect.fn("Applicat
       if (written.length !== 0) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "previouslyWritable" }));
     }
     const previouslyWritable = hasNewManaged
-      ? yield* readPreviouslyApplicationWritableTables(tx, controlDb, input, budget)
+      ? yield* readPreviouslyApplicationWritableTables(tx, catalog, input, budget)
       : new Set<never>();
     const activationSequence = (snapshot.active?.head.activationSequence ?? 0n) + 1n;
     const successor = snapshot.ownership === null ? undefined : yield* prepareApplicationOwnershipSuccessor(tx, input.scopeId,
-      snapshot.ownership.frame.revisionId, input.revisionId, previous, input.policy.writePolicies, input.policy.writePolicySetSha256, budget, controlDb);
+      snapshot.ownership.frame.revisionId, input.revisionId, previous, input.policy.writePolicies, input.policy.writePolicySetSha256, budget, catalog);
     const claims = yield* Effect.fromResult(retainApplicationManagedTableClaims({ policies: input.policy.writePolicies,
       previous, previouslyWritable, activationSequence, revisionId: input.revisionId, ...(successor === undefined ? {} : { successor }) }));
     const planned = yield* canonicalizeApplicationWriteOwnership({

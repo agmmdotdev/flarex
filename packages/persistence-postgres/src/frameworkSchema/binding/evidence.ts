@@ -96,7 +96,7 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     payloadProfiles: PayloadContentProfiles | undefined,
     commerceProfiles: CommerceBindingProfiles = [],
   ) {
-    yield* verifyPayloadContentBinding(tx, frame, selection);
+    yield* verifyPayloadContentBinding(tx, frame, selection, database);
     const verified: VerifiedBindingLane[] = [];
     for (const { slot, binding } of physicalBindings(frame)) {
       const availability = yield* lockBindingInstallation(

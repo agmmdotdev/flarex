@@ -1,4 +1,4 @@
-import type { FlarexMetadataDatabase } from "../deployments";
+import type { ApplicationWriteOwnershipCatalog } from "./Catalog";
 import { readOwnershipUniqueClosure } from "./UniqueEvidence";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -48,7 +48,7 @@ export function isOptionalPostRelationSuccessor(prior: ApplicationManifestV3, ne
 /** No Boolean, digest pair, or caller-owned manifest can issue this capability. */
 export const prepareApplicationOwnershipSuccessor = Effect.fn("ApplicationWriteOwnership.prepareSuccessor")(function* (
   tx: AppRowTransaction, scopeId: ScopeId, priorRevision: string, nextRevision: string,
-  previous: readonly ApplicationManagedTableClaim[], policies: readonly Policy[], expectedPolicySetSha256: string, budget: ApplicationWriteOwnershipHistoryBudget, controlDb?: FlarexMetadataDatabase,
+  previous: readonly ApplicationManagedTableClaim[], policies: readonly Policy[], expectedPolicySetSha256: string, budget: ApplicationWriteOwnershipHistoryBudget, catalog?: ApplicationWriteOwnershipCatalog,
   commitments?: Readonly<{ prior: JsonObject; next: JsonObject }>,
 ): Effect.fn.Return<ApplicationOwnershipSuccessor | undefined, ApplicationWriteOwnershipError> {
   const changed = previous.filter(claim => policies.find(policy => policy.tableId === claim.policy.tableId)?.writePolicySha256 !== claim.policy.writePolicySha256);
@@ -63,9 +63,9 @@ export const prepareApplicationOwnershipSuccessor = Effect.fn("ApplicationWriteO
     new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })));
   if (verifiedAfter.policySetSha256 !== expectedPolicySetSha256) return yield* Effect.fail(refused());
   for (const policy of policies) if (!verifiedAfter.tables.some(table => table.declaration.logicalTableName === policy.logicalName && table.writePolicySha256 === policy.writePolicySha256)) return yield* Effect.fail(refused());
-  if (controlDb === undefined || before.deploymentId !== after.deploymentId) return yield* Effect.fail(refused());
-  const priorUnique = yield* readOwnershipUniqueClosure(controlDb, before.deploymentId, before.schemaVersionId, budget);
-  const nextUnique = yield* readOwnershipUniqueClosure(controlDb, after.deploymentId, after.schemaVersionId, budget);
+  if (catalog === undefined || before.deploymentId !== after.deploymentId) return yield* Effect.fail(refused());
+  const priorUnique = yield* readOwnershipUniqueClosure(catalog, before.deploymentId, before.schemaVersionId, budget);
+  const nextUnique = yield* readOwnershipUniqueClosure(catalog, after.deploymentId, after.schemaVersionId, budget);
   if (priorUnique.closure.definitionCount !== nextUnique.closure.definitionCount ||
     priorUnique.closure.definitionSetSha256Hex !== nextUnique.closure.definitionSetSha256Hex) return yield* Effect.fail(refused());
   const pairs = new Map<number, Readonly<{ prior: string; next: string }>>();

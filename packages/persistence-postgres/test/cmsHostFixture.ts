@@ -6,7 +6,7 @@ import { makeDataBindingHost, dataBindingActivationRequest } from "../src/framew
 
 import { relationReadinessFixture, prepareReadinessEvidence } from "./applicationRelationReadinessFixture";
 import { runEffect } from "./effectTestRuntime";
-import { makePayloadConformanceProfiles } from "../../payload-adapter/src/conformanceProfile";
+import { makePayloadConformanceProfiles } from "../../payload-adapter/src/testing/profiles";
 import { makePayloadContentProfiles } from "../../payload-adapter/src/profile";
 import type { CompiledPayloadCollections } from "../../payload-adapter/src/collections";
 import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";

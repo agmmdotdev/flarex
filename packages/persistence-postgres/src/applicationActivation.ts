@@ -8,12 +8,21 @@ import {
 import { canonicalizeApplicationManifest } from
   "@flarex/analysis/application-analysis";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq, getTableColumns, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Encoding, Exit, Result } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import { AppRowReadPersistenceError, type AppRowTransaction } from "./appRows";
 import { readApplicationReadinessTargetProtection } from "./applicationReadiness";
+import { readApplicationReadinessPreparationProtection } from "./applicationReadiness";
+import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, guardProtectedMetadataEpoch,
+  acquireProtectedMetadataInstallationAdmission,
+  hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+  type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
+import { canonicalStandaloneApplicationBinding, decodeStandaloneApplicationBinding,
+  type StandaloneApplicationBinding } from "./applicationStandaloneBinding";
+import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
+import { readStandaloneReadSnapshot, type StandaloneReadSnapshot } from "./standaloneReadSnapshot";
 import { prepareApplicationActiveHeadStructure, type PreparedApplicationActiveHeadStructure } from "./applicationActiveHeadRead";
 import { captureHostPreparationCharge, captureHostPreparationLifetime } from "./preparedHostRuntime";
 import { replaceActiveIndexMaintenanceInTransactionEffect } from "./indexMaintenance";
@@ -49,6 +58,7 @@ import {
 import {
   fxSystemApplicationActivations,
   fxSystemApplicationActiveHeads,
+  fxSystemApplicationReadBindings,
 } from "./applicationActivationSchema";
 import {
   hasApplicationRelationReadinessFoldComposition,
@@ -106,7 +116,9 @@ import {
   fxSystemApplicationAnalysesV1,
   fxSystemApplicationRevisionsV2,
   fxSystemScopeClocks,
+  fxSystemApplicationReadinessV1,
 } from "./schema";
+import { fxSystemApplicationReadiness } from "./applicationRelationSchema";
 import {
   isLocatedReadCommittedAttemptTargetV1,
   LocatedReadCommittedTransactionFailureV1,
@@ -314,11 +326,19 @@ const bindingHeadPreparations = new WeakMap<object, PreparedApplicationActiveHea
 /** Source readers derive protection from an actual Application readiness
  * issuer, never from copied digests or unique-build configuration. */
 export function readApplicationBindingTargetProtection(input: ApplicationBindingInput) {
+  const standalone = standaloneBindingPreparations.get(input);
+  if (standalone !== undefined) return standalone.lifetime.checkOpen().pipe(
+    Result.mapError(cause => activationError("validateSelection", "invalidComposition", standalone.frame.revisionId, false, cause)),
+    Result.map(() => ({ protection: standalone.protection, lifetime: standalone.lifetime })));
   // SAFETY: nominal registry membership, not this lookup assertion, authenticates the selection.
   const state = legacyBindingPreparations.get(input) ?? selectionStates.get(input as ApplicationActiveSelection);
-  if (state === undefined) return bindingPreparations.has(input)
-    ? Result.succeed(Object.freeze({ protection: undefined, lifetime: undefined }))
-    : Result.fail(activationError("validateSelection", "invalidComposition"));
+  if (state === undefined) {
+    const prepared = bindingPreparations.get(input);
+    if (prepared === undefined) return Result.fail(activationError("validateSelection", "invalidComposition"));
+    return (prepared.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+      Result.mapError(cause => activationError("validateSelection", "invalidComposition", prepared.revisionId, false, cause)),
+      Result.map(() => Object.freeze({ protection: undefined, lifetime: prepared.lifetime })));
+  }
   if (state.kind !== "legacy") return Result.succeed(Object.freeze({ protection: undefined, lifetime: undefined }));
   const protection = readApplicationReadinessTargetProtection(state.readinessRepository, state.readiness);
   return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
@@ -392,16 +412,62 @@ export const withPreparedFiniteActiveApplicationInTransaction = Effect.fn(
 const bindingPreparationBrand: unique symbol = Symbol("ApplicationBindingPreparation");
 export interface ApplicationBindingPreparation { readonly [bindingPreparationBrand]: true }
 declare const legacyBindingPreparationBrand: unique symbol;
-/** Request-owned construction evidence; it grants no executable Application selection. */
+/** Immutable construction evidence; it grants no executable Application selection. */
 export interface PreparedApplicationBinding { readonly [legacyBindingPreparationBrand]: true }
-export type ApplicationBindingInput = ApplicationActiveSelection | ApplicationBindingPreparation | PreparedApplicationBinding;
+declare const standaloneApplicationBindingBrand: unique symbol;
+export interface PreparedStandaloneApplicationBinding { readonly [standaloneApplicationBindingBrand]: true }
+export type ApplicationBindingInput = ApplicationActiveSelection | ApplicationBindingPreparation | PreparedApplicationBinding | PreparedStandaloneApplicationBinding;
+interface StandaloneBindingState {
+  readonly authority: TrustedScopeAuthority;
+  readonly frame: StandaloneApplicationBinding;
+  readonly protection: ProtectedTargetMetadataEvidence;
+  readonly lifetime: NonNullable<LegacySelectionState["lifetime"]>;
+}
+const standaloneBindingPreparations = new WeakMap<object, StandaloneBindingState>();
+const standaloneBindingPreparationReaders = new WeakMap<object, () => Effect.Effect<PreparedStandaloneApplicationBinding,
+  ApplicationActivationError | ReadApplicationReadinessError | TrustedScopeAuthorityError | LockScopeClockForShareError>>();
+
+export function isPreparedStandaloneApplicationBinding(input: ApplicationBindingInput): input is PreparedStandaloneApplicationBinding {
+  return standaloneBindingPreparations.has(input);
+}
+
+/** Exact indexed publication capture under the existing retained host lease. */
+export const prepareStandaloneApplicationBindingSelection = Effect.fn("ApplicationActivation.prepareStandaloneBinding")(
+  function* <Failure>(repository: ApplicationBindingSelectionReader<Failure>) {
+    const prepare = standaloneBindingPreparationReaders.get(repository);
+    if (prepare === undefined) return yield* activationFailure("read", "invalidComposition");
+    return yield* prepare();
+  },
+);
+
+export function readPreparedStandaloneApplicationBinding(input: PreparedStandaloneApplicationBinding) {
+  const state = standaloneBindingPreparations.get(input);
+  if (state === undefined) return Result.fail(activationError("validateSelection", "invalidComposition"));
+  return state.lifetime.checkOpen().pipe(
+    Result.mapError(cause => activationError("validateSelection", "invalidComposition", state.frame.revisionId, false, cause)),
+    Result.map(() => ({ authority: { ...state.authority, physicalLocator: { ...state.authority.physicalLocator } },
+      frame: structuredClone(state.frame), protection: state.protection })));
+}
+
+/** The host enters the installation before any scope or metadata lock. Keep
+ * protected token/database ownership inside the authenticated binding issuer. */
+export const acquireStandaloneApplicationBindingInstallation = Effect.fn("ApplicationActivation.acquireStandaloneInstallation")(
+  function* (input: PreparedStandaloneApplicationBinding, tx: AppRowTransaction) {
+    const state = standaloneBindingPreparations.get(input);
+    if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+    yield* Effect.fromResult(readPreparedStandaloneApplicationBinding(input));
+    yield* acquireProtectedMetadataInstallationAdmission(state.protection.token, state.protection.database, tx)
+      .pipe(Effect.mapError(cause => activationError("validateSelection", "resourceFailure", state.frame.revisionId, false, cause)));
+  },
+);
 const legacyBindingPreparations = new WeakMap<object, LegacySelectionState>();
 type BindingPreparationError = ApplicationActivationError | ReadApplicationReadinessError |
   ReadApplicationRelationReadinessFoldError | TrustedScopeAuthorityError | LockScopeClockForUpdateError;
 const bindingPreparations = new WeakMap<object, Readonly<{
   authority: TrustedScopeAuthority; revisionId: string; readiness: PreparedApplicationRelationActiveRead;
+  lifetime: LegacySelectionState["lifetime"];
 }>>();
-const bindingPreparationReaders = new WeakMap<object, () => Effect.Effect<ApplicationBindingInput, BindingPreparationError>>();
+const bindingPreparationReaders = new WeakMap<object, (profile: "request" | "retained") => Effect.Effect<ApplicationBindingInput, BindingPreparationError>>();
 
 export function isApplicationBindingPreparation(input: ApplicationBindingInput): input is ApplicationBindingPreparation {
   return bindingPreparations.has(input);
@@ -416,14 +482,29 @@ export const prepareApplicationBindingSelection = Effect.fn("ApplicationActivati
   function* <Failure>(repository: ApplicationBindingSelectionReader<Failure>) {
     const prepare = bindingPreparationReaders.get(repository);
     if (prepare === undefined) return yield* activationFailure("read", "invalidComposition");
-    return yield* prepare();
+    return yield* prepare("request");
+  },
+);
+
+/** Host construction captures immutable binding inputs under its existing
+ * allocation. Every use still authenticates the live target and binding. */
+export const prepareRetainedApplicationBindingSelection = Effect.fn("ApplicationActivation.prepareRetainedBindingSelection")(
+  function* <Failure>(repository: ApplicationBindingSelectionReader<Failure>) {
+    const prepare = bindingPreparationReaders.get(repository);
+    const lifetime = yield* captureHostPreparationLifetime();
+    if (prepare === undefined || lifetime === undefined)
+      return yield* activationFailure("read", "invalidComposition");
+    yield* Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>
+      activationError("read", "resourceFailure", undefined, false, cause)));
+    return yield* prepare("retained");
   },
 );
 
 export const readApplicationBindingPreparationInputs = Effect.fn("ApplicationActivation.readBindingPreparationInputs")(
   function* (input: ApplicationBindingInput, controlDb: FlarexMetadataDatabase) {
-    const state = bindingPreparations.get(input);
-    if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+  const state = bindingPreparations.get(input);
+  if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+  yield* Effect.fromResult(readApplicationBindingTargetProtection(input));
     const inputs = yield* readPreparedApplicationRelationInputs(state.readiness, controlDb);
     return Object.freeze({ ...inputs, scopeId: state.authority.scopeId });
   },
@@ -838,12 +919,116 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
       schema: prepared.schema, lifetime: prepared.lifetime }));
     return result;
   }));
-  bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareLegacyBinding")(function* () {
-    const prepared = yield* prepare("request", false);
+  bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareLegacyBinding")(function* (profile: "request" | "retained") {
+    const prepared = yield* prepare(profile, false);
     if (prepared.kind !== "legacy") return yield* activationFailure("read", "activeMissing");
     return issueLegacyBindingPreparation(prepared);
   }));
+  standaloneBindingPreparationReaders.set(repository, makeStandaloneBindingPreparationReader(captured));
   return repository;
+}
+
+function makeStandaloneBindingPreparationReader(context: ApplicationActivationContext<unknown, unknown>) {
+  return Effect.fn("ApplicationActivation.captureStandaloneBinding")(function* () {
+    const lifetime = yield* captureHostPreparationLifetime();
+    if (lifetime === undefined || !validIdentity(context.deploymentId) ||
+      !hasApplicationReadinessComposition(context.readiness, context.authority))
+      return yield* activationFailure("read", "invalidComposition");
+    yield* Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>
+      activationError("read", "resourceFailure", undefined, false, cause)));
+    const protectedMetadata = yield* Effect.fromResult(readApplicationReadinessPreparationProtection(context.readiness));
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(context, context.authority);
+    if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, protectedMetadata.database))
+      return yield* activationFailure("read", "invalidComposition");
+    const captured = yield* runLocatedTransaction(located.target, "read", undefined, tx => Effect.gen(function* () {
+      yield* acquireProtectedMetadataInstallationAdmission(protectedMetadata.token, protectedMetadata.database, tx).pipe(
+        Effect.mapError(cause => activationError("read", "resourceFailure", undefined, false, cause)));
+      const epoch = yield* captureProtectedMetadataEpoch(protectedMetadata.token, protectedMetadata.database, tx).pipe(
+        Effect.mapError(cause => activationError("read", "resourceFailure", undefined, false, cause)));
+      const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
+      if (!clockMatches(located.authority, clock)) return yield* activationFailure("read", "scopeAuthority");
+      const rows = yield* query(tx.select({ head: fxSystemApplicationActiveHeads, activation: fxSystemApplicationActivations,
+        binding: fxSystemApplicationReadBindings }).from(fxSystemApplicationActiveHeads)
+        .innerJoin(fxSystemApplicationActivations, and(eq(fxSystemApplicationActivations.scopeId, fxSystemApplicationActiveHeads.scopeId),
+          eq(fxSystemApplicationActivations.activationSequence, fxSystemApplicationActiveHeads.activationSequence)))
+        .innerJoin(fxSystemApplicationReadBindings, and(eq(fxSystemApplicationReadBindings.scopeId, fxSystemApplicationActiveHeads.scopeId),
+          eq(fxSystemApplicationReadBindings.activationSequence, fxSystemApplicationActiveHeads.activationSequence)))
+        .where(eq(fxSystemApplicationActiveHeads.scopeId, located.authority.scopeId)).limit(1)
+        .for("share", { of: fxSystemApplicationActiveHeads }), "read");
+      const row = rows[0];
+      if (row === undefined) return yield* activationFailure("read", "activeMissing");
+      yield* guardProtectedMetadataEpoch(protectedMetadata.token, protectedMetadata.database, epoch, tx).pipe(
+        Effect.mapError(cause => activationError("read", "resourceFailure", undefined, false, cause)));
+      return { row: structuredClone(row), epoch };
+    }));
+    const head = yield* decodeHead(captured.row.head, "read");
+    const activation = yield* decodeActivation(captured.row.activation, "read", head.revisionId);
+    const frame = yield* decodeStandaloneApplicationBinding(captured.row.binding).pipe(Effect.mapError(cause =>
+      activationError("read", cause.reason, head.revisionId, false, cause)));
+    if (!standaloneBindingMatchesHead(frame, head) || activation.scopeId !== head.scopeId ||
+      activation.activationSequence !== head.activationSequence || activation.revisionId !== head.revisionId ||
+      !bytesEqualFullScan(activation.activationSha256, head.activationSha256) ||
+      !bytesEqualFullScan(activation.readinessSha256, head.readinessSha256) ||
+      frame.deploymentId !== context.deploymentId || frame.storageGeneration !== located.authority.storageGeneration ||
+      frame.storageGenerationFence !== located.authority.storageGenerationFence.toString() || frame.epoch !== located.authority.epoch)
+      return yield* activationFailure("read", "storedState", head.revisionId);
+    yield* Effect.fromResult(lifetime.charge(frame)).pipe(Effect.mapError(cause =>
+      activationError("read", "resourceFailure", head.revisionId, false, cause)));
+    // SAFETY: only this exact issuer owns the inert token and detached immutable frame.
+    const result = Object.freeze({}) as PreparedStandaloneApplicationBinding;
+    standaloneBindingPreparations.set(result, { authority: { ...located.authority, physicalLocator: { ...located.authority.physicalLocator } },
+      frame, protection: { ...protectedMetadata, epoch: captured.epoch }, lifetime });
+    return result;
+  });
+}
+
+function standaloneBindingMatchesHead(frame: StandaloneApplicationBinding, head: DecodedApplicationActiveHead): boolean {
+  if (frame.scopeId !== head.scopeId || frame.revisionId !== head.revisionId || frame.activationSequence !== head.activationSequence.toString() ||
+    frame.headSha256 !== encodeBytesToLowercaseHex(head.headSha256) || frame.activationSha256 !== encodeBytesToLowercaseHex(head.activationSha256) ||
+    frame.readinessSha256 !== encodeBytesToLowercaseHex(head.readinessSha256)) return false;
+  const readiness = frame.readiness;
+  return head.readinessKind === "legacy" ? readiness.kind === "legacy" : readiness.kind !== "legacy" &&
+    readiness.relationCount === head.relationCount && readiness.relationSetReadinessSha256 === encodeBytesToLowercaseHex(head.relationSetReadinessSha256) &&
+    (head.readinessContractVersion === 2 ? readiness.kind === "relation" : readiness.kind === "policy" &&
+      readiness.writeOwnershipSha256 === head.writeOwnershipSha256 && readiness.writePolicySetSha256 === head.writePolicySetSha256);
+}
+
+/** Compact fresh Application correlation. Query-required storage admission is
+ * owned separately; the original installation/epoch guard follows body success. */
+export const withStandaloneApplicationBindingInTransaction = Effect.fn("ApplicationActivation.withStandaloneBinding")(
+  function* <Value, Failure, Requirements>(input: PreparedStandaloneApplicationBinding, tx: AppRowTransaction, clock: ScopeClockRecord,
+    work: (state: { readonly frame: StandaloneApplicationBinding; readonly authority: TrustedScopeAuthority }) => Effect.Effect<Value, Failure, Requirements>) {
+    const state = standaloneBindingPreparations.get(input);
+    if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+    yield* Effect.fromResult(readPreparedStandaloneApplicationBinding(input));
+    if (!clockMatches(state.authority, clock)) return yield* activationFailure("validateSelection", "scopeAuthority", state.frame.revisionId);
+    yield* authenticateProtectedTargetMetadataSnapshot(state.protection, tx).pipe(Effect.mapError(cause =>
+      activationError("validateSelection", "resourceFailure", state.frame.revisionId, false, cause)));
+    const snapshot = readStandaloneReadSnapshot(tx, state.protection.database, clock.scopeId);
+    const head = snapshot === undefined ? (yield* query(tx.select({ sequence: fxSystemApplicationActiveHeads.activationSequence,
+      readinessContractVersion: fxSystemApplicationActiveHeads.readinessContractVersion,
+      revisionId: fxSystemApplicationActiveHeads.revisionId, headSha256: fxSystemApplicationActiveHeads.headSha256,
+      activationSha256: fxSystemApplicationActiveHeads.activationSha256, readinessSha256: fxSystemApplicationActiveHeads.readinessSha256 })
+      .from(fxSystemApplicationActiveHeads).where(eq(fxSystemApplicationActiveHeads.scopeId, clock.scopeId)).limit(1).for("share"), "validateSelection"))[0]
+      : snapshot.applicationHead;
+    if (!standaloneApplicationHeadMatches(state.frame, head))
+      return yield* activationFailure("validateSelection", "concurrentHead", state.frame.revisionId);
+    const value = yield* Effect.suspend(() => work({ frame: structuredClone(state.frame),
+      authority: { ...state.authority, physicalLocator: { ...state.authority.physicalLocator } } }));
+    yield* (hasProtectedMetadataFinalGuardScope(tx)
+      ? registerProtectedMetadataFinalGuard(tx, state.protection.token, state.protection.database, state.protection.epoch)
+      : guardProtectedMetadataEpoch(state.protection.token, state.protection.database, state.protection.epoch, tx)).pipe(
+      Effect.mapError(cause => activationError("validateSelection", "resourceFailure", state.frame.revisionId, false, cause)));
+    return value;
+  },
+);
+
+function standaloneApplicationHeadMatches(frame: StandaloneApplicationBinding,
+  head: StandaloneReadSnapshot["applicationHead"] | undefined): boolean {
+  return head !== undefined && head !== null && head.sequence.toString() === frame.activationSequence && head.revisionId === frame.revisionId &&
+    head.readinessContractVersion === (frame.readiness.kind === "legacy" ? 1 : frame.readiness.kind === "relation" ? 2 : 3) &&
+    encodeBytesToLowercaseHex(head.headSha256) === frame.headSha256 && encodeBytesToLowercaseHex(head.activationSha256) === frame.activationSha256 &&
+    encodeBytesToLowercaseHex(head.readinessSha256) === frame.readinessSha256;
 }
 
 function makeActivePreparationReader<SchemaFailure, ColdFailure>(captured: ApplicationActivationContext<SchemaFailure, ColdFailure>) {
@@ -851,8 +1036,14 @@ function makeActivePreparationReader<SchemaFailure, ColdFailure>(captured: Appli
     if (!validIdentity(captured.deploymentId) || !hasApplicationReadinessComposition(
       captured.readiness, captured.authority)) return yield* activationFailure("read", "invalidComposition");
     const lifetime = profile === "retained" ? yield* captureHostPreparationLifetime() : undefined;
+    const protectionResult = readApplicationReadinessPreparationProtection(captured.readiness);
+    const protection = Result.isSuccess(protectionResult) ? protectionResult.success : undefined;
     const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(captured, captured.authority);
+    if (protection !== undefined && !hasLocatedReadCommittedTargetDatabaseV1(located.target, protection.database))
+      return yield* activationFailure("read", "invalidComposition");
     const raw = yield* runLocatedTransaction(located.target, "read", undefined, tx => Effect.gen(function* () {
+      if (protection !== undefined) yield* acquireProtectedMetadataInstallationAdmission(protection.token, protection.database, tx).pipe(
+        Effect.mapError(cause => activationError("read", "resourceFailure", undefined, false, cause)));
       // Match activation's clock-before-head order. KEY SHARE retains lifecycle
       // protection while ordinary sequence publication remains compatible.
       const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
@@ -908,7 +1099,8 @@ function issueLegacyBindingPreparation(prepared: ActivePreparation): PreparedApp
   // SAFETY: the inert handle is recognized only by its issuer-owned registry.
   const token = Object.freeze({}) as PreparedApplicationBinding;
   legacyBindingPreparations.set(token, Object.freeze({ kind: "legacy", basis: copySelectionBasis(prepared.basis),
-    readinessRepository: prepared.readinessRepository, readiness: prepared.readiness, lifetime: undefined }));
+    readinessRepository: prepared.readinessRepository, readiness: prepared.readiness, lifetime: prepared.lifetime }));
+  if (prepared.lifetime !== undefined) installBindingHeadPreparation(token, prepared);
   return token;
 }
 
@@ -1108,9 +1300,10 @@ function makeCompositeApplicationActivationRepository<
   }));
   const prepareActive = makeActivePreparationReader(captured);
   bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareCompositeBinding")(
-    function* () {
+    function* (profile: "request" | "retained") {
       if (!validIdentity(captured.deploymentId) || !compositionIsExact()) return yield* activationFailure("read", "invalidComposition");
-      const prepared = yield* prepareActive("request", true);
+      const lifetime = profile === "retained" ? yield* captureHostPreparationLifetime() : undefined;
+      const prepared = yield* prepareActive(profile, true);
       if (prepared.kind === "legacy") return issueLegacyBindingPreparation(prepared);
       const readiness = yield* prepareApplicationRelationActiveRead(captured.relationReadiness,
         { deploymentId: captured.deploymentId, scopeId: captured.scopeId, revisionId: prepared.revisionId });
@@ -1118,10 +1311,11 @@ function makeCompositeApplicationActivationRepository<
         Effect.mapError(cause => activationError("read", "resourceFailure", prepared.revisionId, false, cause)),
       );
       const token: ApplicationBindingPreparation = Object.freeze({ [bindingPreparationBrand]: true as const });
-      bindingPreparations.set(token, Object.freeze({ authority: prepared.authority, revisionId: prepared.revisionId, readiness }));
+      bindingPreparations.set(token, Object.freeze({ authority: prepared.authority, revisionId: prepared.revisionId, readiness, lifetime }));
       return token;
     },
   ));
+  standaloneBindingPreparationReaders.set(repository, makeStandaloneBindingPreparationReader(captured));
   return repository;
 }
 
@@ -1300,6 +1494,7 @@ const validateApplicationBindingBasisOwned = Effect.fn(
   const readActive = () => readApplicationBindingActiveHead(selection, tx, currentClock, issued, borrowed);
   const preparation = bindingPreparations.get(selection);
   if (preparation !== undefined) {
+    yield* Effect.fromResult(readApplicationBindingTargetProtection(selection));
     if (!clockMatches(preparation.authority, currentClock)) return yield* activationFailure("validateSelection", "scopeAuthority", preparation.revisionId);
     const observed = yield* readActive();
     const active = observed?.active ?? null;
@@ -1647,7 +1842,7 @@ const activateRelationInTransaction = Effect.fn(
     clock,
     expected,
     faultAfter,
-    budget => readApplicationRelationOwnershipInTransaction(readinessRepository, tx, authority.scopeId, budget, catalogLease),
+    budget => readApplicationRelationOwnershipInTransaction(readinessRepository, tx, authority.scopeId, budget, catalogLease, target),
   );
 });
 
@@ -1951,6 +2146,7 @@ const persistActivationInTransaction = Effect.fn(
     yield* recoverOwnership(recoveryBudget).pipe(Effect.mapError(cause =>
       activationError("activate", "notReady", basis.revisionId, false, cause)));
   }
+  yield* publishStandaloneBindingInTransaction(tx, validated, activationSequence, activation.sha256, nextHead.sha256);
   yield* runFault(faultAfter, "headWritten", basis.revisionId);
   return Object.freeze({
     status: "activated",
@@ -1969,6 +2165,99 @@ const persistActivationInTransaction = Effect.fn(
     activatedAt: new Date(activatedAt.getTime()),
   } as const);
 });
+
+const publishStandaloneBindingInTransaction = Effect.fn("ApplicationActivation.publishStandaloneBinding")(
+  function* (tx: AppRowTransaction, validated: ValidatedActivation, activationSequence: bigint,
+    activationSha256: Uint8Array, headSha256: Uint8Array) {
+    const basis = validated.basis;
+    const readiness = validated.kind === "legacy"
+      ? { kind: "legacy" as const, schemaBindingSha256: encodeBytesToLowercaseHex(validated.basis.schemaBindingSha256) }
+      : { ...(validated.basis.writeOwnership === null ? { kind: "relation" as const } : { kind: "policy" as const,
+          writePolicySetSha256: validated.basis.writeOwnership.frame.writePolicySetSha256,
+          writeOwnershipSha256: validated.basis.writeOwnership.sha256Hex }),
+        manifestSchemaBindingSha256: encodeBytesToLowercaseHex(validated.basis.manifestSchemaBindingSha256),
+        boundPublicationSha256: encodeBytesToLowercaseHex(validated.basis.boundPublicationSha256),
+        relationFrontierCommitSeq: validated.basis.relationFrontierCommitSeq,
+        relationSetReadinessSha256: encodeBytesToLowercaseHex(validated.basis.relationSetReadinessSha256), relationCount: validated.basis.relationCount };
+    const canonical = yield* canonicalStandaloneApplicationBinding({ format: "flarex.application.read-binding",
+      deploymentId: basis.deploymentId, scopeId: basis.authority.scopeId, storageGeneration: basis.authority.storageGeneration,
+      storageGenerationFence: basis.authority.storageGenerationFence.toString(), epoch: basis.authority.epoch,
+      activationSequence: activationSequence.toString(), activationSha256: encodeBytesToLowercaseHex(activationSha256),
+      headSha256: encodeBytesToLowercaseHex(headSha256), revisionId: basis.revisionId, schemaVersionId: basis.schemaVersionId,
+      applicationSchemaSha256: encodeBytesToLowercaseHex(basis.applicationSchemaSha256), schemaManifestSha256: encodeBytesToLowercaseHex(basis.schemaManifestSha256),
+      readinessSha256: encodeBytesToLowercaseHex(basis.readinessSha256), readiness,
+      analysis: { candidateId: basis.candidateId, analysisId: basis.analysisId, manifestSha256: encodeBytesToLowercaseHex(basis.manifestSha256),
+        sourceArtifactRootSha256: encodeBytesToLowercaseHex(basis.sourceArtifactRootSha256) } }).pipe(Effect.mapError(cause =>
+          activationError("activate", cause.reason, basis.revisionId, false, cause)));
+    yield* query(tx.select({ published: sql<null>`${sql.identifier(basis.authority.physicalLocator.schemaName)}.fx_publish_application_read_binding(
+      ${canonical.bytes}::bytea, ${canonical.sha256}::bytea)` }).from(sql`(values (1)) as publication_input(value)`), "activate", basis.revisionId);
+  },
+);
+
+/** Installation owner only: its dedicated fenced backend invokes this before
+ * verification/reopen. Page through durable heads; retain at most one bounded
+ * parent frame at a time and let the constrained publisher authenticate it. */
+export const backfillStandaloneApplicationBindings = Effect.fn("ApplicationActivation.backfillStandaloneBindings")(
+  function* (database: FlarexMetadataDatabase): Effect.fn.Return<void, ApplicationActivationError> {
+    const schemaNameRows = yield* Effect.uninterruptible(query(database.select({ schemaName: sql<string>`current_schema()` })
+      .from(sql`(values (1)) as schema_input(value)`), "activate"));
+    const schemaName = schemaNameRows[0]?.schemaName;
+    if (schemaName === undefined) return yield* activationFailure("activate", "storedState");
+    let cursor: typeof fxSystemApplicationActiveHeads.$inferSelect.scopeId | undefined;
+    for (;;) {
+      const heads = yield* Effect.uninterruptible(query(database.select({ scopeId: fxSystemApplicationActiveHeads.scopeId }).from(fxSystemApplicationActiveHeads)
+        .where(cursor === undefined ? undefined : gt(fxSystemApplicationActiveHeads.scopeId, cursor))
+        .orderBy(asc(fxSystemApplicationActiveHeads.scopeId)).limit(64), "activate"));
+      if (heads.length === 0) return;
+      for (const selected of heads) {
+        // Settle every foreign read/publication for one finite head before
+        // cancellation can leave maintenance. The next head is interruptible.
+        cursor = yield* Effect.uninterruptible(Effect.gen(function* () {
+          const currentHeads = yield* query(database.select().from(fxSystemApplicationActiveHeads)
+            .where(eq(fxSystemApplicationActiveHeads.scopeId, selected.scopeId)).limit(1), "activate");
+          const row = currentHeads[0];
+          if (row === undefined) return yield* activationFailure("activate", "storedState");
+          const head = yield* decodeHead(row, "activate");
+          const activations = yield* query(database.select().from(fxSystemApplicationActivations).where(and(
+            eq(fxSystemApplicationActivations.scopeId, row.scopeId),
+            eq(fxSystemApplicationActivations.activationSequence, row.activationSequence))).limit(1), "activate", row.revisionId);
+          const activationRow = activations[0];
+          if (activationRow === undefined) return yield* activationFailure("activate", "storedState", row.revisionId);
+          yield* decodeActivation(activationRow, "activate", row.revisionId);
+          const readinessRows = row.readinessContractVersion === 1
+            ? yield* query(database.select().from(fxSystemApplicationReadinessV1).where(and(
+                eq(fxSystemApplicationReadinessV1.scopeId, row.scopeId), eq(fxSystemApplicationReadinessV1.revisionId, row.revisionId))).limit(1), "activate", row.revisionId)
+            : yield* query(database.select().from(fxSystemApplicationReadiness).where(and(
+                eq(fxSystemApplicationReadiness.scopeId, row.scopeId), eq(fxSystemApplicationReadiness.revisionId, row.revisionId))).limit(1), "activate", row.revisionId);
+          const parent = readinessRows[0];
+          if (parent === undefined) return yield* activationFailure("activate", "storedState", row.revisionId);
+          const readiness = "schemaBindingSha256" in parent
+            ? { kind: "legacy", schemaBindingSha256: encodeBytesToLowercaseHex(parent.schemaBindingSha256) }
+            : { kind: row.readinessContractVersion === 3 ? "policy" : "relation",
+                manifestSchemaBindingSha256: encodeBytesToLowercaseHex(parent.manifestSchemaBindingSha256),
+                boundPublicationSha256: encodeBytesToLowercaseHex(parent.boundPublicationSha256),
+                relationFrontierCommitSeq: parent.relationFrontierCommitSeq.toString(),
+                relationSetReadinessSha256: encodeBytesToLowercaseHex(parent.relationSetReadinessSha256), relationCount: parent.relationCount,
+                ...(head.readinessContractVersion === 3 ? { writePolicySetSha256: head.writePolicySetSha256,
+                  writeOwnershipSha256: head.writeOwnershipSha256 } : {}) };
+          const canonical = yield* canonicalStandaloneApplicationBinding({ format: "flarex.application.read-binding",
+            deploymentId: parent.deploymentId, scopeId: row.scopeId, storageGeneration: parent.storageGeneration,
+            storageGenerationFence: parent.storageGenerationFence.toString(), epoch: parent.epoch,
+            activationSequence: row.activationSequence.toString(), headSha256: encodeBytesToLowercaseHex(row.headSha256),
+            activationSha256: encodeBytesToLowercaseHex(row.activationSha256), revisionId: row.revisionId,
+            schemaVersionId: parent.schemaVersionId, applicationSchemaSha256: encodeBytesToLowercaseHex(parent.applicationSchemaSha256),
+            schemaManifestSha256: encodeBytesToLowercaseHex(parent.schemaManifestSha256), readinessSha256: encodeBytesToLowercaseHex(parent.readinessSha256),
+            readiness, analysis: { candidateId: parent.candidateId, analysisId: parent.analysisId,
+              manifestSha256: encodeBytesToLowercaseHex(parent.manifestSha256), sourceArtifactRootSha256: encodeBytesToLowercaseHex(parent.sourceArtifactRootSha256) } })
+            .pipe(Effect.mapError(cause => activationError("activate", cause.reason, row.revisionId, false, cause)));
+          yield* query(database.select({ published: sql<null>`${sql.identifier(schemaName)}.fx_publish_application_read_binding(
+            ${canonical.bytes}::bytea, ${canonical.sha256}::bytea)` }).from(sql`(values (1)) as publication_input(value)`), "activate", row.revisionId);
+          return row.scopeId;
+        }));
+      }
+    }
+  },
+);
 
 const readActiveLegacyInTransaction = Effect.fn(
   "ApplicationActivation.readLegacyTransaction",
@@ -2819,8 +3108,9 @@ function activationError(
 /** The admitted selection retains its exact catalog composition; target metadata is not a fallback catalog. */
 export const readApplicationSelectionOwnershipInTransaction = Effect.fn("ApplicationActivation.readOwnership")(function* (
   selection: ApplicationActiveSelection, tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"], budget: ApplicationWriteOwnershipHistoryBudget,
+  targetDatabase: FlarexMetadataDatabase,
 ) {
   const state = selectionStates.get(selection);
   if (state?.kind !== "relation" || state.basis.authority.scopeId !== scopeId) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
-  return yield* readApplicationRelationOwnershipInTransaction(state.readinessRepository, tx, scopeId, budget);
+  return yield* readApplicationRelationOwnershipInTransaction(state.readinessRepository, tx, scopeId, budget, undefined, undefined, targetDatabase);
 });

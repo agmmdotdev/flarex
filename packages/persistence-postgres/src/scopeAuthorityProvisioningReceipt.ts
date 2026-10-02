@@ -474,7 +474,7 @@ function requireReadyReceipt(
   return receipt;
 }
 
-function decodeScopeAuthorityProvisioningReceipt(
+export function decodeScopeAuthorityProvisioningReceipt(
   row: ScopeAuthorityProvisioningReceiptRow,
 ): SplitScopeAuthorityProvisioningReceipt {
   if (!isNonBlankString(row.scopeId)) {

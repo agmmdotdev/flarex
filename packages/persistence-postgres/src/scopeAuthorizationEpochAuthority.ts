@@ -30,6 +30,7 @@ import {
 } from "./scopeClock";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 export interface LocatedScopeAuthorizationEpochTarget
   extends LocatedScopeClockReader {
@@ -240,7 +241,11 @@ export function createLocatedScopeAuthorizationEpochTarget(
   ));
   return Object.freeze({
     physicalLocator: capturedLocator,
-    getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
+    getCurrentClock: (scopeId: ScopeId) => db.transaction(async tx => {
+      await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+      try { return await getScopeClock(tx, scopeId); }
+      finally { closeInstallationAdmission(tx); }
+    }),
     requireCurrentAuthorizationRevocationEpochEffect,
   }) satisfies LocatedScopeAuthorizationEpochTarget;
 }
@@ -265,14 +270,19 @@ function runScopeAuthorizationEpochEffectTransaction<ResultValue, Failure>(
     return Effect.uninterruptible(
       Effect.tryPromise({
         try: () => db.transaction(async (tx): Promise<ResultValue> => {
-          const exit = await Effect.runPromise(Effect.exit(
-            Effect.suspend(() => work(tx)),
-          ));
-          if (Exit.isFailure(exit)) {
-            callbackCause = exit.cause;
-            throw rollbackSignal;
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try {
+            const exit = await Effect.runPromise(Effect.exit(
+              Effect.suspend(() => work(tx)),
+            ));
+            if (Exit.isFailure(exit)) {
+              callbackCause = exit.cause;
+              throw rollbackSignal;
+            }
+            return exit.value;
+          } finally {
+            closeInstallationAdmission(tx);
           }
-          return exit.value;
         }),
         catch: (cause) => new CurrentScopeAuthorizationEpochPortError({
           operation: "authorizationEpochRead",

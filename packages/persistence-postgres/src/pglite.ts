@@ -3,7 +3,11 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
+import { sql } from "drizzle-orm";
+import { initializeFullProofInstallation } from "./installationLifecycle";
+import { backfillStandaloneApplicationBindings } from "./applicationActivation";
+import { backfillLogicalReadProjections } from "./logicalStorageDefinitions";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
 import {
@@ -348,6 +352,14 @@ export async function createPGlitePersistence(
     drizzle: drizzleDb,
     async migrate(): Promise<void> {
       await migratePGlite(drizzleDb, { migrationsFolder });
+      const [installation] = await drizzleDb.select({ installed: sql<boolean>`pg_catalog.to_regclass('fx_system_installation') is not null` })
+        .from(sql`(values (1)) as pglite_installation(value)`);
+      if (installation?.installed !== true) return; // Historical migration fixture.
+      // PGlite's owner-only compatibility lane is single-backend and explicitly
+      // fullProof. It cannot issue a managed installation capability.
+      await Effect.runPromise(initializeFullProofInstallation(drizzleDb));
+      await Effect.runPromise(backfillStandaloneApplicationBindings(drizzleDb));
+      await Effect.runPromise(backfillLogicalReadProjections(drizzleDb));
     },
   };
 }
@@ -363,10 +375,10 @@ function createPGliteSqlClient(
       const result = await database.execute<Row>(query);
       return { rows: rowsFromDriver<Row>(result.rows) };
     },
-    exec: (sql) => client.exec(sql),
+    exec: (statement) => client.exec(statement),
     query: <Row extends Record<string, unknown> = Record<string, unknown>>(
-      sql: string,
+      statement: string,
       params?: readonly unknown[],
-    ) => client.query<Row>(sql, params),
+    ) => client.query<Row>(statement, params),
   };
 }

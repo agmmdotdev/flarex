@@ -34,6 +34,7 @@ interface ContextState<Failure> {
 /** Source-private per-request owner. It conveys no database or publication authority. */
 export interface BoundedRequestLifetime<Failure> {
   readonly context: BoundedRequestContext;
+  readonly mode: "read" | "write";
   readonly begin: (context: BoundedRequestContext, id?: PresentedTransactionId) => Effect.Effect<string, Failure>;
   readonly adapterCommit: (context: BoundedRequestContext, id: PresentedTransactionId) => Effect.Effect<never, Failure>;
   readonly rollback: (context: BoundedRequestContext, id: PresentedTransactionId) => Effect.Effect<never, Failure>;
@@ -58,7 +59,7 @@ export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
   root: BoundedRequestLifetime<Outer>, project: (failure: Outer) => Inner,
 ): BoundedRequestLifetime<Inner> {
   return Object.freeze({
-    context: root.context, isClosing: root.isClosing, remainingBytes: root.remainingBytes, usedCalls: root.usedCalls, close: root.close,
+    context: root.context, mode: root.mode, isClosing: root.isClosing, remainingBytes: root.remainingBytes, usedCalls: root.usedCalls, close: root.close,
     begin: (context, id) => root.begin(context, id).pipe(Effect.mapError(project)),
     adapterCommit: (context, id) => root.adapterCommit(context, id).pipe(Effect.mapError(project)),
     rollback: (context, id) => root.rollback(context, id).pipe(Effect.mapError(project)),
@@ -223,7 +224,7 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
     request.phase = "closed";
     contexts.delete(context);
   });
-  return Object.freeze({ context, begin, operation, nested, withinDeadline,
+  return Object.freeze({ context, mode, begin, operation, nested, withinDeadline,
     checkpoint: (supplied: BoundedRequestContext) => observe(check(supplied)), charge, seal, close,
     remainingBytes: () => limits.commandBytes - request.bytes,
     usedCalls: () => request.calls,

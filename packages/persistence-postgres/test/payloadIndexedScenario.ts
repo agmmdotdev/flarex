@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { expect } from "vitest";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import { decodeIndexedDocument, decodeIndexedPage, indexedFields, type IndexedPayloadFixture } from "./payloadIndexedFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";

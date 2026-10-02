@@ -1,6 +1,7 @@
 import { Deferred, Effect, Fiber, Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
 import { postgresUrl, useFileScopedPostgresPersistence } from "./postgresHelpers";
 import { decodeIndexedDocument, makeIndexedPayloadFixture } from "./payloadIndexedFixture";

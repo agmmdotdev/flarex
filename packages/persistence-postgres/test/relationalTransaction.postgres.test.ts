@@ -6,7 +6,7 @@ import {
   withTemporaryPostgresPersistencePair,
 } from "./postgresHelpers";
 import { createApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
-import { makePostgresFrameworkMigrationFixtureTarget } from "./frameworkMigrationPostgresFixture";
+import { makeFrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import { makeCatalogControlSessionStarter } from "../src/catalogControlSession";
 import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
@@ -63,12 +63,12 @@ describe.skipIf(postgresUrl === null)(
             },
             { control, target: persistence },
           );
-          const target = await makePostgresFrameworkMigrationFixtureTarget({
-              persistence,
+          const target = await runEffect(makeFrameworkSchemaTarget({
+              database: persistence.drizzle,
               deploymentId: fixture.deploymentId,
               canonicalPhysicalDatabaseIdentity: "scalar-native",
               physicalLocator: fixture.active.basis.authority.physicalLocator,
-            });
+            }));
           const repository = Result.getOrThrow(
             makeFrameworkSchemaArtifactRepository({
               controlDb: persistence.drizzle,
@@ -139,7 +139,7 @@ describe.skipIf(postgresUrl === null)(
               {
                 database: persistence.drizzle,
                 session,
-                target: target.schema,
+                target,
                 deploymentId: fixture.deploymentId,
                 scopeId: fixture.active.basis.authority.scopeId,
                 authority: fixture.authorityPorts,
@@ -232,7 +232,7 @@ describe.skipIf(postgresUrl === null)(
             makeRelationalHost({
               database: persistence.drizzle,
               session: uncertainSession,
-              target: target.schema,
+              target,
               deploymentId: fixture.deploymentId,
               scopeId: fixture.active.basis.authority.scopeId,
               authority: fixture.authorityPorts,
@@ -253,7 +253,7 @@ describe.skipIf(postgresUrl === null)(
           const cleanupHost = await runEffect(
             makeRelationalHost({
               database: persistence.drizzle,
-              target: target.schema,
+              target,
               deploymentId: fixture.deploymentId,
               scopeId: fixture.active.basis.authority.scopeId,
               authority: fixture.authorityPorts,

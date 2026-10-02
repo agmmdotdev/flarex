@@ -1,8 +1,12 @@
+import { getCmsCommand, type CmsCommand } from "./commands";
+import { projectCmsRequestFailure } from "./failure";
+import type { CmsHostConfiguration } from "./hostConfiguration";
+import type { CmsHostTestHooks } from "./testSupport";
+import type { FlarexMetadataDatabase } from "../deployments";
+import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
 import { makeCmsCommandContext } from "./context";
 import { decodeCmsRequestBudget, defaultCmsRequestBudget, type CmsRequestBudget } from "../frameworkExecutionPolicy";
-import type { CmsMaterializationTestHooks } from "./testSupport";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
-import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
 import { prepareCmsRelations, makeCmsRelations, type CmsRelations } from "./relations";
 import { hasApplicationRelationReadPortAuthorityForControlDb, hasApplicationRelationReadPortAuthorityForPointCommit, type ApplicationRelationReadPort } from "../applicationRelationRead";
 import { hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "../frameworkSchema/target";
@@ -12,103 +16,40 @@ import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha25
 import { canonicalizeSuccessfulResultV1Effect, type CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
-import { projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
+import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
 import { capturePrivateJsonData } from "../privateJsonData";
-import type { FlarexMetadataDatabase } from "../deployments";
-import type { FlarexMetadataTransaction } from "../metadataTransaction";
-import type { ApplicationBindingSelectionReader } from "../applicationActivation";
 import { prepareApplicationBindingSelection } from "../applicationActivation";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
 import { prepareLogicalDocumentSourceAdmission, requireLogicalDocumentSourceAdmission,
-  LogicalDocumentSourceAdmissionError, type LogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
-import { IndexBuildReconciliationCatalogV1Error } from "../indexBuildReconciliation";
-import { AppUniqueConstraintSetClosurePersistenceV1Error, AppUniqueConstraintSetClosureResourceError } from "../appUniqueConstraintSetClosureV1";
-import { AppUniqueConstraintSetBuildIntegrationV1Error } from "../appUniqueConstraintSetBuildV1";
-import { AppUniqueConstraintCatalogPersistenceError } from "../appUniqueConstraintDefinitions";
-import { AppIndexDefinitionReadPersistenceError, AppSchemaVersionIndexBindingPersistenceError } from "../appIndexDefinitions";
-import { IndexBuildStatePersistenceError } from "../indexBuildStates";
-import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
-import { LogicalStorageDefinitionError } from "../logicalStorageDefinitions";
-import { LogicalSchemaAdmissionEvidenceError } from "../logicalSchemaAdmissionEvidence";
-import { SchemaVersionArtifactPersistenceError } from "../schemaVersionArtifacts";
-import { StableTableIdentityPersistenceError } from "../stableTableCatalog";
-import { DataBindingError } from "../frameworkSchema/binding/errors";
-import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
-  TrustedScopeAuthorityPortError, type ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
+  type LogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
+import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
+import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
-import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
-import { RelationalSessionError } from "../relationalTransaction/model";
+import { hasRelationalSessionDatabase, runRelationalSession } from "../relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
+import { createCommittedPointOutcomeResolverV1 } from "../committedPointOutcome";
 import { prepareCmsApplicationCommit, enterCmsApplicationCommit, enterSourceCmsCommit, type CmsMaterializationOptions } from "./publication";
 import { prepareCmsApplication, prepareCmsPreferences, withCmsAdmission, requireCmsAdmission, type CmsAdmission } from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
-import { makeCmsDocuments, makeSourceCmsDocuments, type CmsDocuments, type CmsDocumentReadTestHooks } from "./documents";
+import { makeCmsDocuments, makeSourceCmsDocuments } from "./documents";
 import { makePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
-import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
-import { chargeHostPreparation, retainPreparedHost, PreparedHostRuntimeError, type PreparedHostRuntime } from "../preparedHostRuntime";
+import { cmsError, cmsLimits, type CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
+import { chargeHostPreparation, retainPreparedHost } from "../preparedHostRuntime";
 
-declare const commandBrand: unique symbol;
-export interface CmsCommand { readonly [commandBrand]: true }
-export interface CmsCommandContext {
-  readonly context: CmsRequestContext;
-  readonly standaloneRead: boolean;
-  readonly reserveOutput: (bytes: number) => Effect.Effect<void, CmsTransactionError>;
-  readonly transactionId: string;
-  readonly documents: CmsDocuments;
-  readonly relations: CmsRelations;
-  readonly preferences: PayloadPreferenceCleanup;
-  readonly begin: (id?: CmsPresentedTransactionId) => Effect.Effect<string, CmsTransactionError>;
-  readonly commit: (id: CmsPresentedTransactionId) => Effect.Effect<never, CmsTransactionError>;
-  readonly rollback: (id: CmsPresentedTransactionId) => Effect.Effect<never, CmsTransactionError>;
-  readonly nested: (command: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>;
-}
-interface CommandDefinition {
-  readonly name: string;
-  readonly mode: "read" | "write";
-  readonly run: (context: CmsCommandContext, args: Json) => Effect.Effect<Json, CmsTransactionError>;
-}
-const commands = new WeakMap<object, CommandDefinition>();
-/** Source-private lookup for the trusted composite host; no root transaction is started. */
-export const getCmsCommand = (command: CmsCommand): CommandDefinition | undefined => commands.get(command);
 const contentDigest = Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{64}$/.test(value) ? undefined : "Expected SHA-256"));
 const decodeContentIdentity = Schema.decodeUnknownEffect(Schema.Struct({ configSha256: contentDigest, provenanceSha256: contentDigest }));
 const decodeRequestKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
 
-/** Trusted composition only: no runtime registration and no arbitrary framework hooks. */
-export const defineCmsCommand = (definition: CommandDefinition): CmsCommand => {
-  // SAFETY: this inert token is authenticated by the private definition registry.
-  const token = Object.freeze({}) as CmsCommand;
-  commands.set(token, Object.freeze({ ...definition }));
-  return token;
-};
-export interface CmsHostInput<Failure> {
-  readonly hostRuntime: PreparedHostRuntime;
-  readonly database: FlarexMetadataDatabase;
+export interface CmsHostInput<Failure> extends CmsHostConfiguration<Failure> {
   readonly controlDatabase: FlarexMetadataDatabase;
-  readonly session: RelationalSession;
-  readonly deploymentId: string;
-  /** Selected by trusted composition, never by a Payload command. */
-  readonly scopeId: ScopeId;
-  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1;
-  readonly application: ApplicationBindingSelectionReader<Failure>;
-  readonly commands: readonly CmsCommand[];
-  /** Authenticated by the private composition root; never adapter command input. */
-  readonly identityAndAccessPolicy: Json;
-  /** Trusted host-start selection; never read from a business request. */
-  readonly requestBudget?: CmsRequestBudget;
   readonly materialization: CmsMaterializationOptions;
   readonly relationReads?: ApplicationRelationReadPort;
   /** Exact preference binding required by the operation-specific cleanup port. */
   readonly payloadPreferenceTarget?: FrameworkSchemaTarget;
-  /** Optional closed-consumer restriction, checked under the admitted scope lock. */
-  readonly expectedContentIdentity?: Readonly<{ configSha256: string; provenanceSha256: string }>;
   readonly logicalStorage?: never;
 }
 /** Selected Payload source; the displaced host contract has named callers and a removal gate. */
@@ -124,12 +65,6 @@ export interface CmsHost {
   readonly run: (requestKey: string, command: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>;
   readonly read: (command: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>;
 }
-export interface CmsHostTestHooks extends CmsMaterializationTestHooks {
-  readonly documentReads?: CmsDocumentReadTestHooks;
-  readonly observeIncomingQuery?: (query: AppRelationEdgeQueryObservation) => void;
-  /** Physical-driver conformance only; never passed to a registered operation. */
-  readonly afterAdmission?: (tx: FlarexMetadataTransaction) => Effect.Effect<void, CmsTransactionError>;
-}
 const digestBytes = makeLivePrivateSha256V1({
   invalidBudget: () => cmsError("limitExceeded"), invalidBytes: () => cmsError("invalidInput"),
   inputBytesExceeded: () => cmsError("limitExceeded"), unavailable: () => cmsError("resourceFailure"),
@@ -137,26 +72,7 @@ const digestBytes = makeLivePrivateSha256V1({
 });
 const sha256 = Effect.fn("CmsHost.sha256")((bytes: Uint8Array) => digestBytes(bytes, { maximumInputBytes: cmsLimits.commandBytes }));
 
-const projectFailure = (cause: unknown): CmsTransactionError => {
-  if (cause instanceof CmsTransactionError) return cause;
-  if ((cause instanceof IndexBuildReconciliationCatalogV1Error || cause instanceof LogicalStorageDefinitionError ||
-    cause instanceof LogicalSchemaAdmissionEvidenceError || cause instanceof IndexMaintenanceError ||
-    cause instanceof DataBindingError) && cause.reason === "resourceFailure") return cmsError("resourceFailure", cause);
-  if (cause instanceof AppUniqueConstraintSetClosureResourceError || cause instanceof AppUniqueConstraintSetClosurePersistenceV1Error ||
-    cause instanceof AppUniqueConstraintSetBuildIntegrationV1Error || cause instanceof AppUniqueConstraintCatalogPersistenceError ||
-    cause instanceof AppIndexDefinitionReadPersistenceError || cause instanceof AppSchemaVersionIndexBindingPersistenceError ||
-    cause instanceof IndexBuildStatePersistenceError || cause instanceof StableTableIdentityPersistenceError ||
-    cause instanceof SchemaVersionArtifactPersistenceError) return cmsError("resourceFailure", cause);
-  if (cause instanceof LogicalDocumentSourceAdmissionError) return cmsError(
-    cause.reason === "sourceMismatch" || cause.reason === "bindingMissing" || cause.reason === "notReady"
-      ? "bindingChanged" : cause.reason, cause);
-  if (cause instanceof PreparedHostRuntimeError) return cmsError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
-  if (cause instanceof TrustedScopeAuthorityPortError) return cmsError("resourceFailure", cause);
-  if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return cmsError("requestConflict", cause);
-  if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return cmsError("storedCorruption", cause);
-  if (cause instanceof RelationalSessionError) return cmsError(cause.reason === "decisionUncertain" ? "decisionUncertain" : "resourceFailure", cause);
-  return cmsError("invalidAuthority", cause);
-};
+const projectFailure = projectCmsRequestFailure;
 
 export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   input: CmsHostInput<Failure> | SourceCmsHostInput<Failure>, hooks?: CmsHostTestHooks,
@@ -164,7 +80,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   const selectedBudget = input.requestBudget;
   const requestBudget = Object.freeze(yield* Effect.fromResult(decodeCmsRequestBudget(selectedBudget === undefined ? defaultCmsRequestBudget : selectedBudget))
     .pipe(Effect.mapError(cause => cmsError("unsupportedProfile", cause))));
-  const retained = yield* retainPreparedHost(input.hostRuntime, composeCmsHost(input, requestBudget, selectedBudget !== undefined, hooks))
+  const retained = yield* retainPreparedHost(input.hostRuntime,
+    composeCmsHost(input, requestBudget, selectedBudget !== undefined, hooks))
     .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   return Object.freeze({ requestBudget, close: retained.close, newRequestKey: () => `cms/${crypto.randomUUID()}`,
     run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
@@ -209,7 +126,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     return yield* Effect.fail(cmsError("invalidAuthority"));
   }
   for (const token of allowed) {
-    const definition = commands.get(token);
+    const definition = getCmsCommand(token);
     if (definition === undefined || !/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(definition.name) || names.has(definition.name)) {
       return yield* Effect.fail(cmsError("invalidAuthority"));
     }
@@ -243,7 +160,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   const materialization = Object.freeze({ ...input.materialization });
   const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });
   const execute = Effect.fn("CmsHost.execute")(function* (requestKey: string | null, token: CmsCommand, args: Json) {
-    const root = commands.get(token);
+    const root = getCmsCommand(token);
     if (root === undefined || !allowed.has(token) || (requestKey === null && root.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
     const captured = yield* Effect.fromResult(capturePrivateJsonData(args, requestBudget.commandBytes, cmsError));
     const key = requestKey === null ? null : yield* Effect.fromResult(decodeRequestKey(requestKey))
@@ -281,11 +198,13 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
             contentIdentity.provenanceSha256 !== expectedContentIdentity.provenanceSha256)) return yield* Effect.fail(cmsError("invalidAuthority"));
           if (testHooks?.afterAdmission !== undefined) yield* testHooks.afterAdmission(tx);
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId));
-          const evidence = yield* canonicalizeSuccessfulResultV1Effect({ domain: "flarex.private.cms-command", version: 1,
+          // Source reads have no durable replay identity; avoid projecting the
+          // entire binding frame solely to charge a nonexistent journal input.
+          const evidence = member.kind === "source" && key === null ? undefined : yield* canonicalizeSuccessfulResultV1Effect({ domain: "flarex.private.cms-command", version: 1,
             deploymentId, scopeId: located.authority.scopeId, epoch: clock.epoch, storageGeneration: clock.storageGeneration,
             fence: clock.storageGenerationFence.toString(), binding: state.frame, head: { sequence: state.head.sequence.toString(), sha256: state.head.sha256 },
             operation: root.name, args: captured.value });
-          const lookup = key === null ? null : {
+          const lookup = key === null || evidence === undefined ? null : {
             scopeUuid: scope.scopeUuid, requestKey: key, expectedIdentityAccessPolicySha256: identityDigest,
             expectedFunctionPath: TransactionFunctionPathV1Schema.make(`__flarex_private_cms/${root.name}`),
             expectedRequestSha256: TransactionRequestSha256V1Schema.make(yield* sha256(evidence.canonicalBytes)),
@@ -299,7 +218,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
           }
           const lifetime = yield* makeCmsRequestLifetime(owner, requestIdentity, transactionId, key === null ? "read" : root.mode, requestBudget);
           return yield* Effect.gen(function* () {
-            yield* Effect.fromResult(lifetime.charge(captured.bytes + evidence.canonicalBytes.byteLength));
+            yield* Effect.fromResult(lifetime.charge(captured.bytes + (evidence?.canonicalBytes.byteLength ?? 0)));
             const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
             const bundle = member.kind === "source" ? yield* Effect.gen(function* () {
               const participant = key === null ? null : yield* enterSourceCmsCommit(member.admission, tx, lifetime, materialization);
@@ -328,7 +247,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
               return Object.freeze({ documents: working.documents, incoming, preferences: preferences.cleanup, finalize });
             });
             const invoke = Effect.fn("CmsHost.invoke")(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {
-              const definition = commands.get(child);
+              const definition = getCmsCommand(child);
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(childInput.bytes));
@@ -343,16 +262,19 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
             const value = yield* invoke(lifetime.context, token, captured.value);
             const result = yield* canonicalizeSuccessfulResultV1Effect(value);
             yield* Effect.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
-            const digest = yield* sha256(result.canonicalBytes);
+            const digest = member.kind === "source" && lookup === null ? undefined : yield* sha256(result.canonicalBytes);
             yield* lifetime.seal;
-            if (lookup !== null) yield* bundle.finalize(lookup, result, digest);
+            if (lookup !== null && digest !== undefined) yield* bundle.finalize(lookup, result, digest);
             return result.valueJson;
           }).pipe(Effect.ensuring(lifetime.close));
         });
         if (prepared !== undefined) return yield* withCmsAdmission(prepared, tx, located.authority, clock,
           admission => runAdmitted({ kind: "application", admission }), preparedPreferences);
-        if (preparedLogical !== undefined && active !== undefined) return yield* preparedLogical.withAdmission(
-          active, tx, located.authority, clock, admission => runAdmitted({ kind: "source", admission }));
+        if (preparedLogical !== undefined && active !== undefined) return yield* (key === null
+          ? preparedLogical.withReadAdmission(active, tx, located.authority, clock,
+            admission => runAdmitted({ kind: "source", admission }))
+          : preparedLogical.withAdmission(active, tx, located.authority, clock,
+            admission => runAdmitted({ kind: "source", admission })));
         return yield* Effect.fail(cmsError("invalidAuthority"));
       })));
     });

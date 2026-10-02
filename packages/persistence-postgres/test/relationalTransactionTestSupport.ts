@@ -1,3 +1,5 @@
+import type { PGliteFlarexPersistence } from "../src/pglite";
+import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
   projectScopeIdUuidV1Result,
   ScopeIdSchema,
@@ -9,9 +11,10 @@ import { Effect, Option, Result, Deferred, Fiber } from "effect";
 import { sql } from "drizzle-orm";
 import type {
   ApplicationNativeMutationFixture,
-  ApplicationNativeMutationPersistence,
 } from "./fixtures/applicationNativeMutationTestFixture";
-import type { FrameworkMigrationTarget } from "../src/migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../src/frameworkSchema/target";
+import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixtureTarget";
+import { installPostgresPhysicalProfileFixture } from "./frameworkMigrationPostgresFixture";
 import type { FrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
 import { prepareFrameworkSchemaArtifactAdmission } from "../src/frameworkSchema/artifact/repository";
 import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
@@ -50,10 +53,10 @@ import {
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export async function prepareRelationalFixture<
-  P extends ApplicationNativeMutationPersistence,
+  P extends PGliteFlarexPersistence | PostgresFlarexPersistence,
 >(
   fixture: ApplicationNativeMutationFixture<P>,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   repository: FrameworkSchemaArtifactRepository,
 ) {
   const origin = { kind: "synthetic", sourceId: "scalar-store" };
@@ -115,22 +118,30 @@ export async function prepareRelationalFixture<
       ),
     ),
   );
-  const ready = await runEffect(
-    runFreshFrameworkMigrationCoordinatorEffect({
-      target,
-      artifactRepository: repository,
-      artifactIdentity: artifact.artifact.identity,
-      attemptId: "scalar-store",
-      leaseOwnerId: "scalar-test",
-      leaseDurationMilliseconds: 120_000,
-      lockTimeoutMilliseconds: 5_000,
-      statementTimeoutMilliseconds: 30_000,
-      maximumStepsPerRun: 16,
-    }),
-  );
-  if (ready.kind !== "ready")
-    throw new Error(`Scalar installation failed: ${ready.kind}`);
-  const layout = ready.availability.installation.plan.plan.physicalLayout.frame;
+  const request = {
+    artifactIdentity: artifact.artifact.identity,
+    attemptId: "scalar-store",
+    leaseOwnerId: "scalar-test",
+  };
+  const persistence = fixture.target;
+  const availability = "pool" in persistence
+    ? await runEffect(installPostgresPhysicalProfileFixture({
+        persistence, target, artifactRepository: repository,
+        requests: [request], policy: { leaseDurationMilliseconds: 120_000,
+          lockTimeoutMilliseconds: 5_000, statementTimeoutMilliseconds: 30_000,
+          runTimeoutMilliseconds: 120_000, maximumStepsPerCall: 16 },
+      }))
+    : await (async () => {
+        const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, target);
+        const ready = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({
+          target: migrationTarget, artifactRepository: repository, ...request,
+          leaseDurationMilliseconds: 120_000, lockTimeoutMilliseconds: 5_000,
+          statementTimeoutMilliseconds: 30_000, maximumStepsPerRun: 16,
+        }));
+        if (ready.kind !== "ready") throw new Error(`Scalar installation failed: ${ready.kind}`);
+        return ready.availability;
+      })();
+  const layout = availability.installation.plan.plan.physicalLayout.frame;
   const table = layout.tables[0];
   if (table === undefined) throw new Error("Missing scalar table");
   const relation = sql`${sql.identifier(layout.targetNamespace.schemaName)}.${sql.identifier(table.name)}`;
@@ -165,9 +176,9 @@ export async function prepareRelationalFixture<
     (${Result.getOrThrow(projectScopeIdUuidV1Result(fixture.active.basis.authority.scopeId)).scopeUuid}::uuid, 'a', 'Alpha', 'slug-a', 1), (${Result.getOrThrow(projectScopeIdUuidV1Result(fixture.active.basis.authority.scopeId)).scopeUuid}::uuid, 'b', 'Beta', 'slug-b', 2), (${Result.getOrThrow(projectScopeIdUuidV1Result(fixture.active.basis.authority.scopeId)).scopeUuid}::uuid, 'c', 'Gamma', 'slug-c', 3)`);
   return {
     fixture,
-    target: target.schema,
-    availability: ready.availability,
-    reference: installationBindingReference(ready.availability),
+    target,
+    availability,
+    reference: installationBindingReference(availability),
     identity: table.identity,
     relation,
     column,
@@ -175,11 +186,11 @@ export async function prepareRelationalFixture<
       .scopeUuid,
   };
 }
-export type RelationalFixture<P extends ApplicationNativeMutationPersistence> =
+export type RelationalFixture<P extends PGliteFlarexPersistence | PostgresFlarexPersistence> =
   Awaited<ReturnType<typeof prepareRelationalFixture<P>>>;
 
 export async function exerciseRelationalStore<
-  P extends ApplicationNativeMutationPersistence,
+  P extends PGliteFlarexPersistence | PostgresFlarexPersistence,
 >(prepared: RelationalFixture<P>, session: RelationalSession) {
   const { fixture, target, identity, reference, relation, column } = prepared;
   const baseline = await fixture.target.drizzle

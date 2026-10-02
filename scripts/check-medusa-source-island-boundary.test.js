@@ -21,7 +21,6 @@ const nativeObserver = "packages/medusa-adapter/benchmarks/core-performance/nati
 const nativeConfig = "packages/medusa-adapter/vitest.native-retrieval.config.ts";
 const nativeControlImports = [
   "../../../../../third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service",
-  "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner",
   "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter",
 ];
 const nativeControlPromotion = {
@@ -32,6 +31,70 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("inventories only the existing publication test consumers of the authored server observer", () => {
+    const server = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts";
+    const promotion = { ...nativeControlPromotion, files: [...nativeControlPromotion.files,
+      { target: server, targetSha256: "pinned", classification: "authored" }] };
+    /** @type {Array<[string, string]>} */
+    const consumers = [
+      ["packages/flarex-backend/test/publicationPerformance.postgres.test.ts",
+        "../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+      ["packages/flarex-backend/test/support/publicationPerformanceReport.ts",
+        "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+      ["packages/flarex-backend/test/support/publicationPerformanceServer.ts",
+        "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+    ];
+    /** @param {string} relativePath @param {string} specifier
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (relativePath, specifier, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: `import { openRetrievalServerObserver } from ${JSON.stringify(specifier)};` }],
+    }).errors;
+    for (const [relativePath, specifier] of consumers) {
+      expect(check(relativePath, specifier)).toEqual([]);
+      expect(check(relativePath, specifier, nativeControlPromotion).length).toBeGreaterThan(0);
+      expect(check(relativePath.replace("publicationPerformance", "adjacent"), specifier).length).toBeGreaterThan(0);
+      expect(check(relativePath.replace("/test/", "/src/"), specifier).length).toBeGreaterThan(0);
+      expect(check(relativePath, specifier.replace("/server", "/observation")).length).toBeGreaterThan(0);
+      expect(check(relativePath, specifier, {
+        ...promotion, files: promotion.files.map(file => file.target === server
+          ? { ...file, classification: "testHarnessPort" } : file),
+      }).length).toBeGreaterThan(0);
+    }
+  });
+  it("limits the benchmark runner port to its exact native helpers and provenance", () => {
+    const runner = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/native-runner.ts";
+    const helper = "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules";
+    const promotion = { ...nativeControlPromotion, files: [...nativeControlPromotion.files, {
+      target: runner, targetSha256: "pinned", classification: "testHarnessPort",
+      source: "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts", sourceSha256: "pinned",
+    }] };
+    /** @param {string} relativePath @param {string} specifier
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (relativePath, specifier, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: `import { initModules } from ${JSON.stringify(specifier)};` }],
+    }).errors;
+    expect(check(runner, helper)).toEqual([]);
+    expect(check(runner.replace("native-runner", "adjacent"), helper).length).toBeGreaterThan(0);
+    expect(check(runner, helper.replace("init-modules", "unlisted-helper")).length).toBeGreaterThan(0);
+    expect(check(runner, helper, nativeControlPromotion).length).toBeGreaterThan(0);
+    expect(check(runner, helper, { ...promotion, files: promotion.files.map(file =>
+      file.target === runner ? { ...file, classification: "authored" } : file) }).length).toBeGreaterThan(0);
+    const source = "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts";
+    /** @param {string} text
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const checkFingerprint = (text, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath: nativeScenario, text }],
+    }).errors;
+    const fingerprint = `async function sourceEvidence() { const paths = [${JSON.stringify(source)}]; }`;
+    expect(checkFingerprint(fingerprint)).toEqual([]);
+    expect(checkFingerprint(fingerprint, nativeControlPromotion).length).toBeGreaterThan(0);
+    expect(checkFingerprint(`const paths = [${JSON.stringify(source)}];`).length).toBeGreaterThan(0);
+    expect(checkFingerprint(`import Runner from ${JSON.stringify("../../../../../" + source)};`).length)
+      .toBeGreaterThan(0);
+  });
   it("admits the exact authored native built control separately from forensic source data", () => {
     const control = nativeControlImports.map(specifier => `import type Native from ${JSON.stringify(specifier)};`).join("\n");
     expect(analyzeMedusaSourceIslandBoundary({

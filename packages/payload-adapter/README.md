@@ -17,7 +17,7 @@ to `makePayloadContentProfiles(compiled)` and `makePayloadRuntime(compiled)`.
 Structural copies cannot substitute executable configuration after compilation.
 
 `internal/runtime` exposes a scoped instance with the six admitted commands and
-`bind(hostInput)`. Every command input explicitly selects a `collection` slug,
+`bind(hostInput)`, `bindRead(hostInput)` and `borrowParticipant(input)`. Every command input explicitly selects a `collection` slug,
 for example `{ collection: "news-items", data: { headline: "Hello" } }` for create.
 Collection selection participates in request identity and replay. It installs no scenario hooks
 and exposes no raw Payload instance or test counters. The JSON command-host
@@ -30,7 +30,15 @@ types inside the adapter.
 interruption, and raw-instance probes. This is test support, not configurable
 user hooks or a public-serving API.
 
-Internal responsibilities are explicit: `composition.ts` owns instance lifetime,
+The participant binding admits create, update and find-by-ID using the same native
+instance and operation handlers. It borrows the Application root's lifetime and
+pending view; deadline, close, abort and journal outcomes stay with that binding.
+It cannot settle or publish the root. Product retains its existing update,
+retrieve and list-by-handle methods.
+
+Internal responsibilities are explicit: `runtime/native.ts` owns instance lifetime,
+`direct/binding.ts` owns direct command hosts, `participant/binding.ts` owns borrowed
+Application participant calls,
 `inputs.ts` owns ordered command admission, `operations.ts` binds native Local
 API calls, `results.ts` captures typed result envelopes, and `query.ts` shares
 primitive constraints without merging caller and sanitized adapter boundaries.
@@ -44,7 +52,9 @@ on the next field. Native ID paging and complete counts retain the CMS matched-r
 and byte limits; custom sorting and compound uniqueness fail closed. Bound table identity also
 guards point reads and writes. Preference deletion authenticates the exact
 pending document's native collection key. The fixed posts configurations and
-identities live in `conformanceProfile.ts`; relation/many/join capabilities remain
+identities live in `testing/profiles.ts`; `testing/conformance.ts` and
+`testing/mutation.ts` own the fixed hooks, counters and revision profiles.
+Relation/many/join capabilities remain
 closed conformance regressions, not generalized authoring support.
 
 Numeric writes and query predicates use positive zero after native validation.

@@ -5,6 +5,7 @@ import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { FrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixtureTarget";
+import { installPostgresPhysicalProfileFixture } from "./frameworkMigrationPostgresFixture";
 import { capturePayloadPreferenceProfile } from "../src/payloadPreferences/binding";
 import { makeFrameworkInstaller } from "../src/migrationCoordination/installer";
 import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
@@ -22,16 +23,20 @@ export async function installPayloadPreferenceFixture(persistence: PGliteFlarexP
     controlSessionStarter: makeCatalogControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresCatalogControlSessionDriver(persistence.pool) }),
     readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
   await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(profile.artifact))));
-  const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, target);
-  const installer = Result.getOrThrow(makeFrameworkInstaller({ target: migrationTarget, artifactRepository: repository,
-    policy: { leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000,
-      runTimeoutMilliseconds: 120000, maximumStepsPerCall: 128 } }));
+  const policy = { leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000,
+    runTimeoutMilliseconds: 120000, maximumStepsPerCall: 128 };
   const input = { artifactIdentity: profile.artifact.identity, attemptId: "preference-install", leaseOwnerId: "preference-test" };
-  const ready = await runEffect(installer.installFresh(input));
-  if (ready.kind !== "ready") throw new Error(`Preference installation incomplete: ${ready.kind}`);
-  const availability = ready.availability;
+  const availability = "pool" in persistence ? await runEffect(installPostgresPhysicalProfileFixture({
+    persistence, target, artifactRepository: repository, requests: [input, input], policy,
+  })) : await (async () => {
+    const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, target);
+    const installer = Result.getOrThrow(makeFrameworkInstaller({ target: migrationTarget, artifactRepository: repository, policy }));
+    const ready = await runEffect(installer.installFresh(input));
+    if (ready.kind !== "ready") throw new Error(`Preference installation incomplete: ${ready.kind}`);
+    expect((await runEffect(installer.installFresh(input))).kind).toBe("ready");
+    return ready.availability;
+  })();
   expect(availability.installation.admission.admission.frame.admissionProfile).toBe("payload-preferences-fresh");
-  expect((await runEffect(installer.installFresh(input))).kind).toBe("ready");
   const physical = availability.installation.plan.plan.physicalLayout.frame.tables[0];
   if (physical === undefined) throw new Error("Missing installed preference table");
   const column = (id: string) => {

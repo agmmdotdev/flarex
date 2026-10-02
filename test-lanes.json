@@ -16,10 +16,9 @@
     "framework-cms-pglite": ["test/cmsRequestLifetime.test.ts", "test/cmsHost.test.ts"],
     "framework-cms-postgres": ["test/cmsHost.postgres.test.ts"],
     "framework-coordinator-fresh-postgres": [
-      "test/frameworkCoordinatorPostgresTarget.test.ts",
-      "test/frameworkCoordinatorFreshCoordinator.postgres.test.ts",
-      "test/frameworkCoordinatorNativeWork.postgres.test.ts",
-      "test/frameworkCoordinatorRestart.postgres.test.ts"
+      "test/retainedPhysicalInstallation.postgres.test.ts",
+      "test/frameworkCoordinatorMetadataProtection.postgres.test.ts",
+      "test/frameworkCoordinatorTextSet.test.ts"
     ],
     "framework-coordinator-fresh-pglite": [
       "test/frameworkCoordinatorFreshCoordinator.test.ts"
@@ -66,10 +65,6 @@
       "test/frameworkCoordinatorAdditiveLimits.test.ts",
       "test/frameworkCoordinatorAdditiveMetadata.test.ts"
     ],
-    "framework-coordinator-additive-postgres": [
-      "test/frameworkCoordinatorAdditive.postgres.test.ts",
-      "test/frameworkCoordinatorAdditiveRecovery.postgres.test.ts"
-    ],
     "framework-coordinator-pglite": [
       "test/frameworkCoordinatorGraphReadPass.test.ts",
       "test/privateCanonicalValue.test.ts",
@@ -101,12 +96,9 @@
       "test/frameworkTestWorkers.test.ts"
     ],
     "framework-coordinator-postgres": [
-      "test/frameworkCoordinatorPostgresTarget.test.ts",
-      "test/frameworkCoordinatorFreshCoordinator.postgres.test.ts",
-      "test/frameworkCoordinatorNativeWork.postgres.test.ts",
-      "test/frameworkCoordinatorRestart.postgres.test.ts",
-      "test/frameworkCoordinatorAdditive.postgres.test.ts",
-      "test/frameworkCoordinatorAdditiveRecovery.postgres.test.ts",
+      "test/retainedPhysicalInstallation.postgres.test.ts",
+      "test/frameworkCoordinatorMetadataProtection.postgres.test.ts",
+      "test/frameworkCoordinatorTextSet.test.ts",
       "test/postgresFileScopedFixture.postgres.test.ts"
     ],
     "framework-bindings-pglite": [
@@ -229,9 +221,6 @@
     ],
     "framework-coordinator-additive-pglite": [
       "framework-coordinator-additive-pglite"
-    ],
-    "framework-coordinator-additive-postgres": [
-      "framework-coordinator-additive-postgres"
     ],
     "framework-coordinator-pglite": [
       "framework-coordinator-pglite"
@@ -720,10 +709,13 @@
     {
       "id": "framework-coordinator-fresh-postgres",
       "category": "postgres",
-      "proof": "Source-private fresh relational installation on an ordinary-role PostgreSQL database: physical session lifecycle, transaction and statement budgets, concurrency, stale fencing, atomic DDL/progress, distinct-backend commit recovery, process restart, corruption refusal, and measured bounded-plan work. The tested native transport is direct non-TLS PostgreSQL. This does not establish base-backed upgrades, general lineage scale, hosted pooling/TLS cancellation, framework adapters, production identity resolution, or runtime activation.",
+      "proof": "Private retained physical installation through the trusted dedicated maintenance owner: exact canonical verification before reopen, ordinary runtime permissions, atomic DDL and receipt progress, bounded cancellation and uncertain settlement, generation fencing, namespace isolation and process reconstruction. Direct non-TLS PostgreSQL is the tested transport. Native additive evolution, hosted pooling/TLS cancellation and production activation remain deferred.",
       "prerequisites": [
         {
           "name": "FLAREX_POSTGRES_DATABASE_URL"
+        },
+        {
+          "name": "FLAREX_POSTGRES_PROVISIONING_DATABASE_URL"
         }
       ],
       "steps": [
@@ -1292,35 +1284,6 @@
       ]
     },
     {
-      "id": "framework-coordinator-additive-postgres",
-      "category": "postgres",
-      "proof": "Private one-hop additive system upgrade preserves the authenticated fresh base and proves successor recovery, availability and bounded work.",
-      "prerequisites": [
-        {
-          "name": "FLAREX_POSTGRES_DATABASE_URL"
-        }
-      ],
-      "steps": [
-        {
-          "id": "persistence-framework-coordinator-additive-postgres",
-          "cwd": "packages/persistence-postgres",
-          "command": "pnpm",
-          "args": [
-            "exec",
-            "vitest",
-            "run",
-            "--config=vitest.framework.postgres.config.ts",
-            {
-              "testFileGroup": "framework-coordinator-additive-postgres"
-            },
-            "--testTimeout=300000",
-            "--reporter=verbose",
-            "--bail=1"
-          ]
-        }
-      ]
-    },
-    {
       "id": "framework-coordinator-pglite",
       "category": "pglite",
       "proof": "Combined bounded framework coordinator pglite acceptance: the exact existing value/repository, migration, target/session, structural, fresh and additive test inventory plus test-harness policy checks. Existing profile boundaries and per-test timeouts remain in force; this combines scheduling without broadening readiness or production claims.",
@@ -1376,10 +1339,13 @@
     {
       "id": "framework-coordinator-postgres",
       "category": "postgres",
-      "proof": "Combined bounded framework coordinator postgres acceptance: the exact existing fresh and additive native test inventory plus test-harness policy checks. Existing profile boundaries and per-test timeouts remain in force; this combines scheduling without broadening readiness or production claims.",
+      "proof": "Private retained physical installation through the trusted dedicated maintenance owner: exact canonical verification before reopen, ordinary runtime permissions, atomic DDL and receipt progress, bounded cancellation and uncertain settlement, generation fencing, namespace isolation and process reconstruction. Direct non-TLS PostgreSQL is the tested transport. Native additive evolution, hosted pooling/TLS cancellation and production activation remain deferred.",
       "prerequisites": [
         {
           "name": "FLAREX_POSTGRES_DATABASE_URL"
+        },
+        {
+          "name": "FLAREX_POSTGRES_PROVISIONING_DATABASE_URL"
         }
       ],
       "steps": [

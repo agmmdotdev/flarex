@@ -12,12 +12,12 @@ execution. [Read-admission construction](./read-admission-construction-preflight
 and fresh Application acceptance are delivered under their separate contracts.
 The owner-selected next goal is the
 [complete standalone read refactor](./orchestration-target-design.md#next-goal-complete-standalone-read-refactor),
-after this session's clean handoff and pause. Query-specific readiness and reusable
-immutable preparation need explicit accepted-design amendments; no larger runtime
-work or new measurement is active. Matched full native latency and unrelated-schema
-scaling are required future gates. This historical measurement establishes no private
-finite-profile equivalence, scaling/whole-mixed acceptance or approved runtime
-contract change; numerical redesign ceilings remain unselected.
+under the [selected first-slice contract](./standalone-read-redesign-preflight.md).
+Query-required readiness, bounded immutable reuse and managed installation
+integrity now have an accepted target amendment; runtime is not implemented.
+The successor preflight selects complete native latency and unrelated-schema
+scaling budgets. This historical measurement establishes no new private
+finite-profile equivalence, hosted acceptance or implemented runtime change.
 
 ## Outcome and scope
 

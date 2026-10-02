@@ -1,4 +1,4 @@
-import type { FlarexMetadataDatabase } from "../deployments";
+import type { ApplicationWriteOwnershipCatalog } from "./Catalog";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
@@ -25,7 +25,7 @@ export interface ApplicationWriteOwnershipSnapshot {
 
 /** Callers own the scope-clock lock or repeatable-read snapshot. No caller supplies claims. */
 export const readApplicationWriteOwnershipInTransaction = Effect.fn("ApplicationWriteOwnership.readInTransaction")(
-  function* (tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget, controlDb?: FlarexMetadataDatabase):
+  function* (tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget, catalog?: ApplicationWriteOwnershipCatalog):
     Effect.fn.Return<ApplicationWriteOwnershipSnapshot, ApplicationWriteOwnershipError> {
     const headSizes = yield* query(tx.select({ head: sql<number>`octet_length(${fxSystemApplicationActiveHeads.headBytes})`,
       activation: sql<number>`octet_length(${fxSystemApplicationActivations.activationBytes})` })
@@ -111,7 +111,7 @@ export const readApplicationWriteOwnershipInTransaction = Effect.fn("Application
       const oldClaims = new Map(previous?.frame.claims.map(claim => [claim.policy.tableId, claim]) ?? []);
       const nextClaims = new Map(frame.claims.map(claim => [claim.policy.tableId, claim]));
       const successor = previous === null ? undefined : yield* prepareApplicationOwnershipSuccessor(tx, scopeId,
-        previous.frame.revisionId, frame.revisionId, previous.frame.claims, frame.claims.map(claim => claim.policy), frame.writePolicySetSha256, budget, controlDb, previousReadiness === undefined ? undefined : { prior: previousReadiness, next: readyFrame });
+        previous.frame.revisionId, frame.revisionId, previous.frame.claims, frame.claims.map(claim => claim.policy), frame.writePolicySetSha256, budget, catalog, previousReadiness === undefined ? undefined : { prior: previousReadiness, next: readyFrame });
       for (const old of oldClaims.values()) {
         const next = nextClaims.get(old.policy.tableId);
         if (next === undefined || (next.policy.writePolicySha256 !== old.policy.writePolicySha256 && !admitsApplicationOwnershipSuccessor(successor, old.policy, next.policy)) ||

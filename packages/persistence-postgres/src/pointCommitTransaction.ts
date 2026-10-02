@@ -4857,6 +4857,7 @@ async function runRollbackProof(
     try {
       await runPointCommitTransactionKernel(
         tx,
+        target,
         preliminaryAuthority,
         command,
         intrinsicDefinitions,
@@ -4902,6 +4903,7 @@ async function runPointCommitPublication(
     try {
     const kernel = await runPointCommitTransactionKernel(
       tx,
+      target,
       preliminaryAuthority,
       command,
       intrinsicDefinitions,
@@ -4943,6 +4945,7 @@ async function runPointCommitPublication(
  */
 async function runPointCommitTransactionKernel(
   tx: AppRowTransaction,
+  target: LocatedReadCommittedAttemptTargetV1,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
@@ -4987,7 +4990,7 @@ async function runPointCommitTransactionKernel(
       generation: command.authorityPins.executionAuthorityGeneration,
       authenticatedAttemptedTables: command.attemptedTableIds,
       materialTables: command.rowIntents.filter(row => !command.participantMaterialDocumentIds.has(row.documentId))
-        .map(row => row.tableId) }, options.uniqueConstraints).pipe(
+        .map(row => row.tableId) }, options.uniqueConstraints, target).pipe(
       Effect.mapError(error => error.reason === "resourceFailure"
         ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
         : corruption(error.reason === "writeDenied" ? "applicationWritePolicyDenied" : "applicationWritePolicyEvidenceInvalid")))),

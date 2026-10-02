@@ -12,6 +12,7 @@ import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogC
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from
   "./frameworkSchemaArtifactAdmissionTestSupport";
 import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixtureTarget";
+import { installPostgresPhysicalProfileFixture } from "./frameworkMigrationPostgresFixture";
 
 /** Test-only installer composition for an existing authenticated target. */
 export const installCommerceProfileFixture = Effect.fn("CommerceFixture.installProfile")(
@@ -34,16 +35,25 @@ export const installCommerceProfileFixture = Effect.fn("CommerceFixture.installP
     })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
     yield* admitFrameworkSchemaArtifactEffect(repository,
       yield* Effect.fromResult(prepareFrameworkSchemaArtifactAdmission(descriptor.artifact)));
+    const request = { artifactIdentity: descriptor.artifact.identity, commerceProfile: profile,
+      attemptId: input.attemptId, leaseOwnerId: input.leaseOwnerId };
+    const policy = { leaseDurationMilliseconds: 120_000,
+      lockTimeoutMilliseconds: 5_000, statementTimeoutMilliseconds: 30_000,
+      runTimeoutMilliseconds: 120_000, maximumStepsPerCall: 128 };
+    if ("pool" in persistence) {
+      const coldProfile = input.coldProfile === undefined ? undefined : yield* input.coldProfile();
+      const availability = yield* installPostgresPhysicalProfileFixture({ persistence, target, artifactRepository: repository,
+        requests: coldProfile === undefined ? [request] : [request, { ...request, commerceProfile: coldProfile }], policy });
+      if (availability.installation.admission.admission.frame.admissionProfile !== "registered-commerce-fresh")
+        return yield* Effect.fail(new Error("Unexpected commerce admission profile"));
+      return availability;
+    }
     const migrationTarget = yield* Effect.tryPromise({
       try: () => makeFrameworkMigrationFixtureTarget(persistence, target),
       catch: cause => new Error("Commerce fixture migration target", { cause }),
     });
     const installer = yield* Effect.fromResult(makeFrameworkInstaller({ target: migrationTarget,
-      artifactRepository: repository, policy: { leaseDurationMilliseconds: 120_000,
-        lockTimeoutMilliseconds: 5_000, statementTimeoutMilliseconds: 30_000,
-        runTimeoutMilliseconds: 120_000, maximumStepsPerCall: 128 } }));
-    const request = { artifactIdentity: descriptor.artifact.identity, commerceProfile: profile,
-      attemptId: input.attemptId, leaseOwnerId: input.leaseOwnerId };
+      artifactRepository: repository, policy }));
     const ready = yield* installer.installFresh(request).pipe(Effect.timeout(90_000));
     if (ready.kind !== "ready") return yield* Effect.fail(new Error(`Commerce installation incomplete: ${ready.kind}`));
     if (input.coldProfile !== undefined) {

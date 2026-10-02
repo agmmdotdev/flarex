@@ -1,3 +1,5 @@
+import type { PGliteFlarexPersistence } from "../src/pglite";
+import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { DataBindingHost } from "../src/frameworkSchema/binding/host";
 import { Effect, Option, Result } from "effect";
 import { and, eq } from "drizzle-orm";
@@ -14,7 +16,9 @@ import {
 } from "../src/frameworkSchema/artifact/repository";
 import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
 import { runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
-import type { FrameworkMigrationTarget } from "../src/migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../src/frameworkSchema/target";
+import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixtureTarget";
+import { installPostgresPhysicalProfileFixture } from "./frameworkMigrationPostgresFixture";
 import type {
   ApplicationNativeMutationFixture,
   ApplicationNativeMutationPersistence,
@@ -54,10 +58,10 @@ import { readBindingSelectedEvidence } from "../src/frameworkSchema/binding/repo
 import { compareBindingCoverage, isCommerceBinding, type BindingCoverage } from "../src/frameworkSchema/binding/commerceBindingSchema";
 
 export async function installBindingFixture<
-  P extends ApplicationNativeMutationPersistence,
+  P extends PGliteFlarexPersistence | PostgresFlarexPersistence,
 >(
   fixture: ApplicationNativeMutationFixture<P>,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   repository: FrameworkSchemaArtifactRepository,
   owner: "medusa" | "system",
 ) {
@@ -79,13 +83,23 @@ export async function installBindingFixture<
       ),
     ),
   );
+  const request = {
+    artifactIdentity: captured.artifact.identity,
+    attemptId: `binding-${owner}`,
+    leaseOwnerId: "binding-test",
+  };
+  if ("pool" in fixture.target) return runEffect(installPostgresPhysicalProfileFixture({
+    persistence: fixture.target, target, artifactRepository: repository,
+    requests: [request], policy: { leaseDurationMilliseconds: 120_000,
+      lockTimeoutMilliseconds: 5_000, statementTimeoutMilliseconds: 30_000,
+      runTimeoutMilliseconds: 120_000, maximumStepsPerCall: 16 },
+  }));
+  const migrationTarget = await makeFrameworkMigrationFixtureTarget(fixture.target, target);
   const ready = await runEffect(
     runFreshFrameworkMigrationCoordinatorEffect({
-      target,
+      target: migrationTarget,
       artifactRepository: repository,
-      artifactIdentity: captured.artifact.identity,
-      attemptId: `binding-${owner}`,
-      leaseOwnerId: "binding-test",
+      ...request,
       leaseDurationMilliseconds: 120_000,
       lockTimeoutMilliseconds: 5_000,
       statementTimeoutMilliseconds: 30_000,
@@ -192,15 +206,15 @@ export async function changeBindingAvailability<
 }
 
 export async function exercisePhysicalBindings<
-  P extends ApplicationNativeMutationPersistence,
+  P extends PGliteFlarexPersistence | PostgresFlarexPersistence,
 >(
   fixture: ApplicationNativeMutationFixture<P>,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   repository: FrameworkSchemaArtifactRepository,
   baseFrame: DataBindingSetFrame,
   previousHead: DataBindingHeadToken,
 ) {
-  const input = bindingInput(fixture, target.schema);
+  const input = bindingInput(fixture, target);
   const disabled = await runEffect(makeDataBindingHost(input));
   const syntheticHost = await runEffect(
     makeDataBindingHost({ ...input, testOnly: { syntheticSelection: true } }),
@@ -247,7 +261,7 @@ export async function exercisePhysicalBindings<
   );
   const profiles = bindingProfiles(availability);
   const registry = await runEffect(
-    makeDataBindingTestProfiles(fixture.target.drizzle, target.schema, profiles),
+    makeDataBindingTestProfiles(fixture.target.drizzle, target, profiles),
   );
   const host = await runEffect(
     makeDataBindingHost({
@@ -289,7 +303,7 @@ export async function exercisePhysicalBindings<
   const uncoveredRegistry = await runEffect(
     makeDataBindingTestProfiles(
       fixture.target.drizzle,
-      target.schema,
+      target,
       uncoveredProfiles,
     ),
   );
@@ -367,7 +381,7 @@ export async function exercisePhysicalBindings<
     (await runEffect(host.withCurrent(readAdmittedDataBinding))).head,
   ).toEqual(Result.getOrThrow(second.current).head);
   const newRegistry = await runEffect(
-    makeDataBindingTestProfiles(fixture.target.drizzle, target.schema, profiles),
+    makeDataBindingTestProfiles(fixture.target.drizzle, target, profiles),
   );
   const coldHost = await runEffect(
     makeDataBindingHost({ ...input, testOnly: { profiles: newRegistry } }),

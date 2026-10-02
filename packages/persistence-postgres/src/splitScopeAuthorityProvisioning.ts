@@ -1,4 +1,6 @@
 import type { ScopeId } from "flarex-protocol/storage-authority";
+import { Effect } from "effect";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 import {
   DeploymentMetadataAlreadyExistsError,
@@ -235,13 +237,14 @@ export function createSplitScopeAuthorityProvisioner(
               options.placementPlanner,
               randomUuid,
             )
-          : await controlDb.transaction((tx) =>
-              requireExistingControlAuthorityInTransaction(
-                tx,
-                input,
-                observedDeployment.createdAt,
-              ),
-            );
+          : await controlDb.transaction(async tx => {
+              await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+              try {
+                return await requireExistingControlAuthorityInTransaction(tx, input, observedDeployment.createdAt);
+              } finally {
+                closeInstallationAdmission(tx);
+              }
+            });
       return reconcileSplitScopeAuthority(
         controlDb,
         options.targetResolver,
@@ -268,60 +271,65 @@ async function reserveNewControlAuthority(
     const candidateInitialEpoch = generateScopeAuthorityEpoch(randomUuid);
     try {
       return await controlDb.transaction(async (tx) => {
-        const ensuredDeployment = await ensureDeploymentInTransaction(
-          tx,
-          input,
-        );
-        if (!ensuredDeployment.created) {
-          return requireExistingControlAuthorityForDeploymentInTransaction(
+        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+        try {
+          const ensuredDeployment = await ensureDeploymentInTransaction(
             tx,
             input,
-            ensuredDeployment.deployment,
           );
-        }
+          if (!ensuredDeployment.created) {
+            return await requireExistingControlAuthorityForDeploymentInTransaction(
+              tx,
+              input,
+              ensuredDeployment.deployment,
+            );
+          }
 
-        const scopeCollision = await getScopeMetadata(tx, candidateScopeId);
-        const clockCollision = await getScopeClock(tx, candidateScopeId);
-        if (scopeCollision !== null || clockCollision !== null) {
-          throw new CandidateScopeAuthorityIdCollisionError();
-        }
-
-        let scope: ScopeMetadataRecord;
-        try {
-          scope = await insertScopeMetadata(tx, {
-            scopeId: candidateScopeId,
-            deploymentId: input.deploymentId,
-            physicalLocator,
-          });
-        } catch (error) {
-          if (error instanceof ScopeMetadataAlreadyExistsError) {
+          const scopeCollision = await getScopeMetadata(tx, candidateScopeId);
+          const clockCollision = await getScopeClock(tx, candidateScopeId);
+          if (scopeCollision !== null || clockCollision !== null) {
             throw new CandidateScopeAuthorityIdCollisionError();
           }
-          throw error;
+
+          let scope: ScopeMetadataRecord;
+          try {
+            scope = await insertScopeMetadata(tx, {
+              scopeId: candidateScopeId,
+              deploymentId: input.deploymentId,
+              physicalLocator,
+            });
+          } catch (error) {
+            if (error instanceof ScopeMetadataAlreadyExistsError) {
+              throw new CandidateScopeAuthorityIdCollisionError();
+            }
+            throw error;
+          }
+          const splitScope = requireSplitScopeMetadata(scope);
+          const reserved =
+            await reserveScopeAuthorityProvisioningReceiptInTransaction(tx, {
+              scopeId: splitScope.scopeId,
+              physicalLocator: splitScope.physicalLocator,
+              candidateInitialEpoch,
+            });
+          if (
+            reserved.status !==
+              ReserveSplitScopeAuthorityProvisioningReceiptStatuses.createdReserved ||
+            reserved.receipt.state !== SplitScopeAuthorityProvisioningStates.reserved
+          ) {
+            throw new ScopeAuthorityProvisioningReceiptCorruptionError(
+              splitScope.scopeId,
+              "a newly created split scope did not create a reserved receipt",
+            );
+          }
+          return {
+            createdDeployment: true,
+            deployment: ensuredDeployment.deployment,
+            scope: splitScope,
+            receipt: reserved.receipt,
+          } satisfies ControlAuthority;
+        } finally {
+          closeInstallationAdmission(tx);
         }
-        const splitScope = requireSplitScopeMetadata(scope);
-        const reserved =
-          await reserveScopeAuthorityProvisioningReceiptInTransaction(tx, {
-            scopeId: splitScope.scopeId,
-            physicalLocator: splitScope.physicalLocator,
-            candidateInitialEpoch,
-          });
-        if (
-          reserved.status !==
-            ReserveSplitScopeAuthorityProvisioningReceiptStatuses.createdReserved ||
-          reserved.receipt.state !== SplitScopeAuthorityProvisioningStates.reserved
-        ) {
-          throw new ScopeAuthorityProvisioningReceiptCorruptionError(
-            splitScope.scopeId,
-            "a newly created split scope did not create a reserved receipt",
-          );
-        }
-        return {
-          createdDeployment: true,
-          deployment: ensuredDeployment.deployment,
-          scope: splitScope,
-          receipt: reserved.receipt,
-        } satisfies ControlAuthority;
       });
     } catch (error) {
       if (error instanceof CandidateScopeAuthorityIdCollisionError) continue;
@@ -536,22 +544,27 @@ async function publishExactControlAuthority(
   }
 > {
   return controlDb.transaction(async (tx) => {
-    const deployment = await lockAndRequireFinalDeployment(
-      tx,
-      input,
-      expected.deployment,
-    );
-    const published = await publishScopeAuthorityReadyInTransaction(tx, {
-      expected: receiptIdentity(expected.receipt),
-    });
-    const scope = await requireFinalScope(tx, expected.scope);
-    return {
-      createdDeployment: expected.createdDeployment,
-      deployment,
-      scope,
-      receipt: published.receipt,
-      publicationStatus: published.status,
-    };
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      const deployment = await lockAndRequireFinalDeployment(
+        tx,
+        input,
+        expected.deployment,
+      );
+      const published = await publishScopeAuthorityReadyInTransaction(tx, {
+        expected: receiptIdentity(expected.receipt),
+      });
+      const scope = await requireFinalScope(tx, expected.scope);
+      return {
+        createdDeployment: expected.createdDeployment,
+        deployment,
+        scope,
+        receipt: published.receipt,
+        publicationStatus: published.status,
+      };
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 
@@ -583,22 +596,27 @@ async function readExactControlAuthorityState(
   expected: ControlAuthority,
 ): Promise<ControlAuthority> {
   return controlDb.transaction(async (tx) => {
-    const deployment = await lockAndRequireFinalDeployment(
-      tx,
-      input,
-      expected.deployment,
-    );
-    const receipt =
-      await lockExactScopeAuthorityProvisioningReceiptInTransaction(tx, {
-        expected: receiptIdentity(expected.receipt),
-      });
-    const scope = await requireFinalScope(tx, expected.scope);
-    return {
-      createdDeployment: expected.createdDeployment,
-      deployment,
-      scope,
-      receipt,
-    };
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      const deployment = await lockAndRequireFinalDeployment(
+        tx,
+        input,
+        expected.deployment,
+      );
+      const receipt =
+        await lockExactScopeAuthorityProvisioningReceiptInTransaction(tx, {
+          expected: receiptIdentity(expected.receipt),
+        });
+      const scope = await requireFinalScope(tx, expected.scope);
+      return {
+        createdDeployment: expected.createdDeployment,
+        deployment,
+        scope,
+        receipt,
+      };
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 

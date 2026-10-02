@@ -256,8 +256,7 @@ import { createAppDeveloperIndexDefinitionPortV1 } from
   "../src/appDeveloperIndexCommitV1";
 import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from
   "../src/applicationActivationSchema";
-import { getScopeAuthorityProvisioningReceipt } from
-  "../src/scopeAuthorityProvisioningReceipt";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "../src/scopeAuthorityControlRead";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
 import * as hostPreparation from "../src/preparedHostRuntime";
@@ -4657,12 +4656,9 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     target.drizzle,
     LOCATOR,
   );
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
   const authorityPorts = Object.freeze({
-    scopeMetadata: control,
-    provisioningReceipts: {
-      getScopeAuthorityProvisioningReceipt: (scopeId: typeof authority.scopeId) =>
-        getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
-    },
+    ...controlReader,
     scopeClockTargets: { resolve: async () => locatedTarget },
   });
   const candidateValidation = createAppSchemaCandidateValidationPort({
@@ -4678,7 +4674,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
       authority: authorityPorts,
     }, uniqueConstraints);
   const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: control,
+    scopeMetadata: authorityPorts.scopeMetadata,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeSessionTargets: {
       resolve: async () => {

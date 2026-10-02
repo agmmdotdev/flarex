@@ -42,7 +42,7 @@ import {
 } from "./scopeClock";
 import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
 import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
-import { getScopeMetadata } from "./scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import {
   fxSystemApplicationPublicationsV1,
   fxSystemApplicationRevisionsV2,
@@ -178,7 +178,7 @@ export const loadApplicationManagedSchemaPlanningSnapshot = Effect.fn(
   const active = yield* state.activation.readActive();
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: state.deploymentId, scopeId: candidateEvidence.authority.scopeId },
-    { ...state.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) } },
+    { ...state.authority, ...makeInstallationProtectedScopeAuthorityControlReader(state.controlDb) },
   );
   if (located.authority.storageGeneration !== "flarexdb_v1" ||
     !authorityMatches(active.basis.authority, located.authority) ||

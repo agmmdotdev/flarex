@@ -83,6 +83,17 @@ interface RelationalSchemaDecodeBudget {
 export function normalizeRelationalSchema(
   input: unknown,
 ): Result.Result<RelationalSchema, RelationalSchemaError> {
+  return decodeRelationalSchemaMetadata(input).pipe(Result.flatMap(schema =>
+    validateRelationalSchema(schema).pipe(Result.map(() => schema))));
+}
+
+/** Exact metadata decoding only. This proves field, identity and scalar shapes;
+ * it does not prove complete source derivation, referenced tables or capability
+ * obligations. Authenticated read projections use this after publication from
+ * a fully admitted source. Source admission must use normalizeRelationalSchema. */
+export function decodeRelationalSchemaMetadata(
+  input: unknown,
+): Result.Result<RelationalSchema, RelationalSchemaError> {
   return Result.gen(function* () {
     const budget: RelationalSchemaDecodeBudget = { units: 1 };
     const root = yield* exactRecord(
@@ -148,7 +159,6 @@ export function normalizeRelationalSchema(
       tables: Object.freeze(tables),
       capabilities: Object.freeze(capabilities),
     } satisfies RelationalSchema);
-    yield* validateRelationalSchema(schema);
     return schema;
   });
 }

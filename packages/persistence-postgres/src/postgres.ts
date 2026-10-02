@@ -1,6 +1,12 @@
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
 import { Pool, type PoolConfig } from "pg";
+import { Effect, Schema } from "effect";
+import { sql } from "drizzle-orm";
+import { withInstallationMaintenance, runInstallationMigrations, backfillInstallationApplicationBindings,
+  backfillInstallationLogicalReadProjections, bootstrapInstallationMigrations,
+  publishFullProofInstallation, publishVerifiedInstallation } from "./postgresInstallationMaintenance";
+import { InstallationLifecycleError } from "./installationLifecycle";
+import type { FlarexMetadataDatabase } from "./deployments";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
 import {
@@ -79,6 +85,21 @@ export interface PostgresPersistenceOptions {
   migrationsFolder?: string;
   migrationsSchema?: string;
   migrationsTable?: string;
+  /** fullProof is the explicit compatibility installer profile used by owner
+   * tests. Managed publication requires exact authenticated runtime pools. */
+  installation?: Readonly<{ kind: "fullProof" }> | Readonly<{ kind: "managed";
+    runtimePolicies: ReadonlyArray<Readonly<{ database: FlarexMetadataDatabase; endpointPolicy: string;
+      accessProfile?: "dataRuntime" | "controlRead" }>> }>;
+}
+const decodeMigrationTarget = Schema.decodeUnknownEffect(Schema.Tuple([
+  Schema.Struct({ schemaName: Schema.NonEmptyString, installed: Schema.Boolean }),
+]));
+const decodeInstalled = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ installed: Schema.Boolean })]));
+const decodePolicyCount = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ count: Schema.String.check(
+  Schema.makeFilter(value => /^(0|[1-9][0-9]*)$/.test(value) ? undefined : "Expected a nonnegative count")) })]));
+function installationQuery<Value>(run: () => PromiseLike<Value>): Effect.Effect<Value, InstallationLifecycleError> {
+  return Effect.tryPromise({ try: () => Promise.resolve(run()),
+    catch: cause => new InstallationLifecycleError({ reason: "resourceFailure", cause }) });
 }
 
 export interface PostgresFlarexPersistence extends FlarexPersistence {
@@ -318,20 +339,54 @@ export async function createPostgresPersistence(
     },
   });
 
+  const migrateInstallation = Effect.fn("PostgresPersistence.migrate")(function* () {
+      const migrationOptions = {
+        migrationsFolder,
+        ...(options.migrationsSchema === undefined ? {} : { migrationsSchema: options.migrationsSchema }),
+        ...(options.migrationsTable === undefined ? {} : { migrationsTable: options.migrationsTable }),
+      };
+      const rows = yield* installationQuery(() => migrationDb.select({ schemaName: sql<string>`current_schema()`,
+        installed: sql<boolean>`pg_catalog.to_regclass('fx_system_installation') is not null` })
+        .from(sql`(values (1)) as migration_target(value)`));
+      const [target] = yield* decodeMigrationTarget(rows).pipe(Effect.mapError(cause =>
+        new InstallationLifecycleError({ reason: "invalidInstallation", cause })));
+      const selected: NonNullable<PostgresPersistenceOptions["installation"]> = options.installation ?? { kind: "fullProof" };
+      if (selected.kind === "managed" && (selected.runtimePolicies.length === 0 || selected.runtimePolicies.length > 64))
+        return yield* Effect.fail(new InstallationLifecycleError({ reason: "invalidCapability" }));
+      if (target.installed && selected.kind === "fullProof") {
+        const counts = yield* installationQuery(() => migrationDb.select({ count: sql<string>`count(*)::text` })
+          .from(sql`${sql.identifier(target.schemaName)}.fx_system_installation_runtime`));
+        const [policy] = yield* decodePolicyCount(counts).pipe(Effect.mapError(cause =>
+          new InstallationLifecycleError({ reason: "invalidInstallation", cause })));
+        if (policy.count !== "0") return yield* Effect.fail(new InstallationLifecycleError({ reason: "invalidCapability" }));
+      }
+      const maintenanceConfig = options.migrationPool?.options ?? pool.options;
+      if (!target.installed) {
+        yield* bootstrapInstallationMigrations(maintenanceConfig, target.schemaName, migrationOptions);
+        const currentRows = yield* installationQuery(() => migrationDb.select({
+          installed: sql<boolean>`pg_catalog.to_regclass('fx_system_installation') is not null` })
+          .from(sql`(values (1)) as installed_bootstrap(value)`));
+        const [current] = yield* decodeInstalled(currentRows).pipe(Effect.mapError(cause =>
+          new InstallationLifecycleError({ reason: "invalidInstallation", cause })));
+        if (!current.installed) {
+          if (selected.kind === "managed") return yield* Effect.fail(new InstallationLifecycleError({ reason: "invalidCapability" }));
+          return; // Explicit historical migration fixtures predate this gate.
+        }
+      }
+      yield* withInstallationMaintenance(maintenanceConfig, target.schemaName, handle => Effect.gen(function* () {
+        if (target.installed) yield* runInstallationMigrations(handle, migrationOptions);
+        yield* backfillInstallationApplicationBindings(handle);
+        yield* backfillInstallationLogicalReadProjections(handle);
+        yield* selected.kind === "managed" ? publishVerifiedInstallation(handle, selected.runtimePolicies, migrationOptions) : publishFullProofInstallation(handle, migrationOptions);
+      }));
+  });
+
   return {
     ...runtime,
     drizzle: drizzleDb,
     pool,
     async migrate(): Promise<void> {
-      await migrateNodePg(migrationDb, {
-        migrationsFolder,
-        ...(options.migrationsSchema === undefined
-          ? {}
-          : { migrationsSchema: options.migrationsSchema }),
-        ...(options.migrationsTable === undefined
-          ? {}
-          : { migrationsTable: options.migrationsTable }),
-      });
+      return Effect.runPromise(migrateInstallation());
     },
 
     async close(): Promise<void> {

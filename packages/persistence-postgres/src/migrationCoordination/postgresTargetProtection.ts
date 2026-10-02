@@ -75,22 +75,21 @@ const functions = [
 const decodeNamespace = Schema.decodeUnknownEffect(
   Schema.Tuple([Schema.Struct({ name: Schema.String })]),
 );
+const decodeInstalled = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ installed: Schema.Boolean })]),
+);
 const decodeProtection = Schema.decodeUnknownEffect(
   Schema.Tuple([
-    Schema.Struct({ login: Schema.Boolean, metadata: Schema.Boolean }),
+    Schema.Struct({ metadata: Schema.Boolean }),
   ]),
 );
 
-/** Runs on the acquired connection, inside its existing deadline and cleanup.
- * No cached proof: every ordinary and recovery transaction checks its own login
- * and the fixed-size guard catalog. Historical row verification has another owner.
- * Privileged online repair is excluded by the provisioning/repair contract. */
+/** Checks the installed guard catalog on the authenticated maintenance backend.
+ * The installation owner authenticates generation and backend incarnation. */
 export const protectPostgresMigrationTransaction = Effect.fn(
   "FrameworkMigrationPostgresTarget.protectTransaction",
 )(function* (connection: PostgresMigrationConnection) {
-  // RESET SESSION AUTHORIZATION reveals the authenticated login even if a pool
-  // borrower previously used SET ROLE or SET SESSION AUTHORIZATION. A restricted
-  // current_user alone is not proof; RESET ROLE must not restore an owner either.
+  // Restore the authenticated maintenance login before checking its namespace.
   yield* query(connection, "reset role");
   yield* query(connection, "reset session authorization");
   const namespaceRows = yield* query(
@@ -100,6 +99,11 @@ export const protectPostgresMigrationTransaction = Effect.fn(
   const [namespace] = yield* decodeNamespace(namespaceRows.rows).pipe(
     Effect.mapError(refusal),
   );
+  const installation = yield* query(connection,
+    "select pg_catalog.to_regclass(pg_catalog.quote_ident($1) || '.fx_system_installation') is not null as installed",
+    [namespace.name]);
+  const [installed] = yield* decodeInstalled(installation.rows).pipe(Effect.mapError(refusal));
+  if (!installed.installed) return yield* Effect.fail(refusal(new Error("Maintenance requires an installed namespace.")));
   // Pin ORM name resolution. Explicit pg_temp last prevents implicit temp-table
   // precedence; built-ins and the guard functions use pg_catalog first.
   yield* query(
@@ -121,19 +125,11 @@ export const protectPostgresMigrationTransaction = Effect.fn(
   const [protection] = yield* decodeProtection(result.rows).pipe(
     Effect.mapError(refusal),
   );
-  if (!protection.login)
-    return yield* Effect.fail(
-      refusal(
-        new Error(
-          "Framework installation requires a restricted authenticated login with no role memberships or privileged execution grants.",
-        ),
-      ),
-    );
   if (!protection.metadata)
     return yield* Effect.fail(
       refusal(
         new Error(
-          "Framework installation requires non-owned metadata with the exact enabled history and sealing guards.",
+          "Framework installation requires metadata with the exact enabled history and sealing guards.",
         ),
       ),
     );
@@ -160,9 +156,7 @@ const query = Effect.fn("FrameworkMigrationPostgresTarget.protectionQuery")(
 // missing, extra, disabled, rewired or replaced guards, not just familiar names.
 const protectionSql = `
 with namespace as (
-  select oid, nspowner from pg_catalog.pg_namespace where nspname = $1
-), login_role as (
-  select * from pg_catalog.pg_roles where rolname = session_user
+  select oid from pg_catalog.pg_namespace where nspname = $1
 ), tables as (
   select c.* from pg_catalog.pg_class c join namespace n on n.oid = c.relnamespace
   where c.relname = any($2::text[] || $3::text[])
@@ -190,62 +184,27 @@ with namespace as (
     pg_catalog.encode(pg_catalog.convert_to(item->>1, 'UTF8'), 'hex') || '00' ||
     pg_catalog.encode(pg_catalog.convert_to(item->>2, 'UTF8'), 'hex') || '00', 2
   from pg_catalog.jsonb_array_elements($5::jsonb) item
+  union all select name, 'fx_00_installation_admission', 'fx_require_active_installation', 62, '', 0
+  from pg_catalog.unnest($2::text[] || $3::text[]) name
 ), actual_triggers as (
   select t.*, c.relname as table_name from pg_catalog.pg_trigger t join tables c on c.oid = t.tgrelid
   where not t.tgisinternal
 )
-select coalesce((select r.rolcanlogin and not (r.rolsuper or r.rolcreatedb or r.rolcreaterole or r.rolreplication or r.rolbypassrls)
-  and current_user = session_user and current_setting('session_replication_role') = 'origin'
-  and not exists(select 1 from pg_catalog.pg_auth_members where member = r.oid)
-  and not pg_catalog.has_parameter_privilege(r.oid, 'session_replication_role', 'SET')
-  and not pg_catalog.has_database_privilege(r.oid, current_database(), 'CREATE')
-  and not exists(select 1 from pg_catalog.pg_database where datname = current_database() and datdba = r.oid)
-  and not exists(select 1 from pg_catalog.pg_extension where extowner = r.oid)
-  and not exists(select 1 from pg_catalog.pg_language where lanowner = r.oid)
-  and not exists(select 1 from pg_catalog.pg_proc p
-    where p.prosecdef and p.proowner <> r.oid
-      and pg_catalog.has_function_privilege(r.oid, p.oid, 'EXECUTE'))
-  and not exists(select 1 from pg_catalog.pg_class c
-    where c.relkind in ('r', 'p') and c.relowner <> r.oid
-      and pg_catalog.has_any_column_privilege(r.oid, c.oid, 'REFERENCES'))
-  and not exists(select 1 from pg_catalog.pg_constraint fk
-    join pg_catalog.pg_class child on child.oid = fk.conrelid
-    join pg_catalog.pg_class parent on parent.oid = fk.confrelid
-    where fk.contype = 'f' and child.relowner = r.oid and parent.relowner <> r.oid)
-  and not exists(select 1 from pg_catalog.pg_constraint fk
-    join pg_catalog.pg_class child on child.oid = fk.conrelid
-    join pg_catalog.pg_class parent on parent.oid = fk.confrelid
-    join pg_catalog.pg_attribute child_key on child_key.attrelid = child.oid and child_key.attnum = fk.conkey[1]
-    join pg_catalog.pg_attribute parent_key on parent_key.attrelid = parent.oid and parent_key.attnum = fk.confkey[1]
-    where fk.contype = 'f' and parent.relowner = r.oid and child.relowner <> r.oid
-      and not (
-        fk.confdeltype in ('a', 'r') and fk.confupdtype in ('a', 'r')
-        and cardinality(fk.conkey) = 1 and cardinality(fk.confkey) = 1
-        and child_key.atttypid = parent_key.atttypid
-        and (
-          (child_key.atttypid = 'pg_catalog.uuid'::pg_catalog.regtype
-            and fk.conpfeqop = array['pg_catalog.=(pg_catalog.uuid,pg_catalog.uuid)'::pg_catalog.regoperator::oid])
-          or (child_key.atttypid = 'pg_catalog.text'::pg_catalog.regtype
-            and child_key.attcollation in ('pg_catalog.default'::pg_catalog.regcollation, 'pg_catalog."C"'::pg_catalog.regcollation)
-            and parent_key.attcollation in ('pg_catalog.default'::pg_catalog.regcollation, 'pg_catalog."C"'::pg_catalog.regcollation)
-            and fk.conpfeqop = array['pg_catalog.=(pg_catalog.text,pg_catalog.text)'::pg_catalog.regoperator::oid])
-        )
-        and fk.conppeqop = fk.conpfeqop and fk.conffeqop = fk.conpfeqop
-      ))
-  from login_role r), false) as login,
-  (select count(*) = 1 and bool_and(nspowner <> (select oid from login_role)) from namespace)
+select (select count(*) = 1 from namespace)
   and (select count(*) = cardinality($2::text[] || $3::text[]) and bool_and(relkind = 'r' and not relispartition
-    and not relhasrules and not relrowsecurity and relowner <> (select oid from login_role)
-    and not pg_catalog.has_table_privilege(current_user, oid, 'TRIGGER')) from tables)
+    and not relhasrules and not relrowsecurity) from tables)
   and not exists(select 1 from pg_catalog.pg_inherits i join tables t on t.oid in (i.inhrelid, i.inhparent))
   and (select count(*) = (select count(*) from expected_functions)
-    and bool_and(proowner <> (select oid from login_role)) from guard_functions)
+    from guard_functions)
   and not exists(select 1 from expected_triggers e where not exists (
-    select 1 from actual_triggers t join guard_functions f on f.oid = t.tgfoid
+    select 1 from actual_triggers t join pg_catalog.pg_proc f on f.oid = t.tgfoid
     where t.table_name = e.table_name and t.tgname = e.name and f.proname = e.function_name
       and t.tgtype = e.bits and t.tgenabled = 'O' and t.tgconstraint = 0
       and t.tgqual is null and t.tgoldtable is null and t.tgnewtable is null
       and t.tgattr::text = '' and t.tgnargs = e.nargs and pg_catalog.encode(t.tgargs, 'hex') = e.args
+      and (exists(select 1 from guard_functions g where g.oid = f.oid) or
+        (e.function_name = 'fx_require_active_installation' and
+          f.pronamespace = (select oid from namespace)))
   ))
   and (select count(*) = (select count(*) from expected_triggers) from actual_triggers)
   and (select count(*) = cardinality($4::text[]) from pg_catalog.pg_attribute a join tables t on t.oid=a.attrelid

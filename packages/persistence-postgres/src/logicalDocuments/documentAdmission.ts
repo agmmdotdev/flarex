@@ -1,4 +1,19 @@
 import { Data, Effect, Result, Schema } from "effect";
+import { prepareLogicalReadAdmission, requireLogicalReadAdmission, LogicalReadAdmissionError,
+  type LogicalReadAdmission, type ManagedLogicalReadPorts, type LogicalReadSelection } from "./readAdmission";
+import type { LogicalSourceReadPin } from "../logicalReadMetadata";
+
+export type LogicalDocumentReadAdmission = LogicalReadAdmission;
+export const prepareLogicalDocumentReadAdmission = (ports: ManagedLogicalReadPorts,
+  input: LogicalReadSelection, pin: LogicalSourceReadPin) => prepareLogicalReadAdmission(ports, input, pin, "payload");
+export const requireLogicalDocumentReadAdmission = Effect.fn("LogicalDocumentReadAdmission.require")(function* (
+  token: LogicalDocumentReadAdmission, tx: FlarexMetadataTransaction,
+) {
+  const state = yield* requireLogicalReadAdmission(token, tx);
+  if (state.root.owner !== "payload" || state.root.kind !== "documents" || state.root.contentIdentity === null)
+    return yield* Effect.fail(new LogicalReadAdmissionError({ reason: "invalidAuthority" }));
+  return Object.freeze({ ...state, contentIdentity: state.root.contentIdentity });
+});
 import { PayloadConfigurationSchema, verifyApplicationWritePolicies,
   type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 import { AppDocumentIdV1Schema, requireAppDocumentIdentityV1ForTableResult } from "flarex-protocol/app-document-id";
@@ -21,7 +36,7 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
-import type { LogicalDocumentWrite } from "./model";
+import type { LogicalDocumentWrite, LogicalStorageReadReadiness } from "./model";
 import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState, type LogicalSourceConstruction } from "./sourceAdmission";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
@@ -76,10 +91,11 @@ export interface LogicalDocumentSourceAdmissionState {
   readonly tables: readonly LogicalDocumentSourceTable[];
   readonly indexes: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly readReadiness: LogicalStorageReadReadiness<LogicalDocumentSourceAdmissionError>;
   readonly validate: (write: LogicalDocumentWrite) => Result.Result<void, LogicalDocumentSourceAdmissionError>;
 }
 const admissions = new WeakMap<object, LogicalDocumentSourceAdmissionState>();
-export interface LogicalDocumentAttemptAdmissionState extends Omit<LogicalDocumentSourceAdmissionState, "tx" | "authority"> {
+export interface LogicalDocumentAttemptAdmissionState extends Omit<LogicalDocumentSourceAdmissionState, "tx" | "authority" | "readReadiness"> {
   readonly root: LogicalParticipantAttemptRoot;
   readonly preparedSource: object;
   readonly requirePreparedSource: Effect.Effect<void, LogicalParticipantAdmissionError>;
@@ -170,12 +186,13 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       { path: "$document", idPolicy }).pipe(Result.mapError(cause =>
         new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid", cause })));
   });
-
-  const withAdmission = Effect.fn("LogicalDocumentSourceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
+  const withSelectedAdmission = Effect.fn("LogicalDocumentSourceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
+    profile: "full" | "read",
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
   ) {
-    return yield* selected.withTransactionBinding(application, tx, authority, clock, binding => Effect.gen(function* () {
+    const accept = profile === "read" ? selected.withTransactionReadBinding : selected.withTransactionBinding;
+    return yield* accept(application, tx, authority, clock, binding => Effect.gen(function* () {
       // The source-bound scalar participant has no V3 preference cleanup or
       // embedded-content owner. Refuse mixed selected frames before token issue.
       if (binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null)
@@ -186,10 +203,19 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
         sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: binding.head,
         frame: binding.frame, contentIdentity,
         configuration: expected.configuration, tables: selectedTables, indexes: selected.indexes,
-        unique: selected.unique, validate }));
+        unique: selected.unique, validate,
+        readReadiness: Object.freeze({ kind: "full" as const }) }));
       return yield* Effect.suspend(() => work(admission)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
     }));
   });
+  const withAdmission = <Value, Failure, Requirements>(
+    application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  ) => withSelectedAdmission("full", application, tx, authority, clock, work);
+  const withReadAdmission = <Value, Failure, Requirements>(
+    application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  ) => withSelectedAdmission("read", application, tx, authority, clock, work);
   const tableIds = new Set(selectedTables.map(table => table.tableId));
   const bindAttemptEffect = Effect.fn("LogicalDocumentAttemptAdmission.bind")(function* (
     application: ApplicationBindingInput, attempt: SessionJournalAttempt, root: LogicalParticipantAttemptRoot,
@@ -273,7 +299,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
           }).pipe(Effect.mapError(projectAttemptFailure)),
     }));
   };
-  const prepared = Object.freeze({ withAdmission, bindAttemptEffect, createCommitAuthority });
+  const prepared = Object.freeze({ withAdmission, withReadAdmission, bindAttemptEffect, createCommitAuthority });
   return prepared;
 });
 

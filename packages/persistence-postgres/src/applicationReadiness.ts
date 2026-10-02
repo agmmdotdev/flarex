@@ -2,7 +2,7 @@ import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBui
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
-import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, guardProtectedMetadataEpoch, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+import { acquireProtectedMetadataInstallationAdmission, captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, guardProtectedMetadataEpoch, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
   type ProtectedMetadataEpochIdentity, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import {
   canonicalizeApplicationManifestV1,
@@ -433,6 +433,18 @@ const readinessRepositoryStates = new WeakMap<
   object,
   ApplicationReadinessIssuerState
 >();
+
+/** The exact Application issuer supplies installation protection for compact
+ * immutable binding capture; no prior serving/readiness verdict is borrowed. */
+export function readApplicationReadinessPreparationProtection(repository: unknown) {
+  if (typeof repository !== "object" || repository === null)
+    return Result.fail(readinessFailureValue("invalidComposition"));
+  const state = readinessRepositoryStates.get(repository);
+  const protection = state?.context.protectedMetadata;
+  return state === undefined || protection === undefined
+    ? Result.fail(readinessFailureValue("invalidComposition"))
+    : Result.succeed(protection);
+}
 const issuedReadinessStates = new WeakMap<
   Extract<ApplicationReadinessResult, { readonly status: "ready" }>,
   IssuedApplicationReadinessState
@@ -640,8 +652,8 @@ export const readApplicationActivationUniqueRequirements = Effect.fn("Applicatio
     }
     const bundle = ready.kind === "prepared" ? ready.prepared.bundle : ready.stored.bundle;
     const db = state.context.controlDb;
-    return yield* readUniqueMaintenanceRequirements(hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db,
-      bundle.deploymentId, schemaVersionId);
+    return yield* readUniqueMaintenanceRequirements(db, bundle.deploymentId, schemaVersionId,
+      hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : undefined);
   },
 );
 
@@ -886,6 +898,9 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       const first = yield* runLocatedTransaction(
         located.target,
         tx => Effect.gen(function* () {
+          if (protectedTarget !== undefined) yield* acquireProtectedMetadataInstallationAdmission(
+            protectedTarget.token, protectedTarget.database, tx,
+          ).pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
           const epoch = protectedTarget === undefined ? undefined :
             yield* captureProtectedMetadataEpoch(protectedTarget.token, protectedTarget.database, tx)
               .pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
@@ -945,6 +960,9 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       const second = yield* runLocatedTransaction(
         located.target,
         tx => Effect.gen(function* () {
+          if (protectedTarget !== undefined) yield* acquireProtectedMetadataInstallationAdmission(
+            protectedTarget.token, protectedTarget.database, tx,
+          ).pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
           const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(
             tx,
             reserved.authority.scopeId,

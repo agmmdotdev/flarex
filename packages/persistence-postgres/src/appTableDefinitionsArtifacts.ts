@@ -35,6 +35,7 @@ import { reconcileEffectTransactionFailure } from
   "./effectTransactionFailure";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
   CatalogSchemaVersionIdSchema,
@@ -347,7 +348,7 @@ function runPreparedAppTableDefinitionsArtifactTransactionEffect(
 > {
   return Effect.suspend(() => {
     let callbackCause:
-      | Cause.Cause<EnsurePreparedAppTableDefinitionsArtifactV1Error>
+      | Cause.Cause<EnsurePreparedAppTableDefinitionsArtifactV1Error | AppTableDefinitionsArtifactV1TransactionError>
       | undefined;
     const rollbackSignal = new Error(
       "App table-definitions artifact Effect work failed; roll back the transaction.",
@@ -357,9 +358,10 @@ function runPreparedAppTableDefinitionsArtifactTransactionEffect(
         try: () => repository.runTransaction(
           async (tx): Promise<EnsureAppTableDefinitionsArtifactV1Result> => {
             const exit = await Effect.runPromise(Effect.exit(
-              ensurePreparedAppTableDefinitionsArtifactV1InTransactionEffect(
-                tx,
-                prepared,
+              lockInstallationForCurrentTransaction(tx).pipe(
+                Effect.mapError(cause => new AppTableDefinitionsArtifactV1TransactionError({ cause })),
+                Effect.andThen(() => ensurePreparedAppTableDefinitionsArtifactV1InTransactionEffect(tx, prepared)),
+                Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))),
               ),
             ));
             if (Exit.isFailure(exit)) {

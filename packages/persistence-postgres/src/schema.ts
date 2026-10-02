@@ -2383,6 +2383,23 @@ export const fxSystemRetainedHistoryScheduler = pgTable(
   ],
 );
 
+/** A separate structural maintenance barrier, never the metadata invalidation root. */
+export const fxSystemInstallation = pgTable("fx_system_installation", {
+  singletonId: integer("singleton_id").primaryKey(),
+  databaseName: text("database_name").notNull(), schemaName: text("schema_name").notNull(),
+  namespaceOid: bigint("namespace_oid", { mode: "bigint" }).notNull(), incarnation: uuid("incarnation").notNull(),
+  structuralGeneration: bigint("structural_generation", { mode: "bigint" }).notNull(),
+  state: text("state").notNull(), maintenanceOwner: uuid("maintenance_owner"),
+  maintenancePid: integer("maintenance_pid"), maintenanceBackendStart: timestamp("maintenance_backend_start", { withTimezone: true }),
+});
+export const fxSystemInstallationRuntime = pgTable("fx_system_installation_runtime", {
+  login: text("login").primaryKey(), loginOid: bigint("login_oid", { mode: "bigint" }).notNull(),
+  endpointPolicy: text("endpoint_policy").notNull(), incarnation: uuid("incarnation").notNull(),
+  structuralGeneration: bigint("structural_generation", { mode: "bigint" }).notNull(),
+  metadataIncarnation: uuid("metadata_incarnation").notNull(),
+  accessProfile: text("access_profile").$type<"dataRuntime" | "controlRead">().notNull().default("dataRuntime"),
+});
+
 /** One installation-wide immutable-metadata invalidation root. Only guarded
  * metadata statements advance it; ordinary business writes never touch it. */
 export const fxSystemPreparedMetadataEpoch = pgTable(
@@ -9790,7 +9807,74 @@ export const fxSystemDurableTaskComputeCancellationsV1 = pgTable(
   ],
 );
 
+/** Trusted catalog publication derives these immutable, independently decoded
+ * read projections. Runtime credentials have SELECT authority only. */
+export const fxControlLogicalReadSources = pgTable("fx_control_logical_read_source", {
+  deploymentId: text("deployment_id").notNull(),
+  schemaVersionId: text("schema_version_id").$type<CatalogSchemaVersionId>().notNull(),
+  sourceKey: text("source_key").notNull(),
+  sourceSha256: text("source_sha256").notNull(),
+  artifactVersion: integer("artifact_version").$type<CatalogSchemaVersion>().notNull(),
+  manifestSha256: bytea("manifest_sha256").$type<SchemaManifestSha256>().notNull(),
+  projectionJson: jsonb("projection_json").$type<unknown>().notNull(),
+  projectionSha256: text("projection_sha256").notNull(),
+}, table => [
+  primaryKey({ columns: [table.deploymentId, table.schemaVersionId, table.sourceKey] }),
+  unique("fx_control_logical_read_source_identity").on(table.deploymentId, table.schemaVersionId, table.sourceKey, table.sourceSha256),
+  foreignKey({ name: "fx_control_logical_read_source_artifact_fk",
+    columns: [table.deploymentId, table.schemaVersionId, table.artifactVersion, table.manifestSha256],
+    foreignColumns: [fxControlSchemaVersions.deploymentId, fxControlSchemaVersions.schemaVersionId, fxControlSchemaVersions.version, fxControlSchemaVersions.manifestSha256] }),
+  check("fx_control_logical_read_source_digest", sql`${table.sourceSha256} ~ '^[a-f0-9]{64}$' and ${table.projectionSha256} ~ '^[a-f0-9]{64}$'`),
+]);
+
+export const fxControlLogicalReadTables = pgTable("fx_control_logical_read_table", {
+  deploymentId: text("deployment_id").notNull(),
+  schemaVersionId: text("schema_version_id").$type<CatalogSchemaVersionId>().notNull(),
+  sourceKey: text("source_key").notNull(),
+  sourceSha256: text("source_sha256").notNull(),
+  localName: text("local_name").notNull(),
+  tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+  projectionJson: jsonb("projection_json").$type<unknown>().notNull(),
+  projectionSha256: text("projection_sha256").notNull(),
+}, table => [
+  primaryKey({ columns: [table.deploymentId, table.schemaVersionId, table.sourceKey, table.localName] }),
+  index("fx_control_logical_read_table_identity").on(table.deploymentId, table.schemaVersionId, table.sourceKey, table.tableId),
+  foreignKey({ name: "fx_control_logical_read_table_source_fk",
+    columns: [table.deploymentId, table.schemaVersionId, table.sourceKey, table.sourceSha256],
+    foreignColumns: [fxControlLogicalReadSources.deploymentId, fxControlLogicalReadSources.schemaVersionId, fxControlLogicalReadSources.sourceKey, fxControlLogicalReadSources.sourceSha256] }),
+  foreignKey({ name: "fx_control_logical_read_table_identity_fk", columns: [table.deploymentId, table.tableId],
+    foreignColumns: [fxControlTables.deploymentId, fxControlTables.tableId] }),
+  check("fx_control_logical_read_table_digest", sql`${table.projectionSha256} ~ '^[a-f0-9]{64}$'`),
+]);
+
+export const fxControlLogicalReadAccess = pgTable("fx_control_logical_read_access", {
+  deploymentId: text("deployment_id").notNull(),
+  schemaVersionId: text("schema_version_id").$type<CatalogSchemaVersionId>().notNull(),
+  sourceKey: text("source_key").notNull(),
+  localName: text("local_name").notNull(),
+  selectorKind: text("selector_kind").notNull(),
+  selectorKey: text("selector_key").notNull(),
+  leadingField: text("leading_field").notNull(),
+  prefixLength: integer("prefix_length").notNull(),
+  ordinal: integer("ordinal").notNull(),
+  projectionJson: jsonb("projection_json").$type<unknown>().notNull(),
+  projectionSha256: text("projection_sha256").notNull(),
+}, table => [
+  primaryKey({ columns: [table.deploymentId, table.schemaVersionId, table.sourceKey, table.localName, table.selectorKind, table.selectorKey] }),
+    index("fx_control_logical_read_access_search").using("gin", sql`${table.deploymentId} public.text_ops`,
+      sql`${table.schemaVersionId} public.text_ops`, sql`${table.sourceKey} public.text_ops`, sql`${table.localName} public.text_ops`,
+      sql`(${table.projectionJson}->'fields') jsonb_path_ops`).where(sql`${table.selectorKind} = 'search'`),
+  foreignKey({ name: "fx_control_logical_read_access_table_fk", columns: [table.deploymentId, table.schemaVersionId, table.sourceKey, table.localName],
+    foreignColumns: [fxControlLogicalReadTables.deploymentId, fxControlLogicalReadTables.schemaVersionId, fxControlLogicalReadTables.sourceKey, fxControlLogicalReadTables.localName] }),
+  check("fx_control_logical_read_access_digest", sql`${table.projectionSha256} ~ '^[a-f0-9]{64}$'`),
+]);
+
 export const flarexSchema = {
+  fxControlLogicalReadSources,
+  fxControlLogicalReadTables,
+  fxControlLogicalReadAccess,
+  fxSystemInstallation,
+  fxSystemInstallationRuntime,
   commits,
   deploymentPackages,
   deployments,

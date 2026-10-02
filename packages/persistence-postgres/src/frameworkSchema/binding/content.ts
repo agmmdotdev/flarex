@@ -5,6 +5,7 @@ import type { CanonicalApplicationWriteOwnership } from "../../applicationWriteO
 import { Effect } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
+import type { FlarexMetadataDatabase } from "../../deployments";
 import { ApplicationWriteOwnershipHistoryBudget } from "../../applicationWriteOwnership/Policy";
 import { sameBindingValue } from "./canonical";
 import { bindingError } from "./errors";
@@ -12,7 +13,7 @@ import type { DataBindingSetFrame } from "./model";
 
 /** Called only after the binding host has pinned the Application under its scope lock. */
 export const verifyPayloadContentBinding = Effect.fn("DataBindingContent.verify")(
-  function* (tx: FlarexMetadataTransaction, frame: DataBindingSetFrame, selection: ApplicationActiveSelection) {
+  function* (tx: FlarexMetadataTransaction, frame: DataBindingSetFrame, selection: ApplicationActiveSelection, targetDatabase: FlarexMetadataDatabase) {
     const content = frame.payloadContent;
     if (content === null) return;
     if (
@@ -26,6 +27,7 @@ export const verifyPayloadContentBinding = Effect.fn("DataBindingContent.verify"
       selection, tx,
       ScopeIdSchema.make(frame.application.scopeId),
       new ApplicationWriteOwnershipHistoryBudget(),
+      targetDatabase,
     ).pipe(Effect.mapError(cause => bindingError(
       cause.reason === "resourceFailure" ? "resourceFailure" : "invalidAuthority",
       cause,

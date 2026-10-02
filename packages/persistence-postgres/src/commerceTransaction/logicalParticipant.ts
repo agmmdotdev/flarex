@@ -9,7 +9,9 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
+import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges } from "../logicalDocuments/workingSet";
+import type { LogicalStorageReadReadiness } from "../logicalDocuments/model";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
 import { bindPreparedLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { validateLogicalDocumentChanges } from "../logicalDocuments/contribution";
@@ -19,6 +21,38 @@ import { forEachLogicalSetNullPage, forEachLogicalReferenceReplacementPage,
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
+
+/** A selected read borrows only read mechanics and its accepting transaction. */
+export const makeLogicalCommerceReadParticipant = Effect.fn("LogicalCommerce.makeReadParticipant")(function* (
+  admission: LogicalRelationalReadAdmission, tx: FlarexMetadataTransaction,
+  lifetime: BoundedRequestLifetime<CommerceTransactionError>, id: string, resources: CommerceResources,
+) {
+  const state = yield* requireLogicalRelationalReadAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const selected = state.readReadiness;
+  const readReadiness: LogicalStorageReadReadiness<CommerceTransactionError> = {
+    ...selected,
+    requireDemand: (demandTx, demand) => selected.requireDemand(demandTx, demand).pipe(Effect.mapError(projectCommerceRequestFailure)),
+  };
+  const working = yield* makeLogicalDocumentWorkingSet({
+    tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
+    tables: selected.mechanics.tables,
+    ...(selected.mechanics.relationalCapabilities === undefined ? {} : {
+      relationalCapabilities: selected.mechanics.relationalCapabilities,
+    }),
+    searchDefinitions: selected.mechanics.searchDefinitions,
+    readReadiness,
+    requireAdmission: requireLogicalRelationalReadAdmission(admission, tx).pipe(Effect.asVoid, Effect.mapError(projectCommerceRequestFailure)),
+    validateDocument: () => Effect.fail(commerceError("invalidAuthority")),
+    error: logicalCommerceError,
+    uniqueConflict: () => commerceError("invalidAuthority"),
+    limits: { ...logicalCommerceWorkingSetLimits, pageRows: resources.queryRows, identities: resources.catalogRows },
+  }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), [], []);
+  return Object.freeze({
+    store: yield* working.relationalTable(lifetime.context, id, state.defaultTableName), resources,
+    table: (context: BoundedRequestContext, table: string) => working.relationalTable(context, id, table),
+    transactionTime: (context: BoundedRequestContext) => working.readTransactionTime(context, id),
+  });
+});
 
 declare const closureBrand: unique symbol;
 export interface LogicalCommerceClosure { readonly [closureBrand]: true }
@@ -71,19 +105,33 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
 ) {
   const resources = selectedResources ?? defaultCommerceResources;
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
-  // Reject incomplete semantic profiles before exposing any table operation.
-  for (const table of state.tables) yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
+  const sourceReadReadiness = state.readReadiness;
+  const readReadiness: LogicalStorageReadReadiness<CommerceTransactionError> = sourceReadReadiness.kind === "full"
+    ? sourceReadReadiness : Object.freeze({ ...sourceReadReadiness,
+      requireDemand: (demandTx, demand) => sourceReadReadiness.requireDemand(demandTx, demand).pipe(Effect.mapError(projectCommerceRequestFailure)),
+    });
+  // Read mechanics were authenticated once by their host lease. Full native
+  // participants retain the complete pre-operation semantic-profile check.
+  if (readReadiness.kind === "full")
+    for (const table of state.tables) yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
-    tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition, relationalMechanics: table.mechanics })),
-    relationalCapabilities: state.schema.capabilities,
-    searchDefinitions: state.search,
+    tables: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.tables :
+      state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition, relationalMechanics: table.mechanics })),
+    ...(readReadiness.kind === "queryRequired" ? (
+      readReadiness.mechanics.relationalCapabilities === undefined ? {} : {
+        relationalCapabilities: readReadiness.mechanics.relationalCapabilities,
+      }
+    ) : { relationalCapabilities: state.schema.capabilities }),
+    searchDefinitions: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.searchDefinitions : state.search,
+    readReadiness,
     requireAdmission: requireLogicalRelationalAdmission(admission, tx).pipe(Effect.asVoid, Effect.mapError(projectCommerceRequestFailure)),
     validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
       .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), error: logicalCommerceError,
     uniqueConflict: () => commerceError("invalidInput"),
     limits: { ...logicalCommerceWorkingSetLimits, pageRows: selectedResources?.queryRows ?? logicalCommerceWorkingSetLimits.pageRows,
       identities: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities },
-  }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique, state.indexes.filter(index => index.access.kind === "developer"));
+  }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
+    readReadiness.kind === "queryRequired" ? [] : state.indexes.filter(index => index.access.kind === "developer"));
   const first = state.tables[0];
   if (first === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const store = yield* working.relationalTable(initialContext, id, first.localName);
@@ -96,7 +144,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
       maximumFacts: resources.facts });
     return closure;
   });
-  const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
+  const names = state.tableNames;
   const callActivity = Effect.fn("LogicalCommerce.callActivity")(function* (
     cursor: ReturnType<typeof working.activityCursor>,
   ) {
@@ -146,7 +194,7 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
   if (closed === undefined || closed.lifetime !== lifetime || !lifetime.isClosing())
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const state = yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
+  const names = state.tableNames;
   return yield* projectLogicalCommerceActivity(names, closed.changes);
 });
 

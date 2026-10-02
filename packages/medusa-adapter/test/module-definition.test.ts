@@ -9,7 +9,7 @@ import { makeCommerceCommandContext } from "../../persistence-postgres/src/comme
 import { defineCommerceModule, type CommerceModuleExtension } from "../src/module-definition";
 import { commerceRepositoryContext } from "../src/commerce-repository-context";
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../src/commerce-promise-owner";
-import { commerceInternalService } from "../src/commerce-module";
+import type { CommerceInternalService } from "../src/commerce-module";
 import { productImageAliasRepository } from "../src/product-module";
 import { MedusaService } from "@medusajs/utils/modules-sdk/medusa-service";
 import { commerceMutationEvents } from "../src/commerce-mutation-events";
@@ -54,39 +54,64 @@ describe("prepared commerce module definitions", () => {
     const source = libraryProfile();
     let subscribers = 0;
     const adapters: ModulePersistenceAdapter[] = [];
+    const createdSubscribers: object[] = [];
+    const registeredSubscribers: object[] = [];
+    const services: CommerceInternalService<typeof Volume>[] = [];
+    const repositories: unknown[] = [];
+    const contexts: object[] = [];
     class LibraryService extends MedusaService({ Volume }) {}
     const module = Result.getOrThrow(defineCommerceModule({ name: "library", models: [Volume],
       profile: { ...source.profile, bind: (ctx, owner) => {
         const binding = source.profile.bind(ctx, owner);
+        const bridge = commerceRepositoryContext(ctx, owner);
+        binding.baseRepository.create = (input, shared) => bridge.execute(shared,
+          () => Effect.sync(() => input.map(row => ({ ...row }))));
         const events = commerceMutationEvents(owner);
         return { ...binding, events: {
           createEventSubscriber: (...args: Parameters<typeof events.createSubscriber>) => {
             subscribers++;
-            return events.createSubscriber(...args);
+            const subscriber = events.createSubscriber(...args);
+            createdSubscribers.push(subscriber);
+            return subscriber;
           },
-          registerEventSubscriber: events.registerSubscriber,
+          registerEventSubscriber: (...args: Parameters<typeof events.registerSubscriber>) => {
+            registeredSubscribers.push(args[1]);
+            return events.registerSubscriber(...args);
+          },
         } };
       } },
-      extensions: {}, service: ({ dependencies }) => {
+      extensions: {}, service: ({ dependencies, context }) => {
         const internalAdapter: unknown = Object.getOwnPropertyDescriptor(dependencies.volumeService.__container__, "modulePersistenceAdapter")?.value;
         expect(internalAdapter).toBe(dependencies.modulePersistenceAdapter);
         expect(Object.isFrozen(dependencies)).toBe(true);
         adapters.push(dependencies.modulePersistenceAdapter);
-        return new LibraryService(dependencies);
+        services.push(dependencies.volumeService);
+        repositories.push(Object.getOwnPropertyDescriptor(dependencies.volumeService.__container__, "volumeRepository")?.value);
+        contexts.push(context);
+        return { native: new LibraryService(dependencies), internal: dependencies.volumeService, context };
       },
     }));
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      yield* module.use(yield* fixture, async () => null);
+      yield* module.use(yield* fixture, async ({ internal, context }) => internal.create({ isbn: "first", title: "First" }, context));
     })));
     // A neutral native MedusaService needs the same prepared persistence adapter
     // as its internal services. Missing constructor wiring must not be patched
     // by a module-specific subscriber or event path.
     expect(subscribers).toBe(1);
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      yield* module.use(yield* fixture, async () => null);
+      yield* module.use(yield* fixture, async ({ internal, context }) => internal.create({ isbn: "second", title: "Second" }, context));
     })));
     expect(subscribers).toBe(2);
     expect(adapters[0]).not.toBe(adapters[1]);
+    expect(services[0]).not.toBe(services[1]);
+    expect(Object.getPrototypeOf(services[0])).toBe(Object.getPrototypeOf(services[1]));
+    expect(repositories[0]).toBeDefined();
+    expect(repositories[0]).not.toBe(repositories[1]);
+    expect(contexts[0]).not.toBe(contexts[1]);
+    expect(createdSubscribers[0]).not.toBe(createdSubscribers[1]);
+    expect(registeredSubscribers).toHaveLength(2);
+    expect(registeredSubscribers[0]).toBe(createdSubscribers[0]);
+    expect(registeredSubscribers[1]).toBe(createdSubscribers[1]);
   });
 
   it("derives typed services once per use and retains a natural primary key", async () => {
@@ -102,8 +127,8 @@ describe("prepared commerce module definitions", () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const root = yield* fixture;
       const rows = yield* module.use(root, ({ dependencies: services, context }) => {
-        expectTypeOf(services.volumeService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Volume>>>();
-        expectTypeOf(services.editionService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Edition>>>();
+        expectTypeOf(services.volumeService).toEqualTypeOf<CommerceInternalService<typeof Volume>>();
+        expectTypeOf(services.editionService).toEqualTypeOf<CommerceInternalService<typeof Edition>>();
         // @ts-expect-error No service exists for an unregistered model.
         void services.currencyService;
         return services.volumeService.list({}, {}, context);
@@ -180,7 +205,7 @@ describe("prepared commerce module definitions", () => {
     const source = libraryProfile();
     const prepareArray = (models: readonly (typeof Volume | typeof Edition)[]) => defineCommerceModule({
       name: "dynamic", models, profile: source.profile, extensions: {}, service: input => {
-        expectTypeOf(input.dependencies.editionService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Edition>> | undefined>();
+        expectTypeOf(input.dependencies.editionService).toEqualTypeOf<CommerceInternalService<typeof Edition> | undefined>();
         const typeProof = () => {
           // @ts-expect-error A dynamic array does not guarantee this registration.
           void input.dependencies.editionService.list;
@@ -191,7 +216,7 @@ describe("prepared commerce module definitions", () => {
     });
     const prepareUnion = (selected: typeof Volume | typeof Edition) => defineCommerceModule({
       name: "union", models: [selected], profile: source.profile, extensions: {}, service: input => {
-        expectTypeOf(input.dependencies.volumeService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Volume>> | undefined>();
+        expectTypeOf(input.dependencies.volumeService).toEqualTypeOf<CommerceInternalService<typeof Volume> | undefined>();
         const typeProof = () => {
           // @ts-expect-error A union-selected tuple entry does not guarantee both models.
           void input.dependencies.volumeService.list;

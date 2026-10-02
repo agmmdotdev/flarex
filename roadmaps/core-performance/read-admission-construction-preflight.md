@@ -1,5 +1,11 @@
 # Read admission and proof construction
 
+Successor: the [selected complete standalone read redesign](./standalone-read-redesign-preflight.md)
+replaces the named readers' request-only preparation, full-source serving proof
+and repeated structural attestation as one connected slice. This document
+records the implemented baseline; its deferrals below do not veto that accepted
+successor. Other profiles retain their actual contracts until migrated.
+
 Status: **implemented under the approved focused contract.** Standalone Application construction
 uses request-owned capture and detached immutable preparation at the existing owner.
 Full readiness, live acceptance and current protection remain mandatory. The

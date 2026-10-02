@@ -1,0 +1,4539 @@
+{
+  "sourcesBefore": {
+    "files": [
+      {
+        "path": "third_party/medusa/SOURCE.json",
+        "sha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893"
+      },
+      {
+        "path": "packages/medusa-adapter/package.json",
+        "sha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516"
+      },
+      {
+        "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+        "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+      },
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "sha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "sha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+        "sha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+        "sha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "e89a73224a54a1617f38eba6f6d71737fe0654afb991297c862c7337c8545afc"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+        "sha256": "dbebb5f59b4082d1f2528556391f1737bc52dede5c6e1a0d63a219a679dc9e28"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+        "sha256": "947c90ddf76df50e9928e4c4eef98d937ef8f37eea5913c6c0c942e8c4b8e3b4"
+      },
+      {
+        "path": "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
+        "sha256": "c2030e9829b957ae3cfcbe4808bf4805abf57d8df9759576d6509d961be0ae88"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+        "sha256": "116742b45e7f0c7339080728e3f8344ceebbb4cf26bfe1925af00667492d4573"
+      },
+      {
+        "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+        "sha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+        "sha256": "f90495ce8d11ea19fd484768212eb6a3a795e72b131ca1b24072f55fe6ae9590"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+        "sha256": "a39a7e61069c1477d3e7e9bb158a8677bbb5dcae82c253d6b310e3d9bae9a39a"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+        "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+        "sha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+        "sha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+        "sha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+        "sha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+        "sha256": "40c6fe7385b325e157bb543ee63d1611a4dbd629d24615ec28719b9a88e9a6f4"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+        "sha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+        "sha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+        "sha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54"
+      },
+      {
+        "path": "packages/medusa-product/dist/services/product-module-service.js",
+        "sha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40"
+      },
+      {
+        "path": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      },
+      {
+        "path": "packages/medusa-utils/package.json",
+        "sha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180"
+      },
+      {
+        "path": "packages/medusa-utils/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "packages/medusa-product/package.json",
+        "sha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3"
+      },
+      {
+        "path": "packages/medusa-product/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "tools/medusa/tsconfig.fork.json",
+        "sha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+        "sha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+        "sha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+        "sha256": "4cb6721cd0be04099e5793b99519f4871ab0cd415011c65ab08bfe4bedbbc276"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+        "sha256": "caa988f40cd3f0f5ec2fbec5f733f78535cd19b99c8baa4ce433a3ba8d803624"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
+        "sha256": "43f6ecb3e9843009b5d854947ada61fbf0e8fec0569707caca0bc3dca7bd75ca"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+        "sha256": "2ac8716a79b70af08a764860f428ac3a0b27242a73213b4b915c8e7140f681ee"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+        "sha256": "11f0dc8710b4b764e19d17dc9d1e8099e0e4d7c473e7c918a3c44266f54d201c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+        "sha256": "60fbd923d8e35808b164796cd3b2dfdff90a5249dbbb1177db8569d4cbe5cc6c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+        "sha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+        "sha256": "465811e6f82ce2b8226beca73b26f0f14d6d5af3a0782bdac817f4dcf5668ca2"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActivation.ts",
+        "sha256": "cc26c35a1939d43e95ad8a7619c379c0a2a8efc070205d092173fa7fc54cf1c9"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationReadiness.ts",
+        "sha256": "2edcfd3953ceb8ce194bc087ae7c617ada908a1d6d0aefde66c9f2fd7540c020"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+        "sha256": "d6fae129dfb8faa9e6d4873bf992cffd2413cd423639374fa3f119ec2f41330f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
+        "sha256": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationBindingProjection.ts",
+        "sha256": "3a067ee39b343d44395cb03819c225de1946745f6e261cc46d105f6df8c6c024"
+      },
+      {
+        "path": "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
+        "sha256": "24ad3276187ecea5be8ee989e84e95175cf74ccee56337f71210bd19cf33f499"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedHostRuntime.ts",
+        "sha256": "0faf9ff27d80631d082d8c6bb88f26399d617b7c9adaffd7c45f319ef8d2872b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+        "sha256": "1a74a786d8c68fa15328d838fb6f974f1e299fa6c535c1aa0536cf1c5b971c4a"
+      },
+      {
+        "path": "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
+        "sha256": "89bf5342c70f8bc5ef45f7823829cc83969cc37fba405ea0c6efdf23e0bb5ec5"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/admission.ts",
+        "sha256": "8f35fcfc2b141d491d308d569d21c9120eb134256f1e70383a7fb4a5ce7b6e62"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+        "sha256": "4839b1b6cafe8a59a0482b9cffdcc1297155b19a3616cbf8a4357016b00b1865"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts",
+        "sha256": "c1773529246df7c859cb64cc6542da5487e790c9715b1710d1fde5c4b88fa72f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+        "sha256": "83796de3f90cea8912c39ebf3ea6af645fc974fce927558b7b7429df5b7feb6c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+        "sha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23"
+      },
+      {
+        "path": "packages/medusa-adapter/src/query/read.ts",
+        "sha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-relations.ts",
+        "sha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      {
+        "path": "packages/persistence-postgres/src/appRows.ts",
+        "sha256": "c3b96bbecefc26ef47d9e65870d9dfba66659a80f56095fe0ee0e448fe79d887"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgres.ts",
+        "sha256": "b60cabdab4ec89f3bcc20ed615dcf3165892c9c54c4c3a1d3d8b93f1004a8ff7"
+      },
+      {
+        "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+        "sha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad"
+      },
+      {
+        "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+        "sha256": "1f14c2549024d9b7ec90a49acac124544134d931a2487134d237571e090d91da"
+      },
+      {
+        "path": "packages/persistence-postgres/src/installationLifecycle.ts",
+        "sha256": "ec61b73e8b5a3669a5330e17e2b06939d9645f710a71c36635c6178ec9fb8afa"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgresInstallationMaintenance.ts",
+        "sha256": "9fc2187d25514d3e8f811949a93150143ff11f51dfae101f0cd2338054a709fe"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationStandaloneBinding.ts",
+        "sha256": "52d40bbccf8c220a225f42f15933b89dabc55046f98acf9e49e65ca3bdd74074"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalReadMetadata.ts",
+        "sha256": "1ccdee723758215824eea1d7fe71ef68abf1783a1fa8023cceda38de3200c55c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/readAdmission.ts",
+        "sha256": "578537495fab8cfa64e7d5e5d91b02188192c9d7e4522eec6755ac348f3d2f70"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/readHost.ts",
+        "sha256": "b2ba6fb3c8f09f6703fe6e772be2acc6dfa7a0c89a2d1444c31f13355c2d14c6"
+      }
+    ],
+    "drivers": [
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\core\\framework\\dist\\deps\\pg.js",
+        "sha256": "6caf9bfd771731a2725bd663246207baefe1c243adb44bdab7b3b8f2a017bd14"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\deps\\dist\\pg.js",
+        "sha256": "f6c20a70f5180a5178b315fb3ee63a105c1e0cac6a00c31693229059643cb2cf"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\node_modules\\pg\\lib\\index.js",
+        "sha256": "a012ecbe7fdefed8d2b36c3658e33dc4c291d0bb60df18d382300061211052b7"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\node_modules\\.pnpm\\pg@8.22.0\\node_modules\\pg\\lib\\index.js",
+        "sha256": "3fad6e6d3d976edbabe0cbc9e1d39f4340bcb719bbbb186a0d3a24f3dbd4a94c"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-product\\dist\\services\\index.js",
+        "sha256": "53efd54a25103037d8132dff96e98e6c36400173f9008c098acee46a4ecc33b3"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-utils\\dist\\modules-sdk\\medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      }
+    ],
+    "methodHashes": [
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      }
+    ],
+    "construction": "pinned native MikroORM constructor versus promoted Flarex constructor; selected method-body parity"
+  },
+  "sourcesAfter": {
+    "files": [
+      {
+        "path": "third_party/medusa/SOURCE.json",
+        "sha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893"
+      },
+      {
+        "path": "packages/medusa-adapter/package.json",
+        "sha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516"
+      },
+      {
+        "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+        "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+      },
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "sha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "sha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+        "sha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+        "sha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "e89a73224a54a1617f38eba6f6d71737fe0654afb991297c862c7337c8545afc"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+        "sha256": "dbebb5f59b4082d1f2528556391f1737bc52dede5c6e1a0d63a219a679dc9e28"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+        "sha256": "947c90ddf76df50e9928e4c4eef98d937ef8f37eea5913c6c0c942e8c4b8e3b4"
+      },
+      {
+        "path": "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
+        "sha256": "c2030e9829b957ae3cfcbe4808bf4805abf57d8df9759576d6509d961be0ae88"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+        "sha256": "116742b45e7f0c7339080728e3f8344ceebbb4cf26bfe1925af00667492d4573"
+      },
+      {
+        "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+        "sha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+        "sha256": "f90495ce8d11ea19fd484768212eb6a3a795e72b131ca1b24072f55fe6ae9590"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+        "sha256": "a39a7e61069c1477d3e7e9bb158a8677bbb5dcae82c253d6b310e3d9bae9a39a"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+        "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+        "sha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+        "sha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+        "sha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+        "sha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+        "sha256": "40c6fe7385b325e157bb543ee63d1611a4dbd629d24615ec28719b9a88e9a6f4"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+        "sha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+        "sha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+        "sha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54"
+      },
+      {
+        "path": "packages/medusa-product/dist/services/product-module-service.js",
+        "sha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40"
+      },
+      {
+        "path": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      },
+      {
+        "path": "packages/medusa-utils/package.json",
+        "sha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180"
+      },
+      {
+        "path": "packages/medusa-utils/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "packages/medusa-product/package.json",
+        "sha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3"
+      },
+      {
+        "path": "packages/medusa-product/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "tools/medusa/tsconfig.fork.json",
+        "sha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+        "sha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+        "sha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+        "sha256": "4cb6721cd0be04099e5793b99519f4871ab0cd415011c65ab08bfe4bedbbc276"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+        "sha256": "caa988f40cd3f0f5ec2fbec5f733f78535cd19b99c8baa4ce433a3ba8d803624"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
+        "sha256": "43f6ecb3e9843009b5d854947ada61fbf0e8fec0569707caca0bc3dca7bd75ca"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+        "sha256": "2ac8716a79b70af08a764860f428ac3a0b27242a73213b4b915c8e7140f681ee"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+        "sha256": "11f0dc8710b4b764e19d17dc9d1e8099e0e4d7c473e7c918a3c44266f54d201c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+        "sha256": "60fbd923d8e35808b164796cd3b2dfdff90a5249dbbb1177db8569d4cbe5cc6c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+        "sha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+        "sha256": "465811e6f82ce2b8226beca73b26f0f14d6d5af3a0782bdac817f4dcf5668ca2"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActivation.ts",
+        "sha256": "cc26c35a1939d43e95ad8a7619c379c0a2a8efc070205d092173fa7fc54cf1c9"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationReadiness.ts",
+        "sha256": "2edcfd3953ceb8ce194bc087ae7c617ada908a1d6d0aefde66c9f2fd7540c020"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+        "sha256": "d6fae129dfb8faa9e6d4873bf992cffd2413cd423639374fa3f119ec2f41330f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
+        "sha256": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationBindingProjection.ts",
+        "sha256": "3a067ee39b343d44395cb03819c225de1946745f6e261cc46d105f6df8c6c024"
+      },
+      {
+        "path": "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
+        "sha256": "24ad3276187ecea5be8ee989e84e95175cf74ccee56337f71210bd19cf33f499"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedHostRuntime.ts",
+        "sha256": "0faf9ff27d80631d082d8c6bb88f26399d617b7c9adaffd7c45f319ef8d2872b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+        "sha256": "1a74a786d8c68fa15328d838fb6f974f1e299fa6c535c1aa0536cf1c5b971c4a"
+      },
+      {
+        "path": "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
+        "sha256": "89bf5342c70f8bc5ef45f7823829cc83969cc37fba405ea0c6efdf23e0bb5ec5"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/admission.ts",
+        "sha256": "8f35fcfc2b141d491d308d569d21c9120eb134256f1e70383a7fb4a5ce7b6e62"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+        "sha256": "4839b1b6cafe8a59a0482b9cffdcc1297155b19a3616cbf8a4357016b00b1865"
+      },
+      {
+        "path": "packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts",
+        "sha256": "c1773529246df7c859cb64cc6542da5487e790c9715b1710d1fde5c4b88fa72f"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+        "sha256": "83796de3f90cea8912c39ebf3ea6af645fc974fce927558b7b7429df5b7feb6c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+        "sha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23"
+      },
+      {
+        "path": "packages/medusa-adapter/src/query/read.ts",
+        "sha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-relations.ts",
+        "sha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      {
+        "path": "packages/persistence-postgres/src/appRows.ts",
+        "sha256": "c3b96bbecefc26ef47d9e65870d9dfba66659a80f56095fe0ee0e448fe79d887"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgres.ts",
+        "sha256": "b60cabdab4ec89f3bcc20ed615dcf3165892c9c54c4c3a1d3d8b93f1004a8ff7"
+      },
+      {
+        "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+        "sha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad"
+      },
+      {
+        "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+        "sha256": "1f14c2549024d9b7ec90a49acac124544134d931a2487134d237571e090d91da"
+      },
+      {
+        "path": "packages/persistence-postgres/src/installationLifecycle.ts",
+        "sha256": "ec61b73e8b5a3669a5330e17e2b06939d9645f710a71c36635c6178ec9fb8afa"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgresInstallationMaintenance.ts",
+        "sha256": "9fc2187d25514d3e8f811949a93150143ff11f51dfae101f0cd2338054a709fe"
+      },
+      {
+        "path": "packages/persistence-postgres/src/applicationStandaloneBinding.ts",
+        "sha256": "52d40bbccf8c220a225f42f15933b89dabc55046f98acf9e49e65ca3bdd74074"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalReadMetadata.ts",
+        "sha256": "1ccdee723758215824eea1d7fe71ef68abf1783a1fa8023cceda38de3200c55c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/readAdmission.ts",
+        "sha256": "578537495fab8cfa64e7d5e5d91b02188192c9d7e4522eec6755ac348f3d2f70"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/readHost.ts",
+        "sha256": "b2ba6fb3c8f09f6703fe6e772be2acc6dfa7a0c89a2d1444c31f13355c2d14c6"
+      }
+    ],
+    "drivers": [
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\core\\framework\\dist\\deps\\pg.js",
+        "sha256": "6caf9bfd771731a2725bd663246207baefe1c243adb44bdab7b3b8f2a017bd14"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\packages\\deps\\dist\\pg.js",
+        "sha256": "f6c20a70f5180a5178b315fb3ee63a105c1e0cac6a00c31693229059643cb2cf"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\third_party\\medusa\\upstream\\node_modules\\pg\\lib\\index.js",
+        "sha256": "a012ecbe7fdefed8d2b36c3658e33dc4c291d0bb60df18d382300061211052b7"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\node_modules\\.pnpm\\pg@8.22.0\\node_modules\\pg\\lib\\index.js",
+        "sha256": "3fad6e6d3d976edbabe0cbc9e1d39f4340bcb719bbbb186a0d3a24f3dbd4a94c"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-product\\dist\\services\\index.js",
+        "sha256": "53efd54a25103037d8132dff96e98e6c36400173f9008c098acee46a4ecc33b3"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\Codex\\2026-10-02\\new-chat\\flarex-read-redesign\\packages\\medusa-utils\\dist\\modules-sdk\\medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      }
+    ],
+    "methodHashes": [
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      }
+    ],
+    "construction": "pinned native MikroORM constructor versus promoted Flarex constructor; selected method-body parity"
+  },
+  "checkpoint": "2e69fbdd-uncommitted-managed",
+  "status": "measurementPassed",
+  "activeStage": "runtimeSettingsAfter",
+  "runtimeStable": true,
+  "parityPassed": true,
+  "observedSuccessfulRetrievals": 12,
+  "settings": {
+    "mode": "trace",
+    "componentSpans": true,
+    "coldPoolClient": false,
+    "managedRead": true,
+    "coldPreparation": false,
+    "protocolTracing": true,
+    "warmups": 1,
+    "sampleCount": 1,
+    "concurrency": 1,
+    "nativeDatabase": "flarex_read_redesign_native",
+    "preparationProfile": "retained hosts",
+    "logicalDatabase": "flarex_read_redesign_logical",
+    "selectedDatabaseIdentities": [
+      {
+        "database": "flarex_read_redesign_native",
+        "dbid": 16391
+      },
+      {
+        "database": "flarex_read_redesign_logical",
+        "dbid": 16392
+      }
+    ],
+    "node": "v24.16.0",
+    "platform": "win32",
+    "architecture": "x64",
+    "nativeLifetime": "existing MikroORM module and per-call injected manager; no benchmark-owned context",
+    "flarexLifetime": "existing standalone CommerceHost.read with actual fresh request lifetime",
+    "flarexPhysicalConnectionProfile": "existing retained pools",
+    "nativePhysicalConnectionProfile": "existing retained pool",
+    "protocolCoverage": "actual pg Connection method submissions; values and SQL bodies omitted; not server completion or wire bytes",
+    "diagnosticConnectionSettings": "unavailable in this mode",
+    "runtimeSettings": {
+      "native": {
+        "database": "flarex_read_redesign_native",
+        "role": "flarex_read_redesign_native",
+        "dbid": 16391,
+        "userid": 16388,
+        "pid": 7100,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "native_retrieval"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarex": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790935403954_u0p9xgrjl1s",
+        "dbid": 16392,
+        "userid": 352900,
+        "pid": 6200,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790935401920_fqnggfxm3gr"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarexControl": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790935404213_9komvwgt809",
+        "dbid": 16392,
+        "userid": 352903,
+        "pid": 2272,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790935400007_83pm9mfh125"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      }
+    },
+    "runtimeSettingsAfter": {
+      "native": {
+        "database": "flarex_read_redesign_native",
+        "role": "flarex_read_redesign_native",
+        "dbid": 16391,
+        "userid": 16388,
+        "pid": 7100,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "native_retrieval"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarex": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790935403954_u0p9xgrjl1s",
+        "dbid": 16392,
+        "userid": 352900,
+        "pid": 6200,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790935401920_fqnggfxm3gr"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarexControl": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1790935404213_9komvwgt809",
+        "dbid": 16392,
+        "userid": 352903,
+        "pid": 2272,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790935400007_83pm9mfh125"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      }
+    },
+    "diagnosticObserverIdentity": "unavailable in this mode",
+    "serverStatementCoverage": "unavailable in this mode",
+    "nestedServerCoverage": "unavailable",
+    "functionTriggerCoverage": "unavailable unless separate server logs observe it"
+  },
+  "settingsSha256": "49ad71ab50788c4581b42d5d327c56adb6f76183b20ccd729d85432f747fd425",
+  "seed": {
+    "id": "prod_native_compare",
+    "title": "Native retrieval",
+    "handle": "native-retrieval",
+    "status": "published",
+    "discountable": true,
+    "is_giftcard": false
+  },
+  "collection": {
+    "id": "pcol_native_compare",
+    "title": "Native collection",
+    "handle": "native-collection"
+  },
+  "cases": [
+    {
+      "name": "scalar",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "status",
+          "discountable",
+          "is_giftcard"
+        ],
+        "relations": []
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "name": "collection",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "collection.id",
+          "collection.title"
+        ],
+        "relations": [
+          "collection"
+        ]
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "setup": {
+    "flarexFixtureAndHostConstructionMs": 15022.396799999999,
+    "nativeSchemaPreparationMs": 207.15130000000136,
+    "nativeSchemaAndModuleConstructionMs": 321.07020000000193,
+    "nativePublicSeedMs": 282.9305999999997,
+    "flarexPublicSeedMs": 281.97130000000107
+  },
+  "parityResults": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "missingErrors": {
+    "native": {
+      "name": "Error",
+      "message": "Product with id: prod_native_missing was not found",
+      "type": "not_found"
+    },
+    "flarex": {
+      "name": "Error",
+      "message": "Product with id: prod_native_missing was not found",
+      "type": "not_found"
+    }
+  },
+  "samples": [
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 28.05870000000141,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      },
+      "acceptingComponents": [
+        {
+          "name": "InstallationLifecycle.acquire",
+          "spanId": "a969e7125550bef0",
+          "parentSpanId": "a430765a8441055a",
+          "startedMs": 0,
+          "completedMs": 1.0145,
+          "inclusiveElapsedMs": 1.0145,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "8853132f08c120fb",
+          "parentSpanId": "a430765a8441055a",
+          "startedMs": 1.5932,
+          "completedMs": 21.2674,
+          "inclusiveElapsedMs": 19.6742,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "b1458e63b3fba814",
+          "parentSpanId": "8853132f08c120fb",
+          "startedMs": 1.6249,
+          "completedMs": 3.0932,
+          "inclusiveElapsedMs": 1.4683,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "511aab55164d8a11",
+          "parentSpanId": "8853132f08c120fb",
+          "startedMs": 5.683,
+          "completedMs": 21.2633,
+          "inclusiveElapsedMs": 15.5803,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "c7455900cba83635",
+          "parentSpanId": "511aab55164d8a11",
+          "startedMs": 5.7059,
+          "completedMs": 21.2596,
+          "inclusiveElapsedMs": 15.5537,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "cd852582e95d11de",
+          "parentSpanId": "c7455900cba83635",
+          "startedMs": 5.8019,
+          "completedMs": 6.3305,
+          "inclusiveElapsedMs": 0.5286,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "c8bfea8b3ae294b1",
+          "parentSpanId": "c7455900cba83635",
+          "startedMs": 18.9646,
+          "completedMs": 20.7833,
+          "inclusiveElapsedMs": 1.8187,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.guard",
+          "spanId": "08335d7da4a6b1b6",
+          "parentSpanId": "c7455900cba83635",
+          "startedMs": 20.8219,
+          "completedMs": 21.2535,
+          "inclusiveElapsedMs": 0.4316,
+          "outcome": "success"
+        }
+      ]
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 2.375,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 4.120499999997264,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      },
+      "observations": [
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 26952.9848,
+          "completedMs": 26957.0263,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 26953.1011,
+          "completedMs": 26956.8588,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 26953.1683,
+          "completedMs": 26956.0827,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 146
+        },
+        {
+          "kind": "sql",
+          "label": "select \"p0\".\"id\", \"p0\".\"title\", \"p0\".\"handle\", \"p0\".\"status\", \"p0\".\"discountable\", \"p0\".\"is_giftcard\" from \"native_retrieval\".\"product\" as \"p0\" where \"p0\".\"deleted_at\" is null and \"p0\".\"id\" = 'prod_native_compare' order by \"p0\".\"id\" asc",
+          "connection": 1,
+          "startedMs": 26954.8166,
+          "completedMs": 26955.6505,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 146
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 26956.8749,
+          "completedMs": 26957.0239,
+          "outcome": "success"
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 26954.977,
+          "sqlBytes": 236,
+          "sqlSha256": "5840d4f266b7635dfef365ae756ca330b12f07720a1609cfd3a369db26622c57",
+          "outcome": "returned"
+        }
+      ]
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 26.440700000002835,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      },
+      "observations": [
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 1,
+          "startedMs": 26958.0815,
+          "completedMs": 26958.4501,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from fx_lock_installation_admission() as i  limit $1",
+          "connection": 1,
+          "startedMs": 26958.6245,
+          "completedMs": 26959.1961,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 257
+        },
+        {
+          "kind": "sql",
+          "label": "select \"id\", \"deployment_id\", \"active_schema_version_id\", \"isolation_kind\", \"physical_locator_json\", \"created_at\" from \"fx_control_scope\" where \"fx_control_scope\".\"id\" = $1 limit $2",
+          "connection": 1,
+          "startedMs": 26959.3793,
+          "completedMs": 26959.9368,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 275
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 1,
+          "startedMs": 26960.024,
+          "completedMs": 26960.3818,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 1,
+          "startedMs": 26960.6204,
+          "completedMs": 26960.7514,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from fx_lock_installation_admission() as i  limit $1",
+          "connection": 1,
+          "startedMs": 26960.8922,
+          "completedMs": 26961.2361,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 257
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"protocol_version\", \"state\", \"physical_locator_json\", \"initial_epoch\", \"reserved_at\", \"ready_at\" from \"fx_control_scope_provisioning\" where \"fx_control_scope_provisioning\".\"scope_id\" = $1 limit $2",
+          "connection": 1,
+          "startedMs": 26961.3846,
+          "completedMs": 26961.6294,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 320
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 1,
+          "startedMs": 26961.6804,
+          "completedMs": 26961.9229,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"scope_uuid\", \"storage_generation\", \"storage_generation_fence\", \"last_commit_seq\", \"oldest_available_commit_seq\", \"authorization_revocation_epoch\", \"epoch\", \"epoch_uuid\", \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2",
+          "connection": 2,
+          "startedMs": 26962.2483,
+          "completedMs": 26962.5905,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 230
+        },
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 2,
+          "startedMs": 26963.0832,
+          "completedMs": 26963.2024,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "set transaction isolation level repeatable read",
+          "connection": 2,
+          "startedMs": 26963.3104,
+          "completedMs": 26963.4226,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
+          "connection": 2,
+          "startedMs": 26963.518,
+          "completedMs": 26963.6989,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 25
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_lock_installation_admission() as i \n      inner join \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_system_installation_runtime p\n      on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $1 limit $2",
+          "connection": 2,
+          "startedMs": 26963.9264,
+          "completedMs": 26964.3888,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 269
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"scope_uuid\", \"storage_generation\", \"storage_generation_fence\", \"last_commit_seq\", \"oldest_available_commit_seq\", \"authorization_revocation_epoch\", \"epoch\", \"epoch_uuid\", \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2 for key share",
+          "connection": 2,
+          "startedMs": 26964.5993,
+          "completedMs": 26964.9065,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 230
+        },
+        {
+          "kind": "sql",
+          "label": "begin isolation level repeatable read",
+          "connection": 3,
+          "startedMs": 26965.1011,
+          "completedMs": 26965.2278,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_installation_admission() as i \n      inner join \"flarex_file_test_1790935400007_83pm9mfh125\".fx_system_installation_runtime p\n      on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $1 limit $2",
+          "connection": 3,
+          "startedMs": 26965.3432,
+          "completedMs": 26965.8061,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 269
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_prepared_metadata_epoch() as epoch limit $1",
+          "connection": 3,
+          "startedMs": 26965.9449,
+          "completedMs": 26966.1986,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 167
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 3,
+          "startedMs": 26966.2392,
+          "completedMs": 26966.4814,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"storage_generation\", \"sha256\", case when octet_length(\"canonical_bytes\") between 1 and 1048576 then \"canonical_bytes\" else null end, \"canonical_byte_length\", \"sequence\", \"activation_sha256\", \"candidate_sha256\" from \"fx_system_data_binding_head\" where (\"fx_system_data_binding_head\".\"scope_id\" = $1 and \"fx_system_data_binding_head\".\"storage_generation\" = $2) limit $3 for share",
+          "connection": 2,
+          "startedMs": 26966.6737,
+          "completedMs": 26966.9667,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 1481
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_system_data_binding_activation\".\"scope_id\", \"fx_system_data_binding_activation\".\"storage_generation\", \"fx_system_data_binding_activation\".\"sha256\", case when row_number() over () = 1 then case when octet_length(\"fx_system_data_binding_activation\".\"canonical_bytes\") between 1 and 1048576 then \"fx_system_data_binding_activation\".\"canonical_bytes\" else null end else null end, \"fx_system_data_binding_activation\".\"canonical_byte_length\", \"fx_system_data_binding_activation\".\"sequence\", \"fx_system_data_binding_activation\".\"request_id\", \"fx_system_data_binding_activation\".\"candidate_sha256\", \"fx_system_data_binding_candidate\".\"scope_id\", \"fx_system_data_binding_candidate\".\"storage_generation\", \"fx_system_data_binding_candidate\".\"sha256\", case when row_number() over () = 1 then case when octet_length(\"fx_system_data_binding_candidate\".\"canonical_bytes\") between 1 and 1048576 then \"fx_system_data_binding_candidate\".\"canonical_bytes\" else null end else null end, \"fx_system_data_binding_candidate\".\"canonical_byte_length\", \"fx_system_data_binding_physical_lane\".\"scope_id\", \"fx_system_data_binding_physical_lane\".\"storage_generation\", \"fx_system_data_binding_physical_lane\".\"candidate_sha256\", \"fx_system_data_binding_physical_lane\".\"slot\", \"fx_system_data_binding_physical_lane\".\"installation_storage_id\", \"fx_system_data_binding_physical_lane\".\"installation_sha256\", \"fx_system_data_binding_physical_lane\".\"installation_receipt_sha256\", \"fx_system_data_binding_physical_lane\".\"readiness_storage_id\", \"fx_system_data_binding_physical_lane\".\"readiness_sha256\", \"fx_system_data_binding_physical_lane\".\"availability_history_storage_id\", \"fx_system_data_binding_physical_lane\".\"availability_sequence\", \"fx_system_data_binding_physical_lane\".\"availability_status\", \"fx_system_data_binding_physical_lane\".\"availability_history_sha256\" from \"fx_system_data_binding_activation\" left join \"fx_system_data_binding_candidate\" on (\"fx_system_data_binding_candidate\".\"scope_id\" = \"fx_system_data_binding_activation\".\"scope_id\" and \"fx_system_data_binding_candidate\".\"storage_generation\" = \"fx_system_data_binding_activation\".\"storage_generation\" and \"fx_system_data_binding_candidate\".\"sha256\" = $1) left join \"fx_system_data_binding_physical_lane\" on (\"fx_system_data_binding_physical_lane\".\"scope_id\" = \"fx_system_data_binding_candidate\".\"scope_id\" and \"fx_system_data_binding_physical_lane\".\"storage_generation\" = \"fx_system_data_binding_candidate\".\"storage_generation\" and \"fx_system_data_binding_physical_lane\".\"candidate_sha256\" = \"fx_system_data_binding_candidate\".\"sha256\") where (\"fx_system_data_binding_activation\".\"scope_id\" = $2 and \"fx_system_data_binding_activation\".\"storage_generation\" = $3 and \"fx_system_data_binding_activation\".\"sequence\" = $4) limit $5",
+          "connection": 2,
+          "startedMs": 26967.5772,
+          "completedMs": 26968.1358,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 6824
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_system_prepared_metadata_epoch as epoch limit $1",
+          "connection": 2,
+          "startedMs": 26969.1001,
+          "completedMs": 26969.3442,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 166
+        },
+        {
+          "kind": "sql",
+          "label": "select \"activation_sequence\", \"readiness_contract_version\", \"revision_id\", \"head_sha256\", \"activation_sha256\", \"readiness_sha256\" from \"fx_system_application_active_head\" where \"fx_system_application_active_head\".\"scope_id\" = $1 limit $2 for share",
+          "connection": 2,
+          "startedMs": 26969.4497,
+          "completedMs": 26969.688,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 486
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"authorization_revocation_epoch\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2 for key share",
+          "connection": 2,
+          "startedMs": 26969.9277,
+          "completedMs": 26970.158,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 52
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_uuid\", \"source_key\", \"source_sha256\", \"step_id\", \"contract_sha256\", \"dataset_sha256\", \"row_count\", \"commit_seq\" from \"fx_system_logical_source_initialization\" where (\"fx_system_logical_source_initialization\".\"scope_uuid\" = $1 and \"fx_system_logical_source_initialization\".\"source_key\" = $2 and \"fx_system_logical_source_initialization\".\"step_id\" = $3) limit $4",
+          "connection": 2,
+          "startedMs": 26970.6334,
+          "completedMs": 26970.9786,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 282
+        },
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 26973.2561,
+          "completedMs": 26980.9566,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 26973.2852,
+          "completedMs": 26980.7885,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 26973.3798,
+          "completedMs": 26980.7733,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 146
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"unique_constraint_definition_id\", \"storage_generation\", \"storage_generation_fence\", \"epoch\", \"start_commit_seq\", \"lifecycle\", \"covered_through_commit_seq\", \"maintenance_activation_sequence\", \"maintenance_bytes\", \"maintenance_sha256\", \"cursor_row_id\", \"attempt_fence\", \"created_at\", \"updated_at\" from \"fx_system_unique_constraint_build\" where (\"fx_system_unique_constraint_build\".\"scope_id\" = $1 and \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" in ($2)) order by \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" limit $3 for key share",
+          "connection": 2,
+          "startedMs": 26975.5013,
+          "completedMs": 26976.1097,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 219
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"scope_uuid\", \"storage_generation\", \"storage_generation_fence\", \"last_commit_seq\", \"oldest_available_commit_seq\", \"authorization_revocation_epoch\", \"epoch\", \"epoch_uuid\", \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2 for key share",
+          "connection": 2,
+          "startedMs": 26976.3525,
+          "completedMs": 26976.6599,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 230
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_app_unique_key\".\"scope_uuid\", \"fx_app_unique_key\".\"constraint_id\", \"fx_app_unique_key\".\"locale_key\", \"fx_app_unique_key\".\"canonical_key_sha256\", \"fx_app_unique_key\".\"key_codec_version\", \"fx_app_unique_key\".\"encoded_key\", \"fx_app_unique_key\".\"table_id\", \"fx_app_unique_key\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"is_tombstone\", \"fx_system_scope_clock\".\"last_commit_seq\", exists (select 1 from \"fx_system_commit_app_row_change\" as fact\n          where fact.scope_uuid = \"fx_app_unique_key\".\"scope_uuid\" and fact.commit_seq = \"fx_app_row_current\".\"commit_seq\"\n            and fact.table_id = \"fx_app_unique_key\".\"table_id\" and fact.row_id = \"fx_app_unique_key\".\"row_id\") from \"fx_app_unique_key\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" and \"fx_app_row_current\".\"table_id\" = \"fx_app_unique_key\".\"table_id\" and \"fx_app_row_current\".\"row_id\" = \"fx_app_unique_key\".\"row_id\") left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" where (\"fx_app_unique_key\".\"scope_uuid\" = $1 and \"fx_app_unique_key\".\"constraint_id\" = $2 and \"fx_app_unique_key\".\"locale_key\" = $3 and \"fx_app_unique_key\".\"canonical_key_sha256\" = $4)",
+          "connection": 2,
+          "startedMs": 26977.354,
+          "completedMs": 26978.1089,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 405
+        },
+        {
+          "kind": "sql",
+          "label": "with \"capture_clock\" as (select \"last_commit_seq\", \"epoch\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_uuid\" = $1 limit $2) select \"capture_clock\".\"last_commit_seq\", \"capture_clock\".\"epoch\", \"fx_app_row_current\".\"row_id\" is null or ($3 >= 1\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $4\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $5), false, \"fx_app_row_current\".\"scope_uuid\", \"fx_app_row_current\".\"table_id\", \"fx_app_row_current\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"scope_uuid\", \"fx_app_row_rev\".\"table_id\", \"fx_app_row_rev\".\"row_id\", \"fx_app_row_rev\".\"commit_seq\", \"fx_app_row_rev\".\"prev_commit_seq\", \"fx_app_row_rev\".\"write_epoch_uuid\", \"fx_app_row_rev\".\"schema_version_id\", \"fx_app_row_rev\".\"creation_time\", \"fx_app_row_rev\".\"value_codec_version\", \"fx_app_row_rev\".\"is_tombstone\", case when \"fx_app_row_current\".\"row_id\" is null or ($6 >= 1\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $7\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $8) then \"fx_app_row_rev\".\"value_bytes\" else null end, \"fx_app_row_rev\".\"value_sha256\" from \"capture_clock\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = $9 and \"fx_app_row_current\".\"table_id\" = $10 and \"fx_app_row_current\".\"row_id\" = $11) left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") limit $12",
+          "connection": 2,
+          "startedMs": 26979.0812,
+          "completedMs": 26979.6524,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 2845
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 26980.8004,
+          "completedMs": 26980.913,
+          "outcome": "success"
+        },
+        {
+          "kind": "sql",
+          "label": "begin isolation level repeatable read",
+          "connection": 3,
+          "startedMs": 26981.4136,
+          "completedMs": 26981.5928,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_installation_admission() as i \n      inner join \"flarex_file_test_1790935400007_83pm9mfh125\".fx_system_installation_runtime p\n      on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $1 limit $2",
+          "connection": 3,
+          "startedMs": 26981.729,
+          "completedMs": 26982.2476,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 269
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_prepared_metadata_epoch() as epoch limit $1",
+          "connection": 3,
+          "startedMs": 26982.4114,
+          "completedMs": 26982.6629,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 167
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 3,
+          "startedMs": 26982.7088,
+          "completedMs": 26982.9762,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_lock_prepared_metadata_epoch() as epoch limit $1",
+          "connection": 2,
+          "startedMs": 26983.1258,
+          "completedMs": 26983.4352,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 166
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 2,
+          "startedMs": 26983.7355,
+          "completedMs": 26984.0059,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 26958.1174,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 26958.6685,
+          "sqlBytes": 355,
+          "sqlSha256": "fecc68d71fc23441c6abe0c2221c731f452922b724e9bf8b379ba4fcb03c9065",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 26958.7047,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 26958.7338,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 26958.7514,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 26958.756,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 26959.3945,
+          "sqlBytes": 181,
+          "sqlSha256": "6639978fa1f9b073f030af8cb07e9ec49493af8fd9a5867d952dad1e85fc44b6",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 26959.4459,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 26959.498,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 26959.5292,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 26959.547,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 26960.0359,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 26960.6333,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 26960.9042,
+          "sqlBytes": 355,
+          "sqlSha256": "fecc68d71fc23441c6abe0c2221c731f452922b724e9bf8b379ba4fcb03c9065",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 26960.924,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 26960.9294,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 26960.932,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 26960.9329,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 26961.3945,
+          "sqlBytes": 215,
+          "sqlSha256": "06ab45bb4da53e47fe5e5338785b760b3d7194f03ca244933d4c28c4f5112d2e",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 26961.4107,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 26961.4157,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 26961.4167,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 26961.4173,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 26961.6896,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26962.2717,
+          "sqlBytes": 286,
+          "sqlSha256": "a489873433082cec445a2881fd8931459ff7069662a4d104d6fe7d7488228003",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26962.2947,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26962.3231,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26962.3255,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26962.3269,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 2,
+          "startedMs": 26963.0932,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 2,
+          "startedMs": 26963.3169,
+          "sqlBytes": 47,
+          "sqlSha256": "69f5702b9c483fb179737aa369b45007aa87571fd829306f322e8525888f054d",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26963.5281,
+          "sqlBytes": 86,
+          "sqlSha256": "99747caabebe10da11bbeb8c330470748baaae921ee36f3cafd262299bba55a7",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26963.5422,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26963.5462,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26963.5475,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26963.5482,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26963.9338,
+          "sqlBytes": 718,
+          "sqlSha256": "119f9e5e1b417bbf0cf331ea0f41c1c154f4a05b44f0cfec08c78b5de6f31631",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26963.9521,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26963.9563,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26963.9571,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26963.9579,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26964.6105,
+          "sqlBytes": 300,
+          "sqlSha256": "c51033c28465b7bd1bc25c5977a2a68d01a918e6ba19981fee53a227cf077715",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26964.6351,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26964.6419,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26964.6438,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26964.645,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 26965.1082,
+          "sqlBytes": 37,
+          "sqlSha256": "4f85f2ebcf2ad7506ebd1b45e79a1198238865c80023b0580f9a49c5c04a6d8c",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 26965.351,
+          "sqlBytes": 718,
+          "sqlSha256": "1dee010774080ed27821908f94af9e7bebdaa1858362fe864e824c2af93818bf",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 26965.3682,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 26965.3725,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 26965.3735,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 26965.3742,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 26965.9523,
+          "sqlBytes": 267,
+          "sqlSha256": "f8d843e46793191ac87137bd068077860972c302d569e2ddcd80bc2f972b9dd1",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 26965.9677,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 26965.9713,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 26965.9722,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 26965.973,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 26966.2462,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26966.6814,
+          "sqlBytes": 397,
+          "sqlSha256": "bf71a9629d528336997500ca039bd7a2728f3a05470622bcb37498f0853877cb",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26966.6986,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26966.7029,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26966.7041,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26966.7048,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26967.5855,
+          "sqlBytes": 2774,
+          "sqlSha256": "404491b13c756d318469faa3112ab4afccbf6d74c610f55ed3fb0e60b8a23cc9",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26967.6106,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26967.616,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26967.6171,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26967.6178,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26969.1089,
+          "sqlBytes": 267,
+          "sqlSha256": "2c6f71e3e632bc8e2380d1c7400261bf04741f49973b629d4d961d7c52d761a4",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26969.126,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26969.1299,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26969.1309,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26969.1316,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26969.4572,
+          "sqlBytes": 247,
+          "sqlSha256": "d66a4fedb284a33bfe7eb2980ac290e3e437f34906a0dfe6eb0a05ed0864f75e",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26969.4721,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26969.4785,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26969.4796,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26969.4804,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26969.9383,
+          "sqlBytes": 149,
+          "sqlSha256": "f250e2277eb97187d5fd24d22707f27b912c41dc22673c14e7fc184a4706cd81",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26969.9551,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26969.9593,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26969.9602,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26969.9609,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26970.6487,
+          "sqlBytes": 374,
+          "sqlSha256": "5d518627893ef6e378eb9fe46574fc950f6eae99bf96d4f8bd8e471b95943cf7",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26970.6806,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26970.6874,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26970.6885,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26970.6893,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26975.5283,
+          "sqlBytes": 599,
+          "sqlSha256": "f92808d761769dd981c7dee2517b1c29f3d9c566b381968df751ac7d2394f3f3",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26975.5752,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26975.5878,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26975.5918,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26975.5936,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26976.3659,
+          "sqlBytes": 300,
+          "sqlSha256": "c51033c28465b7bd1bc25c5977a2a68d01a918e6ba19981fee53a227cf077715",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26976.3912,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26976.3969,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26976.3985,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26976.3998,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26977.3662,
+          "sqlBytes": 1556,
+          "sqlSha256": "2f49f75e58c14d7c2909e6ce249c9c656cdce8b4186994c84cdb7fb4a1d0a152",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26977.3978,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26977.411,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26977.4127,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26977.4139,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26979.093,
+          "sqlBytes": 1673,
+          "sqlSha256": "08ce3793a03eeeb3fa0d84f6a034784d23a773d66b4c316dd63fa6661f9053b4",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26979.1231,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26979.1341,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26979.1358,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26979.137,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 26981.4266,
+          "sqlBytes": 37,
+          "sqlSha256": "4f85f2ebcf2ad7506ebd1b45e79a1198238865c80023b0580f9a49c5c04a6d8c",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 26981.7394,
+          "sqlBytes": 718,
+          "sqlSha256": "1dee010774080ed27821908f94af9e7bebdaa1858362fe864e824c2af93818bf",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 26981.7603,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 26981.767,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 26981.7689,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 26981.7701,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 26982.421,
+          "sqlBytes": 267,
+          "sqlSha256": "f8d843e46793191ac87137bd068077860972c302d569e2ddcd80bc2f972b9dd1",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 26982.439,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 26982.4439,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 26982.4454,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 26982.4465,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 26982.716,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 26983.1343,
+          "sqlBytes": 267,
+          "sqlSha256": "c41c59e243a8731969eca3252e819a3314b721ed41ba342434d5bf68d88a3da8",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 26983.1537,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 26983.158,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 26983.1594,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 26983.1606,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 2,
+          "startedMs": 26983.7454,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        }
+      ],
+      "acceptingComponents": [
+        {
+          "name": "InstallationLifecycle.acquire",
+          "spanId": "5ca5c2dd59683504",
+          "parentSpanId": "b5909e6987f38aed",
+          "startedMs": 0,
+          "completedMs": 0.641,
+          "inclusiveElapsedMs": 0.641,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "288290fb466d22b2",
+          "parentSpanId": "b5909e6987f38aed",
+          "startedMs": 1.1787,
+          "completedMs": 19.6825,
+          "inclusiveElapsedMs": 18.5038,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "636da61b75a3c6a1",
+          "parentSpanId": "288290fb466d22b2",
+          "startedMs": 1.199,
+          "completedMs": 2.706,
+          "inclusiveElapsedMs": 1.507,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "a4a0de808d4799d6",
+          "parentSpanId": "288290fb466d22b2",
+          "startedMs": 5.1503,
+          "completedMs": 19.6787,
+          "inclusiveElapsedMs": 14.5284,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "f97aa1a1835215ee",
+          "parentSpanId": "a4a0de808d4799d6",
+          "startedMs": 5.165,
+          "completedMs": 19.6753,
+          "inclusiveElapsedMs": 14.5103,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "38e1308557449fd9",
+          "parentSpanId": "f97aa1a1835215ee",
+          "startedMs": 5.2161,
+          "completedMs": 5.579,
+          "inclusiveElapsedMs": 0.3629,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "63d899f42cd4b725",
+          "parentSpanId": "f97aa1a1835215ee",
+          "startedMs": 17.4829,
+          "completedMs": 19.2084,
+          "inclusiveElapsedMs": 1.7255,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.guard",
+          "spanId": "dd8bbcd9a28da103",
+          "parentSpanId": "f97aa1a1835215ee",
+          "startedMs": 19.2423,
+          "completedMs": 19.6687,
+          "inclusiveElapsedMs": 0.4264,
+          "outcome": "success"
+        }
+      ]
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 34.26510000000053,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      },
+      "acceptingComponents": [
+        {
+          "name": "InstallationLifecycle.acquire",
+          "spanId": "e24f9477be4acbc2",
+          "parentSpanId": "64810473bd72bd13",
+          "startedMs": 0,
+          "completedMs": 0.6434,
+          "inclusiveElapsedMs": 0.6434,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "34a133325ac5e192",
+          "parentSpanId": "64810473bd72bd13",
+          "startedMs": 1.1102,
+          "completedMs": 28.5982,
+          "inclusiveElapsedMs": 27.488,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "b8ab05ad051ce9ce",
+          "parentSpanId": "34a133325ac5e192",
+          "startedMs": 1.1311,
+          "completedMs": 2.5797,
+          "inclusiveElapsedMs": 1.4486,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "534b055492e0370f",
+          "parentSpanId": "34a133325ac5e192",
+          "startedMs": 4.736,
+          "completedMs": 28.5945,
+          "inclusiveElapsedMs": 23.8585,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "e919c051c460437f",
+          "parentSpanId": "534b055492e0370f",
+          "startedMs": 4.7491,
+          "completedMs": 28.5912,
+          "inclusiveElapsedMs": 23.8421,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "35ddae315e26b55f",
+          "parentSpanId": "e919c051c460437f",
+          "startedMs": 4.7988,
+          "completedMs": 5.1332,
+          "inclusiveElapsedMs": 0.3344,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "0ab6b4f77cc2096e",
+          "parentSpanId": "e919c051c460437f",
+          "startedMs": 20.6458,
+          "completedMs": 28.1036,
+          "inclusiveElapsedMs": 7.4578,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.guard",
+          "spanId": "b1edeb44c9134db5",
+          "parentSpanId": "e919c051c460437f",
+          "startedMs": 28.1427,
+          "completedMs": 28.5829,
+          "inclusiveElapsedMs": 0.4402,
+          "outcome": "success"
+        }
+      ]
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 2.9711999999999534,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 3.0643999999992957,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      },
+      "observations": [
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 27022.5082,
+          "completedMs": 27025.5474,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 27022.5656,
+          "completedMs": 27025.3706,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 27022.597,
+          "completedMs": 27024.9316,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 155
+        },
+        {
+          "kind": "sql",
+          "label": "select \"p0\".\"id\", \"p0\".\"title\", \"p0\".\"handle\", \"p0\".\"collection_id\" as \"collection_id\", \"c1\".\"id\" as \"c1__id\", \"c1\".\"title\" as \"c1__title\" from \"native_retrieval\".\"product\" as \"p0\" left join \"native_retrieval\".\"product_collection\" as \"c1\" on \"p0\".\"collection_id\" = \"c1\".\"id\" and \"c1\".\"deleted_at\" is null where \"p0\".\"deleted_at\" is null and \"p0\".\"id\" = 'prod_native_compare' order by \"p0\".\"id\" asc",
+          "connection": 1,
+          "startedMs": 27024.019,
+          "completedMs": 27024.4544,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 186
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 27025.3831,
+          "completedMs": 27025.546,
+          "outcome": "success"
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 27024.0297,
+          "sqlBytes": 397,
+          "sqlSha256": "b356b5f4bc44f3cee6e1c6ed77f7e0295a12da423fbe77fc0c93ae22129fb741",
+          "outcome": "returned"
+        }
+      ]
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 32.68990000000122,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      },
+      "observations": [
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 1,
+          "startedMs": 27026.1509,
+          "completedMs": 27026.3207,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from fx_lock_installation_admission() as i  limit $1",
+          "connection": 1,
+          "startedMs": 27026.4647,
+          "completedMs": 27026.8688,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 257
+        },
+        {
+          "kind": "sql",
+          "label": "select \"id\", \"deployment_id\", \"active_schema_version_id\", \"isolation_kind\", \"physical_locator_json\", \"created_at\" from \"fx_control_scope\" where \"fx_control_scope\".\"id\" = $1 limit $2",
+          "connection": 1,
+          "startedMs": 27027.0473,
+          "completedMs": 27027.33,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 275
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 1,
+          "startedMs": 27027.372,
+          "completedMs": 27027.6513,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 1,
+          "startedMs": 27027.7805,
+          "completedMs": 27027.887,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from fx_lock_installation_admission() as i  limit $1",
+          "connection": 1,
+          "startedMs": 27028.0585,
+          "completedMs": 27028.4056,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 257
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"protocol_version\", \"state\", \"physical_locator_json\", \"initial_epoch\", \"reserved_at\", \"ready_at\" from \"fx_control_scope_provisioning\" where \"fx_control_scope_provisioning\".\"scope_id\" = $1 limit $2",
+          "connection": 1,
+          "startedMs": 27028.5751,
+          "completedMs": 27028.8572,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 320
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 1,
+          "startedMs": 27028.9009,
+          "completedMs": 27029.1358,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"scope_uuid\", \"storage_generation\", \"storage_generation_fence\", \"last_commit_seq\", \"oldest_available_commit_seq\", \"authorization_revocation_epoch\", \"epoch\", \"epoch_uuid\", \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2",
+          "connection": 2,
+          "startedMs": 27029.3638,
+          "completedMs": 27029.6652,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 230
+        },
+        {
+          "kind": "sql",
+          "label": "begin",
+          "connection": 2,
+          "startedMs": 27030.1114,
+          "completedMs": 27030.2256,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "set transaction isolation level repeatable read",
+          "connection": 2,
+          "startedMs": 27030.3279,
+          "completedMs": 27030.4402,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
+          "connection": 2,
+          "startedMs": 27030.5387,
+          "completedMs": 27030.7164,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 25
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_lock_installation_admission() as i \n      inner join \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_system_installation_runtime p\n      on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $1 limit $2",
+          "connection": 2,
+          "startedMs": 27030.9446,
+          "completedMs": 27031.4042,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 269
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"scope_uuid\", \"storage_generation\", \"storage_generation_fence\", \"last_commit_seq\", \"oldest_available_commit_seq\", \"authorization_revocation_epoch\", \"epoch\", \"epoch_uuid\", \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2 for key share",
+          "connection": 2,
+          "startedMs": 27031.5905,
+          "completedMs": 27031.8829,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 230
+        },
+        {
+          "kind": "sql",
+          "label": "begin isolation level repeatable read",
+          "connection": 3,
+          "startedMs": 27032.2888,
+          "completedMs": 27032.4903,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_installation_admission() as i \n      inner join \"flarex_file_test_1790935400007_83pm9mfh125\".fx_system_installation_runtime p\n      on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $1 limit $2",
+          "connection": 3,
+          "startedMs": 27032.6351,
+          "completedMs": 27033.2789,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 269
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_prepared_metadata_epoch() as epoch limit $1",
+          "connection": 3,
+          "startedMs": 27033.5119,
+          "completedMs": 27033.8223,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 167
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 3,
+          "startedMs": 27033.8716,
+          "completedMs": 27036.4056,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"storage_generation\", \"sha256\", case when octet_length(\"canonical_bytes\") between 1 and 1048576 then \"canonical_bytes\" else null end, \"canonical_byte_length\", \"sequence\", \"activation_sha256\", \"candidate_sha256\" from \"fx_system_data_binding_head\" where (\"fx_system_data_binding_head\".\"scope_id\" = $1 and \"fx_system_data_binding_head\".\"storage_generation\" = $2) limit $3 for share",
+          "connection": 2,
+          "startedMs": 27036.734,
+          "completedMs": 27037.2494,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 1481
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_system_data_binding_activation\".\"scope_id\", \"fx_system_data_binding_activation\".\"storage_generation\", \"fx_system_data_binding_activation\".\"sha256\", case when row_number() over () = 1 then case when octet_length(\"fx_system_data_binding_activation\".\"canonical_bytes\") between 1 and 1048576 then \"fx_system_data_binding_activation\".\"canonical_bytes\" else null end else null end, \"fx_system_data_binding_activation\".\"canonical_byte_length\", \"fx_system_data_binding_activation\".\"sequence\", \"fx_system_data_binding_activation\".\"request_id\", \"fx_system_data_binding_activation\".\"candidate_sha256\", \"fx_system_data_binding_candidate\".\"scope_id\", \"fx_system_data_binding_candidate\".\"storage_generation\", \"fx_system_data_binding_candidate\".\"sha256\", case when row_number() over () = 1 then case when octet_length(\"fx_system_data_binding_candidate\".\"canonical_bytes\") between 1 and 1048576 then \"fx_system_data_binding_candidate\".\"canonical_bytes\" else null end else null end, \"fx_system_data_binding_candidate\".\"canonical_byte_length\", \"fx_system_data_binding_physical_lane\".\"scope_id\", \"fx_system_data_binding_physical_lane\".\"storage_generation\", \"fx_system_data_binding_physical_lane\".\"candidate_sha256\", \"fx_system_data_binding_physical_lane\".\"slot\", \"fx_system_data_binding_physical_lane\".\"installation_storage_id\", \"fx_system_data_binding_physical_lane\".\"installation_sha256\", \"fx_system_data_binding_physical_lane\".\"installation_receipt_sha256\", \"fx_system_data_binding_physical_lane\".\"readiness_storage_id\", \"fx_system_data_binding_physical_lane\".\"readiness_sha256\", \"fx_system_data_binding_physical_lane\".\"availability_history_storage_id\", \"fx_system_data_binding_physical_lane\".\"availability_sequence\", \"fx_system_data_binding_physical_lane\".\"availability_status\", \"fx_system_data_binding_physical_lane\".\"availability_history_sha256\" from \"fx_system_data_binding_activation\" left join \"fx_system_data_binding_candidate\" on (\"fx_system_data_binding_candidate\".\"scope_id\" = \"fx_system_data_binding_activation\".\"scope_id\" and \"fx_system_data_binding_candidate\".\"storage_generation\" = \"fx_system_data_binding_activation\".\"storage_generation\" and \"fx_system_data_binding_candidate\".\"sha256\" = $1) left join \"fx_system_data_binding_physical_lane\" on (\"fx_system_data_binding_physical_lane\".\"scope_id\" = \"fx_system_data_binding_candidate\".\"scope_id\" and \"fx_system_data_binding_physical_lane\".\"storage_generation\" = \"fx_system_data_binding_candidate\".\"storage_generation\" and \"fx_system_data_binding_physical_lane\".\"candidate_sha256\" = \"fx_system_data_binding_candidate\".\"sha256\") where (\"fx_system_data_binding_activation\".\"scope_id\" = $2 and \"fx_system_data_binding_activation\".\"storage_generation\" = $3 and \"fx_system_data_binding_activation\".\"sequence\" = $4) limit $5",
+          "connection": 2,
+          "startedMs": 27037.8847,
+          "completedMs": 27038.5064,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 6824
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_system_prepared_metadata_epoch as epoch limit $1",
+          "connection": 2,
+          "startedMs": 27039.51,
+          "completedMs": 27039.8601,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 166
+        },
+        {
+          "kind": "sql",
+          "label": "select \"activation_sequence\", \"readiness_contract_version\", \"revision_id\", \"head_sha256\", \"activation_sha256\", \"readiness_sha256\" from \"fx_system_application_active_head\" where \"fx_system_application_active_head\".\"scope_id\" = $1 limit $2 for share",
+          "connection": 2,
+          "startedMs": 27039.9865,
+          "completedMs": 27040.2494,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 486
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"authorization_revocation_epoch\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2 for key share",
+          "connection": 2,
+          "startedMs": 27040.417,
+          "completedMs": 27040.6494,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 52
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_uuid\", \"source_key\", \"source_sha256\", \"step_id\", \"contract_sha256\", \"dataset_sha256\", \"row_count\", \"commit_seq\" from \"fx_system_logical_source_initialization\" where (\"fx_system_logical_source_initialization\".\"scope_uuid\" = $1 and \"fx_system_logical_source_initialization\".\"source_key\" = $2 and \"fx_system_logical_source_initialization\".\"step_id\" = $3) limit $4",
+          "connection": 2,
+          "startedMs": 27040.9277,
+          "completedMs": 27041.1871,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 282
+        },
+        {
+          "kind": "call",
+          "label": "ProductModuleService.retrieveProduct",
+          "startedMs": 27042.8282,
+          "completedMs": 27055.3496,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "MedusaInternalService.retrieve",
+          "startedMs": 27042.8516,
+          "completedMs": 27055.2286,
+          "outcome": "success"
+        },
+        {
+          "kind": "call",
+          "label": "ProductRepository.find",
+          "startedMs": 27042.9305,
+          "completedMs": 27055.2174,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 193
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"unique_constraint_definition_id\", \"storage_generation\", \"storage_generation_fence\", \"epoch\", \"start_commit_seq\", \"lifecycle\", \"covered_through_commit_seq\", \"maintenance_activation_sequence\", \"maintenance_bytes\", \"maintenance_sha256\", \"cursor_row_id\", \"attempt_fence\", \"created_at\", \"updated_at\" from \"fx_system_unique_constraint_build\" where (\"fx_system_unique_constraint_build\".\"scope_id\" = $1 and \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" in ($2)) order by \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" limit $3 for key share",
+          "connection": 2,
+          "startedMs": 27044.5965,
+          "completedMs": 27045.0253,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 219
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"scope_uuid\", \"storage_generation\", \"storage_generation_fence\", \"last_commit_seq\", \"oldest_available_commit_seq\", \"authorization_revocation_epoch\", \"epoch\", \"epoch_uuid\", \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2 for key share",
+          "connection": 2,
+          "startedMs": 27045.2862,
+          "completedMs": 27045.5947,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 230
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_app_unique_key\".\"scope_uuid\", \"fx_app_unique_key\".\"constraint_id\", \"fx_app_unique_key\".\"locale_key\", \"fx_app_unique_key\".\"canonical_key_sha256\", \"fx_app_unique_key\".\"key_codec_version\", \"fx_app_unique_key\".\"encoded_key\", \"fx_app_unique_key\".\"table_id\", \"fx_app_unique_key\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"is_tombstone\", \"fx_system_scope_clock\".\"last_commit_seq\", exists (select 1 from \"fx_system_commit_app_row_change\" as fact\n          where fact.scope_uuid = \"fx_app_unique_key\".\"scope_uuid\" and fact.commit_seq = \"fx_app_row_current\".\"commit_seq\"\n            and fact.table_id = \"fx_app_unique_key\".\"table_id\" and fact.row_id = \"fx_app_unique_key\".\"row_id\") from \"fx_app_unique_key\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" and \"fx_app_row_current\".\"table_id\" = \"fx_app_unique_key\".\"table_id\" and \"fx_app_row_current\".\"row_id\" = \"fx_app_unique_key\".\"row_id\") left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" where (\"fx_app_unique_key\".\"scope_uuid\" = $1 and \"fx_app_unique_key\".\"constraint_id\" = $2 and \"fx_app_unique_key\".\"locale_key\" = $3 and \"fx_app_unique_key\".\"canonical_key_sha256\" = $4)",
+          "connection": 2,
+          "startedMs": 27046.2185,
+          "completedMs": 27046.9505,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 405
+        },
+        {
+          "kind": "sql",
+          "label": "with \"capture_clock\" as (select \"last_commit_seq\", \"epoch\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_uuid\" = $1 limit $2) select \"capture_clock\".\"last_commit_seq\", \"capture_clock\".\"epoch\", \"fx_app_row_current\".\"row_id\" is null or ($3 >= 1\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $4\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $5), false, \"fx_app_row_current\".\"scope_uuid\", \"fx_app_row_current\".\"table_id\", \"fx_app_row_current\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"scope_uuid\", \"fx_app_row_rev\".\"table_id\", \"fx_app_row_rev\".\"row_id\", \"fx_app_row_rev\".\"commit_seq\", \"fx_app_row_rev\".\"prev_commit_seq\", \"fx_app_row_rev\".\"write_epoch_uuid\", \"fx_app_row_rev\".\"schema_version_id\", \"fx_app_row_rev\".\"creation_time\", \"fx_app_row_rev\".\"value_codec_version\", \"fx_app_row_rev\".\"is_tombstone\", case when \"fx_app_row_current\".\"row_id\" is null or ($6 >= 1\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $7\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $8) then \"fx_app_row_rev\".\"value_bytes\" else null end, \"fx_app_row_rev\".\"value_sha256\" from \"capture_clock\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = $9 and \"fx_app_row_current\".\"table_id\" = $10 and \"fx_app_row_current\".\"row_id\" = $11) left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") limit $12",
+          "connection": 2,
+          "startedMs": 27047.9412,
+          "completedMs": 27048.5134,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 2845
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"unique_constraint_definition_id\", \"storage_generation\", \"storage_generation_fence\", \"epoch\", \"start_commit_seq\", \"lifecycle\", \"covered_through_commit_seq\", \"maintenance_activation_sequence\", \"maintenance_bytes\", \"maintenance_sha256\", \"cursor_row_id\", \"attempt_fence\", \"created_at\", \"updated_at\" from \"fx_system_unique_constraint_build\" where (\"fx_system_unique_constraint_build\".\"scope_id\" = $1 and \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" in ($2)) order by \"fx_system_unique_constraint_build\".\"unique_constraint_definition_id\" limit $3 for key share",
+          "connection": 2,
+          "startedMs": 27050.5856,
+          "completedMs": 27050.9714,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 219
+        },
+        {
+          "kind": "sql",
+          "label": "select \"scope_id\", \"scope_uuid\", \"storage_generation\", \"storage_generation_fence\", \"last_commit_seq\", \"oldest_available_commit_seq\", \"authorization_revocation_epoch\", \"epoch\", \"epoch_uuid\", \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_id\" = $1 limit $2 for key share",
+          "connection": 2,
+          "startedMs": 27051.1271,
+          "completedMs": 27051.3891,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 230
+        },
+        {
+          "kind": "sql",
+          "label": "\n      with requested(ordinal, table_id) as (values ($1::integer, $2::integer))\n      select requested.ordinal as \"ordinal\", latest.commit_seq::text as \"commitSeqText\"\n      from requested\n      left join lateral (\n        select current_row.commit_seq from fx_app_row_current as current_row\n        where current_row.scope_uuid = $3 and current_row.table_id = requested.table_id\n        order by current_row.commit_seq desc limit 1\n      ) as latest on true\n      order by requested.ordinal\n    ",
+          "connection": 2,
+          "startedMs": 27051.5906,
+          "completedMs": 27051.9281,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 35
+        },
+        {
+          "kind": "sql",
+          "label": "select \"fx_app_unique_key\".\"scope_uuid\", \"fx_app_unique_key\".\"constraint_id\", \"fx_app_unique_key\".\"locale_key\", \"fx_app_unique_key\".\"canonical_key_sha256\", \"fx_app_unique_key\".\"key_codec_version\", \"fx_app_unique_key\".\"encoded_key\", \"fx_app_unique_key\".\"table_id\", \"fx_app_unique_key\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"is_tombstone\", \"fx_system_scope_clock\".\"last_commit_seq\", exists (select 1 from \"fx_system_commit_app_row_change\" as fact\n          where fact.scope_uuid = \"fx_app_unique_key\".\"scope_uuid\" and fact.commit_seq = \"fx_app_row_current\".\"commit_seq\"\n            and fact.table_id = \"fx_app_unique_key\".\"table_id\" and fact.row_id = \"fx_app_unique_key\".\"row_id\") from \"fx_app_unique_key\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" and \"fx_app_row_current\".\"table_id\" = \"fx_app_unique_key\".\"table_id\" and \"fx_app_row_current\".\"row_id\" = \"fx_app_unique_key\".\"row_id\") left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\".\"scope_uuid\" = \"fx_app_unique_key\".\"scope_uuid\" where (\"fx_app_unique_key\".\"scope_uuid\" = $1 and \"fx_app_unique_key\".\"constraint_id\" = $2 and \"fx_app_unique_key\".\"locale_key\" = $3 and \"fx_app_unique_key\".\"canonical_key_sha256\" = $4)",
+          "connection": 2,
+          "startedMs": 27052.4541,
+          "completedMs": 27053.1274,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 404
+        },
+        {
+          "kind": "sql",
+          "label": "with \"capture_clock\" as (select \"last_commit_seq\", \"epoch\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\".\"scope_uuid\" = $1 limit $2) select \"capture_clock\".\"last_commit_seq\", \"capture_clock\".\"epoch\", \"fx_app_row_current\".\"row_id\" is null or ($3 >= 1\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $4\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $5), false, \"fx_app_row_current\".\"scope_uuid\", \"fx_app_row_current\".\"table_id\", \"fx_app_row_current\".\"row_id\", \"fx_app_row_current\".\"commit_seq\", \"fx_app_row_rev\".\"scope_uuid\", \"fx_app_row_rev\".\"table_id\", \"fx_app_row_rev\".\"row_id\", \"fx_app_row_rev\".\"commit_seq\", \"fx_app_row_rev\".\"prev_commit_seq\", \"fx_app_row_rev\".\"write_epoch_uuid\", \"fx_app_row_rev\".\"schema_version_id\", \"fx_app_row_rev\".\"creation_time\", \"fx_app_row_rev\".\"value_codec_version\", \"fx_app_row_rev\".\"is_tombstone\", case when \"fx_app_row_current\".\"row_id\" is null or ($6 >= 1\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $7\n        and coalesce(octet_length(\"fx_app_row_rev\".\"value_bytes\"), 0) <= $8) then \"fx_app_row_rev\".\"value_bytes\" else null end, \"fx_app_row_rev\".\"value_sha256\" from \"capture_clock\" left join \"fx_app_row_current\" on (\"fx_app_row_current\".\"scope_uuid\" = $9 and \"fx_app_row_current\".\"table_id\" = $10 and \"fx_app_row_current\".\"row_id\" = $11) left join \"fx_app_row_rev\" on (\"fx_app_row_rev\".\"scope_uuid\" = \"fx_app_row_current\".\"scope_uuid\" and \"fx_app_row_rev\".\"table_id\" = \"fx_app_row_current\".\"table_id\" and \"fx_app_row_rev\".\"row_id\" = \"fx_app_row_current\".\"row_id\" and \"fx_app_row_rev\".\"commit_seq\" = \"fx_app_row_current\".\"commit_seq\") limit $12",
+          "connection": 2,
+          "startedMs": 27053.8608,
+          "completedMs": 27054.4044,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 1720
+        },
+        {
+          "kind": "call",
+          "label": "BaseRepository.serialize",
+          "startedMs": 27055.2397,
+          "completedMs": 27055.348,
+          "outcome": "success"
+        },
+        {
+          "kind": "sql",
+          "label": "begin isolation level repeatable read",
+          "connection": 3,
+          "startedMs": 27055.7775,
+          "completedMs": 27055.9362,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select i.database_name, i.schema_name, i.namespace_oid::text, i.incarnation::text, i.structural_generation::text, session_user, current_user = session_user, current_database(), current_schema() = i.schema_name, pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', i.schema_name), true) from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_installation_admission() as i \n      inner join \"flarex_file_test_1790935400007_83pm9mfh125\".fx_system_installation_runtime p\n      on p.login = session_user and p.login_oid = session_user::pg_catalog.regrole::oid::bigint\n      and p.incarnation = i.incarnation and p.structural_generation = i.structural_generation\n      and p.endpoint_policy = $1 limit $2",
+          "connection": 3,
+          "startedMs": 27056.0633,
+          "completedMs": 27056.5867,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 269
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935400007_83pm9mfh125\".fx_lock_prepared_metadata_epoch() as epoch limit $1",
+          "connection": 3,
+          "startedMs": 27056.7383,
+          "completedMs": 27056.9981,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 167
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 3,
+          "startedMs": 27057.0377,
+          "completedMs": 27057.2934,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        },
+        {
+          "kind": "sql",
+          "label": "select epoch.database_name, epoch.namespace_oid::text, epoch.incarnation::text, epoch.generation::text, session_user, current_database(), current_user = session_user from \"flarex_file_test_1790935401920_fqnggfxm3gr\".fx_lock_prepared_metadata_epoch() as epoch limit $1",
+          "connection": 2,
+          "startedMs": 27057.4286,
+          "completedMs": 27057.698,
+          "outcome": "success",
+          "rows": 1,
+          "resultJsonBytes": 166
+        },
+        {
+          "kind": "sql",
+          "label": "commit",
+          "connection": 2,
+          "startedMs": 27058.1341,
+          "completedMs": 27058.398,
+          "outcome": "success",
+          "rows": 0,
+          "resultJsonBytes": 2
+        }
+      ],
+      "protocol": [
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 27026.1682,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 27026.4758,
+          "sqlBytes": 355,
+          "sqlSha256": "fecc68d71fc23441c6abe0c2221c731f452922b724e9bf8b379ba4fcb03c9065",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 27026.4964,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 27026.5064,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 27026.5096,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 27026.511,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 27027.0571,
+          "sqlBytes": 181,
+          "sqlSha256": "6639978fa1f9b073f030af8cb07e9ec49493af8fd9a5867d952dad1e85fc44b6",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 27027.0762,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 27027.0838,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 27027.0858,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 27027.0871,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 27027.3806,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 27027.7877,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 27028.069,
+          "sqlBytes": 355,
+          "sqlSha256": "fecc68d71fc23441c6abe0c2221c731f452922b724e9bf8b379ba4fcb03c9065",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 27028.0907,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 27028.0968,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 27028.1003,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 27028.1017,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 1,
+          "startedMs": 27028.5859,
+          "sqlBytes": 215,
+          "sqlSha256": "06ab45bb4da53e47fe5e5338785b760b3d7194f03ca244933d4c28c4f5112d2e",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 1,
+          "startedMs": 27028.606,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 1,
+          "startedMs": 27028.6126,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 1,
+          "startedMs": 27028.6153,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 1,
+          "startedMs": 27028.6166,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 1,
+          "startedMs": 27028.9084,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27029.3746,
+          "sqlBytes": 286,
+          "sqlSha256": "a489873433082cec445a2881fd8931459ff7069662a4d104d6fe7d7488228003",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27029.3916,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27029.396,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27029.3975,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27029.3985,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 2,
+          "startedMs": 27030.1192,
+          "sqlBytes": 5,
+          "sqlSha256": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 2,
+          "startedMs": 27030.3343,
+          "sqlBytes": 47,
+          "sqlSha256": "69f5702b9c483fb179737aa369b45007aa87571fd829306f322e8525888f054d",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27030.5489,
+          "sqlBytes": 86,
+          "sqlSha256": "99747caabebe10da11bbeb8c330470748baaae921ee36f3cafd262299bba55a7",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27030.5633,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27030.5676,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27030.5691,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27030.57,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27030.9519,
+          "sqlBytes": 718,
+          "sqlSha256": "119f9e5e1b417bbf0cf331ea0f41c1c154f4a05b44f0cfec08c78b5de6f31631",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27030.9707,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27030.9753,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27030.9768,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27030.9777,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27031.5986,
+          "sqlBytes": 300,
+          "sqlSha256": "c51033c28465b7bd1bc25c5977a2a68d01a918e6ba19981fee53a227cf077715",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27031.6165,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27031.6206,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27031.6222,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27031.6231,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 27032.3023,
+          "sqlBytes": 37,
+          "sqlSha256": "4f85f2ebcf2ad7506ebd1b45e79a1198238865c80023b0580f9a49c5c04a6d8c",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 27032.6461,
+          "sqlBytes": 718,
+          "sqlSha256": "1dee010774080ed27821908f94af9e7bebdaa1858362fe864e824c2af93818bf",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 27032.6782,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 27032.6963,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 27032.6992,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 27032.701,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 27033.5248,
+          "sqlBytes": 267,
+          "sqlSha256": "f8d843e46793191ac87137bd068077860972c302d569e2ddcd80bc2f972b9dd1",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 27033.5596,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 27033.5654,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 27033.5678,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 27033.5693,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 27033.8805,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27036.75,
+          "sqlBytes": 397,
+          "sqlSha256": "bf71a9629d528336997500ca039bd7a2728f3a05470622bcb37498f0853877cb",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27036.7951,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27036.8035,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27036.806,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27036.8075,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27037.8968,
+          "sqlBytes": 2774,
+          "sqlSha256": "404491b13c756d318469faa3112ab4afccbf6d74c610f55ed3fb0e60b8a23cc9",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27037.9298,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27037.9381,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27037.9399,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27037.9413,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27039.5252,
+          "sqlBytes": 267,
+          "sqlSha256": "2c6f71e3e632bc8e2380d1c7400261bf04741f49973b629d4d961d7c52d761a4",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27039.552,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27039.5585,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27039.5613,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27039.5632,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27039.996,
+          "sqlBytes": 247,
+          "sqlSha256": "d66a4fedb284a33bfe7eb2980ac290e3e437f34906a0dfe6eb0a05ed0864f75e",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27040.0152,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27040.0202,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27040.0219,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27040.0231,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27040.4263,
+          "sqlBytes": 149,
+          "sqlSha256": "f250e2277eb97187d5fd24d22707f27b912c41dc22673c14e7fc184a4706cd81",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27040.4425,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27040.4475,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27040.4489,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27040.4499,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27040.9363,
+          "sqlBytes": 374,
+          "sqlSha256": "5d518627893ef6e378eb9fe46574fc950f6eae99bf96d4f8bd8e471b95943cf7",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27040.9545,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27040.9616,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27040.9627,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27040.9637,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27044.6158,
+          "sqlBytes": 599,
+          "sqlSha256": "f92808d761769dd981c7dee2517b1c29f3d9c566b381968df751ac7d2394f3f3",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27044.65,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27044.6627,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27044.666,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27044.6675,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27045.3241,
+          "sqlBytes": 300,
+          "sqlSha256": "c51033c28465b7bd1bc25c5977a2a68d01a918e6ba19981fee53a227cf077715",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27045.3452,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27045.35,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27045.3516,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27045.3525,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27046.2283,
+          "sqlBytes": 1556,
+          "sqlSha256": "2f49f75e58c14d7c2909e6ce249c9c656cdce8b4186994c84cdb7fb4a1d0a152",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27046.2594,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27046.2745,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27046.2774,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27046.2795,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27047.9517,
+          "sqlBytes": 1673,
+          "sqlSha256": "08ce3793a03eeeb3fa0d84f6a034784d23a773d66b4c316dd63fa6661f9053b4",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27047.9802,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27047.9916,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27047.9931,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27047.994,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27050.5979,
+          "sqlBytes": 599,
+          "sqlSha256": "f92808d761769dd981c7dee2517b1c29f3d9c566b381968df751ac7d2394f3f3",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27050.6247,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27050.6305,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27050.6324,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27050.6334,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27051.1365,
+          "sqlBytes": 300,
+          "sqlSha256": "c51033c28465b7bd1bc25c5977a2a68d01a918e6ba19981fee53a227cf077715",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27051.1562,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27051.1608,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27051.1623,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27051.1631,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27051.6018,
+          "sqlBytes": 496,
+          "sqlSha256": "138539727e42b9056903b22ff6ea2f5f4e8c486f483641e46986b89a76751d93",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27051.6217,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27051.6286,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27051.63,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27051.6309,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27052.463,
+          "sqlBytes": 1556,
+          "sqlSha256": "2f49f75e58c14d7c2909e6ce249c9c656cdce8b4186994c84cdb7fb4a1d0a152",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27052.4893,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27052.498,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27052.4995,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27052.5002,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27053.871,
+          "sqlBytes": 1673,
+          "sqlSha256": "08ce3793a03eeeb3fa0d84f6a034784d23a773d66b4c316dd63fa6661f9053b4",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27053.9051,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27053.914,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27053.9153,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27053.9161,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 27055.7875,
+          "sqlBytes": 37,
+          "sqlSha256": "4f85f2ebcf2ad7506ebd1b45e79a1198238865c80023b0580f9a49c5c04a6d8c",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 27056.0723,
+          "sqlBytes": 718,
+          "sqlSha256": "1dee010774080ed27821908f94af9e7bebdaa1858362fe864e824c2af93818bf",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 27056.0959,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 27056.101,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 27056.1025,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 27056.1038,
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 3,
+          "startedMs": 27056.7457,
+          "sqlBytes": 267,
+          "sqlSha256": "f8d843e46793191ac87137bd068077860972c302d569e2ddcd80bc2f972b9dd1",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 3,
+          "startedMs": 27056.7625,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 3,
+          "startedMs": 27056.7666,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 3,
+          "startedMs": 27056.768,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 3,
+          "startedMs": 27056.7689,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 3,
+          "startedMs": 27057.045,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        },
+        {
+          "method": "parse",
+          "connection": 2,
+          "startedMs": 27057.4363,
+          "sqlBytes": 267,
+          "sqlSha256": "c41c59e243a8731969eca3252e819a3314b721ed41ba342434d5bf68d88a3da8",
+          "outcome": "returned"
+        },
+        {
+          "method": "bind",
+          "connection": 2,
+          "startedMs": 27057.453,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "describe",
+          "connection": 2,
+          "startedMs": 27057.4597,
+          "portalName": "",
+          "descriptionType": "P",
+          "outcome": "returned"
+        },
+        {
+          "method": "execute",
+          "connection": 2,
+          "startedMs": 27057.4608,
+          "portalName": "",
+          "outcome": "returned"
+        },
+        {
+          "method": "sync",
+          "connection": 2,
+          "startedMs": 27057.4616,
+          "outcome": "returned"
+        },
+        {
+          "method": "query",
+          "connection": 2,
+          "startedMs": 27058.1454,
+          "sqlBytes": 6,
+          "sqlSha256": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+          "outcome": "returned"
+        }
+      ],
+      "acceptingComponents": [
+        {
+          "name": "InstallationLifecycle.acquire",
+          "spanId": "05bac39f264193ec",
+          "parentSpanId": "1f8a1418d5e26a68",
+          "startedMs": 0,
+          "completedMs": 0.6352,
+          "inclusiveElapsedMs": 0.6352,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadAdmission.with",
+          "spanId": "0a7b0058cef807ab",
+          "parentSpanId": "1f8a1418d5e26a68",
+          "startedMs": 1.2039,
+          "completedMs": 26.965,
+          "inclusiveElapsedMs": 25.7611,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "ec1d8851d054cbe5",
+          "parentSpanId": "0a7b0058cef807ab",
+          "startedMs": 1.2657,
+          "completedMs": 5.6347,
+          "inclusiveElapsedMs": 4.369,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationBindingProjection.withStandaloneEvidence",
+          "spanId": "bc5fd6464eaac0ea",
+          "parentSpanId": "0a7b0058cef807ab",
+          "startedMs": 8.4418,
+          "completedMs": 26.957,
+          "inclusiveElapsedMs": 18.5152,
+          "outcome": "success"
+        },
+        {
+          "name": "ApplicationActivation.withStandaloneBinding",
+          "spanId": "da2e2051e63220e5",
+          "parentSpanId": "bc5fd6464eaac0ea",
+          "startedMs": 8.4648,
+          "completedMs": 26.9513,
+          "inclusiveElapsedMs": 18.4865,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.authenticateTargetSnapshot",
+          "spanId": "c79ebff732054e27",
+          "parentSpanId": "da2e2051e63220e5",
+          "startedMs": 8.5348,
+          "completedMs": 9.0794,
+          "inclusiveElapsedMs": 0.5446,
+          "outcome": "success"
+        },
+        {
+          "name": "LogicalReadMetadata.checkCurrent",
+          "spanId": "d69ddf3f4aec0000",
+          "parentSpanId": "da2e2051e63220e5",
+          "startedMs": 24.8386,
+          "completedMs": 26.5044,
+          "inclusiveElapsedMs": 1.6658,
+          "outcome": "success"
+        },
+        {
+          "name": "PreparedMetadataEpoch.guard",
+          "spanId": "6fa1e2e41866e64c",
+          "parentSpanId": "da2e2051e63220e5",
+          "startedMs": 26.5353,
+          "completedMs": 26.9445,
+          "inclusiveElapsedMs": 0.4092,
+          "outcome": "success"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "All raw samples retained; assertions and diagnostic encoding are outside quiet intervals.",
+    "Optional component spans include tracer overhead; nested inclusive span distributions are not additive and unobserved spans are not zero-duration proof.",
+    "Server diagnostics include instrumentation overhead and are separate from quiet latency.",
+    "Query JSON bytes are not network wire bytes. Inclusive call or parent/nested server times are not additive."
+  ]
+}

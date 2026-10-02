@@ -1,7 +1,8 @@
 import { Deferred, Effect, Fiber, Result, Schema } from "effect";
 import { expect, vi } from "vitest";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { applicationUniqueDeclarationsMatch, prepareApplicationUniqueDeclarationsInTransaction } from "../src/applicationWriteOwnership/UniqueDeclarations";
 import { runEffectTransaction } from "../src/effectTransaction";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";

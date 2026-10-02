@@ -10,7 +10,8 @@ import { Effect, Option, Result, Schema, Tracer } from "effect";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
-import { makeCmsHost, defineCmsCommand, type CmsCommandContext } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand, type CmsCommandContext } from "../src/cmsTransaction/commands";
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
@@ -29,8 +30,8 @@ import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvaila
 import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHistoryRepository";
 import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect, lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHeadRepository";
 import { fxSystemFrameworkSchemaInstallations } from "../src/frameworkSchema/installation/schema";
-import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
-import { payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarFields, payloadScalarConfiguration } from "../../payload-adapter/src/testing/profiles";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/testing/profiles";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
@@ -51,9 +52,10 @@ const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
 export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: boolean | "population" | "many" | "many-upgrade" | "joins" = false, reopen?: () => Promise<void>) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
-  const many = (relationOnly === "many" || relationOnly === "joins") ? await payloadRelationManifest((await policyManifestFixture(undefined, true, payloadScalarFields)).manifest, true, relationOnly === "joins") : null;
+  const scalar = await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration);
+  const many = (relationOnly === "many" || relationOnly === "joins") ? await payloadRelationManifest(scalar.manifest, true, relationOnly === "joins") : null;
   const { fixture, target, bindings, reference, candidate: contentCandidate, payloadProfiles } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
-    ...(many === null ? {} : { cmsManifest: { manifest: many.manifest, manifestSha256: createHash("sha256").update(many.canonicalBytes).digest("hex") } }),
+    cmsManifest: many === null ? scalar : { manifest: many.manifest, manifestSha256: createHash("sha256").update(many.canonicalBytes).digest("hex") },
     physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
   const { profile, availability, table } = await installPayloadPreferenceFixture(persistence, target, fixture.deploymentId);
   const record = await runEffect(capturePayloadPreferenceRecord({ id: "preference-a", key: "collection-posts-a", user: { relationTo: "users", value: "user-a" },

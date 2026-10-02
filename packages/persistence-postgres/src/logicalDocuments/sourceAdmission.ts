@@ -21,6 +21,7 @@ import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSche
 import { publishedPhysicalDefinitionMatchesLocated } from "../indexBuildReconciliation";
 import { prepareLogicalStorageReadiness, requirePreparedLogicalStorageCatalog, type PreparedLogicalStorageCatalog } from "../logicalStorageReadiness";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { runEffectTransaction } from "../effectTransaction";
 import { chargeHostPreparation, captureHostPreparationCharge } from "../preparedHostRuntime";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { ScopeClockRecord } from "../scopeClock";
@@ -48,6 +49,7 @@ export interface LogicalSourceBindingState {
   readonly source: LogicalSchemaSource;
   readonly frame: DataBindingSetFrame;
   readonly head: DataBindingHeadToken;
+  readonly readReadiness: Readonly<{ kind: "full" }>;
 }
 
 type SharedCheckedBinding = Readonly<{
@@ -141,22 +143,30 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   const snapshot = readiness.snapshot;
   if (snapshot === null || encodeBytesToLowercaseHex(snapshot.manifestSha256) !== readiness.reference.manifestSha256)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-  const indexes: readonly LocatedAppIndexDefinitionV1[] = Object.freeze(yield* Effect.forEach(
-    snapshot.definitions.filter(definition => tableIds.has(definition.access.tableId)), definition =>
-      locateAppIndexDefinitionByIdEffect(capturedPorts.controlDb, captured.scopeId, definition.indexDefinitionId).pipe(
-        Effect.flatMap(located => located === null ? Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" })) :
-          located.deploymentId !== captured.deploymentId || !publishedPhysicalDefinitionMatchesLocated(definition, located)
-            ? Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" })) : Effect.succeed(located)))));
   const deploymentId = yield* decodeDeploymentId(captured.deploymentId).pipe(Effect.mapError(cause =>
     new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
   const scopeId = yield* decodeScopeId(captured.scopeId).pipe(Effect.mapError(cause =>
     new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
-  const uniqueDefinitions = yield* createAppUniqueConstraintDefinitionPortV1(capturedPorts.controlDb).locate({
+  const uniquePort = createAppUniqueConstraintDefinitionPortV1(capturedPorts.controlDb);
+  const acquireDefinitions = (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
+  const indexes: readonly LocatedAppIndexDefinitionV1[] = Object.freeze(yield* Effect.forEach(
+    snapshot.definitions.filter(definition => tableIds.has(definition.access.tableId)), definition =>
+      locateAppIndexDefinitionByIdEffect(tx, captured.scopeId, definition.indexDefinitionId).pipe(
+        Effect.flatMap(located => located === null ? Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" })) :
+          located.deploymentId !== captured.deploymentId || !publishedPhysicalDefinitionMatchesLocated(definition, located)
+            ? Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" })) : Effect.succeed(located)))));
+  const uniqueDefinitions = yield* uniquePort.locate({
     deploymentId, scopeId, schemaVersionId: captured.schemaVersionId,
     tableIds: [...tableIds], maximumDefinitions: requirements.unique.filter(definition => tableIds.has(definition.tableId)).length,
-  });
+  }, tx);
   if (uniqueDefinitions === null) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" }));
   const selectedUnique: readonly LocatedAppUniqueConstraintDefinitionV1[] = Object.freeze([...uniqueDefinitions]);
+  return { indexes, selectedUnique };
+  });
+  const { indexes, selectedUnique } = yield* runEffectTransaction<Effect.Success<ReturnType<typeof acquireDefinitions>>,
+    Effect.Error<ReturnType<typeof acquireDefinitions>>, LogicalSourceAdmissionError, FlarexMetadataTransaction>(
+    callback => capturedPorts.controlDb.transaction(callback), "Logical source definitions acquisition rolled back", acquireDefinitions,
+    cause => new LogicalSourceAdmissionError({ reason: "notReady", cause }));
   yield* chargeHostPreparation(JSON.stringify({ tables: selectedTables, indexes, unique: selectedUnique },
     (_, member: unknown) => typeof member === "bigint" ? member.toString() : member));
   const chargePrepared = yield* captureHostPreparationCharge();
@@ -196,7 +206,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
     // An exact root set under the same authenticated candidate determines one
     // exact closure. No subset, superset or full proof can satisfy this key.
-    const selectionKey = selection === "full" ? "full" : JSON.stringify(sourceKeys);
+    const selectionKey = selection === "read" ? JSON.stringify(sourceKeys) : selection;
     const shared = isPreparedApplicationBinding(application) ? undefined : checkedBindings.get(tx)?.find(checked =>
       checked.selectionKey === selectionKey && checked.application === application && checked.controlDb === capturedPorts.controlDb &&
       checked.authorityPort === capturedPorts.authority && checked.unique === unique &&
@@ -205,10 +215,11 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       checked.clock === clock && checked.schemaVersionId === captured.schemaVersionId &&
       checked.manifestSha256 === readiness.reference.manifestSha256);
     if (shared !== undefined) return yield* work(Object.freeze({ tx, authority, clock,
-      schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }));
-    const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "full"
-      ? undefined : yield* (sourceKeys.length === 1 && sourceKeys[0] === source.key
-        ? selectSingletonReadiness() : readiness.selectSources(sourceKeys));
+      schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head,
+      readReadiness: Object.freeze({ kind: "full" as const }) }));
+    const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "read"
+      ? yield* (sourceKeys.length === 1 && sourceKeys[0] === source.key
+        ? selectSingletonReadiness() : readiness.selectSources(sourceKeys)) : undefined;
     const protection = targetProtection.protection;
     let targetPreparation = targetPreparations.get(application);
     if (protection !== undefined && targetPreparation === undefined) {
@@ -226,13 +237,14 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
         : verifyLogicalSchemaReadBindingInTransaction(selectedReadiness, candidate.frame, applicationEvidence,
           tx, authority, clock, applicationEvidence.checkedActive).pipe(Effect.asVoid));
       const head = Object.freeze({ sequence: current.frame.sequence, sha256: current.sha256 });
+      const readReadiness = Object.freeze({ kind: "full" as const });
       checkedBindings.get(tx)?.push(Object.freeze({ selectionKey, application, controlDb: capturedPorts.controlDb,
         authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
         scopeId: captured.scopeId, authority, clock,
         schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
         frame: candidate.frame, head }));
       return yield* Effect.suspend(() => work(Object.freeze({ tx, authority, clock,
-        schemaVersionId: captured.schemaVersionId, source, frame: candidate.frame, head })));
+        schemaVersionId: captured.schemaVersionId, source, frame: candidate.frame, head, readReadiness })));
     });
     if (owner === "transactionCompletion" && constructionKind === "standalone" && isPreparedApplicationBinding(application))
       return yield* withPreparedApplicationBindingEvidenceInTransaction(application, tx, clock, admit);
@@ -253,6 +265,10 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
     checkBinding("read", "sourceProof", application, tx, authority, clock, work);
-  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withReadBinding, withTransactionBinding,
+  const withTransactionReadBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
+    checkBinding("read", "transactionCompletion", application, tx, authority, clock, work);
+  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withReadBinding, withTransactionBinding, withTransactionReadBinding,
     requirements, catalog: readiness, requirePrepared });
 });

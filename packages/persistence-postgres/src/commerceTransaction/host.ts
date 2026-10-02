@@ -89,7 +89,7 @@ const makeHost = Effect.fn("CommerceHost.retain")(function* <Failure>(input: Com
   } satisfies CommerceHost);
 });
 
-const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<Omit<CommerceHost, "close">, CommerceTransactionError> {
+const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: PhysicalCommerceHostInput<Failure> | LogicalCommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<Omit<CommerceHost, "close">, CommerceTransactionError> {
   const { database, session, target, deploymentId, scopeId, application } = input;
   if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkSchemaTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -170,13 +170,15 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
             if (initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
             yield* requireLogicalCommerceInitialization(member.admission, tx, initialization, descriptor.contractSha256);
           }
-          const evidence = yield* commerceIdentityEvidence("command", {
+          // Standalone reads have no durable replay identity. Fresh admission
+          // owns authority; only durable requests construct command evidence.
+          const evidence = member.kind === "logical" && key === null ? undefined : yield* commerceIdentityEvidence("command", {
             deploymentId, scopeId: located.authority.scopeId, epoch: clock.epoch, generation: clock.storageGeneration,
             fence: clock.storageGenerationFence.toString(),
             ...(reference === undefined ? { logicalSource: logicalContract?.sha256Hex } : { installation: reference }),
             bindingHead: admitted.state.head,
             contractSha256: descriptor.contractSha256, operation: root?.name ?? "initialize", args: captured.value }, resources.commandBytes);
-          const lookup = key === null ? null : { scopeUuid: scope.scopeUuid, requestKey: key, expectedIdentityAccessPolicySha256: identityDigest,
+          const lookup = key === null || evidence === undefined ? null : { scopeUuid: scope.scopeUuid, requestKey: key, expectedIdentityAccessPolicySha256: identityDigest,
             expectedFunctionPath: TransactionFunctionPathV1Schema.make(`__flarex_private_commerce/${root?.name ?? "initialize"}`),
             expectedRequestSha256: TransactionRequestSha256V1Schema.make(yield* sha(evidence.canonicalBytes)) };
           if (lookup !== null) {
@@ -189,7 +191,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           const id = crypto.randomUUID();
           const lifetime = yield* makeBoundedRequestLifetime(commerceError, { ...commerceLimits, ...resources }, owner, Object.freeze({ requestId: Symbol("commerce.request") }), id, bootstrap ? "write" : root?.mode ?? "read");
           return yield* Effect.gen(function* () {
-            yield* Effect.fromResult(lifetime.charge(evidence.canonicalBytes.byteLength));
+            yield* Effect.fromResult(lifetime.charge(evidence?.canonicalBytes.byteLength ?? captured.bytes));
             const selected = member.kind === "physical"
               ? { kind: "physical" as const, admission: member.admission, working: yield* makeCommerceStore(member.admission, lifetime, id) }
               : { kind: "logical" as const, working: yield* makeLogicalCommerceParticipant(member.admission, tx, lifetime, lifetime.context, id,
@@ -255,8 +257,11 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           return yield* withCommerceAdmission(input.profile, target, reference, active, tx, located.authority, clock, bootstrap,
             installationRuntime, admission => runAdmitted({ kind: "physical", admission }));
         if (preparedLogical !== undefined)
-          return yield* preparedLogical.withAdmission(active, tx, located.authority, clock,
-            admission => runAdmitted({ kind: "logical", admission }));
+          return yield* (key === null
+            ? preparedLogical.withReadAdmission(active, tx, located.authority, clock,
+              admission => runAdmitted({ kind: "logical", admission }))
+            : preparedLogical.withAdmission(active, tx, located.authority, clock,
+              admission => runAdmitted({ kind: "logical", admission })));
         return yield* Effect.fail(commerceError("invalidAuthority"));
       })));
     });

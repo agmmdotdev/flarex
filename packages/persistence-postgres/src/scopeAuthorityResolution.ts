@@ -378,21 +378,27 @@ const resolveSplitScopeAuthority = Effect.fn(
       cause,
     }),
   });
+  yield* Effect.fromResult(requireSplitScopeReceiptResult(intent, expectedLocator, receipt));
+  return yield* resolveScopeAuthorityAtTarget(intent, expectedLocator, ports);
+});
+
+function requireSplitScopeReceiptResult(intent: ScopeAuthorityIntent, expectedLocator: SplitScopePhysicalLocator,
+  receipt: SplitScopeAuthorityProvisioningReceipt | null): Result.Result<void, TrustedScopeAuthorityResolutionError> {
   if (receipt === null) {
-    return yield* Effect.fail(resolutionError({
+    return Result.fail(resolutionError({
       reason: "splitProvisioningReceiptMissing",
       scopeId: intent.scopeId,
     }));
   }
   if (receipt.scopeId !== intent.scopeId) {
-    return yield* Effect.fail(resolutionError({
+    return Result.fail(resolutionError({
       reason: "splitProvisioningReceiptScopeMismatch",
       scopeId: intent.scopeId,
       actualScopeId: receipt.scopeId,
     }));
   }
   if (receipt.state !== "ready") {
-    return yield* Effect.fail(resolutionError({
+    return Result.fail(resolutionError({
       reason: "splitProvisioningReceiptNotReady",
       scopeId: intent.scopeId,
       actualState: receipt.state,
@@ -400,7 +406,7 @@ const resolveSplitScopeAuthority = Effect.fn(
   }
   const receiptLocator = captureScopePhysicalLocator(receipt.physicalLocator);
   if (!scopePhysicalLocatorsEqual(expectedLocator, receiptLocator)) {
-    return yield* Effect.fail(resolutionError({
+    return Result.fail(resolutionError({
       reason: "splitProvisioningReceiptPlacementMismatch",
       scopeId: intent.scopeId,
       expected: expectedLocator,
@@ -408,12 +414,30 @@ const resolveSplitScopeAuthority = Effect.fn(
     }));
   }
 
-  return yield* resolveScopeAuthorityAtTarget(
-    intent,
-    expectedLocator,
-    ports,
-  );
-});
+  return Result.succeed(undefined);
+}
+
+/** Reuses authority validation after the accepting kernel reads current
+ * placement, receipt and clock under one installed PostgreSQL snapshot. */
+export function resolveTrustedScopeAuthoritySnapshotResult(selection: TrustedScopeSelection,
+  scope: ScopeMetadataRecord | null, receipt: SplitScopeAuthorityProvisioningReceipt | null,
+  targetLocator: ScopePhysicalLocator, clock: ScopeClockRecord | null,
+): Result.Result<TrustedScopeAuthority, TrustedScopeAuthorityResolutionError> {
+  return Result.gen(function* () {
+    if (scope === null || scope.scopeId !== selection.scopeId) return yield* Result.fail(resolutionError({
+      reason: "scopeMetadataMissing", deploymentId: selection.deploymentId }));
+    const intent = captureScopeAuthorityIntent(scope);
+    if (intent.deploymentId !== selection.deploymentId) return yield* Result.fail(resolutionError({
+      reason: "scopeDeploymentMismatch", deploymentId: selection.deploymentId,
+      scopeId: intent.scopeId, actualDeploymentId: intent.deploymentId }));
+    if (!scopePhysicalLocatorsEqual(intent.physicalLocator, targetLocator)) return yield* Result.fail(resolutionError({
+      reason: "scopeClockTargetPlacementMismatch", scopeId: intent.scopeId,
+      expected: intent.physicalLocator, actual: targetLocator }));
+    if (intent.physicalLocator.kind !== "shared_database")
+      yield* requireSplitScopeReceiptResult(intent, intent.physicalLocator, receipt);
+    return yield* trustedAuthorityResult(intent, targetLocator, clock);
+  });
+}
 
 const resolveScopeAuthorityAtTarget = Effect.fn(
   "ScopeAuthority.resolveAtTarget",

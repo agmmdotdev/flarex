@@ -8,7 +8,8 @@ import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGen
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
 import { makePayloadContentProfiles } from "../../payload-adapter/src/profile";
-import { makeCmsHost, defineCmsCommand } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";

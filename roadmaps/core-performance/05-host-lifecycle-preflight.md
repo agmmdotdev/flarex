@@ -1,5 +1,11 @@
 # Host Lifecycle: Conditional Component Preflight
 
+Scope clarification: the [selected standalone read redesign](./standalone-read-redesign-preflight.md)
+may reuse immutable metadata through the existing `PreparedHostRuntime` bounded
+lease lifetime and must measure cold instances and reconnect. That is included
+in the read slice. New Worker pooling, persistent-isolate lifetime or compute
+routing remains governed by this conditional host preflight.
+
 Status: **conditional; host runtime changes and activation are unapproved.**
 This document prepares the final group in the
 [component sequence](./README.md). It does not activate the older conditional

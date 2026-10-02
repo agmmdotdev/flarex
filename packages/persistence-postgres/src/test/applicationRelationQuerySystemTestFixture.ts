@@ -171,8 +171,8 @@ import {
   fxControlTables,
   fxSystemScopeClocks,
 } from "../schema";
-import { getScopeAuthorityProvisioningReceipt } from
-  "../scopeAuthorityProvisioningReceipt";
+import { makeInstallationProtectedScopeAuthorityControlReader } from
+  "../scopeAuthorityControlRead";
 import type { LocatedScopeClockReader, TrustedScopeAuthorityResolutionPorts } from
   "../scopeAuthorityResolution";
 import type { SplitScopePhysicalLocator } from
@@ -269,13 +269,8 @@ export interface ApplicationRelationalCoreSystemTestFixture {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly authorityPorts: Readonly<{
-    readonly scopeMetadata: FixturePersistence;
-    readonly provisioningReceipts: Readonly<{
-      readonly getScopeAuthorityProvisioningReceipt:
-        typeof getScopeAuthorityProvisioningReceipt extends (...args: infer _Args) => infer _Return
-          ? (scopeId: ScopeId) => _Return
-          : never;
-    }>;
+    readonly scopeMetadata: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["scopeMetadata"];
+    readonly provisioningReceipts: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["provisioningReceipts"];
     readonly scopeClockTargets: Readonly<{
       readonly resolve: () => Promise<LocatedReadCommittedAttemptTargetV1>;
     }>;
@@ -292,20 +287,15 @@ export interface ApplicationRelationalCoreSystemTestFixture {
     typeof createApplicationRelationSchemaAuthorityPort
   >;
   readonly sessionAuthority: Readonly<{
-    readonly scopeMetadata: FixturePersistence;
+    readonly scopeMetadata: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["scopeMetadata"];
     readonly applicationControlDb: FlarexMetadataDatabase;
-    readonly provisioningReceipts: Readonly<{
-      readonly getScopeAuthorityProvisioningReceipt:
-        typeof getScopeAuthorityProvisioningReceipt extends (...args: infer _Args) => infer _Return
-          ? (scopeId: ScopeId) => _Return
-          : never;
-    }>;
+    readonly provisioningReceipts: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["provisioningReceipts"];
     readonly scopeSessionTargets: Readonly<{
       readonly resolve: () => Promise<LocatedScopeClockReader>;
     }>;
   }>;
   readonly currentEpochAuthority: Readonly<{
-    readonly scopeMetadata: FixturePersistence;
+    readonly scopeMetadata: ReturnType<typeof makeInstallationProtectedScopeAuthorityControlReader>["scopeMetadata"];
     readonly provisioningReceipts: ApplicationRelationalCoreSystemTestFixture[
       "sessionAuthority"
     ]["provisioningReceipts"];
@@ -659,12 +649,10 @@ async function createRelationalCoreFixture(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const provisioningReceipts = Object.freeze({
-    getScopeAuthorityProvisioningReceipt: (scopeId: ScopeId) =>
-      getScopeAuthorityProvisioningReceipt(input.control.drizzle, scopeId),
-  });
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(input.control.drizzle);
+  const provisioningReceipts = controlReader.provisioningReceipts;
   const authorityPorts = Object.freeze({
-    scopeMetadata: input.control,
+    scopeMetadata: controlReader.scopeMetadata,
     provisioningReceipts,
     scopeClockTargets: Object.freeze({
       resolve: async () => input.locatedTarget,
@@ -672,7 +660,7 @@ async function createRelationalCoreFixture(
     authority,
   });
   const sessionAuthority = Object.freeze({
-    scopeMetadata: input.control,
+    scopeMetadata: controlReader.scopeMetadata,
     applicationControlDb: input.control.drizzle,
     provisioningReceipts,
     scopeSessionTargets: Object.freeze({
@@ -680,7 +668,7 @@ async function createRelationalCoreFixture(
     }),
   });
   const currentEpochAuthority = Object.freeze({
-    scopeMetadata: input.control,
+    scopeMetadata: controlReader.scopeMetadata,
     provisioningReceipts,
     scopeEpochTargets: Object.freeze({
       resolve: async () => input.epochTarget,
@@ -822,7 +810,7 @@ async function createRelationalCoreFixture(
       authority: authorityPorts,
     }, uniqueConstraints);
   const readinessPointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: input.control,
+    scopeMetadata: controlReader.scopeMetadata,
     provisioningReceipts,
     scopeSessionTargets: {
       resolve: async () => {
@@ -982,17 +970,15 @@ async function createFixture(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const provisioningReceipts = Object.freeze({
-    getScopeAuthorityProvisioningReceipt: (scopeId: ScopeId) =>
-      getScopeAuthorityProvisioningReceipt(input.control.drizzle, scopeId),
-  });
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(input.control.drizzle);
+  const provisioningReceipts = controlReader.provisioningReceipts;
   const authorityPorts = Object.freeze({
-    scopeMetadata: input.control,
+    scopeMetadata: controlReader.scopeMetadata,
     provisioningReceipts,
     scopeClockTargets: { resolve: async () => input.locatedTarget },
   });
   const pointCommitAuthority = Object.freeze({
-    scopeMetadata: input.control,
+    scopeMetadata: controlReader.scopeMetadata,
     applicationControlDb: input.control.drizzle,
     provisioningReceipts,
     scopeSessionTargets: { resolve: async () => input.pointTarget },
@@ -1138,7 +1124,7 @@ async function createFixture(
       authority: authorityPorts,
     }, uniqueConstraints);
   const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: input.control,
+    scopeMetadata: controlReader.scopeMetadata,
     provisioningReceipts,
     scopeSessionTargets: {
       resolve: async () => {

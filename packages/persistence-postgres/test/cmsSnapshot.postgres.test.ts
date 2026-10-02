@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { Deferred, Effect, Fiber, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarFields } from "../../payload-adapter/src/testing/profiles";
 import { createApplicationRelationReadPort } from "../src/applicationRelationRead";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
 import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { issueRelationalSession, runRelationalSession, makePostgresRelationalSession, type RelationalSession } from "../src/relationalTransaction/session";
@@ -108,7 +109,13 @@ describe.skipIf(postgresUrl === null)("CMS PostgreSQL snapshots", () => {
       }
       yield* Deferred.succeed(release, undefined);
       const outcome = yield* Fiber.join(reader);
-      expect(outcome).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority", cause: { cause: { cause: { code: "40001" } } } } });
+      // Binding lock conflicts retain the binding owner's resource failure;
+      // revocation conflicts retain the scope-authority projection.
+      expect(outcome).toMatchObject({ _tag: "Failure", failure: {
+        reason: transition === "binding" ? "resourceFailure" : "invalidAuthority",
+        cause: { ...(transition === "binding" ? { _tag: "DataBindingError" } : {}),
+          cause: { cause: { code: "40001" } } },
+      } });
       expect(tested.readCount()).toBe(0);
     }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
     if (transition === "binding") {

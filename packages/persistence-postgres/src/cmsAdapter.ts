@@ -2,12 +2,12 @@ export { makePreparedHostRuntime, type PreparedHostRuntime, PreparedHostRuntimeE
 export {
   defineCmsCommand,
   getCmsCommand,
-  makeCmsHost,
   type CmsCommand,
   type CmsCommandContext,
-  type CmsHost,
-  type CmsHostInput,
-} from "./cmsTransaction/host";
+} from "./cmsTransaction/commands";
+export { makeCmsHost, type CmsHost, type CmsHostInput, type SourceCmsHostInput } from "./cmsTransaction/host";
+export { makeCmsReadHost, type CmsReadHost } from "./cmsTransaction/read/host";
+export type { CmsReadHostInput } from "./cmsTransaction/read/configuration";
 export {
   cmsError,
   cmsLimits,

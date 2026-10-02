@@ -5,7 +5,7 @@ import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
 import { makeApplicationManifest, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { compilePayloadCollections } from "../src/collections";
 import { PayloadConfigurationSchema } from "@flarex/analysis/internal/application-write-policy";
-import { payloadScalarContentIdentity, payloadScalarConfiguration, payloadRelationContentIdentity, payloadRelationConfiguration, payloadPostsCollection, payloadPostsCollectionDefinition } from "../src/conformanceProfile";
+import { payloadScalarContentIdentity, payloadScalarConfiguration, payloadRelationContentIdentity, payloadRelationConfiguration, payloadPostsCollection, payloadPostsCollectionDefinition } from "../src/testing/profiles";
 
 const definitions = (): CollectionConfig[] => [
   { slug: "news-items", fields: [

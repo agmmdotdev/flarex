@@ -6,6 +6,7 @@ import { compileAppOrderedIndexBoundsV1, encodeOrderedIndexComponentsV1, ordered
   type OrderedIndexRangeExpressionV1 } from "flarex-protocol/ordered-index";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
+import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import type { LogicalDocumentFailure } from "./model";
 
 const Scalar = Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null]);
@@ -22,6 +23,14 @@ export const LogicalFindQuery = Schema.Struct({
 export const decodeLogicalFindQuery = Schema.decodeUnknownResult(LogicalFindQuery, { onExcessProperty: "error" });
 export type LogicalWhere = typeof LogicalFindQuery.Type["where"];
 export const isLogicalRange = (value: LogicalWhere[string] | undefined): value is typeof Range.Type => value !== null && typeof value === "object";
+
+/** The working set's existing first eligible complete unique-key selection. */
+export function selectLogicalUniqueConstraint(definitions: readonly LocatedAppUniqueConstraintDefinitionV1[], tableId: CatalogTableId,
+  where: LogicalWhere) {
+  return definitions.find(candidate => candidate.tableId === tableId && candidate.physicalSpec.predicate === undefined &&
+    !(candidate.physicalSpec.nullsDistinct === true && candidate.physicalSpec.orderedFields.some(field => where[field] === null)) &&
+    candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field) && !isLogicalRange(where[field])));
+}
 
 /** A page's physical order must be equality-prefix + requested column, with
  * only the intrinsic creation time and core row identity as tie-breaks. A longer suffix cannot be sorted

@@ -6,7 +6,8 @@ import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCom
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { defineCmsCommand, makeCmsHost } from "../../persistence-postgres/src/cmsTransaction/host";
+import { defineCmsCommand } from "../../persistence-postgres/src/cmsTransaction/commands";
+import { makeCmsHost } from "../../persistence-postgres/src/cmsTransaction/host";
 import { cmsError } from "../../persistence-postgres/src/cmsTransaction/model";
 import { issueRelationalSession, runRelationalSession, makePostgresRelationalSession } from
   "../../persistence-postgres/src/relationalTransaction/session";

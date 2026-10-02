@@ -1,4 +1,6 @@
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
+import { runEffectTransaction } from "./effectTransaction";
+import { AppIndexDefinitionReadPersistenceError } from "./appIndexDefinitions";
 import {
   isPhysicalIndexBuildActiveInTransactionEffect,
   PhysicalDefinitionLifecyclePersistenceError,
@@ -71,7 +73,7 @@ import {
   CommitFeedSqlErrorV1,
 } from "./commitFeed";
 import type { FlarexMetadataDatabase } from "./deployments";
-import { getScopeMetadata } from "./scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   decodeIndexBuildStateRowResult,
@@ -479,12 +481,14 @@ export const buildIntrinsicCreationTimeIndexV1Effect = Effect.fn(
   );
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
+    { ...ports.authority, ...makeInstallationProtectedScopeAuthorityControlReader(ports.controlDb) },
   );
-  const definition = yield* locateAppIndexDefinitionByIdEffect(
-    ports.controlDb,
-    located.authority.scopeId,
-    decoded.indexDefinitionId,
+  const definition = yield* runEffectTransaction<Effect.Success<ReturnType<typeof locateAppIndexDefinitionByIdEffect>>,
+    ReadAppIndexDefinitionError, AppIndexDefinitionReadPersistenceError, AppRowTransaction>(
+    callback => ports.controlDb.transaction(callback),
+    "Intrinsic index definition acquisition failed",
+    tx => locateAppIndexDefinitionByIdEffect(tx, located.authority.scopeId, decoded.indexDefinitionId),
+    cause => new AppIndexDefinitionReadPersistenceError("readByDefinitionId", cause),
   );
   if (definition === null) {
     return yield* Effect.fail(
@@ -538,12 +542,14 @@ export const buildAppDeveloperOrderedIndexV1Effect = Effect.fn(
   );
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
+    { ...ports.authority, ...makeInstallationProtectedScopeAuthorityControlReader(ports.controlDb) },
   );
-  const definition = yield* locateAppIndexDefinitionByIdEffect(
-    ports.controlDb,
-    located.authority.scopeId,
-    decoded.indexDefinitionId,
+  const definition = yield* runEffectTransaction<Effect.Success<ReturnType<typeof locateAppIndexDefinitionByIdEffect>>,
+    ReadAppIndexDefinitionError, AppIndexDefinitionReadPersistenceError, AppRowTransaction>(
+    callback => ports.controlDb.transaction(callback),
+    "Developer index definition acquisition failed",
+    tx => locateAppIndexDefinitionByIdEffect(tx, located.authority.scopeId, decoded.indexDefinitionId),
+    cause => new AppIndexDefinitionReadPersistenceError("readByDefinitionId", cause),
   );
   if (definition === null) {
     return yield* Effect.fail(

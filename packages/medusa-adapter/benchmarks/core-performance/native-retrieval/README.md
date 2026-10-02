@@ -8,6 +8,27 @@ Scalar and populated collection demands are separate. Selected method bodies
 match the pinned source; this is not proof of identical constructors or all
 Product behavior.
 
+The benchmark owns [native-runner.ts](native-runner.ts), a reviewed port of the
+pinned `medusa-test-utils/src/module-test-runner.ts` with the fresh-module
+lifecycle extension. Its framework definitions, initialization, database and
+persistence helpers resolve through exact native build paths. The source island
+retains its pinned runner unchanged. Each fresh callback shuts down the previous
+module, constructs the native module over the same runner-owned connection,
+executes the callback and shuts down that module; final runner cleanup disposes
+the connection. Work and shutdown failures are retained together.
+Initialization without the selected service is refused after native shutdown;
+if shutdown also fails, both errors are retained.
+
+Future measurements fingerprint both this owned port and its executing native
+helpers. Historical JSON keeps the source inventory captured for its run. This
+port move and resolution correction introduce no new latency measurements.
+
+The source guard now inventories the three existing publication measurement test
+consumers of the authored server observer: the publication test, report support
+and server support. Their exact paths and imports require that observer's
+reviewed manifest entry. This adds no permission to adjacent tests or runtime
+code and changes no publication measurements.
+
 The populated native DTO retains `collection_id` when selecting the collection
 relation. The expected complete DTO includes that join field; both lanes retain
 it without projection or normalization.
@@ -665,3 +686,65 @@ quiet run regresses; its targeted repeat is healthy, but cause is unestablished.
 The repeat does not replace original samples or close whole performance goals.
 Actual Hyperdrive activation, native parity
 and post-native finite Product event global-tail proof remain outside this evidence.
+
+## Standalone read draft checkpoint
+
+The owner accepts the measured latency below for now and has requested a wrap-up
+before further design discussion. Further performance tuning is held. This is a
+draft checkpoint; final independent reviews and the remaining correctness and
+integration gates are open.
+
+The quiet run uses five warmups and 100 alternating retained pairs per demand.
+It preserves complete native DTOs and missing-record errors, and verifies that
+the executing source and runtime settings stay unchanged during measurement.
+The raw record is [quiet-resumed-fused-warm-01.json](quiet-resumed-fused-warm-01.json).
+
+| Complete request, ms | Native median / P95 | Flarex median / P95 | Paired excess median / P95 |
+| --- | ---: | ---: | ---: |
+| Scalar Product | 1.1234 / 1.4774 | 10.4975 / 15.8744 | 9.4502 / 14.4455 |
+| Product with collection | 1.3928 / 1.7766 | 13.6579 / 18.0120 | 12.3885 / 17.0247 |
+
+Each pair's excess is computed before its distribution. These results miss the
+original 5 ms complete median and 2 ms excess median goals; the owner's current
+acceptance does not change the recorded samples or establish a hosted guarantee.
+
+The separate [trace](trace-resumed-fused-trace-02.json) observes one accepting
+transaction, two platform guard submissions, and 8/11 total SQL submissions for
+scalar/collection. Actual protocol observations are Query 3/3, Parse 4/7 and
+Bind/Describe/Execute/Sync 5/8 each. The named entry statement binds freshly and
+has no warm Parse. Protocol submissions are not network roundtrip counts.
+
+The measured implementation combines current placement, installation and head
+checks in the accepting transaction, retains both original metadata epoch guards,
+uses query-required immutable metadata, prepares native service classes at
+module-definition construction, and captures a committed unique owner and its
+exact row in one storage query. Request state and live verdicts remain local.
+
+### Work held for discussion
+
+- The complete cold/reconnect, four metadata growth axes, relevant 1/10/100,
+  same/different-scope throughput and installation-amortization matrix remains
+  unproven. Harness and fixture preparation are not measurement receipts.
+- One/eight native admitted-reader tests demonstrate ordinary writer progress
+  and retained snapshots; they do not establish the full concurrency performance
+  gate. Installer crash/drain witnesses likewise do not close every writer proof.
+- The retained physical Commerce/Payload fixture installer requires the deferred
+  maintenance-owner integration described in the owning preflight. Its ordinary
+  native driver currently refuses installed namespaces. Existing positive
+  physical installation/coordinator coverage is not claimed as passing.
+- Additional connected unique-lookup witnesses for cached absence, a prior row
+  revision and local overlays remain a coverage gap. Owner-level row/slot tests
+  and existing row suites passed, but do not replace those connected cases.
+- Final lint, independent TypeScript/systems reviews, complete integration
+  validation and a scoped commit remain open. The original checkout's separate
+  staged publication experiment is untouched.
+
+A later point-versus-scan decoder cleanup is not included in this quiet report's
+source inventory. Its checks are separate; the report does not retroactively
+claim to measure later source changes. Fixture timing receipts are available
+in the harness sources but are not yet reported as installation amortization.
+
+The [execution architecture refactor](../../../../../roadmaps/execution-architecture/README.md)
+also changes direct read construction and source paths after this measurement.
+The retained JSON remains unchanged; future runs fingerprint the new reader
+owners. No new latency result is claimed for that refactor.

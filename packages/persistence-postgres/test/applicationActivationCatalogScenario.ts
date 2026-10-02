@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { sql } from "drizzle-orm";
 import { expect, vi } from "vitest";
-import { payloadScalarFields, payloadScalarConfiguration } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarFields, payloadScalarConfiguration } from "../../payload-adapter/src/testing/profiles";
 import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";

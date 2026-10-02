@@ -12,6 +12,7 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { reconcileEffectTransactionFailure } from
   "./effectTransactionFailure";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 import { deployments, fxControlTables } from "./schema";
 import {
   decodeStableCatalogTableIdInputResult,
@@ -453,7 +454,7 @@ function runStableTableCatalogEffectTransaction<ResultValue, Failure>(
   Failure | StableTableCatalogAllocationTransactionError
 > {
   return Effect.suspend(() => {
-    let callbackCause: Cause.Cause<Failure> | undefined;
+    let callbackCause: Cause.Cause<Failure | StableTableCatalogAllocationTransactionError> | undefined;
     const rollbackSignal = new Error(
       "Stable table catalog Effect work failed; roll back the transaction.",
     );
@@ -461,7 +462,11 @@ function runStableTableCatalogEffectTransaction<ResultValue, Failure>(
       Effect.tryPromise({
         try: () => db.transaction(async (tx): Promise<ResultValue> => {
           const exit = await Effect.runPromise(Effect.exit(
-            Effect.suspend(() => work(tx)),
+            lockInstallationForCurrentTransaction(tx).pipe(
+              Effect.mapError(cause => new StableTableCatalogAllocationTransactionError(cause, undefined)),
+              Effect.andThen(() => work(tx)),
+              Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))),
+            ),
           ));
           if (Exit.isFailure(exit)) {
             callbackCause = exit.cause;

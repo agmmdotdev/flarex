@@ -88,7 +88,21 @@ Use the finite remaining-work plan linked from the owning roadmap; measurements
 must answer a concrete implementation or acceptance question. Keep transaction
 cutovers coherent rather than increasing scope to meet an arbitrary file count.
 
-For the owner-authorized performance program, follow
+For the selected [complete standalone read redesign](roadmaps/core-performance/standalone-read-redesign-preflight.md),
+the owner authorizes a connected replacement of read preparation, query-required
+readiness and installation integrity. Record and explain the concrete contract,
+then implement, validate, review, remove displaced code and commit without
+repeated general approval. The current requested deliverable is the design and
+roadmaps first; target acceptance is not a claim of implemented cutover.
+Preserve behavioral invariants, not the current proof choreography. Installation
+maintenance interlock, its writer inventory and bounded preparation lifetime
+are in scope; arbitrary privileged-change detection, broader compute changes,
+general schema evolution and silent durable deletion are not. The first slice's
+complete native latency/scaling gates supersede the old standalone 400 ms gate
+for this work. Passing an individual component does not finish the slice.
+Frozen failed publication changes remain separate from its clean baseline.
+
+For other work in the owner-authorized performance program, follow
 [core component performance](roadmaps/core-performance/README.md): iterate on one
 real core component with a focused baseline, owner attribution, selected core
 optimization, affected correctness proofs, component measurements, both reviews,

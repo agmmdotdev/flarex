@@ -266,7 +266,25 @@ export const getAppUniqueConstraintDefinitionByIdEffect = Effect.fn(
   return rows[0] === undefined ? null : yield* decodeDefinitionRow(rows[0]);
 });
 
-/** Verified canonical members of one schema version's current binding set. */
+/** Locate exactly one canonical definition under its exact schema/scope binding. */
+export const locateAppUniqueConstraintDefinitionByIdEffect = Effect.fn("AppUniqueConstraintDefinitions.locateById")(function* (
+  db: FlarexMetadataDatabase, deploymentId: string, scopeId: ScopeId,
+  schemaVersionId: CatalogSchemaVersionId, definitionId: CatalogUniqueConstraintDefinitionId,
+) {
+  const rows = yield* queryEffect("readSelectedSchemaDefinition", () => db.select({
+    definition: fxControlUniqueConstraintDefinitions,
+  }).from(fxControlSchemaVersionUniqueConstraintBindings).innerJoin(fxControlUniqueConstraintDefinitions, and(
+    eq(fxControlUniqueConstraintDefinitions.deploymentId, fxControlSchemaVersionUniqueConstraintBindings.deploymentId),
+    eq(fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId, fxControlSchemaVersionUniqueConstraintBindings.uniqueConstraintDefinitionId),
+    eq(fxControlUniqueConstraintDefinitions.logicalUniqueConstraintId, fxControlSchemaVersionUniqueConstraintBindings.logicalUniqueConstraintId),
+  )).innerJoin(fxControlScopes, and(eq(fxControlScopes.deploymentId, fxControlSchemaVersionUniqueConstraintBindings.deploymentId),
+    eq(fxControlScopes.scopeId, scopeId))).where(and(eq(fxControlSchemaVersionUniqueConstraintBindings.deploymentId, deploymentId),
+    eq(fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId, schemaVersionId),
+    eq(fxControlSchemaVersionUniqueConstraintBindings.uniqueConstraintDefinitionId, definitionId))).limit(1));
+  const row = rows[0];
+  return row === undefined ? null : markLocatedDefinition(scopeId, schemaVersionId, yield* decodeDefinitionRow(row.definition));
+});
+
 export const listAppUniqueConstraintDefinitionSetMembersV1Effect = Effect.fn(
   "AppUniqueConstraintDefinitions.listSetMembers",
 )(function* (

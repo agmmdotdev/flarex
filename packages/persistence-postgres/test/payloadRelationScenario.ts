@@ -13,6 +13,7 @@ import { createApplicationRelationReadPort } from "../src/applicationRelationRea
 import { openApplicationRelationQuerySnapshot, readApplicationRelationQueryIncomingSources } from "../src/applicationQuerySnapshot";
 import { ScopeExecutionLive } from "../src/scopeExecution/ScopeExecution";
 import { readApplicationWriteOwnershipInTransaction } from "../src/applicationWriteOwnership/Repository";
+import { withApplicationWriteOwnershipCatalog } from "../src/applicationWriteOwnership/Catalog";
 import { ApplicationWriteOwnershipHistoryBudget } from "../src/applicationWriteOwnership/Policy";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
 import { fxControlSchemaVersionUniqueConstraintSets, fxControlSchemaVersionUniqueConstraintBindings, fxSystemScopeClocks } from "../src/schema";
@@ -20,8 +21,9 @@ import { expect } from "vitest";
 import { Effect, Exit, Fiber, Result } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
-import { payloadRelationContentIdentity } from "../../payload-adapter/src/conformanceProfile";
-import { makeCmsHost, defineCmsCommand, type CmsHostInput } from "../src/cmsTransaction/host";
+import { payloadRelationContentIdentity } from "../../payload-adapter/src/testing/profiles";
+import { makeCmsHost, type CmsHostInput } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import { dataBindingActivationRequest, makeDataBindingHost } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
@@ -107,7 +109,9 @@ export async function payloadRelationScenario(input: {
       const restore = (reserved = 0) => db.transaction(tx => {
         const budget = new ApplicationWriteOwnershipHistoryBudget();
         Result.getOrThrow(budget.consume(reserved, 0));
-        return runEffect(readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, fixture.control.drizzle).pipe(Effect.result));
+        return runEffect(withApplicationWriteOwnershipCatalog(fixture.control.drizzle,
+          fixture.control.drizzle === db ? tx : undefined,
+          catalog => readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, catalog)).pipe(Effect.result));
       });
       expect((await restore(49))._tag).toBe("Success");
       expect(await restore(50)).toMatchObject({ _tag: "Failure", failure: { reason: "historyLimit" } });

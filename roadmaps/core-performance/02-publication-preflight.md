@@ -1,5 +1,10 @@
 # Publication: Component Attribution Preflight
 
+Successor routing: the [selected standalone read redesign](./standalone-read-redesign-preflight.md)
+now owns the next implementation goal. This document's inactive remedies and
+permission limits describe publication work, not a veto on the successor's
+managed installation/read integrity replacement.
+
 Status: **bounded attribution implemented, with a usable historical observed-source
 paired owner baseline that predates its phase-boundary transparency correction.
 The separate server matrix is invalid/partial after bounded artifact refusal.

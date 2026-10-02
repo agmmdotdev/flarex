@@ -10,6 +10,8 @@ import {
   type ApplicationBindingInput,
   type AcceptedApplicationBinding,
   readAcceptedApplicationBinding,
+  withStandaloneApplicationBindingInTransaction,
+  type PreparedStandaloneApplicationBinding,
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
@@ -77,6 +79,21 @@ export const readApplicationBindingEvidenceInTransaction = Effect.fn(
 export type ApplicationBindingEvidence = Readonly<{ projection: ApplicationBindingReference;
   analysis: Readonly<{ candidateId: string; analysisId: string; manifestSha256: string; sourceArtifactRootSha256: string }>;
   checkedActive: CheckedApplicationActiveHead | undefined }>;
+
+/** The exact host publication supplies immutable correlation; revocation and
+ * acceptance remain request-local inside the original snapshot and final guard. */
+export const withStandaloneApplicationBindingEvidenceInTransaction = Effect.fn(
+  "ApplicationBindingProjection.withStandaloneEvidence",
+)(function* <Value, Failure, Requirements>(selection: PreparedStandaloneApplicationBinding, tx: AppRowTransaction,
+  clock: ScopeClockRecord, work: (evidence: ApplicationBindingEvidence) => Effect.Effect<Value, Failure, Requirements>) {
+  return yield* withStandaloneApplicationBindingInTransaction(selection, tx, clock, state => Effect.gen(function* () {
+    const authorizationRevocationEpoch = yield* requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, clock.scopeId);
+    const { format: _format, analysis, ...immutable } = state.frame;
+    const projection: ApplicationBindingReference = { ...immutable,
+      physicalLocator: { ...state.authority.physicalLocator }, authorizationRevocationEpoch: authorizationRevocationEpoch.toString() };
+    return yield* Effect.suspend(() => work({ projection, analysis, checkedActive: undefined }));
+  }));
+});
 
 /** The checked active observation is valid only while this accepting callback runs. */
 export const withApplicationBindingEvidenceInTransaction = Effect.fn(

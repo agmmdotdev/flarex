@@ -17,10 +17,12 @@ import { makeCatalogControlSessionStarter, startCatalogControlDeadline, type Cat
 import { postgresUrl, withTemporaryPostgresPersistence } from "../../persistence-postgres/test/postgresHelpers";
 import { insertSessionTestScope, SESSION_TEST_SCOPE_UUID, SESSION_TEST_EPOCH_UUID } from "../../persistence-postgres/test/sessionAuthorityTestSupport";
 import { ensureStableTableIdentityEffect } from "../../persistence-postgres/src/stableTableCatalog";
-import { deployments, fxControlScopes, fxControlTables, fxControlSchemaVersions, fxControlIndexDefinitions, fxControlUniqueConstraintDefinitions } from "../../persistence-postgres/src/schema";
+import { deployments, fxControlScopes, fxControlTables, fxControlSchemaVersions, fxControlIndexDefinitions, fxControlUniqueConstraintDefinitions,
+  fxControlLogicalReadSources, fxControlLogicalReadTables, fxControlLogicalReadAccess } from "../../persistence-postgres/src/schema";
 import type { FlarexMetadataDatabase } from "../../persistence-postgres/src/deployments";
 import type { FlarexSqlClient } from "../../persistence-postgres/src/index";
 import { readPreviouslyApplicationWritableTables } from "../../persistence-postgres/src/applicationWriteOwnership/History";
+import { withApplicationWriteOwnershipCatalog } from "../../persistence-postgres/src/applicationWriteOwnership/Catalog";
 import { ApplicationWriteOwnershipHistoryBudget } from "../../persistence-postgres/src/applicationWriteOwnership/Policy";
 import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
@@ -31,7 +33,7 @@ import { readSchemaVersionTableBindings } from "../../persistence-postgres/src/s
 import { relationalPartialIndexScenario } from "../../persistence-postgres/test/relationalPartialIndexScenario";
 import { currencyInitialization } from "../../medusa-adapter/src/currency-contract";
 import { relationalValueAdmissionScenario } from "../../persistence-postgres/test/relationalValueAdmissionScenario";
-import { ensureLogicalStorageDefinitions } from "../../persistence-postgres/src/logicalStorageDefinitions";
+import { backfillLogicalReadProjections, ensureLogicalStorageDefinitions } from "../../persistence-postgres/src/logicalStorageDefinitions";
 import { productForeignKeyScenario } from "../../persistence-postgres/test/productForeignKeyScenario";
 import { productHistoricalWorkingSetScenario } from "../../persistence-postgres/test/productHistoricalWorkingSetScenario";
 
@@ -271,6 +273,24 @@ async function witness(
       "Install shared candidate definitions", (tx: FlarexMetadataTransaction) =>
         ensureLogicalStorageDefinitions(tx, deploymentId, identity.schemaVersionId),
       cause => new Error("Candidate definition transaction failed", { cause })));
+    const readProjections = async () => ({
+      sources: await persistence.drizzle.select().from(fxControlLogicalReadSources).orderBy(fxControlLogicalReadSources.sourceKey),
+      tables: await persistence.drizzle.select().from(fxControlLogicalReadTables).orderBy(fxControlLogicalReadTables.sourceKey, fxControlLogicalReadTables.localName),
+      access: await persistence.drizzle.select().from(fxControlLogicalReadAccess).orderBy(fxControlLogicalReadAccess.sourceKey,
+        fxControlLogicalReadAccess.localName, fxControlLogicalReadAccess.selectorKind, fxControlLogicalReadAccess.selectorKey),
+    });
+    const projected = await readProjections();
+    const selected = (row: { deploymentId: string; schemaVersionId: string }) =>
+      row.deploymentId === deploymentId && row.schemaVersionId === identity.schemaVersionId;
+    expect(projected.sources.filter(selected).map(source => source.sourceKey)).toEqual(["application", "medusa.currency", "medusa.product", "payload"]);
+    expect(projected.tables.filter(selected)).toHaveLength(16);
+    expect(projected.tables.some(row => row.sourceKey === "payload.view.0")).toBe(false);
+    expect(projected.access.some(row => row.sourceKey === "payload.view.0")).toBe(false);
+    // Installer backfill traverses the admitted view too, without publishing a
+    // definition-serving capability for it or changing its primary evidence.
+    for (let replay = 0; replay < 2; replay++) await Effect.runPromise(backfillLogicalReadProjections(persistence.drizzle));
+    expect(await readProjections()).toEqual(projected);
+    expect((await inspect()).candidate).toEqual(candidate);
     const productTableIds = new Set(stored.tableBindings.filter(binding =>
       binding.table.namespace === "medusa" && binding.table.logicalName.startsWith("commerce.product/"))
       .map(binding => binding.tableId));
@@ -314,9 +334,10 @@ async function witness(
   // it shares the immutable schema-artifact catalog.
   const readWritable = () => Effect.runPromise(runEffectTransaction(
     callback => persistence.drizzle.transaction(callback, { isolationLevel: "repeatable read" }),
-    "Read candidate-only history", (tx: FlarexMetadataTransaction) => readPreviouslyApplicationWritableTables(tx, tx, {
+    "Read candidate-only history", (tx: FlarexMetadataTransaction) => withApplicationWriteOwnershipCatalog(
+      persistence.drizzle, tx, catalog => readPreviouslyApplicationWritableTables(tx, catalog, {
       scopeId: authority.scopeId, deploymentId, revisionId: "future", schemaVersionId: decodeCatalogSchemaVersionId("future"),
-    }, new ApplicationWriteOwnershipHistoryBudget()), cause => new Error("History read failed", { cause }),
+    }, new ApplicationWriteOwnershipHistoryBudget())), cause => new Error("History read failed", { cause }),
   ));
   expect([...await readWritable()]).toEqual([]);
 

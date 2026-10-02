@@ -16,7 +16,7 @@ import {
   withCatalogRawControlSessionTransactionEffect,
   type CatalogControlSessionDeadlineIssue,
   type CatalogControlSessionDecisionUncertainIssue,
-  type CatalogControlSessionResourceIssue,
+  CatalogControlSessionResourceIssue,
   type CatalogControlSessionStarter,
   type CatalogControlSessionTransaction,
   type CatalogControlDeadline,
@@ -156,6 +156,7 @@ interface FrameworkSchemaArtifactRepositoryState {
   readonly controlSessionStarter:
     CatalogControlSessionStarter;
   readonly timeoutPolicy: FrameworkSchemaArtifactRepositoryTimeoutPolicy;
+  readonly readOnly?: boolean;
 }
 
 interface CatalogControlTransactionState {
@@ -220,6 +221,25 @@ export function makeFrameworkSchemaArtifactRepository(
   } satisfies FrameworkSchemaArtifactRepository);
   frameworkSchemaArtifactRepositoryStates.set(repository, state);
   return Result.succeed(repository);
+}
+
+/** Source-private maintenance composition. Authenticate the original control
+ * database and the nominal starter; retain canonical decoding and read policy.
+ * The installation owner keeps the borrowed reader inside its fenced lifetime. */
+export function makeFrameworkSchemaArtifactMaintenanceReader(
+  original: FrameworkSchemaArtifactRepository,
+  controlDb: FlarexMetadataDatabase,
+  controlSessionStarter: CatalogControlSessionStarter,
+): Result.Result<FrameworkSchemaArtifactRepository, FrameworkSchemaArtifactRepositoryConfigurationError> {
+  const state = frameworkSchemaArtifactRepositoryStates.get(original);
+  if (state === undefined || state.controlDb !== controlDb ||
+    !hasCatalogControlSessionComposition(controlSessionStarter, controlDb)) return Result.fail(
+      FrameworkSchemaArtifactRepositoryConfigurationError.invalidControlSessionComposition());
+  const reader = Object.freeze({ [frameworkSchemaArtifactRepositoryBrand]: true } satisfies FrameworkSchemaArtifactRepository);
+  frameworkSchemaArtifactRepositoryStates.set(reader, Object.freeze({
+    controlDb, controlSessionStarter, timeoutPolicy: state.timeoutPolicy, readOnly: true,
+  }));
+  return Result.succeed(reader);
 }
 
 /**
@@ -353,6 +373,9 @@ export const runFrameworkSchemaArtifactRepositoryAdmissionEffect = Effect.fn(
       }),
     );
   }
+  if (repositoryState.readOnly === true) return Effect.fail(new CatalogControlSessionResourceIssue({
+    phase: "callback", cause: new Error("The maintenance artifact reader has no admission or recovery capability."),
+  }));
 
   return Effect.gen(function* () {
     const preparation = yield* Effect.suspend(work.prepareEffect);

@@ -20,6 +20,7 @@ import {
 import { reconcileEffectTransactionFailure } from
   "./effectTransactionFailure";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 export const MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS = 3;
 
@@ -161,7 +162,7 @@ function runPreparedAppSchemaPublicationTransactionEffect<GateFailure>(
 > {
   return Effect.suspend(() => {
     let callbackCause:
-      | Cause.Cause<PublishPreparedAppSchemaV1InTransactionError | GateFailure>
+      | Cause.Cause<PublishPreparedAppSchemaV1InTransactionError | AppSchemaPublicationV1TransactionError | GateFailure>
       | undefined;
     const rollbackSignal = new Error(
       "App-schema publication Effect work failed; roll back the transaction.",
@@ -173,12 +174,13 @@ function runPreparedAppSchemaPublicationTransactionEffect<GateFailure>(
         try: () => repository.runTransaction(
           async (tx): Promise<AppSchemaPublicationV1Result> => {
             const exit = await Effect.runPromise(Effect.exit(
-              (gate === undefined
-                ? Effect.void
-                : gate.beforePublish(tx, publication)).pipe(
+              lockInstallationForCurrentTransaction(tx).pipe(
+                Effect.mapError(cause => new AppSchemaPublicationV1TransactionError({ cause })),
+                Effect.andThen(() => gate === undefined ? Effect.void : gate.beforePublish(tx, publication)),
                 Effect.flatMap(() =>
                   publishPreparedAppSchemaV1InTransactionEffect(tx, publication)
                 ),
+                Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))),
               ),
             ));
             if (Exit.isFailure(exit)) {

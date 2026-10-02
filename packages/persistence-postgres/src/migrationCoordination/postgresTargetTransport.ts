@@ -1,26 +1,30 @@
-import { Client, type PoolConfig } from "pg";
+import { Client, type ClientConfig } from "pg";
 
 interface PostgresBackendKeyData { readonly processId: number; readonly secretKey: number; }
 
-// Ported from artifact control-session transport; migration owns its own lifecycle and identities.
+/** Authenticated cancel packet for the exact dedicated owner; no SQL session or reconnect. */
 export function sendPostgresCancelRequest(
   backendKeyData: PostgresBackendKeyData,
-  clientConfig: PoolConfig,
+  clientConfig: ClientConfig,
   timeoutMilliseconds: number,
 ): Promise<void> {
   const cancellationClient = new Client(clientConfig);
   if (cancellationClient.ssl !== false) {
-    return Promise.reject(new Error(
-      "PostgreSQL authenticated cancellation is not enabled for TLS connections.",
-    ));
+    return Promise.reject(
+      new Error(
+        "PostgreSQL authenticated cancellation is not enabled for TLS connections.",
+      ),
+    );
   }
   const connection = cancellationClient.connection;
   const connect = Reflect.get(connection, "connect");
   const cancel = Reflect.get(connection, "cancel");
   if (typeof connect !== "function" || typeof cancel !== "function") {
-    return Promise.reject(new Error(
-      "Installed node-postgres connection has no cancellation protocol capability.",
-    ));
+    return Promise.reject(
+      new Error(
+        "Installed node-postgres connection has no cancellation protocol capability.",
+      ),
+    );
   }
 
   return new Promise<void>((resolve, reject) => {
@@ -46,7 +50,8 @@ export function sendPostgresCancelRequest(
       try {
         cancellationClient.connection.stream.destroy();
       } catch (destroyCause) {
-        observedError = aggregateCauses(
+        // oxlint-disable-next-line flarex/no-known-value-widening -- REVIEW: host - cancellation accumulator retains arbitrary foreign throws and EventEmitter causes alongside this cleanup failure
+        observedError = new AggregateError(
           [observedError, destroyCause],
           "PostgreSQL cancellation transport destruction failed.",
         );
@@ -79,9 +84,11 @@ export function sendPostgresCancelRequest(
       if (observedError !== undefined) {
         reject(observedError);
       } else if (!cancelSent) {
-        reject(new Error(
-          "PostgreSQL cancellation transport ended before sending CancelRequest.",
-        ));
+        reject(
+          new Error(
+            "PostgreSQL cancellation transport ended before sending CancelRequest.",
+          ),
+        );
       } else {
         resolve();
       }
@@ -149,5 +156,3 @@ export function settleWithinPlatformTimeout<Value>(
     );
   });
 }
-
-function aggregateCauses(causes: readonly unknown[], message: string) { return new AggregateError(causes, message); }

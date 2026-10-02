@@ -2,7 +2,8 @@ import { Deferred, Effect, Fiber, Result } from "effect";
 import { ValidationError } from "payload";
 import { expect, vi } from "vitest";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { applicationUniqueDeclarationsMatch } from "../src/applicationWriteOwnership/UniqueDeclarations";
 import { decodeIndexedDocument, makeIndexedPayloadFixture, type IndexedPayloadFixture } from "./payloadIndexedFixture";
 

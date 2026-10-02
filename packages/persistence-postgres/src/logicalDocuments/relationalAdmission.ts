@@ -1,4 +1,19 @@
 import { Data, Effect, Result, Schema } from "effect";
+import { prepareLogicalReadAdmission, requireLogicalReadAdmission, LogicalReadAdmissionError,
+  type LogicalReadAdmission, type ManagedLogicalReadPorts, type LogicalReadSelection } from "./readAdmission";
+import type { LogicalSourceReadPin } from "../logicalReadMetadata";
+
+export type LogicalRelationalReadAdmission = LogicalReadAdmission;
+export const prepareLogicalRelationalReadAdmission = (ports: ManagedLogicalReadPorts,
+  input: LogicalReadSelection, pin: LogicalSourceReadPin) => prepareLogicalReadAdmission(ports, input, pin, "medusa");
+export const requireLogicalRelationalReadAdmission = Effect.fn("LogicalRelationalReadAdmission.require")(function* (
+  token: LogicalRelationalReadAdmission, tx: FlarexMetadataTransaction,
+) {
+  const state = yield* requireLogicalReadAdmission(token, tx);
+  if (state.root.owner !== "medusa" || state.root.kind !== "relational")
+    return yield* Effect.fail(new LogicalReadAdmissionError({ reason: "invalidAuthority" }));
+  return state;
+});
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
 import type { RelationalSchema, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
@@ -23,6 +38,7 @@ import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type Logical
 import { prepareLogicalRelationalValueValidation, LogicalRelationalValueError } from "./relationalValues";
 import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import type { LogicalSearchDefinition } from "./searchEntries";
+import type { LogicalStorageReadReadiness } from "./model";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
   type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptRoot,
@@ -72,12 +88,14 @@ export interface LogicalRelationalAdmissionState {
   readonly indexes: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
   readonly search: readonly LogicalSearchDefinition[];
+  readonly readReadiness: LogicalStorageReadReadiness<LogicalRelationalAdmissionError>;
+  readonly tableNames: ReadonlyMap<CatalogTableId, string>;
 }
 const admissions = new WeakMap<object, LogicalRelationalAdmissionState>();
 
 /** Source-specific fields used only by the native Product evaluator. The
  * neutral issuer owns the opaque token, exact attempt and checked reads. */
-export interface LogicalRelationalAttemptAdmissionState extends Omit<LogicalRelationalAdmissionState, "tx" | "authority"> {
+export interface LogicalRelationalAttemptAdmissionState extends Omit<LogicalRelationalAdmissionState, "tx" | "authority" | "readReadiness"> {
   readonly root: LogicalParticipantAttemptRoot;
   readonly preparedSource: object;
   readonly requirePreparedSource: Effect.Effect<void, LogicalParticipantAdmissionError>;
@@ -153,22 +171,33 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       tableMechanics: selected.catalog.relationalTableMechanics });
   const confinedValues = Object.freeze({ validate: (tableId: CatalogTableId, document: Parameters<typeof values.validate>[1]) =>
     tableIds.has(tableId) ? values.validate(tableId, document) : Result.fail(new LogicalRelationalValueError({ reason: "invalidTable" })) });
-
-  const withAdmission = Effect.fn("LogicalRelationalAdmission.withTransaction")(function* <Value, Failure, Requirements>(
+  const tableNames: ReadonlyMap<CatalogTableId, string> = new Map(selectedTables.map(table => [table.tableId, table.localName]));
+  const withSelectedAdmission = Effect.fn("LogicalRelationalAdmission.withTransaction")(function* <Value, Failure, Requirements>(
+    profile: "full" | "read",
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (admission: LogicalRelationalAdmission) => Effect.Effect<Value, Failure, Requirements>,
   ) {
-    return yield* selected.withTransactionBinding(application, tx, authority, clock, binding => {
+    const accept = profile === "read" ? selected.withTransactionReadBinding : selected.withTransactionBinding;
+    return yield* accept(application, tx, authority, clock, (binding): Effect.Effect<Value, Failure | LogicalRelationalAdmissionError, Requirements> => {
       // SAFETY: only callback lifetime membership authenticates this inert token.
       const admission = Object.freeze({}) as LogicalRelationalAdmission;
       admissions.set(admission, Object.freeze({ tx, authority, clock, schemaVersionId: binding.schemaVersionId,
         sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, schema,
-        tables: selectedTables, values: confinedValues, indexes: selected.indexes, unique: selected.unique,
+        tables: selectedTables, tableNames, values: confinedValues, indexes: selected.indexes, unique: selected.unique,
         search: Object.freeze(search),
+        readReadiness: Object.freeze({ kind: "full" as const }),
         head: binding.head }));
       return Effect.suspend(() => work(admission)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
     });
   });
+  const withAdmission = <Value, Failure, Requirements>(
+    application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (admission: LogicalRelationalAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  ) => withSelectedAdmission("full", application, tx, authority, clock, work);
+  const withReadAdmission = <Value, Failure, Requirements>(
+    application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (admission: LogicalRelationalAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  ) => withSelectedAdmission("read", application, tx, authority, clock, work);
   const bindAttemptEffect = Effect.fn("LogicalRelationalAttemptAdmission.bind")(function* (
     application: ApplicationBindingInput, attempt: SessionJournalAttempt, root: LogicalParticipantAttemptRoot,
     readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
@@ -208,7 +237,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       preparedSource: prepared,
       requirePreparedSource: selected.requirePrepared.pipe(Effect.mapError(projectParticipantBindingFailure)),
       clock: pinned.clock, schemaVersionId: capturedInput.schemaVersionId, sourceKey: selected.source.key,
-      sourceSha256: selected.source.sourceSha256, schema, tables: selectedTables,
+      sourceSha256: selected.source.sourceSha256, schema, tables: selectedTables, tableNames,
       values: confinedValues, indexes: selected.indexes, unique: selected.unique,
       search: Object.freeze(search), head: pinned.head }));
     return token;
@@ -248,7 +277,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       }).pipe(Effect.mapError(projectParticipantBindingFailure)),
     }));
   };
-  const prepared = Object.freeze({ withAdmission, bindAttemptEffect, createCommitAuthority });
+  const prepared = Object.freeze({ withAdmission, withReadAdmission, bindAttemptEffect, createCommitAuthority });
   return prepared;
 });
 

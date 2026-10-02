@@ -10,8 +10,9 @@ import type { ApplicationBindingSelectionReader } from "../applicationActivation
 import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../applicationActivation";
 import type { ApplicationParticipantOptions } from "../applicationDocumentMaterialization/participant";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
-import type { CmsCommand, CmsHostInput } from "../cmsTransaction/host";
-import { getCmsCommand } from "../cmsTransaction/host";
+import type { CmsHostInput } from "../cmsTransaction/host";
+import type { CmsCommand } from "../cmsTransaction/commands";
+import { getCmsCommand } from "../cmsTransaction/commands";
 import { cmsLimits } from "../cmsTransaction/model";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import { getCommerceCommand } from "../commerceTransaction/commands";
@@ -33,7 +34,7 @@ import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSess
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
-import { getScopeMetadata } from "../scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "../scopeAuthorityControlRead";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
@@ -123,7 +124,7 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
     const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
       yield* hashCurrencyAnnouncement(identity.canonicalBytes));
     const exactAuthority = { ...authority,
-      scopeMetadata: { getScopeMetadata: (selected: ScopeId) => getScopeMetadata(controlDatabase, selected) } };
+      ...makeInstallationProtectedScopeAuthorityControlReader(controlDatabase) };
     const locatedAtPreparation = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
       { deploymentId, scopeId }, exactAuthority);
     const coordinates = { deploymentId, scopeId: locatedAtPreparation.authority.scopeId,

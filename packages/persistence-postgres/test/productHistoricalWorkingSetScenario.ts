@@ -95,7 +95,8 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
         title: "Historical Product", status: "draft" }, { id: residualProductId, handle: "residual-other",
         title: "Residual Product", status: "draft" }]);
       yield* image.write(lifetime.context, "insert", [{ id: imageId, product_id: productId,
-        url: "https://example.invalid/historical-before.png", rank: 0 }]);
+        url: "https://example.invalid/historical-before.png", rank: 0,
+        created_at: "2026-10-01T00:00:00.000Z" }]);
       yield* image.write(lifetime.context, "insert", Array.from({ length: 18 }, (_, position) => ({
         id: `img_residual_${String(position).padStart(2, "0")}`, product_id: residualProductId,
         url: `https://example.invalid/residual-${position}.png`, rank: position + 10,

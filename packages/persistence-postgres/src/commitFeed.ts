@@ -2,6 +2,7 @@ import { bytesEqual, copyBytes } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { and, asc, eq, gt, gte, lte } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
 
 import {
   appRowIdHexV1FromBytesResult,
@@ -350,15 +351,20 @@ async function captureCommitFeedRows(
   return db.transaction(async (tx) => {
     await tx.setTransaction({
       isolationLevel: "repeatable read",
-      accessMode: "read only",
     });
-
-    return captureCommitFeedRowsInTransaction(
-      tx,
-      input,
-      observeQuery,
-      MAX_COMMIT_FEED_PAGE_COMMITS_V1,
-    );
+    // The private feed reader remains read-only; SQL admission itself needs
+    // a row SHARE latch, which PostgreSQL forbids in a READ ONLY session.
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      return await captureCommitFeedRowsInTransaction(
+        tx,
+        input,
+        observeQuery,
+        MAX_COMMIT_FEED_PAGE_COMMITS_V1,
+      );
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 

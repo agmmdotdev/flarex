@@ -4,7 +4,7 @@ import { lowerCaseFirst } from "@medusajs/utils/common/lower-case-first";
 import { ContainerRegistrationKeys } from "@medusajs/utils/common/container";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceInternalService, prepareCommerceModule, type CommerceModuleEvents } from "./commerce-module";
+import { prepareCommerceInternalService, prepareCommerceModule, type CommerceInternalService, type CommerceModuleEvents } from "./commerce-module";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { withCommerceService } from "./commerce-service-bridge";
 
@@ -49,7 +49,7 @@ export interface CommerceModuleExtension<Binding> {
 }
 
 type PossibleServices<Models extends readonly ModulePersistenceModel[]> = {
-  readonly [Model in Models[number] as `${Uncapitalize<Model["name"]>}Service`]: ReturnType<typeof commerceInternalService<Model>>;
+  readonly [Model in Models[number] as `${Uncapitalize<Model["name"]>}Service`]: CommerceInternalService<Model>;
 };
 type ServiceName<Name extends string> = Name extends string
   ? { readonly [Key in `${Uncapitalize<Name>}Service`]: never }
@@ -133,6 +133,9 @@ export function defineCommerceModule<
       }
     }
     const replacements = new Set(extensions.filter(extension => extension.mode === "replace").map(extension => extension.key));
+    const internalServices = models.filter(entry => !replacements.has(entry.service)).map(entry => ({
+      ...entry, bindService: prepareCommerceInternalService(entry.model),
+    }));
     const bind = definition.profile.bind.bind(definition.profile);
     const createService = definition.service.bind(definition);
     const description = Object.freeze({
@@ -151,8 +154,8 @@ export function defineCommerceModule<
           ...(binding.events === undefined ? {} : { events: binding.events }),
           models: models.map(entry => ({ model: entry.model, repository: binding.repository(entry.model) })),
         });
-        const entries: [string, object][] = models.filter(entry => !replacements.has(entry.service))
-          .map(entry => [entry.service, module.internalService(entry.model)]);
+        const entries: [string, object][] = internalServices.map(entry => [entry.service,
+          entry.bindService(new (module.persistence.createRepository(entry.model))(), module.persistence)]);
         for (const extension of extensions) entries.push([extension.key, extension.create({ binding, persistence: module.persistence, owner })]);
         // SAFETY: the closed model set creates exactly its conventional keys;
         // checked explicit replacements/additions are each installed once.

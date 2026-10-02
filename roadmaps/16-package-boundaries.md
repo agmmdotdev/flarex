@@ -16,6 +16,11 @@ and caller migration; a new package still requires a real dependency boundary.
 
 **Status:** Active domain authority.
 
+The [execution architecture refactor](execution-architecture/README.md) owns the
+active clarification of direct framework entry points, composed Application
+execution and their source organization. Its slices preserve the dependency
+direction here; folder separation does not create another transaction authority.
+
 This roadmap owns the current package and application responsibilities,
 dependency direction, public-versus-internal surface rules, runtime-host
 placement, and the checks that make those boundaries credible.

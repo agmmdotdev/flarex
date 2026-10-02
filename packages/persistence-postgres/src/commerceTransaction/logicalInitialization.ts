@@ -5,8 +5,10 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { fxSystemLogicalSourceInitializations } from "../logicalStorageInitialization";
 import { fxAppRowCurrent, fxAppRowRevisions } from "../schema";
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
+import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../logicalDocuments/relationalAdmission";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { commerceError } from "./model";
+import { readStandaloneSourceInitialization } from "../standaloneReadSnapshot";
 import { projectCommerceRequestFailure } from "./request";
 import type { CommerceInitialization } from "./initializationContract";
 
@@ -37,12 +39,28 @@ export const requireLogicalCommerceInitialization = Effect.fn("LogicalCommerce.r
   initialization: CommerceInitialization, contractSha256: string,
 ) {
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  yield* requireInitializationReceipt(state, tx, initialization, contractSha256);
+});
+
+export const requireLogicalCommerceReadInitialization = Effect.fn("LogicalCommerce.requireReadInitialization")(function* (
+  admission: LogicalRelationalReadAdmission, tx: FlarexMetadataTransaction,
+  initialization: CommerceInitialization, contractSha256: string,
+) {
+  const state = yield* requireLogicalRelationalReadAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  yield* requireInitializationReceipt(state, tx, initialization, contractSha256);
+});
+
+const requireInitializationReceipt = Effect.fn("LogicalCommerce.requireInitializationReceipt")(function* (
+  state: Pick<Effect.Success<ReturnType<typeof requireLogicalRelationalAdmission>>, "authority" | "sourceKey" | "sourceSha256">,
+  tx: FlarexMetadataTransaction, initialization: CommerceInitialization, contractSha256: string,
+) {
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const recorded = yield* runDrizzleStatementEffect(tx.select().from(fxSystemLogicalSourceInitializations).where(and(
+  const observed = readStandaloneSourceInitialization(tx, state.authority.scopeId, state.sourceKey, initialization.stepId);
+  const recorded = observed === undefined ? yield* runDrizzleStatementEffect(tx.select().from(fxSystemLogicalSourceInitializations).where(and(
     eq(fxSystemLogicalSourceInitializations.scopeUuid, scope.scopeUuid),
     eq(fxSystemLogicalSourceInitializations.sourceKey, state.sourceKey),
     eq(fxSystemLogicalSourceInitializations.stepId, initialization.stepId),
-  )).limit(2), cause => commerceError("statementFailure", cause));
+  )).limit(2), cause => commerceError("statementFailure", cause)) : observed === null ? [] : [observed];
   if (recorded.length === 0) return yield* Effect.fail(commerceError("seedRequired"));
   if (recorded.length !== 1) return yield* Effect.fail(commerceError("storedCorruption"));
   const receipt = recorded[0];

@@ -19,11 +19,10 @@ import {
   updateDeploymentMetadataActivation as updateDeploymentMetadataActivationWithDb,
 } from "./deployments";
 import {
-  getScopeMetadata as getScopeMetadataWithDb,
-  getScopeMetadataByDeploymentId as getScopeMetadataByDeploymentIdWithDb,
   insertScopeMetadata as insertScopeMetadataWithDb,
   listScopeMetadata as listScopeMetadataWithDb,
 } from "./scopeMetadata";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import { getScopeClock as getScopeClockWithDb } from "./scopeClock";
 import {
   getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
@@ -125,6 +124,7 @@ export function createFlarexRuntimePersistence(
   driver: FlarexRuntimePersistenceDriver,
 ): FlarexRuntimePersistence {
   const drizzleDb = driver.drizzle;
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(drizzleDb);
 
   return {
     execute: <Row extends Record<string, unknown> = Record<string, unknown>>(
@@ -173,9 +173,9 @@ export function createFlarexRuntimePersistence(
       ),
     insertScopeMetadata: (input) =>
       insertScopeMetadataWithDb(drizzleDb, input),
-    getScopeMetadata: (scopeId) => getScopeMetadataWithDb(drizzleDb, scopeId),
+    getScopeMetadata: (scopeId) => controlReader.scopeMetadata.getScopeMetadata(scopeId),
     getScopeMetadataByDeploymentId: (deploymentId) =>
-      getScopeMetadataByDeploymentIdWithDb(drizzleDb, deploymentId),
+      controlReader.scopeMetadata.getScopeMetadataByDeploymentId(deploymentId),
     listScopeMetadata: (input) => listScopeMetadataWithDb(drizzleDb, input),
     getScopeClock: (scopeId) => getScopeClockWithDb(drizzleDb, scopeId),
     insertInvokeSessionMetadata: (input) =>

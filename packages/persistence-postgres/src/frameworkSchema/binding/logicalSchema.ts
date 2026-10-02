@@ -12,7 +12,7 @@ import { bindingError } from "./errors";
 export type PreparedLogicalStorage = Extract<Effect.Success<ReturnType<typeof prepareLogicalStorageReadiness>>, { status: "prepared" }>;
 export type SelectedLogicalStorageReadiness = Effect.Success<ReturnType<PreparedLogicalStorage["selectSources"]>>;
 
-function verifyPreparedBinding(
+export function verifyPreparedLogicalSchemaBinding(
   prepared: Pick<PreparedLogicalStorage, "applicationAnalysis" | "reference">, frame: DataBindingSetFrame,
   application: Effect.Success<ReturnType<typeof readApplicationBindingEvidenceInTransaction>>,
 ) {
@@ -32,7 +32,7 @@ export const verifyLogicalSchemaBindingInTransaction = Effect.fn("DataBinding.ve
   tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   checkedActive?: CheckedApplicationActiveHead,
 ) {
-  yield* Effect.fromResult(verifyPreparedBinding(prepared, frame, application));
+  yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application));
   const readiness = yield* prepared.inspect(tx, authority, clock, checkedActive);
   if (readiness.status !== "ready") return yield* Effect.fail(bindingError("logicalSchemaNotReady", readiness));
   return readiness;
@@ -46,7 +46,7 @@ export const verifyLogicalSchemaReadBindingInTransaction = Effect.fn("DataBindin
   tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   checkedActive?: CheckedApplicationActiveHead,
 ) {
-  yield* Effect.fromResult(verifyPreparedBinding(prepared, frame, application));
+  yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application));
   const readiness = yield* prepared.inspectSelected(tx, authority, clock, checkedActive);
   if (readiness.status !== "ready") return yield* Effect.fail(bindingError("logicalSchemaNotReady", readiness));
   return readiness;

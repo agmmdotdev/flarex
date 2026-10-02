@@ -1,22 +1,22 @@
 import { planReceiptMigrationStatements, restoreAttemptScopedReceiptFixture } from "./frameworkPlanReceiptMigrationTestSupport";
 import { fileURLToPath } from "node:url";
 import { eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
+
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
-import { runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
+
 import {
   fxSystemFrameworkMigrationPlans,
   fxSystemFrameworkMigrationPlanSteps,
 } from "../src/migrationCoordination/schema";
-import { withNativeCoordinator } from "./frameworkCoordinatorPostgresFixture";
+import { withRetainedPhysicalFixture } from "./retainedPhysicalInstallationFixture";
 import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
   withTemporaryPostgresSchema,
 } from "./postgresHelpers";
-import { runEffect } from "./effectTestRuntime";
+
 
 // Administrative credentials are used only to create/drop this test's role.
 // Every coordinator operation below uses a separate, non-owner login pool.
@@ -28,27 +28,27 @@ native(
   "framework installation metadata under a restricted PostgreSQL login",
   () => {
     it("remaps populated original receipts and preserves rollback and cold replay", async () => {
-      await withNativeCoordinator(async fixture => {
-        await fixture.persistence.query("alter sequence fx_framework_migration_attempt_storage_id_seq restart with 1000");
-        expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready" });
-        const before = await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id");
-        const attempt = await fixture.persistence.query("select attempt_storage_id::text as id from fx_system_framework_migration_attempt_start");
-        const plan = await fixture.persistence.query("select plan_storage_id::text as id from fx_system_framework_migration_plan");
+      await withRetainedPhysicalFixture(async fixture => {
+        await fixture.owner.persistence.query("alter sequence fx_framework_migration_attempt_storage_id_seq restart with 1000");
+        const installed = await fixture.install();
+        const before = await fixture.owner.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id");
+        const attempt = await fixture.owner.persistence.query("select attempt_storage_id::text as id from fx_system_framework_migration_attempt_start");
+        const plan = await fixture.owner.persistence.query("select plan_storage_id::text as id from fx_system_framework_migration_plan");
         expect(attempt.rows).not.toEqual(plan.rows);
-        await fixture.persistence.drizzle.transaction(transaction => restoreAttemptScopedReceiptFixture(statement => transaction.execute(sql.raw(statement))));
+        await fixture.owner.persistence.drizzle.transaction(transaction => restoreAttemptScopedReceiptFixture(statement => transaction.execute(sql.raw(statement))));
         const statements = await planReceiptMigrationStatements();
         const stop = new Error("Roll back receipt reference cutover");
-        await expect(fixture.persistence.drizzle.transaction(async transaction => {
+        await expect(fixture.owner.persistence.drizzle.transaction(async transaction => {
           for (const statement of statements) await transaction.execute(sql.raw(statement));
           throw stop;
         })).rejects.toBe(stop);
-        expect((await fixture.persistence.query("select distinct attempt_storage_id::text as id from fx_system_framework_migration_step_receipt_dependency")).rows).toEqual(attempt.rows);
-        await fixture.persistence.drizzle.transaction(async transaction => {
+        expect((await fixture.owner.persistence.query("select distinct attempt_storage_id::text as id from fx_system_framework_migration_step_receipt_dependency")).rows).toEqual(attempt.rows);
+        await fixture.owner.persistence.drizzle.transaction(async transaction => {
           for (const statement of statements) await transaction.execute(sql.raw(statement));
         });
-        expect((await fixture.persistence.query("select distinct plan_storage_id::text as id from fx_system_framework_migration_step_receipt_dependency")).rows).toEqual(plan.rows);
-        expect((await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id")).rows).toEqual(before.rows);
-        expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready", replayed: true });
+        expect((await fixture.owner.persistence.query("select distinct plan_storage_id::text as id from fx_system_framework_migration_step_receipt_dependency")).rows).toEqual(plan.rows);
+        expect((await fixture.owner.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id")).rows).toEqual(before.rows);
+        expect(await fixture.install()).toEqual(installed);
       });
     }, 180_000);
 
@@ -128,11 +128,8 @@ native(
     }, 180_000);
 
     it("installs, preserves replay, prevents guard removal, and rejects a racing late child", async () => {
-      await withNativeCoordinator(async (fixture) => {
-        const runtime = {
-          query: fixture.migrationPool.query.bind(fixture.migrationPool),
-          drizzle: drizzle(fixture.migrationPool),
-        };
+      await withRetainedPhysicalFixture(async (fixture) => {
+        const runtime = fixture.runtime.persistence;
         expect(
           (
             await runtime.query(
@@ -147,17 +144,8 @@ native(
             rolbypassrls: false,
           },
         ]);
-        const input = fixture.input;
-        expect(
-          await runEffect(
-            runFreshFrameworkMigrationCoordinatorEffect(input),
-          ),
-        ).toMatchObject({ kind: "ready", replayed: false });
-        expect(
-          await runEffect(
-            runFreshFrameworkMigrationCoordinatorEffect(input),
-          ),
-        ).toMatchObject({ kind: "ready", replayed: true });
+        const installed = await fixture.install();
+        expect(await fixture.install()).toEqual(installed);
         await expect(
           runtime.query(
             "update fx_system_framework_migration_plan set created_transaction_id=1",
@@ -172,7 +160,7 @@ native(
           runtime.query(
             "truncate fx_system_framework_migration_plan_step_dependency",
           ),
-        ).rejects.toMatchObject({ code: "55000" });
+        ).rejects.toMatchObject({ code: "42501" });
         await expect(
           runtime.query(
             "alter table fx_system_framework_migration_plan disable trigger fx_framework_history_immutable",
@@ -244,7 +232,7 @@ native(
                 original.planStorageId,
               ),
             ),
-        ).toHaveLength(7);
+        ).toHaveLength(fixture.requiredStepCount);
       });
     }, 180_000);
   },

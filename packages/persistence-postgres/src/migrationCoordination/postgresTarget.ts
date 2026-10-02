@@ -1,91 +1,71 @@
 import { Cause, Clock, Effect, Exit } from "effect";
 import { capturePostgresMigrationPolicy, type PostgresMigrationPolicy } from "./policy";
-import type { Pool, PoolClient } from "pg";
+import type { Client, ClientConfig } from "pg";
+import type { FlarexMetadataDatabase } from "../deployments";
 
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
-import type { PostgresFlarexPersistence } from "../postgres";
 import type { ScopePhysicalLocator } from "../scopeMetadataTypes";
 import { protectPostgresMigrationTransaction } from "./postgresTargetProtection";
 import { makePostgresMigrationConnection, type PostgresMigrationConnection,
   type PostgresMigrationConnectionOptions, type PostgresMigrationPhase } from "./postgresTargetConnection";
 import { FrameworkMigrationDecisionUncertainIssue, FrameworkMigrationSessionResourceIssue,
   makeFrameworkMigrationSessionDriver, makeFrameworkMigrationTargetEffect,
-  type FrameworkMigrationDriverTransactionRequest, type FrameworkMigrationSessionIdentity,
+  type FrameworkMigrationDriverTransactionRequest,
   type FrameworkMigrationSessionFailure, type RunFrameworkMigrationDriverTransaction } from "./targetSession";
 
 export interface PostgresFrameworkMigrationOptions extends Partial<PostgresMigrationPolicy> {
   readonly observe?: PostgresMigrationConnectionOptions["observe"];
 }
-export interface MakePostgresFrameworkMigrationTargetInput {
-  readonly persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">;
-  readonly deploymentId: string;
-  readonly canonicalPhysicalDatabaseIdentity: string;
-  readonly physicalLocator: ScopePhysicalLocator;
-  readonly options?: PostgresFrameworkMigrationOptions;
-}
-
-/** Source-private native composition. The caller owns database/locator identity;
- * this is not a production resolver or an adapter-facing target issuer. Every
- * acquired execution connection must pass protection before coordinator work;
- * provisioning credentials cannot be used as installer credentials. */
-export const makePostgresFrameworkMigrationTargetEffect = Effect.fn(
-  "FrameworkMigrationPostgresTarget.make",
-)(function* (input: MakePostgresFrameworkMigrationTargetInput) {
-  const options = input.options ?? {};
-  const observe = options.observe;
-  const policy = yield* Effect.fromResult(capturePostgresMigrationPolicy(options)).pipe(
+/** Only the installation owner composes this source-private execution profile.
+ * The dedicated Client is never replaced for in-generation recovery. */
+export const makePostgresMaintenanceFrameworkMigrationTargetEffect = Effect.fn(
+  "FrameworkMigrationPostgresTarget.makeMaintenance",
+)(function* (input: Readonly<{
+  database: FlarexMetadataDatabase; client: Client; config: ClientConfig;
+  deploymentId: string; canonicalPhysicalDatabaseIdentity: string;
+  physicalLocator: ScopePhysicalLocator; options?: PostgresFrameworkMigrationOptions;
+  assertOwner: () => Effect.Effect<void, FrameworkMigrationSessionResourceIssue>;
+  protectNewTables: () => Effect.Effect<void, FrameworkMigrationSessionResourceIssue>;
+  readOnly?: true;
+}>) {
+  const policy = yield* Effect.fromResult(capturePostgresMigrationPolicy(input.options ?? {})).pipe(
     Effect.mapError(cause => resource("beginOrConfigure", cause)));
-  const normalized = Object.freeze({ acquisition: policy.acquisitionTimeoutMilliseconds,
+  const options: Options = {
     transaction: policy.transactionTimeoutMilliseconds, cleanup: policy.cleanupTimeoutMilliseconds,
     maximumStatementsPerTransaction: policy.maximumStatementsPerTransaction,
-    ...(observe === undefined ? {} : { observe }),
-  });
-  return yield* makeFrameworkMigrationTargetEffect({
-    database: input.persistence.drizzle,
-    driver: makeFrameworkMigrationSessionDriver(input.persistence.drizzle,
-      makeRunTransaction(input.persistence.pool, normalized)),
+    ...(input.readOnly === true ? { readOnly: true } : {}),
+    ...(input.options?.observe === undefined ? {} : { observe: input.options.observe }) };
+  return yield* makeFrameworkMigrationTargetEffect({ database: input.database,
+    driver: makeFrameworkMigrationSessionDriver(input.database, makeRunTransaction(options, input)),
     deploymentId: input.deploymentId,
     canonicalPhysicalDatabaseIdentity: input.canonicalPhysicalDatabaseIdentity,
-    physicalLocator: input.physicalLocator,
-  });
+    physicalLocator: input.physicalLocator });
 });
 
 interface Options extends PostgresMigrationConnectionOptions {
-  readonly acquisition: number;
   readonly transaction: number;
   readonly cleanup: number;
+  readonly readOnly?: true;
 }
 
-function makeRunTransaction(pool: Pool, options: Options): RunFrameworkMigrationDriverTransaction {
-  const backends = new WeakMap<FrameworkMigrationSessionIdentity, PoolClient>();
+function makeRunTransaction(options: Options,
+  dedicated: Readonly<{ client: Client; config: ClientConfig;
+    assertOwner: () => Effect.Effect<void, FrameworkMigrationSessionResourceIssue>;
+    protectNewTables: () => Effect.Effect<void, FrameworkMigrationSessionResourceIssue> }>): RunFrameworkMigrationDriverTransaction {
   return Effect.fn("FrameworkMigrationPostgresTarget.runTransaction")(<Value, Failure>(
     request: FrameworkMigrationDriverTransactionRequest,
     work: (transaction: FlarexMetadataTransaction) => Effect.Effect<Value, Failure, never>,
   ): Effect.Effect<Value, Failure | FrameworkMigrationSessionFailure> =>
     Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-      // Acquisition is bounded and masked so ownership cannot be lost between
-      // the pool callback and installing cleanup. Abandoned late clients die.
-      let connection = yield* acquire(pool, options);
+      if (request.kind === "recovery") return yield* Effect.fail(resource(
+        "beginOrConfigure", new Error("Uncertain maintenance settlement requires a successor generation after the predecessor closes.")));
+      yield* dedicated.assertOwner();
+      const connection = makePostgresMigrationConnection(dedicated.client, dedicated.config, options);
       return yield* Effect.gen(function* () {
-      if (request.kind === "recovery") {
-        const excluded = backends.get(request.excludedSessionIdentity);
-        if (excluded !== undefined && excluded === connection.client) {
-          // A commit whose pool-release observer failed may have returned this
-          // client. Destroy it, then acquire a physically distinct backend.
-          yield* quarantine(connection, options);
-          connection = yield* acquire(pool, options);
-        }
-        if (excluded === undefined || excluded === connection.client) {
-          const cleanup = yield* quarantine(connection, options).pipe(Effect.exit);
-          return yield* Effect.fail(resource("beginOrConfigure", {
-            message: "Recovery requires a known, different physical PostgreSQL connection.", cleanup,
-          }));
-        }
-      }
-      backends.set(request.sessionIdentity, connection.client);
       const expiresAt = (yield* Clock.currentTimeMillis) + options.transaction;
       const prepared = yield* Effect.exit(restore(Effect.gen(function* () {
-        yield* command(connection, expiresAt, "begin", "begin isolation level read committed", "BEGIN");
+        yield* command(connection, expiresAt, "begin", options.readOnly === true
+          ? "begin isolation level read committed read only" : "begin isolation level read committed", "BEGIN");
         yield* bounded(Effect.tryPromise({
           try: () => connection.query("configure",
             "select pg_catalog.set_config('lock_timeout', $1, true), pg_catalog.set_config('statement_timeout', $2, true)",
@@ -93,6 +73,7 @@ function makeRunTransaction(pool: Pool, options: Options): RunFrameworkMigration
               `${Math.min(request.statementTimeoutMilliseconds, options.transaction)}ms`]),
           catch: cause => resource("beginOrConfigure", cause),
         }), expiresAt, "beginOrConfigure");
+        yield* dedicated.assertOwner();
         yield* bounded(protectPostgresMigrationTransaction(connection), expiresAt, "beginOrConfigure");
       })));
       if (Exit.isFailure(prepared)) {
@@ -116,8 +97,15 @@ function makeRunTransaction(pool: Pool, options: Options): RunFrameworkMigration
       if (failure !== undefined) {
         return yield* failWithCleanup(Cause.fail(resource("work", failure.cause)), connection, options);
       }
+      {
+        const protectedTables = yield* Effect.exit(Effect.gen(function* () {
+          yield* dedicated.assertOwner();
+          yield* dedicated.protectNewTables();
+        }));
+        if (Exit.isFailure(protectedTables)) return yield* failWithCleanup(protectedTables.cause, connection, options);
+      }
       // From this point onward a lost response is not evidence of rollback.
-      // The coordinator reconstructs durable state on an excluded connection.
+      // A successor maintenance generation reconstructs the canonical durable state.
       const committed = yield* Effect.exit(command(connection, expiresAt, "commit", "commit", "COMMIT"));
       if (Exit.isFailure(committed)) {
         const cleanup = yield* Effect.exit(quarantine(connection, options));
@@ -127,7 +115,7 @@ function makeRunTransaction(pool: Pool, options: Options): RunFrameworkMigration
         }));
       }
       const released = yield* Effect.exit(Effect.try({
-        try: () => connection.release(false), catch: cause => resource("rollbackOrCleanup", cause),
+        try: () => connection.release(), catch: cause => resource("rollbackOrCleanup", cause),
       }));
       if (Exit.isFailure(released)) {
         return yield* Effect.fail(new FrameworkMigrationDecisionUncertainIssue({
@@ -144,8 +132,8 @@ const failWithCleanup = Effect.fn("FrameworkMigrationPostgresTarget.failWithClea
   function* <Failure>(cause: Cause.Cause<Failure>, connection: PostgresMigrationConnection, options: Options):
     Effect.fn.Return<never, Failure | FrameworkMigrationSessionResourceIssue> {
     connection.close();
-    // Active work is cancelled through authenticated BackendKeyData and drained
-    // before destroying its transport. An idle failed transaction can roll back.
+    // Active work closes its dedicated transport and drains outstanding promises.
+    // An idle failed transaction can roll back on the same backend.
     const cleaned = yield* Effect.exit(connection.hasPending()
       ? quarantine(connection, options)
       : Effect.gen(function* () {
@@ -156,7 +144,7 @@ const failWithCleanup = Effect.fn("FrameworkMigrationPostgresTarget.failWithClea
           return yield* Effect.failCause(Exit.isFailure(discarded)
             ? Cause.combine(rollback.cause, discarded.cause) : rollback.cause);
         }
-        yield* Effect.try({ try: () => connection.release(false),
+        yield* Effect.try({ try: () => connection.release(),
           catch: error => resource("rollbackOrCleanup", error) });
       }));
     return yield* Effect.failCause(Exit.isFailure(cleaned) ? Cause.combine(cause, cleaned.cause) : cause);
@@ -191,55 +179,6 @@ const bounded = Effect.fn("FrameworkMigrationPostgresTarget.bounded")(
   },
 );
 
-const acquire = Effect.fn("FrameworkMigrationPostgresTarget.acquire")(
-  (pool: Pool, options: Options) => Effect.callback<PostgresMigrationConnection, FrameworkMigrationSessionResourceIssue>(resume => {
-    // oxlint-disable-next-line flarex/no-platform-time-inside-effect -- REVIEW: host - callback-pool acquisition metrics measure real transport latency independently of the Effect clock
-    const started = performance.now();
-    let completed = false;
-    const timer = setTimeout(() => {
-      completed = true;
-      resume(Effect.fail(resource("acquire", new Error("PostgreSQL migration acquisition deadline expired."))));
-    }, options.acquisition);
-    try {
-      pool.connect((error, client) => {
-        if (completed) { if (client !== undefined) discardLateClient(client); return; }
-        completed = true;
-        clearTimeout(timer);
-        if (error !== undefined || client === undefined) {
-          if (client !== undefined) client.release(true);
-          resume(Effect.fail(resource("acquire", error ?? new Error("PostgreSQL returned no client."))));
-          return;
-        }
-        try {
-          options.observe?.({ phase: "acquire", edge: "after", client,
-            elapsedMilliseconds: performance.now() - started });
-          resume(Effect.succeed(makePostgresMigrationConnection(client, pool.options, options)));
-        }
-        catch (cause) { client.release(true); resume(Effect.fail(resource("acquire", cause))); }
-      });
-    } catch (cause) {
-      completed = true;
-      clearTimeout(timer);
-      resume(Effect.fail(resource("acquire", cause)));
-    }
-  }),
-);
-
 function resource(phase: FrameworkMigrationSessionResourceIssue["phase"], cause: unknown) {
   return new FrameworkMigrationSessionResourceIssue({ phase, cause });
-}
-function discardLateClient(client: PoolClient): void {
-  try { client.release(true); }
-  catch {
-    // The acquisition caller has already settled. Force the exact transport
-    // closed; there is no late Effect failure channel to which it can report.
-    // PoolClient intentionally omits Client.end from its published surface.
-    const end: unknown = Reflect.get(client, "end");
-    if (typeof end === "function") {
-      try {
-        const ended: unknown = Reflect.apply(end, client, []);
-        void Promise.resolve(ended).catch(() => undefined);
-      } catch { /* No caller remains to receive late transport cleanup errors. */ }
-    }
-  }
 }

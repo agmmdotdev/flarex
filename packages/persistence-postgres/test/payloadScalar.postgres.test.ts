@@ -2,7 +2,7 @@ import { ValidationError } from "payload";
 import { describe, expect, it } from "vitest";
 import { Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { makeCmsHost } from "../src/cmsTransaction/host";
-import { payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/testing/profiles";
 import { postgresUrl, useFileScopedPostgresPersistence } from "./postgresHelpers";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
 import { payloadScalarScenario } from "./payloadScalarScenario";

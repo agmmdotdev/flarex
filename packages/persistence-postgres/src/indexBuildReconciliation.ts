@@ -48,7 +48,8 @@ import {
 } from "./appIndexDefinitions";
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
-import { getScopeMetadata } from "./scopeMetadata";
+import { runEffectTransaction } from "./effectTransaction";
+import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
@@ -338,7 +339,7 @@ export const reconcilePublishedIndexBuildsV1Effect = Effect.fn(
 
   const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
-    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
+    { ...ports.authority, ...makeInstallationProtectedScopeAuthorityControlReader(ports.controlDb) },
   );
   const settled = yield* runReconciliationTransaction(
     located.target,
@@ -452,8 +453,24 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   | ReadAppSchemaVersionIndexBindingError
   | IndexBuildReconciliationCatalogV1Error
 > {
+  return yield* runEffectTransaction<Effect.Success<ReturnType<typeof loadPublishedPhysicalRequirementsInTransaction>>,
+    Effect.Error<ReturnType<typeof loadPublishedPhysicalRequirementsInTransaction>>,
+    IndexBuildReconciliationCatalogV1Error, FlarexMetadataTransaction>(
+    callback => db.transaction(callback),
+    "Published requirement snapshot acquisition failed",
+    reader => loadPublishedPhysicalRequirementsInTransaction(db, reader, input),
+    cause => new IndexBuildReconciliationCatalogV1Error({ ...input, reason: "resourceFailure",
+      detail: "installation-protected requirement snapshot unavailable", cause }),
+  );
+});
+
+const loadPublishedPhysicalRequirementsInTransaction = Effect.fn("IndexBuildReconciliation.readRequirements")(function* (
+  db: FlarexMetadataDatabase,
+  reader: FlarexMetadataTransaction,
+  input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
+) {
   let artifact = yield* getSchemaVersionArtifactByIdEffect(
-    db,
+    reader,
     input.deploymentId,
     input.schemaVersionId,
   );
@@ -462,7 +479,7 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   let requirements: IndexRequirements;
   let logicalRequirements: Effect.Success<ReturnType<typeof prepareLogicalStorageRequirementsFromArtifact>> | undefined;
   if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
-    const logical = yield* readCandidateIndexRequirements(db, input, artifact);
+    const logical = yield* readCandidateIndexRequirements(db, reader, input, artifact);
     artifact = logical.artifact;
     manifest = logical.manifest;
     requirements = logical.requirements;
@@ -515,7 +532,7 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
     }));
   }
   const bindings = yield* listAppSchemaVersionIndexBindingsEffect(
-    db,
+    reader,
     input.deploymentId,
     input.schemaVersionId,
     requirements.developerIndexes.length,
@@ -529,7 +546,7 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
     }));
   }
   const definitions = yield* listRequiredAppIndexDefinitionsEffect(
-    db,
+    reader,
     input.deploymentId,
     Object.freeze({
       developerDefinitionIds: Object.freeze(
@@ -570,12 +587,13 @@ interface IndexRequirements {
 }
 
 const readCandidateIndexRequirements = Effect.fn("IndexBuildReconciliation.readCandidateRequirements")(function* (
-  db: FlarexMetadataDatabase, input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
+  db: FlarexMetadataDatabase, reader: FlarexMetadataTransaction,
+  input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
   artifact: NonNullable<Effect.Success<ReturnType<typeof getSchemaVersionArtifactByIdEffect>>>,
 ) {
   const fail = (reason: IndexBuildReconciliationCatalogV1Error["reason"], detail: string, cause?: unknown) =>
     new IndexBuildReconciliationCatalogV1Error({ ...input, reason, detail, ...(cause === undefined ? {} : { cause }) });
-  const source = yield* prepareLogicalStorageRequirementsFromArtifact(db, artifact).pipe(Effect.mapError(cause =>
+  const source = yield* prepareLogicalStorageRequirementsFromArtifact(db, artifact, reader).pipe(Effect.mapError(cause =>
     fail(cause._tag === "StableTableIdentityPersistenceError" ||
       (cause._tag === "LogicalSchemaAdmissionEvidenceError" && cause.reason === "resourceFailure") ? "resourceFailure" : "manifestInvalid",
     "the complete logical source requirements could not be verified", cause)));
@@ -590,7 +608,7 @@ const readCandidateIndexRequirements = Effect.fn("IndexBuildReconciliation.readC
   const intrinsic = yield* canonicalize(APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1);
   const developerIndexes = [];
   for (const declaration of source.ordered) {
-    const index = yield* getStableLogicalIndexIdentityByNameEffect(db, { deploymentId: input.deploymentId,
+    const index = yield* getStableLogicalIndexIdentityByNameEffect(reader, { deploymentId: input.deploymentId,
       tableId: declaration.tableId, descriptor: declaration.descriptor }).pipe(Effect.mapError(cause =>
         fail(cause._tag === "StableLogicalIndexIdentityPersistenceError" ? "resourceFailure" : "publishedProjectionContradictory",
           "the logical index identity could not be verified", cause)));

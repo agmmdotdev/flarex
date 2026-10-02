@@ -61,6 +61,52 @@ async function waitUntil(observe: () => boolean, description: string): Promise<v
 }
 
 describe.each(drivers)("native Payload Local API in one Product and Application attempt on %s", driver => {
+  it("uses the ordinary hook-free runtime for create, update and read in one Application and Product root", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver,
+      suffix: `payload-ordinary-${driver}`, payloadProfile: "ordinary" });
+    try {
+      const before = await publishedCounts(fixture);
+      const workerd = await fixture.runWorkerd();
+      const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
+        result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(workerd);
+      const returned = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
+        success.result.result))).value;
+      expect(returned).toMatchObject({
+        pending: { title: fixture.seed.newTitle },
+        created: { title: fixture.seed.newTitle, score: 0, enabled: false },
+        afterHook: { title: fixture.seed.newTitle, score: 0, enabled: false },
+        enabled: { title: fixture.seed.newTitle, score: 0, enabled: true },
+        final: { title: fixture.seed.newTitle, score: 0, enabled: true },
+      });
+      expect(fixture.nativeInvokeCount.get("payload-create")).toBe(1);
+      expect(fixture.nativeInvokeCount.get("payload-update")).toBe(1);
+      expect(fixture.nativeInvokeCount.get("payload-findByID")).toBe(2);
+      expect(fixture.payload?.runtimeHistory).toHaveLength(0);
+      expect(await publishedCounts(fixture)).toEqual(before);
+      expect(await fixture.publish(returned)).toMatchObject({ kind: "published" });
+      expect((await publishedCounts(fixture)).outcomes).toBe(before.outcomes + 1);
+      expect(await fixture.readCurrentProduct()).toMatchObject({ title: fixture.seed.newTitle });
+      const ids = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String,
+        created: Schema.Struct({ id: Schema.String }) }))(returned);
+      const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
+      const committed = async (documentId: string) => {
+        const identity = decodeAppDocumentIdentityV1(documentId);
+        const revisions = await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)
+          .where(and(eq(fxAppRowRevisions.scopeUuid, scopeUuid),
+            eq(fxAppRowRevisions.tableId, identity.tableId),
+            eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(identity.rowId))));
+        const latest = revisions.at(-1);
+        if (latest?.valueBytes === null || latest?.valueBytes === undefined || latest.valueSha256 === null)
+          throw new Error(`Missing committed row ${documentId}`);
+        return (await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: latest.valueBytes,
+          sha256: latest.valueSha256, profile: "appDocument" })).value;
+      };
+      expect(await committed(ids.id)).toMatchObject({ name: fixture.seed.newTitle + ":0" });
+      expect(await committed(ids.created.id)).toMatchObject({ title: fixture.seed.newTitle,
+        score: 0, enabled: true });
+    } finally { await fixture.close(); }
+  }, 180_000);
+
   it("constructs pending-only Payload calls after claim loss and refuses the next Application storage frontier", async () => {
     let fixture: MixedFixture;
     let revoked = false;

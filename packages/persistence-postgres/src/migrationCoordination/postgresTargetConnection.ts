@@ -2,7 +2,7 @@ import { createTableRelationsHelpers, extractTablesRelationalConfig,
   type ExtractTablesWithRelations } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { NodePgSession, NodePgTransaction } from "drizzle-orm/node-postgres/session";
-import { type PoolClient, type PoolConfig } from "pg";
+import { type Client, type ClientConfig } from "pg";
 
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { flarexSchema } from "../schema";
@@ -12,7 +12,7 @@ export type PostgresMigrationPhase = "acquire" | "begin" | "configure" | "work" 
 export interface PostgresMigrationObserverInput {
   readonly phase: PostgresMigrationPhase;
   readonly edge: "before" | "after";
-  readonly client: PoolClient;
+  readonly client: Client;
   readonly text?: string;
   readonly elapsedMilliseconds?: number;
 }
@@ -29,8 +29,8 @@ const dialect = new PgDialect();
 
 /** Owns one checked-out transport. No repository or migration authority lives here. */
 export function makePostgresMigrationConnection(
-  client: PoolClient,
-  poolConfig: PoolConfig,
+  client: Client,
+  config: ClientConfig,
   options: PostgresMigrationConnectionOptions,
 ) {
   const pending = new Set<Promise<void>>();
@@ -96,47 +96,40 @@ export function makePostgresMigrationConnection(
   const processId: unknown = Reflect.get(client, "processID");
   const secretKey: unknown = Reflect.get(client, "secretKey");
   const backendKey = typeof processId === "number" && Number.isInteger(processId) && processId > 0 &&
-    typeof secretKey === "number" && Number.isInteger(secretKey)
-    ? { processId, secretKey } : undefined;
+    typeof secretKey === "number" && Number.isInteger(secretKey) ? { processId, secretKey } : undefined;
   const drain = async () => { while (pending.size > 0) await Promise.all(pending); };
-  const release = (destroy: boolean) => {
+  const release = () => {
     if (released) return;
-    // A throwing observer must not prevent the physical release.
+    // A throwing observer leaves cleanup with the dedicated transport owner.
     let fault: { cause: unknown } | undefined;
     try { observe("release", "before"); } catch (cause) { fault = { cause }; }
-    client.release(destroy || fault !== undefined);
+    if (fault !== undefined) throw fault.cause;
     released = true;
     client.removeListener("error", onError);
     observe("release", "after");
-    if (fault !== undefined) throw fault.cause;
   };
   const quarantine = async (timeoutMilliseconds: number) => {
     open = false;
-    // A foreign transport cleanup budget uses the platform clock, independent
-    // of an injected/frozen Effect clock.
     const expiresAt = performance.now() + timeoutMilliseconds;
     const remaining = () => Math.max(1, Math.ceil(expiresAt - performance.now()));
     const failures: unknown[] = [];
-    const ended = new Promise<void>(resolve => client.once("end", resolve));
     if (pending.size > 0) {
       try {
         if (backendKey === undefined) throw new Error("PostgreSQL cancellation identity unavailable.");
-        await sendPostgresCancelRequest(backendKey, poolConfig, remaining());
+        await sendPostgresCancelRequest(backendKey, config, remaining());
       } catch (cause) { failures.push(cause); }
+      try { await settleWithinPlatformTimeout(drain(), remaining(), "Dedicated maintenance migration drain timed out."); }
+      catch (cause) { failures.push(cause); }
     }
-    // Cancellation drains before reuse; quarantine always destroys. Even failed
-    // cancellation cannot release an active connection back into the pool.
-    if (failures.length > 0) {
-      try { release(true); } catch (cause) { failures.push(cause); }
-    }
-    try { await settleWithinPlatformTimeout(drain(), remaining(), "PostgreSQL migration drain timed out."); }
+    // Closing the frontend alone cannot stop a backend waiting on a SQL lock.
+    // Cancellation and drain precede end; failed cleanup still attempts end.
+    try { await settleWithinPlatformTimeout(client.end(), remaining(), "Dedicated maintenance migration transport did not close."); }
     catch (cause) { failures.push(cause); }
-    try { release(true); } catch (cause) { failures.push(cause); }
-    try { await settleWithinPlatformTimeout(ended, remaining(), "PostgreSQL migration transport did not close."); }
-    catch (cause) { failures.push(cause); }
-    if (failures.length > 0) throw new AggregateError(failures, "PostgreSQL migration quarantine failed.");
+    released = true;
+    client.removeListener("error", onError);
+    if (failures.length > 0) throw new AggregateError(failures, "Dedicated maintenance migration quarantine failed.");
   };
-  return { transaction, client, backendKey, query, drain, release, quarantine,
+  return { transaction, client, query, drain, release, quarantine,
     close: () => { open = false; },
     isReleased: () => released,
     failure: () => workFailure ?? connectionFailure,

@@ -8,6 +8,7 @@ import {
 } from "../cmsTransaction/admission";
 import {
   requireCmsPendingDeletion,
+  requireCmsClosedPendingDeletion,
   type CmsPendingDeletions,
 } from "../cmsTransaction/documents";
 import type { CmsRequestLifetime } from "../cmsTransaction/lifetime";
@@ -230,7 +231,7 @@ export const applyPayloadPreferenceCleanup = Effect.fn(
   const id = sql.identifier(identity.name);
   let identityCount = 0;
   for (const intent of captured.intents) {
-    const pending = yield* requireCmsPendingDeletion(
+    const pending = yield* requireCmsClosedPendingDeletion(
       pendingDeletions,
       admission,
       lifetime,

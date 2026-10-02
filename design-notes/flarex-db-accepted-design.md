@@ -69,7 +69,92 @@ and bounded capability descriptions below remain evidence of that baseline.
 
 ## Verdict
 
+### Execution Ownership And Organization
+
+The owner authorizes the [execution architecture refactor](../roadmaps/execution-architecture/README.md):
+clear direct Medusa read/write/workflow and Payload Local API entry points,
+Application query/mutation composition, reuse of native framework behavior and
+shared authoritative mechanisms, and removal of displaced internal paths.
+The [architecture map](../roadmaps/execution-architecture/architecture.md) records
+the target and distinguishes it from current private capability coverage.
+
+Direct operations own their execution; admitted participants borrow the outer
+query or mutation contract. A participant cannot fall back to a separately
+committed direct call. Keep Application OCC and framework-native profiles
+explicit; this organization does not select one universal transaction API.
+Cross-framework query snapshot/dependency semantics require their own connected
+proof. Public APIs and hosted activation remain separately gated. Each focused
+slice records contract breaks, consumer migration, durable-data obligations,
+validation and cleanup before implementation.
+
 ### Prepared Execution Integrity
+
+#### Selected Standalone Read Replacement
+
+The owner selects the [standalone read execution and installation lifecycle
+redesign](../roadmaps/core-performance/standalone-read-redesign-preflight.md)
+as a connected implementation slice. **The local implementation and consumer
+cutover are complete; full performance acceptance remains unproven.** For its named
+standalone read callers, it supersedes the full-source serving-proof,
+per-request structural-attestation and request-only preparation mechanisms
+below. Those paragraphs retain their contract for unmigrated
+finite/write/durable callers.
+
+Preserve authorization, tenant/placement confinement, authoritative snapshots,
+native results/errors, revocation, required serving eligibility and one outer
+transaction owner. Replace repeated immutable construction, whole-source
+readiness and full role/catalog/function/trigger attestation together. Their
+current sequencing is not an invariant. Readiness follows the actual trusted
+query-required closure; an unrelated unavailable index does not invalidate the
+selected read. Write, activation and publication obligations remain complete.
+
+The installed database structure is owned by a managed lifecycle. Full structural
+verification belongs at installation/restoration and controlled structural
+changes, not every request, cold Worker or pooled session. Restricted serving
+roles cannot change the protected structure. Trusted privileged tooling must
+quiesce users through an enforced installation maintenance gate, record durable
+draining for nontransactional work, rotate identity/generation, reverify and
+reopen. A crash cannot reopen serving; recovery must settle predecessor
+maintenance commands before verification/reopen, not merely fence their final
+status update. Out-of-protocol superuser changes are
+outside the guarantee and require stopped service plus reinstallation proof.
+No epoch, digest, signature or cached pool object independently proves integrity.
+
+Implement the maintenance interlock and complete writer/credential inventory in
+this slice before removing structural checks. Separate it from the existing
+metadata invalidation epoch; preserve clock/head/epoch lock order and mandatory
+metadata fences until their writers have a proved replacement. Fresh accepting
+transactions authenticate actual installation identity, active state, current
+scope/placement/revision/binding/access and required mutable build/coverage.
+Scope revocation and any real profile-specific deadline/fence remain fresh.
+No cached live verdict or fabricated standalone mutation claim is introduced.
+
+Reuse authenticated immutable metadata through the existing bounded host owner
+with explicit keys, allocation, invalidation, eviction and close/drain. A miss
+loads required versioned metadata and is fully charged; it does not rescan global
+catalogs. Actual transaction identity must survive pooling/reconnect and reject
+unexpected incarnation. Control and target retain separate authority, with
+matching immutable references and fenced placement activation, not an assumed
+joint snapshot. No SQL transaction spans untrusted callbacks.
+
+The first native consumers are the measured standalone Product scalar and
+selected collection retrieval. Migrate affected shared standalone readers and
+exercise their real access/visibility semantics. Existing full-proof callers
+may remain only for named distinct profiles; delete displaced read assembly
+and avoid compatibility wrappers. Required narrow installation/metadata schema
+changes are allowed with explicit non-destructive migration; no durable deletion
+or broad schema-evolution platform is selected.
+
+The preflight owns strict complete-request and scaling gates: controlled warm
+paired overhead median/P95 <= 2/5 ms and total request <= 5/10 ms. These are
+engineering targets, not predictions or hosted guarantees. The prior 400 ms
+standalone guardrail cannot accept this slice. Preserve failure evidence and
+redesign an expensive owner rather than lowering a failed gate.
+The owner has accepted the recorded latency for the current local checkpoint and
+paused further tuning. The original targets remain criteria for future
+performance work; this stopping decision does not mark them achieved.
+
+#### Current Implemented Integrity And Other Profiles
 
 The [core acceptance decision](../roadmaps/shared-transaction-core/70-connected-execution-acceptance.md)
 retains immediate verification of selected metadata dependencies in the accepting

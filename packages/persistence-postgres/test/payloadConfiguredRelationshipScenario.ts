@@ -8,8 +8,9 @@ import { decodeAppDocumentIdentityV1Result, appRowIdHexV1ToBytes } from "flarex-
 import { projectScopeIdUuidV1, ScopeIdSchema, ScopeEpochSchema } from "flarex-protocol/storage-authority";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
-import { makePayloadComposition } from "../../payload-adapter/src/composition";
-import { makeCmsHost, defineCmsCommand } from "../src/cmsTransaction/host";
+import { makePayloadAccessProbeRuntime } from "../../payload-adapter/src/testing/accessProbe";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
 import { dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
@@ -171,20 +172,11 @@ export async function payloadConfiguredRelationshipScenario(
       // Test-only native access probes use the same composition owner, not an ordinary runtime escape hatch.
       let probe: "none" | "unobserved" | "wrong-collection" | "foreign-request" | "cross-write" | "unbound" | "projection" | "locale" = "none";
       await runEffect(Effect.scoped(Effect.gen(function* () {
-        const observed = yield* makePayloadComposition(compiled, { onExecute: () => {}, onCollection: () => {}, hooks: {
-          afterRead: [async ({ doc, req, collection }) => {
-            if (collection.slug !== "articles" || probe === "none") return doc;
-            if (probe === "cross-write") await req.payload.db.create({ collection: authorCollection, data: { name: "forged" }, req });
-            else await req.payload.db.find({ collection: probe === "wrong-collection" ? "articles" : probe === "unbound" ? "payload-preferences" : authorCollection,
-              req: probe === "foreign-request" ? { ...req } : req,
-              ...(probe === "projection" ? { select: { name: true } } : {}), ...(probe === "locale" ? { locale: "en" } : {}),
-              where: { id: { in: [probe === "unobserved" ? other.id : author.id] } }, pagination: false, limit: 0, page: 1, sort: "id" });
-            return doc;
-          }],
-        } });
+        const observed = yield* makePayloadAccessProbeRuntime(compiled, { collection: authorCollection,
+          observedId: author.id, unobservedId: other.id });
         const guarded = yield* observed.runtime.bind(hostInput);
         for (const mode of ["unobserved", "wrong-collection", "foreign-request", "cross-write", "unbound", "projection", "locale"] as const) {
-          probe = mode;
+          observed.selectProbe(mode);
           yield* Effect.flip(guarded.read(observed.runtime.commands.findByID, { collection: "articles", id: second.id, depth: 1 }));
         }
       })));

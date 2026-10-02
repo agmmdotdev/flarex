@@ -36,7 +36,7 @@ describe("private scalar relational transaction", { timeout: 180_000 }, () => {
     );
     const prepared = await prepareRelationalFixture(
       fixture,
-      target,
+      target.schema,
       artifacts.repository,
     );
     const tested = await exerciseRelationalStore(prepared, worker.session);
