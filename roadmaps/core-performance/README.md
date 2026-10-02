@@ -61,9 +61,12 @@ median and P95 gate with complete protection predicates. Complete native request
 cold connection/protocol evidence, covered-write refusals and bounded connected
 correctness are established. The declared full mixed measurement retains an
 original quiet regression and a healthy targeted repeat with no established
-cause; the repeat does not replace the original. Publication at the existing `pointCommitTransaction` owner is the
-next exact-attribution hypothesis, requiring its own focused preflight before
-activation. Full logical-source definition
+cause; the repeat does not replace the original. The
+[publication preparation/handoff/locked-publisher attribution proposal](./02-publication-preflight.md)
+at the existing `pointCommitTransaction` owner is prepared; measurement implementation
+and runtime/profile remedies remain inactive pending examination. Its current
+seal/finishing/publication graph is the attribution baseline, not an immutable
+requirement for later separately examined redesign. Full logical-source definition
 breadth is the largest metadata-row region and retains a separate readiness-scope
 decision gate. Neither residual selects a cheaper proof or closes finite, mixed,
 scaling or whole-goal latency acceptance.
@@ -186,7 +189,7 @@ proceed; those groups remain inactive and provisional.
 | --- | --- | --- |
 | 1. Checked reads | Active; immutable singleton projection and structural kernel/search frontier composition delivered; latency acceptance and orchestration work remain | [01](./01-checked-reads-preflight.md) |
 | Orchestration reassessment | Active; construction and Application acceptance implemented with bounded connected proof; original mixed latency regression unresolved and whole goals open | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [construction](./read-admission-construction-preflight.md), [acceptance](./fresh-application-acceptance-preflight.md) |
-| 2. Publication | Prepared, inactive; provisional after reassessment | [02](./02-publication-preflight.md) |
+| 2. Publication | Preparation/handoff/locked-publisher attribution preflight proposed; investigation authorized, measurement implementation and runtime/profile remedy inactive pending examination | [02](./02-publication-preflight.md) |
 | 3. Initial request admission | Prepared, inactive; provisional after reassessment | [03](./03-request-admission-preflight.md) |
 | 4. Seal verification | Prepared, inactive; provisional after reassessment | [04](./04-seal-verification-preflight.md) |
 | 5. Host lifecycle | Provisional and conditional; runtime unapproved | [05](./05-host-lifecycle-preflight.md) |
