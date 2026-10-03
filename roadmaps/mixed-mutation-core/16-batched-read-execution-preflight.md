@@ -1,5 +1,13 @@
 # Bounded batched read execution
 
+The approved [query-required mixed read replacement](./20-query-required-read-execution-preflight.md)
+is in progress. It retains this slice's local finite construction, bounded
+storage frontiers and first-failure behavior, while replacing source-wide
+intermediate readiness, eager seed selection and repeated writable preparation.
+Its managed installation and cost gates supersede the corresponding checkpoint
+contract below. Full entry/final verification and named direct/durable profiles
+retain their complete obligations; successor acceptance remains open.
+
 Status: **delivered; its stage cost gate passed.** The
 [delivered 15 contract](./15-admission-protection-preflight.md) is the baseline.
 The [successor roadmap](./14-execution-redesign-roadmap.md) owns sequence and final

@@ -1,5 +1,12 @@
 # Dependency validation and evidence lifetime
 
+This is the delivered source-complete checkpoint. The approved
+[query-required mixed read replacement](./20-query-required-read-execution-preflight.md)
+supersedes its finite intermediate-read selection and protection contract and
+is in progress. Full entry, final verification and retained direct/durable
+profiles keep their complete obligations. The source-complete descriptions and
+measurements below describe this checkpoint, not the successor's acceptance.
+
 Status: **delivered for the existing private finite consumer graph; mixed latency
 targets remain unmet.** The approved
 private finite internal-read contract validates source-complete readiness, with

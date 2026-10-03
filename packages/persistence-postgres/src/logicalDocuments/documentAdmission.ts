@@ -1,3 +1,4 @@
+import type { LogicalStorageReadDemand } from "./model";
 import { Data, Effect, Result, Schema } from "effect";
 import { prepareLogicalReadAdmission, requireLogicalReadAdmission, LogicalReadAdmissionError,
   type LogicalReadAdmission, type ManagedLogicalReadPorts, type LogicalReadSelection } from "./readAdmission";
@@ -36,7 +37,8 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
-import type { LogicalDocumentWrite, LogicalStorageReadReadiness } from "./model";
+import type { LogicalDocumentWrite, LogicalStorageReadReadiness, PreparedLogicalDocumentWriteMechanics } from "./model";
+import { prepareLogicalWriteMechanics } from "./workingSet";
 import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState, type LogicalSourceConstruction } from "./sourceAdmission";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
@@ -96,6 +98,7 @@ export interface LogicalDocumentSourceAdmissionState {
 }
 const admissions = new WeakMap<object, LogicalDocumentSourceAdmissionState>();
 export interface LogicalDocumentAttemptAdmissionState extends Omit<LogicalDocumentSourceAdmissionState, "tx" | "authority" | "readReadiness"> {
+  readonly writeMechanics: PreparedLogicalDocumentWriteMechanics;
   readonly root: LogicalParticipantAttemptRoot;
   readonly preparedSource: object;
   readonly requirePreparedSource: Effect.Effect<void, LogicalParticipantAdmissionError>;
@@ -106,11 +109,11 @@ export const withLogicalDocumentAttemptAdmissionEffect = Effect.fn("LogicalDocum
   function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttempt, method: string,
     prepare: (state: LogicalDocumentAttemptAdmissionState,
-      readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+      readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>,
       tx: FlarexMetadataTransaction | undefined) => Effect.Effect<Prepared, PreparationFailure>,
     work: (state: LogicalDocumentAttemptAdmissionState,
-      readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+      readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>, prepared: Prepared) => Effect.Effect<Value, Failure, Requirements>) {
     return yield* withLogicalParticipantAttemptAdmissionEffect(admission, attempt, method,
       (_, tx, checkedRead) => Effect.gen(function* () {
@@ -164,6 +167,11 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     tables.push(Object.freeze({ ...binding, definition }));
   }
   const selectedTables = Object.freeze(tables);
+  const writeMechanics = yield* prepareLogicalWriteMechanics({
+    tables: selectedTables.map(table => ({ tableId: table.tableId, logicalName: table.localName })),
+    indexes: selected.indexes.filter(index => index.access.kind === "developer"), unique: selected.unique,
+  }, (reason, cause) => new LogicalDocumentSourceAdmissionError({ reason: reason === "resourceFailure" || reason === "limitExceeded"
+    ? "resourceFailure" : reason === "closed" ? "invalidAuthority" : "invalidInput", cause }));
   const idPolicy: ValidatorIdPolicyV1 = Object.freeze({ mode: "tableAware", check: (tableName, value) => {
     if (tableName.startsWith("_")) return "unavailable";
     const table = selectedTables.find(member => member.localName === tableName);
@@ -228,33 +236,53 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       methods.some(method => method.length === 0) || new Set(methods).size !== methods.length)
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     const pin = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) => selected.withBinding(
-      application, tx, authority, clock, binding => {
+      application, tx, authority, clock, binding => Effect.gen(function* () {
         if (authority.scopeId !== root.scopeId || clock.scopeId !== root.scopeId ||
           clock.lastCommitSeq < root.snapshotCommitSeq || binding.schemaVersionId !== capturedInput.schemaVersionId ||
           binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null)
-          return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-        return Effect.succeed(Object.freeze({ head: binding.head, clock, frame: binding.frame }));
-      }, entry?.applicationBinding?.binding).pipe(Effect.mapError(projectAttemptFailure));
+          return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+        const correlation = root.executionProfile !== "finiteRoot" ? undefined : binding.acceptedApplicationBinding === undefined
+          ? yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }))
+          : yield* Effect.fromResult(selected.captureFiniteReadBinding(binding.acceptedApplicationBinding, application, tx, clock, attempt));
+        return Object.freeze({ head: binding.head, clock, frame: binding.frame, correlation });
+      }), entry?.applicationBinding?.binding).pipe(Effect.mapError(projectAttemptFailure));
     const pinned = yield* (entry === undefined ? readTransaction(pin) : pin(entry.tx, entry.authority, entry.clock));
-    const verifyPinnedBinding = (binding: LogicalSourceBindingState, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+    const verifyPinnedBinding = (binding: Pick<LogicalSourceBindingState, "schemaVersionId" | "head">,
+      authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
         binding.schemaVersionId === capturedInput.schemaVersionId &&
         binding.head.sequence === pinned.head.sequence && binding.head.sha256 === pinned.head.sha256 &&
-        binding.frame.payloadContent === null && binding.frame.payloadLifecycle === null &&
         authority.scopeId === root.scopeId && clock.scopeId === root.scopeId
           ? Effect.void : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     const verifyBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
-      selected.withBinding(application, tx, authority, clock, binding => verifyPinnedBinding(binding, authority, clock))
+      selected.withBinding(application, tx, authority, clock, binding => binding.frame.payloadContent === null && binding.frame.payloadLifecycle === null
+        ? verifyPinnedBinding(binding, authority, clock) : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })))
         .pipe(Effect.mapError(projectAttemptFailure));
-    const verifyReadBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
-      selected.withReadBinding(application, tx, authority, clock, binding => verifyPinnedBinding(binding, authority, clock))
-        .pipe(Effect.mapError(projectAttemptFailure));
+    const demanded = new WeakMap<FlarexMetadataTransaction, Set<string>>();
+    const verifyReadBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+      demand?: LogicalStorageReadDemand) => Effect.gen(function* () {
+      if (pinned.correlation === undefined || demand === undefined)
+        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      const key = JSON.stringify(demand);
+      if (demanded.get(tx)?.has(key)) return;
+      yield* selected.withFiniteReadBinding(pinned.correlation, application, attempt, tx, authority, clock,
+        binding => !binding.hasPayloadContent && !binding.hasPayloadLifecycle ? verifyPinnedBinding(binding, authority, clock)
+          : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })), demand).pipe(Effect.mapError(projectAttemptFailure));
+      const checked = demanded.get(tx) ?? new Set<string>(); checked.add(key); demanded.set(tx, checked);
+    });
     const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
       preparedSource: prepared,
       methods: new Set(methods), readTransaction, verifyBinding, verifyReadBinding, tableIds,
+      verifyDemand: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+        demand: LogicalStorageReadDemand) => Effect.gen(function* () {
+          const key = JSON.stringify(demand);
+          if (demanded.get(tx)?.has(key)) return;
+          yield* selected.inspectDemand(tx, authority, clock, demand).pipe(Effect.mapError(projectAttemptFailure));
+          const checked = demanded.get(tx) ?? new Set<string>(); checked.add(key); demanded.set(tx, checked);
+        }),
       indexes: selected.indexes, unique: selected.unique,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
     attemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }), clock: pinned.clock,
-      preparedSource: prepared, requirePreparedSource: selected.requirePrepared.pipe(Effect.mapError(projectAttemptFailure)),
+      preparedSource: prepared, writeMechanics, requirePreparedSource: selected.requirePrepared.pipe(Effect.mapError(projectAttemptFailure)),
       schemaVersionId: capturedInput.schemaVersionId, sourceKey: selected.source.key,
       sourceSha256: selected.source.sourceSha256, head: pinned.head, frame: pinned.frame,
       contentIdentity, configuration: expected.configuration, tables: selectedTables,

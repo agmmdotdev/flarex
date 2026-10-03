@@ -14,7 +14,8 @@ import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixtu
 import { createCoLocatedReadInstallationFixture } from "../../../persistence-postgres/test/postgresHelpers";
 import type { ProtectedMetadataPreparation } from
   "../../../persistence-postgres/src/preparedMetadataEpoch";
-import { loadManagedInstallation, type PreparedInstallation, type PreparedCoLocatedReadInstallation } from "../../../persistence-postgres/src/installationLifecycle";
+import { loadManagedInstallation, getCoLocatedReadInstallationReferences, type PreparedInstallation, type PreparedCoLocatedReadInstallation } from "../../../persistence-postgres/src/installationLifecycle";
+import { prepareProtectedMetadata } from "../../../persistence-postgres/src/preparedMetadataEpoch";
 import type { LogicalSourceReadPin } from "../../../persistence-postgres/src/logicalStorageDefinitions";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from
   "../../../persistence-postgres/test/frameworkSchemaArtifactAdmissionTestSupport";
@@ -195,9 +196,20 @@ export async function logicalCurrencyFixture(
   if (options?.managedRead === true && (pair.kind !== "postgres" || pair.managedRead === undefined))
     throw new Error("A managed logical Currency resource requires protected target and control installations");
   const { control, target } = pair;
+  const managedInstallationSetup = pair.kind !== "postgres" || pair.managedRead === undefined ? undefined :
+    pair.managedRead.readInstallation !== undefined ? { readInstallation: pair.managedRead.readInstallation,
+      controlInstallation: pair.managedRead.controlInstallation, coLocatedSetupMs: 0 } :
+      prepareReadInstallation === undefined ? undefined : await prepareReadInstallation();
+  if (pair.kind === "postgres" && pair.managedRead !== undefined && managedInstallationSetup === undefined)
+    throw new Error("A managed resource requires its authenticated composite installation before target construction");
+  const managedControlProtection = managedInstallationSetup === undefined ? undefined : await Effect.runPromise(
+    getCoLocatedReadInstallationReferences(managedInstallationSetup.readInstallation, target.drizzle).pipe(
+      Effect.flatMap(refs => prepareProtectedMetadata(target.drizzle, refs.controlInstallation))));
   const schemaName = (await target.query<{ schema: string }>("select current_schema() as schema")).rows[0]?.schema;
   if (schemaName === undefined) throw new Error("Missing logical Currency target schema");
   const applicationOptions = { runtimeHostIdentity: options?.readinessRuntimeHostIdentity ?? "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
+    ...(managedInstallationSetup === undefined || managedControlProtection === undefined ? {} :
+      { managedInstallation: { installation: managedInstallationSetup.readInstallation, controlProtection: managedControlProtection } }),
     ...(options?.applicationAcceptanceScale === undefined ? {} : { acceptanceScale: options.applicationAcceptanceScale }),
     ...(options?.includeApplicationTask === undefined ? {} : { includeTask: options.includeApplicationTask }),
     ...(options?.includeUserNameIndex === true ? { includeUserNameIndex: true } : {}),
@@ -339,11 +351,7 @@ export async function logicalCurrencyFixture(
     let managedRead: LogicalCurrencyFixture["managedRead"];
     let coLocatedSetupMs = 0;
     if (pair.kind === "postgres" && pair.managedRead !== undefined) {
-      const prepared = pair.managedRead.readInstallation === undefined
-        ? prepareReadInstallation === undefined ? undefined : yield* Effect.tryPromise({ try: prepareReadInstallation,
-          catch: cause => new Error("Logical Currency composite read installation", { cause }) })
-        : { readInstallation: pair.managedRead.readInstallation, controlInstallation: pair.managedRead.controlInstallation,
-          coLocatedSetupMs: 0 };
+      const prepared = managedInstallationSetup;
       if (prepared === undefined) throw new Error("A managed resource requires its authenticated composite read installation");
       managedRead = { ...pair.managedRead, readInstallation: prepared.readInstallation,
         controlInstallation: prepared.controlInstallation };

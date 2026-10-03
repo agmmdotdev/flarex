@@ -4,7 +4,9 @@ import { Effect } from "effect";
 import type { AppRowTransaction } from "./appRows";
 import { flarexSchema } from "./schema";
 import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission,
+  type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
+import type { FlarexMetadataDatabase } from "./deployments";
 import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedTransactionFailureIssueV1,
@@ -26,6 +28,7 @@ export type PostgresLocatedReadCommittedPhaseV1 =
  * The module is reachable only through the private system-test subpath.
  */
 export interface PostgresLocatedReadCommittedRunnerOptionsV1 {
+  readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation; database: FlarexMetadataDatabase }>;
   readonly afterAcquire?: (client: PoolClient) => void | Promise<void>;
   readonly release?: (
     client: PoolClient,
@@ -147,7 +150,8 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
       async (tx): Promise<Result> => {
         state.phase = "configuring";
         await tx.setTransaction({ isolationLevel: "read committed" });
-        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+        await Effect.runPromise(options.managedInstallation === undefined ? lockInstallationForCurrentTransaction(tx)
+          : acquireCoLocatedInstallationAdmission(options.managedInstallation.installation, options.managedInstallation.database, tx));
         state.phase = "runningCallback";
         try {
           const result = await work(tx);

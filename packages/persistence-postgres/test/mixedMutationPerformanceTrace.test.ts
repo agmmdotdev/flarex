@@ -1,13 +1,26 @@
 import { AsyncResource } from "node:async_hooks";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
-import { createMixedMutationPerformanceTrace, structuralSql } from "./mixedMutationPerformanceTrace";
+import { createMixedMutationPerformanceTrace, decodedQueryResultSizes, structuralSql } from "./mixedMutationPerformanceTrace";
 import { postgresUrl } from "./postgresHelpers";
 
 async function traceFromFirstSite(pool: Pool): Promise<void> { await pool.query("select $1::int as value", [1]); }
 async function traceFromSecondSite(pool: Pool): Promise<void> { await pool.query("select $1::int as value", [2]); }
 
 describe("mixed mutation performance trace SQL structure", () => {
+  it("measures decoded result rows independently from wire bytes without changing values", () => {
+    const rows = [{ value: "မ", big: 3n, bytes: Buffer.from([1, 2]), at: new Date("2026-10-03T00:00:00.000Z") }];
+    const encoded = JSON.stringify(rows, (_key, field: unknown) => typeof field === "bigint" ? field.toString() : field);
+    expect(decodedQueryResultSizes({ rows })).toEqual({ returnedRowCount: 1,
+      decodedResultJsonUtf8Bytes: Buffer.byteLength(encoded, "utf8") });
+    expect(rows[0]?.big).toBe(3n);
+    expect(rows[0]?.bytes).toEqual(Buffer.from([1, 2]));
+    expect(decodedQueryResultSizes([{ rows: [] }, { rows: [{ value: 1 }] }]).returnedRowCount).toBe(1);
+    const cycle: { self?: unknown } = {};
+    cycle.self = cycle;
+    expect(decodedQueryResultSizes({ rows: [cycle] })).toEqual({ returnedRowCount: null, decodedResultJsonUtf8Bytes: null });
+    expect(decodedQueryResultSizes(undefined)).toEqual({ returnedRowCount: null, decodedResultJsonUtf8Bytes: null });
+  });
   it("counts only top-level statements and redacts literal and parameter values", () => {
     const first = structuralSql("/* a; /* nested; */ done */ select 'private;value', $$body;with;delimiters$$, $1, 17; -- trailing;\n select E'escape\\'quote;'::text");
     const second = structuralSql("select 'other;value', $$another;body$$, $9, 82; select E'other\\'quote;'::text");
@@ -87,7 +100,10 @@ describe.skipIf(postgresUrl === null)("mixed mutation performance trace ordinary
       expect(recon?.startedAtMs).toBeGreaterThan(0);
       expect(recon?.dispatches.find(dispatch => dispatch.phasePath.includes("bridge"))).toMatchObject({
         parameterCount: 1, scalarParameterBytes: 2, unknownEncodingParameters: 0,
+        returnedRowCount: 1, decodedResultJsonUtf8Bytes: Buffer.byteLength('[{"value":13}]', "utf8"),
       });
+      expect(recon?.dispatches.find(dispatch => dispatch.transactionAction === null && !dispatch.delegatedPoolQuery))
+        .toMatchObject({ returnedRowCount: 1, decodedResultJsonUtf8Bytes: Buffer.byteLength('[{"value":9}]', "utf8") });
       expect(recon?.checkouts.length).toBeGreaterThanOrEqual(3);
       expect(recon?.transactions).toMatchObject([{ pool: "target", outcome: "commit" }]);
       expect(recon?.unobservedDispatches).toBe(0);

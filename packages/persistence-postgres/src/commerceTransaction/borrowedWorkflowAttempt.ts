@@ -6,10 +6,10 @@ import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { FrameworkCommandMilliseconds } from "../frameworkExecutionPolicy";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
-import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
+import { makeLogicalDocumentWorkingSet, combineLogicalWriteMechanics } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
-import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
-import { hasLogicalParticipantAttemptAdmission, withLogicalParticipantAdmissionBundleEffect,
+import type { LogicalDocumentBorrowView, LogicalStorageReadDemand } from "../logicalDocuments/model";
+import { hasLogicalParticipantAttemptAdmission, withLogicalParticipantAdmissionBundleEffect, requireLogicalParticipantReadDemandInTransactionEffect,
   type LogicalParticipantAdmissionBundle, type LogicalParticipantAttemptAdmission } from
   "../logicalDocuments/participantAdmission";
 import { withLogicalRelationalAttemptAdmissionEffect,
@@ -53,6 +53,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           admissions.some((admission, index) => admission !== input.admissions[index]))
           return yield* Effect.fail(commerceError("invalidAuthority"));
         const states: LogicalRelationalAttemptAdmissionState[] = [];
+        const sourceCommandNames: string[] = [];
         for (const [index, admission] of admissions.entries()) {
           const memberInput = input.members[index];
           if (memberInput === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -72,6 +73,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
               if (state.preparedSource !== member.prepared)
                 return yield* Effect.fail(commerceError("invalidAuthority"));
               states.push(state);
+              sourceCommandNames.push(name);
             }));
         }
         const root = states[0]?.root;
@@ -85,17 +87,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             snapshotCommitSeq: root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
           }, () => commerceError("closed"));
         yield* localRootGate;
-        const tableNames = new Set<string>();
-        const tableIds = new Set<number>();
-        const tables: Array<{ tableId: LogicalRelationalAttemptAdmissionState["tables"][number]["tableId"];
-          logicalName: string; relational: LogicalRelationalAttemptAdmissionState["tables"][number]["definition"];
-          relationalMechanics: LogicalRelationalAttemptAdmissionState["tables"][number]["mechanics"] }> = [];
-        for (const state of states) for (const table of state.tables) {
-          if (tableNames.has(table.localName) || tableIds.has(table.tableId))
-            return yield* Effect.fail(commerceError("invalidAuthority"));
-          tableNames.add(table.localName); tableIds.add(table.tableId);
-          tables.push({ tableId: table.tableId, logicalName: table.localName, relational: table.definition, relationalMechanics: table.mechanics });
-        }
+        const mechanics = yield* combineLogicalWriteMechanics(states.map(state => state.writeMechanics), logicalCommerceError);
         const resources = yield* Effect.fromResult(captureCommerceResources(input.resources ?? defaultCommerceResources));
         const commandMs = yield* Schema.decodeUnknownEffect(FrameworkCommandMilliseconds)(
           input.requestCommandMs ?? commerceLimits.commandMs,
@@ -105,23 +97,26 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           input.attempt, Object.freeze({}), crypto.randomUUID(), "write");
         return yield* Effect.gen(function* () {
           const id = yield* lifetime.begin(lifetime.context);
-          for (const state of states) for (const table of state.tables)
-            yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
-          const checkedRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-            readTransaction(work).pipe(Effect.mapError(projectCommerceRequestFailure));
+          const checkedRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
+            readTransaction(work, demand).pipe(Effect.mapError(projectCommerceRequestFailure));
           const requireAdmission = input.rootEvaluator === undefined ? checkedRead(() => Effect.void) : localRootGate;
           const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
           const constructWorking = (constructionTx: FlarexMetadataTransaction | undefined) => makeLogicalDocumentWorkingSet({
             readTransaction: checkedRead, requireAdmission,
+            ...(input.rootEvaluator === undefined ? {} : { readReadiness: { kind: "finiteQueryRequired" as const, mechanics,
+              requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) =>
+                requireLogicalParticipantReadDemandInTransactionEffect(admissions[0]!, input.attempt,
+                  sourceCommandNames[0]!, tx, demand)
+                  .pipe(Effect.mapError(projectCommerceRequestFailure)) } }),
             scopeId: root.scopeId, clock: states[0]!.clock, snapshotCommitSeq: root.snapshotCommitSeq,
             ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
               { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
                 rootAttemptFence: input.rootAttemptFence }),
-            lifetime, tables,
-            relationalCapabilities: states.flatMap(state => state.schema.capabilities),
-            searchDefinitions: states.flatMap(state => state.search),
+            lifetime, tables: mechanics.tables,
+            ...(mechanics.relationalCapabilities === undefined ? {} : { relationalCapabilities: mechanics.relationalCapabilities }),
+            searchDefinitions: mechanics.searchDefinitions,
             validateDocument: write => {
-              const state = states.find(candidate => candidate.tables.some(table => table.tableId === write.tableId));
+              const state = states.find(candidate => candidate.writeMechanics.tableName(write.tableId) !== undefined);
               return state === undefined ? Effect.fail(commerceError("invalidAuthority")) :
                 Effect.fromResult(state.values.validate(write.tableId, write.document))
                   .pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
@@ -129,8 +124,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             error: logicalCommerceError, uniqueConflict: () => commerceError("invalidInput"),
             limits: { ...logicalCommerceWorkingSetLimits, pageRows: resources.queryRows,
               identities: resources.catalogRows },
-          }, creationTime, states.flatMap(state => state.unique),
-            states.flatMap(state => state.indexes.filter(index => index.access.kind === "developer")), undefined, constructionTx);
+          }, creationTime, mechanics.unique, mechanics.indexes, undefined, constructionTx);
           const working = yield* (root.executionProfile === "finiteRoot"
             ? constructWorking(undefined)
             : checkedRead(constructWorking));
@@ -140,7 +134,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           const eventCapture = makeAtomicEventCapture(requireAdmission, lifetime, group, eventPolicy, resources.eventMessages);
           const eventSources: Array<string | null> = [];
           const calls: AtomicCommerceCallObservation[] = [];
-          const names = new Map(states.flatMap(state => state.tables.map(table => [table.tableId, table.localName] as const)));
+          const names = Object.freeze({ get: mechanics.tableName });
           const sourceFor = (participant: AtomicCommerceCallObservation["participant"]) =>
             input.members.findIndex(member => member.participant === participant);
           const call: AtomicCommerceContext["call"] = Effect.fn("LogicalCommerce.workflowCall")((participant, command, args) =>
@@ -155,7 +149,6 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
               if (first === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
               const localEvents: Json[] = [];
               const cursor = working.activityCursor();
-              const sourceTables = new Map(state.tables.map(table => [table.localName, table.tableId]));
               const invoke = (manager: typeof child, nested: CommerceCommand, value: Json): Effect.Effect<
                 Readonly<{ input: Json; result: Json }>, ReturnType<typeof commerceError>> =>
                 Effect.gen(function* () {
@@ -170,18 +163,18 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                   const store = yield* working.relationalTable(manager, id, first.localName);
                   const context = makeCommerceCommandContext(lifetime, {
                     store, resources,
-                    table: (current, name) => sourceTables.has(name)
+                    table: (current, name) => state.writeMechanics.tableId(name) !== undefined
                       ? working.relationalTable(current, id, name) : Effect.fail(commerceError("invalidAuthority")),
                     transactionTime: current => working.readTransactionTime(current, id),
                     planSetNull: (current, selection) => {
-                      const sourceTableId = sourceTables.get(selection.sourceTable), targetTableId = sourceTables.get(selection.targetTable);
+                      const sourceTableId = state.writeMechanics.tableId(selection.sourceTable), targetTableId = state.writeMechanics.tableId(selection.targetTable);
                       return sourceTableId === undefined || targetTableId === undefined
                         ? Effect.fail(commerceError("invalidAuthority"))
                         : working.planSetNull(current, id, { sourceTableId, sourceColumn: selection.sourceColumn,
                           targetTableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
                     },
                     planReferenceReplacement: (current, selection) => {
-                      const sourceTableId = sourceTables.get(selection.sourceTable), targetTableId = sourceTables.get(selection.targetTable);
+                      const sourceTableId = state.writeMechanics.tableId(selection.sourceTable), targetTableId = state.writeMechanics.tableId(selection.targetTable);
                       return sourceTableId === undefined || targetTableId === undefined
                         ? Effect.fail(commerceError("invalidAuthority"))
                         : working.planReferenceReplacement(current, id, { sourceTableId, sourceColumn: selection.sourceColumn,
@@ -215,7 +208,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                 referenceReplacements: snapshot.referenceReplacements.slice(cursor.referenceReplacements),
               });
               const localActivity = { ...activity, observedRows: activity.observedRows.filter(row =>
-                state.tables.some(table => table.localName === row.table)) };
+                state.writeMechanics.tableId(row.table) !== undefined) };
               if (definition.mode === "read" && (localActivity.mutations.length !== 0 || localActivity.lifecycle.length !== 0 ||
                 localActivity.setNull.length !== 0 || localActivity.referenceReplacements.length !== 0 || localEvents.length !== 0))
                 return yield* Effect.fail(commerceError("receiptMismatch"));

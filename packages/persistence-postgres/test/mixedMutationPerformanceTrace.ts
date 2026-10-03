@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import { Result } from "effect";
 import type { Pool, PoolClient } from "pg";
 
 export type TracePool = "control" | "target";
@@ -33,6 +34,10 @@ export interface TraceDispatchRecord {
   readonly scalarParameterBytes: number | null;
   readonly unknownEncodingParameters: number | null;
   readonly sqlUtf8Bytes: number | null;
+  readonly returnedRowCount?: number | null;
+  /** UTF-8 JSON encoding of decoded rows (BigInt as decimal strings, normal
+   * Date/Buffer JSON forms). This is not wire traffic or heap allocation. */
+  readonly decodedResultJsonUtf8Bytes?: number | null;
 }
 
 export interface TraceCheckoutRecord {
@@ -65,6 +70,9 @@ export interface TraceDispatchGroup {
   readonly awaitedMsMax: number | null;
   readonly errorCount: number;
   readonly unobservedCount: number;
+  readonly returnedRowCount?: number;
+  readonly decodedResultJsonUtf8Bytes?: number;
+  readonly unknownResultEncodingDispatches?: number;
 }
 
 export interface TraceCheckoutGroup {
@@ -263,7 +271,8 @@ function dispatchGroups(records: readonly TraceDispatchRecord[]): readonly Trace
     if (group === undefined) {
       group = { pool: record.pool, phasePath: record.phasePath, fingerprint: record.fingerprint,
         template: record.template, dispatchCount: 0, statementCount: 0, unknownStatementDispatches: 0,
-        awaitedMsSum: 0, awaitedMsMin: null, awaitedMsMax: null, errorCount: 0, unobservedCount: 0 };
+        awaitedMsSum: 0, awaitedMsMin: null, awaitedMsMax: null, errorCount: 0, unobservedCount: 0,
+        returnedRowCount: 0, decodedResultJsonUtf8Bytes: 0, unknownResultEncodingDispatches: 0 };
       groups.set(key, group);
     }
     group.dispatchCount++;
@@ -276,8 +285,32 @@ function dispatchGroups(records: readonly TraceDispatchRecord[]): readonly Trace
     }
     if (record.outcome === "error") group.errorCount++;
     if (record.outcome === "unobserved") group.unobservedCount++;
+    if (record.returnedRowCount == null || record.decodedResultJsonUtf8Bytes == null)
+      group.unknownResultEncodingDispatches = (group.unknownResultEncodingDispatches ?? 0) + 1;
+    else {
+      group.returnedRowCount = (group.returnedRowCount ?? 0) + record.returnedRowCount;
+      group.decodedResultJsonUtf8Bytes = (group.decodedResultJsonUtf8Bytes ?? 0) + record.decodedResultJsonUtf8Bytes;
+    }
   }
   return [...groups.values()];
+}
+
+/** Diagnostic sizes only; keep original driver values and failures unchanged. */
+export function decodedQueryResultSizes(value: unknown): Pick<TraceDispatchRecord,
+  "returnedRowCount" | "decodedResultJsonUtf8Bytes"> {
+  const measured = Result.try({
+    try: () => {
+      const results: unknown[] = Array.isArray(value) ? value : [value];
+      const rows: unknown[] = [];
+      for (const result of results) {
+        if (!isRecord(result) || !Array.isArray(result.rows)) throw new Error("Unrecognized decoded query result");
+        rows.push(...result.rows);
+      }
+      const encoded = JSON.stringify(rows, (_key, field: unknown) => typeof field === "bigint" ? field.toString() : field);
+      return { returnedRowCount: rows.length, decodedResultJsonUtf8Bytes: Buffer.byteLength(encoded, "utf8") };
+    }, catch: () => null,
+  });
+  return Result.getOrElse(measured, () => ({ returnedRowCount: null, decodedResultJsonUtf8Bytes: null }));
 }
 
 function checkoutGroups(records: readonly TraceCheckoutRecord[]): readonly TraceCheckoutGroup[] {
@@ -537,6 +570,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           outcome: "unobserved", fingerprint: sql?.fingerprint ?? null, template: sql?.template ?? null,
           statementCount: sql?.statementCount ?? null, transactionAction: sql?.transactionAction ?? null,
           delegatedPoolQuery: context.delegatedPoolQuery,
+          returnedRowCount: null, decodedResultJsonUtf8Bytes: null,
           ...dispatchInputSizes(args),
         };
         invocation.dispatches.push(record);
@@ -564,12 +598,13 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
         const callbackIndex = typeof args[args.length - 1] === "function" ? args.length - 1 : -1;
         let finished = false;
         let start = 0;
-        const finish = (outcome: "ok" | "error"): void => {
+        const finish = (outcome: "ok" | "error", result?: unknown): void => {
           if (finished) return;
           finished = true;
           const end = performance.now();
           record.awaitedMs = elapsed(start, end);
           record.outcome = outcome;
+          if (outcome === "ok") Object.assign(record, decodedQueryResultSizes(result));
           if (action === "begin" && outcome === "error") {
             activeTransactions.delete(client);
             activeTransactionClients.delete(client);
@@ -590,7 +625,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           const callback = args[callbackIndex];
           if (typeof callback === "function") {
             args[callbackIndex] = function (this: unknown, ...callbackArgs: unknown[]) {
-              finish(callbackArgs[0] == null ? "ok" : "error");
+              finish(callbackArgs[0] == null ? "ok" : "error", callbackArgs[1]);
               return storage.run({ ...context, delegatedPoolQuery: false, reconFrames: undefined },
                 () => Reflect.apply(callback, this, callbackArgs));
             };
@@ -606,7 +641,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           }
           const result = Reflect.apply(originalQuery, this, args);
           if (callbackIndex < 0 && isPromiseLike(result)) {
-            void result.then(() => finish("ok"), () => finish("error"));
+            void result.then(value => finish("ok", value), () => finish("error"));
           }
           return result;
         } catch (error) {

@@ -2,11 +2,22 @@
 
 ## Status And Outcome
 
-**Selected next mixed-core package; documentation complete before runtime start.**
-The owner requested the foundation roadmap first and implementation afterward.
-Runtime work requires the clean baseline and ownership handoff below. This is a
+**Implementation checkpoint paused at the owner's request for design discussion;
+acceptance is incomplete.**
+The owner requested the foundation roadmap first and has authorized implementation.
+The standalone/read and runtime/participant slice is committed and its source
+paths are released. This is a
 connected replacement of the existing private finite read path, not a new query
 API or a claim of implemented performance.
+
+The draft replaces source-wide intermediate proof and hydration with captured
+read demands, bounded preparation and fresh installed transaction authority.
+Its matched native comparison still exceeds the fixed added-latency budget and
+regresses complete request latency. Most of the observed hit regression is
+outside the Product method; the responsible phase is not yet established.
+Metadata scaling, the complete connected consumer regression set and integrated
+acceptance remain open. A saved checkpoint does not complete this package or
+authorize package 2. Resume only after the owner's next direction.
 
 Make the admitted Application/Product, Product/Payload and finite
 Product/Pricing/Link workflow graphs pay for their actual storage demand plus
@@ -23,12 +34,12 @@ affected consumers, acceptance and removal gates.
 
 ## Baseline And Ownership Handoff
 
-The active [standalone read redesign](../core-performance/orchestration-target-design.md#next-goal-complete-standalone-read-refactor)
-and its related runtime/participant organization change the same installation,
-preparation, working-set and adapter files. Their
-owner must finish the active slice, validate/review/commit it and confirm a clean
-pause or explicit disjoint path release. Whole completion of either roadmap is
-not required; the handed-off slice and unresolved obligations must be explicit.
+The completed local [standalone read redesign](../core-performance/standalone-read-redesign-preflight.md)
+and [runtime/participant organization](../execution-architecture/02-runtime-and-participant-ownership.md)
+provide the released installation, preparation, working-set and adapter owners.
+Their full latency/scaling acceptance remains unproven; native additive evolution,
+hosted pooling/TLS cancellation and broader framework admission remain deferred.
+The mixed package owns only the finite extension described here.
 
 Before runtime edits:
 
@@ -50,9 +61,13 @@ Keep the archived failed publication experiment separate. Preserve unrelated
 dirty work and evidence; never stage it as this package's baseline or implementation.
 The organization, composed-query and shared-storage backlogs retain their owners.
 
-## Current Evidence And Diagnosis
+## Baseline Evidence And Diagnosis
 
-| Current owner | Evidence and implication |
+The pre-change path exposed the following owner costs. The selected replacement
+below addresses these mechanisms; acceptance requires the complete declared
+correctness and performance gates.
+
+| Baseline owner | Evidence and implication |
 | --- | --- |
 | `logicalDocuments/participantAdmission.ts`, `sessionJournalStore.ts`, `transactionSessionActivation.ts` | An actual storage frontier enters the complete running-attempt kernel and source admission. Local finite construction already avoids SQL; the cost boundary is actual storage access. |
 | `logicalStorageReadiness.ts` | Selection includes every table in the source, connected view/reference sources and their ordered/unique/search definitions. A scalar read can inspect unrelated source definitions. |
@@ -60,13 +75,40 @@ The organization, composed-query and shared-storage backlogs retain their owners
 | `logicalDocuments/workingSet.ts`, `rootEvaluator.ts` | Pending state and bounded query grouping already exist. Initial hydration selects unhydrated Application seeds across the source, which is broader than many individual demands. |
 | Native repository/query and Payload operation owners | Native behavior is reused; its database execution is translated. Existing grouped `IN`, population and query plans must be retained and connected, rather than replaced by another planner or an assumed one-query promise. |
 
-These are source findings. The retained
+These are baseline source findings. The retained
 [complete mixed ledger](../../packages/flarex-backend/benchmarks/mixed-mutation-core/aggregate-entry/README.md)
 is historical, not a fresh measurement of the active draft. It does not causally
 assign whole-request latency to one of these mechanisms. Standalone retrieval
 costs cannot be copied into a finite attempt as its per-read cost.
 
 ## Selected Contract
+
+### Concrete Construction And Storage Boundary
+
+The existing checked-read function carries the captured initial
+`LogicalStorageReadDemand` with its work. Named full-profile callers retain their
+complete proof; the selected finite branch refuses a missing demand. The closed
+working set derives it from compiled queries and the issued participant/source
+admission resolves actual definition ownership from its authenticated preparation.
+Dynamic storage calls check newly discovered demands before consumption inside
+the same frontier. Transaction-clock access has an explicit rowless demand.
+
+A distinct finite query-required profile retains full writable catalog mechanics,
+the exact root evaluator/attempt/fence, fixed snapshot and writable lifetime.
+Standalone query-required mechanics retain their read-only guard. Neither profile
+can substitute for the other's construction merely by sharing a demand type.
+Prepare immutable writable table, index and relationship maps once under the
+existing bounded source/host owner. Borrowed calls bind their own authority and
+lifetime and activate demanded table views without cloning or traversing the whole
+source. Full write/reference/delete rules remain with these prepared mechanics;
+moving their repeated construction outside the SQL interval does not pass scaling.
+
+Pending selection stays private to the working set: exact point/get-many IDs or
+a conservative actual-table set for predicate/page/relation work. The root indexes
+seed IDs by table while its existing point map remains the only value owner.
+Batch historical hydration retains the established per-seed observation, base
+charge, original-witness comparison, overlay validation and overlay charge order.
+No new query interpreter, native option envelope or public capability is added.
 
 ### One Root And Explicit Framework Bindings
 
@@ -116,6 +158,20 @@ lock order, refusal order and the protected tail. Body or tail refusal poisons t
 root even if native code catches the boundary error. No live verdict crosses SQL
 transactions through a cache.
 
+Complete root entry supplies the authenticated immutable Application binding
+basis. Finite intermediate source checks reuse the existing compact binding
+correlation owner with explicit finite provenance, fresh head/revision/schema and
+protected epochs, rather than rerunning full Application serving proof inside
+each framework read. A standalone token cannot establish finite admission; full
+initial and final Application obligations remain complete.
+
+The finite binding callback receives only its authenticated Application/logical
+schema projection, exact head and required framework-presence facts. The binding
+owner validates the full retained candidate under its bounded preparation, then
+checks the fresh locked head and epoch before issuing that detached projection.
+It must not clone or enumerate the full candidate on each demand. Full-evidence
+consumers keep their existing complete contract.
+
 Preserve established local capability, lifetime and budget refusal before foreign
 input capture. Capture and normalize query inputs outside SQL; check fresh exact
 authority before readiness or data access, then the protected tail after the body.
@@ -128,6 +184,26 @@ all affected reads/writes/recovery/build users interlock with maintenance. Test
 pool/reconnect, restore, maintenance crash/drain and predecessor fencing. Keep
 the actual metadata invalidation/epoch guards until their writers have proved
 replacements. A matching epoch or pool object alone is not installation integrity.
+
+Managed construction binds the installation pair and control protection to the
+same actual database and credential; partial or foreign combinations refuse
+before entry. The kernel guards the control epoch observed in its accepting
+transaction. A constructor's older generation cannot stand in for that live
+observation after legitimate publication. Retained immutable source preparation
+keeps its own original invalidation anchor. Both target and control observations
+receive final guards, including a rowless clock demand.
+
+The existing scope-authority control reader owns the installed placement and
+clock projections shared by standalone and finite execution. Each execution
+profile retains its own orchestration. Cleanup encloses installation admission
+itself: failure while decoding placement or recording either epoch must revoke
+the transaction's in-memory admission and observations as well as release its
+database locks through rollback.
+
+Immutable SQL construction may be retained by the existing target owner, but
+each execution binds it to the actual accepting transaction and repeats every
+live check. A prepared query tied to a pool/database session cannot substitute
+for that transaction. Retained query structure is not a retained authority verdict.
 
 Authenticate immutable query/schema metadata under the existing bounded host
 owner, with miss, capacity, eviction, invalidation and close/drain behavior. Query
@@ -196,12 +272,43 @@ Record the exact prepared lifetime and initial root/setup work separately while
 including every actual fresh check and miss in the interval it belongs to.
 Native Medusa alone is not a complete reference for the whole mixed graph.
 
-Before changing the mechanism, record the matched baseline and a small additive
-warm median/P95 read-overhead budget in this preflight, along with graph-derived
-transaction, sequential round-trip, server-work, metadata-row/byte and hydration
-bounds. Numerical read budgets remain to be fixed against that exact workload;
-the standalone 2/5 ms overhead target is a reference, not an automatically adopted
-mixed threshold. Do not substitute the old standalone 400 ms guardrail.
+The fixed paired workload is the currently admitted ID-only native Product
+retrieval with its complete default DTO and missing-record error. Each finite
+sample uses a fresh root and the first actual Product storage demand. Both lanes
+retain prepared modules/connections for the declared series lifetime. Discard
+three warmups and retain thirty alternating native/finite pairs for each branch;
+compute each pair's excess before its distribution. Independently generated
+timestamps are retained and validated, with all other values and structure equal.
+
+| Warm matched native method, including finite operation close | Median | P95 |
+| --- | ---: | ---: |
+| Paired finite-minus-native duration, found and missing branches | <= 5 ms | <= 10 ms |
+| Complete finite request versus the matched pre-change lane | No regression | No regression |
+
+This finite budget includes its real claim/fence/snapshot obligations and is
+separate from the standalone 2/5 ms additive target. It is fixed before runtime
+mechanism changes; a failed gate requires owner correction, not a raised ceiling.
+Quiet timing disables database profiling; separate traced/server runs explain
+dispatches and hidden server work. Setup, cold/miss, real existing observers and
+native/bootstrap costs remain explicit. Do not substitute the old standalone
+400 ms guardrail or compare a pending/cache hit with a native storage read.
+
+For this uncontended fixed retrieval, allow one accepting storage transaction
+and at most thirteen SQL submissions for a found row or twelve for absence,
+including BEGIN and COMMIT. The graph allows seven shared installation/placement,
+clock/session/lease/claim, source-pin and tail submissions, two selected
+build/coverage submissions, historical membership and optional row hydration.
+Existing exact-transaction clock/head evidence may be reused only under its
+registered lifetime. No empty admission or authority transaction per row is added.
+These are SQL-submission ceilings, not claims of observed network round trips.
+Report actual protocol work separately and identify additional bounded refresh
+under concurrent publication rather than disguising it as ordinary query demand.
+
+The selected definition/table set and its metadata rows/bytes must stay constant
+as unrelated source definitions grow. Count installation and placement functions,
+their inner locks/queries and epoch-tail work separately from top-level statements;
+a SQL function does not erase server work. Relevant pending identities may add
+bounded batched historical reads per demanded table, never another root admission.
 
 Keep the existing complete mixed p50/P95 goals: Product 100/200 ms,
 Product + Payload 200/400 ms, finite mixed workflow 500/1,000 ms. They are targets,

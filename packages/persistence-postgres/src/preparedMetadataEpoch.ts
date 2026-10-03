@@ -1,5 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import { copyBytesToArrayBuffer, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -10,7 +10,8 @@ import { acquireInstallationAdmission, lockInstallationForCurrentTransaction,
   isManagedInstallationTransaction, managedInstallationMetadataIncarnation, managedInstallationSchema,
   managedInstallationIdentity,
   isCoLocatedInstallationTransaction,
-  type PreparedInstallation } from "./installationLifecycle";
+  isCoLocatedControlInstallation,
+  type PreparedCoLocatedReadInstallation, type PreparedInstallation } from "./installationLifecycle";
 
 /** Immutable target projection and complete sidecar membership. Control,
  * coverage, live heads and physical catalogs keep their owned fresh proofs. */
@@ -326,6 +327,15 @@ export const prepareProtectedMetadata = Effect.fn("PreparedMetadataEpoch.prepare
   return token;
 });
 
+/** Reject partial or foreign managed target construction before any entry. */
+export function requireProtectedControlPreparation(prepared: ProtectedMetadataPreparation | undefined,
+  database: FlarexMetadataDatabase, pair: PreparedCoLocatedReadInstallation): Result.Result<void, PreparedMetadataEpochError> {
+  const state = prepared === undefined ? undefined : preparations.get(prepared);
+  return state?.database === database && state.installation !== undefined &&
+    isCoLocatedControlInstallation(pair, database, state.installation)
+    ? Result.succeed(undefined) : Result.fail(issue("unprotectedRuntime"));
+}
+
 /** Captures the generation in a preparation snapshot after structural reads. */
 export const captureProtectedMetadataEpoch = Effect.fn("PreparedMetadataEpoch.capture")(function* (
   prepared: ProtectedMetadataPreparation, database: FlarexMetadataDatabase,
@@ -440,6 +450,17 @@ export const registerProtectedMetadataFinalGuard = Effect.fn("PreparedMetadataEp
   scope.set(key, Object.freeze({ database, prepared, expected }));
 });
 
+/** The installed accepting owner protects the fresh transaction's control
+ * snapshot. Retained source metadata keeps its separate preparation anchor. */
+export const registerProtectedMetadataTransactionFinalGuard = Effect.fn("PreparedMetadataEpoch.registerTransactionFinalGuard")(
+  function* (prepared: ProtectedMetadataPreparation, database: FlarexMetadataDatabase, tx: FlarexMetadataTransaction) {
+    const state = preparations.get(prepared);
+    if (state === undefined || state.database !== database || state.installation === undefined)
+      return yield* Effect.fail(issue("unprotectedRuntime"));
+    const current = yield* captureProtectedMetadataEpoch(prepared, database, tx);
+    yield* registerProtectedMetadataFinalGuard(tx, prepared, database, current);
+  });
+
 /** One bounded final submission compares each original registered anchor.
  * Functions retain FOR SHARE NOWAIT; no current verdict is retained. */
 export const prepareProtectedMetadataFinalGuardBatch = Effect.fn("PreparedMetadataEpoch.prepareFinalBatch")(
@@ -495,6 +516,13 @@ export const flushProtectedMetadataFinalGuards = Effect.fn("PreparedMetadataEpoc
 ) {
   const scope = finalGuardScopes.get(tx);
   if (scope === undefined) return yield* Effect.fail(issue("unprotectedRuntime"));
+  if (scope.size > 0 && scope.size <= 2 && [...scope.values()].every(guard => preparations.get(guard.prepared)?.installation !== undefined)) {
+    const batch = yield* prepareProtectedMetadataFinalGuardBatch(tx);
+    const rows = yield* Effect.tryPromise({ try: () => tx.select({ valid: sql<boolean>`guard_batch.valid` })
+      .from(sql`${batch.source} as guard_batch`), catch: cause => issue("unprotectedRuntime", cause) });
+    yield* acceptProtectedMetadataFinalGuardBatch(tx, rows);
+    return;
+  }
   for (const guard of scope.values()) {
     yield* guardProtectedMetadataEpoch(guard.prepared, guard.database, guard.expected, tx);
   }

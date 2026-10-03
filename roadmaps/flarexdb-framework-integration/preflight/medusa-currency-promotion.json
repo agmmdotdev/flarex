@@ -4426,7 +4426,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "3af81543c1a73c13b99d9af911dc5f2dacecc4576835b0ef110d8e96e0cc29dd"
+      "targetSha256": "9aca35dd8a304e6f5e76288bee49065ef1326e1b0d56504406676f3e625d2a5a"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -5020,7 +5020,7 @@
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/native-runner.ts",
-      "targetSha256": "ffaad14fa050e6d817e0d508b27cb095743d86284e0f7e28b7ca30bcd2dc5033",
+      "targetSha256": "4a8f6482528cb8c989284dc8b138ab48c660232298c07a6f272491d81d5b8cc8",
       "classification": "testHarnessPort",
       "source": "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts",
       "sourceSha256": "a9f3430877bcd9ec52d2ebd65fcadcf33349f5eb4fa4d9f5a65bf3eb9feb8791"
@@ -5084,6 +5084,31 @@
       "target": "packages/medusa-adapter/test/installationCoLocation.postgres.test.ts",
       "targetSha256": "46e4a51547e6254f86927dd0c238a5d2e17c33e8386295206f3c4a160c9328cb",
       "classification": "authored"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
+      "classification": "authored",
+      "targetSha256": "f25468badbad7a6b885cc47f6826405322c2859e9935739ff0ac277178167144"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts",
+      "classification": "authored",
+      "targetSha256": "47aac96d87edacc3d5b5a8e7a172b8dfdd395a1f9a5c835de0eb34ddfa9c25a9"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/tsconfig.json",
+      "classification": "authored",
+      "targetSha256": "dbcaaf95ede05d407a1aa406dbad278e3df94385bffd55c8091ad955800a9e01"
+    },
+    {
+      "target": "packages/medusa-adapter/vitest.mixed-native-read.config.ts",
+      "classification": "authored",
+      "targetSha256": "90bc8a6028da5e7b2c971658c46fa0db580d88fc5f8be864f7f29a1ea217b408"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/README.md",
+      "classification": "authored",
+      "targetSha256": "5cce808b0abe88178803dd7ff53e271b468dc445a5439624e6543d9a76d92d1b"
     }
   ],
   "dependencies": {

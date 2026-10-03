@@ -132,7 +132,10 @@ import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import { ScopeExecutionAuthorityError } from "./scopeExecution/Errors";
 import { liveScopeExecution } from "./scopeExecution/ScopeExecution";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "./installationLifecycle";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission,
+  type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
+import { prepareInstalledAttemptScopeAuthority, type PreparedInstalledAttemptScopeAuthority } from "./scopeAuthorityControlRead";
+import { registerProtectedMetadataTransactionFinalGuard, requireProtectedControlPreparation, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import { defineScopedWriteOperation } from
   "./scopeExecution/ScopedTransaction";
 import {
@@ -1013,6 +1016,8 @@ export type PointMutationSessionAttemptTerminalizationEventV1 =
     };
 
 export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
+  readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation;
+    controlProtection: ProtectedMetadataPreparation }>;
   /** Internal connected-client runner; its symbol is not package-exported. */
   readonly [LOCATED_READ_COMMITTED_RUNNER_V1]?:
     RunLocatedReadCommittedTransactionV1;
@@ -1569,6 +1574,8 @@ const finiteApplicationActivationScopedOperation = defineScopedWriteOperation(
       control: PreparedTerminalControl | undefined;
       target: LocatedExactRunningAttemptKernelV1;
       afterWrite: LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"];
+      managedControlProtection?: ProtectedMetadataPreparation;
+      database: FlarexMetadataDatabase;
     }>) {
     const { input, prepared, entry, target, control, afterWrite } = operationInput;
     const clock = yield* Effect.tryPromise({
@@ -1580,6 +1587,9 @@ const finiteApplicationActivationScopedOperation = defineScopedWriteOperation(
     openProtectedMetadataFinalGuardScope(tx);
     return yield* withPreparedFiniteApplicationMutationAdmissionInTransaction(
       prepared.preparedAdmission, prepared.admissionContext, tx, clock.record, (accepted, binding) => Effect.gen(function* () {
+      if (operationInput.managedControlProtection !== undefined)
+        yield* registerProtectedMetadataTransactionFinalGuard(operationInput.managedControlProtection, operationInput.database, tx)
+          .pipe(Effect.mapError(mapApplicationActivationTransactionError));
       if (clock.record.lastCommitSeq !== input.preliminaryAuthority.lastCommitSeq)
         return yield* Effect.fail(activationError({ reason: "snapshotCommitSeqChanged" }));
       let projection: FreshSessionEntryProjection | undefined;
@@ -1612,14 +1622,22 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   physicalLocator: ScopePhysicalLocator,
   options: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
 ): LocatedScopeClockReader {
+  const configuredManaged = options.managedInstallation;
+  const managedInstallation = configuredManaged === undefined ? undefined : Object.freeze({
+    installation: configuredManaged.installation, controlProtection: configuredManaged.controlProtection });
+  if (managedInstallation !== undefined)
+    Result.getOrThrowWith(requireProtectedControlPreparation(managedInstallation.controlProtection,
+      db, managedInstallation.installation), cause => cause);
   const capturedLocator = captureScopePhysicalLocator(physicalLocator);
+  const installedAuthority = managedInstallation === undefined ? undefined :
+    Result.getOrThrowWith(prepareInstalledAttemptScopeAuthority(managedInstallation.installation, db, capturedLocator), cause => cause);
   const afterWrite = options.afterWrite;
   const afterLoadLock = options.afterLoadLock;
   const afterTerminalizationEvent = options.afterTerminalizationEvent;
   const afterExecutionClaimLivenessEvent =
     options.afterExecutionClaimLivenessEvent;
   const runReadCommitted = options[LOCATED_READ_COMMITTED_RUNNER_V1] ??
-    createDefaultLocatedReadCommittedTransactionRunnerV1(db);
+    createDefaultLocatedReadCommittedTransactionRunnerV1(db, managedInstallation?.installation);
   const committedOutcomeResolver = createCommittedPointOutcomeResolverV1(db);
   const getCurrentClockAtTarget = (scopeId: ScopeId) =>
     getScopeClock(db, scopeId);
@@ -1673,7 +1691,8 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     ): ReturnType<LocatedPointMutationSessionActivationTargetV1[typeof ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]> => liveScopeExecution.runWrite(locatedActivationAuthority(scopeExecutionTarget, input.preliminaryAuthority), {
       clockProtection: "ordinaryWrite", rollbackMessage: "Finite Application entry rolled back.",
       cleanupDefect: mapActivationTransactionError,
-    }, finiteApplicationActivationScopedOperation, { input, prepared, entry, control, target, afterWrite }).pipe(
+    }, finiteApplicationActivationScopedOperation, { input, prepared, entry, control, target, afterWrite, database: db,
+      ...(managedInstallation === undefined ? {} : { managedControlProtection: managedInstallation.controlProtection }) }).pipe(
       Effect.mapError(cause => cause instanceof ScopeExecutionAuthorityError || cause instanceof LocatedReadCommittedTransactionFailureV1
         ? mapApplicationActivationTransactionError(cause) : cause),
     ),
@@ -1703,6 +1722,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       work,
       afterLoadLock,
       "attempt",
+      installedAuthority, managedInstallation?.controlProtection,
     ),
     [RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1]: <
       Result,
@@ -1719,6 +1739,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       work,
       afterLoadLock,
       "share",
+      installedAuthority, managedInstallation?.controlProtection,
     ),
     [RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1]:
       resolvePinnedPointTableIdV1Effect.bind(
@@ -2674,6 +2695,7 @@ function mapExecutionClaimAcquisitionTransactionFailure(
  */
 export function createDefaultLocatedReadCommittedTransactionRunnerV1(
   db: FlarexMetadataDatabase,
+  installation?: PreparedCoLocatedReadInstallation,
 ): RunLocatedReadCommittedTransactionV1 {
   return async <Result>(work: (
     tx: AppRowTransaction,
@@ -2685,7 +2707,8 @@ export function createDefaultLocatedReadCommittedTransactionRunnerV1(
     try {
       return await db.transaction(async (tx) => {
         await tx.setTransaction({ isolationLevel: "read committed" });
-        await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+        await Effect.runPromise(installation === undefined ? lockInstallationForCurrentTransaction(tx)
+          : acquireCoLocatedInstallationAdmission(installation, db, tx));
         state.phase = "running";
         try {
           const result = await work(tx);
@@ -2738,6 +2761,8 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
   clockProtection: "share" | "attempt",
+  installedAuthority?: PreparedInstalledAttemptScopeAuthority,
+  controlProtection?: ProtectedMetadataPreparation,
 ): Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error> {
   return Effect.suspend(() => {
     let callbackCause: EffectCause<Failure | ExactRunningAttemptTransactionV1Error> | undefined;
@@ -2747,21 +2772,28 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
     return Effect.uninterruptible(
       Effect.tryPromise({
         try: () => db.transaction(async (tx): Promise<Result> => {
-          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
           try {
-          const locked = await lockExactRunningAttemptInTransaction(
-            tx,
-            input,
-            afterLoadLock,
-            clockProtection,
-          );
-          const context = projectTransactionSessionActivationResult(runningAttemptKernelContextResult(locked));
-          openProtectedMetadataFinalGuardScope(tx);
-          openExactAttemptScopeClockObservation(tx, locked.clock.record,
-            locked.clock.authorizationRevocationEpoch, clockProtection);
-          try {
+            const installed = installedAuthority === undefined ? undefined : await Effect.runPromise(
+              installedAuthority.lock(tx, input.selector, clockProtection));
+            if (installed === undefined) await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+            const locked = await lockExactRunningAttemptInTransaction(
+              tx,
+              input,
+              afterLoadLock,
+              clockProtection,
+              installed === undefined ? undefined : decodeLockedPointMutationSessionClock(installed.row),
+            );
+            const context = projectTransactionSessionActivationResult(runningAttemptKernelContextResult(locked));
+            openProtectedMetadataFinalGuardScope(tx);
+            openExactAttemptScopeClockObservation(tx, locked.clock.record,
+              locked.clock.authorizationRevocationEpoch, clockProtection);
             const exit = await Effect.runPromise(Effect.exit(
               Effect.uninterruptible(Effect.gen(function* () {
+                if (installedAuthority !== undefined) {
+                  if (controlProtection === undefined) return yield* Effect.die("Installed attempt lost its protected control preparation");
+                  yield* registerProtectedMetadataTransactionFinalGuard(controlProtection, db, tx).pipe(Effect.mapError(cause =>
+                    new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
+                }
                 const value = yield* Effect.suspend(() => work(tx, context));
                 yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
                   new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
@@ -2776,8 +2808,6 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
           } finally {
             closeExactAttemptScopeClockObservation(tx);
             closeProtectedMetadataFinalGuardScope(tx);
-          }
-          } finally {
             closeInstallationAdmission(tx);
           }
         }),
@@ -3139,11 +3169,12 @@ async function lockExactRunningAttemptInTransaction(
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
   clockProtection: "share" | "attempt",
+  observedClock?: LockedPointMutationSessionClockV1,
 ): Promise<LockedRunningPointMutationSessionAttemptV1> {
   const selector = input.selector;
-  const clock = clockProtection === "share"
+  const clock = observedClock ?? (clockProtection === "share"
     ? await lockPointMutationSessionClockForShare(tx, selector.scopeId)
-    : await lockPointMutationSessionClock(tx, selector.scopeId);
+    : await lockPointMutationSessionClock(tx, selector.scopeId));
   await afterLoadLock?.("clockLocked");
   requireStableAttemptLoadAuthority(clock, input);
   const session = await lockExactPointMutationSession(
@@ -4144,6 +4175,11 @@ async function lockPointMutationSessionClockWithMode(
     : await query.for("no key update");
   const row = rows[0];
   if (row === undefined) throw new ScopeClockNotFoundError(scopeId);
+  return decodeLockedPointMutationSessionClock(row);
+}
+
+function decodeLockedPointMutationSessionClock(row: typeof fxSystemScopeClocks.$inferSelect): LockedPointMutationSessionClockV1 {
+  const scopeId = row.scopeId;
   const record = decodeScopeClockRecord(row);
   try {
     const scopeProjection = projectScopeIdUuidV1(record.scopeId);

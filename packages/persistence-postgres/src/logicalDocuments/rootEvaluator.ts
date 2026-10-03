@@ -49,6 +49,8 @@ export interface LogicalDocumentRootState {
   readonly setNull: LogicalSetNullIntent[];
   readonly referenceReplacements: LogicalReferenceReplacementIntent[];
   readonly appPoints: Map<AppDocumentIdV1, LogicalPendingDocumentSeed>;
+  readonly appPointIdsByTable: Map<CatalogTableId, Set<AppDocumentIdV1>>;
+  readonly appPointOrder: Map<AppDocumentIdV1, number>;
   readonly hydratedAppPoints: Set<AppDocumentIdV1>;
   workingBytes: number;
   inserted: number;
@@ -64,7 +66,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     pins: Object.freeze({ ...pins }), limits: Object.freeze({ ...limits }), rows: new Map(), scanned: new Map(),
     dependencies: new Map(), scans: new Map(), uniqueReads: new Map(), indexReads: new Map(),
     pageReads: [], searchReads: [], attempts: [], lifecycle: [], setNull: [], referenceReplacements: [],
-    appPoints: new Map(), hydratedAppPoints: new Set(),
+    appPoints: new Map(), appPointIdsByTable: new Map(), appPointOrder: new Map(), hydratedAppPoints: new Set(),
     workingBytes: 0, inserted: 0, closed: false,
   };
   const snapshot = (): LogicalDocumentChanges => {
@@ -112,7 +114,14 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
           (prior.observed.basis.kind !== seed.observed.basis.kind ||
             prior.observed.basis.kind === "tombstone" && seed.observed.basis.kind === "tombstone" &&
               prior.observed.basis.revisionCommitSeq !== seed.observed.basis.revisionCommitSeq)))) return false;
+    if (prior === undefined) state.appPointOrder.set(documentId, state.appPoints.size);
     state.appPoints.set(documentId, structuredClone(seed));
+    let tablePoints = state.appPointIdsByTable.get(seed.tableId);
+    if (tablePoints === undefined) {
+      tablePoints = new Set();
+      state.appPointIdsByTable.set(seed.tableId, tablePoints);
+    }
+    tablePoints.add(documentId);
     state.hydratedAppPoints.delete(documentId);
     return true;
   };
@@ -132,6 +141,8 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     state.setNull.length = 0;
     state.referenceReplacements.length = 0;
     state.appPoints.clear();
+    state.appPointIdsByTable.clear();
+    state.appPointOrder.clear();
     state.hydratedAppPoints.clear();
     state.workingBytes = 0;
   };

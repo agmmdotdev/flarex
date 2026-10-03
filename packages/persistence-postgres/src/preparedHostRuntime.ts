@@ -177,8 +177,11 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
       Result.map(size => { owner.bytes += size; bytes += size; }),
       Result.mapError(cause => { rejected = cause; return cause; }));
   };
-  const checkOpen = () => owner.closed || closing ? Result.fail(error("closed")) :
+  const checkOpen = (): Result.Result<void, PreparedHostRuntimeError> => owner.closed || closing ? Result.fail(error("closed")) :
     rejected === undefined ? Result.succeed(undefined) : Result.fail(rejected);
+  /** Read the real lease accounting without charging or exposing its value. */
+  const readUsage = (): Result.Result<Readonly<{ chargedBytes: number }>, PreparedHostRuntimeError> =>
+    checkOpen().pipe(Result.map(() => Object.freeze({ chargedBytes: bytes })));
   const charge = (data: unknown) => Effect.suspend(() => Effect.fromResult(chargeResult(data)));
   const abandon = Effect.suspend(() => {
     active = 0;
@@ -214,7 +217,7 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
           return finish;
         }),
     );
-  return { charge, chargeResult, checkOpen, abandon, install, access: Object.freeze({ use, close }) };
+  return { charge, chargeResult, checkOpen, abandon, install, access: Object.freeze({ use, close, readUsage }) };
 });
 
 /** Bounded structural payload accounting. Repeated references are deliberately

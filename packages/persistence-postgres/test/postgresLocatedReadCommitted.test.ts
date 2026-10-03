@@ -159,6 +159,7 @@ describe("pooled located READ COMMITTED connection errors", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback",
       "rollback",
       "release",
@@ -187,6 +188,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback",
       "commit",
     ]);
@@ -213,6 +215,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback",
       "rollback",
     ]);
@@ -248,6 +251,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback:first",
     ]);
 
@@ -259,10 +263,12 @@ describe("connected Client located READ COMMITTED runner", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback:first",
       "commit",
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback:second",
       "commit",
     ]);
@@ -297,6 +303,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback",
       "commit",
       "rollback",
@@ -364,6 +371,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback:first",
       "commit",
       "rollback",
@@ -399,6 +407,7 @@ describe("connected Client located READ COMMITTED runner", () => {
     expect(events).toEqual([
       "begin",
       "set transaction isolation level read committed",
+      "installation gate",
       "callback",
       "rollback",
       "quarantine",
@@ -449,7 +458,19 @@ function fakeClient(
       value: async function (this: unknown, query: unknown) {
         expect(this).toBe(client);
         const text = queryText(query);
-        events.push(text);
+        const installationGate = text.includes("from fx_lock_installation_admission() as i");
+        events.push(installationGate ? "installation gate" : text);
+        if (installationGate) {
+          expect(text).toContain("current_user = session_user");
+          expect(text).toContain("current_schema() = i.schema_name");
+          expect(text).toContain("pg_catalog.set_config");
+          // The driver receives the selected fields in rowMode=array order.
+          // This is installed fixture identity, not a catalog or role bypass.
+          return { command: "SELECT", fields: [], oid: 0, rowCount: 1, rows: [[
+            "runner_fixture", "public", "1", "00000000-0000-4000-8000-000000000001", "1",
+            "runner_fixture_login", true, "runner_fixture", true, "public, pg_temp",
+          ]] };
+        }
         if (text === "commit") await faults.beforeCommit?.();
         if (text === "commit" && faults.commitCause !== undefined) {
           throw faults.commitCause;

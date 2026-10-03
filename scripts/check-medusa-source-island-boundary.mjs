@@ -30,6 +30,10 @@ const dependencyFields = [
 ];
 const islandPrefix = "third_party/medusa/upstream/";
 const mixedProductTestFixture = "packages/flarex-backend/test/support/mixedMutationProductFixture.ts";
+const nativeProductDiagnosticTypeConsumers = new Set([
+  "packages/flarex-backend/test/support/nativeProductOperationDiagnostics.ts",
+  "packages/flarex-backend/test/nativeProductOperationDiagnostics.test.ts",
+]);
 const mixedPerformanceTest = "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts";
 const mixedProductTestImports = new Map([
   ["../../../medusa-adapter/test/support/logical-currency-fixture",
@@ -74,6 +78,9 @@ const nativeRetrievalScenario = "packages/medusa-adapter/benchmarks/core-perform
 const nativeRetrievalObservation = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts";
 const nativeRetrievalConfig = "packages/medusa-adapter/vitest.native-retrieval.config.ts";
 const nativeRetrievalRunner = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/native-runner.ts";
+const mixedNativeReadScenario = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts";
+const mixedNativeReadTest = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts";
+const mixedNativeReadConfig = "packages/medusa-adapter/vitest.mixed-native-read.config.ts";
 const nativeRunnerSource = "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts";
 const nativeRunnerImports = new Set([
   "../../../../../third_party/medusa/upstream/packages/core/framework/dist/logger",
@@ -127,11 +134,31 @@ function admitsNativeRetrievalRunner(promotion) {
     file.target === nativeRetrievalRunner && file.classification === "testHarnessPort" && file.source === nativeRunnerSource) === true;
 }
 
+/** This paired finite benchmark borrows the inventoried native runner; it does
+ * not authorize another native loader or adjacent framework consumer.
+ * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion */
+function admitsMixedNativeReadOwner(promotion) {
+  return admitsNativeRetrievalRunner(promotion) && promotion !== undefined
+    && [mixedNativeReadScenario, mixedNativeReadTest, mixedNativeReadConfig].every(target =>
+      promotion.files.some(file => file.target === target && file.classification === "authored"));
+}
+
 /** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
  * @param {string} relativePath @param {ts.StringLiteralLike} node */
 function admitsNativeRetrievalPath(promotion, relativePath, node) {
   if (!admitsNativeRetrievalOwner(promotion)) return false;
   const parent = node.parent;
+  if (relativePath === mixedNativeReadTest && admitsMixedNativeReadOwner(promotion)
+    && node.text === "../../../../../third_party/medusa/upstream/packages/modules/product")
+    return ts.isNewExpression(parent) && parent.arguments?.[0] === node
+      && parent.arguments?.length === 2 && parent.arguments[1]?.getText() === "import.meta.url"
+      && ts.isCallExpression(parent.parent) && ts.isIdentifier(parent.parent.expression)
+      && parent.parent.expression.text === "fileURLToPath"
+      && ts.isPropertyAssignment(parent.parent.parent) && parent.parent.parent.name.getText() === "resolve"
+      && ts.isObjectLiteralExpression(parent.parent.parent.parent)
+      && ts.isCallExpression(parent.parent.parent.parent.parent)
+      && ts.isIdentifier(parent.parent.parent.parent.parent.expression)
+      && parent.parent.parent.parent.parent.expression.text === "moduleIntegrationTestRunner";
   if (relativePath === nativeRetrievalScenario && nativeRetrievalScenarioPaths.has(node.text)) {
     if (node.text === nativeRunnerSource && !admitsNativeRetrievalRunner(promotion)) return false;
     if (ts.isArrayLiteralExpression(parent) && ts.isVariableDeclaration(parent.parent)
@@ -166,7 +193,7 @@ function admitsNativeRetrievalPath(promotion, relativePath, node) {
  * the existing literal package keys may be resolved/loaded.
  * @param {ts.Node} node @param {string} relativePath */
 function invalidNativeRetrievalLoader(node, relativePath) {
-  if (relativePath !== nativeRetrievalScenario && relativePath !== nativeRetrievalObservation) return false;
+  if (![nativeRetrievalScenario, nativeRetrievalObservation, mixedNativeReadScenario, mixedNativeReadTest].includes(relativePath)) return false;
   if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)
     && ["node:module", "module"].includes(node.moduleSpecifier.text)) {
     const bindings = node.importClause?.namedBindings;
@@ -237,6 +264,25 @@ function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
     (publicationServerTestImports.get(relativePath) === specifier ? publicationServerOwner : undefined);
   return target !== undefined && promotion?.files.some(file =>
     file.target === target && file.classification === "authored") === true;
+}
+
+/** The extracted fixture observer needs only this existing erased result type.
+ * Runtime/value imports and neighboring consumers inherit no permission.
+ * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
+ * @param {string} relativePath @param {string} specifier @param {ts.Node | undefined} node */
+function admitsNativeProductDiagnosticTypeImport(promotion, relativePath, specifier, node) {
+  if (!nativeProductDiagnosticTypeConsumers.has(relativePath)
+    || specifier !== "@flarex/medusa-adapter/internal/product-attempt"
+    || node === undefined || !ts.isImportDeclaration(node) || node.importClause?.isTypeOnly !== true
+    || node.importClause.name !== undefined) return false;
+  const bindings = node.importClause.namedBindings;
+  const imported = bindings !== undefined && ts.isNamedImports(bindings) && bindings.elements.length === 1
+    ? bindings.elements[0] : undefined;
+  return imported?.name.text === "PrivateProductAttemptExecution" && imported.propertyName === undefined
+    && promotion?.packages.some(pkg => pkg.path === "packages/medusa-adapter" && pkg.name === "@flarex/medusa-adapter"
+      && pkg.exports.includes("./internal/product-attempt")) === true
+    && promotion.files.some(file => file.target === "packages/medusa-adapter/src/product-attempt.ts"
+      && file.classification === "authored");
 }
 
 /**
@@ -406,10 +452,13 @@ export function analyzeMedusaSourceIslandBoundary(input) {
     "must not resolve Flarex or escape the Medusa source island",
   );
 
-  analyzeSources(input.rootSources, errors, (specifier, relativePath) => {
+  analyzeSources(input.rootSources, errors, (specifier, relativePath, node) => {
+    if (admitsNativeProductDiagnosticTypeImport(promotion, relativePath, specifier, node)) return undefined;
     if (admitsSelectedMixedTestImport(promotion, relativePath, specifier)) return undefined;
     if (relativePath === nativeRetrievalScenario && admitsNativeRetrievalOwner(promotion)
       && nativeRetrievalImports.has(specifier)) return undefined;
+    if (admitsMixedNativeReadOwner(promotion)
+      && relativePath === mixedNativeReadTest && nativeRetrievalImports.has(specifier)) return undefined;
     if (relativePath === nativeRetrievalRunner && admitsNativeRetrievalRunner(promotion)
       && nativeRunnerImports.has(specifier)) return undefined;
     if ((specifier.toLowerCase().startsWith("file:") || isPortableAbsolutePath(specifier)) && normalized(specifier).toLowerCase().includes("/packages/medusa-")) {
@@ -785,7 +834,7 @@ function nestedKeysAndStrings(value) {
 /**
  * @param {readonly SourceInput[]} sources
  * @param {string[]} errors
- * @param {(specifier: string, relativePath: string) => string | undefined} classify
+ * @param {(specifier: string, relativePath: string, node?: ts.Node) => string | undefined} classify
  */
 function analyzeSources(sources, errors, classify) {
   for (const source of sources) {
@@ -797,6 +846,8 @@ function analyzeSources(sources, errors, classify) {
       scriptKindForPath(source.relativePath),
     );
     const reported = new Set();
+    /** @type {Array<{ specifier: string; start: number; end: number }>} */
+    const admittedImportLiterals = [];
     visit(sourceFile);
     const preprocessed = ts.preProcessFile(source.text, true, true);
     for (const reference of [
@@ -805,6 +856,10 @@ function analyzeSources(sources, errors, classify) {
       ...preprocessed.libReferenceDirectives,
       ...preprocessed.importedFiles,
     ]) {
+      // An AST-dependent erased-import admission applies only to this exact
+      // module literal. Other same-line imports still receive their own verdict.
+      if (admittedImportLiterals.some(literal => literal.specifier === reference.fileName
+        && reference.pos >= literal.start && reference.pos < literal.end)) continue;
       report(reference.fileName, reference.pos);
     }
     for (const comment of source.text.matchAll(/\/\*\*[\s\S]*?\*\//g)) {
@@ -826,15 +881,21 @@ function analyzeSources(sources, errors, classify) {
     function visit(node) {
       const specifier = moduleSpecifierForNode(node);
       if (specifier !== undefined) {
-        report(specifier, node.getStart(sourceFile));
+        report(specifier, node.getStart(sourceFile), node);
       }
       ts.forEachChild(node, visit);
     }
 
-    /** @param {string} specifier @param {number} position */
-    function report(specifier, position) {
-      const message = classify(specifier, source.relativePath);
-      if (message === undefined) return;
+    /** @param {string} specifier @param {number} position @param {ts.Node} [node] */
+    function report(specifier, position, node) {
+      const message = classify(specifier, source.relativePath, node);
+      if (message === undefined) {
+        if (node !== undefined && ts.isImportDeclaration(node) && node.moduleSpecifier !== undefined
+          && classify(specifier, source.relativePath) !== undefined) admittedImportLiterals.push({
+          specifier, start: node.moduleSpecifier.getFullStart(), end: node.moduleSpecifier.getEnd(),
+        });
+        return;
+      }
       const line = sourceFile.getLineAndCharacterOfPosition(position).line + 1;
       const key = `${line}\0${specifier}`;
       if (reported.has(key)) return;

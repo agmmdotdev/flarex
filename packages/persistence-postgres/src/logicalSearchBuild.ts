@@ -15,6 +15,7 @@ import { getStableLogicalIndexIdentityByNameEffect } from "./stableLogicalIndexC
 import { readAppTableWriteFrontiersInTransactionEffect, type AppRowTableFrontierCorruptionError } from "./appRows";
 import { readPreparedIndexCoverageTableFrontiers, type IndexCoverageContext } from "./indexBuildStates";
 import { runEffectTransaction } from "./effectTransaction";
+import { chargeHostPreparation } from "./preparedHostRuntime";
 
 const physicalSearchIndexReady = (physical: Readonly<{
   index: string; table: string; column: string; operator: string;
@@ -144,7 +145,13 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     return Object.freeze({ inspectSelected: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
       clock: ScopeClockRecord, coverage?: IndexCoverageContext) => inspectDefinitions(inspected, tx, authority, clock, coverage) });
   };
-  return Object.freeze({ advanceEmpty, inspect, selectTables, definitionCount: selected.length });
+  const selectedById = new Map(selected.map(definition => [definition.logicalIndexId, definition]));
+  // The selected definition bodies retain their existing catalog owner; the
+  // extra lookup wrapper and keys consume this construction's allocation.
+  yield* chargeHostPreparation({ searchLookup: { keys: [...selectedById.keys()], entryCount: selectedById.size } });
+  return Object.freeze({ advanceEmpty, inspect, selectTables,
+    selectedDefinition: (id: CatalogIndexId) => selectedById.get(id),
+    definitionCount: selected.length });
 });
 
 export type LogicalSearchReadDefinition = Readonly<{ tableId: CatalogTableId; logicalIndexId: CatalogIndexId; sourceSha256: string; kind: "text" | "jsonContainment" }>;

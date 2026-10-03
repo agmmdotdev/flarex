@@ -1,5 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
@@ -159,17 +159,58 @@ function installationGateSource(state: PreparedState): SQL {
       and p.metadata_incarnation = ${state.metadataIncarnation}::uuid)`;
 }
 
-export const getCoLocatedReadInstallationReferences = Effect.fn("InstallationLifecycle.coLocatedReferences")(
-  function* (pair: PreparedCoLocatedReadInstallation, database: FlarexMetadataDatabase) {
+type CoLocatedReadInstallationReferences = Readonly<{
+  target: Readonly<{ schemaName: string; gate: SQL }>;
+  control: Readonly<{ schemaName: string; gate: SQL }>;
+  targetInstallation: PreparedInstallation;
+  controlInstallation: PreparedInstallation;
+}>;
+export function getCoLocatedReadInstallationReferencesResult(pair: PreparedCoLocatedReadInstallation,
+  database: FlarexMetadataDatabase): Result.Result<CoLocatedReadInstallationReferences, InstallationLifecycleError> {
     const state = coLocatedPreparations.get(pair);
-    if (state === undefined || state.database !== database) return yield* Effect.fail(issue("invalidCapability"));
+    if (state === undefined || state.database !== database) return Result.fail(issue("invalidCapability"));
     const target = preparations.get(state.target), control = preparations.get(state.control);
-    if (target === undefined || control === undefined) return yield* Effect.fail(issue("invalidCapability"));
-    return Object.freeze({ target: Object.freeze({ schemaName: target.identity.schemaName, gate: installationGateSource(target) }),
+    if (target === undefined || control === undefined) return Result.fail(issue("invalidCapability"));
+    return Result.succeed(Object.freeze({ target: Object.freeze({ schemaName: target.identity.schemaName, gate: installationGateSource(target) }),
       control: Object.freeze({ schemaName: control.identity.schemaName, gate: installationGateSource(control) }),
-      targetInstallation: state.target, controlInstallation: state.control });
-  },
+      targetInstallation: state.target, controlInstallation: state.control }));
+}
+
+export const getCoLocatedReadInstallationReferences = Effect.fn("InstallationLifecycle.coLocatedReferences")(
+  (pair: PreparedCoLocatedReadInstallation, database: FlarexMetadataDatabase) =>
+    Effect.fromResult(getCoLocatedReadInstallationReferencesResult(pair, database)),
 );
+
+const installationGateJson = (alias: "first_gate" | "second_gate") => {
+  const a = sql.identifier(alias);
+  return sql`jsonb_build_object('databaseName', ${a}.database_name, 'schemaName', ${a}.schema_name,
+    'namespaceOid', ${a}.namespace_oid::text, 'incarnation', ${a}.incarnation::text,
+    'structuralGeneration', ${a}.structural_generation::text, 'login', ${a}.login,
+    'sameLogin', ${a}.same_login, 'actualDatabase', ${a}.actual_database, 'sameSchema', ${a}.same_schema)`;
+};
+
+/** Fixed installed namespaces are always latched in the same order before scope locks. */
+export function coLocatedInstallationGateSource(refs: Effect.Success<ReturnType<typeof getCoLocatedReadInstallationReferences>>): SQL {
+  const targetFirst = refs.target.schemaName < refs.control.schemaName;
+  const first = targetFirst ? refs.target : refs.control, second = targetFirst ? refs.control : refs.target;
+  return sql`(with first_gate as materialized (select * from ${first.gate} as admitted_first),
+    second_gate as materialized (select admitted_second.* from first_gate cross join lateral
+      (select * from ${second.gate} as second_source where first_gate.namespace_oid > 0 offset 0) as admitted_second)
+    select ${installationGateJson(targetFirst ? "first_gate" : "second_gate")} as target_installation,
+      ${installationGateJson(targetFirst ? "second_gate" : "first_gate")} as control_installation,
+      first_gate.namespace_oid as first_oid, second_gate.namespace_oid as second_oid
+    from first_gate cross join second_gate)`;
+}
+
+export const acquireCoLocatedInstallationAdmission = Effect.fn("InstallationLifecycle.acquireCoLocatedAdmission")(
+  function* (pair: PreparedCoLocatedReadInstallation, database: FlarexMetadataDatabase, tx: FlarexMetadataTransaction) {
+    const refs = yield* getCoLocatedReadInstallationReferences(pair, database);
+    const rows = yield* query(() => tx.select({ target: sql<unknown>`installed.target_installation`,
+      control: sql<unknown>`installed.control_installation` }).from(sql`${coLocatedInstallationGateSource(refs)} as installed`).limit(2));
+    if (rows.length !== 1 || rows[0] === undefined) return yield* Effect.fail(issue("changed"));
+    yield* acceptCoLocatedInstallationAdmission(pair, database, tx, rows[0]);
+    return refs;
+  });
 
 /** The trusted accepting query supplies its actual qualified gate projections. */
 export const acceptCoLocatedInstallationAdmission = Effect.fn("InstallationLifecycle.acceptCoLocatedAdmission")(
@@ -207,6 +248,13 @@ export function isCoLocatedInstallationTransaction(tx: FlarexMetadataTransaction
   const state = coLocatedAdmissions.get(tx);
   return state?.database === database && (state.target === installation || state.control === installation) &&
     isManagedInstallationTransaction(tx, database, installation);
+}
+
+/** Construction correlation uses the exact issuer-owned control member. */
+export function isCoLocatedControlInstallation(pair: PreparedCoLocatedReadInstallation,
+  database: FlarexMetadataDatabase, installation: PreparedInstallation): boolean {
+  const state = coLocatedPreparations.get(pair);
+  return state?.database === database && state.control === installation && preparations.get(installation)?.database === database;
 }
 
 export function managedInstallationIdentity(prepared: PreparedInstallation, database: FlarexMetadataDatabase): InstallationIdentity | undefined {

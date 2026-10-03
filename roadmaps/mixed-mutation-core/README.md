@@ -23,10 +23,13 @@ attributable evidence. The selected successor is the
 [execution foundation plan](./14-execution-redesign-roadmap.md#selected-foundation-replacement):
 complete [query-required mixed reads](./20-query-required-read-execution-preflight.md)
 first, then finite contribution/settlement/recovery under an explicit terminal
-durability decision, and connected whole-request acceptance. The owner requested
-this roadmap update before implementation. Runtime work starts from a verified
-handoff of the overlapping standalone-read and framework-organization slice;
-their active draft is not an accepted mixed baseline.
+durability decision, and connected whole-request acceptance. Query-required
+mixed reads have an incomplete implementation checkpoint, paused at the owner's
+request for design discussion, from the verified, committed standalone-read and
+framework-organization handoff. Its selected contract and fixed native budget
+are recorded in slice 20; added latency and complete request performance fail
+acceptance, and connected validation remains open. The predecessor's remaining standalone latency and hosted gates
+stay with their owners.
 
 [Core performance](../core-performance/README.md) owns the standalone native-read
 replacement and reusable measurement rules. Its earlier small checked-read,

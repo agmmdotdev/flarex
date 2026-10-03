@@ -22,6 +22,7 @@ import { prepareLogicalSearchBuild, makeLogicalSearchReadinessInspector } from "
 import { prepareLogicalStrongReferenceProjections } from "./logicalStrongReferenceProjection";
 import { prepareLogicalRelationalTableMechanics } from "./logicalDocuments/relationalRows";
 import type { LogicalStorageReadDemand } from "./logicalDocuments/model";
+import type { LocatedAppUniqueConstraintDefinitionV1 } from "./appUniqueConstraintDefinitions";
 import { prepareLogicalReadMechanics } from "./logicalDocuments/workingSet";
 import { requirePreparedLogicalReadMetadata, type PreparedLogicalReadMetadata } from "./logicalReadMetadata";
 
@@ -44,7 +45,7 @@ export const prepareLogicalReadDemand = Effect.fn("LogicalStorageReadiness.prepa
     yield* metadata.checkOpen;
     if (authority.deploymentId !== input.deploymentId || authority.scopeId !== input.scopeId || clock.scopeId !== authority.scopeId ||
       clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence ||
-      metadata.selectedTable(demand.tableId) === undefined) return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+      (demand.kind !== "clock" && metadata.selectedTable(demand.tableId) === undefined)) return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
     if (demand.kind === "index") {
       const located = metadata.selectedIndex(demand.indexDefinitionId);
       if (located === undefined || located.access.tableId !== demand.tableId) return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
@@ -62,7 +63,7 @@ export const prepareLogicalReadDemand = Effect.fn("LogicalStorageReadiness.prepa
       if (verdict.status !== "ready") return Object.freeze({ ...verdict, kind: "search" as const });
     }
     return Object.freeze({ status: "ready" as const, readiness: "queryRequired" as const,
-      schemaVersionId: input.schemaVersionId, tableId: demand.tableId, snapshotCommitSeq: clock.lastCommitSeq });
+      schemaVersionId: input.schemaVersionId, tableId: demand.kind === "clock" ? undefined : demand.tableId, snapshotCommitSeq: clock.lastCommitSeq });
   });
   return Object.freeze({ mechanics, inspectDemand });
 });
@@ -165,6 +166,48 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     table: mechanics.table, capabilities: mechanics.capabilities })));
 
   const inspectIndexes = makeLogicalIndexReadinessInspector(captured, lifetime);
+  const definitionById = new Map(requirements.definitions.map(definition => [definition.indexDefinitionId, definition]));
+  const sourceTableIds = new Map(sourceTables.map(member => [member.source.key, new Set(member.tables)]));
+  // Definition bodies belong to the catalog charge. These are additional
+  // retained lookup wrappers and keys, including each source's membership set.
+  yield* chargeHostPreparation({
+    definitionLookup: { keys: [...definitionById.keys()], entryCount: definitionById.size },
+    sourceTableLookups: [...sourceTableIds].map(([sourceKey, tableIds]) => ({
+      sourceKey, keys: [...tableIds], entryCount: tableIds.size,
+    })),
+  });
+  const inspectDemand = Effect.fn("LogicalStorageReadiness.inspectFiniteDemand")(function* (
+    sourceKey: string, selectedUnique: ReadonlyMap<LocatedAppUniqueConstraintDefinitionV1["uniqueConstraintDefinitionId"], LocatedAppUniqueConstraintDefinitionV1>,
+    tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    demand: LogicalStorageReadDemand, checkedActive?: CheckedApplicationActiveHead,
+  ) {
+    if (lifetime !== undefined) yield* Effect.fromResult(lifetime.checkOpen());
+    const tables = sourceTableIds.get(sourceKey);
+    if (tables === undefined || authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId ||
+      clock.scopeId !== authority.scopeId || clock.epoch !== authority.epoch ||
+      clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence ||
+      (demand.kind !== "clock" && !tables.has(demand.tableId)))
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+    if (demand.kind === "index") {
+      const definition = definitionById.get(demand.indexDefinitionId);
+      if (definition === undefined || definition.tableId !== demand.tableId)
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+      return yield* inspectIndexes(tx, authority, clock, [definition], [], checkedActive);
+    }
+    if (demand.kind === "unique") {
+      const definition = selectedUnique.get(demand.uniqueConstraintDefinitionId);
+      if (definition === undefined || definition.tableId !== demand.tableId)
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+      return yield* inspectSelectedAppUniqueConstraintDefinitions(captured, [definition], tx, authority, clock);
+    }
+    if (demand.kind === "search") {
+      const definition = search.selectedDefinition(demand.logicalIndexId);
+      if (definition === undefined || definition.tableId !== demand.tableId)
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+      return yield* makeLogicalSearchReadinessInspector(captured.deploymentId)([definition], tx, authority, clock);
+    }
+    return Object.freeze({ status: "ready" as const });
+  });
   const inspect = Effect.fn("LogicalStorageReadiness.inspect")(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     checkedActive?: CheckedApplicationActiveHead,
@@ -253,6 +296,18 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     requirements: sourceRequirements, snapshot: requirements,
     relationalTableMechanics: (tableId: CatalogTableId) => relationalMechanics.get(tableId),
     source: (key: string) => sourceByKey.get(key), sourceDefinitionTables: (key: string) => sourceDefinitionTables.get(key),
+    sourceBoundTableIds: (key: string) => sourceTables.find(member => member.source.key === key)?.tables,
+    prepareSourceDemand: Effect.fn("LogicalStorageReadiness.prepareSourceDemand")(function* (
+      sourceKey: string, sourceUnique: readonly LocatedAppUniqueConstraintDefinitionV1[],
+    ) {
+      const sourceLifetime = yield* captureHostPreparationLifetime();
+      const byId = new Map(sourceUnique.map(member => [member.uniqueConstraintDefinitionId, member]));
+      yield* chargeHostPreparation({ uniqueLookup: { keys: [...byId.keys()], entryCount: byId.size } });
+      return (tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+        demand: LogicalStorageReadDemand, checkedActive?: CheckedApplicationActiveHead) =>
+        (sourceLifetime === undefined ? Effect.void : Effect.fromResult(sourceLifetime.checkOpen())).pipe(
+          Effect.andThen(inspectDemand(sourceKey, byId, tx, authority, clock, demand, checkedActive)));
+    }),
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
     applicationAnalysis, strongReferences });
   preparedCatalogs.set(prepared, { ports: Object.freeze({ ...ports }), unique, input: captured, lifetime });

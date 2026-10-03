@@ -139,6 +139,7 @@ import {
 } from "../../src/postgres";
 import type { FlarexMetadataDatabase } from "../../src/deployments";
 import type { ProtectedMetadataPreparation } from "../../src/preparedMetadataEpoch";
+import type { PreparedCoLocatedReadInstallation } from "../../src/installationLifecycle";
 import type { FlarexPersistence } from "../../src/index";
 import type { LocatedScopeClockReader } from
   "../../src/scopeAuthorityResolution";
@@ -172,6 +173,8 @@ export interface ApplicationNativeMutationAnalysis {
 }
 
 export interface ApplicationNativeMutationFixtureOptions {
+  readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation;
+    controlProtection: ProtectedMetadataPreparation }>;
   readonly protectedMetadata?: Readonly<{ database: FlarexMetadataDatabase;
     token: ProtectedMetadataPreparation }>;
   readonly physicalLocator?: SplitScopePhysicalLocator;
@@ -400,6 +403,7 @@ export function createApplicationNativeMutationPostgresFixture(
       createPostgresLocatedPointMutationSessionActivationTargetV1(
         persistence.target,
         locator,
+        options.managedInstallation === undefined ? {} : { managedInstallation: options.managedInstallation },
       ),
     locateEpoch: locator =>
       createPostgresLocatedScopeAuthorizationEpochTarget(

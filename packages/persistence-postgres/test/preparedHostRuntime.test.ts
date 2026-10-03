@@ -20,6 +20,28 @@ const prepare = Effect.gen(function* () {
   return { metadata };
 });
 
+it("reports actual retained lease charges without spending capacity and refuses usage after close", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 128 });
+    const retained = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+      const charge = yield* captureHostPreparationCharge();
+      if (charge === undefined) return yield* Effect.die("Missing allocation");
+      return { charge };
+    }));
+    for (let read = 0; read < 100; read++) expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(0);
+    const charge = yield* retained.use(host => Effect.succeed(host.charge));
+    yield* Effect.fromResult(charge("x".repeat(32)));
+    const before = Result.getOrThrow(retained.readUsage());
+    expect(before.chargedBytes).toBeGreaterThan(32);
+    yield* Effect.fromResult(charge("second"));
+    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBeGreaterThan(before.chargedBytes);
+    expect(before.chargedBytes).toBeGreaterThan(32);
+    yield* retained.close;
+    expect(retained.readUsage()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    const replacement = yield* retainPreparedHost(runtime, prepare);
+    expect(Result.getOrThrow(replacement.readUsage()).chargedBytes).toBe(before.chargedBytes);
+  }))));
+
 it("checks the existing construction lease without spending its retained payload budget", () =>
   runEffect(Effect.scoped(Effect.gen(function* () {
     expect(yield* captureHostPreparationLifetime()).toBeUndefined();

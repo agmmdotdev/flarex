@@ -6,9 +6,9 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissionEffect } from
   "../logicalDocuments/documentAdmission";
-import { LogicalParticipantAdmissionError, type LogicalParticipantAttemptAdmission } from
+import { LogicalParticipantAdmissionError, requireLogicalParticipantReadDemandInTransactionEffect, type LogicalParticipantAttemptAdmission } from
   "../logicalDocuments/participantAdmission";
-import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction } from "../logicalDocuments/model";
+import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction, LogicalStorageReadDemand } from "../logicalDocuments/model";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import { makeCmsCommandContext } from "./context";
@@ -56,27 +56,31 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
       return yield* Effect.gen(function* () {
         const id = yield* lifetime.begin(lifetime.context);
         const readTransaction: LogicalDocumentReadTransaction<CmsTransactionError> =
-          <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-            checkedRead(work).pipe(Effect.mapError(projectCheckedReadFailure));
+          <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
+            checkedRead(work, demand).pipe(Effect.mapError(projectCheckedReadFailure));
         const requireAdmission = input.rootEvaluator === undefined
           ? checkedRead(() => Effect.void).pipe(Effect.mapError(projectSourceFailure))
           : localRootGate;
         const working = yield* makeLogicalDocumentWorkingSet({
           readTransaction,
+          ...(input.rootEvaluator === undefined ? {} : { readReadiness: { kind: "finiteQueryRequired" as const,
+            mechanics: state.writeMechanics, requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) =>
+              requireLogicalParticipantReadDemandInTransactionEffect(input.admission, input.attempt, input.method, tx, demand)
+                .pipe(Effect.mapError(projectCheckedReadFailure)) } }),
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
           ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
               rootAttemptFence: input.rootAttemptFence }),
           lifetime, requireAdmission,
-          tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName })),
+          tables: state.writeMechanics.tables, searchDefinitions: state.writeMechanics.searchDefinitions,
           limits: { pageRows: cmsLimits.pageRows, identities: cmsLimits.identities,
             documentBytes: cmsLimits.documentBytes },
           error: cmsError,
           uniqueConflict: uniqueConstraint => new CmsTransactionError({ reason: "uniqueConflict", uniqueConstraint }),
           validateDocument: write => Effect.fromResult(state.validate(write).pipe(Result.mapError(cause =>
             cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
-        }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
-          state.indexes.filter(index => index.access.kind === "developer"), undefined, constructionTx);
+        }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.writeMechanics.unique,
+          state.writeMechanics.indexes, undefined, constructionTx);
         return Object.freeze({ lifetime, id, working });
       });
     }), (_state, _checkedRead, { lifetime, id, working }) => Effect.sync(() => {

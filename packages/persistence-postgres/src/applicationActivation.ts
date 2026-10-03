@@ -1,3 +1,4 @@
+import type { SessionJournalAttempt } from "./sessionJournalStore";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -43,6 +44,7 @@ import {
   readCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedApplicationActiveHead,
+  readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
   releaseCheckedApplicationActiveHead,
   type ApplicationActiveHeadStateError,
   type CheckedApplicationActiveHead,
@@ -519,6 +521,82 @@ const acceptedBindings = new WeakMap<object, Readonly<{
   checkedActive: CheckedApplicationActiveHead | undefined;
   readiness: PreparedApplicationRelationActiveRead | undefined;
 }>>();
+
+declare const finiteBindingCorrelationBrand: unique symbol;
+/** Issued only from the live full-entry observation. This cannot stand in for
+ * entry/final readiness and is bound to the source owner's exact attempt. */
+export interface FiniteApplicationBindingCorrelation {
+  readonly [finiteBindingCorrelationBrand]: true;
+}
+const finiteBindingCorrelations = new WeakMap<FiniteApplicationBindingCorrelation, Readonly<{
+  selection: ApplicationBindingInput;
+  root: SessionJournalAttempt;
+  validated: ApplicationExecutableActiveSelection;
+  target: Result.Result.Success<ReturnType<typeof readApplicationBindingTargetProtection>>;
+}>>();
+
+/** The outer owner installs this token only after complete entry acceptance
+ * succeeds. Its live accepted handle cannot be replayed after callback close. */
+export function captureFiniteApplicationBindingCorrelation(binding: AcceptedApplicationBinding,
+  selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord, root: SessionJournalAttempt) {
+  return Result.gen(function* () {
+    yield* requireAcceptedApplicationBindingObservation(binding, selection, tx, clock);
+    const accepted = acceptedBindings.get(binding);
+    if (accepted === undefined) return yield* Result.fail(activationError("validateSelection", "invalidComposition"));
+    const target = yield* readApplicationBindingTargetProtection(selection);
+    // Full entry already detached this private immutable basis. A correlation
+    // is bounded by the source owner's per-root admission count; repeated
+    // attempts must not consume retained-host capacity for the same graph.
+    const validated = accepted.validated;
+    // SAFETY: the issuer retains exact root/selection identity and detached
+    // immutable basis; the empty carrier conveys no caller-authored evidence.
+    const token = Object.freeze({}) as FiniteApplicationBindingCorrelation;
+    finiteBindingCorrelations.set(token, Object.freeze({ selection, root, validated, target }));
+    return token;
+  });
+}
+
+/** Fresh Application correlation for one demanded finite storage frontier.
+ * Full-entry/final consumers continue through their complete readiness owner. */
+export const withFiniteApplicationBindingCorrelationInTransaction = Effect.fn(
+  "ApplicationActivation.withFiniteBindingCorrelation",
+)(function* <Value, Failure, Requirements>(token: FiniteApplicationBindingCorrelation,
+  selection: ApplicationBindingInput, root: SessionJournalAttempt, tx: AppRowTransaction, clock: ScopeClockRecord,
+  work: (validated: ApplicationExecutableActiveSelection, checked: CheckedApplicationActiveHead) =>
+    Effect.Effect<Value, Failure, Requirements>) {
+  const state = finiteBindingCorrelations.get(token);
+  if (state === undefined || state.selection !== selection || state.root !== root)
+    return yield* activationFailure("validateSelection", "invalidComposition");
+  const basis = state.validated.basis;
+  yield* Effect.fromResult(readApplicationBindingTargetProtection(selection));
+  if (!clockMatches(basis.authority, clock))
+    return yield* activationFailure("validateSelection", "scopeAuthority", basis.revisionId);
+  const protection = state.target.protection;
+  if (protection !== undefined) yield* authenticateProtectedTargetMetadataSnapshot(protection, tx).pipe(
+    Effect.mapError(cause => activationError("validateSelection", "resourceFailure", basis.revisionId, false, cause)));
+  let checked: CheckedApplicationActiveHead | undefined;
+  return yield* Effect.gen(function* () {
+    const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock,
+      issued => { checked = issued; }, bindingHeadPreparations.get(selection));
+    if (observed === null || !(state.validated.kind === "legacy"
+      ? headMatchesBasis(observed.active.head, state.validated.basis)
+      : relationHeadMatchesBasis(observed.active.head, state.validated.basis)))
+      return yield* activationFailure("validateSelection", "concurrentHead", basis.revisionId);
+    const schema = yield* readCheckedApplicationSchemaForHeadForShareInTransactionEffect(observed.checked, tx, clock);
+    if (schema === "refresh" || schema.deploymentId !== basis.deploymentId || schema.revisionId !== basis.revisionId ||
+      schema.schemaVersionId !== basis.schemaVersionId || schema.schemaManifestSha256 !== encodeBytesToLowercaseHex(basis.schemaManifestSha256))
+      return yield* activationFailure("validateSelection", "concurrentHead", basis.revisionId);
+    const validated = state.validated.kind === "legacy"
+      ? Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(state.validated.basis) })
+      : Object.freeze({ kind: "relation" as const, basis: copyRelationSelectionBasis(state.validated.basis) });
+    const value = yield* Effect.suspend(() => work(validated, observed.checked));
+    if (protection !== undefined) yield* (hasProtectedMetadataFinalGuardScope(tx)
+      ? registerProtectedMetadataFinalGuard(tx, protection.token, protection.database, protection.epoch)
+      : guardProtectedMetadataEpoch(protection.token, protection.database, protection.epoch, tx)).pipe(
+      Effect.mapError(cause => activationError("validateSelection", "resourceFailure", basis.revisionId, false, cause)));
+    return value;
+  }).pipe(Effect.ensuring(Effect.sync(() => releaseCheckedApplicationActiveHead(checked))));
+});
 
 export const withAcceptedApplicationBinding = Effect.fn("ApplicationActivation.withAcceptedBinding")(
   function* <A, E, R>(input: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord,

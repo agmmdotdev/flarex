@@ -293,6 +293,55 @@ workflow steps; standalone and durable-operation construction retain their named
 full-admission profiles. This amendment grants no new issuer, certificate,
 maintenance authority, settlement capability or durable format.
 
+The [selected query-required mixed-read replacement](../roadmaps/mixed-mutation-core/20-query-required-read-execution-preflight.md)
+supersedes source-complete intermediate readiness and full structural attestation
+for the named private finite graph. Implementation and acceptance are in progress;
+this is not a performance or deployment claim. Full authenticated root entry,
+aggregate seal and publication retain complete source and mutation obligations.
+Standalone and ordinary durable-operation profiles retain their distinct contracts.
+
+The trusted working-set compiler captures the actual initial storage demand before
+opening its checked frontier. The issued participant/source admission authenticates
+that demand against its prepared catalog, exact root, source/schema, method,
+snapshot, fence and lifetime. A caller table list or digest grants no proof.
+Required row, ordered, unique, search and dynamically discovered relation paths
+are checked before their data is consumed. A rowless transaction-clock demand
+requires fresh authority and source pins without inventing a row dependency.
+Missing finite demand fails closed. The source-complete branch remains only for
+named retained full-profile callers, not as a fallback for selected finite reads.
+
+Finite working sets retain writable catalog mechanics and all write/reference/
+delete constraints. Reusable demand checking is separate from standalone-only
+read mechanics and their read-lifetime guard. Unused same-source readiness damage
+may allow a tentative scalar read after full entry; a demanded path still refuses
+before use, and full final proof refuses durability. Query selection never grants
+full admission. Fresh exact-running authority, post-lock time, revocation,
+placement, snapshot retention and protected metadata tails remain mandatory.
+Local capability/lifetime/budget refusal precedes foreign input capture outside
+SQL; body or tail failure latches the first root refusal even when native code
+catches it. No SQL spans native callbacks, hooks or untrusted execution.
+
+The existing installation lifecycle may supply finite structural integrity through
+an issued target/control installation preparation. Each accepting transaction
+acquires the exact installed namespaces in stable order before scope/head locks,
+authenticates the actual restricted target credential and its control-read grant,
+database/namespace identity, incarnation, structural generation and active state,
+and retains the installation admission through its protected tail. Metadata epochs
+remain invalidation fences, not independent integrity authority. Managed finite
+coverage must include entry, storage, final and recovery users of the structures;
+maintenance, reconnect, restore and predecessor-drain proofs remain completion
+gates. This reuses the installed maintenance owner and creates no joint control/
+target snapshot or cached live verdict.
+
+Pending hydration uses exact captured point identities or, where exclusion cannot
+be proved, the actual queried table's bounded seed set. Original snapshot evidence
+and pending values jointly determine membership. Required historical identities
+are batched while retaining ordered observation, original-witness validation and
+resource charging. Root-owned table membership accelerates seed selection without
+creating another pending-value authority. Full catalog preparation remains bounded
+and separately charged, including complete-request and miss costs; warm selected
+proof and incremental retention must not scale with unrelated source definitions.
+
 The [delivered aggregate-entry slice](../roadmaps/mixed-mutation-core/19-aggregate-entry-preflight.md)
 connects the existing private `finiteRoot` profile to one preparatory target
 capture and one accepting transaction for atomic session creation and complete

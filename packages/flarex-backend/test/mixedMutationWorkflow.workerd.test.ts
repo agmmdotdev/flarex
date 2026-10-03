@@ -45,7 +45,7 @@ const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),
   result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) });
 
 describe.each(drivers)("finite native Product launch workflow in one Worker attempt on %s", driver => {
-  it("constructs a tentative workflow after Pricing readiness loss and refuses the first Product child database read", async () => {
+  it("keeps Product child reads available after Pricing readiness loss and refuses complete workflow acceptance", async () => {
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
     let changed = false;
     let dataStatements = 0;
@@ -85,7 +85,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       await expect(fixture.runWorkerd()).rejects.toBeDefined();
       expect(changed).toBe(true);
       expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
-      expect(dataStatements).toBe(0);
+      expect(dataStatements).toBeGreaterThan(0);
       expect(await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
       await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null))).rejects.toBeDefined();

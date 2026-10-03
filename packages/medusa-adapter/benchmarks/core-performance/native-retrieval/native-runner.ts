@@ -166,9 +166,10 @@ class ModuleTestRunner<TService extends object = Record<string, unknown>> {
     this.MikroOrmWrapper = MikroOrmWrapper
     this.moduleModels = models
 
+    const definition = ModulesDefinition[this.moduleName]
     this.modulesConfig = {
       [this.moduleName]: {
-        definition: ModulesDefinition[this.moduleName],
+        ...(definition === undefined ? {} : { definition }),
         ...(this.resolve === undefined ? {} : { resolve: this.resolve }),
         ...(this.moduleDependencies === undefined ? {} : { dependencies: this.moduleDependencies }),
         options: this.persistenceAdapter.getModuleOptions(

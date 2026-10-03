@@ -31,6 +31,36 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("limits matched finite retrieval to named inventoried controls and the pinned runner", () => {
+    const scenario = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts";
+    const test = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts";
+    const config = "packages/medusa-adapter/vitest.mixed-native-read.config.ts";
+    const runner = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/native-runner.ts";
+    const promotion = { ...nativeControlPromotion, files: [...nativeControlPromotion.files,
+      ...[scenario, test, config].map(target => ({ target, targetSha256: "pinned", classification: "authored" })),
+      { target: runner, targetSha256: "pinned", classification: "testHarnessPort",
+        source: "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts", sourceSha256: "pinned" }] };
+    /** @param {string} relativePath @param {string} text
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (relativePath, text, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected, rootSources: [{ relativePath, text }],
+    }).errors;
+    const native = `import type Native from ${JSON.stringify(nativeControlImports[0])};`;
+    const adapter = `import { adapter } from ${JSON.stringify(nativeControlImports[1])};`;
+    const resolve = 'moduleIntegrationTestRunner({ resolve: fileURLToPath(new URL("../../../../../third_party/medusa/upstream/packages/modules/product", import.meta.url)) });';
+    expect(check(scenario, native).length).toBeGreaterThan(0);
+    expect(check(test, `${native}\n${adapter}\n${resolve}`)).toEqual([]);
+    expect(check(scenario, adapter).length).toBeGreaterThan(0);
+    expect(check(test, native, nativeControlPromotion).length).toBeGreaterThan(0);
+    for (const missing of [scenario, test, config, runner])
+      expect(check(test, native, { ...promotion, files: promotion.files.filter(file => file.target !== missing) }).length).toBeGreaterThan(0);
+    expect(check(test.replace("scenario.postgres", "adjacent"), native).length).toBeGreaterThan(0);
+    expect(check(test.replace("/benchmarks/core-performance/mixed-native-read/", "/src/"), native).length).toBeGreaterThan(0);
+    expect(check(test, resolve.replace("moduleIntegrationTestRunner", "anotherLoader")).length).toBeGreaterThan(0);
+    expect(check(test, resolve.replace("import.meta.url", "root")).length).toBeGreaterThan(0);
+    expect(check(test, resolve.replace("modules/product", "modules/currency")).length).toBeGreaterThan(0);
+    expect(check(scenario, 'const path = "x"; import(path);').length).toBeGreaterThan(0);
+  });
   it("inventories only the existing publication test consumers of the authored server observer", () => {
     const server = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts";
     const promotion = { ...nativeControlPromotion, files: [...nativeControlPromotion.files,
@@ -216,6 +246,50 @@ describe("Medusa source-island boundary checker", () => {
         currencyPromotion: { ...promotion, files: [] }, rootSources: [{ relativePath: edge.importer, text }] }).errors.length).toBeGreaterThan(0);
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
         rootSources: [{ relativePath: edge.importer, text: 'import "../../medusa-adapter/src/product-module";' }] }).errors.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("admits only the extracted diagnostic owner's exact erased Product result type", () => {
+    const specifier = "@flarex/medusa-adapter/internal/product-attempt";
+    const target = "packages/medusa-adapter/src/product-attempt.ts";
+    const promotion = { sourceCommit: "test", buildFiles: [], testAliases: [],
+      packages: [{ path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {},
+        exports: ["./internal/product-attempt"] }],
+      files: [{ target, targetSha256: "pinned", classification: "authored" }],
+    };
+    const importType = `import type { PrivateProductAttemptExecution } from "${specifier}";`;
+    const consumers = ["packages/flarex-backend/test/support/nativeProductOperationDiagnostics.ts",
+      "packages/flarex-backend/test/nativeProductOperationDiagnostics.test.ts"];
+    for (const relativePath of consumers) {
+      const check = (text, currencyPromotion = promotion) => analyzeMedusaSourceIslandBoundary({
+        ...emptyInput, currencyPromotion, rootSources: [{ relativePath, text }],
+      }).errors;
+      expect(check(importType)).toEqual([]);
+      expect(check(`import type {\n PrivateProductAttemptExecution\n } from '${specifier}';`)).toEqual([]);
+      for (const forbidden of [
+        `import { PrivateProductAttemptExecution } from "${specifier}";`,
+        `import { type PrivateProductAttemptExecution, executePrivateProductAttemptOperation } from "${specifier}";`,
+        `import type Product from "${specifier}";`,
+        `import type * as Product from "${specifier}";`,
+        `import type { PrivateProductAttemptExecution, PrivateProductAttemptBinding } from "${specifier}";`,
+        `import type { PrivateProductAttemptExecution as Renamed } from "${specifier}";`,
+        `export type { PrivateProductAttemptExecution } from "${specifier}";`,
+        `require("${specifier}");`, `import("${specifier}");`,
+        `/** @type {import("${specifier}").PrivateProductAttemptExecution} */ let product;`,
+      ]) {
+        expect(check(forbidden).length).toBeGreaterThan(0);
+        // A valid erased import must not suppress another source position on
+        // the same line through the preprocessing duplicate filter.
+        expect(check(`${importType} ${forbidden}`).length).toBeGreaterThan(0);
+      }
+      expect(check(importType, { ...promotion, files: [] }).length).toBeGreaterThan(0);
+      expect(check(importType, { ...promotion, packages: promotion.packages.map(pkg => ({ ...pkg, exports: [] })) }).length)
+        .toBeGreaterThan(0);
+    }
+    for (const relativePath of ["packages/flarex-backend/test/support/adjacentDiagnostic.ts",
+      "packages/flarex-backend/test/adjacentDiagnostic.test.ts", "packages/flarex-backend/src/nativeProductOperationDiagnostics.ts"]) {
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+        rootSources: [{ relativePath, text: importType }] }).errors.length).toBeGreaterThan(0);
     }
   });
 

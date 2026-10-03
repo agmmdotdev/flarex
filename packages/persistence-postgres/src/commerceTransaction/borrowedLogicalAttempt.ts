@@ -9,8 +9,7 @@ import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
 import { withLogicalRelationalAttemptAdmissionEffect } from "../logicalDocuments/relationalAdmission";
-import type { LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
-import { bindPreparedLogicalRelationalRows } from "../logicalDocuments/relationalRows";
+import { requireLogicalParticipantReadDemandInTransactionEffect, type LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
 import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError } from "./model";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits } from "./resources";
@@ -53,27 +52,29 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
       closePreparedLifetime = lifetime.close;
       return yield* Effect.gen(function* () {
         const id = yield* lifetime.begin(lifetime.context);
-        for (const table of state.tables)
-          yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
         const requireAdmission = input.rootEvaluator === undefined
           ? checkedRead(() => Effect.void).pipe(Effect.mapError(projectCommerceRequestFailure))
           : localRootGate;
         const working = yield* makeLogicalDocumentWorkingSet({
-          readTransaction: work => checkedRead(work).pipe(Effect.mapError(projectCommerceRequestFailure)),
+          readTransaction: (work, demand) => checkedRead(work, demand).pipe(Effect.mapError(projectCommerceRequestFailure)),
+          ...(input.rootEvaluator === undefined ? {} : { readReadiness: { kind: "finiteQueryRequired" as const,
+            mechanics: state.writeMechanics, requireDemand: (tx: FlarexMetadataTransaction, demand: Parameters<typeof requireLogicalParticipantReadDemandInTransactionEffect>[4]) =>
+              requireLogicalParticipantReadDemandInTransactionEffect(input.admission, input.attempt, input.method, tx, demand)
+                .pipe(Effect.mapError(projectCommerceRequestFailure)) } }),
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
           ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
               rootAttemptFence: input.rootAttemptFence }),
           lifetime, requireAdmission,
-          tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition, relationalMechanics: table.mechanics })),
-          relationalCapabilities: state.schema.capabilities, searchDefinitions: state.search,
+          tables: state.writeMechanics.tables,
+          ...(state.writeMechanics.relationalCapabilities === undefined ? {} : { relationalCapabilities: state.writeMechanics.relationalCapabilities }), searchDefinitions: state.writeMechanics.searchDefinitions,
           validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
             .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))),
           error: logicalCommerceError, uniqueConflict: () => commerceError("invalidInput"),
           limits: { ...logicalCommerceWorkingSetLimits, pageRows: resources.queryRows,
             identities: resources.catalogRows },
-        }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
-          state.indexes.filter(index => index.access.kind === "developer"), undefined, constructionTx);
+        }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.writeMechanics.unique,
+          state.writeMechanics.indexes, undefined, constructionTx);
         return Object.freeze({ resources, lifetime, id, working, localRootGate });
       });
     }), (state, _checkedRead, { resources, lifetime, id, working, localRootGate }) => Effect.gen(function* () {
@@ -99,22 +100,22 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
         table: (manager, table) => working.relationalTable(manager, id, table),
         transactionTime: manager => working.readTransactionTime(manager, id),
         planSetNull: (manager, selection) => Effect.gen(function* () {
-          const source = state.tables.find(table => table.localName === selection.sourceTable);
-          const target = state.tables.find(table => table.localName === selection.targetTable);
+          const source = state.writeMechanics.tableId(selection.sourceTable);
+          const target = state.writeMechanics.tableId(selection.targetTable);
           if (source === undefined || target === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-          yield* working.planSetNull(manager, id, { sourceTableId: source.tableId, sourceColumn: selection.sourceColumn,
-            targetTableId: target.tableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
+          yield* working.planSetNull(manager, id, { sourceTableId: source, sourceColumn: selection.sourceColumn,
+            targetTableId: target, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
         }),
         planReferenceReplacement: (manager, selection) => Effect.gen(function* () {
-          const source = state.tables.find(table => table.localName === selection.sourceTable);
-          const target = state.tables.find(table => table.localName === selection.targetTable);
+          const source = state.writeMechanics.tableId(selection.sourceTable);
+          const target = state.writeMechanics.tableId(selection.targetTable);
           if (source === undefined || target === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-          yield* working.planReferenceReplacement(manager, id, { sourceTableId: source.tableId,
-            sourceColumn: selection.sourceColumn, targetTableId: target.tableId,
+          yield* working.planReferenceReplacement(manager, id, { sourceTableId: source,
+            sourceColumn: selection.sourceColumn, targetTableId: target,
             targetColumn: selection.targetColumn, targetKey: selection.targetKey, desiredKeys: selection.desiredKeys });
         }),
       }, id, lifetime.context, refuseNested, captureEvent);
-      const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
+      const names = state.tableNames;
       let consumed = false;
       const close = Effect.gen(function* () {
         if (consumed) return yield* Effect.fail(commerceError("closed"));

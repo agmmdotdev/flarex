@@ -166,6 +166,8 @@ export function createPostgresLocatedPointMutationSessionActivationTargetV1(
       [LOCATED_READ_COMMITTED_RUNNER_V1]:
         createPostgresLocatedReadCommittedTransactionRunnerV1(
           persistence.pool,
+          options.managedInstallation === undefined ? {} : { managedInstallation: {
+            installation: options.managedInstallation.installation, database: persistence.drizzle } },
         ),
     },
   );

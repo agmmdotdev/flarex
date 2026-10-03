@@ -1,3 +1,4 @@
+import type { SessionJournalAttempt } from "./sessionJournalStore";
 import type { JsonObject } from "flarex-protocol/json";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
@@ -12,6 +13,8 @@ import {
   readAcceptedApplicationBinding,
   withStandaloneApplicationBindingInTransaction,
   type PreparedStandaloneApplicationBinding,
+  withFiniteApplicationBindingCorrelationInTransaction,
+  type FiniteApplicationBindingCorrelation,
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
@@ -100,11 +103,23 @@ export const withApplicationBindingEvidenceInTransaction = Effect.fn(
   "ApplicationBindingProjection.withEvidenceInTransaction",
 )(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
   clock: ScopeClockRecord,
-  work: (evidence: ApplicationBindingEvidence) => Effect.Effect<Value, Failure, Requirements>,
+  work: (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
   borrowed?: AcceptedApplicationBinding) {
-  return yield* withValidatedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive) =>
+  return yield* withValidatedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive, accepted) =>
     projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
-      Effect.flatMap(evidence => Effect.suspend(() => work(evidence)))), borrowed);
+      Effect.flatMap(evidence => Effect.suspend(() => work(evidence, accepted)))), borrowed);
+});
+
+/** A finite read borrows the full entry's nominal correlation. The fresh
+ * head/schema observation and epoch tail remain in the Application owner. */
+export const withFiniteApplicationBindingEvidenceInTransaction = Effect.fn(
+  "ApplicationBindingProjection.withFiniteEvidence",
+)(function* <Value, Failure, Requirements>(token: FiniteApplicationBindingCorrelation,
+  selection: ApplicationBindingInput, root: SessionJournalAttempt, tx: AppRowTransaction, clock: ScopeClockRecord,
+  work: (evidence: ApplicationBindingEvidence) => Effect.Effect<Value, Failure, Requirements>) {
+  return yield* withFiniteApplicationBindingCorrelationInTransaction(token, selection, root, tx, clock,
+    (validated, checkedActive) => projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
+      Effect.flatMap(evidence => Effect.suspend(() => work(evidence)))));
 });
 
 /** Only the standalone trusted owner completes business work in this callback. */

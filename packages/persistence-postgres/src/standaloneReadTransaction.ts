@@ -7,13 +7,12 @@ import { fxSystemApplicationActiveHeads as applicationHeads } from "./applicatio
 import type { FlarexMetadataDatabase } from "./deployments";
 import { MAX_BINDING_BYTES } from "./frameworkSchema/binding/model";
 import { fxSystemDataBindingHeads as bindingHeads } from "./frameworkSchema/binding/schema";
-import { acceptCoLocatedInstallationAdmission, getCoLocatedReadInstallationReferences,
+import { acceptCoLocatedInstallationAdmission, getCoLocatedReadInstallationReferences, coLocatedInstallationGateSource,
   type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { fxSystemLogicalSourceInitializations as sourceInitializations } from "./logicalStorageInitialization";
 import { recordManagedMetadataEpochSnapshot } from "./preparedMetadataEpoch";
-import { fxControlScopes, fxControlScopeProvisioning, fxSystemScopeClocks,
-  fxSystemPreparedMetadataEpoch } from "./schema";
+import { epochFields, installedScopeFields, installedReceiptFields, installedClockFields } from "./scopeAuthorityControlRead";
 import { decodeScopeMetadataRecord } from "./scopeMetadata";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { decodeScopeAuthorityProvisioningReceipt } from "./scopeAuthorityProvisioningReceipt";
@@ -34,21 +33,6 @@ const statementDigest = makeLivePrivateSha256V1({
   nativeRejected: cause => failure("resourceFailure", cause), invalidDigestOutput: () => new Error("Invalid read statement digest"),
 });
 
-const gateJson = (alias: "first_gate" | "second_gate") => {
-  const a = sql.identifier(alias);
-  return sql`jsonb_build_object('databaseName', ${a}.database_name, 'schemaName', ${a}.schema_name,
-    'namespaceOid', ${a}.namespace_oid::text, 'incarnation', ${a}.incarnation::text,
-    'structuralGeneration', ${a}.structural_generation::text, 'login', ${a}.login,
-    'sameLogin', ${a}.same_login, 'actualDatabase', ${a}.actual_database, 'sameSchema', ${a}.same_schema)`;
-};
-const epochFields = (alias: "target_epoch" | "control_epoch") => {
-  const a = sql.identifier(alias);
-  return { databaseName: sql<string>`${a}.database_name`,
-    namespaceOid: sql`${a}.namespace_oid`.mapWith(fxSystemPreparedMetadataEpoch.namespaceOid),
-    incarnation: sql<string>`${a}.incarnation::text`,
-    generation: sql`${a}.generation`.mapWith(fxSystemPreparedMetadataEpoch.generation),
-    login: sql<string>`session_user` };
-};
 
 /** One fixed scope and two installed namespaces, without any catalog walk.
  * Current placement remains authoritative even when a route was retained. */
@@ -63,17 +47,7 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
       return yield* Effect.fail(failure("invalidAuthority"));
     const target = sql.identifier(refs.target.schemaName), control = sql.identifier(refs.control.schemaName);
     const sourceInitialization = input.sourceInitialization === undefined ? undefined : Object.freeze({ ...input.sourceInitialization });
-    const targetFirst = refs.target.schemaName < refs.control.schemaName;
-    const first = targetFirst ? refs.target : refs.control, second = targetFirst ? refs.control : refs.target;
-    const entrySource = sql`(
-      with first_gate as materialized (select * from ${first.gate} as admitted_first),
-      second_gate as materialized (select admitted_second.* from first_gate cross join lateral
-        (select * from ${second.gate} as second_source where first_gate.namespace_oid > 0 offset 0) as admitted_second)
-      select ${gateJson(targetFirst ? "first_gate" : "second_gate")} as target_installation,
-        ${gateJson(targetFirst ? "second_gate" : "first_gate")} as control_installation,
-        first_gate.namespace_oid as first_oid, second_gate.namespace_oid as second_oid
-      from first_gate cross join second_gate
-    ) as installed
+    const entrySource = sql`${coLocatedInstallationGateSource(refs)} as installed
     cross join lateral ${control}.fx_lock_read_scope_placement(${deploymentId},
       case when installed.first_oid > 0 and installed.second_oid > 0 then ${scopeId} else null end) as placement
     left join lateral (select * from ${target}.fx_system_scope_clock
@@ -95,27 +69,8 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
         targetInstallation: sql<unknown>`installed.target_installation`,
         controlInstallation: sql<unknown>`installed.control_installation`,
         safePath: sql<string>`pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', ${refs.target.schemaName}::text), true)`,
-        scope: { scopeId: sql`placement.scope_id`.mapWith(fxControlScopes.scopeId),
-          deploymentId: sql`placement.deployment_id`.mapWith(fxControlScopes.deploymentId),
-          activeSchemaVersionId: sql`placement.active_schema_version_id`.mapWith(fxControlScopes.activeSchemaVersionId),
-          isolationKind: sql`placement.isolation_kind`.mapWith(fxControlScopes.isolationKind),
-          physicalLocator: sql`placement.physical_locator_json`.mapWith(fxControlScopes.physicalLocator),
-          createdAt: sql`placement.created_at`.mapWith(fxControlScopes.createdAt) },
-        receipt: { scopeId: sql<ScopeId | null>`placement.receipt_scope_id`,
-          protocolVersion: sql`placement.receipt_protocol_version`.mapWith(fxControlScopeProvisioning.protocolVersion),
-          state: sql`placement.receipt_state`.mapWith(fxControlScopeProvisioning.state),
-          physicalLocator: sql`placement.receipt_physical_locator_json`.mapWith(fxControlScopeProvisioning.physicalLocator),
-          initialEpoch: sql`placement.receipt_initial_epoch`.mapWith(fxControlScopeProvisioning.initialEpoch),
-          reservedAt: sql`placement.receipt_reserved_at`.mapWith(fxControlScopeProvisioning.reservedAt),
-          readyAt: sql`placement.receipt_ready_at`.mapWith(fxControlScopeProvisioning.readyAt) },
-        clock: { scopeId: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.scopeId.name)}`.mapWith(fxSystemScopeClocks.scopeId),
-          storageGeneration: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.storageGeneration.name)}`.mapWith(fxSystemScopeClocks.storageGeneration),
-          storageGenerationFence: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.storageGenerationFence.name)}`.mapWith(fxSystemScopeClocks.storageGenerationFence),
-          lastCommitSeq: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.lastCommitSeq.name)}`.mapWith(fxSystemScopeClocks.lastCommitSeq),
-          oldestAvailableCommitSeq: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.oldestAvailableCommitSeq.name)}`.mapWith(fxSystemScopeClocks.oldestAvailableCommitSeq),
-          authorizationRevocationEpoch: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.authorizationRevocationEpoch.name)}`.mapWith(fxSystemScopeClocks.authorizationRevocationEpoch),
-          epoch: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.epoch.name)}`.mapWith(fxSystemScopeClocks.epoch),
-          updatedAt: sql`fx_system_scope_clock.${sql.identifier(fxSystemScopeClocks.updatedAt.name)}`.mapWith(fxSystemScopeClocks.updatedAt) },
+        scope: installedScopeFields(), receipt: installedReceiptFields(),
+        clock: installedClockFields(),
         applicationHead: { sequence: sql`fx_system_application_active_head.${sql.identifier(applicationHeads.activationSequence.name)}`.mapWith(applicationHeads.activationSequence),
           readinessContractVersion: sql`fx_system_application_active_head.${sql.identifier(applicationHeads.readinessContractVersion.name)}`.mapWith(applicationHeads.readinessContractVersion),
           revisionId: sql`fx_system_application_active_head.${sql.identifier(applicationHeads.revisionId.name)}`.mapWith(applicationHeads.revisionId),

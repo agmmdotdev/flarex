@@ -12,12 +12,17 @@ one prepared source graph and exact-transaction coverage reuse, including comple
 initial authentication and renewal. New attestation/maintenance and host
 contracts remain gated.
 
-The owner selected a foundation replacement, with roadmaps first and runtime
-work after the overlapping standalone-read and framework-organization handoff.
+The owner selected a foundation replacement. Package 1 has an incomplete
+implementation checkpoint, paused at the owner's request for design discussion
+after the committed standalone-read and framework-organization handoff.
 The earlier component sequence in [core performance](../core-performance/README.md)
 is superseded for this mixed successor by the connected packages below. Its
 measurement and proportional-validation method remains useful. Current mixed
-runtime contracts are still authoritative; this plan does not claim cutover.
+runtime contracts retain their obligations except for the explicit finite
+intermediate-read replacement in slice 20 and the accepted database design.
+The package's complete validation and performance gates remain open: its matched
+native added-latency budget fails and complete request latency regresses. The
+checkpoint does not select package 2 or change its terminal durability gate.
 
 ## Selected Foundation Replacement
 

@@ -28,6 +28,7 @@ import {
   type DataBindingSetFrame,
   type DataBindingActivationRequest,
   type DataBindingHeadFrame,
+  type DataBindingHeadToken,
   type PhysicalBindingSlot,
 } from "./model";
 import type { StrongReferenceActivationProjection } from "./strongReferenceProjection";
@@ -54,8 +55,17 @@ interface PreparedSelectedStructureState {
   readonly protection: ProtectedTargetMetadataEvidence;
   readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
   structure?: Readonly<{ candidate: StoredBindingValue<DataBindingSetFrame>;
-    activation: Effect.Success<ReturnType<typeof decodeActivationRow>> }>;
+    activation: Effect.Success<ReturnType<typeof decodeActivationRow>>;
+    projection: BindingSelectedProjection["reference"] & Readonly<{ hasPayloadContent: boolean; hasPayloadLifecycle: boolean }> }>;
 }
+/** Constant-sized correlation only. Complete candidate bodies remain private
+ * to entry/final admission and never escape through this finite observation. */
+export type BindingSelectedProjection = Readonly<{
+  head: DataBindingHeadToken;
+  reference: Pick<DataBindingSetFrame, "application" | "logicalSchema">;
+  hasPayloadContent: boolean;
+  hasPayloadLifecycle: boolean;
+}>;
 const preparedSelectedStructures = new WeakMap<object, PreparedSelectedStructureState>();
 
 /** Issued by connected source preparation, with nominal Application lineage.
@@ -371,27 +381,11 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
  * the activation inserted by the writer that supplied the newly locked head. */
 export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.readSelectedEvidence")(
   function* (tx: FlarexMetadataTransaction, location: BindingLocation, prepared?: PreparedBindingSelectedStructure) {
-    const issuedPreparation = prepared === undefined ? undefined : preparedSelectedStructures.get(prepared);
-    if (prepared !== undefined && (issuedPreparation === undefined || issuedPreparation.location.scopeId !== location.scopeId ||
-        issuedPreparation.location.storageGeneration !== location.storageGeneration))
-      return yield* Effect.fail(bindingError("storedCorruption"));
-    if (issuedPreparation !== undefined) yield* Effect.fromResult((issuedPreparation.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
-      Result.mapError(cause => bindingError("resourceFailure", cause))));
-    const preparation = hasProtectedMetadataFinalGuardScope(tx) ? issuedPreparation : undefined;
-    if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
-      preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
-      Effect.mapError(cause => bindingError("resourceFailure", cause)));
-    const snapshot = preparation === undefined ? undefined :
-      readStandaloneReadSnapshot(tx, preparation.protection.database, location.scopeId);
-    const selectedHead = snapshot === undefined ? yield* readBindingHeadRecord(tx, location, "share") :
-      snapshot.bindingHead === null ? Option.none() : Option.some(yield* restoreBindingHeadRecord(snapshot.bindingHead, location));
+    const { selectedHead, preparation } = yield* readSelectedBindingHead(tx, location, prepared);
     if (Option.isNone(selectedHead)) return Option.none();
     const head = selectedHead.value;
     const retained = preparation?.structure;
-    if (retained !== undefined && retained.activation.frame.request.scopeId === head.frame.scopeId &&
-      retained.activation.frame.request.storageGeneration === head.frame.storageGeneration &&
-      retained.activation.frame.sequence === head.frame.sequence && retained.activation.sha256 === head.frame.activationSha256 &&
-      retained.candidate.sha256 === head.frame.candidateSha256) {
+    if (retained !== undefined && retainedStructureMatchesHead(retained, head)) {
       yield* decodeActiveReferenceProjection(retained.activation, head);
       return Option.some(Object.freeze({ head, candidate: structuredClone(retained.candidate) }));
     }
@@ -433,13 +427,78 @@ export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.read
         Effect.mapError(cause => bindingError("resourceFailure", cause)));
       yield* Effect.suspend(() => {
         if (preparation.structure !== undefined) return Effect.void;
-        const structure = structuredClone({ candidate: restored, activation });
+        const structure = structuredClone({ candidate: restored, activation,
+          projection: selectedProjectionReference(restored.frame) });
         return Effect.fromResult((preparation.lifetime?.charge(structure) ?? Result.succeed(undefined)).pipe(
           Result.mapError(cause => bindingError("resourceFailure", cause)),
           Result.map(() => { preparation.structure = structure; })));
       });
     }
     return Option.some(Object.freeze({ head, candidate: restored }));
+  },
+);
+
+const readSelectedBindingHead = Effect.fn("DataBindingRepository.readSelectedHead")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation, prepared?: PreparedBindingSelectedStructure) {
+    const issuedPreparation = prepared === undefined ? undefined : preparedSelectedStructures.get(prepared);
+    if (prepared !== undefined && (issuedPreparation === undefined || issuedPreparation.location.scopeId !== location.scopeId ||
+        issuedPreparation.location.storageGeneration !== location.storageGeneration))
+      return yield* Effect.fail(bindingError("storedCorruption"));
+    if (issuedPreparation !== undefined) yield* Effect.fromResult((issuedPreparation.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+      Result.mapError(cause => bindingError("resourceFailure", cause))));
+    const preparation = hasProtectedMetadataFinalGuardScope(tx) ? issuedPreparation : undefined;
+    if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
+      preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
+      Effect.mapError(cause => bindingError("resourceFailure", cause)));
+    const snapshot = preparation === undefined ? undefined :
+      readStandaloneReadSnapshot(tx, preparation.protection.database, location.scopeId);
+    const selectedHead = snapshot === undefined ? yield* readBindingHeadRecord(tx, location, "share") :
+      snapshot.bindingHead === null ? Option.none() : Option.some(yield* restoreBindingHeadRecord(snapshot.bindingHead, location));
+    return { selectedHead, preparation };
+  },
+);
+
+function retainedStructureMatchesHead(retained: NonNullable<PreparedSelectedStructureState["structure"]>,
+  head: StoredBindingValue<DataBindingHeadFrame>): boolean {
+  return retained.activation.frame.request.scopeId === head.frame.scopeId &&
+    retained.activation.frame.request.storageGeneration === head.frame.storageGeneration &&
+    retained.activation.frame.sequence === head.frame.sequence && retained.activation.sha256 === head.frame.activationSha256 &&
+    retained.candidate.sha256 === head.frame.candidateSha256;
+}
+
+function selectedProjectionReference(frame: DataBindingSetFrame) {
+  return structuredClone({ application: frame.application, logicalSchema: frame.logicalSchema,
+    hasPayloadContent: frame.payloadContent !== null, hasPayloadLifecycle: frame.payloadLifecycle !== null });
+}
+
+/** Managed finite callers require complete entry to have filled this issued,
+ * bounded preparation. A missing preparation never chooses another engine. */
+export const readBindingSelectedProjection = Effect.fn("DataBindingRepository.readSelectedProjection")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation, prepared: PreparedBindingSelectedStructure) {
+    const issued = preparedSelectedStructures.get(prepared);
+    if (issued === undefined || issued.lifetime === undefined || issued.structure === undefined ||
+      !hasProtectedMetadataFinalGuardScope(tx)) return yield* Effect.fail(bindingError("storedCorruption"));
+    const { selectedHead, preparation } = yield* readSelectedBindingHead(tx, location, prepared);
+    if (Option.isNone(selectedHead)) return Option.none();
+    const head = selectedHead.value;
+    if (preparation !== issued || !retainedStructureMatchesHead(issued.structure, head))
+      return yield* Effect.fail(bindingError("storedCorruption"));
+    const { hasPayloadContent, hasPayloadLifecycle, ...reference } = structuredClone(issued.structure.projection);
+    return Option.some(Object.freeze({ head: Object.freeze({ sequence: head.frame.sequence, sha256: head.sha256 }),
+      reference: Object.freeze(reference), hasPayloadContent, hasPayloadLifecycle }));
+  },
+);
+
+/** Explicit no-role test/control profile: without protected immutable metadata,
+ * complete stored evidence must authenticate before returning its projection. */
+export const readUnprotectedBindingSelectedProjection = Effect.fn("DataBindingRepository.readUnprotectedSelectedProjection")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation) {
+    const selected = yield* readBindingSelectedEvidence(tx, location);
+    return Option.map(selected, ({ candidate, head }) => {
+      const { hasPayloadContent, hasPayloadLifecycle, ...reference } = selectedProjectionReference(candidate.frame);
+      return Object.freeze({ head: Object.freeze({ sequence: head.frame.sequence, sha256: head.sha256 }),
+        reference: Object.freeze(reference), hasPayloadContent, hasPayloadLifecycle });
+    });
   },
 );
 

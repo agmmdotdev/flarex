@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { Effect, Scheduler, Tracer } from "effect";
 import { expect, vi } from "vitest";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { prepareLogicalSourceEvidence, withSharedLogicalSourceReadBindingChecks } from "../src/logicalDocuments/sourceAdmission";
+import { prepareLogicalSourceEvidence } from "../src/logicalDocuments/sourceAdmission";
 import { prepareLogicalStorageReadiness } from "../src/logicalStorageReadiness";
 import * as preparation from "../src/preparedHostRuntime";
 import { runEffectTransaction } from "../src/effectTransaction";
@@ -65,13 +65,30 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       }));
       const retained = yield* construct();
       const selected = yield* retained.use(Effect.succeed);
+      // A request-owned catalog does not supply a retained allocation. The
+      // demand closure must charge the actual source-construction lease.
+      const requestCatalog = yield* prepareLogicalStorageReadiness(ports, fixture.uniqueConstraintEligibility, input);
+      if (requestCatalog.status !== "prepared") return yield* Effect.die("Missing real request catalog");
+      const demandRuntime = yield* preparation.makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 64 });
+      let demandEscaped = false;
+      const rejectedDemand = yield* Effect.result(preparation.retainPreparedHost(demandRuntime, Effect.gen(function* () {
+        const inspect = yield* requestCatalog.prepareSourceDemand(source.sourceKey, selected.unique);
+        demandEscaped = true;
+        return { inspect };
+      })));
+      expect(rejectedDemand).toMatchObject({ _tag: "Failure", failure: { reason: "capacityExceeded" } });
+      expect(demandEscaped).toBe(false);
+      const replacement = yield* preparation.retainPreparedHost(demandRuntime, Effect.succeed({ available: true }));
+      expect(yield* replacement.use(host => Effect.succeed(host.available))).toBe(true);
+      yield* replacement.close;
+      // The named request profile has no allocation to invent or borrow.
+      expect(typeof (yield* requestCatalog.prepareSourceDemand(source.sourceKey, selected.unique))).toBe("function");
       let entered = 0;
-      const read = (union = false, supplied = selected) => runEffectTransaction(work => target.drizzle.transaction(work),
+      const read = (supplied = selected) => runEffectTransaction(work => target.drizzle.transaction(work),
         "Selected source read witness", (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
           const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId);
-          const work = () => supplied.withReadBinding(active.selection, tx, resolved.authority, clock,
+          return yield* supplied.withTransactionReadBinding(active.selection, tx, resolved.authority, clock,
             () => Effect.sync(() => { entered++; }));
-          return yield* (union ? withSharedLogicalSourceReadBindingChecks(tx, [source.sourceKey, "application"], work) : work());
         }).pipe(Effect.provideService(Tracer.Tracer, tracer),
           Effect.provideService(Scheduler.MaxOpsBeforeYield, 8)), cause => new Error("Selected source witness transaction", { cause }));
       const count = (name: string) => spans.filter(span => span === name).length;
@@ -90,11 +107,6 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       expect(count("LogicalStorageReadiness.inspectIndexes")).toBe(4);
       expect(count("IndexBuildState.readCoverageTableFrontiers")).toBe(0);
       expect(count("AppRows.readTableWriteFrontiers")).toBe(4);
-      yield* read(true);
-      yield* read(true);
-      expect(count("LogicalStorageReadiness.selectSources")).toBe(firstCompilations + 2);
-      expect(retainedSelections).toBe(1);
-
       const nativeIndex = selected.indexes[0];
       if (nativeIndex === undefined) return yield* Effect.die("Missing selected native index");
       const lifecycle = (value: "enabled" | "validating") => runDrizzleStatementEffect(
@@ -104,15 +116,15 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
         cause => new Error("Selected index lifecycle witness", { cause }));
       yield* Effect.acquireUseRelease(lifecycle("validating"), () => Effect.gen(function* () {
         expect(yield* Effect.result(read())).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
-        expect(entered).toBe(6);
-        expect(count("LogicalStorageReadiness.selectSources")).toBe(firstCompilations + 2);
-        expect(count("LogicalStorageReadiness.inspectSelected")).toBe(7);
+        expect(entered).toBe(4);
+        expect(count("LogicalStorageReadiness.selectSources")).toBe(firstCompilations);
+        expect(count("LogicalStorageReadiness.inspectSelected")).toBe(5);
       }), () => lifecycle("enabled"));
       yield* read();
-      expect(entered).toBe(7);
+      expect(entered).toBe(5);
       yield* retained.close;
       expect(yield* Effect.result(read())).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
-      expect(entered).toBe(7);
+      expect(entered).toBe(5);
       expect(retainedSelections).toBe(1);
 
       const failedLease = yield* construct();
@@ -121,7 +133,7 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       const failRead = () => runEffectTransaction(work => target.drizzle.transaction(work), "Rejected selected charge",
         (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
           const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId);
-          return yield* failedSource.withReadBinding(active.selection, tx, resolved.authority, clock,
+          return yield* failedSource.withTransactionReadBinding(active.selection, tx, resolved.authority, clock,
             () => Effect.die("Rejected allocation must not enter"));
         }).pipe(Effect.provideService(Tracer.Tracer, tracer)), cause => new Error("Rejected selected charge transaction", { cause }));
       expect(yield* Effect.result(failRead())).toMatchObject({ _tag: "Failure", failure: { reason: "invalidPayload" } });
@@ -135,12 +147,12 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       const freshSource = yield* freshLease.use(Effect.succeed);
       // Independent concurrent first transactions may compile once or twice,
       // but can charge and retain only one successful descriptor.
-      yield* Effect.all([read(false, freshSource), read(false, freshSource)], { concurrency: 2 });
+      yield* Effect.all([read(freshSource), read(freshSource)], { concurrency: 2 });
       expect(retainedSelections).toBe(3);
       const concurrentCompilations = count("LogicalStorageReadiness.selectSources") - failedCompilations;
       expect(concurrentCompilations).toBeGreaterThanOrEqual(1);
       expect(concurrentCompilations).toBeLessThanOrEqual(2);
-      yield* read(false, freshSource);
+      yield* read(freshSource);
       expect(count("LogicalStorageReadiness.selectSources")).toBe(failedCompilations + concurrentCompilations);
       expect(retainedSelections).toBe(3);
       yield* freshLease.close;

@@ -3,6 +3,7 @@ import { inspect } from "node:util";
 import { sql } from "drizzle-orm";
 import { Miniflare } from "miniflare";
 import { Deferred, Effect, Exit, Fiber, Result, Schema, Scope } from "effect";
+import type { makeNativeProductOperationDiagnostics } from "./nativeProductOperationDiagnostics";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from
   "@flarex/persistence-postgres/internal/commerce-values";
 import { CommitEnvelopeV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSuccessfulResultV1Effect,
@@ -56,6 +57,9 @@ import { makePostgresRelationalSession } from
   "../../../persistence-postgres/src/relationalTransaction/session";
 import { preparedHostTestRuntime } from
   "../../../persistence-postgres/test/preparedHostRuntimeTestSupport";
+import { retainPreparedHost, type PreparedHostRuntimeError } from "../../../persistence-postgres/src/preparedHostRuntime";
+import type { LogicalReadMetadataScale } from
+  "../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from
   "../../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from
@@ -174,6 +178,9 @@ export interface MixedMutationProductFixtureHooks {
     rootEvaluator: Parameters<typeof makeBorrowedLogicalAttempt>[0]["rootEvaluator"]) =>
     Effect.Effect<void, CommerceTransactionError>;
   readonly afterNativeBeforeAck?: (method: string, result: Json) => Effect.Effect<void, CommerceTransactionError>;
+  /** Test-only observation of the complete existing operation. Its Exit is
+   * forwarded unchanged, including defects and interruption. */
+  readonly onNativeOperationExit?: ReturnType<typeof makeNativeProductOperationDiagnostics>;
   readonly beforeProductClose?: (method: string, borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>) =>
     Effect.Effect<void, CommerceTransactionError>;
   readonly afterPayloadBeforeAck?: (method: string, result: Json) => Effect.Effect<void, CmsTransactionError>;
@@ -322,6 +329,7 @@ export interface MixedMutationProductFixture {
 
 type MixedMutationProductFixtureInput = Readonly<{
   driver: "pglite" | "postgres"; suffix: string; hooks?: MixedMutationProductFixtureHooks;
+  readMetadataScale?: LogicalReadMetadataScale;
 }> & (Readonly<{ workflow: true; payloadProfile: MixedPayloadProfileKind;
   workflowIds?: Readonly<{ variantId: string; priceSetId: string }> }> |
 Readonly<{ workflow?: never; workflowIds?: never; payloadProfile?: MixedPayloadProfileKind }>) &
@@ -339,6 +347,8 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     input.resource === undefined
       ? { includeProduct: true,
         protectedRuntime: input.driver === "postgres",
+        ...(input.driver === "postgres" ? { managedRead: true as const } : {}),
+        ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }),
         ...(input.workflow === true ? { includeProductLaunch: true } : {}),
         ...(input.workflow === true ? { includePricing: true,
           includeVariantPricingLink: true } : {}),
@@ -347,6 +357,8 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         { fixtureIdentity: input.fixtureIdentity }) }
       : { includeProduct: true, resource: input.resource, fixtureIdentity: input.fixtureIdentity,
         protectedRuntime: input.driver === "postgres",
+        ...(input.driver === "postgres" ? { managedRead: true as const } : {}),
+        ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }),
         ...(input.workflow === true ? { includeProductLaunch: true } : {}),
         ...(input.workflow === true ? { includePricing: true,
           includeVariantPricingLink: true } : {}),
@@ -389,32 +401,31 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   });
   const sourceLocation = Object.freeze({ deploymentId: currency.deploymentId,
     scopeId: application.authority.scopeId, schemaVersionId: logicalSchemaVersionId });
-  const sourceCatalog = await Effect.runPromise(prepareLogicalStorageReadiness(sourcePorts,
-    application.uniqueConstraintEligibility, sourceLocation));
-  if (sourceCatalog.status !== "prepared") throw new Error("Logical source catalog is not ready");
-  const sourceConstruction = Object.freeze({ kind: "prepared" as const, catalog: sourceCatalog });
-  const prepared = await Effect.runPromise(prepareLogicalRelationalAdmission(sourcePorts,
-    application.uniqueConstraintEligibility, { deploymentId: currency.deploymentId,
-    scopeId: application.authority.scopeId, schemaVersionId: logicalSchemaVersionId },
-  product.hostInput.logicalStorage.source, sourceConstruction));
   const selectedPayload = input.payloadProfile === undefined ? undefined : mixedPayloadProfiles[input.payloadProfile];
   const payloadProfileRevision = selectedPayload === undefined ? undefined :
     createHash("sha256").update(
       `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}`).digest("hex");
   const compiledPayload = selectedPayload === undefined ? undefined :
     await Effect.runPromise(compilePayloadCollections(mixedPayloadPostsCollections()));
-  const payloadPrepared = compiledPayload === undefined ? undefined : await Effect.runPromise(
-    prepareLogicalDocumentSourceAdmission(sourcePorts, application.uniqueConstraintEligibility,
-    { deploymentId: currency.deploymentId, scopeId: application.authority.scopeId,
-      schemaVersionId: logicalSchemaVersionId }, compiledPayload.sourceContract, sourceConstruction));
-  const binding = await Effect.runPromise(preparePrivateProductAttempt());
   const revision = createHash("sha256").update("mixed-product-workerd-events").digest("hex");
-  const eventPolicy = await Effect.runPromise(preparePrivateProductAttemptEventPolicy(binding, {
+  const sourceGraph = await Effect.runPromise(retainPreparedHost(preparedHostTestRuntime(currency.persistence.drizzle),
+    Effect.gen(function* () {
+  const sourceCatalog = yield* prepareLogicalStorageReadiness(sourcePorts,
+    application.uniqueConstraintEligibility, sourceLocation);
+  if (sourceCatalog.status !== "prepared") throw new Error("Logical source catalog is not ready");
+  const sourceConstruction = Object.freeze({ kind: "prepared" as const, catalog: sourceCatalog });
+  const prepared = yield* prepareLogicalRelationalAdmission(sourcePorts,
+    application.uniqueConstraintEligibility, sourceLocation, product.hostInput.logicalStorage.source, sourceConstruction);
+  const payloadPrepared = compiledPayload === undefined ? undefined : yield*
+    prepareLogicalDocumentSourceAdmission(sourcePorts, application.uniqueConstraintEligibility,
+      sourceLocation, compiledPayload.sourceContract, sourceConstruction);
+  const binding = yield* preparePrivateProductAttempt();
+  const eventPolicy = yield* preparePrivateProductAttemptEventPolicy(binding, {
     producerRevision: revision, contractRevision: revision,
     subscribers: [{ id: "mixed-product-proof", revision }],
-  }));
+  });
   const workflowBinding = pricing === undefined || link === undefined ? undefined :
-    await Effect.runPromise(preparePrivateProductLaunchAttempt({
+    yield* preparePrivateProductLaunchAttempt({
       modules: {
         product: { module: product.runtime.workflow,
           logicalStorage: product.hostInput.logicalStorage },
@@ -439,8 +450,13 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         }
         return ordered;
       }),
-    }));
+    });
   const workflowSelections = workflowBinding?.sources.map(source => source.prepared) ?? [];
+  return { prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections };
+  })));
+  cleanup.push(() => Effect.runPromise(sourceGraph.close));
+  const { prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } =
+    await Effect.runPromise(sourceGraph.use(Effect.succeed));
   const store = createSessionJournalStorePersistence(application.sessionAuthority,
     { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       indexedQueries: application.indexedQueries });
@@ -456,6 +472,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     schemaVersionId, logicalSchemaVersionId, prepared,
     selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
     binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget,
+    readSourcePreparationUsage: sourceGraph.readUsage,
     provisioningMilliseconds,
     initialSeedingMilliseconds,
     preparedModuleMilliseconds: globalThis.performance.now() - preparedModuleStart - initialSeedingMilliseconds };
@@ -564,6 +581,8 @@ export interface MixedMutationPerformanceSeries {
   readonly preparedModuleMilliseconds: number;
   readonly initialSeedingMilliseconds: number;
   readonly additionalSetupSeedingMilliseconds: number;
+  readonly readSourcePreparationUsage: () => Result.Result<Readonly<{ chargedBytes: number }>,
+    PreparedHostRuntimeError>;
   readonly setTrace: (trace: MixedMutationPerformanceTrace | undefined) => void;
   readonly prepareAttempt: (index: number) => Promise<void>;
   readonly runAttempt: (index: number, publicationObservation?: PointCommitPublicationObservation,
@@ -586,15 +605,21 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
   suffix: string;
   profile: MixedMutationPerformanceProfile;
   sampleCount: number;
+  readMetadataScale?: LogicalReadMetadataScale;
+  hooks?: MixedMutationProductFixtureHooks;
+  applicationSource?: (seed: ProductSeed["seed"]) => string;
 }>): Promise<MixedMutationPerformanceSeries> {
-  if (!Number.isSafeInteger(input.sampleCount) || input.sampleCount < 1 || input.sampleCount > 30)
+  if (!Number.isSafeInteger(input.sampleCount) || input.sampleCount < 1 || input.sampleCount > 40)
     throw new Error("Invalid finite mixed performance sample count");
   const makeInput = (suffix: string): MixedMutationProductFixtureInput =>
     input.profile === "workflow"
-      ? { driver: input.driver, suffix, workflow: true, payloadProfile: "success" }
+      ? { driver: input.driver, suffix, workflow: true, payloadProfile: "success",
+        ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) }
       : input.profile === "productPayload"
-        ? { driver: input.driver, suffix, payloadProfile: "success" }
-        : { driver: input.driver, suffix };
+        ? { driver: input.driver, suffix, payloadProfile: "success",
+            ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) }
+        : { driver: input.driver, suffix,
+            ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) };
   const context = await prepareMixedMutationProductContext(makeInput(input.suffix),
     `${input.suffix}-0`);
   const seeded = new Map<number, ProductSeed>();
@@ -661,7 +686,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
       let workerConstructionMilliseconds: number | null = null;
       let sealedJournalBytes: number | null = null;
       const fixture = await runPhase("request admission", () => createMixedMutationAttemptFixture(
-        makeInput(`${input.suffix}-${index}`), context, seedGraph, false,
+        { ...makeInput(`${input.suffix}-${index}`), ...(input.hooks === undefined ? {} : { hooks: input.hooks }) }, context, seedGraph, false,
         { validatedArgsJson, onWorkerReady: milliseconds => {
           workerConstructionCount++;
           workerConstructionMilliseconds = milliseconds;
@@ -670,7 +695,8 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         ...(trace === undefined ? {} : { trace }) }));
       openFixtures.add(fixture);
       try {
-        const raw = await runPhase("Worker execution", () => fixture.runWorkerd(applicationSource));
+        const raw = await runPhase("Worker execution", () => fixture.runWorkerd(
+          input.applicationSource?.(seed) ?? applicationSource));
         if (workerConstructionMilliseconds === null) throw new Error("Missing fresh Worker readiness");
         const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
           result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
@@ -718,6 +744,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
       preparedModuleMilliseconds: context.preparedModuleMilliseconds,
       initialSeedingMilliseconds: context.initialSeedingMilliseconds,
       additionalSetupSeedingMilliseconds,
+      readSourcePreparationUsage: context.readSourcePreparationUsage,
       setTrace: (next: MixedMutationPerformanceTrace | undefined) => { trace = next; },
       prepareAttempt, runAttempt,
       close: async () => {
@@ -865,8 +892,19 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
               const beforeProductClose = input.hooks?.beforeProductClose;
               const nativeBorrowed = beforeProductClose === undefined ? borrowed : Object.freeze({ ...borrowed,
                 close: Effect.suspend(() => beforeProductClose(method, borrowed)).pipe(Effect.andThen(borrowed.close)) });
-              const completed = yield* executePrivateProductAttemptOperation(binding, nativeBorrowed, method, args,
-                eventPolicy);
+              const operation = executePrivateProductAttemptOperation(binding, nativeBorrowed, method, args, eventPolicy);
+              const observer = input.hooks?.onNativeOperationExit;
+              const observed = observer === undefined ? operation : Effect.gen(function* () {
+                const started = globalThis.performance.now();
+                const readTrace = performance?.trace;
+                // Diagnostic bridge only: runPromiseExit preserves the whole
+                // Cause, and forwards cancellation into the actual operation.
+                const exit = readTrace === undefined ? yield* Effect.exit(operation)
+                  : yield* Effect.promise(signal => readTrace.withPhase("native Product operation",
+                    () => Effect.runPromiseExit(operation, { signal })));
+                return yield* observer.observeAndReplay(method, args, exit, globalThis.performance.now() - started);
+              });
+              const completed = yield* observed;
               yield* input.hooks?.afterNativeBeforeAck?.(method, completed.result) ?? Effect.void;
               return Object.freeze({ result: completed.result, changes: completed.changes,
                 eventIntents: completed.eventIntents.map(intent => Object.freeze({

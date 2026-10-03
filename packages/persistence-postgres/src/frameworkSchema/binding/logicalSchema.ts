@@ -13,7 +13,8 @@ export type PreparedLogicalStorage = Extract<Effect.Success<ReturnType<typeof pr
 export type SelectedLogicalStorageReadiness = Effect.Success<ReturnType<PreparedLogicalStorage["selectSources"]>>;
 
 export function verifyPreparedLogicalSchemaBinding(
-  prepared: Pick<PreparedLogicalStorage, "applicationAnalysis" | "reference">, frame: DataBindingSetFrame,
+  prepared: Pick<PreparedLogicalStorage, "applicationAnalysis" | "reference">,
+  frame: Pick<DataBindingSetFrame, "application" | "logicalSchema">,
   application: Effect.Success<ReturnType<typeof readApplicationBindingEvidenceInTransaction>>,
 ) {
   if (!sameBindingValue(frame.application, application.projection) ||

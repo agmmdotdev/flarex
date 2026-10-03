@@ -16,6 +16,8 @@ import type { ApplicationDocumentObservation } from "../applicationDocumentMater
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { LogicalDocumentRootEvaluator } from "./rootEvaluator";
 import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
+import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
+import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
   | "documentMissing" | "documentInvalid" | "uniqueConflict" | "writeConflict" | "storedCorruption"
@@ -53,11 +55,13 @@ export interface LogicalDocumentWrite {
  * requireAdmission and its existing first-failure latch. */
 export type LogicalDocumentReadTransaction<Failure> = <A, E>(
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>,
+  demand?: LogicalStorageReadDemand,
 ) => Effect.Effect<A, E | Failure>;
 
 /** A trusted storage owner selects these mechanics after compiling the actual
  * query. Parameters, user projections and a method name grant no readiness. */
 export type LogicalStorageReadDemand =
+  | Readonly<{ kind: "clock" }>
   | Readonly<{ kind: "rows"; tableId: CatalogTableId }>
   | Readonly<{ kind: "index"; tableId: CatalogTableId; indexDefinitionId: CatalogIndexDefinitionId }>
   | Readonly<{ kind: "unique"; tableId: CatalogTableId; uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionId }>
@@ -75,10 +79,29 @@ export interface PreparedLogicalDocumentReadMechanics {
   readonly searchDefinitions: readonly LogicalSearchDefinition[];
 }
 
+declare const writeMechanicsBrand: unique symbol;
+/** Complete writable metadata retained by its authenticated source host. All
+ * mutable lookup maps stay private to the issuing mechanics owner. */
+export interface PreparedLogicalDocumentWriteMechanics {
+  readonly [writeMechanicsBrand]: true;
+  /** Scalar projections borrow the issuer's private lookups without exposing
+   * its maps or constructing a source catalog in each native invocation. */
+  readonly tableName: (tableId: CatalogTableId) => string | undefined;
+  readonly tableId: (logicalName: string) => CatalogTableId | undefined;
+  readonly tables: readonly LogicalDocumentTable[];
+  readonly relationalCapabilities: readonly RelationalPersistenceCapability[] | undefined;
+  readonly searchDefinitions: readonly LogicalSearchDefinition[];
+  readonly indexes: readonly LocatedAppIndexDefinitionV1[];
+  readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+}
+
 export type LogicalStorageReadReadiness<Failure> =
   | Readonly<{ kind: "full" }>
   | Readonly<{ kind: "queryRequired";
       mechanics: PreparedLogicalDocumentReadMechanics;
+      requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) => Effect.Effect<void, Failure> }>
+  | Readonly<{ kind: "finiteQueryRequired";
+      mechanics: PreparedLogicalDocumentWriteMechanics;
       requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) => Effect.Effect<void, Failure> }>;
 
 /** Immutable decoded rows from the same journal point table that serves App

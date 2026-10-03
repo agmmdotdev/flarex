@@ -43,7 +43,8 @@ describe("neutral admitted operation source bundle", () => {
       if (driver === "postgres") {
         const control = await createFileScopedPostgresFixture();
         const target = await createFileScopedPostgresFixture();
-        return { fixture: await createApplicationNativeMutationPostgresFixture(options,
+        return { fixture: await createApplicationNativeMutationPostgresFixture({ ...options,
+          physicalLocator: { kind: "database_per_scope", databaseKey: "application_native_mutation_target", schemaName: target.schemaName } },
           { control: control.persistence, target: target.persistence }),
         close: async () => { await target.dispose(); await control.dispose(); } };
       }
@@ -94,6 +95,7 @@ describe("neutral admitted operation source bundle", () => {
                 return currentHeads[index] === pinnedHead.sequence ? Effect.void :
                   Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
               },
+              verifyDemand: () => Effect.die("Durable profile must retain full source readiness"),
               sourceKey, sourceSha256: `${index + 4}`.repeat(64), head: pinnedHead,
               tableIds: new Set([decodeCatalogTableId(100 + index)]), indexes: [], unique: [],
             })),
@@ -244,6 +246,9 @@ describe("neutral admitted operation source bundle", () => {
             verifyReadBinding: () => Effect.sync(() => { pinChecks.push(index); }).pipe(
               Effect.andThen(Effect.suspend(() => rejectLaterPin && index === 1
                 ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "sourceMismatch" })) : Effect.void))),
+            verifyDemand: (_tx, _authority, _clock, demand) => demand.kind === "clock" ||
+              demand.kind === "rows" && demand.tableId === decodeCatalogTableId(100 + index) ? Effect.void :
+              Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })),
             sourceKey: `neutral.finite.${index}`, sourceSha256: `${index + 4}`.repeat(64),
             head: Object.freeze({ sequence: "1", sha256: `${index + 1}`.repeat(64) }),
             tableIds: new Set([decodeCatalogTableId(100 + index)]), indexes: [], unique: [],
@@ -282,10 +287,10 @@ describe("neutral admitted operation source bundle", () => {
       await Effect.runPromise(withLogicalParticipantAdmissionBundleEffect(finiteBundle, finiteAttempt,
         "neutral.workflow", "run", revision, ({ readTransaction }) => Effect.gen(function* () {
           expect(pinChecks).toEqual([]);
-          yield* readTransaction(() => Effect.sync(() => { dataReads++; }));
+          yield* readTransaction(() => Effect.sync(() => { dataReads++; }), { kind: "rows", tableId: decodeCatalogTableId(100) });
           expect(pinChecks).toEqual([0, 1, 2]);
           rejectLaterPin = true;
-          expect(yield* Effect.result(readTransaction(() => Effect.sync(() => { dataReads++; }))))
+          expect(yield* Effect.result(readTransaction(() => Effect.sync(() => { dataReads++; }), { kind: "rows", tableId: decodeCatalogTableId(100) })))
             .toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
           expect(pinChecks).toEqual([0, 1, 2, 0, 1]);
           expect(dataReads).toBe(1);

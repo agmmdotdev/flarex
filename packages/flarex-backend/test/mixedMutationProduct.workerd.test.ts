@@ -2,7 +2,9 @@ import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-po
 import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { and, asc, eq } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
+import { locateAppIndexDefinitionByIdEffect } from "../../persistence-postgres/src/appIndexDefinitions";
+import { selectLogicalIndex } from "../../persistence-postgres/src/logicalDocuments/query";
 import { describe, expect, it } from "vitest";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
@@ -19,7 +21,7 @@ import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
 import { fxSystemDataBindingHeads } from "../../persistence-postgres/src/frameworkSchema/binding/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
+import { commerceError, logicalCommerceError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { decodeLogicalParticipantDependencyEvidence, defineCommerceCommand } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { executePrivateProductAttemptOperation } from "../../medusa-adapter/src/product-attempt";
@@ -83,7 +85,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
       } finally { await fixture.close(); }
     }, 180_000);
 
-  it.each(["required", "unrelated"] as const)(
+  it.each(["required", "sameSourceUnused", "unrelated", "applicationUnused"] as const)(
     "checks %s readiness after Product entry before tentative reads and full seal", async changed => {
       let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
       let readChecked = false;
@@ -98,15 +100,28 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
             const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
               fixture.currency.deploymentId, fixture.logicalSchemaVersionId).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
             const source = requirements.evidence.candidate.sources.find(source => source.key ===
-              (changed === "required" ? "medusa.product" : "medusa.currency"));
+              (changed === "unrelated" ? "medusa.currency" : "medusa.product"));
             if (source === undefined) throw new Error("Missing native readiness source");
             const tableIds = new Set(source.bindings.filter(binding => binding.kind === "definition")
               .flatMap(binding => requirements.evidence.tableBindings.filter(table =>
                 logicalTableKey(table.table) === logicalTableKey(binding.table)).map(table => table.tableId)));
             const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(fixture.currency.control.drizzle,
-              { deploymentId: fixture.currency.deploymentId, schemaVersionId: fixture.logicalSchemaVersionId }).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
-            const index = snapshot?.definitions.find(definition => tableIds.has(definition.access.tableId));
-            if (index === undefined) throw new Error("Missing source readiness index");
+              { deploymentId: fixture.currency.deploymentId, schemaVersionId: changed === "applicationUnused" ?
+                fixture.schemaVersionId : fixture.logicalSchemaVersionId }).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+            const located = yield* Effect.forEach(snapshot?.definitions.filter(definition =>
+              changed === "applicationUnused" || tableIds.has(definition.access.tableId)) ?? [],
+              definition => locateAppIndexDefinitionByIdEffect(fixture.currency.control.drizzle,
+                fixture.activation.anchor.scopeId, definition.indexDefinitionId)).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+            const productTable = source.bindings.find(binding => binding.localName === "product");
+            const productTableId = productTable === undefined ? undefined : requirements.evidence.tableBindings
+              .find(table => logicalTableKey(table.table) === logicalTableKey(productTable.table))?.tableId;
+            const selected = productTableId === undefined ? Option.none() : yield* Effect.fromResult(selectLogicalIndex(
+              located.filter(index => index !== null).filter(index => index.access.kind === "developer"), productTableId,
+              { id: fixture.seed.productId }, logicalCommerceError));
+            const index = changed === "required" ? Option.isSome(selected) ? selected.value.definition : undefined :
+              located.find(index => index !== null && (changed !== "sameSourceUnused" ||
+                Option.isSome(selected) && index.access.tableId === productTableId && index.indexDefinitionId !== selected.value.definition.indexDefinitionId));
+            if (index === undefined || index === null) throw new Error("Missing source readiness index");
             yield* Effect.tryPromise({ try: async () => {
               const updated = await fixture.currency.persistence.drizzle.update(fxSystemIndexBuildStates)
                 .set({ lifecycle: "retiring", maintenanceActivationSequence: null,

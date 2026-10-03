@@ -2,6 +2,7 @@ import { Clock, Effect } from "effect";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "../applicationDocumentMaterialization/materialization";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import { isJsonObject, type JsonObject } from "flarex-protocol/json";
@@ -201,7 +202,7 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
 /** Both live call evidence and closed aggregate evidence use the same projection.
  * Neither view carries a storage or settlement capability. */
 export const projectLogicalCommerceActivity = Effect.fn("LogicalCommerce.projectActivity")(function* (
-  names: ReadonlyMap<number, string>,
+  names: Pick<ReadonlyMap<CatalogTableId, string>, "get">,
   activity: Pick<LogicalDocumentChanges, "attempts" | "lifecycle" | "observedRows" | "setNull" | "referenceReplacements">,
 ) {
   const mutations: LogicalCommerceMutation[] = [];
