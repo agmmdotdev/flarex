@@ -13,8 +13,9 @@ initial authentication and renewal. New attestation/maintenance and host
 contracts remain gated.
 
 The owner selected a foundation replacement. Package 1 has an incomplete
-implementation checkpoint, paused at the owner's request for design discussion
-after the committed standalone-read and framework-organization handoff.
+implementation checkpoint following the committed standalone-read and
+framework-organization handoff. Current corrections and performance-harness work
+remain with their owner; successor runtime work requires the handoff below.
 The earlier component sequence in [core performance](../core-performance/README.md)
 is superseded for this mixed successor by the connected packages below. Its
 measurement and proportional-validation method remains useful. Current mixed
@@ -32,6 +33,14 @@ recovery. Native Medusa services and Payload Local API behavior remain owners of
 business semantics; their Flarex storage bindings must also preserve efficient
 bounded data demands. Reusing native business code alone does not establish
 native database performance.
+
+The selected [execution checks and framework lifecycle direction](./22-execution-checks-and-framework-lifecycles-preflight.md)
+adopts Convex's logical snapshot, demanded-index dependency and ordered commit
+principles while preserving Flarex's Postgres authority and native framework
+profiles. Admission, readiness and publication keep separate purposes and
+freshness boundaries. Reducing their overhead does not require moving all hooks
+after commit, making resource locks into OCC, broadening automatic retries or
+removing durable seal. Those semantic changes need their own explicit decisions.
 
 ### Responsibility And Lifetime
 
@@ -110,13 +119,16 @@ Ordinary durable-operation checkpoints remain for their real callers.
 
 ### Implementation Ownership
 
-The active standalone read/installation and framework runtime/participant refactor
-owns overlapping persistence and adapter files. Its owner must finish the active
-slice, validate/review/commit it and provide a clean pause or explicit path handoff.
-Audit that baseline and the remaining installation obligations before package 1.
-Do not absorb its dirty draft or resume the archived failed publication experiment.
-The remaining organization, composed-query and storage backlog stays with its
-owner; whole-goal completion is not required to hand off a bounded slice.
+The local standalone read/installation and framework runtime/participant cutover
+is committed; full latency/scaling and broader capability gates remain distinct.
+The active mixed-read correction and performance-harness scope owns overlapping
+persistence, adapter and test files. Its owner must finish that scope,
+validate/review/commit it and provide a clean pause or explicit path handoff before
+successor runtime edits. Audit the handed-off baseline, remaining installation
+coverage and package 1 failures. Do not absorb dirty work or resume the archived
+failed publication experiment. Remaining organization, composed-query and storage
+backlog stays with its owner; whole-goal completion is not required for a bounded
+handoff. This documentation direction does not itself constitute that handoff.
 
 ## Outcome and current evidence
 

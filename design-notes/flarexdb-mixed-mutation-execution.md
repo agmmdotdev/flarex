@@ -336,6 +336,13 @@ APIs and additional search semantics remain separately scoped.
 
 ## Payload Hooks, Events And External Effects
 
+Hook timing follows native behavior, not its name. Payload `afterChange` runs
+before its owning operation commits and can affect the returned result. Access,
+validation, transformations and atomic related writes remain inside the admitted
+operation in native order. Medusa service event emission also does not establish
+that an outer borrowed transaction has committed. Neither callback boundary may
+be treated as a generic after-commit signal.
+
 Preserve admitted access/validation reads, hook arguments, ordering and nested
 request reuse. Database-only hooks can participate if they use the same attempt
 and satisfy its retry and trust contract. Unknown hooks cannot acquire framework
@@ -348,11 +355,21 @@ of suppressing apparent duplicates. Subscriber failure affects delivery state,
 not the successful database outcome. External delivery may require idempotent
 consumers; this proposal does not promise exactly-once remote effects.
 
+After-commit delivery must be recoverable from the committed intent. A volatile
+callback after `commit()` leaves a crash gap and is insufficient. Delivery retry
+does not rerun the committed operation; an unknown database commit must first be
+resolved through the settlement owner's retained evidence.
+
 Email, uploads, payments and arbitrary network calls require an explicit durable
 effect contract or execution outside the mutation. Converting a pre-commit effect
 into a deferred intent is an observable compatibility change that must be
 documented and tested. A feature that requires the external result before its
 next database decision generally belongs in a durable workflow.
+
+The [execution checks and framework lifecycle direction](../roadmaps/mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
+separates cheaper admission/readiness/publication mechanics from replay policy.
+It does not admit arbitrary hooks, select broad automatic framework retries or
+replace Medusa resource locks with OCC.
 
 ## Medusa Workflow Participation
 

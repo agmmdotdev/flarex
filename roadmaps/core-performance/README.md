@@ -90,6 +90,16 @@ baseline. Preserve original evidence and do not sum overlapping phase percentile
 
 ## Delivery And Remaining Scope
 
+The [execution checks and framework lifecycle direction](../mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
+connects the proved standalone mechanisms to the mixed foundation replacement.
+Admission establishes current authority, readiness follows actual query demand,
+and publication atomically records the accepted data/outcome/event intents.
+Immutable preparation can be reused only under its proved lifetime/invalidation
+contract. Framework hooks keep native semantics; external delivery follows
+confirmed commit. Lowering check overhead is independent of broadening callback
+retries or changing durable-seal recovery. Existing performance targets and the
+active owner's clean handoff remain gates, not claims achieved by this direction.
+
 Implement one connected path from installation/preparation through query-required
 acceptance to complete native output. Internal dependency steps may be developed
 and tested independently, but none closes the first slice without complete native

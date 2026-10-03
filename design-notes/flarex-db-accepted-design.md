@@ -2370,6 +2370,37 @@ sync.
 
 ## Shared Framework Transaction Ownership
 
+### Efficient Checks And Native Lifecycles
+
+The selected redesign reduces repeated proof construction while keeping each
+check's purpose and freshness explicit. Installation owns structural integrity
+and maintenance interlock; bounded preparation owns authenticated immutable
+metadata; admission owns current execution authority; readiness owns the access
+paths demanded by the actual query. Only the trusted settlement owner accepts
+final authority/OCC/constraints and atomically publishes data, history, outcomes
+and supported event intents. External delivery follows confirmed commit.
+
+Reuse does not turn cached metadata into live authorization or remove required
+read dependencies, activation/coverage checks, fencing or invalidation. Extend
+the proved managed mechanisms to named callers rather than assuming every
+profile has their coverage. Low overhead must be demonstrated with complete
+request and scaling measurements.
+
+Framework-native validation, transformations, nested writes, hook ordering,
+workflow behavior and supported resource locks remain with their adapters.
+Payload `afterChange` and Medusa service event emission are not general
+after-commit guarantees. Capture admitted durable event intents atomically;
+moving an existing hook or external effect requires its own compatibility proof.
+Cheaper checks do not broaden which callbacks may be rerun or select removal of
+durable-seal recovery. Explicit direct, mixed OCC and durable workflow profiles
+share mechanics without becoming one universal transaction contract.
+
+The [execution checks and framework lifecycle preflight](../roadmaps/mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
+owns the selected direction, source evidence, replacement inventory and handoff
+gates. Existing runtime obligations remain until their connected cutover.
+
+### Settlement And Existing Profiles
+
 Core owns physical transaction settlement, commit publication, idempotency and
 uncertain-outcome recovery for admitted Application, CMS and commerce writes.
 Framework transaction folders adapt request/service semantics to these owners;

@@ -82,14 +82,25 @@ from Convex. Before changing Application execution, inspect the checked-in Conve
 query/mutation owners and document necessary divergences in the relevant slice.
 The first slice changes trusted direct framework construction only.
 
+The selected [execution checks and framework lifecycle direction](../mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
+extends that separation to the successor core design: reusable immutable
+preparation, fresh execution admission, demand-shaped readiness and one atomic
+publication owner. Native hooks and resource locks retain their declared
+semantics. Supported durable event intents commit with data; delivery follows
+confirmed settlement. This direction does not broaden replay safety or choose a
+new terminal durability contract. Current mixed work must hand off its reviewed,
+committed baseline before successor runtime implementation.
+
 ## Implemented Capabilities And Known Gaps
 
 See the [capability matrix](architecture.md#capability-matrix). Private direct and
 mixed operations have different admitted coverage. A folder or common interface
-does not extend it. The read draft still needs its installation integration,
-connected correctness proofs and final review; accepted latency does not close
-those gates. The paused publication experiment is archived separately from the
-active read redesign; it is not part of the active runtime changes.
+does not extend it. The admitted local standalone-read/installation and framework
+runtime/participant cutovers are complete. Full latency/scaling, composed
+Application queries, broader framework admission and hosted activation remain
+unproved or separately gated; accepted local measurements do not close them.
+The paused publication experiment is archived separately and supplies no accepted
+successor runtime contract.
 
 ## Target Direction And Ordered Gates
 
