@@ -19,6 +19,19 @@ Metadata scaling, the complete connected consumer regression set and integrated
 acceptance remain open. A saved checkpoint does not complete this package or
 authorize package 2. Resume only after the owner's next direction.
 
+Current full-workload measurement is additionally blocked by execution failures:
+the Product/Payload graph refuses its first Payload create with
+`LogicalParticipantAdmissionError` / `resourceFailure`, and the mixed workflow
+refuses native workflow execution with `CommerceTransactionError` /
+`rollbackOnly` / `resourceFailure`. Both fail before a successful measured
+request or settlement. Product-only and standalone workflow measurements finish.
+These failures require attribution at the borrowed-participant admission and
+workflow boundaries; their underlying cause and relationship to earlier
+consumer failures are not established. Preserve the failing witnesses and do
+not use their partial SQL or elapsed time as successful performance. The
+[checkpoint measurement ledger](../../packages/flarex-backend/benchmarks/mixed-mutation-core/query-required-checkpoint/README.md)
+owns exact observations. Runtime correction remains paused for owner discussion.
+
 Make the admitted Application/Product, Product/Payload and finite
 Product/Pricing/Link workflow graphs pay for their actual storage demand plus
 small, explicit Flarex authority work. Read proof and pending hydration must not

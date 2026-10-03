@@ -77,7 +77,9 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
         expect(spans.filter(span => span.name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
         expect(spans.filter(span => span.name === "InstallationRuntime.accept")).toHaveLength(1);
         expect(spans.filter(span => span.name === "InstallationRuntime.readEvidence")).toHaveLength(1);
-        expect(spans.filter(span => span.name === "ApplicationRelationBinding.locateManifestBinding")).toHaveLength(2);
+        // The bound CMS host prepares its binding outside the measured request;
+        // accepting catalog validation still resolves it afresh once per call.
+        expect(spans.filter(span => span.name === "ApplicationRelationBinding.locateManifestBinding")).toHaveLength(1);
         expect(spans.filter(span => span.name === "PhysicalDefinitionLifecycle.validateReadinessCatalog")).toHaveLength(1);
         expect(spans.some(span => span.name === "DataBindingEvidence.lockInstallation")).toBe(false);
       }
