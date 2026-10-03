@@ -49,11 +49,14 @@
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
+    "@flarex/medusa-adapter": "workspace:*",
+    "@flarex/payload-adapter": "workspace:*",
     "@types/pg": "^8.20.0",
     "miniflare": "catalog:",
     "pg": "^8.22.0",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "drizzle-orm": "^0.45.2"
   }
 }

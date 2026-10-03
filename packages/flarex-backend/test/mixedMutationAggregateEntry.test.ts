@@ -6,7 +6,7 @@ import { createPostgresPersistence } from "../../persistence-postgres/src/postgr
 import { fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournals, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
 import { createMixedMutationProductFixture,
-  type MixedMutationFinalEntryTestContext, type MixedMutationProductFixtureHooks } from "./support/mixedMutationProductFixture";
+  type MixedMutationFinalEntryTestContext, type MixedMutationProductFixtureHooks } from "./support/mixedMutationWorkerdFixture";
 import { inspectActivatedPointMutationSessionV1 } from "../../executor/src/pointMutationSessionActivation";
 import { preparedFiniteEntries } from "../../persistence-postgres/src/sessionJournalFiniteEntry";
 import { installOneEntryCommitResponseFault } from "./support/postgresCommitResponseFault";

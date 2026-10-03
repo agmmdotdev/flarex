@@ -8,12 +8,12 @@ import { fxSystemCommits } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { createPointCommitPublisherPortV1 } from "../../persistence-postgres/src/pointCommitTransaction";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 async function runMixedAttempt(fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>) {
-  const raw = await fixture.runWorkerd();
+  const raw = await fixture.runExecution();
   const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
     result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
   return (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(

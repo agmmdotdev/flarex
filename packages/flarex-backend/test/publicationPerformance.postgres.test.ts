@@ -10,7 +10,7 @@ import { createMixedMutationPerformanceTrace, type TraceInvocationRecord } from
 import { openRetrievalServerObserver, readRetrievalRuntimeSettings } from
   "../../medusa-adapter/benchmarks/core-performance/native-retrieval/server";
 import { createPostgresPersistence } from "../../persistence-postgres/src/postgres";
-import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationProductFixture";
+import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationWorkerdFixture";
 import { measuredSourcePaths } from "./support/mixedMutationPerformanceSources";
 import { admitPublicationServerLogCopies, filterPublicationServerLog, PublicationPerformanceServer } from "./support/publicationPerformanceServer";
 import { correlatePublicationDispatches, publicationFinalCapFailureReceipt, publicationPhaseIntervals, publicationPhaseSummary,

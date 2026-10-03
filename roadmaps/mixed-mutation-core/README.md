@@ -24,12 +24,22 @@ attributable evidence. The selected successor is the
 complete [query-required mixed reads](./20-query-required-read-execution-preflight.md)
 first, then finite contribution/settlement/recovery under an explicit terminal
 durability decision, and connected whole-request acceptance. Query-required
-mixed reads have an incomplete implementation checkpoint, paused at the owner's
-request for design discussion, from the verified, committed standalone-read and
-framework-organization handoff. Its selected contract and fixed native budget
+mixed reads have an incomplete implementation checkpoint from the verified,
+committed standalone-read and framework-organization handoff. The owner resumed
+its failing-consumer correction in slice 21. Its selected contract and fixed native budget
 are recorded in slice 20; added latency and complete request performance fail
 acceptance, and connected validation remains open. The predecessor's remaining standalone latency and hosted gates
 stay with their owners.
+
+The implemented [direct core performance harness](./21-core-performance-harness-preflight.md)
+places daily framework/database measurement in executor test composition, with
+an in-process driver and explicit full-sample/SQL modes. Worker integration remains
+a separate host proof. The shared mixed source-preparation failure and catchable
+pre-effect document-validation recovery are corrected at their persistence
+owners. Bounded native seed-host reuse reduces fixture work. Cold readiness and
+index construction remain significant; wider slice 20 acceptance remains open.
+The [direct measurement ledger](../../packages/executor/benchmarks/core-performance/README.md)
+owns observations and the remaining harness costs.
 
 [Core performance](../core-performance/README.md) owns the standalone native-read
 replacement and reusable measurement rules. Its earlier small checked-read,

@@ -7,7 +7,7 @@ import { fxControlScopes, fxSystemTransactionJournalReceipts } from "../../persi
 import { withInstallationMaintenance } from "../../persistence-postgres/src/postgresInstallationMaintenance";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { createMixedMutationProductFixture, prepareMixedMutationPerformanceSeries } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture, prepareMixedMutationPerformanceSeries } from "./support/mixedMutationWorkerdFixture";
 import { getCoLocatedReadInstallationReferences, loadCoLocatedReadInstallation, requireCoLocatedInstallationAdmission,
   isManagedInstallationTransaction } from "../../persistence-postgres/src/installationLifecycle";
 import { prepareProtectedMetadata } from "../../persistence-postgres/src/preparedMetadataEpoch";
@@ -224,7 +224,7 @@ describe.skipIf(postgresUrl === null)("finite installed read authority and tail"
       }),
     } });
     try {
-      await fixture.runWorkerd().catch(() => undefined);
+      await fixture.runExecution().catch(() => undefined);
       expect(checked, fixture.bridgeFailures.join("\n")).toBe(true);
       expect(altered).toBe(true);
       await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null))).rejects.toBeDefined();

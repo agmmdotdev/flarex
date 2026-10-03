@@ -2,8 +2,9 @@
 
 ## Status And Outcome
 
-**Implementation checkpoint paused at the owner's request for design discussion;
-acceptance is incomplete.**
+**Acceptance is incomplete. The owner resumed the bounded failing-consumer
+correction and daily measurement harness in [slice 21](./21-core-performance-harness-preflight.md);
+the wider latency/scaling redesign remains outside that follow-up.**
 The owner requested the foundation roadmap first and has authorized implementation.
 The standalone/read and runtime/participant slice is committed and its source
 paths are released. This is a
@@ -17,20 +18,25 @@ regresses complete request latency. Most of the observed hit regression is
 outside the Product method; the responsible phase is not yet established.
 Metadata scaling, the complete connected consumer regression set and integrated
 acceptance remain open. A saved checkpoint does not complete this package or
-authorize package 2. Resume only after the owner's next direction.
+authorize package 2.
 
-Current full-workload measurement is additionally blocked by execution failures:
-the Product/Payload graph refuses its first Payload create with
+The earlier full-workload checkpoint was additionally blocked by execution
+failures: the Product/Payload graph refused its first Payload create with
 `LogicalParticipantAdmissionError` / `resourceFailure`, and the mixed workflow
-refuses native workflow execution with `CommerceTransactionError` /
-`rollbackOnly` / `resourceFailure`. Both fail before a successful measured
-request or settlement. Product-only and standalone workflow measurements finish.
-These failures require attribution at the borrowed-participant admission and
-workflow boundaries; their underlying cause and relationship to earlier
-consumer failures are not established. Preserve the failing witnesses and do
-not use their partial SQL or elapsed time as successful performance. The
+refused native workflow execution with `CommerceTransactionError` /
+`rollbackOnly` / `resourceFailure`. Slice 21 reproduces their underlying
+`LogicalSourceAdmissionError: sourceMismatch` at the shared binding observation:
+a later source reused the successful transaction proof without retaining its
+own bounded selected preparation. The correction shares authenticated immutable
+structure under exact identity, lifetime and budget checks. Already retained
+preparations remain valid during full publication verification without a second
+retention guard. The direct native graphs now reach successful settlement;
+this does not establish the wider latency or metadata-scaling acceptance gates.
+Preserve earlier failed measurements and do not use their partial SQL or elapsed
+time as successful performance. The
 [checkpoint measurement ledger](../../packages/flarex-backend/benchmarks/mixed-mutation-core/query-required-checkpoint/README.md)
-owns exact observations. Runtime correction remains paused for owner discussion.
+owns the earlier observations; the core harness owns subsequent direct-run
+measurements with its different execution boundary.
 
 Make the admitted Application/Product, Product/Payload and finite
 Product/Pricing/Link workflow graphs pay for their actual storage demand plus

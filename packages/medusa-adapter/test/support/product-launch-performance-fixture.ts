@@ -8,7 +8,7 @@ import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalProductHost } from "./logical-product-fixture";
 import { prepareLogicalPricingHost } from "./logical-pricing-fixture";
 import { prepareLogicalVariantPricingLinkHost } from "./logical-variant-pricing-link-fixture";
-import { runNativeStandaloneProductMutation, seedNativeProductAttemptGraph } from "./native-product-attempt-seed";
+import { prepareNativeProductAttemptSeeder } from "./native-product-attempt-seed";
 
 const revision = (value: string) => createHash("sha256").update(value).digest("hex");
 
@@ -40,6 +40,8 @@ export async function prepareStandaloneProductLaunchPerformanceSeries() {
       await Effect.runPromise(member.host.close);
     }
     const runtimeStarted = performance.now();
+    const seeder = await prepareNativeProductAttemptSeeder(currency, product, "selected-product-launch-performance");
+    cleanup.push(seeder.close);
     const modules = {
       product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
       pricing: { module: pricing.runtime.workflow, logicalStorage: pricing.hostInput.logicalStorage },
@@ -63,16 +65,14 @@ export async function prepareStandaloneProductLaunchPerformanceSeries() {
       resourceCalls: productVariantPricingResources.calls,
       provisioningAndInstallationMs: runtimeStarted - started,
       runtimeConstructionMs,
-      prepareSeed: (suffix: string) => seedNativeProductAttemptGraph(currency, product, suffix, "launch"),
-      retireLaunchedTag: (seed: Awaited<ReturnType<typeof seedNativeProductAttemptGraph>>["seed"],
-        suffix: string) => runNativeStandaloneProductMutation(currency, product,
-          `performance-retire-${suffix}`, "updateTag", { selector: { id: seed.tagId },
-            update: { value: `launched-${suffix}` } }),
-      run: (seed: Awaited<ReturnType<typeof seedNativeProductAttemptGraph>>["seed"]) =>
+      prepareSeed: (suffix: string) => seeder.seed(suffix, "launch"),
+      retireLaunchedTag: seeder.retireLaunchedTag,
+      run: (seed: Awaited<ReturnType<typeof seeder.seed>>["seed"]) =>
         Effect.runPromise(host.run(host.newRequestKey(), {
           product_id: seed.productId, tag_id: seed.tagId,
           variant_title: "Launch variant", usd_amount: 50,
         })),
+      readCommittedProduct: seeder.readCommittedProduct,
       close: closeAll,
     });
   } catch (cause) {

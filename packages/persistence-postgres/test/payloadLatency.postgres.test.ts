@@ -1,20 +1,9 @@
-import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
+import { compilePayloadLatencyCollections, preparePayloadLatencyHostInput } from "./payloadLatencyFixture";
 import { Clock, Effect, Schema, Tracer } from "effect";
 import { expect, it } from "vitest";
 import { isJsonObject, type Json } from "flarex-protocol/json";
-import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
-import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
-import { dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
-import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { createFileScopedPostgresFixture } from "./postgresHelpers";
-import { cmsHostFixture } from "./cmsHostFixture";
-import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
-import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { runEffect } from "./effectTestRuntime";
 
 const Nonnegative = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }));
@@ -92,31 +81,8 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
       samples.push({ operation, collected, ms, calls: after.calls - before.calls, serverMs: after.serverMs - before.serverMs, spans: durations });
       return value;
     });
-    const compiled = await runEffect(measure("compile", false, compilePayloadCollections([
-      { slug: "news-items", fields: [{ name: "headline", type: "text", required: true, unique: true },
-        { name: "score", type: "number", required: true, defaultValue: 0 }] },
-      { slug: "authors", fields: [{ name: "name", type: "text", required: true }] },
-    ])));
-    const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
-    if (schemaName === undefined) throw new Error("Missing fixture namespace");
-    const { fixture, target, bindings, reference, candidate } = await cmsHostFixture(persistence,
-      { physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } }, compiled);
-    const { profile, availability } = await installPayloadPreferenceFixture(persistence, target, fixture.deploymentId);
-    const prior = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-    const combined = await runEffect(bindings.prepare({ ...candidate.frame,
-      payloadLifecycle: { ...installationBindingReference(availability), profiles: [profile.profile] } }));
-    await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
-      "latency-preferences", combined.sha256, prior.head)));
-    const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle,
-      session: makePostgresRelationalSession(persistence), deploymentId: fixture.deploymentId,
-      scopeId: fixture.authority.scopeId, authority: fixture.authorityPorts,
-      application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
-      identityAndAccessPolicy: { subject: "payload-latency" }, payloadPreferenceTarget: target,
-      materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
-        developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
-        uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
-        candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation,
-          pointCommitAuthority: fixture.pointCommitAuthority }) } };
+    const compiled = await runEffect(measure("compile", false, compilePayloadLatencyCollections()));
+    const hostInput = await preparePayloadLatencyHostInput(persistence, compiled);
     for (let index = 0; index < 21; index++) await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* measure(index === 0 ? "first-instance" : "fresh-instance", false, makePayloadRuntime(compiled));
       yield* measure("bind", false, runtime.bind(hostInput));

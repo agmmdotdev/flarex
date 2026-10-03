@@ -1,0 +1,35 @@
+{
+  "runId": "2041049d-e1c8-48db-a06e-b6d727626826",
+  "revision": "92506db3b1730d0fb6a535d8dcc024e5fc188812",
+  "dirty": true,
+  "totalMs": 133519.4798,
+  "exitCode": 0,
+  "signal": null,
+  "reports": [
+    {
+      "name": "payload-create",
+      "path": "payload-create.json",
+      "available": true
+    },
+    {
+      "name": "medusa-workflow",
+      "path": "medusa-workflow.json",
+      "available": true
+    },
+    {
+      "name": "mixed-product",
+      "path": "mixed-product.json",
+      "available": true
+    },
+    {
+      "name": "mixed-payload",
+      "path": "mixed-payload.json",
+      "available": true
+    },
+    {
+      "name": "mixed-workflow",
+      "path": "mixed-workflow.json",
+      "available": true
+    }
+  ]
+}

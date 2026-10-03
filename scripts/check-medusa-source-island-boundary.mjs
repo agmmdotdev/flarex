@@ -29,26 +29,31 @@ const dependencyFields = [
   "peerDependencies",
 ];
 const islandPrefix = "third_party/medusa/upstream/";
-const mixedProductTestFixture = "packages/flarex-backend/test/support/mixedMutationProductFixture.ts";
+const mixedProductTestFixture = "packages/executor/test/performance/support/mixedMutationProductFixture.ts";
 const nativeProductDiagnosticTypeConsumers = new Set([
-  "packages/flarex-backend/test/support/nativeProductOperationDiagnostics.ts",
+  "packages/executor/test/performance/support/nativeProductOperationDiagnostics.ts",
   "packages/flarex-backend/test/nativeProductOperationDiagnostics.test.ts",
+]);
+const coreMedusaScenario = "packages/executor/test/performance/support/medusaScenario.ts";
+const coreMedusaScenarioImports = new Map([
+  ["../../../../medusa-adapter/test/support/product-launch-performance-fixture",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts"],
 ]);
 const mixedPerformanceTest = "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts";
 const mixedProductTestImports = new Map([
-  ["../../../medusa-adapter/test/support/logical-currency-fixture",
+  ["../../../../medusa-adapter/test/support/logical-currency-fixture",
     "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
-  ["../../../medusa-adapter/test/support/logical-product-fixture",
+  ["../../../../medusa-adapter/test/support/logical-product-fixture",
     "packages/medusa-adapter/test/support/logical-product-fixture.ts"],
-  ["../../../medusa-adapter/test/support/logical-pricing-fixture",
+  ["../../../../medusa-adapter/test/support/logical-pricing-fixture",
     "packages/medusa-adapter/test/support/logical-pricing-fixture.ts"],
-  ["../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture",
+  ["../../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture",
     "packages/medusa-adapter/test/support/logical-variant-pricing-link-fixture.ts"],
-  ["../../../medusa-adapter/test/support/native-product-attempt-seed",
+  ["../../../../medusa-adapter/test/support/native-product-attempt-seed",
     "packages/medusa-adapter/test/support/native-product-attempt-seed.ts"],
   ["@flarex/medusa-adapter/internal/product-attempt",
     "packages/medusa-adapter/src/product-attempt.ts"],
-  ["../../../medusa-adapter/src/product-launch-workflow",
+  ["../../../../medusa-adapter/src/product-launch-workflow",
     "packages/medusa-adapter/src/product-launch-workflow.ts"],
 ]);
 const mixedPerformanceTestImports = new Map([
@@ -257,6 +262,7 @@ function invalidNativeRetrievalLoader(node, relativePath) {
  * @param {string} specifier */
 function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
   const permitted = relativePath === mixedProductTestFixture ? mixedProductTestImports
+    : relativePath === coreMedusaScenario ? coreMedusaScenarioImports
     : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports
       : relativePath === mixedProductWorkerdTest ? mixedProductWorkerdTestImports
         : relativePath === preparedTargetMetadataTest ? preparedTargetMetadataTestImports : undefined;
@@ -266,22 +272,27 @@ function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
     file.target === target && file.classification === "authored") === true;
 }
 
-/** The extracted fixture observer needs only this existing erased result type.
+/** The extracted fixture observer and timing contract need exact erased types.
  * Runtime/value imports and neighboring consumers inherit no permission.
  * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
  * @param {string} relativePath @param {string} specifier @param {ts.Node | undefined} node */
-function admitsNativeProductDiagnosticTypeImport(promotion, relativePath, specifier, node) {
-  if (!nativeProductDiagnosticTypeConsumers.has(relativePath)
-    || specifier !== "@flarex/medusa-adapter/internal/product-attempt"
+function admitsSelectedMedusaTestTypeImport(promotion, relativePath, specifier, node) {
+  const timing = relativePath === "packages/executor/test/performance/support/scenario.ts"
+    && specifier === "../../../../medusa-adapter/test/support/logical-currency-fixture";
+  const diagnostic = nativeProductDiagnosticTypeConsumers.has(relativePath)
+    && specifier === "@flarex/medusa-adapter/internal/product-attempt";
+  if ((!timing && !diagnostic)
     || node === undefined || !ts.isImportDeclaration(node) || node.importClause?.isTypeOnly !== true
     || node.importClause.name !== undefined) return false;
   const bindings = node.importClause.namedBindings;
   const imported = bindings !== undefined && ts.isNamedImports(bindings) && bindings.elements.length === 1
     ? bindings.elements[0] : undefined;
-  return imported?.name.text === "PrivateProductAttemptExecution" && imported.propertyName === undefined
+  return imported?.name.text === (timing ? "LogicalCurrencyPreparationTiming" : "PrivateProductAttemptExecution")
+    && imported.propertyName === undefined
     && promotion?.packages.some(pkg => pkg.path === "packages/medusa-adapter" && pkg.name === "@flarex/medusa-adapter"
-      && pkg.exports.includes("./internal/product-attempt")) === true
-    && promotion.files.some(file => file.target === "packages/medusa-adapter/src/product-attempt.ts"
+      && (timing || pkg.exports.includes("./internal/product-attempt"))) === true
+    && promotion.files.some(file => file.target === (timing
+      ? "packages/medusa-adapter/test/support/logical-currency-fixture.ts" : "packages/medusa-adapter/src/product-attempt.ts")
       && file.classification === "authored");
 }
 
@@ -401,7 +412,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
     input.rootManifests,
     errors,
     (name, value, relativePath, field) => (isForbiddenRootDependency(name, value) || promotion?.packages.some((pkg) => pkg.name === name) === true)
-      && !(relativePath === "packages/flarex-backend/package.json" && field === "devDependencies"
+      && !(["packages/flarex-backend/package.json", "packages/executor/package.json"].includes(relativePath) && field === "devDependencies"
         && name === "@flarex/medusa-adapter" && value === "workspace:*"
         && promotion?.packages.some(pkg => pkg.path === "packages/medusa-adapter" && pkg.name === name) === true)
       && !(value === "workspace:*" && promotion?.packages.some((pkg) =>
@@ -453,7 +464,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   );
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath, node) => {
-    if (admitsNativeProductDiagnosticTypeImport(promotion, relativePath, specifier, node)) return undefined;
+    if (admitsSelectedMedusaTestTypeImport(promotion, relativePath, specifier, node)) return undefined;
     if (admitsSelectedMixedTestImport(promotion, relativePath, specifier)) return undefined;
     if (relativePath === nativeRetrievalScenario && admitsNativeRetrievalOwner(promotion)
       && nativeRetrievalImports.has(specifier)) return undefined;

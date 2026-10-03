@@ -43,6 +43,7 @@ import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transactio
 import { Effect, Fiber, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
+import { finiteDocumentValidationScenario } from "./finiteDocumentValidationScenario";
 import { verifyJournalEventEvidence, verifyJournalSealSequence } from "./journalEvidenceScenario";
 
 import {
@@ -730,6 +731,12 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       })).rejects.toMatchObject(staleIssue);
       await expect(prepareSeal(current.store, current.attempt)).rejects
         .toMatchObject(staleIssue);
+    });
+  }, 120_000);
+
+  it("preserves finite accepted work across pre-stage document validation rejection", async () => {
+    await withPostgresPersistence(async persistence => {
+      await finiteDocumentValidationScenario(persistence, await scenario(persistence, "finite_document_validation", { executionProfile: "finiteRoot" }));
     });
   }, 120_000);
 

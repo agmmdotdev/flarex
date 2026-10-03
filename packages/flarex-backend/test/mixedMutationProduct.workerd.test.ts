@@ -1,3 +1,4 @@
+import { documentValidationRecoverySource } from "../../executor/test/performance/support/documentValidationRecoverySource";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/indexBuildReconciliation";
 import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
@@ -25,12 +26,32 @@ import { commerceError, logicalCommerceError } from "../../persistence-postgres/
 import { decodeLogicalParticipantDependencyEvidence, defineCommerceCommand } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { executePrivateProductAttemptOperation } from "../../medusa-adapter/src/product-attempt";
-import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 
 describe.each(drivers)("native Product in one Application mutation attempt on %s", driver => {
+  it("recovers a genuine document rejection through the authenticated Worker bridge", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `validation-recovery-${driver}` });
+    try {
+      const raw = await fixture.runExecution(documentValidationRecoverySource(fixture.seed));
+      const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
+        result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
+      const value = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(success.result.result))).value;
+      expect(value).toMatchObject({ caughtDocumentValidation: true,
+        earlier: { name: "earlier accepted" },
+        updated: { id: fixture.seed.productId, title: fixture.seed.newTitle },
+        pending: { id: fixture.seed.productId, title: fixture.seed.newTitle } });
+      expect(await fixture.publish(value)).toMatchObject({ kind: "published" });
+      expect((await fixture.readSettlementLedger())?.syscallReceipts).toBe(7);
+      const earlier = Schema.decodeUnknownSync(Schema.Struct({ earlier: Schema.Struct({ _id: Schema.String }) }))(value).earlier;
+      expect(await fixture.readCurrentApplicationDocument(earlier._id)).toMatchObject({ name: "earlier accepted" });
+      expect(fixture.nativeInvokeCount.get("update")).toBe(1);
+      expect(await fixture.readCurrentProduct()).toMatchObject({ id: fixture.seed.productId, title: fixture.seed.newTitle });
+    } finally { await fixture.close(); }
+  }, 180_000);
+
   it.each(["closed", "callBudget", "caughtRefusal"] as const)(
     "gates the actual Product adapter capture path before foreign inspection after %s", async refusal => {
       let captures = 0;
@@ -76,7 +97,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
             checkedRefusal = true;
           }) } });
       try {
-        await expect(fixture.runWorkerd()).rejects.toBeDefined();
+        await expect(fixture.runExecution()).rejects.toBeDefined();
         expect(checkedRefusal).toBe(true);
         expect(captures).toBe(0);
         expect(await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
@@ -148,7 +169,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
           }),
         } });
       try {
-        const runFailure = await fixture.runWorkerd().then(() => undefined, failure => failure);
+        const runFailure = await fixture.runExecution().then(() => undefined, failure => failure);
         expect(readChecked, String(runFailure) + " " + fixture.bridgeFailures.join("\n")).toBe(true);
         await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
           .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
@@ -203,7 +224,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
         }
       };
       try {
-        await fixture.runWorkerd();
+        await fixture.runExecution();
         expect(changedBeforeClose).toBe(true);
         expect(localClosed).toBe(true);
         await expectPristine();
@@ -228,7 +249,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
           closedRootRefused = true;
         }) } });
     try {
-      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      await expect(fixture.runExecution()).rejects.toBeDefined();
       expect(closedRootRefused).toBe(true);
       expect(captures).toBe(0);
       const receipts = await fixture.currency.persistence.drizzle.select()
@@ -269,7 +290,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
         checkedReadRefused = true;
       }) } });
     try {
-      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      await expect(fixture.runExecution()).rejects.toBeDefined();
       expect(localAfterRevocation).toBe(true);
       expect(checkedReadRefused).toBe(true);
       const receipts = await fixture.currency.persistence.drizzle.select()
@@ -291,7 +312,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
       const { currency, product, seed, baseline, activation,
         binding, eventGroup, runAdmitted,
         serviceTransactionDepth, sqlByPhase } = fixture;
-      const workerd = await fixture.runWorkerd();
+      const workerd = await fixture.runExecution();
     expect(workerd).toMatchObject({ kind: "result", result: { kind: "success",
       result: { format: "flarex.point-mutation-exact-runtime-result", version: 1,
         value: { updated: { id: seed.productId, handle: seed.newHandle },
@@ -411,7 +432,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
     });
     try {
       const missing = { ...fixture.seed.updateInput, id: `prod_missing_${driver}` };
-      const workerError = await fixture.runWorkerd(`export default { users: { create: {
+      const workerError = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           const id = await ctx.db.insert("users", { name: "pending" });
           let caught = false;
@@ -452,7 +473,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
         const observed = await fixture.observePgNativeSqlTransactions();
         expect(observed?.targetBackends).toBeGreaterThan(1);
         expect(observed?.openTransactions).toBeGreaterThan(0);
-        const failure = await fixture.runWorkerd().then(() => null, cause => cause);
+        const failure = await fixture.runExecution().then(() => null, cause => cause);
         expect(failure).toBeInstanceOf(Error);
         expect(fixture.bridgeFailures.join("\n"))
           .toContain("Product native callback overlapped target SQL transaction");

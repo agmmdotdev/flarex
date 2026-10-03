@@ -18,7 +18,7 @@ import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvent
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemCommits } from "../../persistence-postgres/src/schema";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
 
 type MixedFixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
@@ -94,7 +94,7 @@ describe.each(drivers)("mixed native Payload recovery on %s", driver => {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-receipt-${driver}`, payloadProfile: "success" });
     try {
-      const returnedValue = await successfulValue(await fixture.runWorkerd());
+      const returnedValue = await successfulValue(await fixture.runExecution());
       const payload = fixture.payload;
       const runtime = payload?.current();
       if (payload === undefined || runtime === undefined) throw new Error("Missing fixed Payload runtime");
@@ -146,7 +146,7 @@ describe.each(drivers)("mixed native Payload recovery on %s", driver => {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-promised-id-${driver}`, payloadProfile: "promisedId" });
     try {
-      const returnedValue = await successfulValue(await fixture.runWorkerd());
+      const returnedValue = await successfulValue(await fixture.runExecution());
       expect(fixture.payload?.current()?.observations.hookRuns()).toBe(1);
       expect(fixture.payload?.current()?.observations.nestedReads()).toBe(1);
       expect(await fixture.publish(returnedValue)).toMatchObject({ kind: "published" });
@@ -159,7 +159,7 @@ describe.skipIf(postgresUrl === null)("mixed native Payload final COMMIT ambigui
     const fixture = await createMixedMutationProductFixture({ driver: "postgres",
       suffix: "payload-commit-response", payloadProfile: "success" });
     try {
-      const returnedValue = await successfulValue(await fixture.runWorkerd());
+      const returnedValue = await successfulValue(await fixture.runExecution());
       const runtime = fixture.payload?.current();
       if (runtime === undefined) throw new Error("Missing fixed Payload runtime");
       expect(runtime.observations.hookRuns()).toBe(1);
@@ -197,7 +197,7 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
       const participant = fixture.payload?.profile.participant;
       if (participant === undefined) throw new Error("Missing selected Payload participant");
       const wrongRevision = `${participant.slice(0, -1)}${participant.endsWith("0") ? "1" : "0"}`;
-      const outcome = await fixture.runWorkerd(`export default { users: { create: {
+      const outcome = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           await ctx.db.insert("users", { name: "pending" });
           await ctx.privateMixed.call("medusa.product", "update",
@@ -225,7 +225,7 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
         const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
         const before = await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)
           .where(eq(fxAppRowRevisions.scopeUuid, scopeUuid));
-        const outcome = await fixture.runWorkerd().catch(cause => cause);
+        const outcome = await fixture.runExecution().catch(cause => cause);
         if (!(outcome instanceof Error)) expect(outcome).not.toMatchObject({ kind: "result",
           result: { kind: "success" } });
         const runtime = fixture.payload?.runtimeHistory.at(-1);
@@ -246,7 +246,7 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
       suffix: `payload-held-cancel-${driver}`, payloadProfile: "unresolvedId" });
     let fiber: ReturnType<typeof Effect.runFork<unknown, unknown>> | undefined;
     try {
-      const staged = await fixture.runWorkerd(`export default { users: { create: {
+      const staged = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           await ctx.db.insert("users", { name: "pending" });
           await ctx.privateMixed.call("medusa.product", "update",
@@ -285,7 +285,7 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-held-deadline-${driver}`, payloadProfile: "unresolvedId" });
     try {
-      await successfulValue(await fixture.runWorkerd(`export default { users: { create: {
+      await successfulValue(await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           await ctx.db.insert("users", { name: "pending" });
           await ctx.privateMixed.call("medusa.product", "update",

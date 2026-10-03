@@ -2,7 +2,7 @@ import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PrivateProductAttemptExecution } from "@flarex/medusa-adapter/internal/product-attempt";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeNativeProductOperationDiagnostics } from "./support/nativeProductOperationDiagnostics";
+import { makeNativeProductOperationDiagnostics } from "../../executor/test/performance/support/nativeProductOperationDiagnostics";
 
 const nativeResult: PrivateProductAttemptExecution = { result: { id: "prod_diagnostic" },
   changes: { changes: [], attempts: [], lifecycle: [], observedRows: [], noFinalRows: [], dependencies: [],

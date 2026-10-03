@@ -10,7 +10,7 @@ import type { CommerceTransactionError } from "../../persistence-postgres/src/co
 import * as appRows from "../../persistence-postgres/src/appRows";
 import { createMixedMutationPerformanceTrace, type MixedMutationPerformanceTrace,
   type TraceInvocationRecord } from "../../persistence-postgres/test/mixedMutationPerformanceTrace";
-import { createMixedMutationProductFixture, type MixedMutationProductFixtureHooks } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture, type MixedMutationProductFixtureHooks } from "./support/mixedMutationWorkerdFixture";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const sourcePaths = [
@@ -50,7 +50,10 @@ const sourcePaths = [
   "packages/persistence-postgres/src/applicationReadiness.ts",
   "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
   "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts",
-  "packages/flarex-backend/test/support/mixedMutationProductFixture.ts",
+  "packages/executor/test/performance/support/mixedMutationProductFixture.ts",
+  "packages/executor/test/performance/support/mixedMutationInProcessRuntime.ts",
+  "packages/flarex-backend/test/support/mixedMutationWorkerdFixture.ts",
+  "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts",
   "packages/flarex-backend/test/checkedReadPerformanceScenario.ts",
   "packages/flarex-backend/test/checkedReadPerformance.test.ts",
   "packages/flarex-backend/test/checkedReadPerformance.postgres.test.ts",
@@ -195,7 +198,7 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
           }),
         } });
       const admissionFinishedAt = performance.now();
-      const worker = await fixture.runWorkerd();
+      const worker = await fixture.runExecution();
       expect(worker).toMatchObject({ kind: "result", result: { kind: "success" } });
       const transport = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
         result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(worker);

@@ -11,16 +11,19 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import type { PrivateProductAttemptExecution } from "../../../src/product-attempt";
 import { productAttemptSeed } from "../../../test/support/product-attempt-seed";
 import { createMixedMutationPerformanceTrace, type TraceDispatchRecord, type TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
-import { prepareMixedMutationPerformanceSeries } from "../../../../flarex-backend/test/support/mixedMutationProductFixture";
-import { makeNativeProductOperationDiagnostics } from "../../../../flarex-backend/test/support/nativeProductOperationDiagnostics";
+import { prepareMixedMutationPerformanceSeries } from "../../../../flarex-backend/test/support/mixedMutationWorkerdFixture";
+import { makeNativeProductOperationDiagnostics } from "../../../../executor/test/performance/support/nativeProductOperationDiagnostics";
 import { observeRetrievalPgClients, type RetrievalObservation } from "../native-retrieval/observation";
 import { readRetrievalRuntimeSettings, openRetrievalServerObserver, retrievalServerDifference,
   selectRetrievalServerDatabases, requireRetrievalServerObservedCalls } from "../native-retrieval/server";
 
 const root = fileURLToPath(new URL("../../../../../", import.meta.url));
 const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
-  "packages/flarex-backend/test/support/mixedMutationProductFixture.ts",
-  "packages/flarex-backend/test/support/nativeProductOperationDiagnostics.ts",
+  "packages/flarex-backend/test/support/mixedMutationWorkerdFixture.ts",
+  "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts",
+  "packages/executor/test/performance/support/mixedMutationProductFixture.ts",
+  "packages/executor/test/performance/support/mixedMutationInProcessRuntime.ts",
+  "packages/executor/test/performance/support/nativeProductOperationDiagnostics.ts",
   "packages/persistence-postgres/src/preparedHostRuntime.ts",
   "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts",
   "packages/persistence-postgres/test/logicalReadMetadataScalingTestSupport.ts",

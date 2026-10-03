@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationProductFixture";
+import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationWorkerdFixture";
 
 describe("prepared private mixed mutation performance series", () => {
   it("runs two fresh signed Product attempts on one prepared scope with separate Workers", async () => {

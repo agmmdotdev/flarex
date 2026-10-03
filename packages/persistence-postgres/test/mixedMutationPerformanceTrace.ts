@@ -507,7 +507,6 @@ function stackFrames(): readonly string[] {
 }
 
 export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPool: Pool; targetPool: Pool }>): MixedMutationPerformanceTrace {
-  if (input.controlPool === input.targetPool) throw new Error("Control and target trace pools must be distinct.");
   const storage = new AsyncLocalStorage<TraceContext>();
   const records: TraceInvocationRecord[] = [];
   const owners = new Map<string, MutableOwnerGroup>();
@@ -698,7 +697,9 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
     restoreOwnMethod(pool, "query", tracedPoolQuery);
   }
 
-  install(input.controlPool, "control");
+  // A standalone CMS host may use one pool for both authorities. Observe that
+  // pool once as target so delegated calls and disposal are never duplicated.
+  if (input.controlPool !== input.targetPool) install(input.controlPool, "control");
   install(input.targetPool, "target");
 
   return {

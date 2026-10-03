@@ -503,9 +503,18 @@ importers:
         specifier: workspace:*
         version: link:../flarex-protocol
     devDependencies:
+      '@flarex/medusa-adapter':
+        specifier: workspace:*
+        version: link:../medusa-adapter
+      '@flarex/payload-adapter':
+        specifier: workspace:*
+        version: link:../payload-adapter
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260613.1)(@electric-sql/pglite@0.5.8)(@types/pg@8.20.0)(knex@3.1.0(pg@8.22.0))(pg@8.22.0)
       miniflare:
         specifier: 'catalog:'
         version: 4.20260611.0

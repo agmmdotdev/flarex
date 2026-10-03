@@ -16,7 +16,7 @@ import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstrain
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { readBindingSelectedEvidence, readBindingSelectedProjection, readUnprotectedBindingSelectedProjection,
-  prepareBindingSelectedStructure, type PreparedBindingSelectedStructure } from "../frameworkSchema/binding/repository";
+  prepareBindingSelectedStructure, retainBindingSelectedStructure, type PreparedBindingSelectedStructure } from "../frameworkSchema/binding/repository";
 import { verifyLogicalSchemaBindingInTransaction, verifyLogicalSchemaReadBindingInTransaction,
   verifyPreparedLogicalSchemaBinding,
   type SelectedLogicalStorageReadiness } from "../frameworkSchema/binding/logicalSchema";
@@ -75,6 +75,7 @@ type SharedCheckedBinding = Readonly<{
   manifestSha256: string;
   frame: DataBindingSetFrame;
   head: DataBindingHeadToken;
+  selectedPreparation?: PreparedBindingSelectedStructure;
 }>;
 const checkedBindings = new WeakMap<FlarexMetadataTransaction, SharedCheckedBinding[]>();
 export type LogicalSourceConstruction = Readonly<{ kind: "standalone" }> |
@@ -195,6 +196,12 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     const targetProtection = yield* Effect.fromResult(readApplicationBindingTargetProtection(application));
     if (borrowed !== undefined)
       yield* Effect.fromResult(requireAcceptedApplicationBindingObservation(borrowed, application, tx, clock));
+    const protection = targetProtection.protection;
+    let targetPreparation = targetPreparations.get(application);
+    if (protection !== undefined && targetPreparation === undefined) {
+      targetPreparation = prepareBindingSelectedStructure(authority, protection, sourceLifetime ?? targetProtection.lifetime);
+      targetPreparations.set(application, targetPreparation);
+    }
     const sourceKeys = singletonSourceKeys;
     if (selection === "read" && !sourceKeys.includes(source.key))
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
@@ -208,18 +215,19 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       checked.authority === authority &&
       checked.clock === clock && checked.schemaVersionId === captured.schemaVersionId &&
       checked.manifestSha256 === readiness.reference.manifestSha256);
-    if (shared !== undefined) return yield* work(Object.freeze({ tx, authority, clock,
-      schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head,
-      ...(borrowed === undefined ? {} : { acceptedApplicationBinding: borrowed }) }));
+    if (shared !== undefined) {
+      if (targetPreparation !== undefined) {
+        if (shared.selectedPreparation === undefined)
+          return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+        yield* Effect.fromResult(retainBindingSelectedStructure(tx, shared.selectedPreparation, targetPreparation, shared.head));
+      }
+      return yield* work(Object.freeze({ tx, authority, clock,
+        schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head,
+        ...(borrowed === undefined ? {} : { acceptedApplicationBinding: borrowed }) }));
+    }
     const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "read"
       ? yield* (sourceKeys.length === 1 && sourceKeys[0] === source.key
         ? selectSingletonReadiness() : readiness.selectSources(sourceKeys)) : undefined;
-    const protection = targetProtection.protection;
-    let targetPreparation = targetPreparations.get(application);
-    if (protection !== undefined && targetPreparation === undefined) {
-      targetPreparation = prepareBindingSelectedStructure(authority, protection, sourceLifetime ?? targetProtection.lifetime);
-      targetPreparations.set(application, targetPreparation);
-    }
     const selected = yield* readBindingSelectedEvidence(tx, authority, targetPreparation);
     if (Option.isNone(selected)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
     const { head: current, candidate } = selected.value;
@@ -235,7 +243,8 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
         authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
         scopeId: captured.scopeId, authority, clock,
         schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
-        frame: candidate.frame, head }));
+        frame: candidate.frame, head,
+        ...(targetPreparation === undefined ? {} : { selectedPreparation: targetPreparation }) }));
       return yield* Effect.suspend(() => work(Object.freeze({ tx, authority, clock,
         schemaVersionId: captured.schemaVersionId, source, frame: candidate.frame, head,
         ...(acceptedApplicationBinding === undefined ? {} : { acceptedApplicationBinding }) })));

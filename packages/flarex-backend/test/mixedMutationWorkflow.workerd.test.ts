@@ -25,7 +25,7 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { admittedCommerceEventGroup } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
-import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
 import { type PostgresLocatedReadCommittedRunnerOptionsV1 } from
   "../../persistence-postgres/src/postgresLocatedReadCommitted";
@@ -82,7 +82,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       },
     });
     try {
-      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      await expect(fixture.runExecution()).rejects.toBeDefined();
       expect(changed).toBe(true);
       expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
       expect(dataStatements).toBeGreaterThan(0);
@@ -189,7 +189,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       } },
     });
     try {
-      const first = await fixture.runWorkerd().catch(cause => cause);
+      const first = await fixture.runExecution().catch(cause => cause);
       if (!(first instanceof Error)) {
         expect(first).not.toMatchObject({ result: { kind: "success" } });
       }
@@ -203,7 +203,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
         product_id: fixture.seed.productId })] }, tags: [expect.objectContaining({
         id: fixture.seed.tagId, value: "launched" })] });
       expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
-      const second = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
+      const second = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
       const result = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
         second.result.result))).value;
       expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
@@ -228,7 +228,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
     const fixture = await createMixedMutationProductFixture({ driver, workflow: true,
       suffix: `launch-sealed-${driver}`, payloadProfile: "success" });
     try {
-      const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
+      const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
       const result = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
         success.result.result))).value;
       expect(fixture.bridgeFailures).toEqual([]);
@@ -251,7 +251,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
     const fixture = await createMixedMutationProductFixture({ driver, workflow: true,
       suffix: `launch-retry-${driver}`, payloadProfile: "success" });
     try {
-      const first = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
+      const first = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
       const original = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
         first.result.result))).value;
       const ids = Schema.Struct({ id: Schema.String,
@@ -335,7 +335,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
       const before = await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)
         .where(eq(fxAppRowRevisions.scopeUuid, scopeUuid));
-      const outcome = await fixture.runWorkerd().catch(cause => cause);
+      const outcome = await fixture.runExecution().catch(cause => cause);
       if (!(outcome instanceof Error)) expect(outcome).not.toMatchObject({ kind: "result",
         result: { kind: "success" } });
       expect(completedChildren).toBe(true);
@@ -385,7 +385,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
           return { caught };
         },
       } } };`;
-      const outcome = await fixture.runWorkerd(source).catch(cause => cause);
+      const outcome = await fixture.runExecution(source).catch(cause => cause);
       if (!(outcome instanceof Error)) expect(outcome).not.toMatchObject({ kind: "result",
         result: { kind: "success" } });
       expect(completedChildren).toBe(true);
@@ -423,7 +423,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
       const before = await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)
         .where(eq(fxAppRowRevisions.scopeUuid, scopeUuid));
-      const outcome = await fixture.runWorkerd().catch(cause => cause);
+      const outcome = await fixture.runExecution().catch(cause => cause);
       if (!(outcome instanceof Error)) expect(outcome).not.toMatchObject({ kind: "result",
         result: { kind: "success" } });
       expect(reads).toBe(2);
@@ -454,7 +454,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       expect(fixture.baseline).toMatchObject({ id: fixture.seed.productId,
         options: [{ values: [{ value: "0" }] }],
         tags: [{ id: fixture.seed.tagId, value: "preview" }], variants: [] });
-      const workerd = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
+      const workerd = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
       const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
         workerd.result.result))).value;
       const result = Schema.decodeUnknownSync(Schema.Struct({
@@ -635,7 +635,7 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
         return Promise.resolve(acquired).then(client => { decorate(client); return client; });
       })) throw new Error("Could not instrument PostgreSQL pool");
       try {
-        const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
+        const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
         expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
         const value = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
           success.result.result))).value;
@@ -672,7 +672,7 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
       const fixture = await createMixedMutationProductFixture({ driver: "postgres", workflow: true,
         suffix: "launch-publication-commit-loss", payloadProfile: "success" });
       try {
-        const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
+        const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
         const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
           success.result.result))).value;
         const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;

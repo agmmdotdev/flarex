@@ -12,7 +12,7 @@ import { createMixedMutationPerformanceTrace, type MixedMutationPerformanceTrace
   type TraceFingerprintOwner, type TraceInvocationRecord } from "../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import { prepareStandaloneProductLaunchPerformanceSeries } from
   "../../medusa-adapter/test/support/product-launch-performance-fixture";
-import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationProductFixture";
+import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationWorkerdFixture";
 import { captureMixedMutationCpuProfile, MixedMutationCpuDiagnosticFailure } from
   "./support/mixedMutationCpuProfile";
 import { renderMixedMutationPerformanceReport, summarizeMixedMutationTrace,

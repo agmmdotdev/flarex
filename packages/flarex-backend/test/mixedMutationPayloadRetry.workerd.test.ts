@@ -14,7 +14,7 @@ import { PointMutationJournalAttemptUnavailableV1Error } from
   "../../executor/src/pointMutationJournal";
 import { admittedCommerceEventGroup } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
-import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
@@ -51,7 +51,7 @@ describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-retry-${driver}`, payloadProfile: "success" });
     try {
-      const raw = await fixture.runWorkerd();
+      const raw = await fixture.runExecution();
       const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
         result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
       const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
@@ -113,7 +113,7 @@ describe.each(drivers)("mixed Payload historical title conflict on %s", driver =
       const fixture = await createMixedMutationProductFixture({ driver,
         suffix: `payload-standalone-title-conflict-${driver}`, payloadProfile: "success" });
       try {
-        const raw = await fixture.runWorkerd();
+        const raw = await fixture.runExecution();
         const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
           result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
         const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(

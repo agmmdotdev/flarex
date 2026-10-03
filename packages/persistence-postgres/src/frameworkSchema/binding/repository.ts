@@ -56,6 +56,7 @@ interface PreparedSelectedStructureState {
   readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
   structure?: Readonly<{ candidate: StoredBindingValue<DataBindingSetFrame>;
     activation: Effect.Success<ReturnType<typeof decodeActivationRow>>;
+    head: DataBindingHeadToken;
     projection: BindingSelectedProjection["reference"] & Readonly<{ hasPayloadContent: boolean; hasPayloadLifecycle: boolean }> }>;
 }
 /** Constant-sized correlation only. Complete candidate bodies remain private
@@ -76,6 +77,43 @@ export function prepareBindingSelectedStructure(location: BindingLocation,
   const token = Object.freeze({}) as PreparedBindingSelectedStructure;
   preparedSelectedStructures.set(token, { location: Object.freeze({ ...location }), protection, lifetime });
   return token;
+}
+
+/** A complete accepting transaction can share its authenticated immutable
+ * selected structure across source owners. Each recipient retains and charges
+ * it under its own live lease; this grants no Application or source authority. */
+export function retainBindingSelectedStructure(
+  tx: FlarexMetadataTransaction, source: PreparedBindingSelectedStructure,
+  recipient: PreparedBindingSelectedStructure, head: DataBindingHeadToken,
+): Result.Result<void, DataBindingError> {
+  const donor = preparedSelectedStructures.get(source);
+  const target = preparedSelectedStructures.get(recipient);
+  if (donor === undefined || target === undefined || donor.structure === undefined ||
+      donor.location.scopeId !== target.location.scopeId ||
+      donor.location.storageGeneration !== target.location.storageGeneration ||
+      donor.protection.token !== target.protection.token || donor.protection.database !== target.protection.database ||
+      donor.protection.epoch !== target.protection.epoch ||
+      donor.structure.head.sequence !== head.sequence || donor.structure.head.sha256 !== head.sha256 ||
+      (target.structure !== undefined && (target.structure.head.sequence !== head.sequence || target.structure.head.sha256 !== head.sha256))) {
+    return Result.fail(bindingError("storedCorruption"));
+  }
+  const structure = donor.structure;
+  return Result.gen(function* () {
+    yield* (donor.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+      Result.mapError(cause => bindingError("resourceFailure", cause)));
+    yield* (target.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+      Result.mapError(cause => bindingError("resourceFailure", cause)));
+    if (target.structure !== undefined) return;
+    // Existing independent retention needs no new metadata authentication. A
+    // fresh recipient must inherit the accepting transaction's final guard.
+    if (!hasProtectedMetadataFinalGuardScope(tx) || donor.lifetime === undefined || target.lifetime === undefined)
+      return yield* Result.fail(bindingError("storedCorruption"));
+    // The repository never exposes this retained body. Reads return detached
+    // copies; sharing its private reference avoids another source-wide clone.
+    yield* target.lifetime.charge(structure).pipe(
+      Result.mapError(cause => bindingError("resourceFailure", cause)));
+    target.structure = structure;
+  });
 }
 export type VerifiedBindingLane = Readonly<{
   slot: PhysicalBindingSlot;
@@ -428,6 +466,7 @@ export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.read
       yield* Effect.suspend(() => {
         if (preparation.structure !== undefined) return Effect.void;
         const structure = structuredClone({ candidate: restored, activation,
+          head: { sequence: head.frame.sequence, sha256: head.sha256 },
           projection: selectedProjectionReference(restored.frame) });
         return Effect.fromResult((preparation.lifetime?.charge(structure) ?? Result.succeed(undefined)).pipe(
           Result.mapError(cause => bindingError("resourceFailure", cause)),

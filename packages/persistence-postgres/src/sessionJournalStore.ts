@@ -247,6 +247,7 @@ import {
   type ReadFencedIndexBuildStateError,
 } from "./indexBuildStates";
 import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
   validateApplicationRevisionSyscallDocumentInTransactionV1,
   type ApplicationRevisionSyscallValidatorV1,
   type ApplicationRevisionSyscallValidatorV1Error,
@@ -3227,6 +3228,7 @@ export function createSessionJournalStorePersistence(
     );
     const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
     const resolved = yield* resolveJournalTargetEffect(tableState.attempt);
+    let documentRejection: ApplicationRevisionSyscallDocumentValidationV1Error | undefined;
     const applied = yield* resolved.target[
       RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
     ](
@@ -3241,13 +3243,20 @@ export function createSessionJournalStorePersistence(
           return finite === undefined
             ? Effect.fail(corruption(tableState.attempt, "journalStateInvalid"))
             : runFinitePointOperationInTransactionEffect(tx, context,
-              tableState, request, requestEvidence, randomUuid, validator, finite);
+              tableState, request, requestEvidence, randomUuid, validator, finite,
+              error => { documentRejection = error; });
         }
         return runPointOperationInTransactionEffect(tx, context, tableState,
           request, requestEvidence, randomUuid, validator);
       },
     ).pipe(
-      Effect.onError(() => Effect.sync(() => {
+      Effect.onError(cause => Effect.sync(() => {
+        const reason = cause.reasons.length === 1 ? cause.reasons[0] : undefined;
+        // Only this call's pre-stage validator refusal is catchable. A failed
+        // transaction/tail, defect, interruption or combined Cause still poisons
+        // the finite root even if it contains a document validation failure.
+        if (documentRejection !== undefined && reason !== undefined &&
+          Cause.isFailReason(reason) && reason.error === documentRejection) return;
         const finite = finiteRootStates.get(tableState.attempt);
         if (finite !== undefined) {
           finite.status = "aborted";
@@ -5256,6 +5265,7 @@ const runFinitePointOperationInTransactionEffect = Effect.fn(
   randomUuid: () => string,
   validator: Parameters<typeof runPointOperationInTransactionEffect>[6],
   finite: FiniteRootAttemptState,
+  onDocumentRejection: (error: ApplicationRevisionSyscallDocumentValidationV1Error) => void,
 ): Effect.fn.Return<AppliedSessionJournalOperationV1, SessionJournalRunPointOperationV1Error> {
   finite.inFlightOperations += 1;
   return yield* Effect.gen(function* () {
@@ -5289,6 +5299,11 @@ const runFinitePointOperationInTransactionEffect = Effect.fn(
     operation: request.kind, tableName: table.tableName,
     message: "Ordinary Application mutations cannot write this managed table.",
   }) : new SessionJournalPersistenceV1Error({ operation: "runPointOperation", cause })));
+  // Planning may hydrate an uncached patch/replace target. Rejected documents
+  // must not retain that read without accepting its dependency/counter charge.
+  const hydratedKey = request.kind === "patch" || request.kind === "replace"
+    ? `${table.tableId}/${decodeAppDocumentIdentityV1(request.documentId).rowId}` : undefined;
+  const hadHydratedRead = hydratedKey !== undefined && finite.pointReads.has(hydratedKey);
   const plan = yield* planFreshPointOperationEffect(tx, context, table, request, randomUuid, finite);
   const preparedWriteEvent = plan.write === undefined ? undefined : yield* prepareLogicalWriteEventEffect(plan.write);
   const outcomeEvidence = yield* Effect.tryPromise({
@@ -5299,7 +5314,12 @@ const runFinitePointOperationInTransactionEffect = Effect.fn(
     receiptEvidenceBytes: requestEvidence.canonicalBytes.byteLength + outcomeEvidence.canonicalBytes.byteLength,
   } satisfies SessionJournalCounterDeltasV1);
   if (plan.documentValidation !== undefined) yield* validateApplicationRevisionSyscallDocumentInTransactionV1(
-    validator, tx, context, plan.documentValidation);
+    validator, tx, context, plan.documentValidation).pipe(Effect.tapError(error => Effect.sync(() => {
+      if (error instanceof ApplicationRevisionSyscallDocumentValidationV1Error) {
+        if (hydratedKey !== undefined && !hadHydratedRead) finite.pointReads.delete(hydratedKey);
+        onDocumentRejection(error);
+      }
+    })));
   const limitIssue = firstExceededLimit(finite.counters, deltas);
   if (limitIssue !== undefined) {
     finite.status = "aborted";

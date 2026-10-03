@@ -70,6 +70,15 @@ import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from
 type LogicalInstallationTiming = Readonly<{ migrationMs: number; managedSetupMs: number;
   coLocatedSetupMs: number; totalInstallationMs: number }>;
 
+export interface LogicalCurrencyPreparationTiming {
+  readonly provisionAndMigrateMs: number;
+  readonly applicationAndReadInstallationMs: number;
+  readonly compositionAndCompilationMs: number;
+  readonly logicalAdmissionMs: number;
+  readonly indexAndUniqueBuildMs: number;
+  readonly bindingAndInitializationMs: number;
+}
+
 type LogicalCurrencyResource =
   | Readonly<{ kind: "pglite"; control: PGliteFlarexPersistence; target: PGliteFlarexPersistence;
     session: RelationalSession; observeSql: (observer: ((text: string) => Promise<void> | void) | undefined) => void }>
@@ -103,6 +112,7 @@ export interface LogicalCurrencyFixture {
   readonly resource: LogicalCurrencyResource;
   readonly installationTiming: LogicalInstallationTiming | undefined;
   readonly fixtureConstructionMs: number;
+  readonly preparationTiming: LogicalCurrencyPreparationTiming;
   readonly application: ApplicationNativeMutationPGliteFixture | ApplicationNativeMutationPostgresFixture;
   readonly control: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
@@ -157,12 +167,23 @@ export async function logicalCurrencyFixture(
     return { kind: "pglite" as const, control, target: target.persistence, session: target.session,
       observeSql: (next: typeof observer) => { observer = next; } };
   })() : await (async () => {
-      const control = await createFileScopedPostgresFixture();
-      registerCleanup(control.dispose);
-      const target = options?.protectedRuntime === true || options?.managedRead === true
-        ? await createProtectedFileScopedPostgresFixture(options?.managedRead === true ? "managed" : "fullProof")
-        : await createFileScopedPostgresFixture();
-      registerCleanup(target.dispose);
+      // Unique disposable schemas have no dependency on one another. Await
+      // both provisioning jobs before propagating failure so registered
+      // cleanup can never race a still-creating sibling resource.
+      const [controlResult, targetResult] = await Promise.allSettled([
+        createFileScopedPostgresFixture().then(resource => { registerCleanup(resource.dispose); return resource; }),
+        (options?.protectedRuntime === true || options?.managedRead === true
+          ? createProtectedFileScopedPostgresFixture(options?.managedRead === true ? "managed" : "fullProof")
+          : createFileScopedPostgresFixture()).then(resource => { registerCleanup(resource.dispose); return resource; }),
+      ]);
+      if (controlResult.status === "rejected") {
+        if (targetResult.status === "rejected") throw new AggregateError([controlResult.reason, targetResult.reason],
+          "Logical Currency database provisioning failed");
+        throw controlResult.reason;
+      }
+      if (targetResult.status === "rejected") throw targetResult.reason;
+      const control = controlResult.value;
+      const target = targetResult.value;
       const managedControl = options?.managedRead === true
         ? await createProtectedFileScopedPostgresFixture("managed", control) : undefined;
       if (managedControl !== undefined) registerCleanup(managedControl.dispose);
@@ -193,6 +214,8 @@ export async function logicalCurrencyFixture(
         ...(managedRead === undefined ? {} : { managedRead }),
         ...("protectedMetadata" in target ? { protectedMetadata: target.protectedMetadata } : {}) };
     })());
+  const provisionAndMigrateMs = performance.now() - fixtureStarted;
+  const applicationStarted = performance.now();
   if (options?.managedRead === true && (pair.kind !== "postgres" || pair.managedRead === undefined))
     throw new Error("A managed logical Currency resource requires protected target and control installations");
   const { control, target } = pair;
@@ -223,7 +246,9 @@ export async function logicalCurrencyFixture(
     : await createApplicationNativeMutationPGliteFixtureWithPersistence(applicationOptions, { control: pair.control, target: pair.target });
   const physicalTablesBeforeCandidate = (await target.query<{ name: string }>(
     "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows;
+  const applicationAndReadInstallationMs = performance.now() - applicationStarted;
   return Effect.runPromise(Effect.fn("LogicalCurrencyFixture.prepare")(function* () {
+    const compositionStarted = performance.now();
     const composed = yield* makeSchemaComposer({ deploymentId: application.deploymentId,
       authority: application.authority, applicationAnalyses: makeApplicationAnalysisRepository(target.drizzle),
       medusaModules: ["currency", ...(options?.includeProduct === true ? ["product" as const] : []),
@@ -271,6 +296,8 @@ export async function logicalCurrencyFixture(
       : makePGliteFrameworkSchemaArtifactAdmissionFixture(pair.control).controlSessionStarter;
     const admission = makeLogicalSchemaAdmission({ controlDb: control.drizzle, session: controlSession,
       deploymentId: application.deploymentId, scopeId: application.authority.scopeId });
+    const compositionAndCompilationMs = performance.now() - compositionStarted;
+    const admissionStarted = performance.now();
     yield* admission.admit(prepared, { schemaVersionId, version: decodeCatalogSchemaVersion(100) }, {
       initialDeadline: yield* startCatalogControlDeadline("initial", 20_000),
       lockTimeoutMilliseconds: 5000, recoveryTimeoutMilliseconds: 20_000,
@@ -285,6 +312,8 @@ export async function logicalCurrencyFixture(
       }), cause => new Error("Logical Currency catalog transaction", { cause }));
     const sourcePins = Object.freeze(catalog.requirements.evidence.candidate.sources.map(source =>
       Object.freeze({ sourceKey: source.key, sourceSha256: source.sourceSha256, writeProfile: source.writeProfile })));
+    const logicalAdmissionMs = performance.now() - admissionStarted;
+    const indexStarted = performance.now();
     const ports = { controlDb: control.drizzle, authority: application.authorityPorts };
     const reconciled = yield* reconcilePublishedIndexBuildsV1Effect(ports,
       { deploymentId: application.deploymentId, scopeId: application.authority.scopeId, schemaVersionId });
@@ -316,6 +345,8 @@ export async function logicalCurrencyFixture(
       if (build.lifecycle === "enabled" && build.uniqueConstraintDefinitionId === null) { uniqueEnabled = true; break; }
     }
     if (!uniqueEnabled) throw new Error("Logical Currency unique set did not become ready");
+    const indexAndUniqueBuildMs = performance.now() - indexStarted;
+    const bindingStarted = performance.now();
     const bindingTarget = yield* makeFrameworkSchemaTarget({ database: target.drizzle,
       deploymentId: application.deploymentId, canonicalPhysicalDatabaseIdentity: "logical-currency-target",
       physicalLocator: application.active.basis.authority.physicalLocator });
@@ -365,6 +396,8 @@ export async function logicalCurrencyFixture(
         ...(installationTiming === undefined ? {} : { installationTiming }),
         ...(managedRead === undefined ? {} : { managedRead }) } : pair,
       installationTiming, fixtureConstructionMs: performance.now() - fixtureStarted,
+      preparationTiming: { provisionAndMigrateMs, applicationAndReadInstallationMs, compositionAndCompilationMs,
+        logicalAdmissionMs, indexAndUniqueBuildMs, bindingAndInitializationMs: performance.now() - bindingStarted },
       application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource, sourcePins,
       managedRead,

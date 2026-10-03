@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "perf:core": "node scripts/run-core-performance.mjs",
     "build": "pnpm -r build",
     "lint": "pnpm lint:core",
     "lint:core": "oxlint --quiet packages/utils/src packages/time/src packages/query-sync/src packages/flarex-protocol/src packages/executor/src packages/executor-http/src packages/executor-nitro/src packages/persistence-postgres/src packages/payload-adapter/src",

@@ -8,7 +8,7 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { fxAppRowRevisions } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
-import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
 const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),
@@ -89,7 +89,7 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
       const fixture = await createMixedMutationProductFixture({ driver: "postgres", workflow: true,
         suffix, payloadProfile: "success", workflowIds: { variantId, priceSetId } });
       try {
-        const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
+        const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
         const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
           success.result.result))).value;
         const workflow = Schema.decodeUnknownSync(WorkflowResult)(returnedValue).workflow;

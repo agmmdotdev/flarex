@@ -1,8 +1,8 @@
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { PostgresLocatedReadCommittedRunnerOptionsV1 } from
   "../../../persistence-postgres/src/postgresLocatedReadCommitted";
-import type { createMixedMutationProductFixture } from "./mixedMutationProductFixture";
-import type { MixedMutationFinalEntryTestContext } from "./mixedMutationProductFixture";
+import type { createMixedMutationProductFixture } from "./mixedMutationWorkerdFixture";
+import type { MixedMutationFinalEntryTestContext } from "./mixedMutationWorkerdFixture";
 
 type MixedFixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
 type PostgresFixtureResource = Extract<MixedFixture["currency"]["resource"], { readonly kind: "postgres" }>;

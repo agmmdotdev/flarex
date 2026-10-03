@@ -1,123 +1,129 @@
 import { createHash } from "node:crypto";
 import { inspect } from "node:util";
-import { sql } from "drizzle-orm";
-import { Miniflare } from "miniflare";
-import { Deferred, Effect, Exit, Fiber, Result, Schema, Scope } from "effect";
+import { and, eq, sql } from "drizzle-orm";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema, Scope } from "effect";
 import type { makeNativeProductOperationDiagnostics } from "./nativeProductOperationDiagnostics";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from
   "@flarex/persistence-postgres/internal/commerce-values";
 import { CommitEnvelopeV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSuccessfulResultV1Effect,
   decodeCanonicalSessionJournalEffect } from "flarex-protocol/commit-protocol";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { decodeLogicalParticipantDependencyEvidence } from "../../../persistence-postgres/src/logicalDocuments/journalEvidence";
-import { inspectLogicalParticipantCommitAuthority } from "../../../persistence-postgres/src/logicalDocuments/participantAdmission";
+import { decodeLogicalParticipantDependencyEvidence } from "../../../../persistence-postgres/src/logicalDocuments/journalEvidence";
+import { inspectLogicalParticipantCommitAuthority } from "../../../../persistence-postgres/src/logicalDocuments/participantAdmission";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { requirePointMutationArgumentSemanticSizeV1 } from
   "flarex-protocol/point-mutation-start";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { decodeCanonicalFlarexValueEvidenceV1, normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { decodeAppDocumentIdentityV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
+import { fxAppRowRevisions } from "../../../../persistence-postgres/src/schema";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from
-  "../../../persistence-postgres/src/applicationMutationAdmission";
-import { claimApplicationActiveSelection } from "../../../persistence-postgres/src/applicationActivation";
+  "../../../../persistence-postgres/src/applicationMutationAdmission";
+import { claimApplicationActiveSelection } from "../../../../persistence-postgres/src/applicationActivation";
 import { prepareLogicalRelationalAdmission } from
-  "../../../persistence-postgres/src/logicalDocuments/relationalAdmission";
+  "../../../../persistence-postgres/src/logicalDocuments/relationalAdmission";
 import { prepareLogicalStorageReadiness } from
-  "../../../persistence-postgres/src/logicalStorageReadiness";
+  "../../../../persistence-postgres/src/logicalStorageReadiness";
 import { createApplicationMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
-  "../../../persistence-postgres/src/transactionSessionActivation";
+  "../../../../persistence-postgres/src/transactionSessionActivation";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
-  "../../../persistence-postgres/src/storedOccExecution";
+  "../../../../persistence-postgres/src/storedOccExecution";
 import { createPointMutationExecutionClaimLivenessV1 } from
-  "../../../persistence-postgres/src/transactionExecutionClaimLiveness";
+  "../../../../persistence-postgres/src/transactionExecutionClaimLiveness";
 import { createSessionJournalStorePersistence, readConfirmedFiniteRootSealCapture } from
-  "../../../persistence-postgres/src/sessionJournalStore";
+  "../../../../persistence-postgres/src/sessionJournalStore";
 import type { LogicalParticipantBorrow } from
   "@flarex/persistence-postgres/session-journal-store";
-import type { PerformanceSettlementLedger } from "./mixedMutationPerformanceReport";
-import type { PublicationPerformanceServer } from "./publicationPerformanceServer";
+import type { PerformanceSettlementLedger } from "./mixedMutationMeasurementContracts";
+interface MixedMutationPublicationObserver {
+  begin(name: string): Promise<void>;
+  end(name: string): Promise<void>;
+  beginPublication(): Promise<void>;
+  endPublication(): Promise<void>;
+}
 import { createStoredAttemptEvidenceLoaderV1 } from
-  "../../../persistence-postgres/src/storedAttemptEvidence";
+  "../../../../persistence-postgres/src/storedAttemptEvidence";
 import { createStoredCommitAuthorityEvidenceLoaderV1 } from
-  "../../../persistence-postgres/src/storedCommitAuthorityEvidence";
+  "../../../../persistence-postgres/src/storedCommitAuthorityEvidence";
 import { createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1 } from
-  "../../../persistence-postgres/src/pointCommitTransaction";
+  "../../../../persistence-postgres/src/pointCommitTransaction";
 import type { PointCommitPublicationObservation } from
   "@flarex/persistence-postgres/point-commit-transaction";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
+import { makeCommerceHost } from "../../../../persistence-postgres/src/commerceTransaction/host";
 import { makeCmsHost } from "@flarex/persistence-postgres/internal/cms-adapter";
-import { createPostgresPersistence } from "../../../persistence-postgres/src/postgres";
+import { createPostgresPersistence } from "../../../../persistence-postgres/src/postgres";
 import { makePostgresRelationalSession } from
-  "../../../persistence-postgres/src/relationalTransaction/session";
+  "../../../../persistence-postgres/src/relationalTransaction/session";
 import { preparedHostTestRuntime } from
-  "../../../persistence-postgres/test/preparedHostRuntimeTestSupport";
-import { retainPreparedHost, type PreparedHostRuntimeError } from "../../../persistence-postgres/src/preparedHostRuntime";
+  "../../../../persistence-postgres/test/preparedHostRuntimeTestSupport";
+import { retainPreparedHost, type PreparedHostRuntimeError } from "../../../../persistence-postgres/src/preparedHostRuntime";
 import type { LogicalReadMetadataScale } from
-  "../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
+  "../../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from
-  "../../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
+  "../../../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from
-  "../../../persistence-postgres/src/appDeveloperIndexCommitV1";
+  "../../../../persistence-postgres/src/appDeveloperIndexCommitV1";
 import { createAppSchemaCandidateWriteGuardPort } from
-  "../../../persistence-postgres/src/appSchemaCandidateValidation";
+  "../../../../persistence-postgres/src/appSchemaCandidateValidation";
 import { createAppUniqueConstraintDefinitionPortV1 } from
-  "../../../persistence-postgres/src/appUniqueConstraintCommitV1";
+  "../../../../persistence-postgres/src/appUniqueConstraintCommitV1";
 import { createAppUniqueConstraintSetEligibilityPortV1 } from
-  "../../../persistence-postgres/src/appUniqueConstraintSetBuildV1";
+  "../../../../persistence-postgres/src/appUniqueConstraintSetBuildV1";
 import { createPointMutationJournalV1 } from
-  "../../../executor/src/pointMutationJournal";
+  "../../../src/pointMutationJournal";
 import { createPointMutationExecutionClaimVaultV1 } from
-  "../../../executor/src/pointMutationExecutionClaim";
+  "../../../src/pointMutationExecutionClaim";
 import { ApplicationPointMutationRunnerHostV1Error, createPointMutationInitialExecutionV1, createStoredPointCommitExecutorV1,
   createStoredPointMutationOccRerunExecutionV1 } from
-  "../../../executor/src/storedAttemptAuthentication";
+  "../../../src/storedAttemptAuthentication";
 import type { PointMutationOccBoundJournalV1,
   PointMutationOccRuntimeNeutralRunnerInputV1,
   PointMutationOccRuntimeNeutralRunnerV1 } from
-  "../../../executor/src/storedAttemptAuthentication";
+  "../../../src/storedAttemptAuthentication";
 import type { AuthenticatedFiniteInitialEntry } from
-  "../../../executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
+  "../../../src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
 import { createApplicationMutationGrantVerificationKernelV1 } from
-  "../../../executor/src/applicationMutationGrantVerificationKernel";
+  "../../../src/applicationMutationGrantVerificationKernel";
 import { createApplicationPointMutationSessionActivationV1, inspectActivatedPointMutationSessionV1,
   confirmedFinitePointMutationEntryFromActivated,
   createPointMutationSessionAttemptLoadingV1,
   createPointMutationSessionAttemptTerminalizationV1 } from
-  "../../../executor/src/pointMutationSessionActivation";
+  "../../../src/pointMutationSessionActivation";
 import { decodePointMutationSessionAttemptSelectorV1 } from
-  "../../../executor/src/pointMutationSessionAttemptSelector";
+  "../../../src/pointMutationSessionAttemptSelector";
 import { bindPointMutationOccJournal } from
-  "../../../executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
+  "../../../src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
 import { issueSetupSeededSyscallValidatorProofV1 } from
-  "../../../persistence-postgres/test/applicationRevisionSyscallValidatorTestSupport";
+  "../../../../persistence-postgres/test/applicationRevisionSyscallValidatorTestSupport";
 import { applicationMutationActivationEvidenceFixture } from
-  "../../../persistence-postgres/test/applicationMutationActivationFixture";
+  "../../../../persistence-postgres/test/applicationMutationActivationFixture";
 import type { MixedMutationPerformanceTrace } from
-  "../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+  "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from
-  "../../../persistence-postgres/test/transactionSessionActivationTestSupport";
+  "../../../../persistence-postgres/test/transactionSessionActivationTestSupport";
 import { logicalCurrencyFixture } from
-  "../../../medusa-adapter/test/support/logical-currency-fixture";
+  "../../../../medusa-adapter/test/support/logical-currency-fixture";
 import { prepareLogicalProductHost } from
-  "../../../medusa-adapter/test/support/logical-product-fixture";
+  "../../../../medusa-adapter/test/support/logical-product-fixture";
 import { prepareLogicalPricingHost } from
-  "../../../medusa-adapter/test/support/logical-pricing-fixture";
+  "../../../../medusa-adapter/test/support/logical-pricing-fixture";
 import { prepareLogicalVariantPricingLinkHost } from
-  "../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture";
-import { seedNativeProductAttemptGraph, runNativeStandaloneProductUpdate,
+  "../../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture";
+import { prepareNativeProductAttemptSeeder, seedNativeProductAttemptGraph, runNativeStandaloneProductUpdate,
   runNativeStandaloneProductMutation, runNativeStandaloneLinkCreate } from
-  "../../../medusa-adapter/test/support/native-product-attempt-seed";
+  "../../../../medusa-adapter/test/support/native-product-attempt-seed";
 import { executePrivateProductAttemptOperation,
   preparePrivateProductAttempt, preparePrivateProductAttemptEventPolicy } from
   "@flarex/medusa-adapter/internal/product-attempt";
 import { preparePrivateProductLaunchAttempt } from
-  "../../../medusa-adapter/src/product-launch-workflow";
+  "../../../../medusa-adapter/src/product-launch-workflow";
 import { admittedCommerceEventGroup, captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeBorrowedLogicalAttempt } from
@@ -141,25 +147,12 @@ import {
   makeMixedPayloadRemovedIdRuntime, makeMixedPayloadUnresolvedIdRuntime,
   makeMixedPayloadInspectionRuntime,
 } from "@flarex/payload-adapter/internal/testing";
-import {
-  POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
-  POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
-  POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
-  pointMutationExactRuntimeWorkerConfigurationSource,
-  pointMutationExactRuntimeWorkerExecutionBridgeSource,
-} from "../../src/artifactRuntime";
-import { POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1 } from
-  "../../src/artifactRuntime/PointMutationExactRuntimeWorkerCore.generated";
-import { POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1 } from
-  "../../src/artifactRuntime/PointMutationRuntimeKernel.generated";
-import { FUNCTION_API_CORE_MODULE_V1, FUNCTION_API_CORE_SOURCE_V1 } from
-  "../../src/artifactRuntime/FunctionApiCore.generated";
-import {
-  APPLICATION_ERROR_PLATFORM_MODULE_V1,
-  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
-  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
-  applicationErrorPlatformSourceV1,
-} from "../../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
+import { ApplicationRevisionSyscallDocumentValidationV1Error } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+import { runMixedMutationInProcess, type MixedMutationExecutionHost } from "./mixedMutationInProcessRuntime";
+const MixedMutationJournalMessageSchema = Schema.Struct({
+  kind: Schema.String, tableName: Schema.optional(Schema.String), sequence: Schema.optional(Schema.String),
+  operation: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)), frame: Schema.optional(Schema.Unknown),
+});
 
 export interface MixedMutationProductFixtureHooks {
   /** Test observer installed after host/seeding construction, before genuine
@@ -289,7 +282,7 @@ export interface MixedMutationProductFixture {
   readonly sqlByPhase: Map<string, number>;
   readonly hasSqlObserver: boolean;
   readonly bridgeFailures: string[];
-  readonly runWorkerd: (source?: string,
+  readonly runExecution: (source?: string,
     runnerInput?: PointMutationOccRuntimeNeutralRunnerInputV1) => Promise<unknown>;
   readonly getUpdateRequest: () => Parameters<NonNullable<BoundJournal["runAdmittedOperation"]>>[0] | undefined;
   readonly getAdmittedRequest: (participant: string, method: string) =>
@@ -324,10 +317,14 @@ export interface MixedMutationProductFixture {
   readonly runStandalonePayloadCreate: (title: string) => Promise<Json>;
   readonly retryClosedWorkflow: (value: Json) => Promise<unknown>;
   readonly readCurrentProduct: () => Promise<Json>;
+  readonly readCurrentApplicationDocument: (id: string) => Promise<unknown>;
+  readonly readCurrentPayloadPost: (id: string) => Promise<Json>;
+  readonly readCurrentWorkflowPricing: (variantId: string, priceSetId: string) => Promise<Readonly<{ priceSet: Json; links: Json }>>;
   readonly close: () => Promise<void>;
 }
 
 type MixedMutationProductFixtureInput = Readonly<{
+  executionHost?: MixedMutationExecutionHost | undefined;
   driver: "pglite" | "postgres"; suffix: string; hooks?: MixedMutationProductFixtureHooks;
   readMetadataScale?: LogicalReadMetadataScale;
 }> & (Readonly<{ workflow: true; payloadProfile: MixedPayloadProfileKind;
@@ -586,7 +583,7 @@ export interface MixedMutationPerformanceSeries {
   readonly setTrace: (trace: MixedMutationPerformanceTrace | undefined) => void;
   readonly prepareAttempt: (index: number) => Promise<void>;
   readonly runAttempt: (index: number, publicationObservation?: PointCommitPublicationObservation,
-    publicationServer?: PublicationPerformanceServer, cleanupFailures?: unknown[]) => Promise<Readonly<{
+    publicationServer?: MixedMutationPublicationObserver, cleanupFailures?: unknown[]) => Promise<Readonly<{
     fixture: MixedMutationProductFixture;
     seed: ProductSeed["seed"];
     returnedValue: unknown;
@@ -599,7 +596,9 @@ export interface MixedMutationPerformanceSeries {
 }
 
 /** Test-only repeated private attempts over one prepared module graph, scope,
- * and pair of database pools. Each attempt gets a fresh single-use Worker. */
+ * and pair of database pools. Each attempt gets a fresh request journal and execution context.
+ * The default driver calls the portable runtime directly; backend host tests
+ * inject their single-use Worker adapter. */
 export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
   driver: "pglite" | "postgres";
   suffix: string;
@@ -607,18 +606,19 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
   sampleCount: number;
   readMetadataScale?: LogicalReadMetadataScale;
   hooks?: MixedMutationProductFixtureHooks;
+  executionHost?: MixedMutationExecutionHost | undefined;
   applicationSource?: (seed: ProductSeed["seed"]) => string;
 }>): Promise<MixedMutationPerformanceSeries> {
   if (!Number.isSafeInteger(input.sampleCount) || input.sampleCount < 1 || input.sampleCount > 40)
     throw new Error("Invalid finite mixed performance sample count");
   const makeInput = (suffix: string): MixedMutationProductFixtureInput =>
     input.profile === "workflow"
-      ? { driver: input.driver, suffix, workflow: true, payloadProfile: "success",
+      ? { executionHost: input.executionHost, driver: input.driver, suffix, workflow: true, payloadProfile: "success",
         ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) }
       : input.profile === "productPayload"
-        ? { driver: input.driver, suffix, payloadProfile: "success",
+        ? { executionHost: input.executionHost, driver: input.driver, suffix, payloadProfile: "success",
             ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) }
-        : { driver: input.driver, suffix,
+        : { executionHost: input.executionHost, driver: input.driver, suffix,
             ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) };
   const context = await prepareMixedMutationProductContext(makeInput(input.suffix),
     `${input.suffix}-0`);
@@ -632,36 +632,31 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
   try {
     if (context.initialSeed === undefined) throw new Error("Missing first mixed performance seed");
     seeded.set(0, context.initialSeed);
-    const additionalSetupSeedStart = globalThis.performance.now();
-    if (input.profile !== "workflow") {
-      for (let index = 1; index < input.sampleCount; index += 1) {
-        seeded.set(index, await seedNativeProductAttemptGraph(context.currency, context.product,
-          `${input.suffix}-${index}`, "existing"));
-      }
-    }
-    const additionalSetupSeedingMilliseconds = globalThis.performance.now() - additionalSetupSeedStart;
+    const seederConstructionStart = globalThis.performance.now();
+    const seeder = await prepareNativeProductAttemptSeeder(context.currency, context.product, input.suffix);
+    context.cleanup.push(seeder.close);
+    const seederConstructionMilliseconds = globalThis.performance.now() - seederConstructionStart;
+    const additionalSetupSeedingMilliseconds = 0;
     const applicationSource = mixedMutationPerformanceApplicationSource(input.profile,
       context.selectedPayload?.profile.participant);
     const prepareAttempt = async (index: number) => {
       if (closed || index < 0 || index >= input.sampleCount || !Number.isSafeInteger(index))
         throw new Error("Invalid mixed performance attempt index");
       if (seeded.has(index)) return;
-      if (input.profile !== "workflow") throw new Error("Missing prepared Product graph");
+      if (input.profile !== "workflow") {
+        seeded.set(index, await seeder.seed(`${input.suffix}-${index}`, "existing"));
+        return;
+      }
       if (index > 0) {
         if (!completed.has(index - 1)) throw new Error("Previous workflow sample did not publish");
         const previous = seeded.get(index - 1);
         if (previous === undefined) throw new Error("Missing preceding workflow seed");
-        await runNativeStandaloneProductMutation(context.currency, context.product,
-          `performance-clear-${input.suffix}-${index - 1}`, "updateTag", {
-            selector: { id: previous.seed.tagId },
-            update: { value: `launched-${input.suffix}-${index - 1}` },
-          });
+        await seeder.retireLaunchedTag(previous.seed, `${input.suffix}-${index - 1}`);
       }
-      seeded.set(index, await seedNativeProductAttemptGraph(context.currency, context.product,
-        `${input.suffix}-${index}`, "launch"));
+      seeded.set(index, await seeder.seed(`${input.suffix}-${index}`, "launch"));
     };
     const runAttempt = async (index: number, publicationObservation?: PointCommitPublicationObservation,
-      publicationServer?: PublicationPerformanceServer, cleanupFailures?: unknown[]) => {
+      publicationServer?: MixedMutationPublicationObserver, cleanupFailures?: unknown[]) => {
       if (closed || attempted.has(index)) throw new Error("Mixed performance attempt already used or closed");
       const seedGraph = seeded.get(index);
       if (seedGraph === undefined) throw new Error("Prepare the disjoint graph before measurement");
@@ -683,7 +678,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
           updateInput: seed.updateInput, retrieveInput: seed.retrieveInput }
         : { updateInput: seed.updateInput, retrieveInput: seed.retrieveInput,
           listInput: seed.listInput }) });
-      let workerConstructionMilliseconds: number | null = null;
+      let workerConstructionMilliseconds: number | null = input.executionHost === undefined ? 0 : null;
       let sealedJournalBytes: number | null = null;
       const fixture = await runPhase("request admission", () => createMixedMutationAttemptFixture(
         { ...makeInput(`${input.suffix}-${index}`), ...(input.hooks === undefined ? {} : { hooks: input.hooks }) }, context, seedGraph, false,
@@ -695,7 +690,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         ...(trace === undefined ? {} : { trace }) }));
       openFixtures.add(fixture);
       try {
-        const raw = await runPhase("Worker execution", () => fixture.runWorkerd(
+        const raw = await runPhase(input.executionHost === undefined ? "portable runtime execution" : "Worker execution", () => fixture.runExecution(
           input.applicationSource?.(seed) ?? applicationSource));
         if (workerConstructionMilliseconds === null) throw new Error("Missing fresh Worker readiness");
         const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
@@ -741,7 +736,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         ...(context.workflowBinding === undefined ? {} : { workflow: context.workflowBinding.profileRevision }) }),
       get workerConstructionCount() { return workerConstructionCount; },
       provisioningMilliseconds: context.provisioningMilliseconds,
-      preparedModuleMilliseconds: context.preparedModuleMilliseconds,
+      preparedModuleMilliseconds: context.preparedModuleMilliseconds + seederConstructionMilliseconds,
       initialSeedingMilliseconds: context.initialSeedingMilliseconds,
       additionalSetupSeedingMilliseconds,
       readSourcePreparationUsage: context.readSourcePreparationUsage,
@@ -1012,10 +1007,9 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     const bridgeFailures: string[] = [];
     const makeBridge = (runtimeJournal: PointMutationOccBoundJournalV1) => {
       const tableHandles = new Map<string, Effect.Success<ReturnType<typeof bound.resolvePointTable>>>();
-      return async (request: Request): Promise<Response> => {
+      return async (messageInput: unknown): Promise<unknown> => {
       try {
-        const message = await request.json() as Readonly<{ kind: string; tableName?: string;
-          sequence?: string; operation?: Record<string, unknown>; frame?: unknown }>;
+        const message = Schema.decodeUnknownSync(MixedMutationJournalMessageSchema)(messageInput);
         let value: unknown;
         if (message.kind === "point") {
           sqlPhase = "application";
@@ -1029,11 +1023,18 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
             table = await Effect.runPromise(runtimeJournal.resolvePointTable(message.tableName));
             tableHandles.set(message.tableName, table);
           }
-          const runPoint = () => Effect.runPromise(runtimeJournal.runPointOperation(table, {
-            ...operation,
-            syscallSequence: CommitSyscallSequenceV1Schema.make(
-              BigInt(syscallSequence)),
-          }));
+          const runPoint = async () => {
+            const exit = await Effect.runPromiseExit(runtimeJournal.runPointOperation(table, {
+              ...operation, syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(syscallSequence)),
+            }));
+            if (Exit.isSuccess(exit)) return exit.value;
+            // Match the real executor RPC boundary: only one genuine typed
+            // document validation failure is recoverable by application code.
+            const reason = exit.cause.reasons.length === 1 ? exit.cause.reasons[0] : undefined;
+            if (reason !== undefined && Cause.isFailReason(reason) &&
+                reason.error instanceof ApplicationRevisionSyscallDocumentValidationV1Error) throw reason.error;
+            return Effect.runPromise(Effect.failCause(exit.cause));
+          };
           const result = performance?.trace === undefined ? await runPoint()
             : await performance.trace.withPhase("Application point", runPoint);
           if (result.kind !== "completed") throw new Error(`Point operation ${result.kind}`);
@@ -1062,15 +1063,14 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           value = admittedValue;
           input.hooks?.afterStoreAckBeforeBridgeReply?.(encoded.operation.operation, admittedValue);
         } else throw new Error("Unsupported bridge request");
-        return Response.json({ ok: true, value });
+        return value;
       } catch (cause) {
         bridgeFailures.push(`${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n${inspect(cause, { depth: 5 })}`);
-        return Response.json({ ok: false, error: cause instanceof Error ? cause.message : String(cause) },
-          { status: 500 });
+        throw cause;
       }
     };
     };
-  async function runWorkerd(source?: string,
+  async function runExecution(source?: string,
     runnerInput?: PointMutationOccRuntimeNeutralRunnerInputV1): Promise<unknown> {
     runnerInput ??= authenticatedInitialEntry.runnerInput;
     const bridge = makeBridge(runnerInput?.journal ?? bound);
@@ -1159,90 +1159,18 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       },
     } } };`;
     const applicationSource = source ?? workflowSource ?? payloadSource ?? productSource;
-    const workerPhase = <T>(name: string, run: () => Promise<T>): Promise<T> =>
-      performance?.trace === undefined ? run() : performance.trace.withPhase(name, run);
-    const workerStarted = globalThis.performance.now();
-    let dispatchBridge = bridge;
-    const serviceBinding = (request: Request) => dispatchBridge(request);
-    const platformSource = applicationErrorPlatformSourceV1({
-      runtimeKernelModulePath: `../${POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1}`,
-      captureExportName: "capturePointMutationCoreApplicationErrorDataV1",
-      captureProjectionExportName: "captureCoreApplicationErrorV1",
-      invalid: { kind: "nativeError" },
+    const execution = await (input.executionHost ?? runMixedMutationInProcess)({
+      source: applicationSource, request, executionModule, executionTime,
+      bridge, trace: performance?.trace, onReady: performance?.onWorkerReady,
     });
-    const worker = await workerPhase("Worker construction and ready", async () => {
-      const created = new Miniflare({ compatibilityDate: "2026-06-18",
-      serviceBindings: { MIXED_JOURNAL: serviceBinding }, modules: [
-        { type: "ESModule", path: "worker.js", contents: `${POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1}
-export default { async fetch(_request, env) {
-  const invoke = async (kind, payload) => {
-    const response = await env.MIXED_JOURNAL.fetch("https://mixed-journal.test/", {
-      method: "POST", body: JSON.stringify({ kind, ...payload }),
-    });
-    const answer = await response.json();
-    if (!answer.ok) throw new Error(answer.error);
-    return answer.value;
-  };
-  const journal = {
-    resolvePointTable(tableName) { return {
-      runPointOperation: operation => invoke("point", { tableName,
-        operation: { ...operation, syscallSequence: String(operation.syscallSequence) } }),
-    }; },
-    runAdmittedFrameworkOperation: (sequence, frame) =>
-      invoke("admitted", { sequence: String(sequence), frame }),
-  };
-  const input = ${request};
-  input.context.randomSeed = new Uint8Array(input.context.randomSeed);
-  try {
-    const result = await Reflect.apply(FlarexPointMutationExactRuntimeV1.prototype.runPrivateMixed,
-      {}, [input, journal]);
-    return Response.json({ kind: "result", result });
-  } catch (cause) {
-    return Response.json({ kind: "error", name: cause?.name, message: cause?.message,
-      cause: cause?.cause?.message });
-  }
-} };` },
-        { type: "ESModule", path: POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
-          contents: pointMutationExactRuntimeWorkerConfigurationSource({
-            executionModule, moduleTime: executionTime,
-            moduleRandomSeedHex: "a".repeat(64) }) },
-        { type: "ESModule", path: POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
-          contents: pointMutationExactRuntimeWorkerExecutionBridgeSource(executionModule) },
-        { type: "ESModule", path: POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
-          contents: POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1 },
-        { type: "ESModule", path: FUNCTION_API_CORE_MODULE_V1,
-          contents: FUNCTION_API_CORE_SOURCE_V1 },
-        { type: "ESModule", path: APPLICATION_ERROR_PLATFORM_MODULE_V1,
-          contents: platformSource },
-        { type: "ESModule", path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
-          contents: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1 },
-        { type: "ESModule", path: executionModule, contents: applicationSource },
-      ] });
-      try {
-        if (performance !== undefined) await created.ready;
-        return created;
-      } catch (cause) {
-        await created.dispose();
-        throw cause;
-      }
-    });
-    performance?.onWorkerReady(globalThis.performance.now() - workerStarted);
-    let workerd: unknown;
-    try {
-      const response = await workerPhase("Worker dispatch", () => {
-        dispatchBridge = performance?.trace === undefined ? bridge : performance.trace.bindCurrent(bridge);
-        return worker.dispatchFetch("https://mixed-product.test/");
-      });
-      workerd = await response.json();
-    } finally { await workerPhase("Worker disposal", () => worker.dispose()); }
-    if (typeof workerd === "object" && workerd !== null && "kind" in workerd &&
-      workerd.kind === "error") {
-      const failure = new Error(`Native Worker failed: ${JSON.stringify(workerd)}\n${bridgeFailures.join("\n")}`);
+    if (typeof execution === "object" && execution !== null && "kind" in execution &&
+      execution.kind === "error") {
+      const failure = new Error(`Native runtime failed: ${JSON.stringify(execution)}\n${bridgeFailures.join("\n")}`);
       const cleanup = await Effect.runPromiseExit(closePayloadScopes);
       if (Exit.isFailure(cleanup)) bridgeFailures.push(`Payload attempt scope cleanup: ${String(cleanup.cause)}`);
       throw failure;
     }
-    return workerd;
+    return execution;
   }
   const participantAuthority = prepared.createCommitAuthority(active.selection,
     "medusa.product", ["update", "retrieve", "listByHandle"]);
@@ -1321,7 +1249,7 @@ export default { async fetch(_request, env) {
           retryContexts.push(Object.freeze({ ...runnerInput.context,
             randomSeed: new Uint8Array(runnerInput.context.randomSeed),
             snapshotToken: Object.freeze({ ...runnerInput.context.snapshotToken }) }));
-          const raw = await runWorkerd(undefined, runnerInput);
+          const raw = await runExecution(undefined, runnerInput);
           const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
             result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
           const value = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
@@ -1397,6 +1325,71 @@ export default { async fetch(_request, env) {
       return current;
     } finally { await Effect.runPromise(read.close); }
   }
+  // Verification only: inspect committed revisions through the persistence
+  // schema and canonical evidence owner, never through the tentative journal.
+  async function readCurrentApplicationDocument(id: string): Promise<unknown> {
+    const identity = decodeAppDocumentIdentityV1(id);
+    const revisions = await currency.persistence.drizzle.select().from(fxAppRowRevisions).where(and(
+      eq(fxAppRowRevisions.scopeUuid, projectScopeIdUuidV1(activation.anchor.scopeId).scopeUuid),
+      eq(fxAppRowRevisions.tableId, identity.tableId),
+      eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(identity.rowId)),
+    )).orderBy(fxAppRowRevisions.commitSeq);
+    const row = revisions.at(-1);
+    if (row?.valueBytes === undefined || row.valueBytes === null || row.valueSha256 === null)
+      throw new Error("Missing committed Application document");
+    return (await decodeCanonicalFlarexValueEvidenceV1({ canonicalBytes: row.valueBytes,
+      sha256: row.valueSha256, profile: "appDocument" })).value;
+  }
+  async function readCurrentWorkflowPricing(variantId: string, priceSetId: string) {
+    if (pricing === undefined || link === undefined) throw new Error("Missing selected workflow modules");
+    const priceReader = await Effect.runPromise(makeCommerceHost({ ...pricing.hostInput,
+      commands: [pricing.runtime.retrieve] }));
+    try {
+      const priceSet = await Effect.runPromise(priceReader.read(pricing.runtime.retrieve, {
+        id: priceSetId, config: { relations: ["prices.price_rules"] },
+      }));
+      const linkReader = await Effect.runPromise(makeCommerceHost({ ...link.hostInput,
+        commands: [link.runtime.count] }));
+      try {
+        const links = await Effect.runPromise(linkReader.read(link.runtime.count, {
+          filters: { variant_id: variantId },
+          config: { select: ["id", "variant_id", "price_set_id"], take: 10 },
+        }));
+        return { priceSet, links };
+      } finally { await Effect.runPromise(linkReader.close); }
+    } finally { await Effect.runPromise(priceReader.close); }
+  }
+
+  function standalonePayloadHostInput(compiled: NonNullable<typeof compiledPayload>, session: typeof currency.session) {
+    return { hostRuntime: preparedHostTestRuntime(currency.persistence.drizzle),
+      database: currency.persistence.drizzle, controlDatabase: currency.control.drizzle, session,
+      deploymentId: currency.deploymentId,
+      scopeId: application.authority.scopeId, authority: application.authorityPorts,
+      application: application.activation,
+      identityAndAccessPolicy: { profile: "payload.scalar", release: "3.88.0",
+        access: "closed-headless-local-api", hook: "none" },
+      logicalStorage: { ports: { controlDb: currency.control.drizzle,
+        authority: application.authorityPorts }, unique: application.uniqueConstraintEligibility,
+        schemaVersionId: logicalSchemaVersionId, source: compiled.sourceContract },
+      materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(
+        currency.control.drizzle),
+        developerIndexes: createAppDeveloperIndexDefinitionPortV1(currency.control.drizzle),
+        uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(currency.control.drizzle),
+        candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({
+          candidateValidation: application.candidateValidation,
+          pointCommitAuthority: application.sessionAuthority }) },
+    };
+  }
+
+  async function readCurrentPayloadPost(id: string): Promise<Json> {
+    if (compiledPayload === undefined) throw new Error("Missing selected Payload source");
+    return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const runtime = yield* makePayloadRuntime(compiledPayload);
+      const host = yield* runtime.bind(standalonePayloadHostInput(compiledPayload, currency.session));
+      return yield* host.read(runtime.commands.findByID, { collection: "posts", id }).pipe(Effect.ensuring(host.close));
+    })));
+  }
+
   async function runStandaloneCommerceCommand(
     applicationName: "flarex_product_standalone" | "flarex_link_standalone",
     observations: Array<Readonly<{ primaryTargetPid: number; standalonePid: number }>>,
@@ -1519,24 +1512,7 @@ export default { async fetch(_request, env) {
     }
     const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiledPayload);
-      const host = yield* makeCmsHost({ hostRuntime: preparedHostTestRuntime(currency.persistence.drizzle),
-        database: currency.persistence.drizzle, controlDatabase: currency.control.drizzle,
-        session: postgresSession ?? currency.session,
-        deploymentId: currency.deploymentId,
-        scopeId: application.authority.scopeId, authority: application.authorityPorts,
-        application: application.activation,
-        identityAndAccessPolicy: { profile: "payload.scalar", release: "3.88.0",
-          access: "closed-headless-local-api", hook: "none" },
-        logicalStorage: { ports: { controlDb: currency.control.drizzle,
-          authority: application.authorityPorts }, unique: application.uniqueConstraintEligibility,
-          schemaVersionId: logicalSchemaVersionId, source: compiledPayload.sourceContract },
-        materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(
-          currency.control.drizzle),
-          developerIndexes: createAppDeveloperIndexDefinitionPortV1(currency.control.drizzle),
-          uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(currency.control.drizzle),
-          candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({
-            candidateValidation: application.candidateValidation,
-            pointCommitAuthority: application.sessionAuthority }) },
+      const host = yield* makeCmsHost({ ...standalonePayloadHostInput(compiledPayload, postgresSession ?? currency.session),
         commands: [runtime.commands.create], expectedContentIdentity: compiledPayload.contentIdentity },
       separate === undefined ? undefined : { afterAdmission: tx => Effect.tryPromise({
         try: async () => {
@@ -1740,7 +1716,7 @@ export default { async fetch(_request, env) {
     observePgNativeSqlTransactions,
     standalonePayloadPgConnections, standaloneProductPgConnections, standaloneLinkPgConnections,
     nativeInvokeCount, retryContexts, retryReturnedValues, sqlByPhase,
-    hasSqlObserver, bridgeFailures, runWorkerd,
+    hasSqlObserver, bridgeFailures, runExecution,
     participantAuthority, publisherOptions, pointCommitPorts: application.sessionAuthority,
     makePublisher: () => createPointCommitPublisherPortV1(application.sessionAuthority, publisherOptions),
     preparePublication, prepareSealedPublication, publish, replayPublication,
@@ -1749,7 +1725,7 @@ export default { async fetch(_request, env) {
     runStandalonePayloadCreate,
     retryClosedWorkflow: value => lastBorrowedWorkflowInvoke === undefined
       ? Promise.reject(new Error("Workflow was never borrowed")) : lastBorrowedWorkflowInvoke(value),
-    readCurrentProduct,
+    readCurrentProduct, readCurrentApplicationDocument, readCurrentPayloadPost, readCurrentWorkflowPricing,
     getUpdateRequest: () => updateRequest,
     getAdmittedRequest: (participant: string, method: string) =>
       admittedRequests.get(`${participant}:${method}`),

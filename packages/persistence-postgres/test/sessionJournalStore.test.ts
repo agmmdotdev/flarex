@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { finiteDocumentValidationScenario } from "./finiteDocumentValidationScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -842,6 +843,12 @@ describe("C03 Postgres SessionJournalStore", () => {
       [current.anchor.sessionId],
     );
     expect(afterSeal.rows[0]?.count).toBe(4);
+  });
+
+  it("preserves finite accepted work across pre-stage document validation rejection", async () => {
+    await finiteDocumentValidationScenario(persistence, await scenario("finite_document_validation", {
+      executionProfile: "finiteRoot", seedFields: { name: "persisted" },
+    }));
   });
 
   it("refuses a finite root seal after claim expiry without another operation read", async () => {

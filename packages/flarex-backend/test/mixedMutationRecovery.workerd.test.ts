@@ -33,7 +33,7 @@ import {
   fxSystemTransactionJournals,
 } from "../../persistence-postgres/src/schema";
 import { createMixedMutationProductFixture } from
-  "./support/mixedMutationProductFixture";
+  "./support/mixedMutationWorkerdFixture";
 import { selectorFromRelationAnchor } from
   "../../persistence-postgres/test/pointCommitRelationTestSupport";
 import { createPointMutationExecutionClaimAcquisitionV1,
@@ -86,7 +86,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
       suffix: `parallel-refusal-${driver}`,
     });
     try {
-      const workerError = await fixture.runWorkerd(`export default { users: { create: {
+      const workerError = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           const first = ctx.privateMixed.call("medusa.product", "update",
             ${JSON.stringify(fixture.seed.updateInput)});
@@ -156,7 +156,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
             methods: ["update", "retrieve", "listByHandle"] }],
         }),
       );
-      const pending = fixture.runWorkerd();
+      const pending = fixture.runExecution();
       running = pending;
       await Promise.race([
         Effect.runPromise(Deferred.await(entered)),
@@ -232,7 +232,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
           projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid))
         .orderBy(asc(fxAppRowRevisions.tableId), asc(fxAppRowRevisions.rowId),
           asc(fxAppRowRevisions.commitSeq));
-      const workerError = await fixture.runWorkerd(`export default { users: { create: {
+      const workerError = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           const id = await ctx.db.insert("users", { name: "pending" });
           let caught = false;
@@ -405,7 +405,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
       },
     });
     try {
-      const first = await fixture.runWorkerd().catch(cause => cause);
+      const first = await fixture.runExecution().catch(cause => cause);
       if (first instanceof Error) {
         expect(first.message).toContain("injected lost bridge acknowledgement");
       } else {
@@ -445,7 +445,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .set({ leaseExpiresAt: sql`clock_timestamp() - interval '1 minute'` })
         .where(eq(fxSystemSnapshotLeases.sessionId,
           fixture.activation.anchor.sessionId));
-      const failure = await fixture.runWorkerd().then(() => null, cause => cause);
+      const failure = await fixture.runExecution().then(() => null, cause => cause);
       if (!(failure instanceof Error)) {
         throw new Error("Expected expired snapshot to reject the Worker");
       }
@@ -473,7 +473,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
       driver, suffix: `sealed-finish-${driver}`,
     });
     try {
-      const workerd = await fixture.runWorkerd();
+      const workerd = await fixture.runExecution();
       const success = Schema.decodeUnknownSync(Schema.Struct({
         kind: Schema.Literal("result"),
         result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }),
@@ -528,7 +528,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     });
     let running: Promise<unknown> | undefined;
     try {
-      const pending = fixture.runWorkerd();
+      const pending = fixture.runExecution();
       running = pending;
       await Promise.race([
         Effect.runPromise(Deferred.await(entered)),
@@ -624,7 +624,7 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
       }
       const workerd = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
         result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(
-        await fixture.runWorkerd());
+        await fixture.runExecution());
       const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
         workerd.result.result))).value;
       const pool = fixture.currency.resource.target.pool;

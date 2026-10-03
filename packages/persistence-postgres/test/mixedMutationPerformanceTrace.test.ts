@@ -60,6 +60,29 @@ describe("mixed mutation performance trace SQL structure", () => {
 });
 
 describe.skipIf(postgresUrl === null)("mixed mutation performance trace ordinary PostgreSQL", () => {
+  it("observes a shared standalone pool once and restores its methods", async () => {
+    if (postgresUrl === null) throw new Error("PostgreSQL URL is required for this test.");
+    const pool = new Pool({ connectionString: postgresUrl });
+    const originalQuery = pool.query;
+    const originalConnect = pool.connect;
+    const trace = createMixedMutationPerformanceTrace({ controlPool: pool, targetPool: pool });
+    try {
+      await trace.withInvocation({ id: "standalone", mode: "measured" }, async () => {
+        const result = await pool.query<{ value: number }>("select 7::int as value");
+        expect(result.rows[0]?.value).toBe(7);
+      });
+      const record = trace.records()[0];
+      expect(record?.dispatchGroups).toMatchObject([{ pool: "target", dispatchCount: 1, statementCount: 1 }]);
+      expect(record?.poolQueryCalls).toBe(1);
+      expect(record?.delegatedPoolQueryDispatches).toBe(1);
+      expect(record?.lostContextDispatches).toBe(0);
+      trace.close();
+      expect(pool.query).toBe(originalQuery);
+      expect(pool.connect).toBe(originalConnect);
+      expect((await pool.query<{ value: number }>("select 9::int as value")).rows[0]?.value).toBe(9);
+      expect(trace.records()).toHaveLength(1);
+    } finally { trace.close(); await pool.end(); }
+  });
   it("observes both pools, callback and Promise routes, nested phases and callback reentry without changing results", async () => {
     if (postgresUrl === null) throw new Error("PostgreSQL URL is required for this test.");
     const controlPool = new Pool({ connectionString: postgresUrl });

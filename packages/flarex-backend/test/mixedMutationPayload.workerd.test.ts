@@ -12,7 +12,7 @@ import { fxAppRowRevisions, fxSystemIdempotency, fxSystemTransactionJournalRecei
   fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from
   "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
@@ -66,7 +66,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       suffix: `payload-ordinary-${driver}`, payloadProfile: "ordinary" });
     try {
       const before = await publishedCounts(fixture);
-      const workerd = await fixture.runWorkerd();
+      const workerd = await fixture.runExecution();
       const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
         result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(workerd);
       const returned = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
@@ -133,7 +133,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       }) } });
     try {
       const before = await publishedCounts(fixture);
-      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      await expect(fixture.runExecution()).rejects.toBeDefined();
       expect(revoked).toBe(true);
       expect(tentativeMethods).toEqual(["payload-findByID", "payload-update", "payload-findByID"]);
       expect(fixture.nativeInvokeCount.get("payload-create")).toBe(1);
@@ -147,7 +147,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-happy-${driver}`, payloadProfile: "success" });
     try {
-      const workerd = await fixture.runWorkerd();
+      const workerd = await fixture.runExecution();
       const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
         result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(workerd);
       const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
@@ -201,7 +201,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       suffix: `payload-caught-late-${driver}`, payloadProfile: "caughtFailure" });
     try {
       const before = await publishedCounts(fixture);
-      const failure = await fixture.runWorkerd().then(() => null, cause => cause);
+      const failure = await fixture.runExecution().then(() => null, cause => cause);
       expect(failure).toBeInstanceOf(Error);
       const observations = fixture.payload?.runtimeHistory.at(-1)?.observations;
       expect(observations?.hookRuns()).toBe(1);
@@ -219,7 +219,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       const before = await publishedCounts(fixture);
       const participant = fixture.payload?.profile.participant;
       if (participant === undefined) throw new Error("Missing selected Payload profile");
-      const failure = await fixture.runWorkerd(`export default { users: { create: {
+      const failure = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           await ctx.db.insert("users", { name: "pending" });
           await ctx.privateMixed.call("medusa.product", "update",
@@ -242,7 +242,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       const before = await publishedCounts(fixture);
       const participant = fixture.payload?.profile.participant;
       if (participant === undefined) throw new Error("Missing selected Payload profile");
-      const failure = await fixture.runWorkerd(`export default { users: { create: {
+      const failure = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           await ctx.db.insert("users", { name: "pending" });
           await ctx.privateMixed.call("medusa.product", "update",
@@ -266,7 +266,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       const before = await publishedCounts(fixture);
       const participant = fixture.payload?.profile.participant;
       if (participant === undefined) throw new Error("Missing selected Payload profile");
-      const outcome = await fixture.runWorkerd(`export default { users: { create: {
+      const outcome = await fixture.runExecution(`export default { users: { create: {
         isMutation: true, isPublic: true, _handler: async (ctx) => {
           await ctx.db.insert("users", { name: "pending" });
           await ctx.privateMixed.call("medusa.product", "update",
@@ -318,7 +318,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
           witness.release();
         }
       }
-      running = fixture.runWorkerd();
+      running = fixture.runExecution();
       await waitUntil(() => runtime()?.observations.hookEntryHeld() === true,
         "fixed Payload hook entry");
       await checkSql();
