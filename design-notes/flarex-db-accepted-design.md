@@ -381,8 +381,9 @@ and unapproved.
 ### Selected Finite Execution Contract
 
 The owner selects [the finite execution contract](../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
-for the existing private Application/Payload/Medusa graph. Implementation and
-acceptance are incomplete. It replaces finite current-head re-admission,
+for the existing private Application/Payload/Medusa graph. Its architectural
+cutover and affected private consumer migration are delivered; fixed numerical
+performance acceptance is incomplete. It replaces finite current-head re-admission,
 whole-version epoch refusal and commit-sequencer locking with entry-fixed exact
 metadata selectors, demanded original-snapshot serving, a separate live authority/
 retention owner and consumed metadata OCC. Prior paragraphs retain their exact
@@ -2425,6 +2426,13 @@ moving an existing hook or external effect requires its own compatibility proof.
 Cheaper checks do not broaden which callbacks may be rerun or select removal of
 durable-seal recovery. Explicit direct, mixed OCC and durable workflow profiles
 share mechanics without becoming one universal transaction contract.
+
+The owner requests a complete remaining mutation redesign with breaking changes
+accepted. The [whole mutation preflight](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+records a recommended compact durable entry anchor, one pending-state owner,
+one frozen contribution, distinct-table complete current write maintenance and
+one final settlement. Its precommit replay versus durable-seal recovery choice
+is pending; that proposal does not yet replace the current lifecycle guarantee.
 
 The [execution checks and framework lifecycle preflight](../roadmaps/mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
 owns the selected direction, source evidence, replacement inventory and handoff

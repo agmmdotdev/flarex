@@ -21,17 +21,16 @@ authentication. It precedes reserved
 [host lifecycle](./18-host-lifecycle-preflight.md), which remains conditional on
 attributable evidence. The selected successor is the
 [execution foundation plan](./14-execution-redesign-roadmap.md#selected-foundation-replacement):
-complete [query-required mixed reads](./20-query-required-read-execution-preflight.md)
-first, then finite contribution/settlement/recovery under an explicit terminal
-durability decision, and connected whole-request acceptance. Query-required
-mixed reads have an incomplete implementation checkpoint from the verified,
-committed standalone-read and framework-organization handoff. Slice 21 completes
-its bounded failing-consumer correction and direct measurement harness. The owner
-authorized transaction-local common finite observation sharing in slice 20.
-That replacement is an uncommitted candidate; its fixed native added-latency
-budget remains unmet. The 100-table scaling fixture exceeds that predecessor's
-complete ordered-catalog capacity. This candidate improves the existing protocol;
-it does not deliver the full Convex-inspired execution design. The selected
+the delivered [finite read/metadata contract](./23-finite-execution-contract-preflight.md),
+then the [whole mutation replacement](./24-whole-mutation-redesign-preflight.md)
+and connected whole-request acceptance. The owner requests total replacement
+with necessary breaking changes accepted. Its recommended contract covers compact
+durable entry, one Application/native pending owner, one frozen contribution,
+complete current write maintenance once per touched table and one final transaction.
+The explicit precommit replay versus durable-seal recovery choice remains pending;
+no dependent runtime change or new workflow capability is claimed.
+The earlier transaction-local common-observation candidate from slice 20 is
+superseded; its measurements and failed fixed gates remain evidence. The selected
 [finite execution contract](./23-finite-execution-contract-preflight.md) replaces that choreography with
 attempt-fixed metadata/dependencies, demanded snapshot-compatible readiness,
 explicit live authority and one settlement. Its architectural cutover is delivered
@@ -42,7 +41,9 @@ OCC, durable reservations, and the selected complete ordered-catalog capacity of
 and durable-format cutover, not only acquisition optimization. Fixed native
 added-latency, complete-request non-regression and mixed performance acceptance
 remain open. The predecessor's remaining standalone latency and hosted gates
-stay with their owners.
+stay with their owners. Future database-only and durable/effect workflow profiles
+share persistence while retaining distinct replay, checkpoint and coordination
+contracts; framework hook names do not determine their commit timing.
 
 The owner requires [architecture-first sequencing](./14-execution-redesign-roadmap.md#architecture-first-small-optimizations-afterward):
 finish the selected connected redesign, migrate its consumers and remove displaced

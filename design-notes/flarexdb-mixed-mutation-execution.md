@@ -192,9 +192,16 @@ at settlement. Its exact retained selector accompanies the original data
 snapshot; no data-timestamp metadata registry is assumed. Live revocation,
 storage fencing, claim/expiry and retention protection belong to a distinct
 execution authority, while commit sequencing retains its own lock. This
-replacement is in progress; it supersedes current-head proof choreography for
-the selected finite graph without changing native framework behavior or the
+replacement is delivered for the existing private graph; it supersedes current-head
+proof choreography without changing native framework behavior or the
 current durable seal/finishing model.
+
+The owner requests a complete remaining mutation replacement. The
+[whole mutation preflight](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+records its compact entry, unified Application/native pending owner, one frozen
+contribution and distinct-table current write-maintenance contract. Its recommended
+one-final transaction changes precommit recovery; that choice remains pending.
+Current durable seal/finishing remains authoritative until selection and cutover.
 
 The native coordinator owns one attempt and its existing lifecycle. Framework
 calls receive opaque borrowed capabilities bound to that attempt, scope,

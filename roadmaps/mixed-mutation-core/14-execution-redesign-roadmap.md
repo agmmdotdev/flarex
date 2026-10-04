@@ -15,9 +15,8 @@ contracts remain gated.
 The owner selected a foundation replacement. Package 1's private architectural
 cutover is delivered following the standalone-read and
 framework-organization handoff. The mixed correction and direct performance
-harness are handed off. Transaction-local common finite observation sharing
-under slice 20 is an uncommitted candidate with acceptance incomplete. Its
-selected architecture replacement is recorded in the
+harness are handed off. The earlier transaction-local common finite observation
+candidate under slice 20 is superseded by the delivered architecture recorded in the
 [finite execution contract](./23-finite-execution-contract-preflight.md):
 attempt-fixed metadata and consumed dependencies, demanded snapshot-compatible
 serving state, explicit live authority and one settlement owner. Current sharing
@@ -35,6 +34,15 @@ intermediate-read replacement in slice 20 and the accepted database design.
 The package's performance gates remain open: its matched
 native added-latency budget fails and complete request latency regresses. The
 checkpoint does not select package 2 or change its terminal durability gate.
+
+The owner now requests a complete remaining mutation replacement, with necessary
+breaking changes accepted. The [whole mutation preflight](./24-whole-mutation-redesign-preflight.md)
+records the recommended compact entry anchor, one pending-state owner, one-freeze
+contribution, distinct-table current maintenance and one final transaction.
+Its explicit precommit replay versus durable-seal recovery choice is pending;
+existing runtime recovery remains until that contract is selected and delivered.
+This successor includes entry and Application/native pending ownership rather
+than treating package 2 as only a terminal SQL reduction.
 
 ## Selected Foundation Replacement
 
@@ -129,8 +137,8 @@ mixed performance or complete installation correctness.
 
 | Order | Coherent outcome | Start and completion gate |
 | --- | --- | --- |
-| 1. [Query-required mixed read execution](./20-query-required-read-execution-preflight.md) | Reuse proved installation/preparation owners, derive read requirements from real queries, batch relevant snapshot hydration and retain fresh attempt authority through the existing evaluator. | Verify the predecessor handoff, reconcile the accepted finite-read contract and fix the matched native budget before runtime changes. Complete actual Application/Product/Payload/workflow consumers, scaling and failure proofs, both reviews, removal and one scoped commit. |
-| 2. Finite contribution, settlement and recovery | Project global settlement state once at freeze; remove duplicate finite representations and repeated healthy canonical reconstruction; connect final acceptance and recovery through the chosen terminal graph. | Record the focused preflight and explicit terminal durability decision below. Include real consumer migration, inventoried durable-data disposition, correctness/performance gates, both reviews, cleanup and one scoped commit. |
+| 1. [Finite read/metadata contract](./23-finite-execution-contract-preflight.md), architectural cutover delivered | Attempt-fixed authenticated metadata, demanded original-snapshot serving, consumed semantic metadata OCC, separate live authority and commit sequencing. | Existing private consumer migration and architectural proofs are delivered. Fixed native, complete-request and mixed numerical gates remain open; no terminal durability change is claimed. |
+| 2. [Whole finite mutation replacement](./24-whole-mutation-redesign-preflight.md), recommended contract | Replace repeated entry correlation and Application/native pending representations; freeze once; resolve complete current write maintenance once per distinct touched table; connect one final acceptance and recovery. | Select the explicit terminal durability choice. Migrate entry, evaluator/views, executor, persistence, retention and actual consumers together; inventory/drain old durable obligations, prove both database lanes, review, remove displaced finite paths and commit one complete slice. |
 | 3. Integrated acceptance and retirement | Prove complete mixed latency and actual native demand at the final graph, including concurrency/retry cost and retained direct/durable profiles. | Meet the declared package and whole-request gates, audit displaced APIs/formats/readers and their real remaining obligations, and reconcile capability status. This is final acceptance, not permission to defer package cleanup. |
 
 Each package includes its implementation choices, measurements and tests. A helper,
@@ -146,14 +154,16 @@ confirmed seal to final COMMIT: a proven precommit abort may require replay-safe
 finite callbacks to run again. The alternative retains durable seal and finish-only
 recovery while simplifying contribution and proof construction.
 
-The owner has requested the roadmap and subsequent work, but has not separately
-selected removal of the current durable-seal guarantee. Keep that exact decision
-visible before dependent runtime changes. The existing
+The owner has requested the total replacement, but the explicit recovery question
+in the [whole mutation preflight](./24-whole-mutation-redesign-preflight.md#recovery-decision-and-workflow-profiles)
+remains pending. Keep that exact decision visible before dependent runtime changes.
+Preflight 24 owns the current decision and recovery contract. The earlier
 [terminal decision and recovery matrix](../core-performance/orchestration-target-design.md#deferred-finite-decisions-required-before-runtime-selection)
-owns the detailed proposal. Missing COMMIT acknowledgement or an unsuccessful
+remains supporting proposal/history. Missing COMMIT acknowledgement or an unsuccessful
 outcome lookup never proves rollback or permits a second execution.
 
-Package 2 must define the issuer and lifetime of the single canonical contribution,
+Package 2 must define the compact durable entry anchor and single tentative
+pending/observation owner as well as the issuer and lifetime of its frozen contribution,
 preserve operation identity/results/events/accounting and operation-close failure
 order, and keep recovery authentication of stored evidence complete. Inventory
 running, sealed, finishing and conflicted attempts plus retained outcomes/events;

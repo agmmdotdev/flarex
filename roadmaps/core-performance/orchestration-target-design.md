@@ -42,6 +42,12 @@ challenge record. Their old planning-only labels are superseded for this scope.
 
 ## Deferred Finite Proposal
 
+The successor [whole mutation preflight](../mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+now owns the owner's requested total replacement and current recommended contract,
+including entry and unified Application/native pending ownership. Its recovery
+choice remains pending. The material below is supporting proposal/history; it
+does not override the delivered slice 23 contract or select its successor.
+
 Everything below describes the separate finite/mixed target and its retained
 source analysis. It is **not the selected first slice**, and its unresolved
 terminal durability decisions or historical numerical-ceiling deferrals do not
