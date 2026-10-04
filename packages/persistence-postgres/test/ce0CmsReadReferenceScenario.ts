@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { FlarexValueSha256V1Schema } from "flarex-protocol/value";
 import { expect } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
@@ -16,7 +17,7 @@ import type { RelationalSession } from "../src/relationalTransaction/session";
 import { makeCmsHost } from "../src/cmsTransaction/host";
 import { defineCmsCommand } from "../src/cmsTransaction/commands";
 import { cmsError } from "../src/cmsTransaction/model";
-import { fxAppRowRevisions, fxSystemScopeClocks } from "../src/schema";
+import { fxAppRowRevisions } from "../src/schema";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { makeCe0CmsReadReference } from "./ce0CmsReadReference";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -163,13 +164,13 @@ export async function ce0CmsReadReferenceScenario(
   const clock = stable.clock[0];
   if (clock === undefined) throw new Error("Missing scope clock");
   await persistence.drizzle
-    .update(fxSystemScopeClocks)
+    .update(fxSystemScopeExecutionAuthorities)
     .set({
       storageGenerationFence: StorageGenerationFenceSchema.make(
         clock.storageGenerationFence + 1n,
       ),
     })
-    .where(eq(fxSystemScopeClocks.scopeId, clock.scopeId));
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId));
   try {
     const changed = await tested.inventory();
     for (const read of [coreRead, reference.read]) {
@@ -185,9 +186,9 @@ export async function ce0CmsReadReferenceScenario(
     }
   } finally {
     await persistence.drizzle
-      .update(fxSystemScopeClocks)
+      .update(fxSystemScopeExecutionAuthorities)
       .set({ storageGenerationFence: clock.storageGenerationFence })
-      .where(eq(fxSystemScopeClocks.scopeId, clock.scopeId));
+      .where(eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId));
   }
   for (const implementation of ["core", "reference"] as const) {
     const controller = new AbortController();

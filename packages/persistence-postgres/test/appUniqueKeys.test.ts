@@ -45,6 +45,7 @@ import {
 } from "../src/pglite";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { verifyUniqueBatches } from "./uniqueBatchScenario";
+import { fxSystemScopeClocks } from "../src/schema";
 
 const scopeId = ScopeIdSchema.make(
   "scope_54000000-0000-0000-0000-000000000001",
@@ -101,12 +102,14 @@ describe("S11 app unique-key storage", () => {
       let writes = 0;
       // Deliberate driver-boundary fault injection; no SQL state is emulated.
       const tx = {
-        select() { return { from() { return {
+        select() { return { from(table: unknown) { return {
           where() { return {
             limit() { return Promise.resolve([{ scopeUuid, epoch }]); },
             for() { return Promise.resolve(sample.owners); },
           }; },
-          innerJoin() { return { where() { return Promise.resolve([sample.parent]); } }; },
+          innerJoin() { return { where() { return table === fxSystemScopeClocks
+            ? { limit() { return Promise.resolve([{ scopeUuid, epoch }]); } }
+            : Promise.resolve([sample.parent]); } }; },
         }; } }; },
         insert() { writes += 1; return { values() { return { returning() { return Promise.resolve(sample.returned); } }; } }; },
       } as unknown as AppUniqueKeyTransaction;
@@ -454,10 +457,12 @@ async function uniquePersistence(): Promise<PGliteFlarexPersistence> {
   const persistence = await createPGlitePersistence();
   await persistence.migrate();
   await persistence.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, last_commit_seq, epoch)
-     values ($1, 'flarexdb_v1', 100, $2),
-            ($3, 'flarexdb_v1', 100, $4)`,
+    `with clock as (
+       insert into fx_system_scope_clock (scope_id, last_commit_seq)
+       values ($1, 100), ($3, 100) returning scope_id
+     )
+     insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+     select scope_id, 'flarexdb_v1', case when scope_id = $1 then $2 else $4 end from clock`,
     [scopeId, epoch, otherScopeId, otherEpoch],
   );
   return persistence;

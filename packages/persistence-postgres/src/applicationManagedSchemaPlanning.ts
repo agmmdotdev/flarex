@@ -195,11 +195,11 @@ export const loadApplicationManagedSchemaPlanningSnapshot = Effect.fn(
     return yield* planningFailure("candidateAlreadyActive");
   }
 
-  const activeSchema = yield* state.schema.readPublished(Object.freeze({
+  const { schema: activeSchema } = yield* state.schema.readPublished(Object.freeze({
     deploymentId: state.deploymentId,
     manifest: active.basis.manifest,
   }));
-  const candidateSchema = yield* state.schema.readPublished(Object.freeze({
+  const { schema: candidateSchema } = yield* state.schema.readPublished(Object.freeze({
     deploymentId: state.deploymentId,
     manifest: candidateEvidence.manifest,
   }));

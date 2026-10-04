@@ -1,3 +1,5 @@
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { eq } from "drizzle-orm";
 import { Result } from "effect";
 import {
@@ -176,6 +178,7 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
         epoch: `epoch_${testUuid(2)}`,
       });
     }
@@ -193,15 +196,12 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
       deploymentId: "deployment_ready_replay",
       projectId: "project_ready_replay",
     });
-    await target.drizzle
-      .update(fxSystemScopeClocks)
-      .set({
-        storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-        storageGenerationFence: StorageGenerationFenceSchema.make(9n),
-        lastCommitSeq: CommitSeqSchema.make(21n),
-        epoch: ScopeEpochSchema.make("epoch_advanced_ready_replay"),
-      })
-      .where(eq(fxSystemScopeClocks.scopeId, created.scope.scopeId));
+    await target.drizzle.transaction(async authorityTx => {
+      await authorityTx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
+        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, created.scope.scopeId)).for("update");
+      await authorityTx.update(fxSystemScopeExecutionAuthorities).set({storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),storageGenerationFence: StorageGenerationFenceSchema.make(9n),epoch: ScopeEpochSchema.make("epoch_advanced_ready_replay")}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, created.scope.scopeId));
+      return authorityTx.update(fxSystemScopeClocks).set({lastCommitSeq: CommitSeqSchema.make(21n)}).where(eq(fxSystemScopeClocks.scopeId, created.scope.scopeId));
+    });
     let resolverCalls = 0;
     const replay = createPGliteSplitScopeAuthorityProvisioner(control, {
       placementPlanner: throwingPlanner("ready replay must use persisted intent"),
@@ -229,6 +229,7 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
       storageGeneration: "flarexdb_v1",
       storageGenerationFence: 9n,
       lastCommitSeq: 21n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
       epoch: "epoch_advanced_ready_replay",
     });
   });
@@ -245,9 +246,12 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
       deploymentId: "deployment_ready_missing_clock",
       projectId: "project_ready_missing_clock",
     });
-    await target.drizzle
-      .delete(fxSystemScopeClocks)
-      .where(eq(fxSystemScopeClocks.scopeId, created.scope.scopeId));
+    await target.drizzle.transaction(async (tx) => {
+      await tx.delete(fxSystemScopeExecutionAuthorities)
+        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, created.scope.scopeId));
+      await tx.delete(fxSystemScopeClocks)
+        .where(eq(fxSystemScopeClocks.scopeId, created.scope.scopeId));
+    });
 
     await expect(
       provisioner.ensure({
@@ -475,6 +479,7 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
               LegacyV1StorageGenerationSchema.make("legacy_v1"),
             storageGenerationFence: StorageGenerationFenceSchema.make(1n),
             lastCommitSeq: CommitSeqSchema.make(0n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
             oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
             epoch: ScopeEpochSchema.make("epoch_inexact_target_result"),
             updatedAt: new Date(),
@@ -803,15 +808,12 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
       randomUuid: throwingUuid("winner replay keeps authority"),
     });
     const winnerResult = await winner.ensure(input);
-    await target.drizzle
-      .update(fxSystemScopeClocks)
-      .set({
-        storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-        storageGenerationFence: StorageGenerationFenceSchema.make(2n),
-        lastCommitSeq: CommitSeqSchema.make(1n),
-        epoch: ScopeEpochSchema.make("epoch_after_ready_race"),
-      })
-      .where(eq(fxSystemScopeClocks.scopeId, winnerResult.scope.scopeId));
+    await target.drizzle.transaction(async authorityTx => {
+      await authorityTx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
+        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, winnerResult.scope.scopeId)).for("update");
+      await authorityTx.update(fxSystemScopeExecutionAuthorities).set({storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),storageGenerationFence: StorageGenerationFenceSchema.make(2n),epoch: ScopeEpochSchema.make("epoch_after_ready_race")}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, winnerResult.scope.scopeId));
+      return authorityTx.update(fxSystemScopeClocks).set({lastCommitSeq: CommitSeqSchema.make(1n)}).where(eq(fxSystemScopeClocks.scopeId, winnerResult.scope.scopeId));
+    });
     release.resolve(undefined);
 
     await expect(delayedResult).resolves.toMatchObject({
@@ -931,13 +933,10 @@ async function insertClock(
   scopeId: ScopeId,
   epoch: ScopeEpoch,
 ): Promise<void> {
-  await persistence.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId,
-    storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
-    storageGenerationFence: StorageGenerationFenceSchema.make(1n),
-    lastCommitSeq: CommitSeqSchema.make(0n),
-    epoch,
-  });
+  await persistence.drizzle.transaction(async authorityTx => {
+      await authorityTx.insert(fxSystemScopeClocks).values({scopeId,lastCommitSeq: CommitSeqSchema.make(0n)});
+      await authorityTx.insert(fxSystemScopeExecutionAuthorities).values({scopeId,storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),storageGenerationFence: StorageGenerationFenceSchema.make(1n),epoch});
+    });
 }
 
 function uuidSequence(...indexes: readonly number[]): () => string {

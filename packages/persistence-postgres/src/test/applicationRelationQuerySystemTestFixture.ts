@@ -40,6 +40,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   projectScopeIdUuidV1,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
@@ -58,6 +59,7 @@ import {
   createAppSchemaCandidateWriteGuardPort,
   installAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
+  type AppSchemaCandidateValidationInput,
 } from "../appSchemaCandidateValidation";
 import { locateAppIndexDefinitionByIdEffect } from
   "../appIndexDefinitions";
@@ -170,6 +172,7 @@ import {
   fxControlSchemaVersions,
   fxControlTables,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
 } from "../schema";
 import { makeInstallationProtectedScopeAuthorityControlReader } from
   "../scopeAuthorityControlRead";
@@ -377,18 +380,25 @@ export async function createApplicationRelationQueryPostgresSystemTestFixture(
   }>,
 ): Promise<ApplicationRelationQuerySystemTestFixture> {
   ensureWebCrypto();
+  const schemaName = (await persistence.target.query<{ name: unknown }>(
+    "select current_schema() as name",
+  )).rows[0]?.name;
+  if (typeof schemaName !== "string" || schemaName.length === 0) {
+    throw new Error("Missing relation-query fixture target schema");
+  }
+  const locator = Object.freeze({ ...LOCATOR, schemaName }) satisfies SplitScopePhysicalLocator;
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     "deployment_application_relation_query_postgres",
   );
   const provisioned = await createPostgresSplitScopeAuthorityProvisioner(
     persistence.control,
     {
-      placementPlanner: { plan: () => LOCATOR },
+      placementPlanner: { plan: () => locator },
       targetResolver: {
-        resolve: async locator =>
+        resolve: async plannedLocator =>
           createPostgresLocatedSplitScopeClockTarget(
             persistence.target,
-            locator,
+            plannedLocator,
           ),
       },
       randomUuid: uuidSequence(21, 22),
@@ -404,11 +414,11 @@ export async function createApplicationRelationQueryPostgresSystemTestFixture(
     scopeId: provisioned.scope.scopeId,
     locatedTarget: createPostgresLocatedIndexBuildReconciliationTargetV1(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
     pointTarget: createPostgresLocatedPointMutationSessionActivationTargetV1(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
   });
 }
@@ -521,18 +531,25 @@ export async function createApplicationRelationalCorePostgresSystemTestFixture(
   analysis: ApplicationRelationalCoreAnalysis,
 ): Promise<ApplicationRelationalCoreSystemTestFixture> {
   ensureWebCrypto();
+  const schemaName = (await persistence.target.query<{ name: unknown }>(
+    "select current_schema() as name",
+  )).rows[0]?.name;
+  if (typeof schemaName !== "string" || schemaName.length === 0) {
+    throw new Error("Missing relational-core fixture target schema");
+  }
+  const locator = Object.freeze({ ...LOCATOR, schemaName }) satisfies SplitScopePhysicalLocator;
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     "deployment_application_relational_core_postgres",
   );
   const provisioned = await createPostgresSplitScopeAuthorityProvisioner(
     persistence.control,
     {
-      placementPlanner: { plan: () => LOCATOR },
+      placementPlanner: { plan: () => locator },
       targetResolver: {
-        resolve: async locator =>
+        resolve: async plannedLocator =>
           createPostgresLocatedSplitScopeClockTarget(
             persistence.target,
-            locator,
+            plannedLocator,
           ),
       },
       randomUuid: uuidSequence(221, 222),
@@ -548,15 +565,15 @@ export async function createApplicationRelationalCorePostgresSystemTestFixture(
     scopeId: provisioned.scope.scopeId,
     locatedTarget: createPostgresLocatedIndexBuildReconciliationTargetV1(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
     pointTarget: createPostgresLocatedPointMutationSessionActivationTargetV1(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
     epochTarget: createPostgresLocatedScopeAuthorizationEpochTarget(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
     analysis,
   });
@@ -571,18 +588,25 @@ export async function createApplicationRelationalSimulationPostgresSystemTestFix
   definition: PreparedStandardApplicationDefinitionV1,
 ): Promise<ApplicationRelationalSimulationSystemTestFixture> {
   ensureWebCrypto();
+  const schemaName = (await persistence.target.query<{ name: unknown }>(
+    "select current_schema() as name",
+  )).rows[0]?.name;
+  if (typeof schemaName !== "string" || schemaName.length === 0) {
+    throw new Error("Missing relational-simulation fixture target schema");
+  }
+  const locator = Object.freeze({ ...LOCATOR, schemaName }) satisfies SplitScopePhysicalLocator;
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     "deployment_application_relational_simulation_postgres",
   );
   const provisioned = await createPostgresSplitScopeAuthorityProvisioner(
     persistence.control,
     {
-      placementPlanner: { plan: () => LOCATOR },
+      placementPlanner: { plan: () => locator },
       targetResolver: {
-        resolve: async locator =>
+        resolve: async plannedLocator =>
           createPostgresLocatedSplitScopeClockTarget(
             persistence.target,
-            locator,
+            plannedLocator,
           ),
       },
       randomUuid: uuidSequence(251, 252),
@@ -598,15 +622,15 @@ export async function createApplicationRelationalSimulationPostgresSystemTestFix
     scopeId: provisioned.scope.scopeId,
     locatedTarget: createPostgresLocatedIndexBuildReconciliationTargetV1(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
     pointTarget: createPostgresLocatedPointMutationSessionActivationTargetV1(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
     epochTarget: createPostgresLocatedScopeAuthorizationEpochTarget(
       persistence.target,
-      LOCATOR,
+      locator,
     ),
     analysis,
     definition,
@@ -633,12 +657,8 @@ interface CreateRelationalCoreFixtureInput extends CreateFixtureInput {
 async function createRelationalCoreFixture(
   input: CreateRelationalCoreFixtureInput,
 ): Promise<ApplicationRelationalCoreSystemTestFixture> {
-  await input.target.query(
-    `update fx_system_scope_clock
-        set storage_generation = 'flarexdb_v1'
-      where scope_id = $1`,
-    [input.scopeId],
-  );
+  await input.target.drizzle.update(fxSystemScopeExecutionAuthorities).set({ storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") })
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, input.scopeId));
   const clock = await input.target.getScopeClock(input.scopeId);
   if (clock === null || clock.storageGeneration !== "flarexdb_v1") {
     throw new Error("Expected a FlarexDB relational-core scope authority.");
@@ -784,6 +804,7 @@ async function createRelationalCoreFixture(
   );
   await settleCandidateValidation(candidateValidation, {
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     schemaVersionId: relationPublication.binding.schemaVersionId,
   });
   await enableApplicationPhysicalBuilds(
@@ -954,12 +975,8 @@ async function createRelationalCoreFixture(
 async function createFixture(
   input: CreateFixtureInput,
 ): Promise<ApplicationRelationQuerySystemTestFixture> {
-  await input.target.query(
-    `update fx_system_scope_clock
-        set storage_generation = 'flarexdb_v1'
-      where scope_id = $1`,
-    [input.scopeId],
-  );
+  await input.target.drizzle.update(fxSystemScopeExecutionAuthorities).set({ storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") })
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, input.scopeId));
   const clock = await input.target.getScopeClock(input.scopeId);
   if (clock === null || clock.storageGeneration !== "flarexdb_v1") {
     throw new Error("Expected a FlarexDB relation-query scope authority.");
@@ -1098,6 +1115,7 @@ async function createFixture(
   );
   await settleCandidateValidation(candidateValidation, {
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     schemaVersionId: relationPublication.binding.schemaVersionId,
   });
   await enableApplicationPhysicalBuilds(
@@ -1272,6 +1290,7 @@ async function createFixture(
   );
   await settleCandidateValidation(candidateValidation, {
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     schemaVersionId: legacySchema.schemaVersionId,
   });
   await enableApplicationPhysicalBuilds(
@@ -1298,6 +1317,7 @@ async function createFixture(
   const legacyActive = await runEffect(activation.readActive());
   await settleCandidateValidation(candidateValidation, {
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     schemaVersionId: relationPublication.binding.schemaVersionId,
   });
   const successorPublication = await registerRevision(
@@ -1663,10 +1683,7 @@ async function closeUniqueConstraintSet(
 
 async function settleCandidateValidation(
   candidateValidation: ReturnType<typeof createAppSchemaCandidateValidationPort>,
-  input: Readonly<{
-    readonly deploymentId: string;
-    readonly schemaVersionId: CatalogSchemaVersionId;
-  }>,
+  input: AppSchemaCandidateValidationInput,
 ): Promise<void> {
   await runEffect(installAppSchemaCandidateValidationEffect(
     candidateValidation,
@@ -1783,6 +1800,7 @@ async function captureCoreState(
 ): Promise<ApplicationRelationQueryCoreStateSnapshot> {
   const tableQueries = Object.freeze([
     ["fx_system_scope_clock", "scope_id"],
+    ["fx_system_scope_execution_authority", "scope_id"],
     ["fx_system_idempotency", "scope_uuid, request_key"],
     ["fx_system_application_activation", "scope_id, activation_sequence"],
     ["fx_system_application_active_head", "scope_id"],

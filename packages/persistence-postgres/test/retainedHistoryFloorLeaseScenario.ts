@@ -29,9 +29,11 @@ import {
   fxSystemTransactionSessions,
 } from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
+import { selectScopeClockRows } from "../src/scopeClock";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 
 export async function seedRetainedFloorLeaseCommit(database: FlarexMetadataDatabase, scopeId: ScopeId): Promise<void> {
-  const [clock] = await database.select().from(fxSystemScopeClocks)
+  const [clock] = await selectScopeClockRows(database)
     .where(eq(fxSystemScopeClocks.scopeId, scopeId));
   if (clock?.scopeUuid == null || clock.epochUuid == null) throw new Error("Expected a replacement scope clock.");
   await database.insert(fxSystemCommits).values({
@@ -123,8 +125,10 @@ export async function retainedHistoryFloorLeaseScenario(input: Readonly<{
     disposition: "advanceable", candidateFloor: 1n, leaseCeiling: 1n, holdReasons: [],
   });
   await db.update(fxSystemSnapshotLeases).set({ leaseExpiresAt: expired }).where(scope);
-  const [before] = await db.select({ floor: fxSystemScopeClocks.oldestAvailableCommitSeq })
-    .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, session.scopeUuid));
+  const [before] = await db.select({ floor: fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq })
+    .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities,
+      eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
+    .where(eq(fxSystemScopeClocks.scopeUuid, session.scopeUuid));
   expect(before?.floor).toBe(0n);
   await expect(runEffect(publishRetainedHistoryFloorEffect(input.publication, input.deploymentId)))
     .resolves.toMatchObject({ disposition: "advanced", previousFloor: 0n, currentFloor: 2n });

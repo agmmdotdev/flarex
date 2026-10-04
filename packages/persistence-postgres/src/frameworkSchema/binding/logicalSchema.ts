@@ -1,28 +1,51 @@
 import { Effect, Result } from "effect";
 import type { prepareLogicalStorageReadiness } from "../../logicalStorageReadiness";
-import type { readApplicationBindingEvidenceInTransaction } from "../../applicationBindingProjection";
+import { immutableApplicationBindingReference, type ApplicationBindingReference,
+  type readApplicationBindingEvidenceInTransaction } from "../../applicationBindingProjection";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../../scopeClock";
 import type { CheckedApplicationActiveHead } from "../../applicationActiveHeadRead";
-import type { DataBindingSetFrame } from "./model";
+import type { DataBindingActivationFrame, DataBindingSetFrame } from "./model";
+import type { StoredBindingValue } from "./repository";
 import { sameBindingValue } from "./canonical";
 import { bindingError } from "./errors";
 
 export type PreparedLogicalStorage = Extract<Effect.Success<ReturnType<typeof prepareLogicalStorageReadiness>>, { status: "prepared" }>;
 export type SelectedLogicalStorageReadiness = Effect.Success<ReturnType<PreparedLogicalStorage["selectSources"]>>;
 
+export type BindingApplicationAcceptance = Readonly<{ kind: "proposal" }> |
+  Readonly<{ kind: "activated"; activation: StoredBindingValue<DataBindingActivationFrame> }>;
+
+/** Activation proposals retain their observed live epoch. Current admission
+ * instead authenticates the selected receipt's actual accepted epoch, including
+ * a writer-owned withdrawal. Retained v2 history keeps its original semantics. */
+export function verifyBindingApplicationReference(reference: ApplicationBindingReference,
+  current: ApplicationBindingReference, acceptance: BindingApplicationAcceptance) {
+  if (acceptance.kind === "proposal") return sameBindingValue(reference, current)
+    ? Result.succeed(undefined) : Result.fail(bindingError("staleApplication"));
+  const activation = acceptance.activation.frame;
+  const acceptedEpoch = activation.version === 3 ? activation.authorizationRevocationEpoch
+    : reference.authorizationRevocationEpoch;
+  if (acceptedEpoch !== current.authorizationRevocationEpoch ||
+    !sameBindingValue(immutableApplicationBindingReference(reference), immutableApplicationBindingReference(current)))
+    return Result.fail(bindingError("staleApplication"));
+  return Result.succeed(undefined);
+}
+
 export function verifyPreparedLogicalSchemaBinding(
   prepared: Pick<PreparedLogicalStorage, "applicationAnalysis" | "reference">,
   frame: Pick<DataBindingSetFrame, "application" | "logicalSchema">,
   application: Effect.Success<ReturnType<typeof readApplicationBindingEvidenceInTransaction>>,
+  acceptance: BindingApplicationAcceptance,
 ) {
-  if (!sameBindingValue(frame.application, application.projection) ||
-      !sameBindingValue(prepared.applicationAnalysis, application.analysis))
-    return Result.fail(bindingError("staleApplication"));
-  if (frame.logicalSchema === null || !sameBindingValue(frame.logicalSchema, prepared.reference))
-    return Result.fail(bindingError("logicalSchemaMismatch"));
-  return Result.succeed(undefined);
+  return Result.gen(function* () {
+    yield* verifyBindingApplicationReference(frame.application, application.projection, acceptance);
+    if (!sameBindingValue(prepared.applicationAnalysis, application.analysis))
+      return yield* Result.fail(bindingError("staleApplication"));
+    if (frame.logicalSchema === null || !sameBindingValue(frame.logicalSchema, prepared.reference))
+      return yield* Result.fail(bindingError("logicalSchemaMismatch"));
+  });
 }
 
 /** Shared accepting check. Call with fresh Application evidence under the
@@ -31,9 +54,10 @@ export const verifyLogicalSchemaBindingInTransaction = Effect.fn("DataBinding.ve
   prepared: PreparedLogicalStorage, frame: DataBindingSetFrame,
   application: Effect.Success<ReturnType<typeof readApplicationBindingEvidenceInTransaction>>,
   tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+  acceptance: BindingApplicationAcceptance,
   checkedActive?: CheckedApplicationActiveHead,
 ) {
-  yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application));
+  yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application, acceptance));
   const readiness = yield* prepared.inspect(tx, authority, clock, checkedActive);
   if (readiness.status !== "ready") return yield* Effect.fail(bindingError("logicalSchemaNotReady", readiness));
   return readiness;
@@ -45,9 +69,10 @@ export const verifyLogicalSchemaReadBindingInTransaction = Effect.fn("DataBindin
   prepared: SelectedLogicalStorageReadiness, frame: DataBindingSetFrame,
   application: Effect.Success<ReturnType<typeof readApplicationBindingEvidenceInTransaction>>,
   tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+  acceptance: BindingApplicationAcceptance,
   checkedActive?: CheckedApplicationActiveHead,
 ) {
-  yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application));
+  yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application, acceptance));
   const readiness = yield* prepared.inspectSelected(tx, authority, clock, checkedActive);
   if (readiness.status !== "ready") return yield* Effect.fail(bindingError("logicalSchemaNotReady", readiness));
   return readiness;

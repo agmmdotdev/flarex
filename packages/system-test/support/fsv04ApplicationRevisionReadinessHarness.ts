@@ -423,7 +423,7 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
   );
 
   await lane.persistence.query(
-    `update fx_system_scope_clock
+    `update fx_system_scope_execution_authority
         set epoch = $2
       where scope_id = $1`,
     [registered.scopeId, "epoch_f4000000-0000-4000-8000-000000000099"],

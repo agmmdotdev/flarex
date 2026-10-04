@@ -9,6 +9,7 @@ import {
   decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import {
   TransactionAttemptFenceSchema,
   TransactionSessionIdV1Schema,
@@ -43,6 +44,7 @@ import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
+  recognizeFiniteMetadataReservationUpdate,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionActivationResolutionPortsV1,
   type PointMutationSessionAnchorV1,
@@ -50,11 +52,17 @@ import {
 } from "../src/transactionSessionActivation";
 import {
   ExactRunningAttemptTransactionV1Error,
+  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
+  isLocatedExactRunningAttemptKernelV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
   isLocatedExactRunningAttemptReadSyscallKernelV1,
+  RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT,
+  isLocatedFiniteRunningAttemptReadSyscallKernel,
 } from "../src/transactionSessionReadSyscallKernel";
+import { captureFiniteMetadataReservation, persistFiniteMetadataReservationInTransaction } from "../src/finiteMetadataReservation";
+import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../src/scopeClock";
 import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
@@ -203,8 +211,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
 
     expect(first).toEqual({
       status: "loaded",
+      lastMetadataSequence: 0n,
       anchor: activated.anchor,
-      executionPin: { schemaVersionId: "schema_activation_v1" },
+      executionPin: { schemaVersionId: "schema_activation_v1", functionPath: "messages:create",
+        functionKind: "mutation", executionModule: "flarex/_generated/execution.mjs" },
       attemptFacet: { kind: "pristineOpen" },
     });
     expect(second).toEqual(first);
@@ -366,15 +376,18 @@ describe("O03-B exact point-mutation attempt authority", () => {
         preliminaryAuthority: located.authority,
       }, (_tx, checked) => {
         expect(checked).not.toHaveProperty("attemptFacet");
+        expect(checked.executionAuthorityGeneration).toBe("legacy_dynamic_worker_v1");
         return Effect.succeed(undefined);
       }));
       const checkedFields = queryFields.splice(0);
-      expect(checkedFields).toHaveLength(4);
+      expect(checkedFields).toHaveLength(6);
       const tailQueries = queryTexts.splice(0).filter(query => query.includes("fx_lock_running_attempt_tail"));
       expect(tailQueries).toHaveLength(1);
       expect(tailQueries[0]).toMatch(/from fx_lock_running_attempt_tail\(/i);
       expect(checkedFields.find((fields) => fields.includes("protocol_version")))
         .toEqual([
+          "execution_authority_generation",
+          "function_path", "function_kind", "execution_module",
           "session_id", "attempt_fence", "storage_generation",
           "storage_generation_fence", "authorization_revocation_epoch",
           "authorization_grant_expires_at", "hard_expires_at", "created_at",
@@ -468,7 +481,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
             "epoch_72000000-0000-4000-8000-999999999991",
           );
           await persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set epoch = $2
              where scope_id = $1`,
             [scopeId, epoch],
@@ -480,7 +493,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
         reason: "storageGenerationFenceChanged",
         mutate: async (scopeId: AttemptLoadContext["scopeId"]) => {
           await persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set storage_generation_fence = storage_generation_fence + 1
              where scope_id = $1`,
             [scopeId],
@@ -492,7 +505,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
         reason: "authorizationRevocationEpochChanged",
         mutate: async (scopeId: AttemptLoadContext["scopeId"]) => {
           await persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set authorization_revocation_epoch =
                authorization_revocation_epoch + 1
              where scope_id = $1`,
@@ -767,7 +780,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const fenceDriftAnchor = (await activate(fenceDrift)).anchor;
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority
         set storage_generation_fence = 2
         where scope_id = $1
       `,
@@ -785,7 +798,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const revocationAnchor = (await activate(revocationDrift)).anchor;
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority
         set authorization_revocation_epoch = 1
         where scope_id = $1
       `,
@@ -1157,9 +1170,13 @@ describe("O03-B exact point-mutation attempt authority", () => {
       [anchor.sessionId],
     );
     await persistence.query(
-      `update fx_system_scope_clock
-       set last_commit_seq = 1, oldest_available_commit_seq = 1
-       where scope_id = $1`,
+      `with authority_lock as materialized (
+         select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+       ), sequencer as (
+         update fx_system_scope_clock c set last_commit_seq = 1 from authority_lock a
+         where c.scope_id = a.scope_id returning c.scope_id
+       ) update fx_system_scope_execution_authority a set oldest_available_commit_seq = 1
+       from sequencer c where a.scope_id = c.scope_id`,
       [context.scopeId],
     );
 
@@ -1178,6 +1195,86 @@ describe("O03-B exact point-mutation attempt authority", () => {
         snapshot_commit_seq: null,
         lease_expires_at: null,
       });
+  });
+
+  for (const operation of ["abort", "expire"] as const) {
+    it(`releases a revoked finite reservation through exact ${operation} cleanup`, async () => {
+      const context = await provisionContext(`revoked_finite_${operation}`);
+      const activated = await activatePointMutationSession(
+        createPointMutationSessionActivationPersistenceV1(resolutionPorts(persistence), {
+          leaseDurationMilliseconds: 60_000, randomUuid: () => nextUuid(),
+        }), pointMutationSessionActivationFixture(context.deploymentId, context.scopeId, { executionProfile: "finiteRoot" }));
+      const anchor = activated.anchor;
+      const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(context.deploymentId, {
+        scopeMetadata: persistence, provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => { throw new Error("Shared scope has no split receipt"); },
+        }, scopeClockTargets: resolutionPorts(persistence).scopeSessionTargets,
+      }));
+      if (!isLocatedExactRunningAttemptKernelV1(located.target) || !isLocatedFiniteRunningAttemptReadSyscallKernel(located.target))
+        throw new Error("Expected genuine full and finite attempt owner facets");
+      const input = { selector: selectorFromAnchor(anchor), preliminaryAuthority: located.authority,
+        executionClaim: executionClaimForAnchor(anchor) };
+      await runEffect(located.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](input, (tx, full) => Effect.gen(function* () {
+        const schemaVersionId = CatalogSchemaVersionIdSchema.make("schema_activation_v1");
+        // The existing full owner reserves canonical selectors for this controlled
+        // authority fixture; Application admission is exercised by its own proofs.
+        const reservation = yield* captureFiniteMetadataReservation({ deploymentId: context.deploymentId,
+          scopeId: context.scopeId, sessionId: full.anchor.sessionId, attemptFence: full.anchor.attemptFence,
+          storageGeneration: "flarexdb_v1", storageGenerationFence: full.anchor.storageGenerationFence,
+          snapshotToken: full.anchor.snapshotToken, schemaVersionId, metadataWatermark: full.scopeClock.lastMetadataSequence,
+          application: { revisionId: "controlled_revocation_fixture", activationSequence: "1", headSha256: "a".repeat(64),
+            activationSha256: "b".repeat(64), schemaVersionId, manifestSha256: "c".repeat(64) }, binding: null });
+        const updated = yield* persistFiniteMetadataReservationInTransaction(tx, reservation);
+        yield* Effect.fromResult(recognizeFiniteMetadataReservationUpdate(tx, full.snapshotLease, updated));
+      })));
+      const before = await captureSessionStorage(persistence, anchor);
+      const reserved = await persistence.drizzle.select().from(fxSystemSnapshotLeases)
+        .where(eq(fxSystemSnapshotLeases.sessionId, anchor.sessionId));
+      expect(reserved).toHaveLength(1);
+      expect(reserved[0]?.finiteMetadataReservationBytes?.byteLength).toBeGreaterThan(0);
+      expect(reserved[0]?.finiteMetadataReservationSha256?.byteLength).toBe(32);
+      await persistence.drizzle.transaction(tx => runEffect(
+        advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, context.scopeId)));
+      let callbacks = 0;
+      const refusal = await runFailure(located.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](input,
+        () => { callbacks += 1; return Effect.void; }));
+      expect(refusal).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error",
+        cause: { issue: { reason: "authorizationRevocationEpochChanged" } } });
+      expect(callbacks).toBe(0);
+      expect(await persistence.drizzle.select().from(fxSystemSnapshotLeases)
+        .where(eq(fxSystemSnapshotLeases.sessionId, anchor.sessionId))).toEqual(reserved);
+      if (operation === "expire") await persistence.query(`update fx_system_snapshot_lease
+        set lease_expires_at = '2000-01-01T00:00:00Z' where session_id = $1`, [anchor.sessionId]);
+      const terminalization = terminalizationPersistence();
+      const result = operation === "abort"
+        ? await abortPointMutationSessionAttempt(terminalization, { selector: selectorFromAnchor(anchor),
+            executionClaim: executionClaimForAnchor(anchor), expectedSnapshotToken: anchor.snapshotToken })
+        : await expirePointMutationSessionAttempt(terminalization, selectorFromAnchor(anchor));
+      expect(result).toMatchObject({ status: "terminalized",
+        terminal: { lifecycle: operation === "abort" ? "aborted" : "expired" } });
+      expectSessionPayloadScrubbed(before, await captureSessionStorage(persistence, anchor));
+      for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims])
+        expect(await persistence.drizzle.select().from(table).where(eq(table.sessionId, anchor.sessionId))).toEqual([]);
+      expect((await persistence.query<{ revocation: string; commit_seq: string }>(`
+        select a.authorization_revocation_epoch::text as revocation, c.last_commit_seq::text as commit_seq
+        from fx_system_scope_execution_authority a join fx_system_scope_clock c using(scope_id)
+        where a.scope_id = $1`, [context.scopeId])).rows).toEqual([{ revocation: "1", commit_seq: "0" }]);
+    });
+  }
+
+  it("refuses a future terminal revocation counter without releasing its expired lease", async () => {
+    const context = await provisionContext("terminal_future_revocation");
+    const anchor = (await activate(context)).anchor;
+    await persistence.query(`update fx_system_tx_session set authorization_revocation_epoch = 1
+      where session_id = $1`, [anchor.sessionId]);
+    await persistence.query(`update fx_system_snapshot_lease
+      set lease_expires_at = '2000-01-01T00:00:00Z' where session_id = $1`, [anchor.sessionId]);
+    const before = await rowState(persistence, context.scopeId);
+    const payloadBefore = await captureSessionStorage(persistence, anchor);
+    await expect(expirePointMutationSessionAttempt(terminalizationPersistence(), selectorFromAnchor(anchor)))
+      .rejects.toMatchObject({ issue: { reason: "authorizationRevocationEpochChanged" } } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
+    expect(await rowState(persistence, context.scopeId)).toEqual(before);
+    expect(await captureSessionStorage(persistence, anchor)).toEqual(payloadBefore);
   });
 
   it("fails closed on invalid lifecycle, active-child, snapshot, fence, and authority state", async () => {
@@ -1302,7 +1399,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const drift = await provisionContext("terminal_authority_drift");
     const driftAnchor = (await activate(drift)).anchor;
     await persistence.query(
-      `update fx_system_scope_clock
+      `update fx_system_scope_execution_authority
        set authorization_revocation_epoch = authorization_revocation_epoch + 1
        where scope_id = $1`,
       [drift.scopeId],
@@ -1312,7 +1409,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       selectorFromAnchor(driftAnchor),
     ))
       .rejects.toMatchObject({
-        issue: { reason: "authorizationRevocationEpochChanged" },
+        issue: { reason: "attemptStillLive", effectiveExpiresAt: driftAnchor.leaseExpiresAt },
       } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
     expect((await rowState(persistence, drift.scopeId)).lease_attempt_fence)
       .toBe("1");
@@ -1322,7 +1419,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     );
     const generationDriftAnchor = (await activate(generationDrift)).anchor;
     await persistence.query(
-      `update fx_system_scope_clock
+      `update fx_system_scope_execution_authority
        set storage_generation_fence = storage_generation_fence + 1
        where scope_id = $1`,
       [generationDrift.scopeId],

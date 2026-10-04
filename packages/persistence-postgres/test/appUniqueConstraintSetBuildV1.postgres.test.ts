@@ -233,9 +233,11 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
         attemptFence: 1n}],
       });
       await persistence.query(
-        `update fx_system_scope_clock
-            set storage_generation_fence = 2, epoch = $2, last_commit_seq = 19
-          where scope_id = $1`,
+        `with authority as (
+           update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
+           where scope_id = $1 returning scope_id
+         ) update fx_system_scope_clock set last_commit_seq = 19
+           where scope_id in (select scope_id from authority)`,
         [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_set_pg_2")],
       );
       await expect(reconcile(fixture)).resolves.toMatchObject({
@@ -347,6 +349,10 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       try {
         await blocker.query("begin");
         await blocker.query(
+          "select 1 from fx_system_scope_execution_authority where scope_id = $1 for share",
+          [fixture.scopeId],
+        );
+        await blocker.query(
           `update fx_system_scope_clock
               set last_commit_seq = last_commit_seq + 1
             where scope_id = $1`,
@@ -439,9 +445,11 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
 
       await reconcile(fixture);
       await persistence.query(
-        `update fx_system_scope_clock
-            set storage_generation_fence = 2, epoch = $2, last_commit_seq = 7
-          where scope_id = $1`,
+        `with authority as (
+           update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
+           where scope_id = $1 returning scope_id
+         ) update fx_system_scope_clock set last_commit_seq = 7
+           where scope_id in (select scope_id from authority)`,
         [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_set_pg_stale")],
       );
       const staleFailure = await runEffectFailure(
@@ -455,9 +463,11 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       );
       expect(await buildCount(persistence, fixture.scopeId)).toBe(1);
       await persistence.query(
-        `update fx_system_scope_clock
-            set storage_generation_fence = 1, epoch = $2, last_commit_seq = 0
-          where scope_id = $1`,
+        `with authority as (
+           update fx_system_scope_execution_authority set storage_generation_fence = 1, epoch = $2
+           where scope_id = $1 returning scope_id
+         ) update fx_system_scope_clock set last_commit_seq = 0
+           where scope_id in (select scope_id from authority)`,
         [fixture.scopeId, fixture.epoch],
       );
       await runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(
@@ -669,9 +679,11 @@ async function fixtureFor(persistence: PostgresFlarexPersistence, uniqueSpec?: A
     physicalLocator: LOCATOR,
   });
   await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
+    `with clock as (
+       insert into fx_system_scope_clock (scope_id, last_commit_seq) values ($1, 0) returning scope_id
+     ) insert into fx_system_scope_execution_authority
+       (scope_id, storage_generation, storage_generation_fence, oldest_available_commit_seq, authorization_revocation_epoch, epoch)
+       select scope_id, 'flarexdb_v1', 1, 0, 0, $2 from clock`,
     [scopeId, ScopeEpochSchema.make(
       "epoch_75000000-0000-4000-8000-000000000001",
     )],
@@ -856,6 +868,10 @@ async function acquireScopeClockLock(
   try {
     await client.query("begin");
     await client.query(
+      "select 1 from fx_system_scope_execution_authority where scope_id = $1 for update",
+      [scopeId],
+    );
+    await client.query(
       "select 1 from fx_system_scope_clock where scope_id = $1 for update",
       [scopeId],
     );
@@ -897,7 +913,7 @@ async function waitForBlockedScopeClockOperations(
          join pg_stat_activity activity using (pid)
         where activity.datname = current_database()
           and activity.wait_event_type = 'Lock'
-          and activity.query ilike '%fx_system_scope_clock%'
+          and activity.query ilike '%fx_system_scope_execution_authority%'
           and (activity.query ilike '%for update%' or activity.query ilike '%for share%')`,
       [blockerPid],
     );
@@ -910,8 +926,9 @@ async function waitForBlockedScopeClockOperations(
 // Fixture-only authoritative history setup for direct builder tests.
 async function setClockCommit(fixture: Awaited<ReturnType<typeof fixtureFor>>, commitSeq: bigint) {
   await fixture.persistence.query(`insert into fx_system_commit (scope_uuid, epoch_uuid, commit_seq, change_count, relation_adjacency_change_count)
-    select clock.scope_uuid, clock.epoch_uuid, seq, (select count(*)::int from fx_app_row_rev revision where revision.scope_uuid = clock.scope_uuid and revision.commit_seq = seq), 0
-    from fx_system_scope_clock clock cross join lateral generate_series(clock.last_commit_seq + 1, $2::bigint) seq where clock.scope_id = $1`, [fixture.scopeId, commitSeq.toString()]);
+    select clock.scope_uuid, authority.epoch_uuid, seq, (select count(*)::int from fx_app_row_rev revision where revision.scope_uuid = clock.scope_uuid and revision.commit_seq = seq), 0
+    from fx_system_scope_clock clock join fx_system_scope_execution_authority authority using (scope_id)
+    cross join lateral generate_series(clock.last_commit_seq + 1, $2::bigint) seq where clock.scope_id = $1`, [fixture.scopeId, commitSeq.toString()]);
   await fixture.persistence.query(`insert into fx_system_commit_app_row_change (scope_uuid, epoch_uuid, commit_seq, change_ordinal, table_id, row_id)
     select revision.scope_uuid, revision.write_epoch_uuid, revision.commit_seq, (row_number() over (partition by revision.commit_seq order by revision.table_id, revision.row_id) - 1)::int, revision.table_id, revision.row_id
     from fx_app_row_rev revision join fx_system_scope_clock clock on clock.scope_uuid = revision.scope_uuid

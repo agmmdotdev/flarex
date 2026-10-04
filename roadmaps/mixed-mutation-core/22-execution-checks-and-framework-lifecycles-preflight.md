@@ -1,11 +1,15 @@
 # Execution Checks And Framework Lifecycles
 
-Status: **selected documentation direction; successor runtime scope remains gated
-by the active mixed-read/performance handoff and its focused implementation
-preflight.** This note clarifies the foundation replacement in
+Status: **selected direction; the mixed-read/performance handoff is complete and
+slice 20 owns the authorized common-observation candidate, with acceptance
+incomplete.** The selected [finite execution contract](./23-finite-execution-contract-preflight.md)
+owns the authorized replacement now in progress. It distinguishes
+the Convex-inspired attempt/snapshot/metadata boundary from optimizations to the
+current live-check protocol. This note
+clarifies the foundation replacement in
 [the execution roadmap](./14-execution-redesign-roadmap.md). It does not declare
 slice 20 complete, select package 2's terminal durability change, or start a new
-runtime implementation alongside the current owner.
+runtime implementation outside that focused scope.
 
 ## Outcome And Owners
 
@@ -118,13 +122,11 @@ evolution, new host lifecycles and hosted activation retain their existing gates
 
 ## Sequence And Completion Gates
 
-1. Finish the current mixed-read corrections and performance-harness scope under
-   its owner. Require validation, both required reviews, a scoped commit and a
-   clean pause or explicit path handoff. Audit the handed-off baseline and its
-   remaining correctness/performance failures; do not absorb dirty work.
-2. Reconcile slice 20's actual contract and remaining gates with this direction.
-   Record the next connected implementation preflight with concrete owners,
-   freshness boundaries, preparation lifetime, breaks and removal inventory.
+1. Audit the completed mixed-read correction/performance-harness handoff and its
+   remaining correctness/performance failures; do not absorb unrelated dirty work.
+2. Complete slice 20's actual contract and remaining gates with this direction.
+   Its transaction-local common-observation amendment records the next connected
+   owners, freshness boundaries, preparation lifetime, breaks and removal scope.
    Complete affected Application/Product/Payload/workflow consumers together.
 3. Decide and preflight contribution/settlement/recovery separately for package 2.
    Retain durable-seal behavior unless its replacement is explicitly selected.

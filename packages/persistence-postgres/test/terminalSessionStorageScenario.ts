@@ -6,7 +6,7 @@ import type { FlarexMetadataDatabase } from "../src/deployments";
 import { fxSystemTransactionSessions } from "../src/schema";
 import type { PointMutationSessionAnchorV1 } from "../src/transactionSessionActivation";
 import { insertSessionTestScope, insertTransactionSessionFixture,
-  transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
+  insertLegacySessionTestScope, transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
 import { injectMigrationFailure, restoreMigrationFile, writeJournalThrough,
   type DrizzleCopyFixture } from "./migrationFixtureSupport";
 
@@ -105,7 +105,7 @@ export async function verifyTerminalSessionMigration(
 ): Promise<void> {
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 93);
   await persistence.migrate();
-  await insertSessionTestScope(persistence);
+  await insertLegacySessionTestScope(persistence);
   let sequence = 9500;
   for (const application of [false, true]) {
     for (const lifecycle of ["running", "finishing", ...TERMINAL]) {

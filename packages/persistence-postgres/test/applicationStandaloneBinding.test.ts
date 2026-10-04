@@ -5,7 +5,8 @@ import { canonicalStandaloneApplicationBinding, decodeStandaloneApplicationBindi
 import { backfillStandaloneApplicationBindings } from "../src/applicationActivation";
 import { fxSystemApplicationActiveHeads, fxSystemApplicationReadBindings } from "../src/applicationActivationSchema";
 import { fxSystemApplicationReadiness } from "../src/applicationRelationSchema";
-import { fxSystemPreparedMetadataEpoch } from "../src/schema";
+import { fxSystemPreparedMetadataEpoch, fxSystemMetadataContractObservations, fxSystemScopeClocks } from "../src/schema";
+import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { relationReadinessFixture, prepareReadinessEvidence } from "./applicationRelationReadinessFixture";
 import { runEffect } from "./effectTestRuntime";
 
@@ -25,10 +26,18 @@ it("publishes a parent-derived binding and backfills an existing activation with
   const [after] = await database.select().from(fxSystemPreparedMetadataEpoch);
   expect(after?.generation).toBe((before?.generation ?? -2n) + 1n);
   await database.delete(fxSystemApplicationReadBindings).where(eq(fxSystemApplicationReadBindings.scopeId, stored.scopeId));
-  await runEffect(backfillStandaloneApplicationBindings(database));
+  const missingCatalog = await createMigratedPGlitePersistence();
+  const metadataBefore = { contracts: await database.select().from(fxSystemMetadataContractObservations),
+    clocks: await database.select().from(fxSystemScopeClocks) };
+  await expect(runEffect(backfillStandaloneApplicationBindings(database, missingCatalog.drizzle)))
+    .rejects.toMatchObject({ reason: "storedState" });
+  expect(await database.select().from(fxSystemApplicationReadBindings)).toEqual([]);
+  expect({ contracts: await database.select().from(fxSystemMetadataContractObservations),
+    clocks: await database.select().from(fxSystemScopeClocks) }).toEqual(metadataBefore);
+  await runEffect(backfillStandaloneApplicationBindings(database, fixture.control.drizzle));
   const [backfilled] = await database.select().from(fxSystemApplicationReadBindings);
   expect(backfilled).toEqual(stored);
-  await runEffect(backfillStandaloneApplicationBindings(database));
+  await runEffect(backfillStandaloneApplicationBindings(database, fixture.control.drizzle));
   expect(await database.select().from(fxSystemApplicationReadBindings)).toEqual([stored]);
 
   const publish = async (bytes: Uint8Array, digest: Uint8Array) => database.select({ published: sql<null>`
@@ -48,7 +57,7 @@ it("publishes a parent-derived binding and backfills an existing activation with
     .where(eq(fxSystemApplicationReadiness.scopeId, parent.scopeId));
   try {
     await expect(publish(stored.bindingBytes, stored.bindingSha256)).rejects.toThrow();
-    await expect(runEffect(backfillStandaloneApplicationBindings(database))).rejects.toMatchObject({ reason: "resourceFailure" });
+    await expect(runEffect(backfillStandaloneApplicationBindings(database, fixture.control.drizzle))).rejects.toMatchObject({ reason: "resourceFailure" });
   } finally {
     await database.update(fxSystemApplicationReadiness).set({ epoch: parent.epoch })
       .where(eq(fxSystemApplicationReadiness.scopeId, parent.scopeId));

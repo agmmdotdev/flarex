@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { webcrypto } from "node:crypto";
@@ -90,7 +91,7 @@ import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import { SchemaManifestAppIndexDescriptorSchema, type CatalogSchemaVersionId } from
+import { decodeCatalogSchemaVersionId, SchemaManifestAppIndexDescriptorSchema, type CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
 import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
 import {
@@ -167,6 +168,7 @@ import {
   makeApplicationActivationRepository,
   prepareApplicationBindingSelection,
   prepareFiniteActiveApplication,
+  readPreparedFiniteApplicationOriginalControl,
   readApplicationBindingPreparationInputs,
   readApplicationBindingTargetProtection,
   validateApplicationBindingBasisInTransaction,
@@ -259,8 +261,9 @@ import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from
 import { makeInstallationProtectedScopeAuthorityControlReader } from "../src/scopeAuthorityControlRead";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
+import { prepareFiniteTerminalControlEffect, type ApplicationGraphSessionSelector } from "../src/storedCommitAuthority/postgresLoader";
 import * as hostPreparation from "../src/preparedHostRuntime";
-import type { SplitScopePhysicalLocator } from
+import type { ScopePhysicalLocator, SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import {
   lockScopeClockForShareInTransactionEffect,
@@ -1050,11 +1053,10 @@ describe("Application activation", { timeout: 30_000 }, () => {
         // while the absent head supplies the deliberate second fault.
         capturing = true;
         if (mode === "malformed") {
-          await tx.execute(sql`alter table fx_system_scope_clock drop constraint fx_system_scope_clock_oldest_available_commit_seq_check`);
-          await tx.update(fxSystemScopeClocks).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(1n) })
-            .where(eq(fxSystemScopeClocks.scopeId, fixture.input.scopeId));
-        } else if (mode === "foreign") await tx.update(fxSystemScopeClocks).set({ storageGenerationFence: sql`${fxSystemScopeClocks.storageGenerationFence} + 1` })
-          .where(eq(fxSystemScopeClocks.scopeId, fixture.input.scopeId));
+          await tx.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(1n) })
+            .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.input.scopeId));
+        } else if (mode === "foreign") await tx.update(fxSystemScopeExecutionAuthorities).set({ storageGenerationFence: sql`${fxSystemScopeExecutionAuthorities.storageGenerationFence} + 1` })
+          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.input.scopeId));
         try { return await work(tx); } finally { capturing = false; }
       }, config));
     try {
@@ -2652,15 +2654,96 @@ describe("Application activation", { timeout: 30_000 }, () => {
     expect(encodeBytesToLowercaseHex(second.basis.manifestSha256)).toBe(originalDigest);
     expect(second.basis.manifest.functions[0]?.path).toBe("users:get");
     expect(second.executionAuthority.canonicalBytes.some(value => value !== 0)).toBe(true);
+    // Inspecting inert copies does not admit terminal work; the terminal owner
+    // below supplies its mandatory aggregate budget independently.
+    const inspectOriginalSizes = () => Result.succeed(undefined);
+    const originals = Result.getOrThrow(readPreparedFiniteApplicationOriginalControl(first.application, context.controlDb, inspectOriginalSizes));
+    const expectedOriginals = structuredClone(originals);
+    const payload = originals.original.artifact.payload;
+    const binding = originals.original.schemaAuthority.row;
+    if (payload === null || binding.bindingBytes === null || binding.bindingSha256 === null ||
+      binding.schemaManifestSha256 === null || binding.publishedAt === null) {
+      throw new Error("Missing genuinely admitted Application control payload");
+    }
+    payload.manifestBytes.fill(0);
+    payload.manifestSha256.fill(0);
+    payload.createdAt.setTime(0);
+    originals.original.artifact.sizes.manifestSha256.fill(0);
+    originals.original.artifact.sizes.createdAt.setTime(0);
+    binding.bindingBytes.fill(0);
+    binding.bindingSha256.fill(0);
+    binding.applicationSchemaSha256.fill(0);
+    binding.schemaManifestSha256.fill(0);
+    binding.createdAt.setTime(0);
+    binding.publishedAt.setTime(0);
+    expect(Result.getOrThrow(readPreparedFiniteApplicationOriginalControl(second.application, context.controlDb, inspectOriginalSizes)))
+      .toEqual(expectedOriginals);
+    expect(Result.isFailure(readPreparedFiniteApplicationOriginalControl(first.application, fixture.target.drizzle, inspectOriginalSizes))).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationOriginalControl(Object.freeze({ ...first.application }), context.controlDb, inspectOriginalSizes))).toBe(true);
     expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(Object.freeze({ ...prepared }), context))).toBe(true);
     expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(prepared, Object.freeze({ ...context })))).toBe(true);
     const closedPreparation = await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
       const host = yield* retainPreparedHost(runtime, prepareFiniteApplicationMutationAdmission(
         activation, "users:get", context).pipe(Effect.map(preparation => Object.freeze({ preparation }))));
-      return yield* host.use(value => Effect.succeed(value.preparation));
+      return yield* host.use(value => Effect.succeed({ preparation: value.preparation,
+        application: Result.getOrThrow(readPreparedFiniteApplicationMutationInputs(value.preparation, context)).application }));
     })));
-    expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(closedPreparation, context))).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(closedPreparation.preparation, context))).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationOriginalControl(closedPreparation.application, context.controlDb, inspectOriginalSizes))).toBe(true);
+    const terminalPorts = {
+      scopeMetadata: fixture.control,
+      provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+      scopeSessionTargets: {
+        resolve: async (locator: ScopePhysicalLocator) => createPGliteLocatedPointMutationSessionActivationTargetV1(fixture.target, locator),
+      },
+      applicationControlDb: context.controlDb,
+    };
+    const sessionActivation = createApplicationMutationSessionActivationPersistenceV1(terminalPorts, {
+      leaseDurationMilliseconds: 60_000, randomUuid: uuidSequence(80, 81, 82, 83),
+    });
+    const created = await runEffect(sessionActivation.activateEffect(await applicationMutationActivationInput(
+      fixture, await runEffect(activation.readActive()),
+    )));
+    if (created.status !== "created") throw new Error("Expected genuine Application session anchor");
+    const authority = { deploymentId: created.anchor.deploymentId, scopeId: created.anchor.scopeId,
+      sessionId: created.anchor.sessionId, attemptFence: created.anchor.attemptFence,
+      storageGeneration: created.anchor.storageGeneration, storageGenerationFence: created.anchor.storageGenerationFence,
+      snapshotToken: created.anchor.snapshotToken, schemaVersionId: second.basis.schemaVersionId };
+    const execution = second.executionAuthority.authority;
+    expect(encodeBytesToLowercaseHex(second.basis.applicationSchemaSha256)).toBe(execution.runtimeTarget.schemaSha256);
+    const terminalSelector = {
+      executionAuthorityGeneration: "application_v1",
+      applicationExecutionAuthorityFormat: execution.format,
+      applicationExecutionAuthorityVersionText: execution.version.toString(),
+      applicationExecutionAuthorityActivationSequence: execution.activationSequence,
+      applicationExecutionAuthorityRevisionId: execution.runtimeTarget.revisionId,
+      applicationExecutionAuthorityFunctionPath: execution.runtimeTarget.function.path,
+      applicationExecutionAuthoritySchemaSha256: execution.runtimeTarget.schemaSha256,
+    } satisfies ApplicationGraphSessionSelector;
+    const stableMembership = vi.spyOn(fixture.control.drizzle, "execute");
+    const rawReacquisition = vi.spyOn(fixture.control.drizzle, "select");
+    try {
+      for (const refused of [
+        prepareFiniteTerminalControlEffect({ ...terminalPorts, applicationControlDb: fixture.target.drizzle }, authority, terminalSelector, second.application),
+        prepareFiniteTerminalControlEffect(terminalPorts, { ...authority, schemaVersionId: decodeCatalogSchemaVersionId("wrong_native_schema") }, terminalSelector, second.application),
+        prepareFiniteTerminalControlEffect(terminalPorts, authority, { ...terminalSelector, applicationExecutionAuthoritySchemaSha256: "0".repeat(64) }, second.application),
+        prepareFiniteTerminalControlEffect(terminalPorts, authority, terminalSelector, Object.freeze({ ...second.application })),
+        prepareFiniteTerminalControlEffect(terminalPorts, authority, terminalSelector, closedPreparation.application),
+      ]) {
+        await expect(runEffect(refused)).rejects.toMatchObject({ _tag: "StoredCommitAuthorityEvidencePersistenceV1Error", operation: "beforeSchemaArtifactDecode" });
+      }
+      expect(stableMembership).not.toHaveBeenCalled();
+      expect(rawReacquisition).not.toHaveBeenCalled();
+      const terminal = await runEffect(prepareFiniteTerminalControlEffect(terminalPorts, authority, terminalSelector, second.application));
+      expect(terminal.schemaPayloadRows[0]?.manifestBytes).toEqual(expectedOriginals.original.artifact.payload?.manifestBytes);
+      expect(terminal.schemaAuthorityPayloadRows[0]?.bindingBytes).toEqual(expectedOriginals.original.schemaAuthority.row.bindingBytes);
+      expect(stableMembership).toHaveBeenCalledTimes(1);
+      expect(rawReacquisition).not.toHaveBeenCalled();
+    } finally {
+      stableMembership.mockRestore();
+      rawReacquisition.mockRestore();
+    }
     const accept = () => fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
       const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
       let escaped: AcceptedApplicationBinding | undefined;
@@ -3888,9 +3971,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
       expectedActiveHead: null,
     }));
     await fixture.target.query(
-      `update fx_system_scope_clock
-       set last_commit_seq = 2, oldest_available_commit_seq = 1
-       where scope_id = $1`,
+      `with authority as (
+         update fx_system_scope_execution_authority set oldest_available_commit_seq = 1
+         where scope_id = $1 returning scope_id
+       ) update fx_system_scope_clock set last_commit_seq = 2
+         where scope_id in (select scope_id from authority)`,
       [fixture.authority.scopeId],
     );
     const proof = await runEffect(Effect.scoped(Effect.gen(function* () {
@@ -3911,7 +3996,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
         opened.snapshot,
       );
       yield* Effect.promise(() => fixture.target.query(
-        `update fx_system_scope_clock
+        `update fx_system_scope_execution_authority
          set oldest_available_commit_seq = 2 where scope_id = $1`,
         [fixture.authority.scopeId],
       ));
@@ -3919,9 +4004,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
         opened.snapshot,
       );
       yield* Effect.promise(() => fixture.target.query(
-        `update fx_system_scope_clock
-         set last_commit_seq = 3, oldest_available_commit_seq = 3
-         where scope_id = $1`,
+        `with authority as (
+           update fx_system_scope_execution_authority set oldest_available_commit_seq = 3
+           where scope_id = $1 returning scope_id
+         ) update fx_system_scope_clock set last_commit_seq = 3
+           where scope_id in (select scope_id from authority)`,
         [fixture.authority.scopeId],
       ));
       const belowFloor = yield* Effect.result(
@@ -4074,10 +4161,14 @@ describe("Application activation", { timeout: 30_000 }, () => {
         },
       );
       yield* Effect.promise(() => fixture.target.query(
-        `update fx_system_scope_clock
-            set last_commit_seq = last_commit_seq + 1,
-                oldest_available_commit_seq = last_commit_seq + 1
-          where scope_id = $1`,
+        `with authority as (
+           select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+         ), clock as (
+           update fx_system_scope_clock set last_commit_seq = last_commit_seq + 1
+           where scope_id in (select scope_id from authority) returning scope_id, last_commit_seq
+         ) update fx_system_scope_execution_authority authority
+           set oldest_available_commit_seq = clock.last_commit_seq
+           from clock where authority.scope_id = clock.scope_id`,
         [fixture.authority.scopeId],
       ));
       const stale = yield* Effect.result(
@@ -4589,7 +4680,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     projectId: "project_application_readiness",
   });
   await target.query(
-    `update fx_system_scope_clock
+    `update fx_system_scope_execution_authority
         set storage_generation = 'flarexdb_v1'
       where scope_id = $1`,
     [provisioned.scope.scopeId],
@@ -4718,7 +4809,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
         const targetSha256 = await sha256Hex(canonicalTarget.canonicalBytes);
         if (options.coldMode === "advanceAuthority") {
           await target.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
                 set storage_generation_fence = storage_generation_fence + 1
               where scope_id = $1`,
             [authority.scopeId],

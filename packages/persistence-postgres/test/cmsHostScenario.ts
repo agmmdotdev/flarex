@@ -1,3 +1,5 @@
+import { selectScopeClockRows } from "../src/scopeClock";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { cmsHostFixture } from "./cmsHostFixture";
@@ -28,7 +30,7 @@ import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { PointCommitTransactionProofStepV1 } from "../src/pointCommitTransaction";
 import type { RelationalSession } from "../src/relationalTransaction/session";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks, fxSystemTransactionSessions, fxSystemCommitAppRowChanges, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxAppIndexEntryRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemAppSchemaCandidateValidations } from "../src/schema";
+import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemTransactionSessions, fxSystemCommitAppRowChanges, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxAppIndexEntryRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemAppSchemaCandidateValidations } from "../src/schema";
 
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
@@ -153,7 +155,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
     expect(settings).toEqual([{ statementMs: cmsLimits.statementMs, lockMs: cmsLimits.lockMs }]);
   }) }));
   const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
-    clock: await persistence.drizzle.select().from(fxSystemScopeClocks), commits: await persistence.drizzle.select().from(fxSystemCommits),
+    clock: await selectScopeClockRows(persistence.drizzle), commits: await persistence.drizzle.select().from(fxSystemCommits),
     outcomes: await persistence.drizzle.select().from(fxSystemIdempotency), wakes: await persistence.drizzle.select().from(fxSystemCommitWakes),
     facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges), sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions),
     journals: await persistence.drizzle.select().from(fxSystemTransactionJournals), leases: await persistence.drizzle.select().from(fxSystemSnapshotLeases),
@@ -268,13 +270,13 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   await persistence.drizzle.delete(fxSystemCommitAppRowChanges).where(eq(fxSystemCommitAppRowChanges.commitSeq, header.commitSeq));
   await persistence.drizzle.delete(fxSystemCommits).where(eq(fxSystemCommits.commitSeq, header.commitSeq));
   expect(await runEffectFailure(host.run(key, create, { title: "original" }))).toMatchObject({ reason: "storedCorruption" });
-  await persistence.drizzle.update(fxSystemScopeClocks).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(header.commitSeq + 1n) })
-    .where(eq(fxSystemScopeClocks.scopeId, clock.scopeId));
+  await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(header.commitSeq + 1n) })
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId));
   expect(await runEffect(host.run(key, create, { title: "original" }))).toEqual(created);
   await persistence.drizzle.insert(fxSystemCommits).values(header);
   if (retainedFacts.length > 0) await persistence.drizzle.insert(fxSystemCommitAppRowChanges).values(retainedFacts);
-  await persistence.drizzle.update(fxSystemScopeClocks).set({ oldestAvailableCommitSeq: clock.oldestAvailableCommitSeq })
-    .where(eq(fxSystemScopeClocks.scopeId, clock.scopeId));
+  await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: clock.oldestAvailableCommitSeq })
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId));
   await persistence.drizzle.update(fxSystemIdempotency).set({ resultState: "expired", resultValueCodecVersion: null,
     resultSemanticBytes: null, resultBytes: null, resultSha256: null, resultExpiredAt: new Date() }).where(eq(fxSystemIdempotency.requestKey, outcome.requestKey));
   expect(await runEffectFailure(host.run(key, create, { title: "original" }))).toMatchObject({ reason: "resultUnavailable" });

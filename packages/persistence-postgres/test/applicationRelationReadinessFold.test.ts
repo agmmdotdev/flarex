@@ -24,7 +24,7 @@ import { createPointCommitFinishingTransitionPortV1, createPointCommitRollbackPr
 import type { SplitScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
-import { fxControlApplicationSchemaAuthoritiesV1, fxSystemApplicationPublicationsV1, fxSystemApplicationReadinessV1, fxSystemApplicationTaskCatalogsV1, fxSystemApplicationTaskDefinitionsV1, fxSystemApplicationRelationSemanticReadiness, fxSystemEdgeDefinitionReadiness, fxSystemScopeClocks, fxSystemTransactionJournalPoints, fxSystemTransactionJournalReceipts, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournals } from "../src/schema";
+import { fxControlApplicationSchemaAuthoritiesV1, fxSystemApplicationPublicationsV1, fxSystemApplicationReadinessV1, fxSystemApplicationTaskCatalogsV1, fxSystemApplicationTaskDefinitionsV1, fxSystemApplicationRelationSemanticReadiness, fxSystemEdgeDefinitionReadiness, fxSystemScopeExecutionAuthorities, fxSystemTransactionJournalPoints, fxSystemTransactionJournalReceipts, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournals } from "../src/schema";
 import { createSessionJournalStorePersistence, SessionJournalSealV1Error, SessionJournalStorageCorruptionV1Error } from "../src/sessionJournalStore";
 import { createPointMutationExecutionClaimAcquisitionV1, createPointMutationSessionActivationPersistenceV1, createPointMutationSessionAttemptLoadPersistenceV1 } from "../src/transactionSessionActivation";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
@@ -2828,10 +2828,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     const movedFence = StorageGenerationFenceSchema.make(
       active.basis.authority.storageGenerationFence + 1n,
     );
-    await fixture.persistence.drizzle.update(fxSystemScopeClocks).set({
+    await fixture.persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
       storageGenerationFence: movedFence,
     }).where(eq(
-      fxSystemScopeClocks.scopeId,
+      fxSystemScopeExecutionAuthorities.scopeId,
       active.basis.authority.scopeId,
     ));
     const staleRoot = await fixture.persistence.drizzle.transaction(async tx => {

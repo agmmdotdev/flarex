@@ -424,6 +424,18 @@ export function resolveTrustedScopeAuthoritySnapshotResult(selection: TrustedSco
   targetLocator: ScopePhysicalLocator, clock: ScopeClockRecord | null,
 ): Result.Result<TrustedScopeAuthority, TrustedScopeAuthorityResolutionError> {
   return Result.gen(function* () {
+    const intent = yield* resolveTrustedScopePlacementSnapshotResult(selection, scope, receipt, targetLocator);
+    return yield* trustedAuthorityResult(intent, targetLocator, clock);
+  });
+}
+
+/** Placement validation has no sequencer or execution capability. Full and
+ * compact installed owners reuse the same persisted selection/receipt rules. */
+export function resolveTrustedScopePlacementSnapshotResult(selection: TrustedScopeSelection,
+  scope: ScopeMetadataRecord | null, receipt: SplitScopeAuthorityProvisioningReceipt | null,
+  targetLocator: ScopePhysicalLocator,
+): Result.Result<Pick<TrustedScopeAuthority, "deploymentId" | "scopeId" | "physicalLocator">, TrustedScopeAuthorityResolutionError> {
+  return Result.gen(function* () {
     if (scope === null || scope.scopeId !== selection.scopeId) return yield* Result.fail(resolutionError({
       reason: "scopeMetadataMissing", deploymentId: selection.deploymentId }));
     const intent = captureScopeAuthorityIntent(scope);
@@ -435,7 +447,7 @@ export function resolveTrustedScopeAuthoritySnapshotResult(selection: TrustedSco
       expected: intent.physicalLocator, actual: targetLocator }));
     if (intent.physicalLocator.kind !== "shared_database")
       yield* requireSplitScopeReceiptResult(intent, intent.physicalLocator, receipt);
-    return yield* trustedAuthorityResult(intent, targetLocator, clock);
+    return intent;
   });
 }
 

@@ -44,6 +44,7 @@ import type {
   SharedDatabaseScopePhysicalLocator,
 } from "../src/scopeMetadataTypes";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -170,7 +171,10 @@ describe("located scope authorization epoch authority", () => {
     } satisfies Partial<TrustedScopeAuthorityResolutionError>);
 
     await persistence.query(
-      "delete from fx_system_scope_clock where scope_id = $1",
+      `with removed_authority as (
+         delete from fx_system_scope_execution_authority where scope_id = $1 returning scope_id
+       )
+       delete from fx_system_scope_clock c using removed_authority a where c.scope_id = a.scope_id`,
       [scopeB.scope.scopeId],
     );
     await expect(resolveCurrentScopeAuthorizationEpoch(deploymentB, ports))
@@ -200,12 +204,12 @@ describe("located scope authorization epoch authority", () => {
       },
     ).ensure({ deploymentId, projectId: "project_epoch_corrupt" });
     await persistence.exec(`
-      alter table fx_system_scope_clock
-        drop constraint fx_system_scope_clock_authorization_revocation_epoch_non_negative_check
+      alter table fx_system_scope_execution_authority
+        drop constraint fx_scope_execution_authority_revocation_check
     `);
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority
         set authorization_revocation_epoch = $1
         where scope_id = $2
       `,
@@ -240,9 +244,11 @@ describe("located scope authorization epoch authority", () => {
       projectId: "project_epoch_located_clock_corrupt",
     });
     await persistence.exec(`
+      -- Deliberately corrupt the installed constraints to exercise the stored scalar decoder.
+      drop trigger fx_scope_authority_pair_integrity on fx_system_scope_clock;
+      drop trigger fx_scope_authority_pair_integrity on fx_system_scope_execution_authority;
       alter table fx_system_scope_clock
-        drop constraint fx_system_scope_clock_last_commit_seq_non_negative_check,
-        drop constraint fx_system_scope_clock_oldest_available_commit_seq_check
+        drop constraint fx_system_scope_clock_last_commit_seq_non_negative_check
     `);
     await persistence.query(
       `
@@ -350,7 +356,10 @@ describe("located scope authorization epoch authority", () => {
           getCurrentClock: async (scopeId: typeof provisioned.scope.scopeId) => {
             const clock = await target.getCurrentClock(scopeId);
             await persistence.query(
-              "delete from fx_system_scope_clock where scope_id = $1",
+              `with removed_authority as (
+                delete from fx_system_scope_execution_authority where scope_id = $1 returning scope_id
+              )
+              delete from fx_system_scope_clock c using removed_authority a where c.scope_id = a.scope_id`,
               [scopeId],
             );
             return clock;
@@ -449,14 +458,14 @@ describe("located scope authorization epoch authority", () => {
 
   it("translates a concrete target query rejection once at its port edge", async () => {
     const persistence = await createPGlitePersistence();
+    await persistence.migrate();
     const cause = new Error("epoch query unavailable");
-    const transaction = scopeEpochReadTransaction(() => Promise.reject(cause));
     const rejectingDb = new Proxy(persistence.drizzle, {
       get(target, property, receiver) {
         if (property === "transaction") {
           return (
             run: (tx: FlarexMetadataTransaction) => Promise<unknown>,
-          ) => run(transaction);
+          ) => persistence.drizzle.transaction(tx => run(scopeEpochReadTransaction(tx, () => Promise.reject(cause))));
         }
         return Reflect.get(target, property, receiver);
       },
@@ -478,9 +487,74 @@ describe("located scope authorization epoch authority", () => {
     });
   });
 
+  it("refuses failed installation admission before reading the epoch and retains its typed cause", async () => {
+    const persistence = await createPGlitePersistence();
+    let epochReads = 0;
+    let rolledBack = false;
+    const interceptedDb = new Proxy(persistence.drizzle, {
+      get(target, property, receiver) {
+        if (property === "transaction") return async (run: (tx: FlarexMetadataTransaction) => Promise<unknown>) => {
+          try {
+            return await persistence.drizzle.transaction(tx => run(scopeEpochReadTransaction(tx, () => {
+              epochReads++;
+              return Promise.resolve([]);
+            })));
+          } catch (cause) {
+            rolledBack = true;
+            throw cause;
+          }
+        };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const target = createLocatedScopeAuthorizationEpochTarget(interceptedDb, sharedLocator);
+    const failure = await runEffectFailure(target.requireCurrentAuthorizationRevocationEpochEffect(
+      ScopeIdSchema.make("scope_epoch_installation_failure"),
+    ));
+    expect(failure).toBeInstanceOf(CurrentScopeAuthorizationEpochPortError);
+    expect(failure).toMatchObject({ operation: "authorizationEpochRead",
+      cause: { _tag: "InstallationLifecycleError", reason: "resourceFailure" } });
+    expect(epochReads).toBe(0);
+    expect(rolledBack).toBe(true);
+  });
+
+  it.each([false, true])("preserves a target callback defect when rollback failure is %s", async rollbackFails => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const defect = new Error("epoch query construction defect");
+    const rollbackFailure = new Error("epoch defect rollback failed");
+    let rolledBack = false;
+    const interceptedDb = new Proxy(persistence.drizzle, {
+      get(target, property, receiver) {
+        if (property === "transaction") return async (run: (tx: FlarexMetadataTransaction) => Promise<unknown>) => {
+          try {
+            return await persistence.drizzle.transaction(tx => run(scopeEpochReadTransaction(tx,
+              () => Promise.resolve([]), () => { throw defect; })));
+          } catch (cause) {
+            rolledBack = true;
+            throw rollbackFails ? rollbackFailure : cause;
+          }
+        };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const target = createLocatedScopeAuthorizationEpochTarget(interceptedDb, sharedLocator);
+    const exit = await Effect.runPromiseExit(target.requireCurrentAuthorizationRevocationEpochEffect(
+      ScopeIdSchema.make("scope_epoch_callback_defect"),
+    ));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+      if (rollbackFails) expect(exit.cause.toString()).toContain(rollbackFailure.message);
+    }
+    expect(rolledBack).toBe(true);
+  });
+
   it("rolls back and rehydrates a typed target read failure", async () => {
     const persistence = await createPGlitePersistence();
-    const transaction = scopeEpochReadTransaction(() => Promise.resolve([]));
+    await persistence.migrate();
     let committed = false;
     let rolledBack = false;
     const interceptedDb = new Proxy(persistence.drizzle, {
@@ -490,7 +564,7 @@ describe("located scope authorization epoch authority", () => {
             run: (tx: FlarexMetadataTransaction) => Promise<unknown>,
           ) => {
             try {
-              const value = await run(transaction);
+              const value = await persistence.drizzle.transaction(tx => run(scopeEpochReadTransaction(tx, () => Promise.resolve([]))));
               committed = true;
               return value;
             } catch (cause) {
@@ -519,7 +593,7 @@ describe("located scope authorization epoch authority", () => {
 
   it("retains a typed target failure when rollback also fails", async () => {
     const persistence = await createPGlitePersistence();
-    const transaction = scopeEpochReadTransaction(() => Promise.resolve([]));
+    await persistence.migrate();
     const rollbackFailure = new Error("scope epoch rollback failed");
     const interceptedDb = new Proxy(persistence.drizzle, {
       get(target, property, receiver) {
@@ -528,7 +602,7 @@ describe("located scope authorization epoch authority", () => {
             run: (tx: FlarexMetadataTransaction) => Promise<unknown>,
           ) => {
             try {
-              return await run(transaction);
+              return await persistence.drizzle.transaction(tx => run(scopeEpochReadTransaction(tx, () => Promise.resolve([]))));
             } catch {
               throw rollbackFailure;
             }
@@ -623,7 +697,7 @@ describe("located scope authorization epoch authority", () => {
     );
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority
         set authorization_revocation_epoch = $1
         where scope_id = $2
       `,
@@ -685,28 +759,43 @@ function uuidSequence(...values: readonly string[]): () => string {
 interface RejectingScopeEpochQuery
   extends PromiseLike<ReadonlyArray<unknown>> {
   from(): RejectingScopeEpochQuery;
+  innerJoin(): RejectingScopeEpochQuery;
   where(): RejectingScopeEpochQuery;
   limit(): RejectingScopeEpochQuery;
   for(): RejectingScopeEpochQuery;
 }
 
 function scopeEpochReadTransaction(
+  transaction: FlarexMetadataTransaction,
   run: () => Promise<ReadonlyArray<unknown>>,
+  onEpochRead?: () => void,
 ): FlarexMetadataTransaction {
-  return {
-    select() {
-      const promise = run();
-      const query: RejectingScopeEpochQuery = {
-        from: () => query,
-        where: () => query,
-        limit: () => query,
-        for: () => query,
-        then: (onFulfilled, onRejected) =>
-          promise.then(onFulfilled, onRejected),
+  return new Proxy(transaction, {
+    get(target, property, receiver) {
+      if (property !== "select") return Reflect.get(target, property, receiver);
+      return (selection: Parameters<FlarexMetadataTransaction["select"]>[0]) => {
+        const query: RejectingScopeEpochQuery = {
+          from: () => query,
+          innerJoin: () => query,
+          where: () => query,
+          limit: () => query,
+          for: () => query,
+          then: (onFulfilled, onRejected) => run().then(onFulfilled, onRejected),
+        };
+        const actualQuery = target.select(selection);
+        return new Proxy(actualQuery, {
+          get(builder, step, stepReceiver) {
+            if (step === "from") return (table: unknown) => {
+              if (table !== fxSystemScopeExecutionAuthorities) return Reflect.apply(builder.from, builder, [table]);
+              onEpochRead?.();
+              return query;
+            };
+            return Reflect.get(builder, step, stepReceiver);
+          },
+        });
       };
-      return query;
     },
-  } as unknown as FlarexMetadataTransaction;
+  });
 }
 
 function deferred<Value>(): Readonly<{

@@ -1,5 +1,6 @@
 import { Cause, Deferred, Effect, Encoding, Exit, Fiber, Random, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
+import { createMetadataOnlyConflictFixture } from "../../persistence-postgres/test/finiteMetadataRetryTestSupport";
 import {
   PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
@@ -55,6 +56,7 @@ import {
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
+  MetadataSequenceSchema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT,
   canonicalizeSessionJournalEffect,
@@ -114,6 +116,8 @@ import {
   TransactionArgumentsSha256V1Schema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionFunctionPathV1Schema,
+  TransactionFunctionKindV1Schema,
+  TransactionExecutionModuleV1Schema,
   TransactionRequestKeyV1Schema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
@@ -2217,6 +2221,7 @@ describe("C04A stored-attempt authentication", () => {
     const attemptLoading = createPointMutationSessionAttemptLoadingV1({
       loadEffect: () => Effect.succeed({
         status: "loaded",
+        lastMetadataSequence: MetadataSequenceSchema.make(0n),
         anchor: {
           ...selector,
           requestKey,
@@ -2229,7 +2234,8 @@ describe("C04A stored-attempt authentication", () => {
           createdAt: "2026-08-13T00:00:00.000Z",
           updatedAt: "2026-08-13T00:00:00.000Z",
         },
-        executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
+        executionPin: { schemaVersionId: SCHEMA_VERSION_ID, functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+          functionKind: TransactionFunctionKindV1Schema.make("mutation"), executionModule: TransactionExecutionModuleV1Schema.make("flarex/users.ts") },
         attemptFacet: { kind: "nonPristine" },
       }),
     });
@@ -2337,6 +2343,7 @@ describe("C04A stored-attempt authentication", () => {
     const attemptLoading = createPointMutationSessionAttemptLoadingV1({
       loadEffect: () => Effect.succeed({
         status: "loaded",
+        lastMetadataSequence: MetadataSequenceSchema.make(0n),
         anchor: {
           ...selector,
           requestKey,
@@ -2349,7 +2356,8 @@ describe("C04A stored-attempt authentication", () => {
           createdAt: "2026-08-13T00:00:00.000Z",
           updatedAt: "2026-08-13T00:00:00.000Z",
         },
-        executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
+        executionPin: { schemaVersionId: SCHEMA_VERSION_ID, functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+          functionKind: TransactionFunctionKindV1Schema.make("mutation"), executionModule: TransactionExecutionModuleV1Schema.make("flarex/users.ts") },
         attemptFacet: { kind: "nonPristine" },
       }),
     });
@@ -2518,6 +2526,7 @@ describe("C04A stored-attempt authentication", () => {
     const attemptLoading = createPointMutationSessionAttemptLoadingV1({
       loadEffect: () => Effect.succeed({
         status: "loaded",
+        lastMetadataSequence: MetadataSequenceSchema.make(0n),
         anchor: {
           ...selector,
           requestKey: TransactionRequestKeyV1Schema.make(
@@ -2532,7 +2541,8 @@ describe("C04A stored-attempt authentication", () => {
           createdAt: "2026-08-25T00:00:00.000Z",
           updatedAt: "2026-08-25T00:00:00.000Z",
         },
-        executionPin: { schemaVersionId: source.authority.schemaVersionId },
+        executionPin: { schemaVersionId: source.authority.schemaVersionId, functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+          functionKind: TransactionFunctionKindV1Schema.make("mutation"), executionModule: TransactionExecutionModuleV1Schema.make("flarex/users.ts") },
         attemptFacet: { kind: "nonPristine" },
       }),
     });
@@ -3875,6 +3885,47 @@ describe("C04A stored-attempt authentication", () => {
     });
   });
 
+  it("authorizes equal-data metadata retry only from an advancing real sequencer witness", async () => {
+    const metadata = await createMetadataOnlyConflictFixture({ scopeId: SCOPE_ID, epoch: SNAPSHOT.epoch, commitSeq: SNAPSHOT.commitSeq });
+    try {
+      const makeCurrent = async () => {
+        const original = await insertFixture({ name: "metadata-retry" }, "ok");
+        const fixture = await fixtureForJournal({ ...original.journal.journal,
+          finiteMetadataReservationSha256Hex: "a".repeat(64),
+          readDependencies: [...original.journal.journal.readDependencies, metadata.dependency] }, "ok");
+        Reflect.apply(Array.prototype.push, fixture.evidence.points, original.evidence.points);
+        return commitAuthorityFixture({}, undefined, { fixture,
+          documentType: { type: "object", value: { name: { optional: false, fieldType: { type: "string" } } } }, returnsValidator: { type: "string" } });
+      };
+      const authorize = (fixture: Awaited<ReturnType<typeof pointMutationOccAuthorizationFixture>>) =>
+        fixture.authentication.authorizePointMutationOccRerun(fixture.conflict).pipe(Effect.provideService(Random.Random,
+          { nextDoubleUnsafe: () => 0, nextIntUnsafe: () => 0 }));
+      const valid = await pointMutationOccAuthorizationFixture(await makeCurrent(), { metadataConflict: metadata, conflictCommitSeqOffset: 0n });
+      const authorized = await runEffect(authorize(valid));
+      expect(authorized.kind).toBe("authorized");
+      if (authorized.kind !== "authorized") throw new Error("Expected metadata rerun authority");
+      const inspection = valid.authentication.consumeAuthorizedPointMutationOccRerunForTest(authorized.rerun);
+      expect(inspection.snapshotToken.commitSeq).toBe(SNAPSHOT.commitSeq);
+      expect(inspection.conflict.conflict).toEqual(metadata.conflict.conflict);
+      for (const insufficient of [metadata.dependency.capturedWatermark, MetadataSequenceSchema.make(metadata.dependency.capturedWatermark + 1n)]) {
+        const stale = await pointMutationOccAuthorizationFixture(await makeCurrent(), { metadataConflict: metadata, conflictCommitSeqOffset: 0n,
+          mutateFreshLoadForTest: result => ({ ...result, lastMetadataSequence: insufficient }) });
+        expect(await runFailure(authorize(stale))).toMatchObject({ reason: "metadataNotAdvanced" });
+      }
+      if (metadata.conflict.conflict.kind !== "metadata") throw new Error("Missing metadata witness");
+      for (const wrongWitness of [
+        { ...metadata.conflict.conflict, capturedMetadataWatermark: MetadataSequenceSchema.make(metadata.dependency.capturedWatermark + 1n) },
+        { ...metadata.conflict.conflict, contractKey: '["function","users:other"]' },
+        { ...metadata.conflict.conflict, lastChangedMetadataSequence: metadata.dependency.capturedWatermark },
+      ]) {
+        const wrong = await pointMutationOccAuthorizationFixture(await makeCurrent(), { conflictCommitSeqOffset: 0n,
+          metadataConflict: { ...metadata, conflict: new PointCommitConflictV1Error({ ...metadata.conflict, conflict: wrongWitness }) } });
+        expect(await runFailure(authorize(wrong))).toMatchObject({ reason: "evidenceInvalid" });
+        expect(wrong.counts().replacementCalls).toBe(0);
+      }
+    } finally { await metadata.close(); }
+  }, 180_000);
+
   it("applies the bounded four-rerun full-jitter policy before outcome lookup", async () => {
     const expectedUpperBounds = [100, 200, 400, 800] as const;
     for (const [index, expectedUpperBound] of expectedUpperBounds.entries()) {
@@ -4292,6 +4343,7 @@ describe("C04A stored-attempt authentication", () => {
           Object.freeze({
             ...result,
             executionPin: Object.freeze({
+              ...result.executionPin,
               schemaVersionId: CatalogSchemaVersionIdSchema.make(
                 "schema_o08b1_mismatch",
               ),
@@ -6113,6 +6165,7 @@ async function pointMutationOccAuthorizationFixture(
     readonly unsafeReplacementKindForTest?: unknown;
     readonly freshLoadNever?: boolean;
     readonly conflictCommitSeqOffset?: bigint;
+    readonly metadataConflict?: Awaited<ReturnType<typeof createMetadataOnlyConflictFixture>>;
     readonly mutateFreshLoadForTest?: (
       result: PointMutationSessionAttemptLoadResultV1,
     ) => PointMutationSessionAttemptLoadResultV1;
@@ -6135,7 +6188,7 @@ async function pointMutationOccAuthorizationFixture(
   if (dependency?.kind !== "appRowPoint") {
     throw new Error("O08-B1 fixture requires one point dependency.");
   }
-  const conflict = new PointCommitConflictV1Error({
+  const conflict = options.metadataConflict?.conflict ?? new PointCommitConflictV1Error({
     conflict: Object.freeze({
       kind: "appRowPoint",
       documentId: dependency.documentId,
@@ -6160,6 +6213,7 @@ async function pointMutationOccAuthorizationFixture(
         loadCalls += 1;
       const result = Object.freeze({
         status: "loaded" as const,
+        lastMetadataSequence: options.metadataConflict?.lastMetadataSequence ?? MetadataSequenceSchema.make(0n),
         anchor: Object.freeze({
           deploymentId: selector.deploymentId,
           scopeId: selector.scopeId,
@@ -6181,7 +6235,8 @@ async function pointMutationOccAuthorizationFixture(
           createdAt: "2026-07-18T00:00:00.000Z",
           updatedAt: "2026-07-18T00:00:00.000Z",
         }),
-        executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID }),
+        executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID, functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+          functionKind: TransactionFunctionKindV1Schema.make("mutation"), executionModule: TransactionExecutionModuleV1Schema.make("flarex/users.ts") }),
         attemptFacet: Object.freeze({
           kind: isFresh ? "pristineOpen" as const : "nonPristine" as const,
         }),
@@ -6976,7 +7031,7 @@ async function fixtureForJournal(
       nextCreationTime: AppCreationTimeV1Schema.make(1_700_000_000_001),
       readDocuments: journal.journal.readUsage.documentsRead,
       readSemanticBytes: journal.journal.readUsage.semanticBytesRead,
-      pointDependencyCount: journal.journal.readDependencies.length,
+      pointDependencyCount: journal.journal.readDependencies.filter(dependency => dependency.kind === "appRowPoint").length,
       indexedQuerySyscalls: 0,
       indexRangeDependencyCount: 0,
       indexRangeDependencyEvidenceBytes: 0,
@@ -7030,6 +7085,7 @@ async function deriveAuthority(authentication: StoredAttemptAuthenticationV1) {
   const loading = createPointMutationSessionAttemptLoadingV1({
     loadEffect: (selector) => Effect.succeed({
       status: "loaded",
+      lastMetadataSequence: MetadataSequenceSchema.make(0n),
       anchor: {
         deploymentId: selector.deploymentId,
         scopeId: selector.scopeId,
@@ -7046,7 +7102,8 @@ async function deriveAuthority(authentication: StoredAttemptAuthenticationV1) {
         createdAt: "2026-07-16T00:00:00.000Z",
         updatedAt: "2026-07-16T00:00:00.000Z",
       },
-      executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
+      executionPin: { schemaVersionId: SCHEMA_VERSION_ID, functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+        functionKind: TransactionFunctionKindV1Schema.make("mutation"), executionModule: TransactionExecutionModuleV1Schema.make("flarex/users.ts") },
       attemptFacet: { kind: "nonPristine" },
     }),
   });

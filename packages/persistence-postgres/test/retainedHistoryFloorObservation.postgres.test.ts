@@ -422,9 +422,10 @@ async function seedCommits(
   await persistence.query(
     `insert into fx_system_commit
        (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-     select scope_uuid, epoch_uuid, values.commit_seq, 0,
+     select clock.scope_uuid, authority.epoch_uuid, values.commit_seq, 0,
             clock_timestamp() - values.age
-     from fx_system_scope_clock,
+     from fx_system_scope_clock clock
+     join fx_system_scope_execution_authority authority using(scope_id),
           (values
             (1::bigint, interval '30 seconds'),
             (2::bigint, interval '20 seconds'),
@@ -451,7 +452,8 @@ async function readClock(
     oldest_available_commit_seq: string;
   }>(
     `select last_commit_seq::text, oldest_available_commit_seq::text
-     from fx_system_scope_clock where scope_id = $1`,
+     from fx_system_scope_clock join fx_system_scope_execution_authority using(scope_id)
+     where scope_id = $1`,
     [scopeId],
   );
   const row = result.rows[0];

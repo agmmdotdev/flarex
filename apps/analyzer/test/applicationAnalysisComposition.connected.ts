@@ -69,10 +69,10 @@ export async function proveConnectedApplicationAnalysis(
     epoch: ScopeEpochSchema.make(`epoch_application_analysis_${identity}`),
   });
   await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence,
-       last_commit_seq, last_outbox_seq, epoch)
-     values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
+    `with created as (
+      insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id
+    ) insert into fx_system_scope_execution_authority (scope_id, storage_generation, storage_generation_fence, epoch)
+      select scope_id, 'flarexdb_v1', 1, $2 from created`,
     [authority.scopeId, authority.epoch],
   );
 
@@ -137,6 +137,9 @@ export async function proveConnectedApplicationAnalysis(
   );
   if (stored.status !== "analyzed") {
     throw new Error("Connected Application Analysis revision was not retained.");
+  }
+  if (stored.manifest.version !== 1) {
+    throw new Error("Connected Application Analysis did not retain the expected V1 manifest.");
   }
 
   const publication = await Effect.runPromise(

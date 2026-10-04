@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { expect } from "vitest";
 import { Effect, Exit, Fiber } from "effect";
 import { and, asc, eq } from "drizzle-orm";
@@ -180,7 +181,7 @@ export async function payloadPreferencePublicationScenario(input: {
     const clocks = await persistence.drizzle.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, first.scopeUuid));
     const clock = clocks[0];
     if (clock === undefined) throw new Error("Missing scope clock");
-    await persistence.drizzle.update(fxSystemScopeClocks).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq) }).where(eq(fxSystemScopeClocks.scopeUuid, first.scopeUuid));
+    await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq) }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId));
     const compactor = createRetainedCommitHistoryCompactionPort({ authority: { ...input.retentionAuthority,
       scopeClockTargets: { resolve: async locator => createLocatedRetainedHistoryFloorTargetInternal(persistence.drizzle, locator,
         createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle)) } } });

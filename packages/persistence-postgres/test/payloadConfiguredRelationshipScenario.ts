@@ -1,3 +1,4 @@
+import { selectScopeClockRows } from "../src/scopeClock";
 import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { expect } from "vitest";
 import { Effect, Result } from "effect";
@@ -92,7 +93,7 @@ export async function payloadConfiguredRelationshipScenario(
       const foreignUuid = projectScopeIdUuidV1(foreignScope).scopeUuid;
       await db.transaction(async tx => {
         Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, { scopeId: foreignScope, initialEpoch: ScopeEpochSchema.make(`epoch_${randomUUID()}`) }));
-        const clock = (await tx.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid)))[0];
+        const clock = (await selectScopeClockRows(tx).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid)))[0];
         if (clock?.epochUuid == null) throw new Error("Missing foreign clock");
         await tx.insert(fxAppRowRevisions).values({ ...foreignTemplate, scopeUuid: foreignUuid, writeEpochUuid: clock.epochUuid });
         await tx.insert(fxAppRowCurrent).values({ scopeUuid: foreignUuid, tableId: foreignIdentity.tableId, rowId: foreignRowId, commitSeq: foreignTemplate.commitSeq });

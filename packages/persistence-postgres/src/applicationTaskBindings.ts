@@ -1,3 +1,5 @@
+import { selectScopeClockRows, lockScopeExecutionAuthorityInTransactionEffect,
+  ScopeClockNotFoundError, ScopeClockCorruptionError } from "./scopeClock";
 import {
   bytesEqualFullScan,
   encodeBytesToLowercaseHex,
@@ -80,7 +82,7 @@ export const captureApplicationTaskCatalogRowsInTransaction = Effect.fn(
   authority: ApplicationAnalysisAuthority, revisionId: string) {
   if (!isApplicationTaskCatalogSnapshotPort(port) || revisionId.trim().length === 0 || revisionId.includes("\0"))
     return yield* taskSnapshotFailure("invalidInput", false);
-  const clockRows = yield* taskSnapshotQuery(tx.select().from(fxSystemScopeClocks).where(eq(
+  const clockRows = yield* taskSnapshotQuery(selectScopeClockRows(tx).where(eq(
     fxSystemScopeClocks.scopeId, authority.scopeId,
   )).limit(1));
   const clock = clockRows[0];
@@ -395,25 +397,27 @@ function taskSnapshotFailureValue(
   });
 }
 
-function requireExactAuthority(
+const requireExactAuthority = Effect.fn("ApplicationTaskBindings.requireExactAuthority")(function* (
   tx: AppRowTransaction,
   authority: ApplicationAnalysisAuthority,
-): Effect.Effect<void, ApplicationTaskBindingPersistenceError> {
-  return Effect.gen(function* () {
-    const rows = yield* query(
-      tx.select().from(fxSystemScopeClocks).where(
-        eq(fxSystemScopeClocks.scopeId, authority.scopeId),
-      ).limit(1).for("update"),
-    );
-    const clock = rows[0];
-    if (
-      clock === undefined ||
-      clock.storageGeneration !== authority.storageGeneration ||
-      clock.storageGenerationFence !== authority.storageGenerationFence ||
-      clock.epoch !== authority.epoch
-    ) return yield* failure("authorityChanged");
-  });
-}
+): Effect.fn.Return<void, ApplicationTaskBindingPersistenceError> {
+  yield* lockScopeExecutionAuthorityInTransactionEffect(tx, authority.scopeId, "update").pipe(Effect.mapError(cause =>
+    cause instanceof ScopeClockNotFoundError ? failureValue("authorityChanged") :
+      cause instanceof ScopeClockCorruptionError ? failureValue("storedState", false, cause) :
+        failureValue("resourceFailure", isRetryableTransactionCause(cause.cause), cause.cause)));
+  const rows = yield* query(
+    selectScopeClockRows(tx).where(
+      eq(fxSystemScopeClocks.scopeId, authority.scopeId),
+    ).limit(1).for("update", { of: fxSystemScopeClocks }),
+  );
+  const clock = rows[0];
+  if (
+    clock === undefined ||
+    clock.storageGeneration !== authority.storageGeneration ||
+    clock.storageGenerationFence !== authority.storageGenerationFence ||
+    clock.epoch !== authority.epoch
+  ) return yield* failure("authorityChanged");
+});
 
 function databaseTime(
   tx: AppRowTransaction,

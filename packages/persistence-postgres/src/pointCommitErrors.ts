@@ -6,6 +6,7 @@ import {
 import { isNonArrayRecord } from "@flarex/utils/records";
 
 import { Data } from "effect";
+import type { FiniteMetadataConflict } from "flarex-protocol/commit-protocol";
 
 import {
   type AppDocumentIdV1,
@@ -66,6 +67,7 @@ import { LocatedReadCommittedTransactionFailureV1 } from "./transactionSessionAt
 import { ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstraintError } from "./commitPublication/scopePublicationModel";
 
 export type PointCommitConflictCauseV1 =
+  | Readonly<FiniteMetadataConflict>
   | Readonly<{
       readonly kind: "logicalParticipant";
       readonly participant: string;

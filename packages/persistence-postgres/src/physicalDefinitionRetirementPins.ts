@@ -9,8 +9,8 @@ import {
   copyBytesToArrayBuffer,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { Data, Effect, Option, Result, Schema } from "effect";
 import {
   AppSchemaCandidateValidationOperationV1Error,
 } from "flarex-protocol/internal/app-schema-candidate-validation-v1";
@@ -28,7 +28,7 @@ import {
   TransactionSourcePackageSha256HexV1Schema,
   type TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
-import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import {
   projectScopeIdUuidV1Result,
   type ScopeId,
@@ -47,9 +47,12 @@ import {
   fxSystemApplicationRevisionSchemasV1,
   fxSystemDurableTaskRunsV1,
   fxSystemSnapshotLeases,
+  fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
+import { readStoredFiniteMetadataReservation } from "./finiteMetadataReservation";
+import { readBindingCandidate, readBindingSelectedEvidence, readRetainedBindingActivation } from "./frameworkSchema/binding/repository";
 import {
   decodeAndCorrelateTaskSystemRunRowV1,
 } from "./taskSystemRunRowV1";
@@ -68,6 +71,7 @@ const NONTERMINAL_ACTION_LIFECYCLES = Object.freeze([
 const taskAggregatePhaseExpression =
   sql<string>`(${fxSystemDurableTaskRunsV1.aggregateJson} #>> '{aggregate,phase}')`;
 const MAX_RUNTIME_PIN_CANDIDATES_PER_OWNER = 32;
+const decodeSchemaVersionIdEffect = Schema.decodeUnknownEffect(CatalogSchemaVersionIdSchema);
 const decodeLegacyMutationSessionAuthorityResult = Schema.decodeUnknownResult(
   Schema.Struct({
     artifactId: TransactionArtifactIdV1Schema,
@@ -79,14 +83,16 @@ const decodeLegacyMutationSessionAuthorityResult = Schema.decodeUnknownResult(
 );
 
 type ValidatedMutationSession =
-  | Readonly<{ readonly generation: "legacy_dynamic_worker_v1" }>
+  | Readonly<{ readonly generation: "legacy_dynamic_worker_v1";
+      readonly schemaVersionIds: readonly CatalogSchemaVersionId[] }>
   | Readonly<{
       readonly generation: "application_v1";
-      readonly schemaVersionId: CatalogSchemaVersionId;
+      readonly schemaVersionIds: readonly CatalogSchemaVersionId[];
     }>;
 
 export type PhysicalDefinitionRetirementPinOwner =
   | "active_application"
+  | "active_binding"
   | "candidate_validation"
   | "mutation_session"
   | "direct_action"
@@ -110,6 +116,7 @@ export class PhysicalDefinitionRetirementPinPersistenceError
   extends Data.TaggedError("PhysicalDefinitionRetirementPinPersistenceError")<{
     readonly operation:
       | "readActive"
+      | "readBinding"
       | "readCandidate"
       | "readMutationSession"
       | "readAction"
@@ -135,7 +142,7 @@ export class PhysicalDefinitionRetirementPinDirectoryLimitError
   extends Data.TaggedError("PhysicalDefinitionRetirementPinDirectoryLimitError")<{
     readonly owner: Exclude<
       PhysicalDefinitionRetirementPinOwner,
-      "active_application" | "candidate_validation"
+      "active_application" | "active_binding" | "candidate_validation"
     >;
     readonly observed: number;
     readonly maximum: number;
@@ -184,6 +191,23 @@ export const inspectPhysicalDefinitionRetirementPinsInTransactionEffect =
         }
       }
 
+      const selectedBinding = yield* readBindingSelectedEvidence(tx, authority).pipe(Effect.mapError(cause =>
+        cause.reason === "resourceFailure" ? pinPersistence("readBinding", cause) :
+          pinCorruptionValue("active_binding", authority.scopeId, cause)));
+      if (Option.isSome(selectedBinding)) {
+        const { candidate: binding, head } = selectedBinding.value;
+        if (binding.frame.application.deploymentId !== deploymentId)
+          return yield* pinCorruption("active_binding", head.sha256);
+        const nativeSchema = yield* decodeSchemaVersionIdEffect(binding.frame.application.schemaVersionId)
+          .pipe(Effect.mapError(cause => pinCorruptionValue("active_binding", head.sha256, cause)));
+        yield* validateRevisionSchemaEffect(tx, authority.scopeId, deploymentId, binding.frame.application.revisionId,
+          nativeSchema, "active_binding", head.sha256);
+        if (schemaVersions.has(nativeSchema)) return pinned("active_binding", head.sha256, nativeSchema);
+        const logicalSchema = binding.frame.logicalSchema;
+        if (logicalSchema !== null && schemaVersions.has(logicalSchema.schemaVersionId))
+          return pinned("active_binding", head.sha256, logicalSchema.schemaVersionId);
+      }
+
       const candidate = yield*
         readAppSchemaCandidateValidationHeadForShareInTransactionEffect(
           tx,
@@ -229,10 +253,11 @@ export const inspectPhysicalDefinitionRetirementPinsInTransactionEffect =
           sessionId: fxSystemTransactionSessions.sessionId,
         }).from(fxSystemTransactionSessions).where(and(
           eq(fxSystemTransactionSessions.scopeUuid, scopeUuid.scopeUuid),
-          eq(
-            fxSystemTransactionSessions.executionAuthorityGeneration,
-            "application_v1",
-          ),
+          or(eq(fxSystemTransactionSessions.executionAuthorityGeneration, "application_v1"),
+            sql`exists (select 1 from ${fxSystemSnapshotLeases} as finite_retirement_lease
+              where finite_retirement_lease.scope_uuid = ${fxSystemTransactionSessions.scopeUuid}
+                and finite_retirement_lease.session_id = ${fxSystemTransactionSessions.sessionId}
+                and finite_retirement_lease.finite_metadata_reservation_bytes is not null)`),
           inArray(
             fxSystemTransactionSessions.lifecycle,
             NONTERMINAL_MUTATION_LIFECYCLES,
@@ -253,12 +278,11 @@ export const inspectPhysicalDefinitionRetirementPinsInTransactionEffect =
           sessionId,
           "mutation_session",
         );
-        if (session.generation !== "application_v1") {
+        if (session.schemaVersionIds.length === 0) {
           return yield* pinCorruption("mutation_session", sessionId);
         }
-        if (schemaVersions.has(session.schemaVersionId)) {
-          return pinned("mutation_session", sessionId, session.schemaVersionId);
-        }
+        for (const schemaVersionId of session.schemaVersionIds)
+          if (schemaVersions.has(schemaVersionId)) return pinned("mutation_session", sessionId, schemaVersionId);
       }
 
       const actionDirectory = yield* queryEffect(
@@ -338,14 +362,11 @@ export const inspectPhysicalDefinitionRetirementPinsInTransactionEffect =
           leasedSessionId,
           "snapshot_lease",
         );
-        if (
-          session.generation === "application_v1" &&
-          schemaVersions.has(session.schemaVersionId)
-        ) {
+        for (const schemaVersionId of session.schemaVersionIds) if (schemaVersions.has(schemaVersionId)) {
           return pinned(
             "snapshot_lease",
             leasedSessionId,
-            session.schemaVersionId,
+            schemaVersionId,
           );
         }
       }
@@ -378,9 +399,8 @@ const loadAndValidateMutationSessionEffect = Effect.fn(
     if (!legacyMutationSessionAuthorityIsValid(row)) {
       return yield* pinCorruption(owner, sessionId);
     }
-    return Object.freeze({
-      generation: "legacy_dynamic_worker_v1" as const,
-    });
+    return Object.freeze({ generation: "legacy_dynamic_worker_v1" as const,
+      schemaVersionIds: yield* loadFiniteReservedSchemaVersionsEffect(tx, scopeId, scopeUuid, deploymentId, row, owner) });
   }
   if (
     row.executionAuthorityGeneration !== "application_v1" ||
@@ -422,8 +442,74 @@ const loadAndValidateMutationSessionEffect = Effect.fn(
   );
   return Object.freeze({
     generation: "application_v1" as const,
-    schemaVersionId: row.schemaVersionId,
+    schemaVersionIds: Object.freeze([...new Set([row.schemaVersionId,
+      ...(yield* loadFiniteReservedSchemaVersionsEffect(tx, scopeId, scopeUuid, deploymentId, row, owner,
+        canonical.authority.runtimeTarget.revisionId))])]),
   });
+});
+
+/** Resolve immutable entry artifacts, even after their active heads move. */
+const loadFiniteReservedSchemaVersionsEffect = Effect.fn("PhysicalDefinitionRetirementPins.loadFiniteReservedSchemas")(
+function* (tx: AppRowTransaction, scopeId: ScopeId, scopeUuid: ScopeUuidV1, deploymentId: string,
+  row: typeof fxSystemTransactionSessions.$inferSelect, owner: "mutation_session" | "snapshot_lease",
+  expectedRevisionId?: string,
+) {
+  const sessionId = row.sessionId;
+  const leases = yield* queryEffect("readSnapshotLease", () => tx.select().from(fxSystemSnapshotLeases)
+    .where(and(eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
+      eq(fxSystemSnapshotLeases.sessionId, sessionId))).limit(1).for("share"));
+  const lease = leases[0];
+  if (lease === undefined || lease.finiteMetadataReservationBytes === null &&
+    lease.finiteMetadataReservationSha256 === null && lease.metadataWatermark === null) {
+    // The persisted profile distinguishes real reserved Application roots from
+    // durable Application consumers and the retained legacy direct-core profile.
+    if (row.executionAuthorityGeneration === "application_v1") {
+      const journals = yield* queryEffect("readMutationSession", () => tx.select({
+        executionProfile: fxSystemTransactionJournals.executionProfile,
+      }).from(fxSystemTransactionJournals).where(and(
+        eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
+        eq(fxSystemTransactionJournals.sessionId, sessionId),
+        eq(fxSystemTransactionJournals.attemptFence, row.attemptFence),
+      )).limit(1).for("share"));
+      if (journals[0]?.executionProfile === "finiteRoot") return yield* pinCorruption(owner, sessionId);
+    }
+    return Object.freeze([]);
+  }
+  const reservation = yield* readStoredFiniteMetadataReservation(lease).pipe(Effect.mapError(cause =>
+    cause.reason === "resourceFailure" ? pinPersistence("readSnapshotLease", cause) : pinCorruptionValue(owner, sessionId, cause)));
+  if (reservation.deploymentId !== deploymentId || reservation.scopeId !== scopeId ||
+    reservation.schemaVersionId !== row.schemaVersionId || reservation.attemptFence !== row.attemptFence ||
+    expectedRevisionId !== undefined && reservation.application.revisionId !== expectedRevisionId)
+    return yield* pinCorruption(owner, sessionId);
+  yield* validateRevisionSchemaEffect(tx, scopeId, deploymentId, reservation.application.revisionId,
+    reservation.schemaVersionId, owner, sessionId);
+  const schemas = [reservation.schemaVersionId];
+  if (reservation.binding !== null) {
+    const location = { scopeId, storageGeneration: reservation.storageGeneration };
+    const activation = yield* readRetainedBindingActivation(tx, location, {
+      sequence: reservation.binding.sequence, sha256: reservation.binding.activationSha256,
+      candidateSha256: reservation.binding.candidateSha256, headSha256: reservation.binding.sha256,
+    }).pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
+      ? pinPersistence("readBinding", cause) : pinCorruptionValue(owner, sessionId, cause)));
+    const candidate = yield* readBindingCandidate(tx, location, reservation.binding.candidateSha256).pipe(
+      Effect.mapError(cause => cause.reason === "resourceFailure"
+        ? pinPersistence("readBinding", cause) : pinCorruptionValue(owner, sessionId, cause)));
+    if (Option.isNone(activation) || Option.isNone(candidate)) return yield* pinCorruption(owner, sessionId);
+    const application = candidate.value.frame.application;
+    const captured = reservation.application;
+    if (application.deploymentId !== deploymentId || application.scopeId !== scopeId ||
+      application.storageGeneration !== reservation.storageGeneration ||
+      application.storageGenerationFence !== reservation.storageGenerationFence.toString() ||
+      application.epoch !== reservation.snapshotToken.epoch ||
+      application.revisionId !== captured.revisionId || application.activationSequence !== captured.activationSequence ||
+      application.headSha256 !== captured.headSha256 || application.activationSha256 !== captured.activationSha256 ||
+      application.schemaVersionId !== captured.schemaVersionId || application.schemaManifestSha256 !== captured.manifestSha256)
+      return yield* pinCorruption(owner, sessionId);
+    const logicalSchema = candidate.value.frame.logicalSchema;
+    if (logicalSchema === null) return yield* pinCorruption(owner, sessionId);
+    schemas.push(logicalSchema.schemaVersionId);
+  }
+  return Object.freeze([...new Set(schemas)]);
 });
 
 function legacyMutationSessionAuthorityIsValid(
@@ -657,7 +743,7 @@ function pinCorruptionValue(
 function requireDirectoryWithinLimit(
   owner: Exclude<
     PhysicalDefinitionRetirementPinOwner,
-    "active_application" | "candidate_validation"
+    "active_application" | "active_binding" | "candidate_validation"
   >,
   observed: number,
 ): Effect.Effect<void, PhysicalDefinitionRetirementPinDirectoryLimitError> {

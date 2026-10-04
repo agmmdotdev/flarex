@@ -168,7 +168,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           if (member.kind === "logical" && !bootstrap) {
             const initialization = descriptor.initialization;
             if (initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
-            yield* requireLogicalCommerceInitialization(member.admission, tx, initialization, descriptor.contractSha256);
+            yield* requireLogicalCommerceInitialization(member.admission, tx, initialization);
           }
           // Standalone reads have no durable replay identity. Fresh admission
           // owns authority; only durable requests construct command evidence.

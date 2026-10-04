@@ -95,7 +95,7 @@ describePostgres("real Postgres O07-A committed point outcome resolver", () => {
           [OUTCOME_SCOPE_A],
         );
         await transaction.query(
-          `update fx_system_scope_clock set oldest_available_commit_seq = 2 where scope_uuid = $1::uuid`,
+          `update fx_system_scope_execution_authority set oldest_available_commit_seq = 2 where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1::uuid)`,
           [OUTCOME_SCOPE_A],
         );
       });

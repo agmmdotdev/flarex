@@ -423,7 +423,7 @@ describe("Application Analysis persistence generation", () => {
     const fixture = await repositoryFixture();
     const pending = await runEffect(fixture.repository.begin(beginInput()));
     await fixture.persistence.query(
-      "update fx_system_scope_clock set storage_generation_fence = 2 where scope_id = $1",
+      "update fx_system_scope_execution_authority set storage_generation_fence = 2 where scope_id = $1",
       [AUTHORITY.scopeId],
     );
 

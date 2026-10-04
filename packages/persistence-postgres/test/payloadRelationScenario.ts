@@ -1,3 +1,4 @@
+import { selectScopeClockRows } from "../src/scopeClock";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
 import { ScopeIdSchema, ScopeEpochSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { insertInitialScopeClockInTransactionResult } from "../src/scopeClockInitialization";
@@ -154,7 +155,7 @@ export async function payloadRelationScenario(input: {
       const foreignUuid = projectScopeIdUuidV1(foreignScope).scopeUuid;
       await db.transaction(async tx => {
         Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx, { scopeId: foreignScope, initialEpoch: foreignEpoch }));
-        const clock = (await tx.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid)))[0];
+        const clock = (await selectScopeClockRows(tx).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid)))[0];
         if (clock === undefined || clock.epochUuid === null) throw new Error("Missing foreign clock");
         await tx.insert(fxAppRowRevisions).values({ ...retainedRow, scopeUuid: foreignUuid, writeEpochUuid: clock.epochUuid });
         await tx.insert(fxAppRowCurrent).values({ scopeUuid: foreignUuid, tableId: retainedRow.tableId, rowId: retainedRow.rowId, commitSeq: retainedRow.commitSeq });

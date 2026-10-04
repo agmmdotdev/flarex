@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { FlarexPersistence } from "../src";
+import { writeJournalThrough } from "./migrationFixtureSupport";
 import {
   createPostgresPersistence,
   type PostgresFlarexPersistence,
@@ -53,7 +54,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
           | undefined;
         try {
           await previous.migrate();
-          await insertScope(previous, SCOPE_A, EPOCH_A, "7");
+          await insertLegacyScope(previous, SCOPE_A, EPOCH_A, "7");
           await previous.query(`
             insert into commits (deployment_id, ts, source, write_summary)
             values ('legacy-deployment', 11, 'legacy-source', '{"writes":1}'::jsonb)
@@ -173,7 +174,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
           | undefined;
         try {
           await previous.migrate();
-          await insertScope(previous, SCOPE_A, EPOCH_A, "1");
+          await insertLegacyScope(previous, SCOPE_A, EPOCH_A, "1");
           await previous.query(
             `insert into fx_system_commit
                (scope_uuid, epoch_uuid, commit_seq, change_count)
@@ -185,11 +186,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
           );
           expect(schema.rows[0]?.schema_name).not.toBe("public");
 
-          await writeFile(
-            temporaryJournal,
-            await readFile(currentJournal, "utf8"),
-            "utf8",
-          );
+          await writeJournalThrough(currentJournal, temporaryJournal, 77);
           current = await createPostgresPersistence({
             ...databaseOptions,
             migrationsFolder,
@@ -249,7 +246,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
             is_nullable: "NO",
             relation_tables: 1,
             fk_target_schema: schema.rows[0]?.schema_name,
-            receipts: 81,
+            receipts: 78,
           }]);
         } finally {
           await Promise.all([previous.close(), current?.close()]);
@@ -424,6 +421,25 @@ async function writeJournalBeforeIndex(
 }
 
 async function insertScope(
+  persistence: SqlPersistence,
+  scopeUuid: string,
+  epochUuid: string,
+  lastCommitSeq: string,
+): Promise<void> {
+  await persistence.query(
+    `
+      with clock as (
+        insert into fx_system_scope_clock (scope_id, last_commit_seq)
+        values ($1, $2) returning scope_id
+      )
+      insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+      select scope_id, 'flarexdb_v1', $3 from clock
+    `,
+    [`scope_${scopeUuid}`, lastCommitSeq, `epoch_${epochUuid}`],
+  );
+}
+
+async function insertLegacyScope(
   persistence: SqlPersistence,
   scopeUuid: string,
   epochUuid: string,

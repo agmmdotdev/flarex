@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { describe, expect, it } from "vitest";
 import { Effect, Deferred, Fiber, Result, Exit, Cause } from "effect";
 import { eq, sql } from "drizzle-orm";
@@ -120,7 +121,7 @@ describe.skipIf(postgresUrl === null)(
             tested.host.run(tested.reference, tested.read, null),
           );
           try {
-            await waitBlocked("fx_system_scope_clock");
+            await waitBlocked("fx_system_scope_execution_authority");
             await runEffect(Fiber.interrupt(waiting));
           } finally {
             await runEffect(Deferred.succeed(release, undefined));
@@ -185,11 +186,11 @@ describe.skipIf(postgresUrl === null)(
             "withdrawn",
           );
           const fencing = persistence.drizzle
-            .update(fxSystemScopeClocks)
+            .update(fxSystemScopeExecutionAuthorities)
             .set({
-              storageGenerationFence: sql`${fxSystemScopeClocks.storageGenerationFence} + 1`,
+              storageGenerationFence: sql`${fxSystemScopeExecutionAuthorities.storageGenerationFence} + 1`,
             })
-            .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+            .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId))
             .execute();
           try {
             await waitBlocked("fx_system_framework_schema_availability_head");
@@ -206,12 +207,12 @@ describe.skipIf(postgresUrl === null)(
             ),
           ).toBeDefined();
           await persistence.drizzle
-            .update(fxSystemScopeClocks)
+            .update(fxSystemScopeExecutionAuthorities)
             .set({
               storageGenerationFence:
                 fixture.active.basis.authority.storageGenerationFence,
             })
-            .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+            .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
           const ready = await changeBindingAvailability(
             fixture,
             withdrawn,

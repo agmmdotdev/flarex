@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import {
   type ApplicationTaskComputeDispatchRequestV1,
   validateApplicationTaskComputeDispatchRequestV1,
@@ -1054,7 +1055,7 @@ const requireLiveLease = Effect.fn(
   const rows = yield* query(
     "lease_time_read",
     tx.select({ now: sql<Date>`clock_timestamp()` })
-      .from(fxSystemScopeClocks)
+      .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
       .where(eq(fxSystemScopeClocks.scopeId, row.scopeId))
       .limit(1),
   );
@@ -1265,16 +1266,17 @@ function requireCurrentAuthority(
       reason: "physical_locator",
     }));
   }
-  return query(
+  return query("scope_authority_lock", tx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId })
+    .from(fxSystemScopeExecutionAuthorities).where(eq(fxSystemScopeExecutionAuthorities.scopeId, authority.scopeId)).for("update").limit(1)).pipe(Effect.flatMap(() => query(
     "scope_authority_read",
     tx.select({
-      epoch: fxSystemScopeClocks.epoch,
-      storageGeneration: fxSystemScopeClocks.storageGeneration,
-      storageGenerationFence: fxSystemScopeClocks.storageGenerationFence,
-    }).from(fxSystemScopeClocks).where(
+      epoch: fxSystemScopeExecutionAuthorities.epoch,
+      storageGeneration: fxSystemScopeExecutionAuthorities.storageGeneration,
+      storageGenerationFence: fxSystemScopeExecutionAuthorities.storageGenerationFence,
+    }).from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(
       eq(fxSystemScopeClocks.scopeId, authority.scopeId),
-    ).for("update").limit(1),
-  ).pipe(Effect.flatMap(rows => {
+    ).for("update", { of: fxSystemScopeClocks }).limit(1),
+  ))).pipe(Effect.flatMap(rows => {
     const row = rows[0];
     if (row === undefined || row.storageGeneration !== "flarexdb_v1") {
       return Effect.fail(new TaskExternalEffectAuthorityStaleError({

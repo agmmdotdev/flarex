@@ -444,7 +444,7 @@ describePostgres(
               "f1000000-0000-4000-8000-000000000002",
             ),
             mutate: (scopeId: ScopeId) => fixture.persistence.query(
-              `update fx_system_scope_clock
+              `update fx_system_scope_execution_authority
                   set storage_generation = 'legacy_v1'
                 where scope_id = $1`,
               [scopeId],
@@ -458,7 +458,7 @@ describePostgres(
               "11000000-0000-4000-8000-000000000012",
             ),
             mutate: (scopeId: ScopeId) => fixture.persistence.query(
-              `update fx_system_scope_clock
+              `update fx_system_scope_execution_authority
                   set storage_generation_fence = storage_generation_fence + 1
                 where scope_id = $1`,
               [scopeId],
@@ -472,8 +472,8 @@ describePostgres(
               "21000000-0000-4000-8000-000000000012",
             ),
             mutate: (scopeId: ScopeId) => fixture.persistence.query(
-              `update fx_system_scope_clock
-                  set epoch = '31000000-0000-4000-8000-000000000011'
+              `update fx_system_scope_execution_authority
+                  set epoch = 'epoch_31000000-0000-4000-8000-000000000011'
                 where scope_id = $1`,
               [scopeId],
             ),
@@ -860,7 +860,7 @@ async function withScopedPostgres(
             projectId: `${deploymentId}_project`,
           });
           await persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
                 set storage_generation = 'flarexdb_v1'
               where scope_id = $1`,
             [provisioned.scope.scopeId],

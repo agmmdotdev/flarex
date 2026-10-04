@@ -1,4 +1,5 @@
 import type { SessionJournalAttempt } from "./sessionJournalStore";
+import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -27,10 +28,17 @@ import { readStandaloneReadSnapshot, type StandaloneReadSnapshot } from "./stand
 import { prepareApplicationActiveHeadStructure, type PreparedApplicationActiveHeadStructure } from "./applicationActiveHeadRead";
 import { captureHostPreparationCharge, captureHostPreparationLifetime } from "./preparedHostRuntime";
 import { replaceActiveIndexMaintenanceInTransactionEffect } from "./indexMaintenance";
-import { replaceActiveUniqueMaintenanceInTransactionEffect, AppUniqueConstraintSetBuildIntegrationV1Error, type ReadUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
+import { prepareLogicalStorageMetadataProjection } from "./logicalStorageReadiness";
+import { prepareFiniteMetadataProjection, mergeFiniteMetadataProjections, inspectFiniteMetadataProjection,
+  applyFiniteMetadataActivationProjection, initializeCurrentFiniteMetadataProjection } from "./finiteMetadataDependencies";
+import { loadPublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
+import { runEffectTransaction } from "./effectTransaction";
+import { readIndexCoverageContextInTransactionEffect } from "./indexBuildStates";
+import { replaceActiveUniqueMaintenanceInTransactionEffect, readUniqueMaintenanceRequirements,
+  AppUniqueConstraintSetBuildIntegrationV1Error, type ReadUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
-import { readApplicationActivationUniqueRequirements } from "./applicationReadiness";
-import { readApplicationRelationActivationUniqueRequirements } from "./applicationRelationReadinessFold";
+import { readApplicationActivationUniqueRequirements, readApplicationMetadataUniqueRequirements } from "./applicationReadiness";
+import { readApplicationRelationActivationUniqueRequirements, readApplicationRelationMetadataUniqueRequirements } from "./applicationRelationReadinessFold";
 import { loadRelatedPublishedPhysicalRequirementSnapshotV1, type ReadRelatedPublishedPhysicalRequirements } from "./indexBuildReconciliation";
 import { IndexMaintenanceError } from "./indexMaintenanceEvidence";
 import { fxSystemApplicationWriteOwnership } from "./applicationWriteOwnership/Schema";
@@ -44,7 +52,6 @@ import {
   readCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedApplicationActiveHead,
-  readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
   releaseCheckedApplicationActiveHead,
   type ApplicationActiveHeadStateError,
   type CheckedApplicationActiveHead,
@@ -93,6 +100,7 @@ import {
   type ApplicationReadinessResult,
   type ReadApplicationReadinessError,
   type SettleApplicationReadinessError,
+  type OriginalApplicationControlRead,
 } from "./applicationReadiness";
 import type { ApplicationSchemaAuthorityPublisher } from
   "./applicationSchemaAuthority";
@@ -110,6 +118,9 @@ import {
   lockScopeClockForShareInTransactionEffect,
   lockScopeClockForSnapshotReadInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
+  requireFiniteExecutionAuthorityObservation,
+  advanceScopeAuthorizationRevocationEpochInTransactionEffect,
+  type FiniteExecutionAuthorityObservation,
   type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
   type ScopeClockRecord,
@@ -119,8 +130,9 @@ import {
   fxSystemApplicationRevisionsV2,
   fxSystemScopeClocks,
   fxSystemApplicationReadinessV1,
+  fxSystemApplicationFunctionsV1,
 } from "./schema";
-import { fxSystemApplicationReadiness } from "./applicationRelationSchema";
+import { fxSystemApplicationReadiness, fxSystemApplicationFunctions } from "./applicationRelationSchema";
 import {
   isLocatedReadCommittedAttemptTargetV1,
   LocatedReadCommittedTransactionFailureV1,
@@ -368,6 +380,7 @@ interface FiniteActivePreparationState {
   readonly repository: object;
   readonly selection: ApplicationActiveSelection;
   readonly schema: AwaitedFiniteSchema;
+  readonly originalControl: OriginalApplicationControlRead;
   readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
 }
 type AwaitedFiniteSchema = Extract<Effect.Success<ReturnType<typeof prepareCapturedApplicationReadiness>>, { readonly schema: unknown }>["schema"];
@@ -392,6 +405,34 @@ export function readPreparedFiniteActiveApplication(prepared: PreparedFiniteActi
     Result.flatMap(() => claimApplicationExecutableActiveSelection(state.selection)),
     Result.map(claimed => Object.freeze({ claimed: structuredClone(claimed), schema: structuredClone(state.schema) })),
   );
+}
+
+/** Only the original preparation lends detached immutable control evidence.
+ * Database identity and the existing host lifetime remain with its issuer. */
+export function readPreparedFiniteApplicationOriginalControl<Failure>(prepared: PreparedFiniteActiveApplication,
+  database: FlarexMetadataDatabase, admitSizes: (sizes: Readonly<{
+    manifestJsonByteLengthText: string; manifestCanonicalByteLengthText: string;
+    schemaBindingByteLengthText: string;
+  }>) => Result.Result<void, Failure>) {
+  const state = finiteActivePreparations.get(prepared);
+  if (state === undefined || state.originalControl.database !== database)
+    return Result.fail(activationError("read", "invalidComposition"));
+  return Result.gen(function* () {
+    yield* (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+      Result.mapError(cause => activationError("read", "invalidComposition", undefined, false, cause)));
+    const claimed = yield* claimApplicationExecutableActiveSelection(state.selection);
+    if (claimed.kind !== "legacy") return yield* Result.fail(activationError("read", "invalidComposition"));
+    // The terminal owner admits only scalar sizes before any detached payload copy.
+    yield* admitSizes(Object.freeze({
+      manifestJsonByteLengthText: state.originalControl.artifact.sizes.manifestJsonByteLengthText,
+      manifestCanonicalByteLengthText: state.originalControl.artifact.sizes.manifestCanonicalByteLengthText,
+      schemaBindingByteLengthText: state.originalControl.schemaAuthority.schemaBindingByteLengthText,
+    }));
+    return Object.freeze({ basis: structuredClone(claimed.basis), schemaVersion: state.schema.schemaVersion,
+      original: structuredClone({
+      artifact: state.originalControl.artifact, schemaAuthority: state.originalControl.schemaAuthority,
+    }) });
+  });
 }
 
 export const withPreparedFiniteActiveApplicationInTransaction = Effect.fn(
@@ -522,81 +563,115 @@ const acceptedBindings = new WeakMap<object, Readonly<{
   readiness: PreparedApplicationRelationActiveRead | undefined;
 }>>();
 
-declare const finiteBindingCorrelationBrand: unique symbol;
-/** Issued only from the live full-entry observation. This cannot stand in for
- * entry/final readiness and is bound to the source owner's exact attempt. */
-export interface FiniteApplicationBindingCorrelation {
-  readonly [finiteBindingCorrelationBrand]: true;
-}
-const finiteBindingCorrelations = new WeakMap<FiniteApplicationBindingCorrelation, Readonly<{
+declare const finiteApplicationMetadataBrand: unique symbol;
+/** Immutable Application content accepted at entry; live execution authority
+ * and the metadata/history reservation remain with the outer attempt owner. */
+export interface FiniteApplicationMetadata { readonly [finiteApplicationMetadataBrand]: true }
+const finiteApplicationMetadata = new WeakMap<FiniteApplicationMetadata, Readonly<{
   selection: ApplicationBindingInput;
   root: SessionJournalAttempt;
+  snapshotCommitSeq: CommitSeq;
   validated: ApplicationExecutableActiveSelection;
-  target: Result.Result.Success<ReturnType<typeof readApplicationBindingTargetProtection>>;
 }>>();
 
-/** The outer owner installs this token only after complete entry acceptance
- * succeeds. Its live accepted handle cannot be replayed after callback close. */
-export function captureFiniteApplicationBindingCorrelation(binding: AcceptedApplicationBinding,
-  selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord, root: SessionJournalAttempt) {
+/** The legacy Worker group is the actual whole executable artifact. */
+export const prepareApplicationExecutionMetadataProjection = Effect.fn("ApplicationActivation.prepareExecutionMetadataProjection")(function* (
+  basis: Readonly<{ manifest: Result.Result.Success<ReturnType<typeof canonicalizeApplicationManifest>>["manifest"];
+    runtimeHostIdentity: string; compatibilityDate: string }>,
+) {
+  return yield* prepareFiniteMetadataProjection({ indexes: [], unique: [], application: {
+    functions: basis.manifest.functions.map(fn => ({ path: fn.path, semantic: { ...fn } })),
+    groups: [{ group: "legacy_dynamic_worker_v1", semantic: { sourceArtifact: basis.manifest.sourceArtifact,
+      runtimeHostIdentity: basis.runtimeHostIdentity, compatibilityDate: basis.compatibilityDate } }],
+  } });
+});
+
+export function captureFiniteApplicationMetadata(binding: AcceptedApplicationBinding,
+  selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord,
+  root: SessionJournalAttempt, snapshotCommitSeq: CommitSeq) {
   return Result.gen(function* () {
     yield* requireAcceptedApplicationBindingObservation(binding, selection, tx, clock);
     const accepted = acceptedBindings.get(binding);
-    if (accepted === undefined) return yield* Result.fail(activationError("validateSelection", "invalidComposition"));
-    const target = yield* readApplicationBindingTargetProtection(selection);
-    // Full entry already detached this private immutable basis. A correlation
-    // is bounded by the source owner's per-root admission count; repeated
-    // attempts must not consume retained-host capacity for the same graph.
-    const validated = accepted.validated;
-    // SAFETY: the issuer retains exact root/selection identity and detached
-    // immutable basis; the empty carrier conveys no caller-authored evidence.
-    const token = Object.freeze({}) as FiniteApplicationBindingCorrelation;
-    finiteBindingCorrelations.set(token, Object.freeze({ selection, root, validated, target }));
-    return token;
+    if (accepted === undefined || snapshotCommitSeq > clock.lastCommitSeq || snapshotCommitSeq < clock.oldestAvailableCommitSeq)
+      return yield* Result.fail(activationError("validateSelection", "invalidComposition"));
+    // SAFETY: the entry owner alone captures this inert nominal carrier from
+    // a live authenticated issuer; no caller-authored metadata is accepted.
+    const metadata = Object.freeze({}) as FiniteApplicationMetadata;
+    finiteApplicationMetadata.set(metadata, Object.freeze({ selection, root, snapshotCommitSeq,
+      validated: accepted.validated.kind === "legacy"
+        ? Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(accepted.validated.basis) })
+        : Object.freeze({ kind: "relation" as const, basis: copyRelationSelectionBasis(accepted.validated.basis) }) }));
+    return metadata;
   });
 }
 
-/** Fresh Application correlation for one demanded finite storage frontier.
- * Full-entry/final consumers continue through their complete readiness owner. */
-export const withFiniteApplicationBindingCorrelationInTransaction = Effect.fn(
-  "ApplicationActivation.withFiniteBindingCorrelation",
-)(function* <Value, Failure, Requirements>(token: FiniteApplicationBindingCorrelation,
-  selection: ApplicationBindingInput, root: SessionJournalAttempt, tx: AppRowTransaction, clock: ScopeClockRecord,
-  work: (validated: ApplicationExecutableActiveSelection, checked: CheckedApplicationActiveHead) =>
-    Effect.Effect<Value, Failure, Requirements>) {
-  const state = finiteBindingCorrelations.get(token);
-  if (state === undefined || state.selection !== selection || state.root !== root)
-    return yield* activationFailure("validateSelection", "invalidComposition");
+export function readFiniteApplicationMetadata(metadata: FiniteApplicationMetadata, selection: ApplicationBindingInput,
+  root: SessionJournalAttempt, tx: AppRowTransaction, observation: FiniteExecutionAuthorityObservation) {
+  return Result.gen(function* () {
+    const live = yield* requireFiniteExecutionAuthorityObservation(tx, observation).pipe(Result.mapError(cause =>
+      activationError("validateSelection", "scopeAuthority", undefined, false, cause)));
+    const state = finiteApplicationMetadata.get(metadata);
+    if (state === undefined || state.selection !== selection || state.root !== root)
+      return yield* Result.fail(activationError("validateSelection", "invalidComposition"));
+    yield* readApplicationBindingTargetProtection(selection);
+    const basis = state.validated.basis;
+    if (basis.authority.scopeId !== live.scopeId || basis.authority.epoch !== live.epoch ||
+      basis.authority.storageGeneration !== live.storageGeneration || basis.authority.storageGenerationFence !== live.storageGenerationFence ||
+      state.snapshotCommitSeq !== live.snapshotToken.commitSeq || state.snapshotCommitSeq < live.oldestAvailableCommitSeq)
+      return yield* Result.fail(activationError("validateSelection", "scopeAuthority", basis.revisionId));
+    return Object.freeze({ snapshotCommitSeq: state.snapshotCommitSeq, basis: Object.freeze({
+      deploymentId: basis.deploymentId, revisionId: basis.revisionId, schemaVersionId: basis.schemaVersionId,
+      activationSequence: basis.activationSequence.toString(), headSha256: encodeBytesToLowercaseHex(basis.headSha256),
+      manifestSha256: encodeBytesToLowercaseHex(basis.schemaManifestSha256), physicalRequirements: basis.physicalRequirements }) });
+  });
+}
+
+/** Entry projection derives from this genuine immutable content, never a new active-head observation. */
+export function readCapturedFiniteApplicationMetadata(metadata: FiniteApplicationMetadata, root: SessionJournalAttempt) {
+  const state = finiteApplicationMetadata.get(metadata);
+  if (state === undefined || state.root !== root) return Result.fail(activationError("validateSelection", "invalidComposition"));
+  return readApplicationBindingTargetProtection(state.selection).pipe(Result.map(() => state.validated.kind === "legacy"
+    ? Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(state.validated.basis) })
+    : Object.freeze({ kind: "relation" as const, basis: copyRelationSelectionBasis(state.validated.basis) })));
+}
+
+/** The genuine Application preparation owns the immutable schema catalog. */
+export const prepareFiniteApplicationSchemaMetadataProjection = Effect.fn("ApplicationActivation.prepareFiniteSchemaMetadataProjection")(
+  function* (metadata: FiniteApplicationMetadata, root: SessionJournalAttempt) {
+    const state = finiteApplicationMetadata.get(metadata);
+    if (state === undefined || state.root !== root) return yield* activationFailure("validateSelection", "invalidComposition");
+    yield* Effect.fromResult(readApplicationBindingTargetProtection(state.selection));
+    const basis = state.validated.basis;
+    const requirements = basis.physicalRequirements;
+    if (requirements.manifest.kind === "appSchema") return yield* prepareLogicalStorageMetadataProjection({
+      deploymentId: basis.deploymentId, schemaVersionId: basis.schemaVersionId, profile: "nativeApplication",
+    }, requirements, []);
+    const prepared = bindingPreparations.get(state.selection);
+    const selected = isApplicationBindingPreparation(state.selection) || isPreparedApplicationBinding(state.selection) ||
+      isPreparedStandaloneApplicationBinding(state.selection) ? undefined : selectionStates.get(state.selection);
+    const legacy = legacyBindingPreparations.get(state.selection) ?? (selected?.kind === "legacy" ? selected : undefined);
+    const unique = prepared !== undefined
+      ? yield* readApplicationRelationMetadataUniqueRequirements(prepared.readiness, basis.schemaVersionId)
+      : legacy !== undefined
+        ? yield* readApplicationMetadataUniqueRequirements(legacy.readinessRepository, legacy.readiness, basis.schemaVersionId)
+        : selected?.kind === "relation"
+          ? yield* readApplicationRelationMetadataUniqueRequirements({ repository: selected.readinessRepository,
+            readiness: selected.readiness }, basis.schemaVersionId)
+          : yield* activationFailure("validateSelection", "invalidComposition");
+    return yield* prepareLogicalStorageMetadataProjection({ deploymentId: basis.deploymentId,
+      schemaVersionId: basis.schemaVersionId, profile: "nativeApplication" }, requirements, unique.members);
+  },
+);
+
+/** Immutable selector for the outer reservation; no checked head escapes. */
+export function inspectFiniteApplicationMetadata(metadata: FiniteApplicationMetadata, root: SessionJournalAttempt) {
+  const state = finiteApplicationMetadata.get(metadata);
+  if (state === undefined || state.root !== root) return null;
   const basis = state.validated.basis;
-  yield* Effect.fromResult(readApplicationBindingTargetProtection(selection));
-  if (!clockMatches(basis.authority, clock))
-    return yield* activationFailure("validateSelection", "scopeAuthority", basis.revisionId);
-  const protection = state.target.protection;
-  if (protection !== undefined) yield* authenticateProtectedTargetMetadataSnapshot(protection, tx).pipe(
-    Effect.mapError(cause => activationError("validateSelection", "resourceFailure", basis.revisionId, false, cause)));
-  let checked: CheckedApplicationActiveHead | undefined;
-  return yield* Effect.gen(function* () {
-    const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock,
-      issued => { checked = issued; }, bindingHeadPreparations.get(selection));
-    if (observed === null || !(state.validated.kind === "legacy"
-      ? headMatchesBasis(observed.active.head, state.validated.basis)
-      : relationHeadMatchesBasis(observed.active.head, state.validated.basis)))
-      return yield* activationFailure("validateSelection", "concurrentHead", basis.revisionId);
-    const schema = yield* readCheckedApplicationSchemaForHeadForShareInTransactionEffect(observed.checked, tx, clock);
-    if (schema === "refresh" || schema.deploymentId !== basis.deploymentId || schema.revisionId !== basis.revisionId ||
-      schema.schemaVersionId !== basis.schemaVersionId || schema.schemaManifestSha256 !== encodeBytesToLowercaseHex(basis.schemaManifestSha256))
-      return yield* activationFailure("validateSelection", "concurrentHead", basis.revisionId);
-    const validated = state.validated.kind === "legacy"
-      ? Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(state.validated.basis) })
-      : Object.freeze({ kind: "relation" as const, basis: copyRelationSelectionBasis(state.validated.basis) });
-    const value = yield* Effect.suspend(() => work(validated, observed.checked));
-    if (protection !== undefined) yield* (hasProtectedMetadataFinalGuardScope(tx)
-      ? registerProtectedMetadataFinalGuard(tx, protection.token, protection.database, protection.epoch)
-      : guardProtectedMetadataEpoch(protection.token, protection.database, protection.epoch, tx)).pipe(
-      Effect.mapError(cause => activationError("validateSelection", "resourceFailure", basis.revisionId, false, cause)));
-    return value;
-  }).pipe(Effect.ensuring(Effect.sync(() => releaseCheckedApplicationActiveHead(checked))));
-});
+  return Object.freeze({ revisionId: basis.revisionId, activationSequence: basis.activationSequence.toString(),
+    headSha256: encodeBytesToLowercaseHex(basis.headSha256), activationSha256: encodeBytesToLowercaseHex(basis.activationSha256),
+    schemaVersionId: basis.schemaVersionId, manifestSha256: encodeBytesToLowercaseHex(basis.schemaManifestSha256) });
+}
 
 export const withAcceptedApplicationBinding = Effect.fn("ApplicationActivation.withAcceptedBinding")(
   function* <A, E, R>(input: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord,
@@ -994,7 +1069,7 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
     // SAFETY: registry identity binds the exact repository and host construction lifetime.
     const result = Object.freeze({}) as PreparedFiniteActiveApplication;
     finiteActivePreparations.set(result, Object.freeze({ repository, selection: active.selection,
-      schema: prepared.schema, lifetime: prepared.lifetime }));
+      schema: prepared.schema, originalControl: prepared.originalControl, lifetime: prepared.lifetime }));
     return result;
   }));
   bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareLegacyBinding")(function* (profile: "request" | "retained") {
@@ -1155,7 +1230,7 @@ function makeActivePreparationReader<SchemaFailure, ColdFailure>(captured: Appli
       physicalRequirements: { ...basis.physicalRequirements } }, schema: prepared.schema }).pipe(
       Effect.mapError(cause => activationError("read", "resourceFailure", head.revisionId, false, cause)));
     return Object.freeze({ kind: "legacy" as const, basis, readinessRepository: captured.readiness,
-      readiness: prepared.readiness, schema: prepared.schema, lifetime });
+      readiness: prepared.readiness, schema: prepared.schema, originalControl: prepared.originalControl, lifetime });
   });
 }
 
@@ -2041,6 +2116,47 @@ const persistActivationInTransaction = Effect.fn(
   if (!expectedMatchesHead(expected, head)) {
     return yield* activationFailure("activate", "expectedHead", basis.revisionId);
   }
+  const metadataProjection = yield* Effect.gen(function* () {
+    const execution = yield* prepareApplicationExecutionMetadataProjection(basis);
+    const unique = basis.physicalRequirements.logicalRequirements === undefined ? null :
+      yield* readUniqueRequirements(basis.schemaVersionId);
+    const logical = yield* prepareLogicalStorageMetadataProjection(
+      { deploymentId: basis.deploymentId, schemaVersionId: basis.schemaVersionId, profile: "nativeApplication" }, basis.physicalRequirements, unique?.members ?? []);
+    return yield* Effect.fromResult(mergeFiniteMetadataProjections(logical === null ? [execution] : [execution, logical]));
+  }).pipe(Effect.mapError(cause => activationError("activate", "storedState", basis.revisionId, false, cause)));
+  const metadataOwners = [...(inspectFiniteMetadataProjection(metadataProjection)?.owners ?? [])];
+  let withdrawsPermission = false;
+  if (head !== null) {
+    const previousFunctions = head.readinessKind === "legacy"
+      ? yield* query(tx.select({ path: fxSystemApplicationFunctionsV1.functionPath, kind: fxSystemApplicationFunctionsV1.functionKind,
+        visibility: fxSystemApplicationFunctionsV1.visibility }).from(fxSystemApplicationFunctionsV1).where(and(
+        eq(fxSystemApplicationFunctionsV1.scopeId, authority.scopeId), eq(fxSystemApplicationFunctionsV1.revisionId, head.revisionId))).limit(1_025), "activate", basis.revisionId)
+      : yield* query(tx.select({ path: fxSystemApplicationFunctions.functionPath, kind: fxSystemApplicationFunctions.functionKind,
+        visibility: fxSystemApplicationFunctions.visibility }).from(fxSystemApplicationFunctions).where(and(
+        eq(fxSystemApplicationFunctions.scopeId, authority.scopeId), eq(fxSystemApplicationFunctions.revisionId, head.revisionId))).limit(1_025), "activate", basis.revisionId);
+    if (previousFunctions.length > 1_024) return yield* activationFailure("activate", "storedState", basis.revisionId);
+    withdrawsPermission = previousFunctions.some(previous => {
+      const next = basis.manifest.functions.find(fn => fn.path === previous.path);
+      return next === undefined || next.kind !== previous.kind || (previous.visibility === "public" && next.visibility !== "public");
+    });
+    const previousContext = yield* readIndexCoverageContextInTransactionEffect(tx, clock).pipe(
+      Effect.mapError(cause => activationError("activate", "storedState", basis.revisionId, false, cause)));
+    if (previousContext.active === null) return yield* activationFailure("activate", "storedState", basis.revisionId);
+    const previousRequirements = yield* readRelatedRequirements(previousContext.active.schema.schemaVersionId).pipe(
+      Effect.mapError(cause => activationError("activate", "storedState", basis.revisionId, false, cause)));
+    if (previousRequirements === null) return yield* activationFailure("activate", "storedState", basis.revisionId);
+    for (const previous of previousRequirements.logicalRequirements?.evidence.candidate.sources ?? []) {
+      if (previous.owner !== "application") continue;
+      const owner = { namespace: "application" as const, ownerKey: previous.key };
+      if (!metadataOwners.some(member => member.namespace === owner.namespace && member.ownerKey === owner.ownerKey)) metadataOwners.push(owner);
+      const next = basis.physicalRequirements.logicalRequirements?.evidence.candidate.sources.find(source => source.key === previous.key && source.owner === previous.owner);
+      if (next === undefined || next.writeProfile !== previous.writeProfile) withdrawsPermission = true;
+    }
+  }
+  if (withdrawsPermission) yield* advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, authority.scopeId).pipe(
+    Effect.mapError(cause => activationError("activate", "resourceFailure", basis.revisionId, false, cause)));
+  yield* applyFiniteMetadataActivationProjection(tx, authority.scopeId, metadataProjection, metadataOwners).pipe(
+    Effect.mapError(cause => activationError("activate", "storedState", basis.revisionId, false, cause)));
   const previousActivationSequence = head?.activationSequence ?? null;
   if (previousActivationSequence === MAX_SEQUENCE) {
     return yield* activationFailure("activate", "storedState", basis.revisionId);
@@ -2276,7 +2392,7 @@ const publishStandaloneBindingInTransaction = Effect.fn("ApplicationActivation.p
  * verification/reopen. Page through durable heads; retain at most one bounded
  * parent frame at a time and let the constrained publisher authenticate it. */
 export const backfillStandaloneApplicationBindings = Effect.fn("ApplicationActivation.backfillStandaloneBindings")(
-  function* (database: FlarexMetadataDatabase): Effect.fn.Return<void, ApplicationActivationError> {
+  function* (database: FlarexMetadataDatabase, controlDb: FlarexMetadataDatabase): Effect.fn.Return<void, ApplicationActivationError> {
     const schemaNameRows = yield* Effect.uninterruptible(query(database.select({ schemaName: sql<string>`current_schema()` })
       .from(sql`(values (1)) as schema_input(value)`), "activate"));
     const schemaName = schemaNameRows[0]?.schemaName;
@@ -2290,22 +2406,23 @@ export const backfillStandaloneApplicationBindings = Effect.fn("ApplicationActiv
       for (const selected of heads) {
         // Settle every foreign read/publication for one finite head before
         // cancellation can leave maintenance. The next head is interruptible.
-        cursor = yield* Effect.uninterruptible(Effect.gen(function* () {
-          const currentHeads = yield* query(database.select().from(fxSystemApplicationActiveHeads)
+        cursor = yield* Effect.uninterruptible(runEffectTransaction<ScopeId, ApplicationActivationError, ApplicationActivationError, AppRowTransaction>(callback => database.transaction(callback), "Application metadata backfill rolled back", tx => Effect.gen(function* () {
+          yield* lockScopeClockForUpdateInTransactionEffect(tx, selected.scopeId).pipe(Effect.mapError(cause => activationError("activate", "resourceFailure", undefined, false, cause)));
+          const currentHeads = yield* query(tx.select().from(fxSystemApplicationActiveHeads)
             .where(eq(fxSystemApplicationActiveHeads.scopeId, selected.scopeId)).limit(1), "activate");
           const row = currentHeads[0];
           if (row === undefined) return yield* activationFailure("activate", "storedState");
           const head = yield* decodeHead(row, "activate");
-          const activations = yield* query(database.select().from(fxSystemApplicationActivations).where(and(
+          const activations = yield* query(tx.select().from(fxSystemApplicationActivations).where(and(
             eq(fxSystemApplicationActivations.scopeId, row.scopeId),
             eq(fxSystemApplicationActivations.activationSequence, row.activationSequence))).limit(1), "activate", row.revisionId);
           const activationRow = activations[0];
           if (activationRow === undefined) return yield* activationFailure("activate", "storedState", row.revisionId);
           yield* decodeActivation(activationRow, "activate", row.revisionId);
           const readinessRows = row.readinessContractVersion === 1
-            ? yield* query(database.select().from(fxSystemApplicationReadinessV1).where(and(
+            ? yield* query(tx.select().from(fxSystemApplicationReadinessV1).where(and(
                 eq(fxSystemApplicationReadinessV1.scopeId, row.scopeId), eq(fxSystemApplicationReadinessV1.revisionId, row.revisionId))).limit(1), "activate", row.revisionId)
-            : yield* query(database.select().from(fxSystemApplicationReadiness).where(and(
+            : yield* query(tx.select().from(fxSystemApplicationReadiness).where(and(
                 eq(fxSystemApplicationReadiness.scopeId, row.scopeId), eq(fxSystemApplicationReadiness.revisionId, row.revisionId))).limit(1), "activate", row.revisionId);
           const parent = readinessRows[0];
           if (parent === undefined) return yield* activationFailure("activate", "storedState", row.revisionId);
@@ -2328,10 +2445,48 @@ export const backfillStandaloneApplicationBindings = Effect.fn("ApplicationActiv
             readiness, analysis: { candidateId: parent.candidateId, analysisId: parent.analysisId,
               manifestSha256: encodeBytesToLowercaseHex(parent.manifestSha256), sourceArtifactRootSha256: encodeBytesToLowercaseHex(parent.sourceArtifactRootSha256) } })
             .pipe(Effect.mapError(cause => activationError("activate", cause.reason, row.revisionId, false, cause)));
-          yield* query(database.select({ published: sql<null>`${sql.identifier(schemaName)}.fx_publish_application_read_binding(
+          const analyses = yield* query(tx.select().from(fxSystemApplicationAnalysesV1).where(and(
+            eq(fxSystemApplicationAnalysesV1.scopeId, row.scopeId), eq(fxSystemApplicationAnalysesV1.analysisId, parent.analysisId))).limit(1), "activate", row.revisionId);
+          const analysis = analyses[0];
+          if (analysis === undefined || analysis.manifestBytes === null || analysis.manifestSha256 === null ||
+            !bytesEqualFullScan(analysis.manifestSha256, parent.manifestSha256)) return yield* activationFailure("activate", "storedState", row.revisionId);
+          const manifestBytes = analysis.manifestBytes;
+          const parsed = yield* Effect.try({ try: (): unknown => JSON.parse(UTF8_FATAL.decode(manifestBytes)),
+            catch: cause => activationError("activate", "storedState", row.revisionId, false, cause) });
+          const manifest = yield* Effect.fromResult(canonicalizeApplicationManifest(parsed)).pipe(
+            Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
+          if (!bytesEqualFullScan(manifest.canonicalBytes, analysis.manifestBytes) ||
+            !bytesEqualFullScan(yield* sha256(manifest.canonicalBytes), parent.manifestSha256))
+            return yield* activationFailure("activate", "storedState", row.revisionId);
+          const readCatalog = (catalogTx: AppRowTransaction) => Effect.gen(function* () {
+            const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(controlDb,
+              { deploymentId: parent.deploymentId, schemaVersionId: parent.schemaVersionId }, catalogTx).pipe(
+              Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
+            if (snapshot === null || !bytesEqualFullScan(snapshot.manifestSha256, parent.schemaManifestSha256))
+              return yield* activationFailure("activate", "storedState", row.revisionId);
+            const unique = snapshot.logicalRequirements === undefined ? null : yield* readUniqueMaintenanceRequirements(controlDb,
+              parent.deploymentId, parent.schemaVersionId, catalogTx).pipe(
+              Effect.mapError(cause => activationError("activate", cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", row.revisionId, false, cause)));
+            const logical = yield* prepareLogicalStorageMetadataProjection(
+              { deploymentId: parent.deploymentId, schemaVersionId: parent.schemaVersionId, profile: "nativeApplication" }, snapshot, unique?.members ?? []).pipe(
+              Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
+            const execution = yield* prepareApplicationExecutionMetadataProjection({ manifest: manifest.manifest,
+              runtimeHostIdentity: parent.runtimeHostIdentity, compatibilityDate: parent.compatibilityDate }).pipe(
+              Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
+            const projection = yield* Effect.fromResult(mergeFiniteMetadataProjections(logical === null ? [execution] : [execution, logical])).pipe(
+              Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
+            return projection;
+            });
+          const projection = yield* (controlDb === database ? readCatalog(tx) :
+            runEffectTransaction<Effect.Success<ReturnType<typeof readCatalog>>, ApplicationActivationError, ApplicationActivationError, AppRowTransaction>(
+              callback => controlDb.transaction(callback), "Application backfill catalog acquisition rolled back", readCatalog,
+              cause => activationError("activate", "resourceFailure", row.revisionId, false, cause)));
+          yield* query(tx.select({ published: sql<null>`${sql.identifier(schemaName)}.fx_publish_application_read_binding(
             ${canonical.bytes}::bytea, ${canonical.sha256}::bytea)` }).from(sql`(values (1)) as publication_input(value)`), "activate", row.revisionId);
+          yield* initializeCurrentFiniteMetadataProjection(tx, row.scopeId, projection, inspectFiniteMetadataProjection(projection)?.owners ?? []).pipe(
+            Effect.mapError(cause => activationError("activate", "storedState", row.revisionId, false, cause)));
           return row.scopeId;
-        }));
+        }), cause => activationError("activate", "resourceFailure", undefined, false, cause)));
       }
     }
   },

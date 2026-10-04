@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
@@ -356,10 +357,7 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
       expect(corrupted).toBeInstanceOf(TaskSystemRunReadCorruptionError);
       expect(corrupted).toMatchObject({ reason: "effect_sequence_invalid" });
 
-      await persistence.drizzle
-        .update(fxSystemScopeClocks)
-        .set({ epoch: staleScopeEpoch })
-        .where(eq(fxSystemScopeClocks.scopeId, taskScopeId));
+      await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({epoch: staleScopeEpoch}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, taskScopeId));
       const stale = await runEffectFailure(
         makeTaskSystemDueDiscoveryV1(located).discoverDueRuns({
           version: 1,
@@ -433,11 +431,10 @@ async function seedCrossScopeRun(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
   crossScopeRunId: TaskRunIdV1,
 ): Promise<void> {
-  await persistence.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId: otherScopeId,
-    storageGeneration: taskStorageGeneration,
-    epoch: crossScopeEpoch,
-  });
+  await persistence.drizzle.transaction(async authorityTx => {
+      await authorityTx.insert(fxSystemScopeClocks).values({scopeId: otherScopeId});
+      await authorityTx.insert(fxSystemScopeExecutionAuthorities).values({scopeId: otherScopeId,storageGeneration: taskStorageGeneration,epoch: crossScopeEpoch});
+    });
   const aggregate = Object.freeze({
     ...readyTaskRunAggregateV1(),
     runId: crossScopeRunId,

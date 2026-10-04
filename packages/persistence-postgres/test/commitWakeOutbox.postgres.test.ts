@@ -247,9 +247,16 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
       try {
         await compactor.query("begin");
         await compactor.query(
-          `update fx_system_scope_clock
-           set oldest_available_commit_seq = 2
-           where scope_uuid = $1::uuid`,
+          `with authority as materialized (
+            select a.scope_id from fx_system_scope_execution_authority a
+            join fx_system_scope_clock c using (scope_id)
+            where c.scope_uuid = $1::uuid for update of a
+          ), sequence as materialized (
+            select c.scope_id from fx_system_scope_clock c join authority a using (scope_id)
+            for share of c
+          )
+          update fx_system_scope_execution_authority a set oldest_available_commit_seq = 2
+          from sequence c where a.scope_id = c.scope_id`,
           [WAKE_SCOPE_A],
         );
         await compactor.query(

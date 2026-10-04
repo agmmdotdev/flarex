@@ -1,4 +1,5 @@
 import { verifyIndexBatches } from "./indexBatchScenario";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
 import {
   canonicalizeAppDocumentV1,
@@ -87,6 +88,33 @@ const deploymentId = "deployment_s10_pglite";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describe("S10 app-index revision and current storage", () => {
+  it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
+    const persistence = await indexPersistence();
+    const definition = locatedDefinition;
+    expect(Object.isFrozen(definition)).toBe(true);
+    expect(Object.isFrozen(definition.physicalSpec)).toBe(true);
+    expect(Object.isFrozen(definition.physicalSpec.orderedFields)).toBe(true);
+    expect(Object.isFrozen(definition.physicalSpec.orderedFields[0])).toBe(true);
+    expect(Object.isFrozen(definition.physicalSpec.tieBreaker)).toBe(true);
+    expect(Reflect.set(definition.physicalSpec, "maxEncodedKeyBytes", 1)).toBe(false);
+    expect(Reflect.set(definition.physicalSpec.orderedFields, "0", { kind: "documentPath", path: "other" })).toBe(false);
+    expect(Reflect.set(definition, "physicalSpecSha256Hex", "0".repeat(64))).toBe(false);
+    expect(await persistence.drizzle.transaction(tx => runEffect(scanAppIndexAtSnapshotInTransactionEffect(tx, {
+      scopeId, definition, bounds: {}, snapshotCommitSeq: CommitSeqSchema.make(1n), limit: 10,
+    })))).toMatchObject({ entries: [], isDone: true });
+    for (const publicationIndex of [
+      { indexDefinitionId: definition.indexDefinitionId, physicalSpec: definition.physicalSpec,
+        physicalSpecSha256Hex: "0".repeat(64) },
+      { indexDefinitionId: definition.indexDefinitionId, physicalSpec: APP_BY_ID_PHYSICAL_SPEC_V1,
+        physicalSpecSha256Hex: definition.physicalSpecSha256Hex },
+    ]) {
+      const refused = await persistence.drizzle.transaction(tx => runEffectFailure(
+        scanCurrentPublicationIndexInTransactionEffect(tx, { scopeId, publicationIndex, bounds: {}, limit: 10 })));
+      expect(refused).toBeInstanceOf(AppIndexEntryStorageCorruptionError);
+      expect(refused).toMatchObject({ reason: "activation index digest mismatch" });
+    }
+  });
+
   it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
     const persistence = await indexPersistence();
     await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
@@ -143,9 +171,12 @@ describe("S10 app-index revision and current storage", () => {
       // Driver-boundary fault injection; returned data deliberately violates
       // database codecs. No current-pointer writer exists in this stub.
       const tx = {
-        select() { return { from() { return {
-          where() { return { limit() { return Promise.resolve([{ scopeUuid, epochUuid: epoch.slice("epoch_".length) }]); } }; },
-          innerJoin() { return { where() { return Promise.resolve([sample.parent]); } }; },
+        select(projection: object) { return { from() { return {
+          innerJoin() { return { where() {
+            return "epochUuid" in projection
+              ? { limit() { return Promise.resolve([{ scopeUuid, epochUuid: epoch.slice("epoch_".length) }]); } }
+              : Promise.resolve([sample.parent]);
+          } }; },
         }; } }; },
         execute() { return Promise.resolve({ rows: [{ ordinal: "0", currentCommitSeq: null, commitSeqText: null }] }); },
         insert() { writes += 1; return { values() { return { onConflictDoNothing() { return {
@@ -489,12 +520,7 @@ async function indexPersistence(): Promise<PGliteFlarexPersistence> {
   const persistence = await createPGlitePersistence();
   await persistence.migrate();
   await seedLocatedDefinition(persistence);
-  await persistence.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, last_commit_seq, epoch)
-     values ($1, 'flarexdb_v1', 100, $2)`,
-    [scopeId, epoch],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch, lastCommitSeq: 100n });
   return persistence;
 }
 

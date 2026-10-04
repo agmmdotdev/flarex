@@ -35,7 +35,7 @@ import { testBindingProfiles } from "./frameworkDataBindingPhysicalTestSupport";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { readBindingSelectedEvidence } from "../src/frameworkSchema/binding/repository";
 import type { DataBindingSetFrame } from "../src/frameworkSchema/binding/model";
-import { fxSystemScopeClocks } from "../src/schema";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import {
   changeBindingAvailability,
   type exercisePhysicalBindings,
@@ -334,22 +334,22 @@ export async function exerciseBindingNativeRaces(
   const scopeId = fixture.authority.scopeId;
   const [clock] = await fixture.target.drizzle
     .select()
-    .from(fxSystemScopeClocks)
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    .from(fxSystemScopeExecutionAuthorities)
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
   if (clock === undefined) throw new Error("Binding scope clock missing");
   await fixture.target.drizzle
-    .update(fxSystemScopeClocks)
+    .update(fxSystemScopeExecutionAuthorities)
     .set({
-      authorizationRevocationEpoch: sql`${fxSystemScopeClocks.authorizationRevocationEpoch} + 1`,
+      authorizationRevocationEpoch: sql`${fxSystemScopeExecutionAuthorities.authorizationRevocationEpoch} + 1`,
     })
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
   expect(
     await runEffectFailure(host.withCurrent(readAdmittedDataBinding)),
   ).toMatchObject({ reason: "staleApplication" });
   await fixture.target.drizzle
-    .update(fxSystemScopeClocks)
+    .update(fxSystemScopeExecutionAuthorities)
     .set({ authorizationRevocationEpoch: clock.authorizationRevocationEpoch })
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
 
   const hold = async () => {
     const entered = await runEffect(Deferred.make<void>());
@@ -399,14 +399,14 @@ export async function exerciseBindingNativeRaces(
     throw cause;
   }
   const fence = fixture.target.drizzle
-    .update(fxSystemScopeClocks)
+    .update(fxSystemScopeExecutionAuthorities)
     .set({
-      storageGenerationFence: sql`${fxSystemScopeClocks.storageGenerationFence} + 1`,
+      storageGenerationFence: sql`${fxSystemScopeExecutionAuthorities.storageGenerationFence} + 1`,
     })
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId))
     .execute();
   try {
-    await waitForBlockedStatement(fixture.target, "fx_system_scope_clock");
+    await waitForBlockedStatement(fixture.target, "fx_system_scope_execution_authority");
   } finally {
     await heldFence.release();
     await heldFence.pending;
@@ -418,14 +418,14 @@ export async function exerciseBindingNativeRaces(
     ),
   ).toMatchObject({ _tag: "Failure" });
   await fixture.target.drizzle
-    .update(fxSystemScopeClocks)
+    .update(fxSystemScopeExecutionAuthorities)
     .set({ storageGenerationFence: clock.storageGenerationFence })
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
 
   const heldApplication = await hold();
   const moving = fixture.moveHead();
   try {
-    await waitForBlockedStatement(fixture.target, "fx_system_scope_clock");
+    await waitForBlockedStatement(fixture.target, "fx_system_scope_execution_authority");
   } finally {
     await heldApplication.release();
     await heldApplication.pending;

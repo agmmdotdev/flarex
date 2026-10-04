@@ -1,6 +1,9 @@
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
+import { logicalMetadataDependencyIdentity, MAX_COMMIT_METADATA_READ_DEPENDENCIES,
+  type LogicalMetadataReadDependency, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { Effect } from "effect";
 import type { ApplicationDocumentObservation } from "../applicationDocumentMaterialization/model";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
@@ -26,6 +29,7 @@ export interface LogicalDocumentRootPins {
   readonly scopeId: ScopeId;
   readonly snapshotCommitSeq: CommitSeq;
   readonly attemptFence: string;
+  readonly metadataWatermark?: MetadataSequence;
 }
 
 export interface LogicalDocumentRootLimits {
@@ -39,6 +43,7 @@ export interface LogicalDocumentRootState {
   readonly rows: Map<AppDocumentIdV1, PendingDocument>;
   readonly scanned: Map<CatalogTableId, CommitSeq>;
   readonly dependencies: Map<AppDocumentIdV1, ApplicationDocumentObservation>;
+  readonly metadataDependencies: Map<string, LogicalMetadataReadDependency>;
   readonly scans: Map<CatalogTableId, CommitSeq | null>;
   readonly uniqueReads: Map<string, LogicalUniqueRead>;
   readonly indexReads: Map<string, LogicalIndexRead>;
@@ -64,7 +69,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
   limits: LogicalDocumentRootLimits): LogicalDocumentRootEvaluator => {
   const state: LogicalDocumentRootState = {
     pins: Object.freeze({ ...pins }), limits: Object.freeze({ ...limits }), rows: new Map(), scanned: new Map(),
-    dependencies: new Map(), scans: new Map(), uniqueReads: new Map(), indexReads: new Map(),
+    dependencies: new Map(), metadataDependencies: new Map(), scans: new Map(), uniqueReads: new Map(), indexReads: new Map(),
     pageReads: [], searchReads: [], attempts: [], lifecycle: [], setNull: [], referenceReplacements: [],
     appPoints: new Map(), appPointIdsByTable: new Map(), appPointOrder: new Map(), hydratedAppPoints: new Set(),
     workingBytes: 0, inserted: 0, closed: false,
@@ -94,6 +99,10 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       noFinalRows: Object.freeze(noFinalRows), attempts: Object.freeze([...state.attempts]),
       lifecycle: Object.freeze([...state.lifecycle]),
       dependencies: Object.freeze([...state.dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
+      ...(state.pins.metadataWatermark === undefined ? {} : {
+        metadataWatermark: state.pins.metadataWatermark,
+        metadataDependencies: Object.freeze([...state.metadataDependencies.values()].toSorted((a, b) =>
+          compareUtf16Strings(logicalMetadataDependencyIdentity(a), logicalMetadataDependencyIdentity(b)))) }),
       scans: Object.freeze([...state.scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
       uniqueReads: Object.freeze([...state.uniqueReads.values()]), indexReads: Object.freeze([...state.indexReads.values()]),
       pageReads: Object.freeze([...state.pageReads]), searchReads: Object.freeze([...state.searchReads]),
@@ -131,6 +140,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     state.rows.clear();
     state.scanned.clear();
     state.dependencies.clear();
+    state.metadataDependencies.clear();
     state.scans.clear();
     state.uniqueReads.clear();
     state.indexReads.clear();
@@ -149,6 +159,25 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
   const evaluator = Object.freeze({ snapshot, stageAppPoint, close });
   roots.set(evaluator, state);
   return evaluator;
+};
+
+/** The trusted entry owner fixes this watermark before any native selection.
+ * Callers cannot replace it by sampling a newer activation's observation. */
+export const recordLogicalDocumentRootMetadataDependency = (state: LogicalDocumentRootState,
+  dependency: LogicalMetadataReadDependency): boolean => {
+  if (state.closed || state.pins.metadataWatermark === undefined || dependency.capturedWatermark !== state.pins.metadataWatermark)
+    return false;
+  const key = logicalMetadataDependencyIdentity(dependency);
+  const previous = state.metadataDependencies.get(key);
+  if (previous !== undefined) return previous.observed.kind === dependency.observed.kind &&
+    (previous.observed.kind === "missing" || dependency.observed.kind === "present" &&
+      previous.observed.semanticSha256Hex === dependency.observed.semanticSha256Hex);
+  if (state.metadataDependencies.size >= MAX_COMMIT_METADATA_READ_DEPENDENCIES) return false;
+  const bytes = 256 + 2 * (dependency.ownerKey.length + dependency.contractKey.length);
+  if (bytes > state.limits.workingBytes - state.workingBytes) return false;
+  state.metadataDependencies.set(key, Object.freeze({ ...dependency, observed: Object.freeze({ ...dependency.observed }) }));
+  state.workingBytes += bytes;
+  return true;
 };
 
 export const attachLogicalDocumentRootEvaluator = (evaluator: LogicalDocumentRootEvaluator,

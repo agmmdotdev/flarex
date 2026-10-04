@@ -5,12 +5,12 @@ import { createPGlitePersistence } from "../src/pglite";
 import { createPostgresPersistence } from "../src/postgres";
 import { injectMigrationFailure, makeDrizzleCopyFixture, restoreMigrationFile, writeJournalThrough, type DrizzleCopyFixture } from "./migrationFixtureSupport";
 import { postgresUrl, withTemporaryPostgresSchema } from "./postgresHelpers";
-import { insertSessionTestScope } from "./sessionAuthorityTestSupport";
+import { insertLegacySessionTestScope } from "./sessionAuthorityTestSupport";
 
 async function verify(persistence: Pick<FlarexPersistence, "query" | "migrate">, fixture: DrizzleCopyFixture) {
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 103);
   await persistence.migrate();
-  await insertSessionTestScope(persistence);
+  await insertLegacySessionTestScope(persistence);
   // Historical 0103 shape deliberately excludes the new columns.
   await persistence.query(`insert into fx_system_unique_constraint_build
     (scope_id,unique_constraint_definition_id,storage_generation,storage_generation_fence,epoch,start_commit_seq,lifecycle,covered_through_commit_seq,attempt_fence)

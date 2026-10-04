@@ -68,6 +68,22 @@ const preparedTargetMetadataTest = "packages/flarex-backend/test/preparedTargetM
 const preparedTargetMetadataTestImports = new Map([
   ["../../medusa-adapter/test/support/logical-currency-fixture", "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
 ]);
+// Connected finite-contract proofs borrow the exact authored native construction.
+// These edges grant no permission to adjacent tests or production consumers.
+const finiteContractTestImports = new Map([
+  ["packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts", {
+    specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts",
+  }],
+  ["packages/persistence-postgres/test/applicationFiniteBindingCorrelation.test.ts", {
+    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  }],
+  ["packages/persistence-postgres/test/bindingMetadataBackfillScenario.ts", {
+    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  }],
+  ["packages/persistence-postgres/test/finiteSourceCommitClosure.test.ts", {
+    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  }],
+]);
 // Existing publication measurements reuse the authored observer through these
 // exact test consumers. Adjacent files and runtime code inherit no permission.
 const publicationServerTestImports = new Map([
@@ -266,7 +282,9 @@ function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
     : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports
       : relativePath === mixedProductWorkerdTest ? mixedProductWorkerdTestImports
         : relativePath === preparedTargetMetadataTest ? preparedTargetMetadataTestImports : undefined;
+  const finiteContract = finiteContractTestImports.get(relativePath);
   const target = permitted?.get(specifier) ??
+    (finiteContract?.specifier === specifier ? finiteContract.target : undefined) ??
     (publicationServerTestImports.get(relativePath) === specifier ? publicationServerOwner : undefined);
   return target !== undefined && promotion?.files.some(file =>
     file.target === target && file.classification === "authored") === true;

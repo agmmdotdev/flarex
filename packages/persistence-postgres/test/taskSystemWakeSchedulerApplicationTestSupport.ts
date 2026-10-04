@@ -246,7 +246,7 @@ export async function exerciseApplicationSchedulerParity<
   });
 
   await fixture.target.query(
-    `update fx_system_scope_clock set epoch = $1 where scope_id = $2`,
+    `update fx_system_scope_execution_authority set epoch = $1 where scope_id = $2`,
     ["epoch_72000000-0000-4000-8000-000000000099", fixture.active.basis.authority.scopeId],
   );
   await expect(runEffectFailure(firstScheduler.run({

@@ -167,7 +167,10 @@ export function registerLiveCurrencyChecks(get: () => LogicalCurrencyFixture): v
         const clock = committed.clocks[0];
         if (last === undefined || clock === undefined) throw new Error("Missing logical Currency history");
         await fixture.persistence.query(
-          "update fx_system_scope_clock set oldest_available_commit_seq = $1 where scope_uuid = $2",
+          `update fx_system_scope_execution_authority as authority
+           set oldest_available_commit_seq = $1
+           from fx_system_scope_clock as clock
+           where authority.scope_id = clock.scope_id and clock.scope_uuid = $2`,
           [last.commitSeq, clock.scopeUuid],
         );
         const db = fixture.persistence.drizzle;

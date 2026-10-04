@@ -3,7 +3,8 @@ import type { ApplicationBindingInput } from "../applicationActivation";
 import { isApplicationBindingPreparation, withAcceptedApplicationBinding, type AcceptedApplicationBinding } from "../applicationActivation";
 import { readApplicationBindingProjectionInTransaction } from "../applicationBindingProjection";
 import { readAcceptedApplicationBindingProjection, type ApplicationBindingReference } from "../applicationBindingProjection";
-import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
+import { readBindingCandidate, readBindingHead, readRetainedBindingActivation } from "../frameworkSchema/binding/repository";
+import { verifyBindingApplicationReference } from "../frameworkSchema/binding/logicalSchema";
 import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
 import { installationRuntimeData } from "../frameworkSchema/installation/runtimeData";
 import { acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
@@ -81,7 +82,16 @@ export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.w
       const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
       if (Option.isNone(candidate)) return yield* Effect.fail(commerceError("storedCorruption"));
       const binding = commerceBindings(candidate.value.frame).find(value => value.installation.installationSha256 === reference.installation.installationSha256);
-      if (binding === undefined || !sameBindingValue(candidate.value.frame.application, application)) return yield* Effect.fail(commerceError("bindingChanged"));
+      if (binding === undefined) return yield* Effect.fail(commerceError("bindingChanged"));
+      const activation = yield* readRetainedBindingActivation(tx, authority, {
+        sequence: current.value.frame.sequence, sha256: current.value.frame.activationSha256,
+        candidateSha256: candidate.value.sha256, headSha256: current.value.sha256,
+      }).pipe(Effect.mapError(cause => commerceError(
+        cause.reason === "resourceFailure" ? "resourceFailure" : "storedCorruption", cause)));
+      if (Option.isNone(activation)) return yield* Effect.fail(commerceError("storedCorruption"));
+      yield* Effect.fromResult(verifyBindingApplicationReference(candidate.value.frame.application, application,
+        { kind: "activated", activation: activation.value }))
+        .pipe(Effect.mapError(cause => commerceError("bindingChanged", cause)));
       const selected = bindingInstallationReference(binding);
       if (!sameBindingValue(reference, selected)) return yield* Effect.fail(commerceError("bindingChanged"));
       for (const profile of profiles) yield* verifyCommerceBinding(tx, authority.scopeId, profile, binding, availability);

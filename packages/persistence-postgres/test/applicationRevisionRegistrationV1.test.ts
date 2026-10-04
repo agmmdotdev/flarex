@@ -911,6 +911,16 @@ async function createHistoricalApplicationAnalysisPGlitePersistence() {
   });
 }
 
+/** This retained registration owner runs only before analysis retirement (0064),
+ * including the explicitly staged Task System callers through 0046. */
+async function insertHistoricalApplicationRegistrationScope(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+) {
+  await persistence.query(`insert into fx_system_scope_clock
+    (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+    values ($1, 'flarexdb_v1', 1, 0, $2)`, [SCOPE_ID, EPOCH]);
+}
+
 export function registrationFixtureForPersistence(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   target: LocatedApplicationRevisionRegistrationTargetV1,
@@ -926,12 +936,7 @@ export function registrationFixtureForPersistence(
     deploymentId: DEPLOYMENT_ID,
     physicalLocator: LOCATOR,
   }));
-  yield* Effect.promise(() => persistence.query(
-      `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
-      [SCOPE_ID, EPOCH],
-    ));
+  yield* Effect.promise(() => insertHistoricalApplicationRegistrationScope(persistence));
   const preparedDefinition = Result.getOrThrow(
     prepareStandardApplicationDefinitionV1(definitionInput()),
   );
@@ -1009,12 +1014,7 @@ export function authenticatedRegistrationFixtureForPersistence(
       deploymentId: DEPLOYMENT_ID,
       physicalLocator: LOCATOR,
     }));
-    yield* Effect.promise(() => persistence.query(
-      `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
-      [SCOPE_ID, EPOCH],
-    ));
+    yield* Effect.promise(() => insertHistoricalApplicationRegistrationScope(persistence));
     const preparedDefinition = Result.getOrThrow(
       prepareStandardApplicationDefinitionV1(definitionInput()),
     );

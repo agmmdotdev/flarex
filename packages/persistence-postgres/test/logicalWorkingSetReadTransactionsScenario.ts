@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { expect } from "vitest";
@@ -43,8 +44,11 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     const absentRow = decodeAppRowIdHexV1("53000000000000000000000000000005");
     const firstTime = AppCreationTimeV1Schema.make(1);
     const secondTime = AppCreationTimeV1Schema.make(2);
-    await db.insert(fxSystemScopeClocks).values({ scopeId,
-      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"), epoch });
+    await db.transaction(async tx => {
+      await tx.insert(fxSystemScopeClocks).values({ scopeId });
+      await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId,
+        storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"), epoch });
+    });
     const original = await canonicalizeAppDocumentV1({ tableId: firstTable, rowId: firstRow,
       creationTime: firstTime, fields: { label: "original" } });
     const deleted = await canonicalizeAppDocumentV1({ tableId: secondTable, rowId: secondRow,

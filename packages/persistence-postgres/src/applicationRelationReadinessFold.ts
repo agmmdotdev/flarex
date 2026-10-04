@@ -4,6 +4,7 @@ import { chargePhysicalDefinitionPreparation } from "./physicalDefinitionLifecyc
 import { chargeUniqueConstraintPreparation } from "./appUniqueConstraintSetBuildV1";
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
+import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
@@ -376,6 +377,27 @@ export const readPreparedApplicationRelationInputs = Effect.fn("ApplicationRelat
     const state = preparedActiveReads.get(input);
     if (state === undefined || state.repository.context.controlDb !== controlDb) return yield* failureForOperation("validate", "invalidComposition");
     return { schema: state.prepared.schema, manifest: structuredClone(state.prepared.bundle.manifest) };
+  },
+);
+
+/** Only immutable closed unique membership; no active head or serving verdict. */
+export const readApplicationRelationMetadataUniqueRequirements = Effect.fn("ApplicationRelationReadinessFold.readMetadataUniqueRequirements")(
+  function* (input: PreparedApplicationRelationActiveRead | Readonly<{
+    repository: ApplicationRelationReadinessFoldRepository; readiness: ApplicationRelationReadinessFoldResult;
+  }>, schemaVersionId: CatalogSchemaVersionId) {
+    const prepared = preparedActiveReads.get(input);
+    if (prepared !== undefined) {
+      if (prepared.prepared.requirements.schemaVersionId !== schemaVersionId)
+        return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+      return yield* readUniqueMaintenanceRequirements(prepared.repository.context.controlDb,
+        prepared.prepared.bundle.deploymentId, schemaVersionId);
+    }
+    if (!("repository" in input)) return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    const issued = issuedReadyResults.get(input.readiness);
+    if (issued === undefined || repositoryStates.get(input.repository) !== issued.repository ||
+      issued.prepared.requirements.schemaVersionId !== schemaVersionId)
+      return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    return yield* readUniqueMaintenanceRequirements(issued.repository.context.controlDb, issued.deploymentId, schemaVersionId);
   },
 );
 

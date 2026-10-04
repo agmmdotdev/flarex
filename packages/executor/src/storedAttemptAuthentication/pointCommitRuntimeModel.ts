@@ -165,6 +165,8 @@ export function rebaseFinishingPreparedPointCommitState(
     dependencies,
     indexRangeDependencies,
     relationDependencies,
+    metadataDependencies: Object.freeze(state.plan.metadataDependencies.map(dependency =>
+      Object.freeze({ ...dependency, observed: Object.freeze({ ...dependency.observed }) }))),
     rowIntents,
     successfulResult: Object.freeze({
       valueCodecVersion: successfulResult.valueCodecVersion,
@@ -484,6 +486,11 @@ function capturePointCommitConflictEvidence(
         edgeDefinitionId: evidence.conflict.edgeDefinitionId,
         targetRowId: evidence.conflict.targetRowId,
       })
+    : evidence.conflict.kind === "metadata"
+    ? Object.freeze({ kind: "metadata" as const, namespace: evidence.conflict.namespace,
+        ownerKey: evidence.conflict.ownerKey, contractKey: evidence.conflict.contractKey,
+        capturedMetadataWatermark: evidence.conflict.capturedMetadataWatermark,
+        lastChangedMetadataSequence: evidence.conflict.lastChangedMetadataSequence })
     : Object.freeze({
         kind: "logicalParticipant" as const,
         participant: evidence.conflict.participant,

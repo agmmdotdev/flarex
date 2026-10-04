@@ -49,6 +49,7 @@ import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   projectScopeEpochUuidV1,
   projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
@@ -154,6 +155,7 @@ import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
 } from "../../src/schema";
 import { makeInstallationProtectedScopeAuthorityControlReader } from "../../src/scopeAuthorityControlRead";
 import { createAppDeveloperIndexQueryPortV1 } from "../../src/sessionJournalStore";
@@ -441,12 +443,8 @@ async function createApplicationNativeMutationFixture<
      values ($1, $2)`,
     [deploymentId, projectId],
   );
-  await target.query(
-    `update fx_system_scope_clock
-        set storage_generation = 'flarexdb_v1'
-      where scope_id = $1`,
-    [provisioned.scope.scopeId],
-  );
+  await target.drizzle.update(fxSystemScopeExecutionAuthorities).set({ storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") })
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, provisioned.scope.scopeId));
   const clock = await target.getScopeClock(provisioned.scope.scopeId);
   if (clock === null || clock.storageGeneration !== "flarexdb_v1") {
     throw new Error("Application-native mutation scope clock is invalid.");

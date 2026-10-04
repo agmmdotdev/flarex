@@ -1,4 +1,6 @@
-import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation, exactScopeWriteClockObservationIdentity } from "./scopeClock";
+import { fxSystemScopeExecutionAuthorities } from "./schema";
+import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation, exactScopeWriteClockObservationIdentity,
+  readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation } from "./scopeClock";
 import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
@@ -34,6 +36,7 @@ import {
   AppIndexPhysicalSpecSha256HexV1Schema,
   appIndexPhysicalSpecSha256HexV1ToBytes,
   canonicalizeAppIndexPhysicalSpecV1,
+  type AppIndexPhysicalSpecSha256HexV1,
 } from "flarex-protocol/index-definition";
 import {
   CommitSeqSchema,
@@ -341,9 +344,12 @@ interface CapturedIndexReadDefinition {
   readonly scopeProjection: ScopeIdUuidProjectionV1;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly physicalSpec: AppOrderedIndexPhysicalSpecV1;
+  readonly specification:
+    | Readonly<{ kind: "catalog"; sha256Hex: AppIndexPhysicalSpecSha256HexV1 }>
+    | Readonly<{ kind: "publication" }>;
 }
 
-interface PreparedIndexReadDefinition extends CapturedIndexReadDefinition {
+interface PreparedIndexReadDefinition extends Omit<CapturedIndexReadDefinition, "specification"> {
   readonly physicalSpecSha256: Uint8Array;
 }
 
@@ -457,9 +463,9 @@ const decodeAppendInputsEffect = Effect.fn(
     tx
       .select({
         scopeUuid: fxSystemScopeClocks.scopeUuid,
-        epochUuid: fxSystemScopeClocks.epochUuid,
+        epochUuid: fxSystemScopeExecutionAuthorities.epochUuid,
       })
-      .from(fxSystemScopeClocks)
+      .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
       .where(eq(fxSystemScopeClocks.scopeId, first.identity.scopeId))
       .limit(1),
   ) : [{ scopeUuid: first.scopeProjection.scopeUuid,
@@ -1657,31 +1663,37 @@ function captureIndexReadDefinitionResult(
       scopeProjection,
       indexDefinitionId: definition.indexDefinitionId,
       physicalSpec: definition.physicalSpec,
+      specification: Object.freeze({ kind: "catalog" as const, sha256Hex: definition.physicalSpecSha256Hex }),
     });
   });
 }
 
-const prepareIndexReadDefinitionEffect = Effect.fn(
-  "AppIndexEntries.prepareReadDefinition",
-)(function* (
+// The named public range operation owns tracing. These private preparation
+// steps retain their Effects without allocating another caller stack/span.
+const prepareIndexReadDefinitionEffect = Effect.fnUntraced(function* (
   captured: CapturedIndexReadDefinition,
 ): Effect.fn.Return<PreparedIndexReadDefinition, AppIndexEntryHashError> {
-  const canonicalPhysicalSpec = yield* Effect.tryPromise({
-    try: () => canonicalizeAppIndexPhysicalSpecV1(captured.physicalSpec),
-    catch: (cause) => new AppIndexEntryHashError("read", cause),
-  });
+  // Located catalog definitions already authenticate their detached, deeply
+  // frozen specification against canonical bytes and its digest. Publication
+  // selectors are raw inputs and retain their complete canonical proof.
+  const physicalSpecSha256Hex = captured.specification.kind === "catalog"
+    ? captured.specification.sha256Hex
+    : (yield* Effect.tryPromise({
+      try: () => canonicalizeAppIndexPhysicalSpecV1(captured.physicalSpec),
+      catch: (cause) => new AppIndexEntryHashError("read", cause),
+    })).sha256Hex;
   return Object.freeze({
     scopeId: captured.scopeId,
     scopeProjection: captured.scopeProjection,
     indexDefinitionId: captured.indexDefinitionId,
     physicalSpec: captured.physicalSpec,
     physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
-      canonicalPhysicalSpec.sha256Hex,
+      physicalSpecSha256Hex,
     ),
   });
 });
 
-const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
+const decodeRangeReadEffect = Effect.fnUntraced(
   function* (
     tx: AppIndexEntryTransaction,
     input: AppIndexRangeReadV1Base | PublicationIndexRangeInput,
@@ -1696,7 +1708,8 @@ const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
           const indexDefinitionId = yield* decodeReadFieldResult(
             decodeIndexDefinitionIdResult(input.publicationIndex.indexDefinitionId), "invalidLocatedDefinition");
           return Object.freeze({ scopeId, scopeProjection, indexDefinitionId,
-            physicalSpec: input.publicationIndex.physicalSpec });
+            physicalSpec: input.publicationIndex.physicalSpec,
+            specification: Object.freeze({ kind: "publication" as const }) });
         })
         : captureIndexReadDefinitionResult(input.scopeId, input.definition)),
     );
@@ -1729,6 +1742,7 @@ function decodeRangeReadInputResult(
 ): Result.Result<
   Omit<DecodedAppIndexRangeReadV1, "scopeUuid" | "physicalSpecSha256"> & {
     readonly scopeProjection: ScopeIdUuidProjectionV1;
+    readonly specification: CapturedIndexReadDefinition["specification"];
   },
   InvalidAppIndexEntryInputError
 > {
@@ -2009,7 +2023,9 @@ function projectRangePage(limit: number, decoded: readonly AppIndexRangeEntryV1[
   return Object.freeze({ entries, isDone, continueCursor });
 }
 
-const decodeRangeRowEffect = Effect.fn("AppIndexEntries.decodeRangeRow")(
+// Per-row decoding is covered by the named SQL/range operation; preserve every
+// key/specification/digest check without a separate stack/span for each row.
+const decodeRangeRowEffect = Effect.fnUntraced(
   function* (
     input: DecodedAppIndexRangeReadV1,
     value: unknown,
@@ -2165,10 +2181,18 @@ const requireScopeUuidEffect = Effect.fn("AppIndexEntries.requireScopeUuid")(
     | AppIndexEntryReadPersistenceError
   > {
     const observed = readExactScopeWriteClockObservation(tx, scopeId);
-  if (observed !== undefined) return projection.scopeUuid;
-  const query = tx
+    if (observed !== undefined) return projection.scopeUuid;
+    const finite = readFiniteExecutionAuthorityObservation(tx, scopeId);
+    if (finite !== undefined) {
+      const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, finite).pipe(
+        Result.mapError(() => new AppIndexEntryScopeAuthorityUnavailableError(scopeId))));
+      if (live.scopeId !== scopeId || live.scopeUuid !== projection.scopeUuid)
+        return yield* Effect.fail(new AppIndexEntryScopeAuthorityUnavailableError(scopeId));
+      return live.scopeUuid;
+    }
+    const query = tx
       .select({ scopeUuid: fxSystemScopeClocks.scopeUuid })
-      .from(fxSystemScopeClocks)
+      .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
       .where(eq(fxSystemScopeClocks.scopeId, scopeId))
       .limit(1);
     const rows = yield* Effect.uninterruptible(

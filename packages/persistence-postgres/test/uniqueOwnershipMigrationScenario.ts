@@ -20,7 +20,7 @@ import {
   type DrizzleCopyFixture,
 } from "./migrationFixtureSupport";
 import {
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
   SESSION_TEST_SCOPE_UUID,
   SESSION_TEST_EPOCH_UUID,
 } from "./sessionAuthorityTestSupport";
@@ -37,7 +37,7 @@ export async function verifyUniqueOwnershipMigration(
     96,
   );
   await persistence.migrate();
-  await insertSessionTestScope(persistence);
+  await insertLegacySessionTestScope(persistence);
   for (let ordinal = 1; ordinal <= 2; ordinal += 1) {
     const rowId = decodeAppRowIdHexV1(ordinal.toString(16).padStart(32, "0"));
     const name = `owner-${ordinal}`;

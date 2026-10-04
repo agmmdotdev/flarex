@@ -169,8 +169,7 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
                     payload.contentIdentity.configSha256 !== expectedContent.configSha256 ||
                     payload.contentIdentity.provenanceSha256 !== expectedContent.provenanceSha256)
                     return yield* Effect.fail(compositeError("invalidAuthority"));
-                  yield* requireLogicalCommerceInitialization(currencyAdmission, tx,
-                    selection.initialization, contract.sha256Hex);
+                  yield* requireLogicalCommerceInitialization(currencyAdmission, tx, selection.initialization);
                   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId));
                   const evidence = yield* canonicalizeSuccessfulResultV1Effect({
                     domain: "flarex.private.currency-announcement", version: 2,

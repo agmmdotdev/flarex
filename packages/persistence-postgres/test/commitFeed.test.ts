@@ -549,9 +549,16 @@ describe("S08 package-private commit feed reader", () => {
     }
     await persistence.query(
       `
-        update fx_system_scope_clock
-        set oldest_available_commit_seq = 2
-        where scope_uuid = $1::uuid
+        with authority as materialized (
+            select a.scope_id from fx_system_scope_execution_authority a
+            join fx_system_scope_clock c using (scope_id)
+            where c.scope_uuid = $1::uuid for update of a
+          ), sequence as materialized (
+            select c.scope_id from fx_system_scope_clock c join authority a using (scope_id)
+            for share of c
+          )
+          update fx_system_scope_execution_authority a set oldest_available_commit_seq = 2
+          from sequence c where a.scope_id = c.scope_id
       `,
       [SCOPE_FLOOR],
     );
@@ -843,9 +850,12 @@ async function insertScope(
 ): Promise<void> {
   await persistence.query(
     `
-      insert into fx_system_scope_clock
-        (scope_id, storage_generation, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', $2, $3)
+      with clock as (
+        insert into fx_system_scope_clock (scope_id, last_commit_seq)
+        values ($1, $2) returning scope_id
+      )
+      insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+      select scope_id, 'flarexdb_v1', $3 from clock
     `,
     [
       `scope_${scopeUuid}`,

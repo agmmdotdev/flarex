@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { applicationFunctionEntryPublicationFrameV1 } from
   "@flarex/analysis/internal/application-publication-v1";
 import { applicationFunctionEntryPublicationFrameV2 } from
@@ -1168,10 +1169,11 @@ const resolveApplicationQuerySchema = Effect.fn(
       context.schema,
       context.controlDb,
     )) return yield* failure("open", "invalidComposition");
-    return yield* context.schema.readPublished({
+    const { schema } = yield* context.schema.readPublished({
       deploymentId: context.deploymentId,
       manifest: claimed.basis.manifest,
     });
+    return schema;
   }
   const relationSchema = context.relationSchema;
   if (!hasApplicationRelationSchemaAuthorityComposition(
@@ -1537,30 +1539,28 @@ const readQueryRelationInTransaction = Effect.fn(
   });
 });
 
-function requireHistoryAvailable(
+const requireHistoryAvailable = Effect.fn("ApplicationQuerySnapshot.requireHistoryAvailable")(function* (
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
   snapshotCommitSeq: CommitSeq,
   operation: ApplicationQuerySnapshotError["operation"],
 ) {
-  return Effect.gen(function* () {
-    if (snapshotCommitSeq > clock.lastCommitSeq) {
-      return yield* failure(operation, "historyUnavailable");
-    }
-    const rows = yield* query(
-      tx.select({
-        oldestAvailableCommitSeq: fxSystemScopeClocks.oldestAvailableCommitSeq,
-      }).from(fxSystemScopeClocks).where(eq(
-        fxSystemScopeClocks.scopeId,
-        clock.scopeId,
-      )).limit(1),
-      operation,
-    );
-    if (rows[0] === undefined || rows[0].oldestAvailableCommitSeq > snapshotCommitSeq) {
-      return yield* failure(operation, "historyUnavailable");
-    }
-  });
-}
+  if (snapshotCommitSeq > clock.lastCommitSeq) {
+    return yield* failure(operation, "historyUnavailable");
+  }
+  const rows = yield* query(
+    tx.select({
+      oldestAvailableCommitSeq: fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq,
+    }).from(fxSystemScopeExecutionAuthorities).where(eq(
+      fxSystemScopeExecutionAuthorities.scopeId,
+      clock.scopeId,
+    )).limit(1),
+    operation,
+  );
+  if (rows[0] === undefined || rows[0].oldestAvailableCommitSeq > snapshotCommitSeq) {
+    return yield* failure(operation, "historyUnavailable");
+  }
+});
 
 const requireRelationHistoryAvailable = Effect.fn(
   "ApplicationQuerySnapshot.requireRelationHistoryAvailable",
@@ -1575,9 +1575,9 @@ const requireRelationHistoryAvailable = Effect.fn(
   }
   const rows = yield* relationQuery(
     tx.select({
-      oldestAvailableCommitSeq: fxSystemScopeClocks.oldestAvailableCommitSeq,
-    }).from(fxSystemScopeClocks).where(eq(
-      fxSystemScopeClocks.scopeId,
+      oldestAvailableCommitSeq: fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq,
+    }).from(fxSystemScopeExecutionAuthorities).where(eq(
+      fxSystemScopeExecutionAuthorities.scopeId,
       clock.scopeId,
     )).limit(1),
     operation,

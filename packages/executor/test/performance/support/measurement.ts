@@ -1,4 +1,28 @@
-import type { TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import { Effect, Exit } from "effect";
+import type { MixedMutationPerformanceTrace, TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+
+/** Diagnostic runtime boundary: the child owns the ALS phase until its entire
+ * Exit, including uninterruptible cleanup, has completed. */
+export function traceMixedMutationEffect<A, E>(
+  trace: MixedMutationPerformanceTrace | undefined,
+  name: string,
+  operation: Effect.Effect<A, E>,
+): Effect.Effect<A, E> {
+  if (trace === undefined) return operation;
+  return Effect.suspend(() => {
+    let completion: Promise<Exit.Exit<A, E>> | undefined;
+    return Effect.uninterruptibleMask(restore => restore(Effect.promise(signal => {
+      completion = trace.withPhase(name, () => Effect.runPromiseExit(operation, { signal }));
+      return completion;
+    })).pipe(Effect.onInterrupt(() => {
+      const pending = completion;
+      return pending === undefined ? Effect.void
+        : Effect.promise(() => pending).pipe(Effect.flatMap(exit =>
+          Exit.isFailure(exit) ? Effect.failCause(exit.cause) : Effect.void));
+    }))).pipe(
+      Effect.flatMap(exit => Exit.isSuccess(exit) ? Effect.succeed(exit.value) : Effect.failCause(exit.cause)));
+  });
+}
 
 export function latencySummary(values: readonly number[], full: boolean) {
   if (values.length === 0) return null;
@@ -31,6 +55,17 @@ export function failureTokens(cause: unknown): readonly string[] {
 
 export function sqlSummary(record: TraceInvocationRecord) {
   const groups = record.dispatchGroups;
+  const byPhase = new Map<string, { pool: "control" | "target"; phasePath: readonly string[];
+    dispatches: number; statements: number; awaitedMsSum: number }>();
+  for (const group of groups) {
+    const key = JSON.stringify([group.pool, group.phasePath]);
+    const phase = byPhase.get(key) ?? { pool: group.pool, phasePath: group.phasePath,
+      dispatches: 0, statements: 0, awaitedMsSum: 0 };
+    phase.dispatches += group.dispatchCount;
+    phase.statements += group.statementCount;
+    phase.awaitedMsSum += group.awaitedMsSum;
+    byPhase.set(key, phase);
+  }
   return { outcome: record.outcome, dispatches: groups.reduce((sum, group) => sum + group.dispatchCount, 0),
     statements: groups.reduce((sum, group) => sum + group.statementCount, 0),
     transactions: record.transactionGroups.reduce((sum, group) => sum + group.intervalCount, 0),
@@ -38,5 +73,15 @@ export function sqlSummary(record: TraceInvocationRecord) {
       .reduce((sum, group) => sum + group.intervalCount, 0),
     queryErrors: groups.reduce((sum, group) => sum + group.errorCount, 0),
     lostContextDispatches: record.lostContextDispatches, unknownStatementDispatches: record.unknownStatementDispatches,
-    unobservedDispatches: record.unobservedDispatches, incompleteSpans: record.incompleteSpans };
+    unobservedDispatches: record.unobservedDispatches, incompleteSpans: record.incompleteSpans,
+    diagnosticDurationMs: record.durationMs,
+    // Await sums can overlap; unions count observed wall time once. Neither is server CPU time.
+    dispatchAwaitedMsSum: groups.reduce((sum, group) => sum + group.awaitedMsSum, 0),
+    dispatchAwaitedUnionMs: record.dispatchAwaitedUnionMs,
+    checkoutAwaitedMsSum: record.checkoutGroups.reduce((sum, group) => sum + group.awaitedMsSum, 0),
+    checkoutAwaitedUnionMs: record.checkoutAwaitedUnionMs,
+    phases: record.spans,
+    dispatchGroups: record.dispatchGroups,
+    // Each dispatch belongs only to its deepest observed path, not every ancestor.
+    sqlByPhase: [...byPhase.values()] };
 }

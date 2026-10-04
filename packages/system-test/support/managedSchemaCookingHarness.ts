@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { deepStrictEqual } from "node:assert/strict";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { readFencedIndexBuildStateEffect, readIndexCoverageContextInTransactionEffect, isIndexBuildSnapshotCoveredInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/indexBuildStates";
-import { lockScopeClockForShareInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/scopeClock";
+import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/scopeClock";
 import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction } from "@flarex/persistence-postgres/internal/app-unique-constraint-definitions-v1";
 import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
 import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
@@ -72,7 +72,7 @@ import {
   createApplicationManagedSchemaPlanningPort,
 } from
   "@flarex/persistence-postgres/internal/application-managed-schema-planning";
-import { fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxAppIndexEntryRevisions } from
+import { fxSystemScopeExecutionAuthorities, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxAppIndexEntryRevisions } from
   "@flarex/persistence-postgres/internal/system-test/schema";
 import { PointCommitStaleAuthorityV1Error } from
   "@flarex/persistence-postgres/point-commit-transaction";
@@ -630,10 +630,14 @@ export async function proveManagedSchemaCandidateIndexCoverageBoundaries(
       );
     if (mode === "retainedGap") {
       // Retention fault fixture: the builder must reject the lost prefix, not certify newer data.
-      await fixture.target.drizzle
-        .update(fxSystemScopeClocks)
-        .set({ oldestAvailableCommitSeq: clock.lastCommitSeq })
-        .where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId));
+      await fixture.target.drizzle.transaction(async tx => {
+        const locked = await runSystemTestEffectV1(
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId),
+        );
+        await tx.update(fxSystemScopeExecutionAuthorities)
+          .set({ oldestAvailableCommitSeq: locked.lastCommitSeq })
+          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.authority.scopeId));
+      });
     }
     if (mode !== "cursorAndWholeCommit") {
       const result = await runSystemTestEffectV1(
@@ -1224,10 +1228,10 @@ export async function proveManagedSchemaCookingSchemaB(
       state.activePublication,
       state.candidateManifest,
     );
-    await scenario.fixture.target.drizzle.update(fxSystemScopeClocks).set({
+    await scenario.fixture.target.drizzle.update(fxSystemScopeExecutionAuthorities).set({
       epoch: ScopeEpochSchema.make("22222222-2222-4222-8222-222222222222"),
     }).where(eq(
-      fxSystemScopeClocks.scopeId,
+      fxSystemScopeExecutionAuthorities.scopeId,
       scenario.fixture.authority.scopeId,
     ));
     const changedAuthority = await runSystemTestEffectV1(Effect.result(

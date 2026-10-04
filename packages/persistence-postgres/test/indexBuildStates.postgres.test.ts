@@ -27,9 +27,12 @@ describePostgres("real Postgres fenced index build-state reads", () => {
       const largeFence = 9_007_199_254_740_993n;
       await persistence.query(
         `
-          insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', $2, $3, 'epoch-pg')
+          with created as (
+            insert into fx_system_scope_clock (scope_id, last_commit_seq)
+            values ($1, $3) returning scope_id
+          ) insert into fx_system_scope_execution_authority
+            (scope_id, storage_generation, storage_generation_fence, epoch)
+            select scope_id, 'flarexdb_v1', $2, 'epoch-pg' from created
         `,
         [scopeId, largeFence, largeFence],
       );
@@ -84,7 +87,7 @@ describePostgres("real Postgres fenced index build-state reads", () => {
         await writer.query("begin");
         await writer.query(
           `
-            update fx_system_scope_clock
+            update fx_system_scope_execution_authority
             set storage_generation_fence = $2
             where scope_id = $1
           `,

@@ -1,3 +1,4 @@
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { Result } from "effect";
 import {
   CommitSeqSchema,
@@ -16,7 +17,7 @@ import {
   type ScopeClockCorruptionError,
   type ScopeClockRecord,
 } from "./scopeClock";
-import { fxSystemScopeClocks } from "./schema";
+import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "./schema";
 
 export interface InitialScopeClockInput {
   readonly scopeId: ScopeId;
@@ -59,14 +60,16 @@ export async function insertInitialScopeClockInTransactionResult(
     .insert(fxSystemScopeClocks)
     .values({
       scopeId: input.scopeId,
-      storageGeneration: initialStorageGeneration,
-      storageGenerationFence: initialStorageGenerationFence,
       lastCommitSeq: initialCommitSeq,
-      authorizationRevocationEpoch: initialAuthorizationRevocationEpoch,
-      epoch: input.initialEpoch,
+      lastMetadataSequence: MetadataSequenceSchema.make(0n),
     })
     .onConflictDoNothing({ target: fxSystemScopeClocks.scopeId })
     .returning({ scopeId: fxSystemScopeClocks.scopeId });
+  if (inserted.length > 0) await tx.insert(fxSystemScopeExecutionAuthorities).values({
+    scopeId: input.scopeId, storageGeneration: initialStorageGeneration,
+    storageGenerationFence: initialStorageGenerationFence, oldestAvailableCommitSeq: initialCommitSeq,
+    authorizationRevocationEpoch: initialAuthorizationRevocationEpoch, epoch: input.initialEpoch,
+  });
   const clockResult = await getScopeClockResult(tx, input.scopeId);
   return Result.gen(function* () {
     const clock = yield* clockResult;
@@ -91,6 +94,8 @@ export function isExactInitialScopeClock(
     clock.storageGeneration === initialStorageGeneration &&
     clock.storageGenerationFence === initialStorageGenerationFence &&
     clock.lastCommitSeq === initialCommitSeq &&
+    clock.lastMetadataSequence === 0n &&
+    clock.oldestAvailableCommitSeq === initialCommitSeq &&
     clock.epoch === input.initialEpoch
   );
 }

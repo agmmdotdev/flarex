@@ -1,3 +1,5 @@
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { eq } from "drizzle-orm";
 import { Result } from "effect";
 import {
@@ -129,6 +131,7 @@ describe("shared scope authority provisioning", () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
         epoch: `epoch_${uuids.epochA}`,
       },
     });
@@ -224,17 +227,13 @@ describe("shared scope authority provisioning", () => {
     } satisfies EnsureSharedScopeAuthorityInput;
     const first = await firstProvisioner.ensure(input);
     const advancedAt = new Date("2026-07-12T00:00:00.000Z");
-    await persistence.drizzle
-      .update(fxSystemScopeClocks)
-      .set({
-        storageGeneration:
-          FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-        storageGenerationFence: StorageGenerationFenceSchema.make(7n),
-        lastCommitSeq: CommitSeqSchema.make(11n),
-        epoch: ScopeEpochSchema.make("epoch_advanced"),
-        updatedAt: advancedAt,
-      })
-      .where(eq(fxSystemScopeClocks.scopeId, first.scope.scopeId));
+    await persistence.drizzle.transaction(async authorityTx => {
+      await authorityTx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
+        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, first.scope.scopeId)).for("update");
+      await authorityTx.update(fxSystemScopeExecutionAuthorities).set({storageGeneration:
+          FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),storageGenerationFence: StorageGenerationFenceSchema.make(7n),epoch: ScopeEpochSchema.make("epoch_advanced"),updatedAt: advancedAt}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, first.scope.scopeId));
+      return authorityTx.update(fxSystemScopeClocks).set({lastCommitSeq: CommitSeqSchema.make(11n),updatedAt: advancedAt}).where(eq(fxSystemScopeClocks.scopeId, first.scope.scopeId));
+    });
     const retryProvisioner = createPGliteSharedScopeAuthorityProvisioner(
       persistence,
       {
@@ -255,6 +254,7 @@ describe("shared scope authority provisioning", () => {
         storageGeneration: "flarexdb_v1",
         storageGenerationFence: 7n,
         lastCommitSeq: 11n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
         epoch: "epoch_advanced",
         updatedAt: advancedAt,
       },
@@ -276,12 +276,12 @@ describe("shared scope authority provisioning", () => {
       },
     ).ensure(input);
     await persistence.exec(`
-      alter table fx_system_scope_clock
-        drop constraint fx_system_scope_clock_storage_generation_check
+      alter table fx_system_scope_execution_authority
+        drop constraint fx_scope_execution_authority_generation_check
     `);
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority
         set storage_generation = 'corrupt_generation'
         where scope_id = $1
       `,
@@ -363,11 +363,9 @@ describe("shared scope authority provisioning", () => {
     });
     await persistence.query(
       `
-        insert into fx_system_scope_clock (
-          scope_id,
-          storage_generation,
-          epoch
-        ) values ($1, 'legacy_v1', $2)
+        with root as (insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,epoch)
+      select root.scope_id,'legacy_v1',$2 from root
       `,
       [
         ScopeIdSchema.make(`scope_${uuids.scopeB}`),

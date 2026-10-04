@@ -36,10 +36,10 @@ export const hasLiveLogicalCommerceRows = Effect.fn("LogicalCommerce.hasLiveRows
  * receipt is read inside its borrowed request transaction before any callback. */
 export const requireLogicalCommerceInitialization = Effect.fn("LogicalCommerce.requireInitialization")(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
-  initialization: CommerceInitialization, contractSha256: string,
+  initialization: CommerceInitialization,
 ) {
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
-  yield* requireInitializationReceipt(state, tx, initialization, contractSha256);
+  yield* requireStableInitializationReceipt(state, tx, initialization);
 });
 
 export const requireLogicalCommerceReadInitialization = Effect.fn("LogicalCommerce.requireReadInitialization")(function* (
@@ -47,12 +47,17 @@ export const requireLogicalCommerceReadInitialization = Effect.fn("LogicalCommer
   initialization: CommerceInitialization, contractSha256: string,
 ) {
   const state = yield* requireLogicalRelationalReadAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
-  yield* requireInitializationReceipt(state, tx, initialization, contractSha256);
+  const receipt = yield* requireStableInitializationReceipt(state, tx, initialization);
+  // This reader receives the original installed seed digest explicitly. It is
+  // distinct from a full host's current schema-bound operation contract.
+  if (receipt.contractSha256 !== contractSha256) return yield* Effect.fail(commerceError("seedMismatch"));
 });
 
-const requireInitializationReceipt = Effect.fn("LogicalCommerce.requireInitializationReceipt")(function* (
+/** Source-scoped first-data authority survives unrelated catalog publications.
+ * The stored operation digest remains original seed provenance, unchanged. */
+const requireStableInitializationReceipt = Effect.fn("LogicalCommerce.requireStableInitializationReceipt")(function* (
   state: Pick<Effect.Success<ReturnType<typeof requireLogicalRelationalAdmission>>, "authority" | "sourceKey" | "sourceSha256">,
-  tx: FlarexMetadataTransaction, initialization: CommerceInitialization, contractSha256: string,
+  tx: FlarexMetadataTransaction, initialization: CommerceInitialization,
 ) {
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(projectCommerceRequestFailure));
   const observed = readStandaloneSourceInitialization(tx, state.authority.scopeId, state.sourceKey, initialization.stepId);
@@ -64,7 +69,8 @@ const requireInitializationReceipt = Effect.fn("LogicalCommerce.requireInitializ
   if (recorded.length === 0) return yield* Effect.fail(commerceError("seedRequired"));
   if (recorded.length !== 1) return yield* Effect.fail(commerceError("storedCorruption"));
   const receipt = recorded[0];
-  if (receipt?.sourceSha256 !== state.sourceSha256 || receipt.contractSha256 !== contractSha256 ||
+  if (receipt?.sourceSha256 !== state.sourceSha256 ||
     receipt.datasetSha256 !== initialization.datasetSha256 || receipt.rowCount !== initialization.expectedRowCount)
     return yield* Effect.fail(commerceError("seedMismatch"));
+  return receipt;
 });

@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import {
   CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
@@ -164,7 +165,7 @@ describe("fenced index build-state reads", () => {
     expect(Object.isFrozen(current.buildState)).toBe(true);
     expect(Object.isFrozen(current.buildState.backfillCursor)).toBe(true);
 
-    await persistence.drizzle.update(fxSystemScopeClocks).set({
+    await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
       storageGenerationFence: StorageGenerationFenceSchema.make(8n),
     });
     const fenceStale = await readFencedIndexBuildState(persistence.drizzle, {
@@ -177,7 +178,7 @@ describe("fenced index build-state reads", () => {
       currentAuthority: { storageGenerationFence: 8n },
     });
 
-    await persistence.drizzle.update(fxSystemScopeClocks).set({
+    await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
       epoch: ScopeEpochSchema.make("epoch-b"),
     });
     const epochStale = await readFencedIndexBuildState(persistence.drizzle, {
@@ -193,7 +194,7 @@ describe("fenced index build-state reads", () => {
 
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority
         set storage_generation = 'legacy_v1'
         where scope_id = $1
       `,
@@ -464,11 +465,11 @@ describe("fenced index build-state reads", () => {
       lastCommitSeq: CommitSeqSchema.make(0n),
     });
     await persistence.query(`
-      alter table fx_system_scope_clock
-        drop constraint fx_system_scope_clock_epoch_non_empty_check
+      alter table fx_system_scope_execution_authority
+        drop constraint fx_scope_execution_authority_epoch_check
     `);
     await persistence.query(
-      "update fx_system_scope_clock set epoch = '' where scope_id = $1",
+      "update fx_system_scope_execution_authority set epoch = '' where scope_id = $1",
       [scopeId],
     );
 
@@ -613,6 +614,7 @@ function indexBuildReadDatabase<Row>(
 ): FlarexMetadataDatabase {
   const query = {
     from: () => query,
+    innerJoin: () => query,
     leftJoin: () => query,
     where: () => query,
     limit: () => run(),
@@ -634,7 +636,9 @@ function validFencedIndexBuildReadRow(
       storageGeneration: "flarexdb_v1" as const,
       storageGenerationFence: 1n,
       lastCommitSeq: 0n,
+      lastMetadataSequence: 0n,
       oldestAvailableCommitSeq: 0n,
+      authorizationRevocationEpoch: 0n,
       epoch: "epoch-index-build-row",
       epochUuid: "00000000-0000-5000-8000-000000000002",
       updatedAt: timestamp,
@@ -642,6 +646,9 @@ function validFencedIndexBuildReadRow(
     buildState: {
       scopeId,
       indexDefinitionId,
+      maintenanceActivationSequence: null,
+      maintenanceBytes: null,
+      maintenanceSha256: null,
       storageGeneration: "flarexdb_v1" as const,
       storageGenerationFence: 1n,
       epoch: "epoch-index-build-row",
@@ -726,12 +733,11 @@ async function insertClock(
   db: FlarexMetadataDatabase,
   fixture: ClockFixture,
 ): Promise<void> {
-  await db.insert(fxSystemScopeClocks).values({
-    scopeId: fixture.scopeId,
-    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    storageGenerationFence: fixture.fence,
-    lastCommitSeq: fixture.lastCommitSeq,
-    epoch: fixture.epoch,
+  await db.transaction(async tx => {
+    await tx.insert(fxSystemScopeClocks).values({ scopeId: fixture.scopeId, lastCommitSeq: fixture.lastCommitSeq });
+    await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId: fixture.scopeId,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: fixture.fence, epoch: fixture.epoch });
   });
 }
 

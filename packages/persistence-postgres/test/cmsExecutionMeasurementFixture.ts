@@ -1,3 +1,4 @@
+import { selectScopeClockRows } from "../src/scopeClock";
 import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { Effect, Result, Schema } from "effect";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
@@ -90,7 +91,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     claims: await persistence.drizzle.select().from(fxAppUniqueKeys).where(eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid)).orderBy(fxAppUniqueKeys.constraintId, fxAppUniqueKeys.rowId),
     builds: await persistence.drizzle.select().from(fxSystemIndexBuildStates).where(eq(fxSystemIndexBuildStates.scopeId, scope.scopeId)).orderBy(fxSystemIndexBuildStates.indexDefinitionId),
     uniqueBuilds: await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).where(eq(fxSystemUniqueConstraintBuilds.scopeId, scope.scopeId)).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId),
-    clock: await persistence.drizzle.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId)),
+    clock: await selectScopeClockRows(persistence.drizzle).where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId)),
     commits: await persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommits.commitSeq),
     outcomes: await persistence.drizzle.select().from(fxSystemIdempotency).where(eq(fxSystemIdempotency.scopeUuid, scope.scopeUuid)).orderBy(fxSystemIdempotency.commitSeq),
     wakes: await persistence.drizzle.select().from(fxSystemCommitWakes).where(eq(fxSystemCommitWakes.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitWakes.commitSeq),

@@ -1,19 +1,31 @@
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { loadPublishedPhysicalRequirementSnapshotV1, type PhysicalDefinitionRequirementV1 } from "./indexBuildReconciliation";
+import { loadPublishedPhysicalRequirementSnapshotV1, type PhysicalDefinitionRequirementV1, type PublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
+import { verifyApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
+import { prepareFiniteMetadataProjection } from "./finiteMetadataDependencies";
+import { canonicalAppIndexPhysicalSpecBytesHexV1ToBytes } from "flarex-protocol/index-definition";
+import { decodeAppOrderedIndexPhysicalSpecV1Result } from "flarex-protocol/ordered-index";
+import { canonicalizeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
+import type { AppUniqueConstraintSetMemberV1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import type { JsonObject } from "flarex-protocol/json";
 import { readRequiredEnabledIndexBuildsInTransactionEffect, decodeIndexBuildStateRowResult,
   readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
   isIndexBuildSnapshotCoveredInTransactionEffect,
+  isFiniteIndexBuildSnapshotCoveredInTransactionEffect,
   validateIndexBuildStateFrontierResult } from "./indexBuildStates";
 import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, selectPreparedAppUniqueConstraintSet, inspectSelectedAppUniqueConstraintDefinitions,
   chargeUniqueConstraintPreparation,
+  inspectFiniteAppUniqueConstraintDefinitions,
   type AppUniqueConstraintSetEligibilityPortV1, type AppUniqueConstraintSetBuildPortsV1 } from "./appUniqueConstraintSetBuildV1";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
-import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord } from "./scopeClock";
+import { lockScopeClockForSnapshotReadInTransactionEffect, requireFiniteExecutionAuthorityObservation,
+  type FiniteExecutionAuthorityObservation, type ScopeClockRecord } from "./scopeClock";
+import { readFiniteApplicationMetadata, type FiniteApplicationMetadata, type ApplicationBindingInput } from "./applicationActivation";
+import type { SessionJournalAttempt } from "./sessionJournalStore";
 import type { AppRowTransaction } from "./appRows";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
 import type { IndexCoverageContext } from "./indexBuildStates";
@@ -77,6 +89,69 @@ const preparedCatalogs = new WeakMap<object, Readonly<{
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>;
   lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
 }>>();
+const decodePublishedIndexEnvelope = Schema.decodeUnknownEffect(Schema.Struct({
+  format: Schema.Literal("flarexdb-app-index-physical-spec"), physicalSpecCodecVersion: Schema.Literal(1),
+  physicalSpec: Schema.Unknown,
+}));
+
+/** Activation/backfill projects the authenticated complete immutable catalog. */
+export const prepareLogicalStorageMetadataProjection = Effect.fn("LogicalStorageReadiness.prepareMetadataProjection")(function* (
+  input: Readonly<{ deploymentId: string; schemaVersionId: CatalogSchemaVersionId;
+    profile: "binding" | "nativeApplication" }>,
+  snapshot: PublishedPhysicalRequirementSnapshotV1, uniqueMembers: readonly AppUniqueConstraintSetMemberV1[],
+) {
+  const requirements = snapshot.logicalRequirements;
+  if (snapshot.deploymentId !== input.deploymentId || snapshot.schemaVersionId !== input.schemaVersionId ||
+    uniqueMembers.length !== (requirements?.unique.length ?? 0))
+    return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  const indexes = yield* Effect.forEach(snapshot.definitions, definition => Effect.gen(function* () {
+    const body = yield* Effect.try({ try: (): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
+      canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(definition.physicalSpecBytesHex))),
+    catch: cause => new LogicalStorageReadinessError({ reason: "invalidComposition", cause }) });
+    const envelope = yield* decodePublishedIndexEnvelope(body).pipe(
+      Effect.mapError(cause => new LogicalStorageReadinessError({ reason: "invalidComposition", cause })));
+    const physicalSpec = yield* Effect.fromResult(decodeAppOrderedIndexPhysicalSpecV1Result(envelope.physicalSpec)).pipe(
+      Effect.mapError(cause => new LogicalStorageReadinessError({ reason: "invalidComposition", cause })));
+    return { indexDefinitionId: definition.indexDefinitionId, access: definition.access,
+      physicalSpec, physicalSpecSha256Hex: definition.physicalSpecSha256Hex };
+  }));
+  if (snapshot.manifest.kind === "appSchema") {
+    if (input.profile !== "nativeApplication") return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    return yield* prepareFiniteMetadataProjection({ applicationSchema: { manifest: snapshot.manifest }, indexes, unique: [],
+    }).pipe(Effect.mapError(cause => new LogicalStorageReadinessError({
+      reason: cause.reason === "resourceFailure" ? "resourceFailure" : "invalidComposition", cause })));
+  }
+  if (requirements === undefined) return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  const uniqueSpecifications = yield* Effect.forEach(requirements.unique, declaration => Effect.tryPromise({
+    try: () => canonicalizeAppUniqueConstraintPhysicalSpecV1(declaration.physicalSpec),
+    catch: cause => new LogicalStorageReadinessError({ reason: "resourceFailure", cause }),
+  }).pipe(Effect.catchTag("LogicalStorageReadinessError", failure =>
+    typeof DOMException !== "undefined" && failure.cause instanceof DOMException ? Effect.fail(failure) : Effect.die(failure.cause)),
+  Effect.map(canonical => ({ tableId: declaration.tableId, physicalSpec: declaration.physicalSpec,
+    physicalSpecSha256Hex: canonical.sha256Hex }))));
+  if (uniqueSpecifications.some(specification => !uniqueMembers.some(member => member.tableId === specification.tableId &&
+    member.physicalSpecSha256Hex === specification.physicalSpecSha256Hex)))
+    return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  const unique = yield* Effect.forEach(uniqueMembers, member => {
+    const specification = uniqueSpecifications.find(candidate => candidate.tableId === member.tableId &&
+      candidate.physicalSpecSha256Hex === member.physicalSpecSha256Hex);
+    return specification === undefined ? Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" })) :
+      Effect.succeed({ ...member, physicalSpec: specification.physicalSpec });
+  });
+  const sourcePolicies: { sourceKey: string; semantic: JsonObject }[] = [];
+  for (const source of requirements.evidence.candidate.sources) {
+    if (source.owner !== "payload") continue;
+    if (source.definition.kind !== "documents") return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    const policy = yield* verifyApplicationWritePolicies(source.evidence, source.definition.tables.map(table => table.logicalName)).pipe(
+      Effect.mapError(cause => new LogicalStorageReadinessError({ reason: cause.reason === "digestUnavailable" ? "resourceFailure" : "invalidComposition", cause })));
+    const first = policy.policies.tables[0];
+    if (first === undefined || first.owner !== "payload") return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    sourcePolicies.push({ sourceKey: source.key, semantic: { owner: source.owner, writeProfile: source.writeProfile,
+      configSha256: first.configSha256, provenanceSha256: first.provenanceSha256 } });
+  }
+  return yield* prepareFiniteMetadataProjection({ requirements, requirementsProfile: input.profile, indexes, unique, sourcePolicies }).pipe(
+    Effect.mapError(cause => new LogicalStorageReadinessError({ reason: cause.reason === "resourceFailure" ? "resourceFailure" : "invalidComposition", cause })));
+});
 
 /** Immutable catalog preparation, using the complete candidate's existing
  * index and closed-unique owners. No per-framework builder, durable receipt,
@@ -307,6 +382,48 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
         demand: LogicalStorageReadDemand, checkedActive?: CheckedApplicationActiveHead) =>
         (sourceLifetime === undefined ? Effect.void : Effect.fromResult(sourceLifetime.checkOpen())).pipe(
           Effect.andThen(inspectDemand(sourceKey, byId, tx, authority, clock, demand, checkedActive)));
+    }),
+    prepareFiniteSourceDemand: Effect.fn("LogicalStorageReadiness.prepareFiniteSourceDemand")(function* (
+      sourceKey: string, sourceUnique: readonly LocatedAppUniqueConstraintDefinitionV1[],
+    ) {
+      const sourceLifetime = yield* captureHostPreparationLifetime();
+      const uniqueById = new Map(sourceUnique.map(member => [member.uniqueConstraintDefinitionId, member]));
+      yield* chargeHostPreparation({ finiteUniqueLookup: [...uniqueById.keys()] });
+      return Effect.fn("LogicalStorageReadiness.inspectFiniteSourceDemand")(function* (
+        tx: AppRowTransaction, authority: TrustedScopeAuthority, observation: FiniteExecutionAuthorityObservation,
+        applicationMetadata: FiniteApplicationMetadata, application: ApplicationBindingInput, root: SessionJournalAttempt,
+        demand: LogicalStorageReadDemand,
+      ) {
+        if (sourceLifetime !== undefined) yield* Effect.fromResult(sourceLifetime.checkOpen());
+        const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, observation));
+        yield* Effect.fromResult(readFiniteApplicationMetadata(applicationMetadata, application, root, tx, observation));
+        const tables = sourceTableIds.get(sourceKey);
+        if (tables === undefined || authority.deploymentId !== captured.deploymentId || live.scopeId !== captured.scopeId ||
+          authority.scopeId !== live.scopeId || (demand.kind !== "clock" && !tables.has(demand.tableId)))
+          return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+        if (demand.kind === "search")
+          return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition", cause: "finiteHistoricalSearchUnsupported" }));
+        if (demand.kind === "index") {
+          const definition = definitionById.get(demand.indexDefinitionId);
+          if (definition === undefined || definition.tableId !== demand.tableId)
+            return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+          const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, live, [definition.indexDefinitionId], "key share");
+          if (builds.status !== "ready") return builds;
+          const row = builds.rows[0];
+          if (row === undefined) return yield* Effect.die("Required finite build disappeared");
+          const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, live.scopeId, definition.indexDefinitionId));
+          if (!(yield* isFiniteIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition,
+            observation, applicationMetadata, application, root)))
+            return Object.freeze({ status: "not_ready" as const, reason: "notCovered" as const, indexDefinitionId: definition.indexDefinitionId });
+        } else if (demand.kind === "unique") {
+          const definition = uniqueById.get(demand.uniqueConstraintDefinitionId);
+          if (definition === undefined || definition.tableId !== demand.tableId)
+            return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+          return yield* inspectFiniteAppUniqueConstraintDefinitions(captured, [definition], tx, authority, observation,
+            applicationMetadata, application, root);
+        }
+        return Object.freeze({ status: "ready" as const });
+      });
     }),
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
     applicationAnalysis, strongReferences });

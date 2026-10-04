@@ -1,3 +1,5 @@
+import { selectScopeClockRows, lockScopeExecutionAuthorityInTransactionEffect,
+  ScopeClockNotFoundError, ScopeClockCorruptionError } from "./scopeClock";
 import {
   bytesEqualFullScan,
   encodeBytesToLowercaseHex,
@@ -83,7 +85,7 @@ ApplicationRelationTaskCatalogSnapshotPort {
       return yield* snapshotFailure("invalidInput");
     }
     const clockRows = yield* snapshotQuery(
-      tx.select().from(fxSystemScopeClocks).where(eq(
+      selectScopeClockRows(tx).where(eq(
         fxSystemScopeClocks.scopeId,
         authority.scopeId,
       )).limit(1),
@@ -370,11 +372,15 @@ const requireExactAuthority = Effect.fn(
   tx: AppRowTransaction,
   authority: ApplicationAnalysisAuthority,
 ): Effect.fn.Return<void, ApplicationTaskBindingPersistenceError> {
+    yield* lockScopeExecutionAuthorityInTransactionEffect(tx, authority.scopeId, "update").pipe(Effect.mapError(cause =>
+      cause instanceof ScopeClockNotFoundError ? failureValue("authorityChanged") :
+        cause instanceof ScopeClockCorruptionError ? failureValue("storedState", false, cause) :
+          failureValue("resourceFailure", isRetryableSqlTransactionCause(cause.cause), cause.cause)));
     const rows = yield* query(
-      tx.select().from(fxSystemScopeClocks).where(eq(
+      selectScopeClockRows(tx).where(eq(
         fxSystemScopeClocks.scopeId,
         authority.scopeId,
-      )).limit(1).for("update"),
+      )).limit(1).for("update", { of: fxSystemScopeClocks }),
     );
     const clock = rows[0];
     if (

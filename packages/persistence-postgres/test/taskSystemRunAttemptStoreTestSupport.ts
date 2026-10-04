@@ -28,7 +28,6 @@ import type {
 import { and, eq, inArray } from "drizzle-orm";
 import { Brand, Encoding, Result } from "effect";
 import {
-  FlarexDbV1StorageGenerationSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
@@ -42,9 +41,9 @@ import {
   fxSystemDurableTaskDefinitionRevisionsV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunsV1,
-  fxSystemScopeClocks,
 } from "../src/schema";
 import { getScopeClock } from "../src/scopeClock";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import type {
   LocatedTrustedScopeAuthority,
   TrustedScopeAuthority,
@@ -90,8 +89,6 @@ const taskDefinitionRevisionId = Result.getOrThrow(
 );
 const taskId = Result.getOrThrow(decodeTaskIdV1("orders.process"));
 const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
-const taskStorageGeneration =
-  FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
 const taskEpoch = ScopeEpochSchema.make(
   "epoch_72000000-0000-4000-8000-000000000006",
 );
@@ -173,11 +170,7 @@ export async function seedTaskSystemRunAttemptStoreV1(
   const scopeId = ScopeIdSchema.make(parent.scopeId);
   const db = persistence.drizzle;
   if (options.parent === undefined) {
-    await db.insert(fxSystemScopeClocks).values({
-      scopeId,
-      storageGeneration: taskStorageGeneration,
-      epoch: taskEpoch,
-    });
+    await insertCurrentScopeClockFixture(db, { scopeId, epoch: taskEpoch });
   }
   await db.insert(fxSystemDurableTaskDefinitionRevisionsV1).values({
     scopeId,

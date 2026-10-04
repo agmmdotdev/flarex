@@ -1,4 +1,6 @@
 import type { FlarexPersistence } from "../src";
+import type { FlarexMetadataDatabase } from "../src/deployments";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   CommitWakeClaimOwnerV1Schema,
   type CommitWakeClaimOwnerV1,
@@ -44,23 +46,11 @@ export interface InsertWakeScopeInput {
 }
 
 export async function insertWakeScope(
-  persistence: WakeSqlPersistence,
+  persistence: WakeSqlPersistence & { readonly drizzle: FlarexMetadataDatabase },
   input: InsertWakeScopeInput,
 ): Promise<void> {
-  await persistence.query(
-    `
-      insert into fx_system_scope_clock
-        (scope_id, storage_generation, last_commit_seq,
-         oldest_available_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', $2, $3, $4)
-    `,
-    [
-      `scope_${input.scopeUuid}`,
-      String(input.lastCommitSeq),
-      String(input.oldestAvailableCommitSeq ?? 0n),
-      `epoch_${input.epochUuid}`,
-    ],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: `scope_${input.scopeUuid}`, epoch: `epoch_${input.epochUuid}`,
+    lastCommitSeq: input.lastCommitSeq, oldestAvailableCommitSeq: input.oldestAvailableCommitSeq ?? 0n });
 }
 
 export async function insertWakeHeader(

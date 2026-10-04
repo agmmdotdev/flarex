@@ -460,9 +460,9 @@ describe("O08-A exact-attempt replacement", () => {
   it("fails closed for authority, lifecycle, lease, and seal drift", async () => {
     const revoked = await prepareAttempt("revoked", true);
     await persistence.query(
-      `update fx_system_scope_clock
+      `update fx_system_scope_execution_authority
        set authorization_revocation_epoch = authorization_revocation_epoch + 1
-       where scope_uuid = $1`,
+       where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1)`,
       [revoked.scopeUuid],
     );
     await expect(expectReplacementFailure(revoked)).resolves.toMatchObject({
@@ -969,8 +969,9 @@ describe("O08-A exact-attempt replacement", () => {
       | "headerEpochMismatch",
   ): Promise<void> {
     const clock = await persistence.query<{ epoch_uuid: string }>(
-      `select epoch_uuid::text from fx_system_scope_clock
-       where scope_uuid = $1`,
+      `select authority.epoch_uuid::text from fx_system_scope_execution_authority authority
+       join fx_system_scope_clock clock using (scope_id)
+       where clock.scope_uuid = $1`,
       [current.scopeUuid],
     );
     const epochUuid = clock.rows[0]?.epoch_uuid;

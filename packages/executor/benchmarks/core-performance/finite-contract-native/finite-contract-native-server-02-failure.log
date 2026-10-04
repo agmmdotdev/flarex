@@ -1,0 +1,30 @@
+
+ RUN  v5.0.0 C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/medusa-adapter
+
+ ❯ benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts (1 test | 1 failed) 28434ms
+   ❯ matched native and finite Product retrieve (1)
+     ❯  (1)
+       × retains complete default results, missing errors and charged setup 28429ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts > matched native and finite Product retrieve > retains complete default results, missing errors and charged setup
+Error: Missing observed nested finite protected metadata tail server work
+ ❯ requireProtectedServerWork benchmarks/core-performance/mixed-native-read/scenario.ts:180:13
+
+    178|   ] as const) {
+    179|     if (!statements.some(statement => !statement.toplevel && statement…
+    180|       throw new Error(`Missing observed nested finite ${owner} server …
+       |             ^
+    181|   }
+    182| }
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  05:45:25
+   Duration  42.61s (tests 67%, transform 23%, import 10%)
+
+ ❯ runFinite benchmarks/core-performance/mixed-native-read/scenario.ts:378:15
+ ❯ runMixedNativeReadPerformanceScenario benchmarks/core-performance/mixed-native-read/scenario.ts:382:49
+ ❯ benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts:23:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯

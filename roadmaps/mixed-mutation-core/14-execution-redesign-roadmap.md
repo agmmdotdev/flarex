@@ -12,16 +12,27 @@ one prepared source graph and exact-transaction coverage reuse, including comple
 initial authentication and renewal. New attestation/maintenance and host
 contracts remain gated.
 
-The owner selected a foundation replacement. Package 1 has an incomplete
-implementation checkpoint following the committed standalone-read and
-framework-organization handoff. Current corrections and performance-harness work
-remain with their owner; successor runtime work requires the handoff below.
+The owner selected a foundation replacement. Package 1's private architectural
+cutover is delivered following the standalone-read and
+framework-organization handoff. The mixed correction and direct performance
+harness are handed off. Transaction-local common finite observation sharing
+under slice 20 is an uncommitted candidate with acceptance incomplete. Its
+selected architecture replacement is recorded in the
+[finite execution contract](./23-finite-execution-contract-preflight.md):
+attempt-fixed metadata and consumed dependencies, demanded snapshot-compatible
+serving state, explicit live authority and one settlement owner. Current sharing
+is groundwork within the existing protocol. The selected replacement separates
+authority from commit sequencing, persists an entry metadata reservation, and
+validates relevant semantic changes at publication. Complete ordered-catalog
+capacity is selected at 512 definitions. Connected architectural implementation
+and consumer migration are delivered; fixed numerical acceptance remains open.
+SQL fusion remains a mechanism within this contract.
 The earlier component sequence in [core performance](../core-performance/README.md)
 is superseded for this mixed successor by the connected packages below. Its
 measurement and proportional-validation method remains useful. Current mixed
 runtime contracts retain their obligations except for the explicit finite
 intermediate-read replacement in slice 20 and the accepted database design.
-The package's complete validation and performance gates remain open: its matched
+The package's performance gates remain open: its matched
 native added-latency budget fails and complete request latency regresses. The
 checkpoint does not select package 2 or change its terminal durability gate.
 
@@ -41,6 +52,38 @@ profiles. Admission, readiness and publication keep separate purposes and
 freshness boundaries. Reducing their overhead does not require moving all hooks
 after commit, making resource locks into OCC, broadening automatic retries or
 removing durable seal. Those semantic changes need their own explicit decisions.
+
+### Architecture First, Small Optimizations Afterward
+
+Complete the selected connected architecture replacement before starting a
+separate sequence of small performance optimizations. Admission, attempt-owned
+metadata and snapshot, demanded readiness, contribution, settlement and recovery
+must have explicit owners and lifetimes; migrate affected consumers and remove
+displaced choreography within their coherent delivery slices. Existing package
+scope and terminal durability decisions still govern that work.
+
+Every implementation change must identify the selected responsibility or
+lifetime it establishes, the affected consumers, and the old path it replaces.
+Fewer SQL submissions, helper extraction, query fusion, batching, compiler reuse
+or a faster isolated benchmark do not by themselves complete the redesign.
+Defer standalone tuning that leaves the existing execution topology intact.
+An acquisition mechanism may be part of a selected architectural cutover, but
+its justification must be that contract rather than an isolated query saving.
+
+Correctness fixes, connected validation, required measurements, review and cleanup
+continue during the redesign. If a measurement exposes a missing architectural
+boundary, correct its owner through the focused preflight. Do not turn a failed
+latency gate into an indefinite loop of local optimizations while connected
+architecture work remains unfinished. Identify the remaining architecture and
+required decisions explicitly, and follow their delivery gates.
+
+Report architectural cutover and performance acceptance separately. Architectural
+completion requires connected consumer and failure/recovery proofs, both reviews
+and retirement of displaced paths; it does not claim that latency targets pass.
+After that cutover, select and measure small optimizations against the resulting
+architecture. Keep all fixed performance gates and failed measurements visible;
+this ordering does not waive acceptance or authorize an unapproved durability
+change.
 
 ### Responsibility And Lifetime
 
@@ -121,14 +164,18 @@ Ordinary durable-operation checkpoints remain for their real callers.
 
 The local standalone read/installation and framework runtime/participant cutover
 is committed; full latency/scaling and broader capability gates remain distinct.
-The active mixed-read correction and performance-harness scope owns overlapping
-persistence, adapter and test files. Its owner must finish that scope,
-validate/review/commit it and provide a clean pause or explicit path handoff before
-successor runtime edits. Audit the handed-off baseline, remaining installation
-coverage and package 1 failures. Do not absorb dirty work or resume the archived
+The mixed-read correction and direct performance harness have supplied their
+reviewed, committed clean handoff. Slice 20 now owns the authorized connected
+common-observation replacement and package 1 acceptance failures. The candidate
+has been replaced for existing private finite consumers by the selected slice 23
+kernel, installation, metadata and ordered-catalog contracts. Named full, direct,
+ordinary and durable/recovery callers retain their explicit obligations; they
+are not finite fallback paths. Preserve the handed-off and failed performance
+evidence. Further standalone tuning follows this architectural cutover.
+Do not absorb unrelated dirty work or resume the archived
 failed publication experiment. Remaining organization, composed-query and storage
 backlog stays with its owner; whole-goal completion is not required for a bounded
-handoff. This documentation direction does not itself constitute that handoff.
+handoff. Package 2's terminal durability decision remains separately gated.
 
 ## Outcome and current evidence
 

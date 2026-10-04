@@ -1,9 +1,15 @@
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
+import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { sql } from "drizzle-orm";
-import { Effect } from "effect";
-import { decodeReplacementScopeIdV1, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema } from "flarex-protocol/storage-authority";
+import { eq, sql } from "drizzle-orm";
+import { Cause, Effect, Exit, Result } from "effect";
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import { makeGrantRetentionPolicyV1Result } from "flarex-protocol/grant-retention-policy";
+import { CommitSeqSchema, decodeReplacementScopeIdV1, FlarexDbV1StorageGenerationSchema,
+  LegacyV1StorageGenerationSchema, StorageGenerationFenceSchema,
+  projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, ScopeEpochSchema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TransactionAttemptFenceSchema,
@@ -11,16 +17,23 @@ import {
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 import type { PoolClient } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, type MockInstance } from "vitest";
 
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
+  createPostgresLocatedRetainedHistoryFloorTarget,
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
 import type { AppRowTransaction } from "../src/appRows";
 import { rowsFromDriverExecuteResult } from "../src/driverExecuteResult";
-import { fxSystemScopeClocks } from "../src/schema";
+import { fxControlScopes, fxSystemCommits, fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../src/schema";
+import { advanceScopeAuthorizationRevocationEpochInTransactionEffect,
+  lockScopeClockForOrdinaryWriteInTransactionEffect, lockScopeClockForUpdateInTransactionEffect,
+  requireFiniteExecutionAuthorityObservation } from "../src/scopeClock";
+import { captureFiniteMetadataReservation, persistFiniteMetadataReservationInTransaction } from "../src/finiteMetadataReservation";
+import { createRetainedHistoryFloorPublicationPort, createTestNoReconnectRetainedHistoryFloorPublicationPinFacet,
+  publishRetainedHistoryFloorEffect } from "../src/retainedHistoryFloorObservation";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   type PostgresLocatedReadCommittedRunnerOptionsV1,
@@ -39,6 +52,7 @@ import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
+  recognizeFiniteMetadataReservationUpdate,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionActivationResolutionPortsV1,
   type PointMutationSessionActivationResultV1,
@@ -49,17 +63,26 @@ import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   isLocatedExactRunningAttemptKernelV1,
+  type ExactRunningAttemptKernelInputV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
   isLocatedExactRunningAttemptReadSyscallKernelV1,
+  RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT,
+  isLocatedFiniteRunningAttemptReadSyscallKernel,
 } from "../src/transactionSessionReadSyscallKernel";
 import {
   postgresUrl,
+  createFileScopedPostgresFixture,
+  createProtectedFileScopedPostgresFixture,
+  createCoLocatedReadInstallationFixture,
   rollbackAndReleasePostgresClient,
   useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
+import { getCoLocatedReadInstallationReferencesResult } from "../src/installationLifecycle";
+import { prepareProtectedMetadata } from "../src/preparedMetadataEpoch";
+import { withInstallationMaintenance } from "../src/postgresInstallationMaintenance";
 import {
   runEffect,
   runEffectFailure as runFailure,
@@ -102,11 +125,13 @@ describePostgres("real Postgres O03-B session authority", () => {
         scopeId: peerScopeId,
         physicalLocator: context.physicalLocator,
       });
-      await persistence.drizzle.insert(fxSystemScopeClocks).values({
-        scopeId: peerScopeId,
-        storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      await persistence.drizzle.transaction(async tx => {
+      await tx.insert(fxSystemScopeClocks).values({ scopeId: peerScopeId });
+      await tx.insert(fxSystemScopeExecutionAuthorities).values({
+        scopeId: peerScopeId, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
         epoch: ScopeEpochSchema.make(`epoch_${ids()}`),
       });
+    });
       await setFlarexActivationClock(persistence, peerScopeId);
       await expect(persistence.getScopeMetadataByDeploymentId(context.deploymentId))
         .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
@@ -1204,7 +1229,7 @@ describePostgres("real Postgres O03-B session authority", () => {
               const preliminary = await baseTarget.getCurrentClock(scopeId);
               await persistence.query(
                 `
-                  update fx_system_scope_clock
+                  update fx_system_scope_execution_authority
                   set storage_generation_fence = storage_generation_fence + 1
                   where scope_id = $1
                 `,
@@ -1374,9 +1399,13 @@ describePostgres("real Postgres O03-B session authority", () => {
         [anchor.sessionId],
       );
       await persistence.query(
-        `update fx_system_scope_clock
-         set last_commit_seq = 1, oldest_available_commit_seq = 1
-         where scope_id = $1`,
+        `with authority_lock as materialized (
+         select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+       ), sequencer as (
+         update fx_system_scope_clock c set last_commit_seq = 1 from authority_lock a
+         where c.scope_id = a.scope_id returning c.scope_id
+       ) update fx_system_scope_execution_authority a set oldest_available_commit_seq = 1
+       from sequencer c where a.scope_id = c.scope_id`,
         [context.scopeId],
       );
 
@@ -1513,6 +1542,734 @@ describePostgres("real Postgres O03-B session authority", () => {
     });
   });
 });
+
+describePostgres("finite running authority barrier", () => {
+  it("refuses a future terminal revocation counter without releasing its expired reservation", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const fixture = await finiteBarrierFixture(persistence, "future_terminal_revocation", false);
+      const anchor = fixture.activated.anchor;
+      await persistence.query(`update fx_system_tx_session set authorization_revocation_epoch = 1
+        where session_id = $1`, [anchor.sessionId]);
+      await persistence.query(`update fx_system_snapshot_lease
+        set lease_expires_at = '2000-01-01T00:00:00Z' where session_id = $1`, [anchor.sessionId]);
+      const before = await attemptRowState(persistence, fixture.context.scopeId);
+      const payloadBefore = await captureSessionStorage(persistence, anchor);
+      await expect(expirePointMutationSessionAttempt(createTerminalizationPersistence(persistence), selectorFromAnchor(anchor)))
+        .rejects.toMatchObject({ issue: { reason: "authorizationRevocationEpochChanged" } });
+      expect(await attemptRowState(persistence, fixture.context.scopeId)).toEqual(before);
+      expect(await captureSessionStorage(persistence, anchor)).toEqual(payloadBefore);
+      expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({
+        sessions: 1, leases: 1, journals: 1, executionClaims: 1,
+      });
+    });
+  }, 120_000);
+
+  for (const refusal of ["snapshot mismatch", "finishing lifecycle"] as const) {
+    it(`refuses terminal abort ${refusal} before a held execution claim`, async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        const fixture = await finiteBarrierFixture(persistence, `terminal_early_${refusal}`, false);
+        const anchor = fixture.activated.anchor;
+        if (refusal === "finishing lifecycle") await persistence.query(`update fx_system_tx_session
+          set lifecycle = 'finishing' where session_id = $1`, [anchor.sessionId]);
+        const before = await attemptRowState(persistence, fixture.context.scopeId);
+        const payloadBefore = await captureSessionStorage(persistence, anchor);
+        const claimBefore = await executionClaimRow(persistence, anchor.sessionId);
+        const events: string[] = [];
+        const terminalization = createTerminalizationPersistence(persistence, {
+          afterTerminalizationEvent: event => { events.push(`${event.phase}:${event.step}`); },
+        });
+        const holder = await persistence.pool.connect();
+        let pending: Promise<unknown> | undefined;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await holder.query("begin");
+          const claim = await holder.query(`select session_id from fx_system_tx_execution_claim
+            where session_id = $1 for update`, [anchor.sessionId]);
+          expect(claim.rows).toHaveLength(1);
+          pending = abortPointMutationSessionAttempt(terminalization, {
+            selector: selectorFromAnchor(anchor), executionClaim: executionClaimForAnchor(anchor),
+            expectedSnapshotToken: refusal === "snapshot mismatch"
+              ? { ...anchor.snapshotToken, commitSeq: CommitSeqSchema.make(anchor.snapshotToken.commitSeq + 1n) }
+              : anchor.snapshotToken,
+          }).then(() => { throw new Error("Unexpected successful invalid terminal abort"); }, failure => failure);
+          const deadline = new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("Earlier terminal refusal waited for the later claim gate")), 2_000);
+          });
+          expect(await Promise.race([pending, deadline])).toMatchObject(refusal === "snapshot mismatch"
+            ? { _tag: "PointMutationSessionAuthorityCorruptionV1Error", issue: "attemptSnapshotChanged" }
+            : { _tag: "PointMutationSessionAttemptTerminalizationV1Error",
+              issue: { reason: "attemptNotTerminalizable", lifecycle: "finishing" } });
+          expect(events).toEqual(["lock:clockLocked", "lock:sessionLocked", "lock:leaseLocked", "lock:journalRootLocked"]);
+          expect(await attemptRowState(persistence, fixture.context.scopeId)).toEqual(before);
+          expect(await captureSessionStorage(persistence, anchor)).toEqual(payloadBefore);
+          expect(await executionClaimRow(persistence, anchor.sessionId)).toEqual(claimBefore);
+          expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({
+            sessions: 1, leases: 1, journals: 1, executionClaims: 1,
+          });
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+          await rollbackAndReleasePostgresClient(holder);
+          await pending?.catch(() => undefined);
+        }
+      });
+    }, 120_000);
+  }
+
+  it("observes an idempotent terminal abort without acquiring the claim relation", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const fixture = await finiteBarrierFixture(persistence, "terminal_idempotent_claim_gate", false);
+      const anchor = fixture.activated.anchor;
+      const terminalization = createTerminalizationPersistence(persistence);
+      const input = { selector: selectorFromAnchor(anchor), executionClaim: executionClaimForAnchor(anchor),
+        expectedSnapshotToken: anchor.snapshotToken };
+      const terminalized = await abortPointMutationSessionAttempt(terminalization, input);
+      expect(terminalized).toMatchObject({ status: "terminalized", terminal: { lifecycle: "aborted" } });
+      const before = await captureSessionStorage(persistence, anchor);
+      const holder = await persistence.pool.connect();
+      let pending: Promise<unknown> | undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await holder.query("begin");
+        // A table gate also proves that no query of the now-empty claim
+        // directory is needed to observe the authentic terminal disposition.
+        await holder.query("lock table fx_system_tx_execution_claim in access exclusive mode");
+        pending = abortPointMutationSessionAttempt(terminalization, input);
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error("Idempotent terminal observation acquired the claim relation")), 2_000);
+        });
+        expect(await Promise.race([pending, deadline])).toEqual({ ...terminalized, status: "observed" });
+        expect(await captureSessionStorage(persistence, anchor)).toEqual(before);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        await rollbackAndReleasePostgresClient(holder);
+        await pending?.catch(() => undefined);
+      }
+      expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({
+        sessions: 1, leases: 0, journals: 0, executionClaims: 0,
+      });
+    });
+  }, 120_000);
+
+  it("samples terminal abort time after the exact claim lock wait", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const fixture = await finiteBarrierFixture(persistence, "terminal_claim_wait", false);
+      const anchor = fixture.activated.anchor;
+      const before = await attemptRowState(persistence, fixture.context.scopeId);
+      const payloadBefore = await captureSessionStorage(persistence, anchor);
+      const claimBefore = await executionClaimRow(persistence, anchor.sessionId);
+      const held = await persistence.pool.connect();
+      let pending: Promise<unknown> | undefined;
+      let outcome: Promise<void> | undefined;
+      try {
+        await held.query("begin");
+        await held.query("select 1 from fx_system_tx_execution_claim where session_id = $1 for update", [anchor.sessionId]);
+        const pid = (await held.query<{ pid: number }>("select pg_backend_pid()::int as pid")).rows[0]?.pid;
+        if (pid === undefined) throw new Error("Missing terminal claim blocker PID");
+        pending = abortPointMutationSessionAttempt(createTerminalizationPersistence(persistence), {
+          selector: selectorFromAnchor(anchor), executionClaim: executionClaimForAnchor(anchor),
+          expectedSnapshotToken: anchor.snapshotToken,
+        });
+        outcome = expect(pending).rejects.toMatchObject({ issue: { reason: "executionClaimUnavailable" } });
+        await waitForAuthorityWaiter(persistence, pid, false);
+        // Publish an expired claim only after the waiter reaches the row gate.
+        // The old pre-wait time would still consider this same pin live.
+        await held.query(`update fx_system_tx_execution_claim
+          set claim_expires_at = clock_timestamp() + interval '2 seconds' where session_id = $1`, [anchor.sessionId]);
+        const deadline = Date.now() + 5_000;
+        while (true) {
+          const clock = await held.query<{ expired: boolean }>(`select claim_expires_at <= clock_timestamp() as expired
+            from fx_system_tx_execution_claim where session_id = $1`, [anchor.sessionId]);
+          if (clock.rows[0]?.expired === true) break;
+          if (Date.now() >= deadline) throw new Error("Claim did not expire while terminal cleanup waited");
+          await delay(25);
+        }
+        await held.query("commit");
+        await outcome;
+        expect(await attemptRowState(persistence, fixture.context.scopeId)).toEqual(before);
+        expect(await captureSessionStorage(persistence, anchor)).toEqual(payloadBefore);
+        expect(await executionClaimRow(persistence, anchor.sessionId)).toEqual(claimBefore);
+        expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({
+          sessions: 1, leases: 1, journals: 1, executionClaims: 1,
+        });
+      } finally {
+        await rollbackAndReleasePostgresClient(held);
+        await pending?.catch(() => undefined);
+        await outcome?.catch(() => undefined);
+      }
+    });
+  }, 120_000);
+
+  for (const operation of ["abort", "expire"] as const) {
+    it(`releases a revoked finite reservation through exact ${operation} cleanup`, async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        const fixture = await finiteBarrierFixture(persistence, `revoked_${operation}`, false);
+        const anchor = fixture.activated.anchor;
+        const payloadBefore = await captureSessionStorage(persistence, anchor);
+        const reserved = await persistence.query<{ reserved: boolean }>(`
+          select metadata_watermark is not null
+            and finite_metadata_reservation_bytes is not null
+            and finite_metadata_reservation_sha256 is not null as reserved
+          from fx_system_snapshot_lease where session_id = $1`, [anchor.sessionId]);
+        expect(reserved.rows).toEqual([{ reserved: true }]);
+        await persistence.drizzle.transaction(tx => runEffect(
+          advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, fixture.context.scopeId)));
+        await expectFiniteRefusalBeforeData(persistence, fixture, fixture.input, "authorizationRevocationEpochChanged");
+        if (operation === "expire") await persistence.query(`update fx_system_snapshot_lease
+          set lease_expires_at = '2000-01-01T00:00:00Z' where session_id = $1`, [anchor.sessionId]);
+        const terminalization = createTerminalizationPersistence(persistence);
+        const result = operation === "abort"
+          ? await abortPointMutationSessionAttempt(terminalization, {
+              selector: selectorFromAnchor(anchor), executionClaim: executionClaimForAnchor(anchor),
+              expectedSnapshotToken: anchor.snapshotToken,
+            })
+          : await expirePointMutationSessionAttempt(terminalization, selectorFromAnchor(anchor));
+        expect(result).toMatchObject({ status: "terminalized",
+          terminal: { lifecycle: operation === "abort" ? "aborted" : "expired" } });
+        expectSessionPayloadScrubbed(payloadBefore, await captureSessionStorage(persistence, anchor));
+        expect(await rowCounts(persistence, fixture.context.scopeId)).toEqual({
+          sessions: 1, leases: 0, journals: 0, executionClaims: 0,
+        });
+        const authority = await persistence.query<{ revocation: string; commit_seq: string }>(`
+          select a.authorization_revocation_epoch::text as revocation, c.last_commit_seq::text as commit_seq
+          from fx_system_scope_execution_authority a join fx_system_scope_clock c using(scope_id)
+          where a.scope_id = $1`, [fixture.context.scopeId]);
+        expect(authority.rows).toEqual([{ revocation: "1", commit_seq: "0" }]);
+      });
+    }, 120_000);
+  }
+
+  for (const [dimension, reason] of [
+    ["generation", "unsupportedStorageGeneration"],
+    ["fence", "storageGenerationFenceChanged"],
+    ["epoch", "scopeEpochChanged"],
+  ] as const) {
+    it(`refuses changed ${dimension} before data and before later claim refusal`, async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        const fixture = await finiteBarrierFixture(persistence, `refuse_${dimension}`, false);
+        const currentInput = await takeOverFiniteFixtureClaim(persistence, fixture);
+        const nextFence = StorageGenerationFenceSchema.make(currentInput.preliminaryAuthority.storageGenerationFence + 1n);
+        const nextEpoch = ScopeEpochSchema.make("epoch_64000000-0000-4000-8000-000000000902");
+        await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set(
+          dimension === "generation" ? { storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") }
+            : dimension === "fence" ? { storageGenerationFence: nextFence } : { epoch: nextEpoch },
+        ).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+        await expectFiniteRefusalBeforeData(persistence, fixture, currentInput, reason);
+        // Add only later refusals: generation precedes fence/epoch; fence
+        // precedes epoch; every authority refusal precedes the stale claim.
+        if (dimension !== "epoch") await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
+          ...(dimension === "generation" ? { storageGenerationFence: nextFence } : {}), epoch: nextEpoch,
+        }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+        await expectFiniteRefusalBeforeData(persistence, fixture,
+          { ...currentInput, executionClaim: fixture.input.executionClaim }, reason);
+      });
+    }, 120_000);
+  }
+
+  for (const dimension of ["owner", "fence"] as const) {
+    it(`refuses an independently stale claim ${dimension} before data`, async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        const fixture = await finiteBarrierFixture(persistence, `refuse_claim_${dimension}`, false);
+        const currentInput = await takeOverFiniteFixtureClaim(persistence, fixture);
+        // Each stale component was issued by the real prior claim owner. Keep
+        // all other components from the actual successful takeover observation.
+        const executionClaim = { ...currentInput.executionClaim,
+          ...(dimension === "owner" ? { claimOwner: fixture.input.executionClaim.claimOwner }
+            : { claimFence: fixture.input.executionClaim.claimFence }),
+        };
+        await expectFiniteRefusalBeforeData(persistence, fixture,
+          { ...currentInput, executionClaim }, "executionClaimUnavailable");
+      });
+    }, 120_000);
+  }
+
+  for (const profile of ["direct", "installed"] as const) {
+  it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+    `allows sequencer publication while retaining authority through lease expiry and floor publication${profile === "installed" ? " (qualified installed)" : ""}`, async () => {
+    await withFiniteKernelFixture("floor", profile, true, async (persistence, fixture) => {
+      const entered = deferred<number>();
+      const release = deferred<void>();
+      const reading = runEffect(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+        fixture.input, (tx, context) => Effect.tryPromise({
+          try: async () => {
+            expect(Result.getOrThrow(requireFiniteExecutionAuthorityObservation(tx, context.authority)))
+              .toBe(context.authority);
+            expect(context.executionAuthorityGeneration).toBe("legacy_dynamic_worker_v1");
+            expect(Object.keys(context.journalRoot)).toEqual([
+              "scopeUuid", "sessionId", "attemptFence", "journalFormat",
+              "executionProfile", "state", "lastSyscallSequence",
+            ]);
+            entered.resolve(await transactionBackendPid(tx));
+            await release.promise;
+            return context.anchor.snapshotToken.commitSeq;
+          }, catch: cause => new Error("Finite barrier callback failed", { cause }),
+        })));
+      void reading.catch(() => undefined);
+      let publication: Promise<unknown> | undefined;
+      try {
+        const readerPid = await waitForTransactionEntryOrFailure(entered.promise, reading, "finite floor barrier");
+        // The actual ordinary writer takes authority SHARE and the sequencer's
+        // exclusive publication lock; the original snapshot remains zero.
+        await persistence.drizzle.transaction(async tx => {
+          await tx.execute(sql`set local lock_timeout = '2s'`);
+          const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.context.scopeId));
+          await tx.insert(fxSystemCommits).values({ scopeUuid: Result.getOrThrow(projectScopeIdUuidV1Result(fixture.context.scopeId)).scopeUuid,
+            epochUuid: Result.getOrThrow(projectScopeEpochUuidV1Result(fixture.activated.anchor.snapshotToken.epoch)).epochUuid,
+            commitSeq: CommitSeqSchema.make(1n), changeCount: 0,
+            committedAt: sql`clock_timestamp() - interval '30 seconds'` });
+          expect(clock.lastCommitSeq).toBe(0n);
+          await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+            .where(eq(fxSystemScopeClocks.scopeId, fixture.context.scopeId));
+        });
+        const port = createRetainedHistoryFloorPublicationPort({ authority: {
+          scopeMetadata: persistence, provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => { throw new Error("Shared scope has no split receipt"); },
+          }, scopeClockTargets: { resolve: async locator => createPostgresLocatedRetainedHistoryFloorTarget(persistence, locator) },
+        }, grantRetentionPolicy: Result.getOrThrow(makeGrantRetentionPolicyV1Result({
+          maximumGrantLifetimeMilliseconds: 1_000, maximumFutureIssuedAtSkewMilliseconds: 0,
+          maximumLiveSnapshotRetentionMilliseconds: 10_000,
+        })), pinFacets: [createTestNoReconnectRetainedHistoryFloorPublicationPinFacet()] });
+        publication = runEffect(publishRetainedHistoryFloorEffect(port, fixture.context.deploymentId));
+        void publication.catch(() => undefined);
+        await waitForAuthorityWaiter(persistence, readerPid);
+        await waitForFiniteLeaseExpiry(persistence, fixture.activated.anchor.sessionId);
+        expect((await persistence.query(`select oldest_available_commit_seq::text as floor
+          from fx_system_scope_execution_authority where scope_id = $1`, [fixture.context.scopeId])).rows)
+          .toEqual([{ floor: "0" }]);
+        // Expiring the lease does not remove the authority lock held by SQL.
+        await waitForAuthorityWaiter(persistence, readerPid);
+        release.resolve(undefined);
+        expect(await reading).toBe(0n);
+        expect(await publication).toMatchObject({ disposition: "advanced", currentFloor: 1n });
+        let enteredAgain = false;
+        const failure = await runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+          fixture.input, () => { enteredAgain = true; return Effect.void; }));
+        expect(failure).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error",
+          cause: { issue: "snapshotLeaseInvalid" } });
+        expect(enteredAgain).toBe(false);
+      } finally {
+        release.resolve(undefined);
+        await reading.catch(() => undefined);
+        await publication?.catch(() => undefined);
+      }
+    });
+  }, 120_000);
+  }
+
+  for (const profile of ["direct", "installed"] as const) {
+  it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+    `holds revocation behind the finite reader and refuses the next frontier${profile === "installed" ? " (qualified installed)" : ""}`, async () => {
+    await withFiniteKernelFixture("revocation", profile, false, async (persistence, fixture) => {
+      const entered = deferred<number>();
+      const release = deferred<void>();
+      const reading = runEffect(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+        fixture.input, tx => Effect.tryPromise({ try: async () => {
+          entered.resolve(await transactionBackendPid(tx)); await release.promise;
+        }, catch: cause => new Error("Finite reader failed", { cause }) })));
+      void reading.catch(() => undefined);
+      let revocation: Promise<unknown> | undefined;
+      try {
+        const readerPid = await waitForTransactionEntryOrFailure(entered.promise, reading, "finite revocation barrier");
+        revocation = persistence.drizzle.transaction(tx => runEffect(
+          advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, fixture.context.scopeId)));
+        void revocation.catch(() => undefined);
+        await waitForAuthorityWaiter(persistence, readerPid);
+        release.resolve(undefined); await reading; await revocation;
+        let enteredAgain = false;
+        expect(await runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+          fixture.input, () => { enteredAgain = true; return Effect.void; })))
+          .toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error",
+            cause: { issue: { reason: "authorizationRevocationEpochChanged" } } });
+        expect(enteredAgain).toBe(false);
+      } finally { release.resolve(undefined); await reading.catch(() => undefined); await revocation?.catch(() => undefined); }
+    });
+  }, 120_000);
+  }
+
+  for (const profile of ["direct", "installed"] as const) {
+  it.skipIf(profile === "installed" && !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+    `samples expiry after waiting for the live claim lock${profile === "installed" ? " (qualified installed)" : ""}`, async () => {
+    await withFiniteKernelFixture("expiry", profile, true, async (persistence, fixture) => {
+      const held = await persistence.pool.connect();
+      let pending: Promise<unknown> | undefined;
+      let entered = false;
+      try {
+        await held.query("begin");
+        await held.query("select 1 from fx_system_tx_execution_claim where session_id = $1 for update",
+          [fixture.activated.anchor.sessionId]);
+        const pid = (await held.query<{ pid: number }>("select pg_backend_pid()::int as pid")).rows[0]?.pid;
+        if (pid === undefined) throw new Error("Missing blocker PID");
+        pending = runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+          fixture.input, () => { entered = true; return Effect.void; }));
+        await waitForAuthorityWaiter(persistence, pid, false);
+        await waitForFiniteLeaseExpiry(persistence, fixture.activated.anchor.sessionId);
+        await held.query("rollback");
+        expect(await pending).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error",
+          cause: { issue: { reason: "activeAttemptExpired" } } });
+        expect(entered).toBe(false);
+      } finally { await rollbackAndReleasePostgresClient(held); await pending?.catch(() => undefined); }
+    });
+  }, 120_000);
+  }
+
+  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+    "validates qualified finite admission before compact locks and preserves isolation, Cause and maintenance drain", async () => {
+    await withInstalledFiniteKernelFixture("composition", false, async (persistence, fixture, owner, controlOwner) => {
+      const spies: MockInstance<PoolClient["query"]>[] = [];
+      const observe = (client: PoolClient) => { spies.push(vi.spyOn(client, "query")); };
+      persistence.pool.on("acquire", observe);
+      try {
+        const snapshot = await runEffect(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+          fixture.input, (tx, context) => Effect.sync(() => {
+            expect(Result.getOrThrow(requireFiniteExecutionAuthorityObservation(tx, context.authority))).toBe(context.authority);
+            expect(context.executionAuthorityGeneration).toBe("legacy_dynamic_worker_v1");
+            expect(context.snapshotLease.finiteMetadataReservationBytes).toBeInstanceOf(Uint8Array);
+            return context.anchor.snapshotToken;
+          })));
+        expect(snapshot).toEqual(fixture.activated.anchor.snapshotToken);
+        const statements = spies.flatMap(spy => spy.mock.calls.map(call => {
+          const query: unknown = call[0];
+          return typeof query === "string" ? query : typeof query === "object" && query !== null &&
+            "text" in query && typeof query.text === "string" ? query.text : "";
+        }));
+        const accepting = statements.filter(statement => statement.includes("fx_lock_finite_running_attempt"));
+        const admissions = statements.filter(statement => statement.includes("fx_lock_finite_scope_observation"));
+        expect(accepting).toHaveLength(1);
+        expect(admissions).toHaveLength(1);
+        const admission = admissions[0], compact = accepting[0];
+        if (admission === undefined || compact === undefined) throw new Error("Missing actual finite admission statements");
+        expect(admission).toContain("fx_lock_read_scope_placement");
+        expect(admission).toContain("first_gate as materialized");
+        expect(admission).not.toContain("fx_lock_finite_running_attempt");
+        expect(compact).not.toContain("fx_lock_read_scope_placement");
+        expect(statements.indexOf(admission)).toBeLessThan(statements.indexOf(compact));
+        expect(statements.filter(statement => statement.includes("fx_lock_read_scope_placement"))).toHaveLength(1);
+        expect(compact).not.toContain("sealed_journal_bytes");
+        expect(compact).not.toContain("sealed_result_bytes");
+        expect(admission).not.toContain("as scope_authority");
+        expect(admission).not.toContain("as fx_system_scope_clock");
+      } finally {
+        persistence.pool.off("acquire", observe);
+        for (const spy of spies) spy.mockRestore();
+      }
+
+      const peer = await provisionContext(owner.persistence, "installed_peer", fixture.context.physicalLocator, randomUUID);
+      const peerDeployment = await owner.persistence.getDeploymentMetadata(peer.deploymentId);
+      if (peerDeployment === null) throw new Error("Missing actual peer deployment");
+      await controlOwner.persistence.insertDeploymentMetadata(peerDeployment);
+      await controlOwner.persistence.insertScopeMetadata({ deploymentId: peer.deploymentId, scopeId: peer.scopeId,
+        physicalLocator: peer.physicalLocator });
+      let callbacks = 0;
+      const peerFailure = await runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+        { ...fixture.input, selector: { ...fixture.input.selector, deploymentId: peer.deploymentId, scopeId: peer.scopeId } },
+        () => { callbacks++; return Effect.void; }));
+      expect(peerFailure).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error",
+        cause: { issue: { reason: "selectorScopeMismatch" } } });
+      expect(callbacks).toBe(0);
+      await expectFiniteRefusalBeforeData(persistence, fixture, { ...fixture.input,
+        preliminaryAuthority: { ...fixture.input.preliminaryAuthority, storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") } },
+        "unsupportedStorageGeneration");
+
+      const defect = new Error("Installed finite callback defect");
+      const outcome = await Effect.runPromiseExit(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+        fixture.input, () => Effect.die(defect)));
+      if (!Exit.isFailure(outcome)) throw new Error("Unexpected successful finite callback defect");
+      expect(outcome.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+
+      const entered = deferred<number>(), release = deferred<void>();
+      let maintenanceWasEntered = false;
+      const reading = runEffect(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](fixture.input,
+        tx => Effect.tryPromise({ try: async () => { entered.resolve(await transactionBackendPid(tx)); await release.promise; },
+          catch: cause => new Error("Installed finite held callback failed", { cause }) })));
+      void reading.catch(() => undefined);
+      let maintaining: Promise<unknown> | undefined;
+      try {
+        const readerPid = await waitForTransactionEntryOrFailure(entered.promise, reading, "installed finite drain");
+        maintaining = runEffect(withInstallationMaintenance(owner.persistence.pool.options, owner.schemaName,
+          () => Effect.sync(() => { maintenanceWasEntered = true; })));
+        void maintaining.catch(() => undefined);
+        await waitForAuthorityWaiter(owner.persistence, readerPid, false);
+        release.resolve(undefined);
+        await reading;
+        await maintaining;
+        expect(maintenanceWasEntered).toBe(true);
+        expect((await owner.persistence.query("select state from fx_system_installation")).rows).toEqual([{ state: "draining" }]);
+        const failure = await runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+          fixture.input, () => { callbacks++; return Effect.void; }));
+        expect(failure).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error",
+          cause: { _tag: "InstalledScopeAuthorityError", reason: "resourceFailure", cause: { cause: { code: "55000" } } } });
+        expect(callbacks).toBe(0);
+      } finally { release.resolve(undefined); await reading.catch(() => undefined); await maintaining?.catch(() => undefined); }
+    });
+  }, 180_000);
+
+  for (const fault of ["clockTimestamp", "metadataSequence"] as const) {
+    it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+      `preserves installed ${fault} corruption before claim waits and stale generation refusal`, async () => {
+      await withInstalledFiniteKernelFixture(`corrupt_${fault}`, false, async (persistence, fixture, owner) => {
+        if (fault === "clockTimestamp") {
+          await owner.persistence.query(`update fx_system_scope_clock set updated_at = 'infinity' where scope_id = $1`, [fixture.context.scopeId]);
+        } else {
+          // Privileged stored-corruption fault: retain the exact decoder proof
+          // even when a constraint has been deliberately removed after startup.
+          await owner.persistence.query(`alter table fx_system_scope_clock
+            drop constraint fx_system_scope_clock_last_metadata_sequence_non_negative_check`);
+          await owner.persistence.query(`update fx_system_scope_clock set last_metadata_sequence = -1 where scope_id = $1`, [fixture.context.scopeId]);
+        }
+        await expectInstalledRefusalBeforeClaimRelease(fixture, owner.persistence, {
+          _tag: "ExactRunningAttemptTransactionV1Error", cause: {
+            _tag: "ScopeClockCorruptionError", scopeId: fixture.context.scopeId,
+            reason: fault === "clockTimestamp" ? "updated timestamp is invalid" : "metadata sequence is invalid",
+          },
+        });
+        let callbacks = 0;
+        const failure = await runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT]({ ...fixture.input,
+          preliminaryAuthority: { ...fixture.input.preliminaryAuthority, storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1") } },
+          () => { callbacks++; return Effect.void; }));
+        expect(failure).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error", cause: {
+          _tag: "ScopeClockCorruptionError", scopeId: fixture.context.scopeId,
+          reason: fault === "clockTimestamp" ? "updated timestamp is invalid" : "metadata sequence is invalid",
+        } });
+        expect(callbacks).toBe(0);
+        expect((await persistence.query(`select count(*)::int as leases from fx_system_snapshot_lease
+          where session_id = $1`, [fixture.activated.anchor.sessionId])).rows).toEqual([{ leases: 1 }]);
+      });
+    }, 180_000);
+  }
+
+  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+    "refuses installed locator drift before compact execution-claim waits", async () => {
+    await withInstalledFiniteKernelFixture("locator_wait", false, async (_persistence, fixture, owner, controlOwner) => {
+      await controlOwner.persistence.drizzle.update(fxControlScopes).set({ physicalLocator: {
+        ...fixture.context.physicalLocator, databaseKey: `${fixture.context.physicalLocator.databaseKey}_drift`,
+      } }).where(eq(fxControlScopes.scopeId, fixture.context.scopeId));
+      await expectInstalledRefusalBeforeClaimRelease(fixture, owner.persistence, {
+        _tag: "ExactRunningAttemptTransactionV1Error", cause: {
+          _tag: "TrustedScopeAuthorityResolutionError", failure: { reason: "scopeClockTargetPlacementMismatch" },
+        },
+      });
+    });
+  }, 180_000);
+
+  it.skipIf(!process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+    "observes the actual sequencer after a retained-floor authority wait in installed finite admission", async () => {
+    await withInstalledFiniteKernelFixture("floor_wait", true, async (persistence, fixture, owner) => {
+      const entered = deferred<number>(), release = deferred<void>();
+      // Controlled valid transition fixture under the real UPDATE clock owner.
+      // The separate publication test exercises retention-policy calculation.
+      const writing = owner.persistence.drizzle.transaction(async tx => {
+        const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.context.scopeId));
+        expect(clock.lastCommitSeq).toBe(0n);
+        entered.resolve(await transactionBackendPid(tx));
+        await release.promise;
+        await tx.insert(fxSystemCommits).values({ scopeUuid: Result.getOrThrow(projectScopeIdUuidV1Result(fixture.context.scopeId)).scopeUuid,
+          epochUuid: Result.getOrThrow(projectScopeEpochUuidV1Result(fixture.activated.anchor.snapshotToken.epoch)).epochUuid,
+          commitSeq: CommitSeqSchema.make(1n), changeCount: 0, committedAt: sql`clock_timestamp() - interval '30 seconds'` });
+        await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+          .where(eq(fxSystemScopeClocks.scopeId, fixture.context.scopeId));
+        await tx.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(1n) })
+          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.context.scopeId));
+      });
+      void writing.catch(() => undefined);
+      let reading: Promise<unknown> | undefined;
+      let callbacks = 0;
+      try {
+        const writerPid = await waitForTransactionEntryOrFailure(entered.promise, writing, "installed authority transition");
+        reading = runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](fixture.input,
+          () => { callbacks++; return Effect.void; }));
+        // Observe as the actual reader login: the ordinary owner cannot see
+        // another restricted role's pg_stat_activity wait-event fields.
+        await waitForAuthorityWaiter(persistence, writerPid, false);
+        await waitForFiniteLeaseExpiry(owner.persistence, fixture.activated.anchor.sessionId);
+        release.resolve(undefined);
+        await writing;
+        expect(await reading).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error", cause: { issue: "snapshotLeaseInvalid" } });
+        expect(callbacks).toBe(0);
+        expect((await persistence.query(`select c.last_commit_seq::text as sequence, a.oldest_available_commit_seq::text as floor
+          from fx_system_scope_clock c join fx_system_scope_execution_authority a using(scope_id)
+          where c.scope_id = $1`, [fixture.context.scopeId])).rows).toEqual([{ sequence: "1", floor: "1" }]);
+      } finally { release.resolve(undefined); await writing.catch(() => undefined); await reading?.catch(() => undefined); }
+    });
+  }, 180_000);
+});
+
+async function withFiniteKernelFixture(label: string, profile: "direct" | "installed", expireSoon: boolean,
+  work: (persistence: PostgresFlarexPersistence, fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>) => Promise<void>) {
+  if (profile === "direct") return withTemporaryPostgresPersistence(async persistence =>
+    work(persistence, await finiteBarrierFixture(persistence, label, expireSoon)));
+  return withInstalledFiniteKernelFixture(label, expireSoon, work);
+}
+
+async function withInstalledFiniteKernelFixture(label: string, expireSoon: boolean,
+  work: (persistence: PostgresFlarexPersistence, fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>,
+    owner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>,
+    controlOwner: Awaited<ReturnType<typeof createFileScopedPostgresFixture>>) => Promise<void>) {
+  const disposals: Array<() => Promise<void>> = [];
+  try {
+    const targetOwner = await createFileScopedPostgresFixture();
+    disposals.unshift(targetOwner.dispose);
+    const controlOwner = await createFileScopedPostgresFixture();
+    disposals.unshift(controlOwner.dispose);
+    const fixture = await finiteBarrierFixture(targetOwner.persistence, label, false,
+      { ...sharedLocator(`installed-finite-${label}`), schemaName: targetOwner.schemaName });
+    // Placement is owned by the actual control installation; the existing
+    // target owner created the real paired roots/session/claim/reservation.
+    const deployment = await targetOwner.persistence.getDeploymentMetadata(fixture.context.deploymentId);
+    if (deployment === null) throw new Error("Missing actual finite fixture deployment");
+    await controlOwner.persistence.insertDeploymentMetadata(deployment);
+    await controlOwner.persistence.insertScopeMetadata({ deploymentId: fixture.context.deploymentId,
+      scopeId: fixture.context.scopeId, physicalLocator: fixture.context.physicalLocator });
+    const targetRuntime = await createProtectedFileScopedPostgresFixture("managed", targetOwner);
+    disposals.unshift(targetRuntime.dispose);
+    const controlRuntime = await createProtectedFileScopedPostgresFixture("managed", controlOwner);
+    disposals.unshift(controlRuntime.dispose);
+    const pair = await createCoLocatedReadInstallationFixture({ target: targetRuntime,
+      control: controlRuntime, controlOwner });
+    const refs = Result.getOrThrow(getCoLocatedReadInstallationReferencesResult(pair.installation, targetRuntime.persistence.drizzle));
+    const controlProtection = await runEffect(prepareProtectedMetadata(targetRuntime.persistence.drizzle, refs.controlInstallation));
+    const target = createPostgresLocatedPointMutationSessionActivationTargetV1(targetRuntime.persistence,
+      fixture.context.physicalLocator, { managedInstallation: { installation: pair.installation, controlProtection } });
+    if (!isLocatedExactRunningAttemptKernelV1(target) || !isLocatedFiniteRunningAttemptReadSyscallKernel(target))
+      throw new Error("Expected installed full and compact attempt facets");
+    if (expireSoon) await targetOwner.persistence.query(`update fx_system_snapshot_lease
+      set lease_expires_at = clock_timestamp() + interval '2 seconds' where session_id = $1`, [fixture.activated.anchor.sessionId]);
+    await work(targetRuntime.persistence, { ...fixture, target }, targetOwner, controlOwner);
+  } finally {
+    const failures: unknown[] = [];
+    for (const dispose of disposals) {
+      const settled = await Promise.allSettled([dispose()]);
+      for (const result of settled) if (result.status === "rejected") failures.push(result.reason);
+    }
+    if (failures.length > 0) throw new AggregateError(failures, "Installed finite fixture cleanup failed");
+  }
+}
+
+async function finiteBarrierFixture(persistence: PostgresFlarexPersistence, label: string, expireSoon = true,
+  physicalLocator = sharedLocator(`finite-barrier-${label}`)) {
+  const ids = uuidFactory();
+  const context = await provisionContext(persistence, `finite_barrier_${label}`, physicalLocator, ids);
+  const activated = await activatePointMutationSession(createActivationPersistence(persistence, ids),
+    pointMutationSessionActivationFixture(context.deploymentId, context.scopeId, { executionProfile: "finiteRoot" }));
+  const target = createPostgresLocatedPointMutationSessionActivationTargetV1(persistence, context.physicalLocator);
+  const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(context.deploymentId, {
+    scopeMetadata: persistence, provisioningReceipts: {
+      getScopeAuthorityProvisioningReceipt: async () => { throw new Error("Shared scope has no split receipt"); },
+    }, scopeClockTargets: { resolve: async () => target },
+  }));
+  if (!isLocatedExactRunningAttemptKernelV1(located.target) || !isLocatedFiniteRunningAttemptReadSyscallKernel(located.target))
+    throw new Error("Expected full and finite attempt owner facets");
+  const input = { selector: selectorFromAnchor(activated.anchor), preliminaryAuthority: located.authority,
+    executionClaim: executionClaimForAnchor(activated.anchor) };
+  // Controlled reservation fixture: canonical owner writes authentic attempt
+  // pins under the full kernel. Application admission is covered separately.
+  await runEffect(located.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](input, (tx, full) => Effect.gen(function* () {
+    expect(full.executionAuthorityGeneration).toBe("legacy_dynamic_worker_v1");
+    const schemaVersionId = CatalogSchemaVersionIdSchema.make("schema_activation_v1");
+    const reservation = yield* captureFiniteMetadataReservation({ deploymentId: context.deploymentId,
+      scopeId: context.scopeId, sessionId: full.anchor.sessionId, attemptFence: full.anchor.attemptFence,
+      storageGeneration: "flarexdb_v1", storageGenerationFence: full.anchor.storageGenerationFence,
+      snapshotToken: full.anchor.snapshotToken, schemaVersionId, metadataWatermark: MetadataSequenceSchema.make(0n),
+      application: { revisionId: "controlled_barrier_fixture", activationSequence: "1", headSha256: "a".repeat(64),
+        activationSha256: "b".repeat(64), schemaVersionId, manifestSha256: "c".repeat(64) }, binding: null });
+    const updated = yield* persistFiniteMetadataReservationInTransaction(tx, reservation);
+    yield* Effect.fromResult(recognizeFiniteMetadataReservationUpdate(tx, full.snapshotLease, updated));
+  })));
+  if (expireSoon) await persistence.query(`update fx_system_snapshot_lease
+    set lease_expires_at = clock_timestamp() + interval '2 seconds' where session_id = $1`, [activated.anchor.sessionId]);
+  return { context, activated, target: located.target, input };
+}
+
+async function expectInstalledRefusalBeforeClaimRelease(
+  fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>, owner: PostgresFlarexPersistence,
+  expected: Readonly<Record<string, unknown>>) {
+  const holder = await owner.pool.connect();
+  let pending: Promise<unknown> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let callbacks = 0;
+  try {
+    await holder.query("begin");
+    const held = await holder.query(`select session_id from fx_system_tx_execution_claim
+      where session_id = $1 for update`, [fixture.activated.anchor.sessionId]);
+    expect(held.rows).toHaveLength(1);
+    pending = runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](fixture.input,
+      () => { callbacks++; return Effect.void; }));
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("Installed admission waited for a later execution-claim lock")), 2_000);
+    });
+    // The holder remains locked until finally. A later-lock regression fails
+    // this bounded witness, then releases the blocker and drains the request.
+    expect(await Promise.race([pending, deadline])).toMatchObject(expected);
+    expect(callbacks).toBe(0);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    await rollbackAndReleasePostgresClient(holder);
+    await pending?.catch(() => undefined);
+  }
+}
+
+async function takeOverFiniteFixtureClaim(persistence: PostgresFlarexPersistence,
+  fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>) {
+  // The entry owner can execute while its issued claim is live. A finite
+  // takeover deliberately grants abort-only authority even for an open root:
+  // durable rows cannot prove that a lost evaluator had no tentative children.
+  await runEffect(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](
+    fixture.input, () => Effect.void));
+  await expireExecutionClaim(persistence, fixture.activated.anchor.sessionId);
+  const acquired = await runEffect(createExecutionClaimAcquisition(persistence,
+    "64000000-0000-4000-8000-000000000901").acquireEffect(fixture.input.selector));
+  if (acquired.kind !== "acquired" || acquired.mode !== "abortOnly" || acquired.reason !== "dirtyOpen")
+    throw new Error("Expected the genuine finite abort-only execution-claim takeover");
+  expect(acquired.observation.claimOwner).not.toBe(fixture.input.executionClaim.claimOwner);
+  expect(acquired.observation.claimFence).toBeGreaterThan(fixture.input.executionClaim.claimFence);
+  const input = { ...fixture.input, executionClaim: {
+    claimOwner: acquired.observation.claimOwner, claimFence: acquired.observation.claimFence,
+    claimedAt: acquired.observation.claimedAt,
+  } };
+  return input;
+}
+
+async function expectFiniteRefusalBeforeData(persistence: PostgresFlarexPersistence,
+  fixture: Awaited<ReturnType<typeof finiteBarrierFixture>>, input: ExactRunningAttemptKernelInputV1, reason: string) {
+  const inventory = () => persistence.query(`select to_jsonb(s) as session, to_jsonb(l) as lease,
+      to_jsonb(j) as journal, to_jsonb(c) as claim from fx_system_tx_session s
+    join fx_system_snapshot_lease l using(scope_uuid,session_id,attempt_fence)
+    join fx_system_tx_journal j using(scope_uuid,session_id,attempt_fence)
+    join fx_system_tx_execution_claim c using(scope_uuid,session_id,attempt_fence)
+    where s.scope_uuid = $1 and s.session_id = $2`,
+    [Result.getOrThrow(projectScopeIdUuidV1Result(fixture.context.scopeId)).scopeUuid, fixture.activated.anchor.sessionId]);
+  const before = await inventory();
+  expect(before.rows).toHaveLength(1);
+  let reachedData = false;
+  const failure = await runFailure(fixture.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](input,
+    () => { reachedData = true; return Effect.void; }));
+  expect(failure).toMatchObject({ _tag: "ExactRunningAttemptTransactionV1Error", cause: { issue: { reason } } });
+  expect(reachedData).toBe(false);
+  expect(await inventory()).toEqual(before);
+}
+
+async function waitForAuthorityWaiter(persistence: PostgresFlarexPersistence, blockerPid: number, authorityWriter = true) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{ waiting: boolean }>(`select exists(select 1 from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock'
+        and $1::int = any(pg_blocking_pids(pid))
+        and ($2::boolean = false or query like '%fx_system_scope_execution_authority%')) as waiting`,
+    [blockerPid, authorityWriter]);
+    if (result.rows[0]?.waiting === true) return;
+    await delay(25);
+  }
+  throw new Error("No expected blocked authority transaction");
+}
+
+async function waitForFiniteLeaseExpiry(persistence: PostgresFlarexPersistence, sessionId: string) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const row = await persistence.query<{ expired: boolean }>(`select lease_expires_at <= clock_timestamp() as expired
+      from fx_system_snapshot_lease where session_id = $1`, [sessionId]);
+    if (row.rows[0]?.expired === true) return;
+    await delay(25);
+  }
+  throw new Error("Lease did not expire while its owner was blocked");
+}
 
 async function provisionContext(
   persistence: PostgresFlarexPersistence,
@@ -1661,12 +2418,13 @@ async function insertExpiredOutcome(
        update fx_system_scope_clock
        set last_commit_seq = 1
        where scope_id = $1
-       returning scope_uuid, epoch_uuid
+       returning scope_uuid, scope_id
      )
      insert into fx_system_commit (
        scope_uuid, epoch_uuid, commit_seq, change_count, committed_at
      )
-     select scope_uuid, epoch_uuid, 1, 0, clock_timestamp() from clock`,
+     select c.scope_uuid, a.epoch_uuid, 1, 0, clock_timestamp() from clock c
+       join fx_system_scope_execution_authority a on a.scope_id = c.scope_id`,
     [anchor.scopeId],
   );
   await persistence.query(
@@ -1676,10 +2434,11 @@ async function insertExpiredOutcome(
        result_state, result_expired_at, created_at
      )
      select s.scope_uuid, s.request_key, s.identity_access_policy_sha256,
-       s.function_path, s.request_sha256, c.epoch_uuid, 1,
+       s.function_path, s.request_sha256, a.epoch_uuid, 1,
        'expired', clock_timestamp(), clock_timestamp() - interval '1 second'
      from fx_system_tx_session s
      join fx_system_scope_clock c using (scope_uuid)
+     join fx_system_scope_execution_authority a on a.scope_id = c.scope_id
      where s.session_id = $1`,
     [anchor.sessionId],
   );

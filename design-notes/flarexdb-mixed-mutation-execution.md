@@ -186,6 +186,16 @@ flowchart TD
 
 ### Attempt And Domain Authority
 
+The selected [finite execution contract](../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
+binds metadata at authenticated entry and validates consumed semantic transitions
+at settlement. Its exact retained selector accompanies the original data
+snapshot; no data-timestamp metadata registry is assumed. Live revocation,
+storage fencing, claim/expiry and retention protection belong to a distinct
+execution authority, while commit sequencing retains its own lock. This
+replacement is in progress; it supersedes current-head proof choreography for
+the selected finite graph without changing native framework behavior or the
+current durable seal/finishing model.
+
 The native coordinator owns one attempt and its existing lifecycle. Framework
 calls receive opaque borrowed capabilities bound to that attempt, scope,
 placement, selected schema/bindings, principal and admitted methods. Revalidate
@@ -373,7 +383,7 @@ replace Medusa resource locks with OCC.
 
 ## Medusa Workflow Participation
 
-The selected private catalogue-launch parent pins a 30-second borrowed command deadline within the existing trusted logical atomic 10–30-second range and a 256-call budget for its two children within the existing 4,096-call shared ceiling. Both selections enter the profile revision. Other framework profiles retain their default 10-second deadline, and the standalone pricing child retains its 128-call selection. The root attempt lease and shared ceilings do not change. Product, Pricing and Link heads are checked on each short historical read; common activation/readiness projection may be reused only inside that transaction.
+The selected private catalogue-launch parent pins a 30-second borrowed command deadline within the existing trusted logical atomic 10–30-second range and a 256-call budget for its two children within the existing 4,096-call shared ceiling. Both selections enter the profile revision. Other framework profiles retain their default 10-second deadline, and the standalone pricing child retains its 128-call selection. The root attempt lease and shared ceilings do not change. The predecessor checks Product, Pricing and Link heads on each short historical read. The selected finite execution replacement captures their metadata at entry, checks demanded serving and live authority at each read, and validates consumed semantic contracts at publication; its connected cutover and acceptance remain in progress.
 
 The [current native workflow profile](../roadmaps/workflow-foundations/10-medusa-workflow-integration.md)
 and [child composition](../roadmaps/workflow-foundations/15-native-workflow-composition.md)

@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { expect } from "vitest";
 import { Effect, Result, Schema } from "effect";
@@ -148,8 +149,11 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
     const scope = Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid;
     const foreignScope = ScopeIdSchema.make("scope_00000000-0000-4000-8000-000000000001");
     const generation = yield* decodeGeneration(reference.storageGeneration);
-    yield* Effect.promise(async () => { await db.insert(fxSystemScopeClocks).values({ scopeId: foreignScope,
-      storageGeneration: generation, epoch: ScopeEpochSchema.make(reference.epoch) }); });
+    yield* Effect.promise(() => db.transaction(async tx => {
+      await tx.insert(fxSystemScopeClocks).values({ scopeId: foreignScope });
+      await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId: foreignScope,
+        storageGeneration: generation, epoch: ScopeEpochSchema.make(reference.epoch) });
+    }));
     const seed = { scope, generation: reference.storageGeneration, userCollection: "users", userId: "user-a", value: {}, createdAt: "2026-01-01", updatedAt: "2026-01-01" };
     yield* Effect.promise(async () => { await db.insert(table).values([
       { ...seed, id: "news-item-pref", key: `collection-news-items-${first.id}` },

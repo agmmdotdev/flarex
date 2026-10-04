@@ -79,7 +79,7 @@ export async function verifyTerminalMembershipCompaction(input: {
   // One stable row body identity can support arbitrarily many membership transitions.
   await persistence.query(
     `insert into fx_app_row_rev(scope_uuid,table_id,row_id,commit_seq,prev_commit_seq,write_epoch_uuid,schema_version_id,creation_time,value_codec_version,is_tombstone,value_bytes,value_sha256)
-    select scope_uuid,1,decode($2,'hex'),1,null,epoch_uuid,'schema_membership',42,1,true,null,null from fx_system_scope_clock where scope_id=$1`,
+    select scope_uuid,1,decode($2,'hex'),1,null,epoch_uuid,'schema_membership',42,1,true,null,null from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id=$1`,
     [scopeId, rowId],
   );
   await persistence.query(
@@ -108,7 +108,14 @@ export async function verifyTerminalMembershipCompaction(input: {
     [scopeId, laterKey, rowId],
   );
   await persistence.query(
-    `update fx_system_scope_clock set last_commit_seq=130,oldest_available_commit_seq=130 where scope_id=$1`,
+    `with authority as materialized (
+       select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+     ), sequence as (
+       update fx_system_scope_clock c set last_commit_seq = 130
+       from authority a where c.scope_id = a.scope_id returning c.scope_id
+     )
+     update fx_system_scope_execution_authority a set oldest_available_commit_seq = 130
+     from sequence c where a.scope_id = c.scope_id`,
     [scopeId],
   );
   const history = async () =>
@@ -206,7 +213,7 @@ export async function verifyTerminalMembershipCompaction(input: {
   if (definition === null)
     throw new Error("Expected physical index definition.");
   const clocks = await persistence.query<{ epoch: string }>(
-    "select epoch from fx_system_scope_clock where scope_id=$1",
+    "select epoch from fx_system_scope_execution_authority where scope_id=$1",
     [scopeId],
   );
   const epoch = clocks.rows[0]?.epoch;

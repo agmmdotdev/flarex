@@ -79,6 +79,8 @@ export {
   fxSystemPreparedMetadataEpoch,
   fxSystemRetainedHistoryScheduler,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
+  fxSystemMetadataContractObservations,
   fxSystemSearchBuildStates,
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,

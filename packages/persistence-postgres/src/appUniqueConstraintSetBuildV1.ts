@@ -11,7 +11,7 @@ import {
   PhysicalDefinitionLifecyclePersistenceError,
 } from "./physicalDefinitionLifecycle";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { publicationModeForTable, readIndexCoverageContextInTransactionEffect,
+import { publicationModeForTable, readIndexCoverageContextInTransactionEffect, readFiniteServingCommitSequence,
   borrowIndexCoverageContextInTransaction, readPreparedIndexCoverageTableFrontiers,
   readIndexCoverageTableFrontiersInTransactionEffect,
   type IndexCoverageContext } from "./indexBuildStates";
@@ -20,7 +20,7 @@ import { decodeUniqueMaintenanceEvidenceResult, verifyUniqueMaintenanceEvidence,
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, lte, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
 import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
@@ -128,6 +128,8 @@ import {
   ScopeAuthorizationRevocationEpochPersistenceError,
   lockScopeClockForShareInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
+  requireFiniteExecutionAuthorityObservation,
+  type FiniteExecutionAuthorityObservation,
   type LockScopeClockForUpdateError,
   type ScopeClockRecord,
 } from "./scopeClock";
@@ -140,7 +142,9 @@ import {
 import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
-import { fxSystemUniqueConstraintBuilds } from "./schema";
+import { fxSystemUniqueConstraintBuilds, fxSystemCommitAppRowChanges } from "./schema";
+import { readFiniteApplicationMetadata, type ApplicationBindingInput, type FiniteApplicationMetadata } from "./applicationActivation";
+import type { SessionJournalAttempt } from "./sessionJournalStore";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -483,6 +487,59 @@ export const inspectSelectedAppUniqueConstraintDefinitions = Effect.fn("AppUniqu
     undefined, "concurrentProgress");
   return readiness.status === "not_ready" ? readiness : Object.freeze({ status: "ready" as const, definitionCount: definitions.length });
 });
+/** Retained finite definitions serve only the original reserved snapshot. */
+export const inspectFiniteAppUniqueConstraintDefinitions = Effect.fn("AppUniqueConstraintSetBuild.inspectFiniteReadDefinitions")(
+  function* (input: AppUniqueConstraintSetEligibilityInputV1, definitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
+    tx: AppRowTransaction, authority: TrustedScopeAuthority, observation: FiniteExecutionAuthorityObservation,
+    metadata: FiniteApplicationMetadata, application: ApplicationBindingInput, root: SessionJournalAttempt) {
+    const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, observation));
+    const pinned = yield* Effect.fromResult(readFiniteApplicationMetadata(metadata, application, root, tx, observation));
+    if (authority.deploymentId !== input.deploymentId || live.scopeId !== input.scopeId || definitions.length === 0 ||
+      definitions.length > MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 || definitions.some(definition =>
+        !isLocatedAppUniqueConstraintDefinitionV1(definition) || definition.deploymentId !== input.deploymentId ||
+        definition.scopeId !== input.scopeId || definition.schemaVersionId !== input.schemaVersionId))
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+    const members = definitions.map(definition => ({ logicalUniqueConstraintId: definition.logicalUniqueConstraintId,
+      uniqueConstraintDefinitionId: definition.uniqueConstraintDefinitionId, tableId: definition.tableId,
+      physicalSpecSha256Hex: definition.physicalSpecSha256Hex }));
+    const snapshot = { schemaVersionId: input.schemaVersionId, members };
+    const rows = yield* queryEffect(tx.select().from(fxSystemUniqueConstraintBuilds).where(and(
+      eq(fxSystemUniqueConstraintBuilds.scopeId, live.scopeId), inArray(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId,
+        members.map(member => member.uniqueConstraintDefinitionId)))).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId).for("key share"));
+    const sequence = yield* readFiniteServingCommitSequence(tx, observation);
+    const originalSnapshot = pinned.snapshotCommitSeq;
+    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(live.scopeId));
+    for (const member of members) {
+      const row = rows.find(value => value.uniqueConstraintDefinitionId === member.uniqueConstraintDefinitionId);
+      if (row === undefined) return Object.freeze({ status: "not_ready" as const, reason: "buildMissing" as const });
+      const state = yield* decodeBuildStateEffect(authority, snapshot, row, sequence);
+      if (!buildAuthorityIsCurrent(state, live) || state.lifecycle !== "enabled" || state.startCommitSeq > originalSnapshot ||
+        state.coveredThroughCommitSeq === null)
+        return Object.freeze({ status: "not_ready" as const, reason: "buildStale" as const });
+      const covered = state.coveredThroughCommitSeq;
+      if (state.maintenance !== null) {
+        yield* verifyUniqueMaintenanceEvidence(state.maintenance);
+        const frame = state.maintenance.frame;
+        if (frame.tableId !== member.tableId || frame.physicalSpecSha256Hex !== member.physicalSpecSha256Hex)
+          return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid"));
+        if (covered >= originalSnapshot) continue;
+        const basis = pinned.basis;
+        if (frame.deploymentId === basis.deploymentId && frame.schemaVersionId === basis.schemaVersionId &&
+          frame.activationSequence === basis.activationSequence && frame.headSha256 === basis.headSha256) continue;
+      } else if (covered >= originalSnapshot) continue;
+      const frontier = yield* readAppTableWriteFrontierInTransactionEffect(tx, live.scopeId, member.tableId);
+      if (frontier === null || frontier <= covered) continue;
+      if (covered < live.oldestAvailableCommitSeq)
+        return Object.freeze({ status: "not_ready" as const, reason: "buildStale" as const });
+      const changes = yield* queryEffect(tx.select({ commitSeq: fxSystemCommitAppRowChanges.commitSeq }).from(fxSystemCommitAppRowChanges)
+        .where(and(eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid), eq(fxSystemCommitAppRowChanges.tableId, member.tableId),
+          gt(fxSystemCommitAppRowChanges.commitSeq, covered), lte(fxSystemCommitAppRowChanges.commitSeq, originalSnapshot))).limit(1));
+      if (changes.length !== 0) return Object.freeze({ status: "not_ready" as const, reason: "buildStale" as const });
+    }
+    return Object.freeze({ status: "ready" as const, definitionCount: members.length });
+  },
+);
+
 const eligibilityEvidencePorts = new WeakMap<
   object,
   AppUniqueConstraintSetEligibilityPortV1

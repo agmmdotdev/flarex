@@ -61,9 +61,12 @@ describePostgres("real PostgreSQL S03-D3 reconciliation", () => {
       expect(peerBuilds.rows).toHaveLength(0);
 
       await persistence.query(
-        `update fx_system_scope_clock
-         set storage_generation_fence = 2, epoch = $2, last_commit_seq = 25
-         where scope_id = $1`,
+        `with authority as (
+           update fx_system_scope_execution_authority
+           set storage_generation_fence = 2, epoch = $2 where scope_id = $1
+           returning scope_id
+         ) update fx_system_scope_clock as clock set last_commit_seq = 25
+           from authority where clock.scope_id = authority.scope_id`,
         [fixture.scopeId, "epoch_s03_d3_pg_2"],
       );
       const redeployed = await reconcile(fixture);
@@ -137,9 +140,11 @@ async function fixtureFor(persistence: PostgresFlarexPersistence) {
     physicalLocator: LOCATOR,
   });
   await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
+    `with created as (
+       insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id
+     ) insert into fx_system_scope_execution_authority
+       (scope_id, storage_generation, storage_generation_fence, epoch)
+       select scope_id, 'flarexdb_v1', 1, $2 from created`,
     [scopeId, ScopeEpochSchema.make("epoch_s03_d3_postgres")],
   );
   await persistence.publishAppSchemaV1({

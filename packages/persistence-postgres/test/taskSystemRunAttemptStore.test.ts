@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
@@ -291,11 +292,9 @@ describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
     });
 
     await withStore(async ({ persistence, store }) => {
-      await persistence.drizzle.update(fxSystemScopeClocks).set({
-        epoch: ScopeEpochSchema.make(
+      await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({epoch: ScopeEpochSchema.make(
           "epoch_72000000-0000-4000-8000-000000000099",
-        ),
-      }).where(eq(fxSystemScopeClocks.scopeId, taskScopeId));
+        )}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, taskScopeId));
       await expect(runEffectFailure(store.inspectRunAttempt({
         operation: "inspect_current_attempt",
         runId,

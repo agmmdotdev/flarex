@@ -273,7 +273,7 @@ async function verifyBootstrapFrontier(
           when s.isolation_kind <> 'shared_database'
             or s.physical_locator_json <> ${locatorJson}::jsonb
             then 'locator_conflict'
-          when c.scope_id is null then 'missing_clock'
+          when c.scope_id is null or a.scope_id is null then 'missing_clock'
           else 'complete_pair'
         end as category
       from deployments d
@@ -283,6 +283,7 @@ async function verifyBootstrapFrontier(
         on s.deployment_id = d.deployment_id
       left join fx_system_scope_clock c
         on c.scope_id = s.id
+      left join fx_system_scope_execution_authority a on a.scope_id = c.scope_id
       where ${frontierPredicate}
     )
     select

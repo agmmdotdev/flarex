@@ -30,7 +30,7 @@ import type { DataBindingHeadToken } from "../frameworkSchema/binding/model";
 import { DataBindingError } from "../frameworkSchema/binding/errors";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { capturePrivateJsonData } from "../privateJsonData";
-import type { ScopeClockRecord } from "../scopeClock";
+import type { ScopeClockRecord, FiniteExecutionAuthorityObservation } from "../scopeClock";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { getStableLogicalIndexIdentityByNameEffect } from "../stableLogicalIndexCatalog";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
@@ -59,6 +59,7 @@ const projectSourceFailure = (cause: LogicalSourceAdmissionError) =>
   new LogicalRelationalAdmissionError({ reason: cause.reason, cause });
 const projectBindingFailure = (cause: unknown): LogicalRelationalAdmissionError => {
   if (cause instanceof LogicalRelationalAdmissionError) return cause;
+  if (cause instanceof LogicalSourceAdmissionError) return projectSourceFailure(cause);
   if (cause instanceof DataBindingError) {
     const reason = cause.reason === "resourceFailure" || cause.reason === "decisionUncertain"
       ? "resourceFailure" : cause.reason === "storedCorruption" ? "storedCorruption" : "invalidAuthority";
@@ -174,6 +175,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
   const confinedValues = Object.freeze({ validate: (tableId: CatalogTableId, document: Parameters<typeof values.validate>[1]) =>
     tableIds.has(tableId) ? values.validate(tableId, document) : Result.fail(new LogicalRelationalValueError({ reason: "invalidTable" })) });
   const writeMechanics = yield* prepareLogicalWriteMechanics({
+    metadataProjection: selected.metadataProjection,
     tables: selectedTables.map(table => ({ tableId: table.tableId, logicalName: table.localName,
       relational: table.definition, relationalMechanics: table.mechanics })),
     relationalCapabilities: schema.capabilities, searchDefinitions: search,
@@ -218,19 +220,25 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       root.principalDigest.length === 0 || methods.length === 0 ||
       methods.some(method => method.length === 0) || new Set(methods).size !== methods.length)
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    const pin = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
-      selected.withBinding(application, tx, authority, clock, binding => Effect.gen(function* () {
-        if (authority.scopeId !== root.scopeId || clock.scopeId !== root.scopeId ||
-          clock.lastCommitSeq < root.snapshotCommitSeq || binding.schemaVersionId !== capturedInput.schemaVersionId)
+    const pin = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) => Effect.gen(function* () {
+      const validatePin = (binding: LogicalSourceBindingState) =>
+        authority.scopeId !== root.scopeId || clock.scopeId !== root.scopeId ||
+          clock.lastCommitSeq < root.snapshotCommitSeq || binding.schemaVersionId !== capturedInput.schemaVersionId
+          ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })) : Effect.void;
+      if (root.executionProfile === "finiteRoot") {
+        if (entry?.finiteMetadata === undefined)
           return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-        const correlation = root.executionProfile !== "finiteRoot" ? undefined : binding.acceptedApplicationBinding === undefined
-          ? yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }))
-          : yield* Effect.fromResult(selected.captureFiniteReadBinding(binding.acceptedApplicationBinding, application, tx, clock, attempt));
-        return Object.freeze({ head: binding.head, clock, correlation });
-      }), entry?.applicationBinding?.binding).pipe(Effect.mapError(projectParticipantBindingFailure));
-    const pinned = yield* (entry === undefined ? readTransaction(pin) : pin(entry.tx, entry.authority, entry.clock));
+        return yield* selected.pinFiniteReadBinding(application, attempt, tx, authority, clock, validatePin, root, entry.finiteMetadata);
+      }
+      return yield* selected.withBinding(application, tx, authority, clock, binding => validatePin(binding).pipe(
+        Effect.as(Object.freeze({ head: binding.head, clock, frame: binding.frame, metadata: undefined }))));
+    }).pipe(Effect.mapError(projectParticipantBindingFailure));
+    const pinned = yield* (entry === undefined ? readTransaction((tx, authority, observation) =>
+      "lastCommitSeq" in observation ? pin(tx, authority, observation)
+        : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })))
+      : pin(entry.tx, entry.authority, entry.clock));
     const verifyPinnedBinding = (binding: Pick<LogicalSourceBindingState, "schemaVersionId" | "head">,
-      authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+      authority: TrustedScopeAuthority, clock: Pick<ScopeClockRecord, "scopeId">) =>
         binding.schemaVersionId === capturedInput.schemaVersionId &&
         binding.head.sequence === pinned.head.sequence && binding.head.sha256 === pinned.head.sha256 &&
         authority.scopeId === root.scopeId && clock.scopeId === root.scopeId
@@ -239,26 +247,29 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       selected.withBinding(application, tx, authority, clock, binding => verifyPinnedBinding(binding, authority, clock))
         .pipe(Effect.mapError(projectParticipantBindingFailure));
     const demanded = new WeakMap<FlarexMetadataTransaction, Set<string>>();
-    const verifyReadBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    const verifyFiniteBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, observation: FiniteExecutionAuthorityObservation) =>
+      pinned.metadata === undefined ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }))
+        : selected.verifyFiniteReadBinding(pinned.metadata, application, attempt, tx, authority, observation).pipe(
+          Effect.flatMap(binding => verifyPinnedBinding(binding, authority, observation)),
+          Effect.mapError(projectParticipantBindingFailure));
+    const verifyReadBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: FiniteExecutionAuthorityObservation,
       demand?: LogicalStorageReadDemand) => Effect.gen(function* () {
-      if (pinned.correlation === undefined || demand === undefined)
+      if (pinned.metadata === undefined || demand === undefined)
         return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
       const key = JSON.stringify(demand);
-      if (demanded.get(tx)?.has(key)) return;
-      yield* selected.withFiniteReadBinding(pinned.correlation, application, attempt, tx, authority, clock,
+      if (demanded.get(tx)?.has(key)) {
+        yield* verifyFiniteBinding(tx, authority, clock);
+        return;
+      }
+      yield* selected.withFiniteReadBinding(pinned.metadata, application, attempt, tx, authority, clock,
         binding => verifyPinnedBinding(binding, authority, clock), demand).pipe(Effect.mapError(projectParticipantBindingFailure));
       const checked = demanded.get(tx) ?? new Set<string>(); checked.add(key); demanded.set(tx, checked);
     });
     const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
       preparedSource: prepared,
+      ...(pinned.metadata === undefined ? {} : { metadata: pinned.metadata, verifyFiniteBinding }),
       methods: new Set(methods), readTransaction, verifyBinding, verifyReadBinding, tableIds,
-      verifyDemand: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-        demand: LogicalStorageReadDemand) => Effect.gen(function* () {
-          const key = JSON.stringify(demand);
-          if (demanded.get(tx)?.has(key)) return;
-          yield* selected.inspectDemand(tx, authority, clock, demand).pipe(Effect.mapError(projectParticipantBindingFailure));
-          const checked = demanded.get(tx) ?? new Set<string>(); checked.add(key); demanded.set(tx, checked);
-        }),
+      verifyDemand: verifyReadBinding,
       indexes: selected.indexes, unique: selected.unique,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
     relationalAttemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }),
@@ -287,6 +298,11 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       search: Object.freeze(search),
       validateDocument: (tableId: CatalogTableId, document: CanonicalFlarexValueV1) => confinedValues.validate(tableId, document).pipe(
         Result.mapError(cause => new LogicalParticipantAdmissionError({ reason: "documentInvalid", cause }))),
+      metadataProjection: selected.metadataProjection,
+      verifyFinite: (_operation: AdmittedParticipantOperation, contribution: SourceContribution,
+        tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+        selected.readFiniteCommitClosure(tx, authority, clock, [...new Set(contribution.effects.map(effect => effect.tableId))])
+          .pipe(Effect.mapError(projectParticipantBindingFailure)),
       verify: (_operation: AdmittedParticipantOperation, contribution: SourceContribution,
         tx: FlarexMetadataTransaction,
         authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>

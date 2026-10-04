@@ -1,3 +1,5 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
+import { selectScopeClockRows } from "./scopeClock";
 import { eq } from "drizzle-orm";
 import { Result } from "effect";
 
@@ -44,9 +46,11 @@ export async function requireLockedTaskSystemScopeAuthorityV1(
   )) {
     throw onMismatch("physical_locator");
   }
-  const rows = await tx.select().from(fxSystemScopeClocks).where(
+  await tx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, authority.scopeId)).limit(1).for("share");
+  const rows = await selectScopeClockRows(tx).where(
     eq(fxSystemScopeClocks.scopeId, authority.scopeId),
-  ).limit(1).for("share");
+  ).limit(1).for("share", { of: fxSystemScopeClocks });
   const row = rows[0];
   if (row === undefined) throw onMismatch("deployment_binding");
   const clock = Result.getOrThrowWith(

@@ -17,6 +17,7 @@ import type {
 } from "@flarex/persistence-postgres/internal/task-repair-postgres-deadline-policy-v1";
 import { Effect, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -330,6 +331,7 @@ function scopeClock(scopeId: typeof SCOPE_ID): ScopeClockRecord {
     storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
     oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
     epoch: ScopeEpochSchema.make("epoch-task-compute-delivery"),
     updatedAt: new Date("2026-08-11T00:00:00.000Z"),

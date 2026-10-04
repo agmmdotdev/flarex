@@ -164,7 +164,7 @@ describe("O11-B/C retained-history floor", () => {
          (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
        select scope_uuid, epoch_uuid, values.commit_seq, 0,
               clock_timestamp() - values.age
-       from fx_system_scope_clock,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
             (values
               (1::bigint, interval '30 seconds'),
               (2::bigint, interval '20 seconds'),
@@ -221,7 +221,7 @@ describe("O11-B/C retained-history floor", () => {
       `insert into fx_system_commit
          (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
        select scope_uuid, epoch_uuid, 1, 0, clock_timestamp() - interval '30 seconds'
-       from fx_system_scope_clock where scope_id = $1`,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
       [context.scopeId],
     );
     await persistence.query(
@@ -258,7 +258,7 @@ describe("O11-B/C retained-history floor", () => {
          (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
        select scope_uuid, epoch_uuid, values.commit_seq, 0,
               clock_timestamp() - values.age
-       from fx_system_scope_clock,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
             (values
               (2::bigint, interval '20 seconds'),
               (3::bigint, interval '1 second')
@@ -391,7 +391,7 @@ describe("O11-B/C retained-history floor", () => {
          (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
        select scope_uuid, epoch_uuid, series.commit_seq, 0,
               clock_timestamp() - interval '1 second'
-       from fx_system_scope_clock,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
             generate_series(1, $2::bigint) as series(commit_seq)
        where scope_id = $1`,
       [context.scopeId, count],
@@ -418,7 +418,7 @@ describe("O11-B/C retained-history floor", () => {
          (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
        select scope_uuid, epoch_uuid, 1, 0,
               clock_timestamp() + interval '1 minute'
-       from fx_system_scope_clock where scope_id = $1`,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
       [context.scopeId],
     );
     await persistence.query(
@@ -499,7 +499,7 @@ describe("O11-B/C retained-history floor", () => {
          (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
        select scope_uuid, epoch_uuid, 1, 0,
               clock_timestamp() - interval '30 seconds'
-       from fx_system_scope_clock where scope_id = $1`,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
       [context.scopeId],
     );
     await persistence.query(
@@ -536,7 +536,7 @@ describe("O11-B/C retained-history floor", () => {
          (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
        select scope_uuid, epoch_uuid, values.commit_seq, 0,
               clock_timestamp() - values.age
-       from fx_system_scope_clock,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
             (values
               (2::bigint, interval '20 seconds'),
               (3::bigint, interval '1 second')
@@ -631,7 +631,7 @@ describe("O11-B/C retained-history floor", () => {
                 if (rotateBeforeTransaction) {
                   rotateBeforeTransaction = false;
                   await persistence.query(
-                    `update fx_system_scope_clock
+                    `update fx_system_scope_execution_authority
                      set epoch = $2 where scope_id = $1`,
                     [
                       stale.scopeId,
@@ -715,7 +715,7 @@ describe("O11-B/C retained-history floor", () => {
       oldest_available_commit_seq: string;
     }>(
       `select oldest_available_commit_seq::text
-       from fx_system_scope_clock where scope_id = $1`,
+       from fx_system_scope_execution_authority where scope_id = $1`,
       [scopeId],
     );
     const value = result.rows[0]?.oldest_available_commit_seq;

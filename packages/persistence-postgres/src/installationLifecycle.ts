@@ -1,4 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
+import { scopeExecutionAuthorityInstallationSql } from "./scopeExecutionAuthorityInstallation";
 import { Data, Effect, Result, Schema } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -314,6 +315,22 @@ export function closeInstallationAdmission(tx: FlarexMetadataDatabase | FlarexMe
   coLocatedAdmissions.delete(tx);
 }
 
+/** The admitted target member owns schema-qualified calls in this transaction.
+ * Logical locators and search-path fallbacks cannot choose an installed body. */
+export function requireAdmittedTargetInstallationSchema(tx: FlarexMetadataTransaction): Result.Result<string, InstallationLifecycleError> {
+  const entries = admissions.get(tx);
+  const pair = coLocatedAdmissions.get(tx);
+  if (pair !== undefined) {
+    const target = preparations.get(pair.target);
+    const entry = target === undefined ? undefined : entries?.get(target.identity.schemaName);
+    return target?.database === pair.database && entry?.database === pair.database &&
+      sameIdentity(entry.identity, target.identity)
+      ? Result.succeed(entry.identity.schemaName) : Result.fail(issue("invalidCapability"));
+  }
+  const entry = entries?.size === 1 ? entries.values().next().value : undefined;
+  return entry === undefined ? Result.fail(issue("invalidCapability")) : Result.succeed(entry.identity.schemaName);
+}
+
 const readGate = Effect.fn("InstallationLifecycle.readGate")(function* (
   tx: FlarexMetadataDatabase, schemaName?: string, endpointPolicy?: string,
   accessProfile: InstallationAccessProfile = "dataRuntime",
@@ -395,7 +412,7 @@ export const verifyInstallationWriterProtection = Effect.fn("InstallationLifecyc
           ('fx_control_scope_provisioning','ready_at','timestamptz'::pg_catalog.regtype,false)
         ) as expected(table_name,column_name,type_oid,required)
       )
-      select (select count(*) = 2 and bool_and(
+      select ${scopeExecutionAuthorityInstallationSql(sql`${schemaName}`)} and (select count(*) = 2 and bool_and(
         p.proowner = b.owner_oid and p.prosecdef and p.provolatile = 'v' and p.pronargs = 0
         and p.pronargdefaults = 0 and p.prokind = 'f' and not p.proisstrict
         and not p.proleakproof and p.proparallel = 'u' and p.prosupport = 0
@@ -479,7 +496,7 @@ export const verifyInstallationWriterProtection = Effect.fn("InstallationLifecyc
             pg_catalog.replace(pg_catalog.replace(p.prosrc,E'\\r\\n',E'\\n'),
               pg_catalog.quote_ident(${schemaName}) || '.', 'fx_installation_schema.'),
               pg_catalog.quote_literal(${schemaName}), pg_catalog.quote_literal('fx_installation_schema')),
-            'UTF8')), 'hex') = '242ff92c96f3d6901a9342a6fe78a9a7650a0bf41d31c92955c83f71c00fe621'
+            'UTF8')), 'hex') = '91389713e0d4c1923e30b46e04c426be1adc6c1af7082aaf91b8202df9883072'
       )
       and not exists (
         select 1 from pg_catalog.pg_class c, bounds b where c.relnamespace = b.namespace_oid
@@ -538,6 +555,13 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
             and (pg_catalog.has_table_privilege(b.login_oid,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER')
               or pg_catalog.has_any_column_privilege(b.login_oid,c.oid,'INSERT,UPDATE'))
         )
+        and (${accessProfile} <> 'dataRuntime' or (select count(*) = 2 and bool_and(
+          pg_catalog.has_table_privilege(b.login_oid,c.oid,'SELECT')
+          and pg_catalog.has_table_privilege(b.login_oid,c.oid,'INSERT')
+          and pg_catalog.has_table_privilege(b.login_oid,c.oid,'UPDATE')
+          and pg_catalog.has_table_privilege(b.login_oid,c.oid,'DELETE'))
+          from pg_catalog.pg_class c, bounds b where c.relnamespace = b.namespace_oid
+            and c.relname in ('fx_system_scope_execution_authority','fx_system_metadata_contract_observation')))
         and exists (
           select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace, bounds b
           where n.nspname = ${journal.schemaName} and c.relname = ${journal.tableName}
@@ -549,13 +573,23 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
           ${`${schemaName}.fx_lock_installation_admission()`},'EXECUTE')
         and case when ${accessProfile} = 'dataRuntime' then
           pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_lock_finite_scope_observation(text)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_publish_application_read_binding(bytea,bytea)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_lock_read_scope_placement(text,text)`},'EXECUTE')
-        else pg_catalog.has_function_privilege(session_user,
+        else not pg_catalog.has_function_privilege(session_user,
+          ${`${schemaName}.fx_lock_finite_scope_observation(text)`},'EXECUTE')
+          and not pg_catalog.has_function_privilege(session_user,
+          ${`${schemaName}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
           ${`${schemaName}.fx_lock_read_scope_placement(text,text)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_publish_application_read_binding(bytea,bytea)`},'EXECUTE') end
+        and not pg_catalog.has_function_privilege(session_user,
+          ${`${schemaName}.fx_check_scope_execution_authority()`},'EXECUTE')
         and not pg_catalog.has_function_privilege(session_user,
           ${`${schemaName}.fx_require_active_installation()`},'EXECUTE')
     )` }).from(sql`(values (1)) as runtime_protection(value)`));

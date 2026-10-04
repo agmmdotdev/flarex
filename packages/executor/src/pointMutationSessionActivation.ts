@@ -376,6 +376,7 @@ export function createPointMutationSessionAttemptLoadingV1(
         captured.inspection,
         captured.requestKey,
         captured.attemptFacet,
+        captured.lastMetadataSequence,
       );
       return handle;
     },
@@ -543,6 +544,7 @@ function captureLoadedAttemptInspection(
     readonly inspection: LoadedPointMutationSessionAttemptInspectionV1;
     readonly requestKey: TransactionRequestKeyV1;
     readonly attemptFacet: PointMutationSessionAttemptLoadResultV1["attemptFacet"];
+    readonly lastMetadataSequence: PointMutationSessionAttemptLoadResultV1["lastMetadataSequence"];
   }>,
   PointMutationSessionAttemptLoadContractV1Error
 > {
@@ -583,6 +585,7 @@ function captureLoadedAttemptInspection(
       return Object.freeze({
         inspection,
         requestKey: TransactionRequestKeyV1Schema.make(anchor.requestKey),
+        lastMetadataSequence: result.lastMetadataSequence,
         attemptFacet: Object.freeze({ kind: result.attemptFacet.kind }),
       });
     },

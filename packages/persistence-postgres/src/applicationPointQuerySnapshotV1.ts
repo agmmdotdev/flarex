@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
@@ -665,17 +666,17 @@ const readRetainedFloor = Effect.fn(
 > {
   const rows = yield* Effect.uninterruptible(Effect.tryPromise({
     try: () => tx.select({
-      scopeId: fxSystemScopeClocks.scopeId,
+      scopeId: fxSystemScopeExecutionAuthorities.scopeId,
       oldestAvailableCommitSeq:
-        fxSystemScopeClocks.oldestAvailableCommitSeq,
-    }).from(fxSystemScopeClocks).where(and(
-      eq(fxSystemScopeClocks.scopeId, clock.scopeId),
-      eq(fxSystemScopeClocks.storageGeneration, clock.storageGeneration),
+        fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq,
+    }).from(fxSystemScopeExecutionAuthorities).where(and(
+      eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId),
+      eq(fxSystemScopeExecutionAuthorities.storageGeneration, clock.storageGeneration),
       eq(
-        fxSystemScopeClocks.storageGenerationFence,
+        fxSystemScopeExecutionAuthorities.storageGenerationFence,
         clock.storageGenerationFence,
       ),
-      eq(fxSystemScopeClocks.epoch, clock.epoch),
+      eq(fxSystemScopeExecutionAuthorities.epoch, clock.epoch),
     )).limit(1),
     catch: cause => new ApplicationPointQuerySnapshotIntegrationV1Error({
       phase: "retainedFloorRead",

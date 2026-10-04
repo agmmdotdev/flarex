@@ -263,17 +263,20 @@ function runScopeAuthorizationEpochEffectTransaction<ResultValue, Failure>(
   Failure | CurrentScopeAuthorizationEpochPortError
 > {
   return Effect.suspend(() => {
-    let callbackCause: Cause.Cause<Failure> | undefined;
+    let callbackCause: Cause.Cause<Failure | CurrentScopeAuthorizationEpochPortError> | undefined;
     const rollbackSignal = new Error(
       "Scope authorization epoch Effect work failed; roll back the transaction.",
     );
     return Effect.uninterruptible(
       Effect.tryPromise({
         try: () => db.transaction(async (tx): Promise<ResultValue> => {
-          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
           try {
             const exit = await Effect.runPromise(Effect.exit(
-              Effect.suspend(() => work(tx)),
+              Effect.gen(function* () {
+                yield* lockInstallationForCurrentTransaction(tx).pipe(Effect.mapError(cause =>
+                  new CurrentScopeAuthorizationEpochPortError({ operation: "authorizationEpochRead", cause })));
+                return yield* Effect.suspend(() => work(tx));
+              }),
             ));
             if (Exit.isFailure(exit)) {
               callbackCause = exit.cause;

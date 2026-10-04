@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 
 import { and, eq, sql } from "drizzle-orm";
 import { Result } from "effect";
@@ -312,12 +313,7 @@ async function fixtureFor(
     deploymentId,
     physicalLocator: LOCATOR,
   });
-  await target.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
-    [scopeId, epoch],
-  );
+  await insertCurrentScopeClockFixture(target.drizzle, { scopeId, epoch });
   const publication = await runEffect(publishApplicationRelationBindingEffect(
     repositoryFor(control),
     await relationBuildPublicationInput(deploymentId, 10_001, publicationOptions),

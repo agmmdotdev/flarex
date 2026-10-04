@@ -5,6 +5,7 @@ import {
 } from "@flarex/analysis/application-analysis";
 import { applicationSchemaPublicationFrameV1 } from
   "@flarex/analysis/internal/application-publication-v1";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
@@ -24,7 +25,9 @@ import type { AppSchemaPublicationV1Repository } from
 import type { StableTableCatalogTransaction } from
   "../src/stableTableCatalog";
 import { createPGlitePersistence } from "../src/pglite";
+import { deployments, fxControlApplicationSchemaAuthoritiesV1, fxControlSchemaVersions } from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 
 beforeAll(() => {
   if (globalThis.crypto === undefined) {
@@ -36,6 +39,55 @@ beforeAll(() => {
 });
 
 describe("Application schema authority", () => {
+  it("returns the published schema with detached original stored evidence", async () => {
+    const db = newTestPGlite();
+    const deploymentId = "deployment_application_schema_original_evidence";
+    try {
+      const persistence = await createPGlitePersistence({ db });
+      await persistence.migrate();
+      await insertDeployment(persistence, deploymentId);
+      const publisher = makeApplicationSchemaAuthorityPublisher({
+        db: persistence.drizzle,
+        runTransaction: run => persistence.drizzle.transaction(run),
+      });
+      const manifest = applicationManifest();
+      const schema = await runEffect(publisher.publish({ deploymentId, manifest }));
+      const selected = await persistence.drizzle.transaction(tx => runEffect(
+        publisher.readPublished({ deploymentId, manifest }, tx),
+      ));
+      const rows = await persistence.drizzle.select({
+        deploymentId: fxControlSchemaVersions.deploymentId,
+        schemaVersionId: fxControlSchemaVersions.schemaVersionId,
+        version: fxControlSchemaVersions.version,
+        manifestCodecVersion: fxControlSchemaVersions.manifestCodecVersion,
+        manifestSha256: fxControlSchemaVersions.manifestSha256,
+        createdAt: fxControlSchemaVersions.createdAt,
+        manifestJsonText: sql<string>`${fxControlSchemaVersions.manifestJson}::text`,
+        manifestBytes: fxControlSchemaVersions.manifestBytes,
+      }).from(fxControlSchemaVersions).where(and(
+        eq(fxControlSchemaVersions.deploymentId, deploymentId),
+        eq(fxControlSchemaVersions.schemaVersionId, schema.schemaVersionId),
+      ));
+      const stored = rows[0];
+      if (stored === undefined) throw new Error("Missing genuinely published schema artifact");
+      const payload = selected.originalArtifact.payload;
+      if (payload === null) throw new Error("Published fixture artifact payload was withheld");
+      expect(selected.schema).toEqual(schema);
+      expect(payload).toEqual(stored);
+      const original = structuredClone(selected.originalArtifact);
+      payload.manifestBytes.fill(0);
+      payload.manifestSha256.fill(0);
+      payload.createdAt.setTime(0);
+      selected.originalArtifact.sizes.manifestSha256.fill(0);
+      selected.originalArtifact.sizes.createdAt.setTime(0);
+      const reread = await runEffect(publisher.readPublished({ deploymentId, manifest }));
+      expect(reread.schema).toEqual(schema);
+      expect(reread.originalArtifact).toEqual(original);
+    } finally {
+      await db.close();
+    }
+  });
+
   it("binds analyzer-local ordinals to stable catalog identities and replays", async () => {
     const persistence = await migratedPersistence();
     const deploymentId = "deployment_application_schema_authority";
@@ -226,7 +278,16 @@ describe("Application schema authority", () => {
       runTransaction: run => persistence.drizzle.transaction(tx => run(
         new Proxy(tx, {
           get(target, property, receiver) {
-            if (property === "select") return () => { throw cause; };
+            if (property === "select") return (...fields: Parameters<typeof target.select>) =>
+              new Proxy(target.select(...fields), {
+                get(builder, key, builderReceiver) {
+                  if (key === "from") return (table: unknown) => {
+                    if (table === deployments) throw cause;
+                    return Reflect.apply(builder.from, builder, [table]);
+                  };
+                  return Reflect.get(builder, key, builderReceiver);
+                },
+              });
             return Reflect.get(target, property, receiver);
           },
         }),
@@ -247,7 +308,12 @@ describe("Application schema authority", () => {
         reason: "resourceFailure",
         cause,
       });
+      expect(result.failure.cause).toBe(cause);
     }
+    expect(await persistence.drizzle.select().from(fxControlApplicationSchemaAuthoritiesV1)
+      .where(eq(fxControlApplicationSchemaAuthoritiesV1.deploymentId, deploymentId))).toEqual([]);
+    expect(await persistence.drizzle.select().from(fxControlSchemaVersions)
+      .where(eq(fxControlSchemaVersions.deploymentId, deploymentId))).toEqual([]);
   });
 
   it("identifies read-only authority failures separately from publication", async () => {

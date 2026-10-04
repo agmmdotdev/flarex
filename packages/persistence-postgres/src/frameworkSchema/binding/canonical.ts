@@ -322,16 +322,17 @@ export function isDataBindingActivationFrame(
   input: unknown,
 ): input is DataBindingActivationFrame {
   return (
-    record(input, [
+    (record(input, [
       "format",
       "version",
       "request",
       "sequence",
       "activatedAt",
       "strongReferences",
-    ]) &&
+    ]) && input.version === 2 || record(input, [
+      "format", "version", "request", "sequence", "activatedAt", "strongReferences", "authorizationRevocationEpoch",
+    ]) && input.version === 3 && uint(input.authorizationRevocationEpoch)) &&
     input.format === "flarex.data-binding-activation" &&
-    input.version === 2 &&
     isDataBindingActivationRequest(input.request) &&
     positive(input.sequence) &&
     instant(input.activatedAt) &&
@@ -416,8 +417,12 @@ export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
         canonicalBytes: bytes,
         sha256Hex: digest,
         expectedFormat: format,
+        // Canonical v2 activations are retained immutable history. The exact
+        // guard distinguishes their candidate-epoch semantics from v3's real
+        // accepted epoch; it never fabricates a historical post-write epoch.
         expectedVersion: format === "flarex.data-binding-set" ? null :
-          format === "flarex.data-binding-head" || format === "flarex.data-binding-activation" ? 2 : 1,
+          format === "flarex.data-binding-activation" ? [2, 3] :
+          format === "flarex.data-binding-head" ? 2 : 1,
         maximumCanonicalBytes: MAX_BINDING_BYTES,
         expectedKeys: undefined,
         validateFrame: guard,

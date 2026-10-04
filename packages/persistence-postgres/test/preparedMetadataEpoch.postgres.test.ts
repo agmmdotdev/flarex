@@ -483,8 +483,11 @@ native("protected metadata epoch under an authenticated restricted login", () =>
       options: `-c search_path=${fixture.schemaName}` });
     const writer = await owner.connect();
     try {
-      await fixture.persistence.query(`insert into fx_system_scope_clock
-        (scope_id, storage_generation, epoch) values ('scope_epoch_lock_test', 'flarexdb_v1', 'epoch_lock_test')`);
+      await fixture.persistence.query(`with clock as (
+        insert into fx_system_scope_clock (scope_id) values ('scope_epoch_lock_test') returning scope_id
+      )
+      insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+      select scope_id, 'flarexdb_v1', 'epoch_lock_test' from clock`);
       const prepared = fixture.protectedMetadata;
       const target = fixture.persistence.drizzle;
       const first = await target.transaction(tx =>

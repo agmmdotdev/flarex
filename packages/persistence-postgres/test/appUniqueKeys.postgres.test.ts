@@ -146,10 +146,12 @@ async function insertClocks(
   persistence: PostgresFlarexPersistence,
 ): Promise<void> {
   await persistence.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, last_commit_seq, epoch)
-     values ($1, 'flarexdb_v1', 100, $2),
-            ($3, 'flarexdb_v1', 100, $4)`,
+    `with clock as (
+       insert into fx_system_scope_clock (scope_id, last_commit_seq)
+       values ($1, 100), ($3, 100) returning scope_id
+     )
+     insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+     select scope_id, 'flarexdb_v1', case when scope_id = $1 then $2 else $4 end from clock`,
     [scopeId, epoch, otherScopeId, otherEpoch],
   );
 }

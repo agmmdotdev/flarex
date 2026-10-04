@@ -1,19 +1,20 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations, fxSystemApplicationReadBindings } from "../../persistence-postgres/src/applicationActivationSchema";
 import { fxSystemApplicationReadiness } from "../../persistence-postgres/src/applicationRelationSchema";
 import { fxControlSchemaVersions, fxSystemApplicationReadinessV1,
-  fxControlLogicalReadSources, fxControlLogicalReadTables, fxControlLogicalReadAccess } from "../../persistence-postgres/src/schema";
+  fxControlLogicalReadSources, fxControlLogicalReadTables, fxControlLogicalReadAccess,
+  fxSystemMetadataContractObservations, fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
 import { acquireInstallationAdmission, loadManagedInstallation } from "../../persistence-postgres/src/installationLifecycle";
 import { captureProtectedMetadataEpoch, prepareProtectedMetadata,
   type ProtectedMetadataEpochIdentity, type PreparedMetadataEpochError } from "../../persistence-postgres/src/preparedMetadataEpoch";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
 import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
-import { backfillInstallationApplicationBindings, backfillInstallationLogicalReadProjections,
+import { backfillInstallationMetadataBindings, backfillInstallationLogicalReadProjections,
   publishVerifiedInstallation, runInstallationMigrations, withInstallationMaintenance } from "../../persistence-postgres/src/postgresInstallationMaintenance";
 import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
 
@@ -84,8 +85,20 @@ native("existing installation derived-metadata restoration", () => {
             ((select count(*) from fx_system_application_read_binding) + (select count(*) from fx_control_logical_read_access)
             + (select count(*) from fx_control_logical_read_table) + (select count(*) from fx_control_logical_read_source))::integer as total`));
           expect(missing.rows).toEqual([{ total: 0 }]);
+          if (owner === targetOwner) {
+            const metadata = () => Promise.all([target.select().from(fxSystemMetadataContractObservations),
+              target.select().from(fxSystemScopeClocks)]);
+            const before = yield* Effect.promise(metadata);
+            // The data installation is a genuine database but has no control
+            // catalog. A missing catalog must fail before any derived write.
+            const refused = yield* backfillInstallationMetadataBindings(handle, targetOwner.persistence.drizzle).pipe(Effect.result);
+            expect(Result.isFailure(refused)).toBe(true);
+            if (Result.isFailure(refused)) expect(refused.failure.reason).toBe("invalidInstallation");
+            expect(yield* Effect.promise(metadata)).toEqual(before);
+            expect(yield* Effect.promise(() => target.select().from(fxSystemApplicationReadBindings))).toEqual([]);
+          }
           for (let replay = 0; replay < 2; replay++) {
-            yield* backfillInstallationApplicationBindings(handle);
+            yield* backfillInstallationMetadataBindings(handle, controlOwner.persistence.drizzle);
             yield* backfillInstallationLogicalReadProjections(handle);
           }
           yield* publishVerifiedInstallation(handle, [{ database: reader.persistence.drizzle, endpointPolicy }], {

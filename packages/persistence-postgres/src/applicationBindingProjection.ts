@@ -1,4 +1,3 @@
-import type { SessionJournalAttempt } from "./sessionJournalStore";
 import type { JsonObject } from "flarex-protocol/json";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
@@ -13,8 +12,6 @@ import {
   readAcceptedApplicationBinding,
   withStandaloneApplicationBindingInTransaction,
   type PreparedStandaloneApplicationBinding,
-  withFiniteApplicationBindingCorrelationInTransaction,
-  type FiniteApplicationBindingCorrelation,
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
@@ -60,6 +57,14 @@ export type ApplicationBindingReference = Readonly<{
 }> &
   JsonObject;
 
+/** A candidate's observed revocation epoch authorizes its proposal, while an
+ * activated binding's receipt owns its accepted epoch. Every other selected
+ * Application field remains immutable identity in both phases. */
+export function immutableApplicationBindingReference(reference: ApplicationBindingReference) {
+  const { authorizationRevocationEpoch: _observedEpoch, ...selection } = reference;
+  return selection;
+}
+
 export const readApplicationBindingProjectionInTransaction = Effect.fn(
   "ApplicationBindingProjection.readInTransaction",
 )(function* (
@@ -82,7 +87,6 @@ export const readApplicationBindingEvidenceInTransaction = Effect.fn(
 export type ApplicationBindingEvidence = Readonly<{ projection: ApplicationBindingReference;
   analysis: Readonly<{ candidateId: string; analysisId: string; manifestSha256: string; sourceArtifactRootSha256: string }>;
   checkedActive: CheckedApplicationActiveHead | undefined }>;
-
 /** The exact host publication supplies immutable correlation; revocation and
  * acceptance remain request-local inside the original snapshot and final guard. */
 export const withStandaloneApplicationBindingEvidenceInTransaction = Effect.fn(
@@ -108,18 +112,6 @@ export const withApplicationBindingEvidenceInTransaction = Effect.fn(
   return yield* withValidatedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive, accepted) =>
     projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
       Effect.flatMap(evidence => Effect.suspend(() => work(evidence, accepted)))), borrowed);
-});
-
-/** A finite read borrows the full entry's nominal correlation. The fresh
- * head/schema observation and epoch tail remain in the Application owner. */
-export const withFiniteApplicationBindingEvidenceInTransaction = Effect.fn(
-  "ApplicationBindingProjection.withFiniteEvidence",
-)(function* <Value, Failure, Requirements>(token: FiniteApplicationBindingCorrelation,
-  selection: ApplicationBindingInput, root: SessionJournalAttempt, tx: AppRowTransaction, clock: ScopeClockRecord,
-  work: (evidence: ApplicationBindingEvidence) => Effect.Effect<Value, Failure, Requirements>) {
-  return yield* withFiniteApplicationBindingCorrelationInTransaction(token, selection, root, tx, clock,
-    (validated, checkedActive) => projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
-      Effect.flatMap(evidence => Effect.suspend(() => work(evidence)))));
 });
 
 /** Only the standalone trusted owner completes business work in this callback. */

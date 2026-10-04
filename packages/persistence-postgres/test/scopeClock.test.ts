@@ -1,3 +1,4 @@
+import { MetadataSequenceSchema, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import {
@@ -54,7 +55,7 @@ import {
   type InsertInitialScopeClockResult,
   ScopeClockInitializationCorruptionError,
 } from "../src/scopeClockInitialization";
-import { fxSystemScopeClocks } from "../src/schema";
+import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 
@@ -81,6 +82,8 @@ describe("scope clock", () => {
       .toEqualTypeOf<StorageGenerationFence>();
     expectTypeOf<ScopeClockRecord["lastCommitSeq"]>()
       .toEqualTypeOf<CommitSeq>();
+    expectTypeOf<ScopeClockRecord["lastMetadataSequence"]>()
+      .toEqualTypeOf<MetadataSequence>();
     expectTypeOf<ScopeClockRecord["oldestAvailableCommitSeq"]>()
       .toEqualTypeOf<CommitSeq>();
     expectTypeOf<ForbiddenScopeClockMethod>().toEqualTypeOf<never>();
@@ -177,6 +180,7 @@ describe("scope clock", () => {
         LegacyV1StorageGenerationSchema.make("legacy_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(1n),
       lastCommitSeq: CommitSeqSchema.make(0n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
       oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
       epoch: ScopeEpochSchema.make("epoch-stateful-date"),
       updatedAt: source,
@@ -224,6 +228,18 @@ describe("scope clock", () => {
           lastCommitSeq: MAX_PERSISTED_SIGNED_INT64_V1 + 1n,
         },
         reason: "last commit sequence is outside the signed-bigint range",
+      },
+      {
+        row: { ...valid, lastMetadataSequence: "0" },
+        reason: "metadata sequence is invalid",
+      },
+      {
+        row: { ...valid, lastMetadataSequence: -1n },
+        reason: "metadata sequence is invalid",
+      },
+      {
+        row: { ...valid, lastMetadataSequence: MAX_PERSISTED_SIGNED_INT64_V1 + 1n },
+        reason: "metadata sequence is invalid",
       },
       {
         row: { ...valid, oldestAvailableCommitSeq: 1 },
@@ -400,6 +416,7 @@ describe("scope clock", () => {
         9_007_199_254_740_993n,
       ),
       lastCommitSeq: CommitSeqSchema.make(9_007_199_254_740_993n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
       epoch: ScopeEpochSchema.make("epoch-large"),
       updatedAt: new Date("2026-07-10T00:00:00.000Z"),
     });
@@ -409,6 +426,7 @@ describe("scope clock", () => {
       storageGeneration: "legacy_v1",
       storageGenerationFence: 1n,
       lastCommitSeq: 0n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
       epoch: "epoch-empty",
     });
     const largeClock = await persistence.getScopeClock(largeScopeId);
@@ -417,6 +435,7 @@ describe("scope clock", () => {
       storageGeneration: "flarexdb_v1",
       storageGenerationFence: 9_007_199_254_740_993n,
       lastCommitSeq: 9_007_199_254_740_993n,
+      lastMetadataSequence: MetadataSequenceSchema.make(0n),
       oldestAvailableCommitSeq: 0n,
       epoch: "epoch-large",
       updatedAt: new Date("2026-07-10T00:00:00.000Z"),
@@ -433,7 +452,10 @@ describe("scope clock", () => {
 
     await expect(
       persistence.query(
-        `insert into fx_system_scope_clock (scope_id, epoch) values ($1, $2)`,
+        `with sequencer as (insert into fx_system_scope_clock (scope_id)
+        values ($1) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,epoch)
+      select sequencer.scope_id,$2 from sequencer`,
         ["scope_missing_generation", "epoch-a"],
       ),
     ).rejects.toThrow();
@@ -485,13 +507,10 @@ describe("scope clock", () => {
       await expect(
         persistence.query(
           `
-            insert into fx_system_scope_clock (
-              scope_id,
-              storage_generation,
-              storage_generation_fence,
-              last_commit_seq,
-              epoch
-            ) values ($1, $2, $3, $4, $5)
+            with sequencer as (insert into fx_system_scope_clock (scope_id,last_commit_seq)
+        values ($1,$4) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,storage_generation_fence,epoch)
+      select sequencer.scope_id,$2,$3,$5 from sequencer
           `,
           [
             row.scopeId,
@@ -521,12 +540,10 @@ describe("scope clock", () => {
     await expect(
       persistence.query(
         `
-          insert into fx_system_scope_clock (
-            scope_id,
-            storage_generation,
-            authorization_revocation_epoch,
-            epoch
-          ) values ($1, 'legacy_v1', -1, $2)
+          with sequencer as (insert into fx_system_scope_clock (scope_id)
+        values ($1) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,authorization_revocation_epoch,epoch)
+      select sequencer.scope_id,'legacy_v1',-1,$2 from sequencer
         `,
         ["scope_invalid_authorization_epoch", "epoch-a"],
       ),
@@ -587,18 +604,16 @@ describe("scope clock", () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
     await persistence.exec(`
-      alter table fx_system_scope_clock
-        drop constraint fx_system_scope_clock_authorization_revocation_epoch_non_negative_check
+      alter table fx_system_scope_execution_authority
+        drop constraint fx_scope_execution_authority_revocation_check
     `);
     const scopeId = ScopeIdSchema.make("scope_authorization_corrupt");
     await persistence.query(
       `
-        insert into fx_system_scope_clock (
-          scope_id,
-          storage_generation,
-          authorization_revocation_epoch,
-          epoch
-        ) values ($1, 'legacy_v1', -1, $2)
+        with sequencer as (insert into fx_system_scope_clock (scope_id)
+        values ($1) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,authorization_revocation_epoch,epoch)
+      select sequencer.scope_id,'legacy_v1',-1,$2 from sequencer
       `,
       [scopeId, "epoch-authorization-corrupt"],
     );
@@ -700,6 +715,7 @@ describe("scope clock", () => {
       storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(1n),
       lastCommitSeq: CommitSeqSchema.make(0n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
       epoch: ScopeEpochSchema.make("epoch-authorization-advance"),
       updatedAt: oldUpdatedAt,
     });
@@ -746,6 +762,7 @@ describe("scope clock", () => {
         storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(1n),
         lastCommitSeq: CommitSeqSchema.make(0n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
         epoch: ScopeEpochSchema.make(epoch),
         updatedAt: oldUpdatedAt,
       });
@@ -800,12 +817,14 @@ describe("scope clock", () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
     await persistence.exec(`
-      alter table fx_system_scope_clock
-        drop constraint fx_system_scope_clock_storage_generation_check,
-        drop constraint fx_system_scope_clock_storage_generation_fence_positive_check,
-        drop constraint fx_system_scope_clock_last_commit_seq_non_negative_check,
-        drop constraint fx_system_scope_clock_oldest_available_commit_seq_check,
-        drop constraint fx_system_scope_clock_epoch_non_empty_check
+      alter table fx_system_scope_execution_authority
+        drop constraint fx_scope_execution_authority_generation_check,
+        drop constraint fx_scope_execution_authority_fence_check,
+        drop constraint fx_scope_execution_authority_floor_check,
+        drop constraint fx_scope_execution_authority_epoch_check;
+      alter table fx_system_scope_clock drop constraint fx_system_scope_clock_last_commit_seq_non_negative_check;
+      alter table fx_system_scope_clock disable trigger fx_scope_authority_pair_integrity;
+      alter table fx_system_scope_execution_authority disable trigger fx_scope_authority_pair_integrity
     `);
 
     const corruptRows = [
@@ -843,13 +862,10 @@ describe("scope clock", () => {
       const scopeId = ScopeIdSchema.make(`scope_corrupt_clock_${row.suffix}`);
       await persistence.query(
         `
-          insert into fx_system_scope_clock (
-            scope_id,
-            storage_generation,
-            storage_generation_fence,
-            last_commit_seq,
-            epoch
-          ) values ($1, $2, $3, $4, $5)
+          with sequencer as (insert into fx_system_scope_clock (scope_id,last_commit_seq)
+        values ($1,$4) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,storage_generation_fence,epoch)
+      select sequencer.scope_id,$2,$3,$5 from sequencer
         `,
         [
           scopeId,
@@ -887,16 +903,17 @@ describe("scope clock", () => {
         );
         expect(locked).toEqual(before);
         await tx
-          .update(fxSystemScopeClocks)
+          .update(fxSystemScopeExecutionAuthorities)
           .set({
             storageGeneration:
               FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
             storageGenerationFence: StorageGenerationFenceSchema.make(2n),
-            lastCommitSeq: CommitSeqSchema.make(1n),
             epoch: ScopeEpochSchema.make("epoch-after"),
             updatedAt: new Date("2026-07-11T00:00:00.000Z"),
           })
-          .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+        await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n),
+          updatedAt: new Date("2026-07-11T00:00:00.000Z") }).where(eq(fxSystemScopeClocks.scopeId, scopeId));
         throw new Error("scope-clock-rollback-probe");
       }),
     ).rejects.toThrow("scope-clock-rollback-probe");
@@ -924,9 +941,13 @@ interface DefaultScopeClockFixture {
 function validScopeClockRow() {
   return {
     scopeId: "scope_clock_result_decoder",
+    scopeUuid: null,
+    epochUuid: null,
+    authorizationRevocationEpoch: 0n,
     storageGeneration: "flarexdb_v1",
     storageGenerationFence: 1n,
     lastCommitSeq: 0n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
     oldestAvailableCommitSeq: 0n,
     epoch: "epoch-clock-result-decoder",
     updatedAt: new Date("2026-07-10T00:00:00.000Z"),
@@ -939,11 +960,10 @@ async function insertDefaultScopeClock(
 ): Promise<void> {
   await persistence.query(
     `
-      insert into fx_system_scope_clock (
-        scope_id,
-        storage_generation,
-        epoch
-      ) values ($1, $2, $3)
+      with sequencer as (insert into fx_system_scope_clock (scope_id)
+        values ($1) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,epoch)
+      select sequencer.scope_id,$2,$3 from sequencer
     `,
     [input.scopeId, input.storageGeneration, input.epoch],
   );
@@ -952,6 +972,7 @@ async function insertDefaultScopeClock(
 interface ScopeClockFixture extends DefaultScopeClockFixture {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly lastCommitSeq: CommitSeq;
+  readonly lastMetadataSequence: typeof MetadataSequenceSchema.Type;
   readonly updatedAt: Date;
 }
 
@@ -961,14 +982,10 @@ async function insertScopeClockFixture(
 ): Promise<void> {
   await persistence.query(
     `
-      insert into fx_system_scope_clock (
-        scope_id,
-        storage_generation,
-        storage_generation_fence,
-        last_commit_seq,
-        epoch,
-        updated_at
-      ) values ($1, $2, $3, $4, $5, $6::timestamptz)
+      with sequencer as (insert into fx_system_scope_clock (scope_id,last_commit_seq,updated_at,last_metadata_sequence)
+        values ($1,$4,$6::timestamptz,$7) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,storage_generation_fence,epoch,updated_at)
+      select sequencer.scope_id,$2,$3,$5,$6::timestamptz from sequencer
     `,
     [
       input.scopeId,
@@ -977,6 +994,7 @@ async function insertScopeClockFixture(
       input.lastCommitSeq.toString(),
       input.epoch,
       input.updatedAt.toISOString(),
+      input.lastMetadataSequence.toString(),
     ],
   );
 }
@@ -988,7 +1006,7 @@ async function setScopeAuthorizationEpoch(
 ): Promise<void> {
   await persistence.query(
     `
-      update fx_system_scope_clock
+      update fx_system_scope_execution_authority
       set authorization_revocation_epoch = $2
       where scope_id = $1
     `,
@@ -999,6 +1017,8 @@ async function setScopeAuthorizationEpoch(
 interface ScopeClockReadQueryStub
   extends PromiseLike<ReadonlyArray<unknown>> {
   from(): ScopeClockReadQueryStub;
+  innerJoin(): ScopeClockReadQueryStub;
+  leftJoin(): ScopeClockReadQueryStub;
   where(): ScopeClockReadQueryStub;
   limit(): ScopeClockReadQueryStub;
   for(): ScopeClockReadQueryStub;
@@ -1033,6 +1053,8 @@ function scopeClockInitializationDatabase(
       const promise = operations.read();
       const query: ScopeClockReadQueryStub = {
         from: () => query,
+        innerJoin: () => query,
+        leftJoin: () => query,
         where: () => query,
         limit: () => query,
         for: () => query,
@@ -1052,6 +1074,8 @@ function scopeClockReadTransaction(
       const promise = run();
       const query: ScopeClockReadQueryStub = {
         from: () => query,
+        innerJoin: () => query,
+        leftJoin: () => query,
         where: () => query,
         limit: () => query,
         for: () => query,

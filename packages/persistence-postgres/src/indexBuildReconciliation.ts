@@ -96,7 +96,7 @@ const decodeSchemaVersionIdResult = Schema.decodeUnknownResult(
 const decodeDefinitionIdResult = Schema.decodeUnknownResult(
   CatalogIndexDefinitionIdSchema,
 );
-export const MAX_RECONCILED_DEFINITIONS = 256;
+export const MAX_RECONCILED_DEFINITIONS = 512;
 
 export interface ReconcilePublishedIndexBuildsV1Input {
   readonly deploymentId: string;
@@ -446,6 +446,7 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
 )(function* (
   db: FlarexMetadataDatabase,
   input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
+  reader?: FlarexMetadataTransaction,
 ): Effect.fn.Return<
   PublishedPhysicalRequirementSnapshotV1 | null,
   | ReadSchemaVersionArtifactError
@@ -453,12 +454,13 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   | ReadAppSchemaVersionIndexBindingError
   | IndexBuildReconciliationCatalogV1Error
 > {
+  if (reader !== undefined) return yield* loadPublishedPhysicalRequirementsInTransaction(db, reader, input);
   return yield* runEffectTransaction<Effect.Success<ReturnType<typeof loadPublishedPhysicalRequirementsInTransaction>>,
     Effect.Error<ReturnType<typeof loadPublishedPhysicalRequirementsInTransaction>>,
     IndexBuildReconciliationCatalogV1Error, FlarexMetadataTransaction>(
     callback => db.transaction(callback),
     "Published requirement snapshot acquisition failed",
-    reader => loadPublishedPhysicalRequirementsInTransaction(db, reader, input),
+    catalogTransaction => loadPublishedPhysicalRequirementsInTransaction(db, catalogTransaction, input),
     cause => new IndexBuildReconciliationCatalogV1Error({ ...input, reason: "resourceFailure",
       detail: "installation-protected requirement snapshot unavailable", cause }),
   );

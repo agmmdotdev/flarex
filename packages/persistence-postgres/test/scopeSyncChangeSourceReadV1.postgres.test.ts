@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -89,9 +90,7 @@ describePostgres("FX02-A correlated query-sync source read - PostgreSQL", {
         },
       });
 
-      await target.drizzle.update(fxSystemScopeClocks)
-        .set({ oldestAvailableCommitSeq: CommitSeqSchema.make(2n) })
-        .where(eq(fxSystemScopeClocks.scopeUuid, scope.scopeUuid));
+      await target.drizzle.update(fxSystemScopeExecutionAuthorities).set({oldestAvailableCommitSeq: CommitSeqSchema.make(2n)}).where(eq(fxSystemScopeClocks.scopeUuid, scope.scopeUuid));
       const unavailable = await runEffect(reader.readAfter({
         scopeUuid: scope.scopeUuid,
         requestedSourceEpoch: epoch.epochUuid,

@@ -1619,10 +1619,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
           persistence.query(
             `
-              update fx_system_scope_clock
-              set authorization_revocation_epoch =
-                authorization_revocation_epoch + 1
-              where scope_uuid = $1
+              update fx_system_scope_execution_authority a
+              set authorization_revocation_epoch = a.authorization_revocation_epoch + 1
+              from fx_system_scope_clock c where a.scope_id = c.scope_id and c.scope_uuid = $1
             `,
             [prepared.scopeUuid],
           ),
@@ -4333,9 +4332,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority a
         set epoch = $2, updated_at = clock_timestamp()
-        where scope_uuid = $1
+        from fx_system_scope_clock c where a.scope_id = c.scope_id and c.scope_uuid = $1
       `,
       [prepared.scopeUuid, nextEpoch],
     );
@@ -6156,9 +6155,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
     await persistence.query(
       `
-        update fx_system_scope_clock
-        set storage_generation_fence = storage_generation_fence + 1
-        where scope_uuid = $1
+        update fx_system_scope_execution_authority a
+        set storage_generation_fence = a.storage_generation_fence + 1
+        from fx_system_scope_clock c where a.scope_id = c.scope_id and c.scope_uuid = $1
       `,
       [current.evidence.scopeUuid],
     );
@@ -6507,23 +6506,23 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(authorityReads).toBe(0);
   });
 
-  it("keeps malformed locked scope-clock scalars as corruption", async () => {
+  it("keeps malformed locked execution-authority scalars as corruption", async () => {
     const prepared = await prepareO06Scenario(
       "o06_corrupt_locked_clock",
       async () => undefined,
     );
     await persistence.exec(`
-      alter table fx_system_scope_clock
-        drop constraint fx_system_scope_clock_authorization_revocation_epoch_non_negative_check
+      alter table fx_system_scope_execution_authority
+        drop constraint fx_scope_execution_authority_revocation_check
     `);
     try {
       await persistence.query(
         `
-          update fx_system_scope_clock
+          update fx_system_scope_execution_authority
           set authorization_revocation_epoch = -1
-          where scope_uuid = $1
+          where scope_id = $1
         `,
-        [prepared.evidence.scopeUuid],
+        [prepared.evidence.scopeId],
       );
       const failure = await runFailure(
         createPointCommitRollbackProofPortV1(
@@ -6535,18 +6534,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     } finally {
       await persistence.query(
         `
-          update fx_system_scope_clock
+          update fx_system_scope_execution_authority
           set authorization_revocation_epoch = $1
-          where scope_uuid = $2
+          where scope_id = $2
         `,
         [
           prepared.evidence.session.authorizationRevocationEpoch,
-          prepared.evidence.scopeUuid,
+          prepared.evidence.scopeId,
         ],
       );
       await persistence.exec(`
-        alter table fx_system_scope_clock
-          add constraint fx_system_scope_clock_authorization_revocation_epoch_non_negative_check
+        alter table fx_system_scope_execution_authority
+          add constraint fx_scope_execution_authority_revocation_check
           check (authorization_revocation_epoch >= 0)
       `);
     }
@@ -8264,7 +8263,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await persistence.query(
       `insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
       select scope_id, id, storage_generation, storage_generation_fence, epoch, last_commit_seq, last_commit_seq, 'validating', decode(repeat('ff',16),'hex'), 1
-      from fx_system_scope_clock cross join generate_series(1000, $2::int + 999) id where scope_id = $1`,
+      from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) cross join generate_series(1000, $2::int + 999) id where scope_id = $1`,
       [current.anchor.scopeId, count],
     );
   }
@@ -8889,11 +8888,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
              result_state, result_expired_at)
           select session.scope_uuid, session.request_key,
             session.identity_access_policy_sha256, session.function_path,
-            session.request_sha256, clock.epoch_uuid, 1,
+            session.request_sha256, authority.epoch_uuid, 1,
             'expired', clock_timestamp()
           from fx_system_tx_session as session
           join fx_system_scope_clock as clock
             on clock.scope_uuid = session.scope_uuid
+          join fx_system_scope_execution_authority as authority on authority.scope_id = clock.scope_id
           where session.scope_uuid = $1 and session.session_id = $2
         `,
         [prepared.scopeUuid, prepared.current.anchor.sessionId],
@@ -8913,11 +8913,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
            result_bytes, result_sha256)
         select session.scope_uuid, session.request_key,
           session.identity_access_policy_sha256, session.function_path,
-          session.request_sha256, clock.epoch_uuid, 1,
+          session.request_sha256, authority.epoch_uuid, 1,
           'available', 1, $3, $4, decode($5, 'hex')
         from fx_system_tx_session as session
         join fx_system_scope_clock as clock
           on clock.scope_uuid = session.scope_uuid
+          join fx_system_scope_execution_authority as authority on authority.scope_id = clock.scope_id
         where session.scope_uuid = $1 and session.session_id = $2
       `,
       [

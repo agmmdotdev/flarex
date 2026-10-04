@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
@@ -193,7 +194,11 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const selector = { key: { in: [`collection-posts-${postId}`] } };
 
   const foreignScope = ScopeIdSchema.make(`scope_${crypto.randomUUID()}`);
-  await persistence.drizzle.insert(fxSystemScopeClocks).values({ scopeId: foreignScope, storageGeneration: await runEffect(decodeGeneration(reference.storageGeneration)), epoch: ScopeEpochSchema.make(reference.epoch) });
+  const foreignGeneration = await runEffect(decodeGeneration(reference.storageGeneration));
+  await persistence.drizzle.transaction(async tx => {
+    await tx.insert(fxSystemScopeClocks).values({ scopeId: foreignScope });
+    await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId: foreignScope, storageGeneration: foreignGeneration, epoch: ScopeEpochSchema.make(reference.epoch) });
+  });
   const publicationBefore = await inventory();
   // A real zero-match query produces a receipt, then the closed publication gate rolls back.
   expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId }))).toMatchObject({ reason: "unsupportedProfile" });

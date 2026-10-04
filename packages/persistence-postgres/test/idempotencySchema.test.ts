@@ -15,6 +15,7 @@ import {
   insertExpiredOutcome,
   insertS09Header,
   insertS09Scope,
+  insertLegacyS09Scope,
   MAX_RESULT_CANONICAL_BYTES,
   MAX_RESULT_SEMANTIC_BYTES,
   POSTGRES_SIGNED_BIGINT_MAX,
@@ -87,7 +88,7 @@ describe("S09-A committed-success idempotency schema", () => {
       await writeJournalThrough0029(currentJournal, temporaryJournal);
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await insertS09Scope(previous, S09_SCOPE_A, S09_EPOCH_A, "1");
+      await insertLegacyS09Scope(previous, S09_SCOPE_A, S09_EPOCH_A, "1");
       await insertS09Header(previous, S09_SCOPE_A, S09_EPOCH_A, "1");
       await previous.query(`
         insert into commits (deployment_id, ts, source, write_summary)
@@ -150,7 +151,7 @@ describe("S09-A committed-success idempotency schema", () => {
       await writeJournalThrough0029(currentJournal, temporaryJournal);
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await insertS09Scope(previous, S09_SCOPE_A, S09_EPOCH_A, "0");
+      await insertLegacyS09Scope(previous, S09_SCOPE_A, S09_EPOCH_A, "0");
       await writeJournalThrough0030(currentJournal, temporaryJournal);
 
       const migration = await readFile(copiedMigration, "utf8");
@@ -308,9 +309,9 @@ describe("S09-A committed-success idempotency schema", () => {
       await classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "old-epoch"),
     ).toBe("corruptMissingRetainedHeader");
     await persistence.query(`
-      update fx_system_scope_clock
+      update fx_system_scope_execution_authority
       set oldest_available_commit_seq = 2
-      where scope_uuid = '${S09_SCOPE_A}'::uuid
+      where scope_id = 'scope_${S09_SCOPE_A}'
     `);
     expect(
       await classifyOutcomeIntegrity(persistence, S09_SCOPE_A, "old-epoch"),

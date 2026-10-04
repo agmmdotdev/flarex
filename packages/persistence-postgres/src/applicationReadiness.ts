@@ -83,8 +83,10 @@ import { runEffectTransaction } from "./effectTransaction";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
 import { chargeHostPreparation } from "./preparedHostRuntime";
+import type { OriginalSchemaVersionRead } from "./schemaVersionArtifacts";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
+  MAX_RECONCILED_DEFINITIONS,
   type IndexBuildReconciliationCatalogV1Error,
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
@@ -132,6 +134,7 @@ import {
   lockScopeClockForSnapshotReadInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
   decodeScopeClockRecordResult,
+  scopeClockSelection,
   ScopeAuthorizationRevocationEpochPersistenceError,
   type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
@@ -150,6 +153,7 @@ import {
   fxSystemApplicationCandidatesV1,
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
 } from "./schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
@@ -160,7 +164,7 @@ import {
 const UTF8 = new TextEncoder();
 const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });
 const MAX_FUNCTIONS = 4_096;
-const MAX_PHYSICAL_DEFINITIONS = 16_384;
+const MAX_PHYSICAL_DEFINITIONS = MAX_RECONCILED_DEFINITIONS;
 const MAX_BINDING_BYTES = 1_048_576;
 const MAX_READINESS_BYTES = 16_777_216;
 
@@ -405,6 +409,7 @@ interface StoredReadinessAuthority {
   readonly schemaVersion: CatalogSchemaVersion;
   readonly schema: ApplicationSchemaAuthority;
   readonly schemaBindingSha256: Uint8Array;
+  readonly originalControl?: OriginalApplicationControlRead;
   readonly requirements: PublishedPhysicalRequirementSnapshotV1;
   readonly physicalDefinitionLifecycle:
     PreparedPhysicalDefinitionLifecycleReadiness;
@@ -415,6 +420,15 @@ interface StoredReadinessAuthority {
   readonly physicalReadinessSha256: Uint8Array;
   readonly protectedMetadata?: Readonly<{ database: FlarexMetadataDatabase;
     token: ProtectedMetadataPreparation; epoch: ProtectedMetadataEpochIdentity }>;
+}
+
+export interface OriginalApplicationControlRead {
+  readonly database: FlarexMetadataDatabase;
+  readonly artifact: OriginalSchemaVersionRead;
+  readonly schemaAuthority: Readonly<{
+    row: typeof fxControlApplicationSchemaAuthoritiesV1.$inferSelect;
+    schemaBindingByteLengthText: string;
+  }>;
 }
 
 interface StoredIssuedApplicationReadinessState {
@@ -594,7 +608,7 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     () => Effect.fromResult(rows.task).pipe(Effect.flatMap(task => task === null
       ? Effect.succeed(null) : authenticateCapturedApplicationTaskCatalogRows(task))));
   if ("status" in bundle) return captured.profile === "request" ? bundle : yield* readinessFailure("storedState");
-  const schema = yield* state.context.schema.readPublished({ deploymentId: rows.deploymentId, manifest: bundle.manifest });
+  const { schema, originalArtifact } = yield* state.context.schema.readPublished({ deploymentId: rows.deploymentId, manifest: bundle.manifest });
   yield* requireSchemaCorrelation(bundle, schema.schemaVersion, schema);
   const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(state.context.controlDb,
     { deploymentId: rows.deploymentId, schemaVersionId: schema.schemaVersionId });
@@ -608,8 +622,11 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     : yield* readinessFailure("authorityChanged");
   const physicalDefinitionLifecycle = yield* preparePhysicalDefinitionLifecycleReadinessEffect(
     state.context.physicalDefinitionLifecycle, rows.authority.scopeId, requirements);
-  const schemaBindingSha256 = yield* runTransaction(state.context.controlDb,
+  const binding = yield* runTransaction(state.context.controlDb,
     tx => readSchemaBinding(tx, bundle, schema.schemaVersion, schema));
+  const schemaBindingSha256 = binding.sha256;
+  const originalControl = Object.freeze({ database: state.context.controlDb, artifact: originalArtifact,
+    schemaAuthority: Object.freeze({ row: binding.originalRow, schemaBindingByteLengthText: binding.schemaBindingByteLengthText }) });
   if (rows.readiness === undefined) return yield* readinessFailure("storedState");
   const cold = yield* authenticateStoredColdEvidence(bundle, state.context.cold, rows.readiness, rows.cold);
   const stored = yield* authenticateStoredReadinessAuthority(bundle, schema.schemaVersion, schema,
@@ -622,15 +639,19 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     revision: { ...bundle.revision, registeredAt: bundle.revision.registeredAt.getTime() },
     publication: { ...bundle.publication, publishedAt: bundle.publication.publishedAt.getTime() } },
     schema, requirements: { ...requirements }, cold, schemaBindingSha256,
+    originalControl: { artifact: { sizes: { ...originalArtifact.sizes, createdAt: originalArtifact.sizes.createdAt.getTime() },
+      payload: originalArtifact.payload === null ? null : { ...originalArtifact.payload, createdAt: originalArtifact.payload.createdAt.getTime() } },
+      schemaAuthority: { ...binding.originalRow, createdAt: binding.originalRow.createdAt.getTime(),
+        publishedAt: binding.originalRow.publishedAt?.getTime() ?? null, schemaBindingByteLengthText: binding.schemaBindingByteLengthText } },
     readinessBytes: stored.readinessBytes }).pipe(
       Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   }
-  const issued = storedReadyProjection(Object.freeze({ ...stored,
+  const issued = storedReadyProjection(Object.freeze({ ...stored, originalControl,
     ...(rows.protection === undefined ? {} : { protectedMetadata: rows.protection }) }), state.issuer);
   if (issued.status !== "ready") return yield* readinessFailure("storedState");
   const issuedState = issuedReadinessStates.get(issued);
   if (issuedState === undefined) return yield* readinessFailure("storedState");
-  return Object.freeze({ readiness: issued, basis: activationBasis(issuedState), schema });
+  return Object.freeze({ readiness: issued, basis: activationBasis(issuedState), schema, originalControl });
 });
 
 /** Only the exact readiness issuer can expose its already bracketed immutable
@@ -641,6 +662,20 @@ export function readApplicationReadinessTargetProtection(repository: unknown, is
   return state !== undefined && ready?.kind === "stored" && ready.issuer === state.issuer
     ? ready.stored.protectedMetadata : undefined;
 }
+
+/** Immutable closed membership from the exact retained readiness issuer. */
+export const readApplicationMetadataUniqueRequirements = Effect.fn("ApplicationReadiness.readMetadataUniqueRequirements")(
+  function* (repository: unknown, issued: ApplicationReadinessResult, schemaVersionId: CatalogSchemaVersionId) {
+    const state = typeof repository === "object" && repository !== null ? readinessRepositoryStates.get(repository) : undefined;
+    const ready = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
+    if (state === undefined || ready === undefined || ready.issuer !== state.issuer)
+      return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    const retained = ready.kind === "prepared" ? ready.prepared : ready.stored;
+    if (retained.requirements.schemaVersionId !== schemaVersionId)
+      return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    return yield* readUniqueMaintenanceRequirements(state.context.controlDb, retained.bundle.deploymentId, schemaVersionId);
+  },
+);
 
 export const readApplicationActivationUniqueRequirements = Effect.fn("ApplicationReadiness.readActivationUniqueRequirements")(
   function* (repository: unknown, issued: ApplicationReadinessResult, schemaVersionId: string,
@@ -910,7 +945,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       );
       const { reserved } = first;
       if ("status" in reserved) return reserved;
-      const schema = yield* capturedContext.schema.readPublished({
+      const { schema } = yield* capturedContext.schema.readPublished({
         deploymentId: reserved.deploymentId,
         manifest: reserved.manifest,
       });
@@ -956,7 +991,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       const schemaBindingSha256 = yield* runTransaction(
         capturedContext.controlDb,
         tx => readSchemaBinding(tx, reserved, schemaVersion, schema),
-      );
+      ).pipe(Effect.map(binding => binding.sha256));
       const second = yield* runLocatedTransaction(
         located.target,
         tx => Effect.gen(function* () {
@@ -1587,45 +1622,50 @@ function publishSchemaBinding(
   });
 }
 
-function readSchemaBinding(
+const readSchemaBinding = Effect.fn("ApplicationReadiness.readSchemaBinding")(function* (
   tx: AppRowTransaction,
   bundle: StoredBundle,
   schemaVersion: CatalogSchemaVersion,
   schema: ApplicationSchemaAuthority,
-): Effect.Effect<Uint8Array, ApplicationReadinessError> {
-  return Effect.gen(function* () {
-    const bindingBytes = applicationSchemaBindingBytes(schema);
-    if (bindingBytes.byteLength > MAX_BINDING_BYTES) {
-      return yield* readinessFailure("schemaBinding");
-    }
-    const bindingSha256 = yield* sha256(bindingBytes);
-    const schemaManifestSha256 = decodeSha256(schema.schemaManifestSha256);
-    const rows = yield* query(
-      tx.select().from(fxControlApplicationSchemaAuthoritiesV1).where(and(
-        eq(
-          fxControlApplicationSchemaAuthoritiesV1.deploymentId,
-          bundle.deploymentId,
-        ),
-        eq(
-          fxControlApplicationSchemaAuthoritiesV1.applicationSchemaSha256,
-          bundle.publication.schemaSha256,
-        ),
-      )).limit(1).for("share"),
-    );
-    const row = rows[0];
-    if (row === undefined || row.status !== "published" ||
-      row.schemaVersionId !== schema.schemaVersionId ||
-      row.schemaVersion !== schemaVersion ||
-      row.schemaManifestSha256 === null || row.bindingSha256 === null ||
-      row.bindingBytes === null ||
-      !bytesEqualFullScan(row.schemaManifestSha256, schemaManifestSha256) ||
-      !bytesEqualFullScan(row.bindingSha256, bindingSha256) ||
-      !bytesEqualFullScan(row.bindingBytes, bindingBytes)) {
-      return yield* readinessFailure("schemaBinding");
-    }
-    return copyBytes(bindingSha256);
-  });
-}
+): Effect.fn.Return<Readonly<{ sha256: Uint8Array;
+  originalRow: typeof fxControlApplicationSchemaAuthoritiesV1.$inferSelect;
+  schemaBindingByteLengthText: string }>, ApplicationReadinessError> {
+  const bindingBytes = applicationSchemaBindingBytes(schema);
+  if (bindingBytes.byteLength > MAX_BINDING_BYTES) {
+    return yield* readinessFailure("schemaBinding");
+  }
+  const bindingSha256 = yield* sha256(bindingBytes);
+  const schemaManifestSha256 = decodeSha256(schema.schemaManifestSha256);
+  const rows = yield* query(
+    tx.select({ ...getTableColumns(fxControlApplicationSchemaAuthoritiesV1),
+      bindingBytes: sql<Uint8Array | null>`case when octet_length(${fxControlApplicationSchemaAuthoritiesV1.bindingBytes})
+        <= ${MAX_BINDING_BYTES} then ${fxControlApplicationSchemaAuthoritiesV1.bindingBytes} else null end`,
+      schemaBindingByteLengthText: sql<string>`octet_length(${fxControlApplicationSchemaAuthoritiesV1.bindingBytes})::bigint::text`,
+    }).from(fxControlApplicationSchemaAuthoritiesV1).where(and(
+      eq(
+        fxControlApplicationSchemaAuthoritiesV1.deploymentId,
+        bundle.deploymentId,
+      ),
+      eq(
+        fxControlApplicationSchemaAuthoritiesV1.applicationSchemaSha256,
+        bundle.publication.schemaSha256,
+      ),
+    )).limit(1).for("share"),
+  );
+  const row = rows[0];
+  if (row === undefined || row.status !== "published" ||
+    row.schemaVersionId !== schema.schemaVersionId ||
+    row.schemaVersion !== schemaVersion ||
+    row.schemaManifestSha256 === null || row.bindingSha256 === null ||
+    row.bindingBytes === null ||
+    !bytesEqualFullScan(row.schemaManifestSha256, schemaManifestSha256) ||
+    !bytesEqualFullScan(row.bindingSha256, bindingSha256) ||
+    !bytesEqualFullScan(row.bindingBytes, bindingBytes)) {
+    return yield* readinessFailure("schemaBinding");
+  }
+  const { schemaBindingByteLengthText, ...originalRow } = row;
+  return Object.freeze({ sha256: copyBytes(bindingSha256), originalRow: structuredClone(originalRow), schemaBindingByteLengthText });
+});
 
 function applicationSchemaBindingBytes(
   schema: ApplicationSchemaAuthority,
@@ -2420,12 +2460,12 @@ const loadPhysicalBuildRows = Effect.fn(
     // The clock and mutable index coverage must come from one MVCC statement.
     // A provisional read must not wait on the index row a point commit holds.
     const unordered = definitionIds.length === 0 ? [] : yield* query(
-      tx.select({ build: fxSystemIndexBuildStates, scopeClock: fxSystemScopeClocks })
+      tx.select({ build: fxSystemIndexBuildStates, scopeClock: scopeClockSelection() })
         .from(fxSystemIndexBuildStates)
         .innerJoin(fxSystemScopeClocks, eq(
           fxSystemScopeClocks.scopeId,
           fxSystemIndexBuildStates.scopeId,
-        )).where(and(
+        )).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(and(
         eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
         inArray(fxSystemIndexBuildStates.indexDefinitionId, definitionIds),
       )),

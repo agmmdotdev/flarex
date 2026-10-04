@@ -49,9 +49,11 @@ import {
 } from "./schema";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import {
-  getSchemaVersionArtifactByIdEffect,
+  getSchemaVersionArtifactWithOriginalByIdEffect,
+  type OriginalSchemaVersionRead,
   type ReadSchemaVersionArtifactError,
 } from "./schemaVersionArtifacts";
+import { MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 } from "./storedCommitAuthority/model";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 import {
   applicationSchemaPublicationInputResult,
@@ -108,7 +110,7 @@ export interface ApplicationSchemaAuthorityPublisher<Failure> {
     readonly deploymentId: string;
     readonly manifest: unknown;
   }, reader?: FlarexMetadataTransaction) => Effect.Effect<
-    ApplicationSchemaAuthority,
+    Readonly<{ schema: ApplicationSchemaAuthority; originalArtifact: OriginalSchemaVersionRead }>,
     ApplicationSchemaAuthorityError | ReadSchemaVersionArtifactError
   >;
 }
@@ -184,7 +186,7 @@ export function makeApplicationSchemaAuthorityPublisher(
       readonly deploymentId: string;
       readonly manifest: unknown;
     }, reader?: FlarexMetadataTransaction): Effect.fn.Return<
-      ApplicationSchemaAuthority,
+      Readonly<{ schema: ApplicationSchemaAuthority; originalArtifact: OriginalSchemaVersionRead }>,
       ApplicationSchemaAuthorityError | ReadSchemaVersionArtifactError
     > {
       if (!isNonBlankString(input.deploymentId) ||
@@ -219,21 +221,24 @@ export function makeApplicationSchemaAuthorityPublisher(
       const schemaVersionId = CatalogSchemaVersionIdSchema.make(
         `application_${applicationSchemaSha256}`,
       );
-      const artifact = yield* (reader !== undefined ? getSchemaVersionArtifactByIdEffect(reader, input.deploymentId, schemaVersionId) :
-        runEffectTransaction<Effect.Success<ReturnType<typeof getSchemaVersionArtifactByIdEffect>>,
+      const acquired = yield* (reader !== undefined ? getSchemaVersionArtifactWithOriginalByIdEffect(reader, input.deploymentId, schemaVersionId,
+        MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1) :
+        runEffectTransaction<Effect.Success<ReturnType<typeof getSchemaVersionArtifactWithOriginalByIdEffect>>,
         ReadSchemaVersionArtifactError, ApplicationSchemaAuthorityError, FlarexMetadataTransaction>(
         callback => repository.db.transaction(callback),
         "Application published authority acquisition failed",
-        tx => getSchemaVersionArtifactByIdEffect(tx, input.deploymentId, schemaVersionId),
+        tx => getSchemaVersionArtifactWithOriginalByIdEffect(tx, input.deploymentId, schemaVersionId,
+          MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1),
         cause => authorityFailureValue("resourceFailure", cause, "readPublished"),
       ));
-      if (artifact === null) {
+      if (acquired === null) {
         return yield* authorityFailure(
           "projectionMismatch",
           undefined,
           "readPublished",
         );
       }
+      const { artifact, original: originalArtifact } = acquired;
       const manifest = yield* Effect.fromResult(
         decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson).pipe(
           Result.mapError(cause => authorityFailureValue(
@@ -243,7 +248,7 @@ export function makeApplicationSchemaAuthorityPublisher(
           )),
         ),
       );
-      return yield* Effect.fromResult(projectAuthority(
+      const schema = yield* Effect.fromResult(projectAuthority(
         input.deploymentId,
         applicationSchemaSha256,
         schemaVersionId,
@@ -253,6 +258,7 @@ export function makeApplicationSchemaAuthorityPublisher(
         artifact.manifestSha256,
         "readPublished",
       ));
+      return Object.freeze({ schema, originalArtifact });
     },
   );
   const publisher = Object.freeze({ publish, readPublished });

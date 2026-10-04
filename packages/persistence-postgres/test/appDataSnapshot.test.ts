@@ -7,6 +7,7 @@ import {
   type ScopeId,
 } from "flarex-protocol/storage-authority";
 import { eq } from "drizzle-orm";
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -150,8 +151,8 @@ describe("app-data snapshot resolution", () => {
     await persistence.insertScopeMetadata({
       scopeId: secondScopeId, deploymentId: first.scope.deploymentId, physicalLocator: sharedLocator,
     });
-    Result.getOrThrow(await insertInitialScopeClockInTransactionResult(persistence.drizzle,
-      { scopeId: secondScopeId, initialEpoch: secondEpoch }));
+    await persistence.drizzle.transaction(async tx => Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx,
+      { scopeId: secondScopeId, initialEpoch: secondEpoch })));
     await persistence.drizzle.update(fxSystemScopeClocks)
       .set({ lastCommitSeq: CommitSeqSchema.make(37n) })
       .where(eq(fxSystemScopeClocks.scopeId, secondScopeId));
@@ -313,6 +314,7 @@ function scopeClock(
       FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
     oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
     epoch: initialEpoch,
     updatedAt: new Date("2026-07-13T00:00:00.000Z"),

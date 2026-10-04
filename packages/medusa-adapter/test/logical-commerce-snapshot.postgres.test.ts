@@ -1,4 +1,5 @@
 import { Deferred, Effect, Fiber, Tracer } from "effect";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
@@ -14,6 +15,7 @@ import { runDrizzleStatementEffect } from "../../persistence-postgres/src/drizzl
 import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
 import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../persistence-postgres/src/scopeClock";
+import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../../persistence-postgres/src/schema";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
 import { fxSystemDataBindingHeads } from "../../persistence-postgres/src/frameworkSchema/binding/schema";
@@ -323,8 +325,20 @@ describe.skipIf(postgresUrl === null)("logical commerce snapshots and publicatio
           { filters: { code: "baseline" }, config: { select: ["code", "name"] } });
       }));
       const reader = await local([read, currencyCommands.list], session);
+      const readScopeAuthority = async () => {
+        const rows = await fixture.persistence.drizzle.select({
+          lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
+          authorizationRevocationEpoch: fxSystemScopeExecutionAuthorities.authorizationRevocationEpoch,
+        }).from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities,
+          eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
+          .where(eq(fxSystemScopeClocks.scopeId, fixture.application.authority.scopeId));
+        const row = rows[0];
+        if (rows.length !== 1 || row === undefined) throw new Error("Expected one paired Currency scope authority.");
+        return row;
+      };
       try {
         const before = await logicalCurrencyInventory(fixture);
+        const beforeAuthority = await readScopeAuthority();
         await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
           const reading = yield* reader.read(read, null).pipe(Effect.result, Effect.forkScoped);
           yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
@@ -346,12 +360,14 @@ describe.skipIf(postgresUrl === null)("logical commerce snapshots and publicatio
           expect(nativeReads).toBe(0);
         }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
         const after = await logicalCurrencyInventory(fixture);
+        const afterAuthority = await readScopeAuthority();
         const { clocks: beforeClocks, ...beforeData } = before;
         const { clocks: afterClocks, ...afterData } = after;
         expect(afterData).toEqual(beforeData);
-        expect(afterClocks[0]?.lastCommitSeq).toBe(beforeClocks[0]?.lastCommitSeq);
-        expect(afterClocks[0]?.authorizationRevocationEpoch).toBe(
-          (beforeClocks[0]?.authorizationRevocationEpoch ?? 0n) + (transition === "revocation" ? 1n : 0n));
+        expect(afterClocks.map(clock => clock.lastCommitSeq)).toEqual(beforeClocks.map(clock => clock.lastCommitSeq));
+        expect(afterAuthority.lastCommitSeq).toBe(beforeAuthority.lastCommitSeq);
+        expect(afterAuthority.authorizationRevocationEpoch).toBe(
+          beforeAuthority.authorizationRevocationEpoch + (transition === "revocation" ? 1n : 0n));
         const fresh = await local([read, currencyCommands.list]);
         try {
           await expect(Effect.runPromise(fresh.read(read, null))).rejects.toMatchObject({

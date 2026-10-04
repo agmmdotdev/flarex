@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks } from "../src/schema";
 import { fxSystemCommitRelationalChanges } from "../src/commitPublication/relationalFactsSchema";
 import { fxSystemFrameworkInitializations } from "../src/frameworkSchema/installation/initializationSchema";
@@ -63,7 +64,7 @@ export async function compactRetainedCommitHistory(
   const clock = before.clocks[0];
   if (last === undefined || clock?.scopeUuid === undefined || clock.scopeUuid === null) throw new Error("Missing retained history");
   const db = persistence.drizzle;
-  await db.update(fxSystemScopeClocks).set({ oldestAvailableCommitSeq: last.commitSeq }).where(eq(fxSystemScopeClocks.scopeUuid, clock.scopeUuid));
+  await db.update(fxSystemScopeExecutionAuthorities).set({ oldestAvailableCommitSeq: last.commitSeq }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId));
   const port = createRetainedCommitHistoryCompactionPort({ authority: { ...owner.authority, scopeClockTargets: {
     resolve: async locator => createLocatedRetainedHistoryFloorTargetInternal(db, locator, createDefaultLocatedReadCommittedTransactionRunnerV1(db)),
   } } });

@@ -354,6 +354,14 @@ export function makeExactPointMutationExecutionOperationsV1(
       if (confirmedActivation !== undefined && (finiteEntry === undefined || finiteEntry.journal !== journal ||
         finiteEntry.executionClaim !== finiteState?.executionClaim || journal.inspectConfirmedFiniteEntry === undefined ||
         journal.openConfirmedFiniteEntry === undefined)) return yield* Effect.fail(input.currentInspectionUnavailable());
+      const replacementEntry = input.confirmedReplacementEntry;
+      if (replacementEntry !== undefined) {
+        if (confirmedActivation !== undefined || journal.inspectConfirmedFiniteEntry === undefined ||
+          journal.openConfirmedFiniteEntry === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
+        const confirmedInspection = yield* Effect.fromResult(journal.inspectConfirmedFiniteEntry(
+          replacementEntry.capture, replacementEntry.preparation));
+        yield* input.validateCurrent(confirmedInspection);
+      }
       const currentAttempt = confirmedActivation === undefined ? yield* loadCurrentAttempt : undefined;
       const currentAuthority = currentAttempt ?? confirmedActivation;
       if (currentAuthority === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
@@ -375,11 +383,11 @@ export function makeExactPointMutationExecutionOperationsV1(
       prepared: Effect.Success<ReturnType<typeof prepareExecution>>) {
       const context = yield* Effect.fromResult(capturePointMutationOccExecutionContext(
         prepared.entropy, input.executionEvidence.creationTimeSeed, input.attemptFence, input.snapshotToken));
-      const finiteEntry = input.confirmedInitialActivation === undefined ? undefined
-        : getActivatedPointMutationSessionStateV1(input.confirmedInitialActivation)?.finiteEntry;
-      const journalAttempt = prepared.currentAttempt !== undefined ? yield* journal.openAttempt(prepared.currentAttempt, input.executionScope)
-        : finiteEntry !== undefined && journal.openConfirmedFiniteEntry !== undefined
+      const finiteEntry = input.confirmedReplacementEntry ?? (input.confirmedInitialActivation === undefined ? undefined
+        : getActivatedPointMutationSessionStateV1(input.confirmedInitialActivation)?.finiteEntry);
+      const journalAttempt = finiteEntry !== undefined && journal.openConfirmedFiniteEntry !== undefined
         ? yield* journal.openConfirmedFiniteEntry(finiteEntry.capture, finiteEntry.preparation, input.executionScope, finiteEntry.executionClaim)
+        : prepared.currentAttempt !== undefined ? yield* journal.openAttempt(prepared.currentAttempt, input.executionScope)
         : yield* Effect.fail(input.currentInspectionUnavailable());
       return Object.freeze({ journalAttempt, runnerInput: capturePointMutationOccRunnerInput(prepared.runnerEvidence,
         context, bindPointMutationOccJournal(journal, journalAttempt)) });

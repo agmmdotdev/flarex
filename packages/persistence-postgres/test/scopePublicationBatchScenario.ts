@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import {
@@ -21,10 +22,8 @@ import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import {
   CommitSeqSchema,
-  ScopeEpochSchema,
   ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema,
-  FlarexDbV1StorageGenerationSchema,
   decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import {
@@ -59,7 +58,6 @@ import {
   fxSystemCommits,
   fxSystemIdempotency,
   fxSystemCommitWakes,
-  fxSystemScopeClocks,
 } from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
 
@@ -151,11 +149,7 @@ export async function createScopePublicationFixture(
   const scopeUuid = ScopeUuidV1Schema.make(randomUUID());
   const epochUuid = ScopeEpochUuidV1Schema.make(randomUUID());
   const scopeId = decodeReplacementScopeIdV1(`scope_${scopeUuid}`);
-  await persistence.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId,
-    epoch: ScopeEpochSchema.make(`epoch_${epochUuid}`),
-    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-  });
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: `epoch_${epochUuid}` });
   const commitSeq = CommitSeqSchema.make(1n);
   const tableId = CatalogTableIdSchema.make(1);
   const rowIntents = Array.from({ length: count }, (_, index) => ({

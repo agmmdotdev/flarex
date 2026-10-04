@@ -75,7 +75,9 @@ import {
   fxSystemEdgeDefinitionBuilds,
   fxSystemEdgeDefinitionReadiness,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
 } from "../src/schema";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   ensureRelationBuildTestWebCrypto,
   relationBuildDocumentId,
@@ -595,9 +597,9 @@ describe("E01-B private application relation readiness", () => {
       `epoch_e01b9999-0000-4000-8000-${fixtureOrdinal.toString(16)
         .padStart(12, "0")}`,
     );
-    await fixture.control.drizzle.update(fxSystemScopeClocks).set({
+    await fixture.control.drizzle.update(fxSystemScopeExecutionAuthorities).set({
       epoch: movedEpoch,
-    }).where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+    }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.scopeId));
     const stale = await fixture.control.drizzle.transaction(async (tx) => {
       const clock = await runEffect(
         lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
@@ -1086,14 +1088,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     deploymentId,
     physicalLocator: LOCATOR,
   });
-  await control.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId,
-    storageGeneration:
-      FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    storageGenerationFence: StorageGenerationFenceSchema.make(1n),
-    lastCommitSeq: CommitSeqSchema.make(0n),
-    epoch,
-  });
+  await insertCurrentScopeClockFixture(control.drizzle, { scopeId, epoch });
   const pointTarget = createPGliteLocatedPointMutationSessionActivationTargetV1(
     control,
     LOCATOR,

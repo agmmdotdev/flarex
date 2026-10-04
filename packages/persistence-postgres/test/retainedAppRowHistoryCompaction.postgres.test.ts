@@ -155,7 +155,7 @@ async function seedPopulatedAppRowHistory(
             case when series.value = 1 then null else series.value - 1 end,
             epoch_uuid, 'schema_v1', 42,
             1, true, null, null
-     from fx_system_scope_clock,
+     from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
           generate_series(1, 300) as series(value)
      where scope_id = $1`,
     [scopeId],
@@ -176,7 +176,7 @@ async function seedPopulatedAppRowHistory(
             decode(lpad(to_hex(series.value + 1), 32, '0'), 'hex'),
             301, null, epoch_uuid, 'schema_v1', series.value + 42,
             1, true, null, null
-     from fx_system_scope_clock,
+     from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
           generate_series(1, 4096) as series(value)
      where scope_id = $1`,
     [scopeId],
@@ -191,9 +191,17 @@ async function seedPopulatedAppRowHistory(
     [scopeId],
   );
   await persistence.query(
-    `update fx_system_scope_clock
-     set last_commit_seq = 301, oldest_available_commit_seq = 300
-     where scope_id = $1`,
+    `with authority as materialized (
+       select scope_id from fx_system_scope_execution_authority
+       where scope_id = $1 for update
+     ), sequence as (
+       update fx_system_scope_clock as clock set last_commit_seq = 301
+       from authority where clock.scope_id = authority.scope_id
+       returning clock.scope_id
+     )
+     update fx_system_scope_execution_authority as authority
+     set oldest_available_commit_seq = 300
+     from sequence where authority.scope_id = sequence.scope_id`,
     [scopeId],
   );
   await persistence.query("analyze fx_app_row_rev");

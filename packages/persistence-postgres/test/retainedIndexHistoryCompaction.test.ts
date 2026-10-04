@@ -328,7 +328,7 @@ describe("O11-D retained ordered-index history compaction", () => {
           value_bytes, value_sha256)
        select scope_uuid, 1, decode($2, 'hex'), 3, 2,
               epoch_uuid, 'schema_v1', 3, 1, true, null, null
-       from fx_system_scope_clock where scope_id = $1`,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
       [context.scopeId, testRowIdHex],
     );
     const located = await runEffect(
@@ -341,7 +341,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     if (located === null)
       throw new Error("Expected the installed index owner.");
     const epochRows = await persistence.query<{ epoch: string }>(
-      `select epoch from fx_system_scope_clock where scope_id = $1`,
+      `select epoch from fx_system_scope_execution_authority where scope_id = $1`,
       [context.scopeId],
     );
     const epoch = epochRows.rows[0]?.epoch;
@@ -617,7 +617,7 @@ async function seedIdentityHistory(
        select scope_uuid, 1, decode($3, 'hex'), $2::bigint, $4::bigint,
               epoch_uuid, 'schema_v1', $2::double precision,
               1, true, null, null
-       from fx_system_scope_clock where scope_id = $1`,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
       [scopeId, commit, input.rowIdHex, storedPrevious],
     );
     if (previousCommit === null)
@@ -668,9 +668,17 @@ async function setClock(
   retainedFloor: bigint,
 ): Promise<void> {
   await persistence.query(
-    `update fx_system_scope_clock
-     set last_commit_seq = $2, oldest_available_commit_seq = $3
-     where scope_id = $1`,
+    `with authority as materialized (
+       select scope_id from fx_system_scope_execution_authority
+       where scope_id = $1 for update
+     ), sequence as (
+       update fx_system_scope_clock as clock set last_commit_seq = $2
+       from authority where clock.scope_id = authority.scope_id
+       returning clock.scope_id
+     )
+     update fx_system_scope_execution_authority as authority
+     set oldest_available_commit_seq = $3
+     from sequence where authority.scope_id = sequence.scope_id`,
     [scopeId, lastCommitSeq, retainedFloor],
   );
 }

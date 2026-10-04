@@ -316,9 +316,10 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
     expect(first.continuation).not.toBeNull();
 
     await persistence.query(
-      `update fx_system_scope_clock
+      `update fx_system_scope_execution_authority a
        set storage_generation_fence = 2
-       where scope_uuid = $1::uuid`,
+       from fx_system_scope_clock c
+       where a.scope_id = c.scope_id and c.scope_uuid = $1::uuid`,
       [DISCOVERY_SCOPE_UUID],
     );
     const staleContinuation = await runEffectFailure(
@@ -421,7 +422,7 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
         migrationsFolder: fixture.migrationsFolder,
       });
       await previous.migrate();
-      await installDiscoveryAuthority(previous);
+      await installLegacyDiscoveryAuthority(previous);
       await insertDiscoveryCandidate(previous, {
         sessionId: discoverySessionIdAt(701),
         source: "finishingSession",
@@ -509,6 +510,32 @@ async function discoveryPersistence(): Promise<PGliteFlarexPersistence> {
 }
 
 async function installDiscoveryAuthority(
+  persistence: PGliteFlarexPersistence,
+): Promise<void> {
+  await persistence.query(
+    `insert into deployments (deployment_id, project_id)
+     values ($1, 'project_attempt_discovery_v1')`,
+    [DISCOVERY_DEPLOYMENT_ID],
+  );
+  await persistence.query(
+    `insert into fx_control_scope
+       (id, deployment_id, isolation_kind, physical_locator_json)
+     values ($1, $2, 'shared_database', $3::jsonb)`,
+    [DISCOVERY_SCOPE_ID, DISCOVERY_DEPLOYMENT_ID, JSON.stringify(sharedLocator)],
+  );
+  await persistence.query(
+    `with clock as (
+       insert into fx_system_scope_clock (scope_id, last_commit_seq)
+       values ($1, 0) returning scope_id
+     )
+     insert into fx_system_scope_execution_authority
+       (scope_id, storage_generation, storage_generation_fence, epoch)
+     select scope_id, 'flarexdb_v1', 1, $2 from clock`,
+    [DISCOVERY_SCOPE_ID, DISCOVERY_EPOCH],
+  );
+}
+
+async function installLegacyDiscoveryAuthority(
   persistence: PGliteFlarexPersistence,
 ): Promise<void> {
   await persistence.query(

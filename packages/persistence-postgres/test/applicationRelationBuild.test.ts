@@ -76,6 +76,7 @@ import {
   fxSystemScopeClocks,
 } from "../src/schema";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -961,14 +962,7 @@ async function fixtureFor(
     projectId: `project_e01_${suffix}_${fixtureOrdinal}`,
   });
   await control.insertScopeMetadata({ scopeId, deploymentId, physicalLocator: LOCATOR });
-  await target.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId,
-    storageGeneration:
-      FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    storageGenerationFence: StorageGenerationFenceSchema.make(1n),
-    lastCommitSeq: CommitSeqSchema.make(0n),
-    epoch,
-  });
+  await insertCurrentScopeClockFixture(target.drizzle, { scopeId, epoch });
   const publication = await runEffect(publishApplicationRelationBindingEffect(
     repositoryFor(control),
     await relationBuildPublicationInput(

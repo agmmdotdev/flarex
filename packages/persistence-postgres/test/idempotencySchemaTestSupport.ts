@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 import type { FlarexPersistence } from "../src";
+import type { FlarexMetadataDatabase } from "../src/deployments";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 
 export const S09_SCOPE_A = "85000000-0000-0000-0000-000000000001";
 export const S09_EPOCH_A = "85000000-0000-0000-0000-000000000002";
@@ -88,6 +90,15 @@ async function writeJournalThrough(
 }
 
 export async function insertS09Scope(
+  persistence: SqlPersistence & { readonly drizzle: FlarexMetadataDatabase },
+  scopeUuid: string, epochUuid: string, lastCommitSeq: string, oldestAvailableCommitSeq = "0",
+): Promise<void> {
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: `scope_${scopeUuid}`, epoch: `epoch_${epochUuid}`,
+    lastCommitSeq: BigInt(lastCommitSeq), oldestAvailableCommitSeq: BigInt(oldestAvailableCommitSeq) });
+}
+
+/** Exact staging format for the concrete pre-0030 migration proof. */
+export async function insertLegacyS09Scope(
   persistence: SqlPersistence,
   scopeUuid: string,
   epochUuid: string,
@@ -201,8 +212,8 @@ export async function classifyOutcomeIntegrity(
           then 'corruptFutureToken'
         when header.commit_seq is null
           and (
-            clock.oldest_available_commit_seq = 0
-            or outcome.commit_seq >= clock.oldest_available_commit_seq
+            authority.oldest_available_commit_seq = 0
+            or outcome.commit_seq >= authority.oldest_available_commit_seq
           )
           then 'corruptMissingRetainedHeader'
         when header.commit_seq is not null
@@ -215,6 +226,7 @@ export async function classifyOutcomeIntegrity(
       from fx_system_idempotency as outcome
       join fx_system_scope_clock as clock
         on clock.scope_uuid = outcome.scope_uuid
+      join fx_system_scope_execution_authority as authority on authority.scope_id = clock.scope_id
       left join fx_system_commit as header
         on header.scope_uuid = outcome.scope_uuid
        and header.commit_seq = outcome.commit_seq

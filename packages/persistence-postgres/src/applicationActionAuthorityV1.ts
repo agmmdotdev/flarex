@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { applicationFunctionEntryPublicationFrameV1 } from
   "@flarex/analysis/internal/application-publication-v1";
 import {
@@ -1367,7 +1368,7 @@ export const recoverExpiredDirectActionExecutionV1 = Effect.fn(
     yield* requireCurrentAuthority(tx, context);
     const row = yield* loadInvocationForUpdate(tx, context.authority.scopeId, requestKey);
     if (row.lifecycle !== "executing") return yield* lifecycleConflict("recover", "executing", row.lifecycle);
-    const expired = yield* query(tx.select({ expired: sql<boolean>`${row.executionDeadline} <= current_timestamp` }).from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, context.authority.scopeId)).limit(1));
+    const expired = yield* query(tx.select({ expired: sql<boolean>`${row.executionDeadline} <= current_timestamp` }).from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(eq(fxSystemScopeClocks.scopeId, context.authority.scopeId)).limit(1));
     if (expired[0]?.expired !== true) return yield* lifecycleConflict("recover", "expired", "not_expired");
     const subjectFrame: ExternalEffectExecutionSubjectFrameV1 = Object.freeze({
       kind: "direct_action",
@@ -1506,7 +1507,7 @@ export const recoverExpiredApplicationAuthorityActionExecution = Effect.fn(
       }
       const expired = yield* query(tx.select({
         expired: sql<boolean>`${row.executionDeadline} <= current_timestamp`,
-      }).from(fxSystemScopeClocks).where(eq(
+      }).from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(eq(
         fxSystemScopeClocks.scopeId,
         context.authority.scopeId,
       )).limit(1));
@@ -1851,11 +1852,14 @@ function requireCurrentAuthority(
       reason: "physicalLocator",
     }));
   }
-  return query(tx.select({
-    epoch: fxSystemScopeClocks.epoch,
-    storageGeneration: fxSystemScopeClocks.storageGeneration,
-    storageGenerationFence: fxSystemScopeClocks.storageGenerationFence,
-  }).from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, authority.scopeId)).for("update").limit(1)).pipe(
+  return query(tx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, authority.scopeId)).for("update").limit(1)).pipe(
+    Effect.andThen(query(tx.select({
+      epoch: fxSystemScopeExecutionAuthorities.epoch,
+      storageGeneration: fxSystemScopeExecutionAuthorities.storageGeneration,
+      storageGenerationFence: fxSystemScopeExecutionAuthorities.storageGenerationFence,
+    }).from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
+      .where(eq(fxSystemScopeClocks.scopeId, authority.scopeId)).for("update", { of: fxSystemScopeClocks }).limit(1))),
     Effect.flatMap(rows => {
       const row = rows[0];
       if (row === undefined || row.storageGeneration !== "flarexdb_v1") {

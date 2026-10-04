@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
   decodeTaskRetryJitterV1,
@@ -371,11 +372,10 @@ async function insertScopeClock(
   persistence: PGliteFlarexPersistence,
   scopeId: ReplacementScopeIdV1,
 ): Promise<void> {
-  await persistence.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId,
-    storageGeneration: taskStorageGeneration,
-    epoch: ScopeEpochSchema.make(`epoch_${scopeId.slice(6)}`),
-  });
+  await persistence.drizzle.transaction(async authorityTx => {
+      await authorityTx.insert(fxSystemScopeClocks).values({scopeId});
+      await authorityTx.insert(fxSystemScopeExecutionAuthorities).values({scopeId,storageGeneration: taskStorageGeneration,epoch: ScopeEpochSchema.make(`epoch_${scopeId.slice(6)}`)});
+    });
 }
 
 async function insertLegacyScopeId(

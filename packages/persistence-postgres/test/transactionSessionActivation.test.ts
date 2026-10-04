@@ -40,6 +40,7 @@ import { TransactionExecutionClaimOwnerV1Schema } from
 import {
   fxSystemSnapshotLeases,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
   fxSystemTransactionSessions,
 } from "../src/schema";
 import {
@@ -53,11 +54,17 @@ import {
   createPointMutationExecutionClaimAcquisitionV1,
   PointMutationSessionAuthorityCorruptionV1Error,
   createPointMutationSessionActivationPersistenceV1,
+  createApplicationMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionActivationResolutionPortsV1,
   type PointMutationSessionAnchorV1,
+  type PreparedApplicationMutationSessionActivationV1,
 } from "../src/transactionSessionActivation";
+import { selectApplicationMutationAdmission } from "../src/applicationMutationAdmission";
+import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
+import { createApplicationNativeMutationPGliteFixtureWithPersistence } from "./fixtures/applicationNativeMutationTestFixture";
+import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import {
   PointMutationExecutionClaimLivenessStaleV1Error,
   createPointMutationExecutionClaimLivenessV1,
@@ -110,6 +117,66 @@ describe("O03-B1 point-mutation session activation", () => {
     return `42000000-0000-4000-8000-${suffix}`;
   }
 
+  it("refuses ordinary Application finite activation before minting durable authority", async () => {
+    expectTypeOf<PreparedApplicationMutationSessionActivationV1["executionProfile"]>()
+      .toEqualTypeOf<"durableOperations" | undefined>();
+    const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence({
+      runtimeHostIdentity: "flarex.test/application-activation-profile",
+      compatibilityDate: "2026-08-25",
+    }, {
+      control: await createMigratedPGlitePersistence(),
+      target: await createMigratedPGlitePersistence(),
+    });
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(fixture.deploymentId);
+    const scopeId = decodeReplacementScopeIdV1(fixture.authority.scopeId);
+    const admission = await runEffect(selectApplicationMutationAdmission(fixture.active.selection, "users:create", {
+      deploymentId, controlDb: fixture.control.drizzle,
+      authority: fixture.authorityPorts, schema: fixture.schema,
+    }));
+    const prepared = await applicationMutationActivationFixture({
+      deploymentId, selection: fixture.active.selection,
+      executionAuthority: admission.executionAuthority,
+      requestKey: "ordinary-application-profile", grantId: "ordinary-application-profile-grant",
+    });
+    let allocations = 0;
+    const activation = createApplicationMutationSessionActivationPersistenceV1(fixture.sessionAuthority, {
+      leaseDurationMilliseconds: 60_000,
+      randomUuid: () => { allocations++; return nextUuid(); },
+      randomExecutionClaimOwner: () => { allocations++; return nextUuid(); },
+    });
+    const before = await rowCounts(fixture.target, scopeId);
+    // Deliberate runtime profile fault on genuine selection and signed grant:
+    // the ordinary input type already excludes this finite entry request.
+    const invalidPrepared = { ...prepared };
+    Object.defineProperty(invalidPrepared, "executionProfile", { value: "finiteRoot" });
+    expect(await runFailure(activation.activateEffect(invalidPrepared))).toMatchObject({
+      _tag: "PointMutationSessionActivationV1Error", issue: { reason: "invalidPreparedEvidence" },
+    });
+    expect(allocations).toBe(0);
+    expect(await rowCounts(fixture.target, scopeId)).toEqual(before);
+
+    const created = await runEffect(activation.activateEffect({ ...prepared, executionProfile: "durableOperations" }));
+    expect(created.status).toBe("created");
+    expect(created.anchor.executionProfile).toBe("durableOperations");
+    const stored = await fixture.target.query<{
+      execution_authority_generation: string;
+      execution_profile: string;
+      metadata_watermark: string | null;
+      finite_metadata_reservation_bytes: Uint8Array | null;
+      finite_metadata_reservation_sha256: Uint8Array | null;
+    }>(`select session.execution_authority_generation, journal.execution_profile,
+              lease.metadata_watermark::text, lease.finite_metadata_reservation_bytes,
+              lease.finite_metadata_reservation_sha256
+         from fx_system_tx_session as session
+         join fx_system_tx_journal as journal using (scope_uuid, session_id, attempt_fence)
+         join fx_system_snapshot_lease as lease using (scope_uuid, session_id, attempt_fence)
+        where session.session_id = $1`, [created.anchor.sessionId]);
+    expect(stored.rows).toEqual([{
+      execution_authority_generation: "application_v1", execution_profile: "durableOperations",
+      metadata_watermark: null, finite_metadata_reservation_bytes: null, finite_metadata_reservation_sha256: null,
+    }]);
+  }, 120_000);
+
   async function provisionContext(label: string): Promise<ActivationContext> {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       `deployment_activation_${label}`,
@@ -152,10 +219,12 @@ describe("O03-B1 point-mutation session activation", () => {
       scopeId: peerScopeId,
       physicalLocator: sharedLocator,
     });
-    await persistence.drizzle.insert(fxSystemScopeClocks).values({
-      scopeId: peerScopeId,
-      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-      epoch: ScopeEpochSchema.make(`epoch_${nextUuid()}`),
+    await persistence.drizzle.transaction(async tx => {
+      await tx.insert(fxSystemScopeClocks).values({ scopeId: peerScopeId });
+      await tx.insert(fxSystemScopeExecutionAuthorities).values({
+        scopeId: peerScopeId, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+        epoch: ScopeEpochSchema.make(`epoch_${nextUuid()}`),
+      });
     });
     await setFlarexActivationClock(persistence, peerScopeId);
     await expect(persistence.getScopeMetadataByDeploymentId(first.deploymentId))
@@ -269,9 +338,13 @@ describe("O03-B1 point-mutation session activation", () => {
       created.anchor.sessionId,
     );
     await persistence.query(
-      `update fx_system_scope_clock
-       set last_commit_seq = 1, oldest_available_commit_seq = 1
-       where scope_id = $1`,
+      `with authority_lock as materialized (
+         select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+       ), sequencer as (
+         update fx_system_scope_clock c set last_commit_seq = 1 from authority_lock a
+         where c.scope_id = a.scope_id returning c.scope_id
+       ) update fx_system_scope_execution_authority a set oldest_available_commit_seq = 1
+       from sequencer c where a.scope_id = c.scope_id`,
       [created.anchor.scopeId],
     );
 
@@ -288,9 +361,13 @@ describe("O03-B1 point-mutation session activation", () => {
   it("admits a new lease exactly at the retained-history floor", async () => {
     const context = await provisionContext("activation_at_floor");
     await persistence.query(
-      `update fx_system_scope_clock
-       set last_commit_seq = 1, oldest_available_commit_seq = 1
-       where scope_id = $1`,
+      `with authority_lock as materialized (
+         select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+       ), sequencer as (
+         update fx_system_scope_clock c set last_commit_seq = 1 from authority_lock a
+         where c.scope_id = a.scope_id returning c.scope_id
+       ) update fx_system_scope_execution_authority a set oldest_available_commit_seq = 1
+       from sequencer c where a.scope_id = c.scope_id`,
       [context.scopeId],
     );
 
@@ -455,12 +532,13 @@ describe("O03-B1 point-mutation session activation", () => {
          update fx_system_scope_clock
          set last_commit_seq = 1
          where scope_id = $1
-         returning scope_uuid, epoch_uuid
+         returning scope_uuid, scope_id
        )
        insert into fx_system_commit (
          scope_uuid, epoch_uuid, commit_seq, change_count, committed_at
        )
-       select scope_uuid, epoch_uuid, 1, 0, clock_timestamp() from clock`,
+       select c.scope_uuid, a.epoch_uuid, 1, 0, clock_timestamp() from clock c
+       join fx_system_scope_execution_authority a on a.scope_id = c.scope_id`,
       [anchor.scopeId],
     );
     await persistence.query(
@@ -470,10 +548,11 @@ describe("O03-B1 point-mutation session activation", () => {
          result_state, result_expired_at, created_at
        )
        select s.scope_uuid, s.request_key, s.identity_access_policy_sha256,
-         s.function_path, s.request_sha256, c.epoch_uuid, 1,
+         s.function_path, s.request_sha256, a.epoch_uuid, 1,
          'expired', clock_timestamp(), clock_timestamp() - interval '1 second'
        from fx_system_tx_session s
        join fx_system_scope_clock c using (scope_uuid)
+       join fx_system_scope_execution_authority a on a.scope_id = c.scope_id
        where s.session_id = $1`,
       [anchor.sessionId],
     );
@@ -1609,7 +1688,7 @@ describe("O03-B1 point-mutation session activation", () => {
         label: "generation",
         mutate: (scopeId: ActivationContext["scopeId"]) =>
           persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set storage_generation = 'legacy_v1' where scope_id = $1`,
             [scopeId],
           ),
@@ -1618,7 +1697,7 @@ describe("O03-B1 point-mutation session activation", () => {
         label: "generation_fence",
         mutate: (scopeId: ActivationContext["scopeId"]) =>
           persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set storage_generation_fence = storage_generation_fence + 1
              where scope_id = $1`,
             [scopeId],
@@ -1628,7 +1707,7 @@ describe("O03-B1 point-mutation session activation", () => {
         label: "epoch",
         mutate: (scopeId: ActivationContext["scopeId"]) =>
           persistence.query(
-            `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+            `update fx_system_scope_execution_authority set epoch = $2 where scope_id = $1`,
             [scopeId, `epoch_${nextUuid()}`],
           ),
       },
@@ -1636,7 +1715,7 @@ describe("O03-B1 point-mutation session activation", () => {
         label: "revocation",
         mutate: (scopeId: ActivationContext["scopeId"]) =>
           persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set authorization_revocation_epoch = authorization_revocation_epoch + 1
              where scope_id = $1`,
             [scopeId],

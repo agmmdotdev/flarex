@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { expect } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import { and, eq } from "drizzle-orm";
@@ -24,7 +25,6 @@ import {
   fxControlIndexDefinitions,
   fxControlSchemaVersionIndexBindings,
   fxControlUniqueConstraintDefinitions,
-  fxSystemScopeClocks,
   fxSystemIndexBuildStates,
   fxSystemUniqueConstraintBuilds,
   fxSystemIdempotency,
@@ -127,7 +127,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
 
   const clock = afterInsert.clock[0];
   if (clock === undefined) throw new Error("Expected scope clock");
-  const clockSlot = eq(fxSystemScopeClocks.scopeId, clock.scopeId);
+  const clockSlot = eq(fxSystemScopeExecutionAuthorities.scopeId, clock.scopeId);
   const changes: {
     name: string;
     reason: "invalidAuthority" | "bindingChanged";
@@ -139,7 +139,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
       reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
-          .update(fxSystemScopeClocks)
+          .update(fxSystemScopeExecutionAuthorities)
           .set({
             storageGeneration:
               LegacyV1StorageGenerationSchema.make("legacy_v1"),
@@ -147,7 +147,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
           .where(clockSlot),
       restore: () =>
         persistence.drizzle
-          .update(fxSystemScopeClocks)
+          .update(fxSystemScopeExecutionAuthorities)
           .set({ storageGeneration: clock.storageGeneration })
           .where(clockSlot),
     },
@@ -156,7 +156,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
       reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
-          .update(fxSystemScopeClocks)
+          .update(fxSystemScopeExecutionAuthorities)
           .set({
             storageGenerationFence: StorageGenerationFenceSchema.make(
               clock.storageGenerationFence + 1n,
@@ -165,7 +165,7 @@ export async function ce0CmsAuthorityBoundaryScenario(
           .where(clockSlot),
       restore: () =>
         persistence.drizzle
-          .update(fxSystemScopeClocks)
+          .update(fxSystemScopeExecutionAuthorities)
           .set({ storageGenerationFence: clock.storageGenerationFence })
           .where(clockSlot),
     },
@@ -174,12 +174,12 @@ export async function ce0CmsAuthorityBoundaryScenario(
       reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
-          .update(fxSystemScopeClocks)
+          .update(fxSystemScopeExecutionAuthorities)
           .set({ epoch: ScopeEpochSchema.make(`epoch_${crypto.randomUUID()}`) })
           .where(clockSlot),
       restore: () =>
         persistence.drizzle
-          .update(fxSystemScopeClocks)
+          .update(fxSystemScopeExecutionAuthorities)
           .set({ epoch: clock.epoch })
           .where(clockSlot),
     },

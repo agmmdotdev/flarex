@@ -7,6 +7,7 @@ import { Effect, Result } from "effect";
 import { sql } from "drizzle-orm";
 import { initializeFullProofInstallation } from "./installationLifecycle";
 import { backfillStandaloneApplicationBindings } from "./applicationActivation";
+import { backfillBindingMetadataProjections } from "./frameworkSchema/binding/repository";
 import { backfillLogicalReadProjections } from "./logicalStorageDefinitions";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
@@ -358,7 +359,8 @@ export async function createPGlitePersistence(
       // PGlite's owner-only compatibility lane is single-backend and explicitly
       // fullProof. It cannot issue a managed installation capability.
       await Effect.runPromise(initializeFullProofInstallation(drizzleDb));
-      await Effect.runPromise(backfillStandaloneApplicationBindings(drizzleDb));
+      await Effect.runPromise(backfillStandaloneApplicationBindings(drizzleDb, drizzleDb));
+      await Effect.runPromise(backfillBindingMetadataProjections(drizzleDb, drizzleDb));
       await Effect.runPromise(backfillLogicalReadProjections(drizzleDb));
     },
   };

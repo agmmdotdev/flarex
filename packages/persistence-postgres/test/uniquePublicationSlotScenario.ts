@@ -5,7 +5,7 @@ import { appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-d
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema, ScopeIdSchema, projectScopeEpochUuidV1,
+import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema, projectScopeEpochUuidV1,
   projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeAppUniqueConstraintIdV1Result } from "../src/appUniqueKeyContract";
 import { AppUniqueKeyStorageCorruptionError, applyAppUniqueKeyMutationsInTransactionEffect,
@@ -13,8 +13,9 @@ import { AppUniqueKeyStorageCorruptionError, applyAppUniqueKeyMutationsInTransac
 import { AppRowStorageCorruptionError, appendPreparedAppRowRevisionsInTransactionEffect,
   readBoundedCurrentAppRowsInTransactionEffect, readBoundedPublicationAppRowsInTransactionEffect } from "../src/appRows";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
-import { fxSystemCommits, fxSystemCommitAppRowChanges, fxSystemScopeClocks } from "../src/schema";
+import { fxSystemCommits, fxSystemCommitAppRowChanges } from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { insertCurrentScopeClockFixtureInTransaction } from "./scopeClockFixture";
 
 const scopeId = ScopeIdSchema.make("scope_5c000000-0000-0000-0000-000000000001");
 const epoch = ScopeEpochSchema.make("epoch_5c000000-0000-0000-0000-000000000002");
@@ -32,8 +33,7 @@ const key = { sparse: false, localeKey: null,
 export async function verifyPublicationSlotFinalState(tx: FlarexMetadataTransaction): Promise<void> {
   const scopeUuid = projectScopeIdUuidV1(scopeId).scopeUuid;
   const epochUuid = projectScopeEpochUuidV1(epoch).epochUuid;
-  await tx.insert(fxSystemScopeClocks).values({ scopeId, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    lastCommitSeq: committed, epoch });
+  await insertCurrentScopeClockFixtureInTransaction(tx, { scopeId, lastCommitSeq: committed, epoch });
   const creationTime = decodeAppCreationTimeV1(1_725_000_000_300.75);
   const document = await canonicalizeAppDocumentV1({ tableId, rowId, creationTime,
     fields: { id: "product-1" } });

@@ -15,6 +15,7 @@ import {
   insertAvailableOutcome,
   insertS09Header,
   insertS09Scope,
+  insertLegacyS09Scope,
   MAX_RESULT_CANONICAL_BYTES,
   MAX_RESULT_SEMANTIC_BYTES,
   S09_EPOCH_A,
@@ -59,7 +60,7 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
           | undefined;
         try {
           await previous.migrate();
-          await insertS09Scope(previous, S09_SCOPE_A, S09_EPOCH_A, "1");
+          await insertLegacyS09Scope(previous, S09_SCOPE_A, S09_EPOCH_A, "1");
           await insertS09Header(previous, S09_SCOPE_A, S09_EPOCH_A, "1");
           await previous.query(`
             insert into commits (deployment_id, ts, source, write_summary)
@@ -320,10 +321,10 @@ describePostgres("real Postgres S09-A committed-success idempotency schema", () 
             [S09_SCOPE_A],
           );
           await transaction.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set oldest_available_commit_seq = 2
-             where scope_uuid = $1::uuid`,
-            [S09_SCOPE_A],
+             where scope_id = $1`,
+            [`scope_${S09_SCOPE_A}`],
           );
         });
 

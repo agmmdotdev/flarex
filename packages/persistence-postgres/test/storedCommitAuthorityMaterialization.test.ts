@@ -1,3 +1,4 @@
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { Result } from "effect";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
@@ -248,6 +249,7 @@ function validClockAuthorityRow() {
     storageGeneration: "flarexdb_v1",
     storageGenerationFence: 1n,
     lastCommitSeq: 0n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
     oldestAvailableCommitSeq: 0n,
     epoch: `epoch_${EPOCH_UUID}`,
     updatedAt: new Date("2026-07-19T00:00:00.000Z"),

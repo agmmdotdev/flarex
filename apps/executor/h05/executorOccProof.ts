@@ -398,6 +398,8 @@ export async function deleteExecutorOccProofDeployment(
         "delete from fx_control_scope_provisioning where scope_id = $1",
         [scope.scope_id],
       );
+      await tx.query("delete from fx_system_metadata_contract_observation where scope_id = $1", [scope.scope_id]);
+      await tx.query("delete from fx_system_scope_execution_authority where scope_id = $1", [scope.scope_id]);
       await tx.query("delete from fx_system_scope_clock where scope_id = $1", [
         scope.scope_id,
       ]);
@@ -537,6 +539,8 @@ const deploymentScopedCleanupTables = [
 
 const scopeScopedCleanupTables = [
   "fx_control_scope_provisioning",
+  "fx_system_metadata_contract_observation",
+  "fx_system_scope_execution_authority",
   "fx_system_scope_clock",
 ] as const;
 

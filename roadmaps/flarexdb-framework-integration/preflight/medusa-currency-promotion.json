@@ -1122,7 +1122,7 @@
     {
       "target": "packages/medusa-adapter/test/support/live-checks.ts",
       "classification": "authored",
-      "targetSha256": "9a34725a6ba85e5cf46497084698c7f2f6445646a45bff7fb69431769b2c6963"
+      "targetSha256": "4e779d334f805ab8c2304e4a60a49f44d4afcf0dc3641a18e2d60dcb1db1ed66"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-internal-category-runner.ts",
@@ -4386,7 +4386,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",
       "classification": "authored",
-      "targetSha256": "08afdc79c6921cd77eb14dc59592ce2b1646a9d7f35770edde0eae88ea0752a7"
+      "targetSha256": "eef3f1ba2478b8cc779645b04ae51f2ff59be7a695ccd7c9c7d8938f1a4312fd"
     },
     {
       "target": "packages/medusa-adapter/test/logical-currency-fixture.test.ts",
@@ -5077,7 +5077,7 @@
     },
     {
       "target": "packages/medusa-adapter/test/installationBackfill.postgres.test.ts",
-      "targetSha256": "52f735a4a429214cd9325713b7352f962f762b2f3aced3c18250248adb2a33b1",
+      "targetSha256": "779c77911e1f9c01b798ea78bd01f097f7eedfa3da2667de44f2009fa6b6f02b",
       "classification": "authored"
     },
     {
@@ -5088,7 +5088,12 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
       "classification": "authored",
-      "targetSha256": "74c0aed1518dea2b4462c617725b9faac1052e5fe689f17f7d449dea764cdd31"
+      "targetSha256": "f3463142e03befd86d01f901ffbe464d5be904d30b497a45d2bed82191f99306"
+    },
+    {
+      "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/cpu-profile.ts",
+      "classification": "authored",
+      "targetSha256": "7c45dcd2ac0a7059a2aa89b6a2a99d5bd744e1168f8b22b3a5a5e6d32030af0a"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts",
@@ -5108,7 +5113,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/README.md",
       "classification": "authored",
-      "targetSha256": "5cce808b0abe88178803dd7ff53e271b468dc445a5439624e6543d9a76d92d1b"
+      "targetSha256": "6335ae0c1345127abca4cbcd518464bc5d80e5dcd1b2986e1812386daa539440"
     }
   ],
   "dependencies": {

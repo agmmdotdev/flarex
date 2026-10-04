@@ -115,7 +115,7 @@ native("managed installation PostgreSQL lifecycle", () => {
       expect(blocked).toBe(true);
       await expect(database.transaction(tx => Effect.runPromise(acquireInstallationAdmission(installation, database, tx))))
         .rejects.toMatchObject({ reason: "busy" });
-      await expect(fixture.persistence.query("update fx_system_scope_clock set epoch = epoch where false"))
+      await expect(fixture.persistence.query("update fx_system_scope_execution_authority set epoch = epoch where false"))
         .rejects.toMatchObject({ code: "55P03" });
       await expect(Effect.runPromise(withInstallationMaintenance(owner.options, fixture.schemaName, () => Effect.void)))
         .rejects.toMatchObject({ reason: "busy" });

@@ -16,6 +16,7 @@ import type { FlarexPersistence } from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { createPGlitePersistence } from "../src/pglite";
 import { createPostgresPersistence } from "../src/postgres";
+import { InstallationLifecycleError } from "../src/installationLifecycle";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
@@ -36,10 +37,18 @@ import {
 } from "./migrationFixtureSupport";
 import { postgresUrl, withTemporaryPostgresSchema } from "./postgresHelpers";
 import {
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
   SESSION_TEST_SCOPE_UUID,
   SESSION_TEST_EPOCH_UUID,
 } from "./sessionAuthorityTestSupport";
+
+async function requireInjectedMigrationFailure(persistence: Pick<FlarexPersistence, "migrate">, missingTable: string) {
+  const failure: unknown = await persistence.migrate().then(() => null, cause => cause);
+  if (failure instanceof InstallationLifecycleError) expect(failure.reason).toBe("resourceFailure");
+  const sqlFailure = failure instanceof InstallationLifecycleError ? failure.cause : failure;
+  expect(sqlFailure).toBeInstanceOf(Error);
+  expect(sqlFailure).toMatchObject({ message: expect.stringContaining(missingTable) });
+}
 
 async function proveCoverageStorage(
   persistence: Pick<FlarexPersistence, "query" | "migrate"> & {
@@ -54,7 +63,7 @@ async function proveCoverageStorage(
     95,
   );
   await persistence.migrate();
-  await insertSessionTestScope(persistence);
+  await insertLegacySessionTestScope(persistence);
   const scopeId = ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`);
   const indexDefinitionId = CatalogIndexDefinitionIdSchema.make(96);
   await persistence.query(
@@ -75,9 +84,7 @@ async function proveCoverageStorage(
     fixture.migrationPath,
     "fx_coverage_deliberate_missing_table",
   );
-  await expect(persistence.migrate()).rejects.toThrow(
-    /fx_coverage_deliberate_missing_table/,
-  );
+  await requireInjectedMigrationFailure(persistence, "fx_coverage_deliberate_missing_table");
   expect(
     (await persistence.query("select * from fx_system_index_build_state")).rows,
   ).toEqual(before);
@@ -103,7 +110,7 @@ async function proveCoverageStorage(
   const maintenanceMigration = resolve(fixture.migrationsFolder, "0103_index_maintenance.sql");
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, Number.MAX_SAFE_INTEGER);
   await injectMigrationFailure(maintenanceMigration, "fx_maintenance_deliberate_missing_table");
-  await expect(persistence.migrate()).rejects.toThrow(/fx_maintenance_deliberate_missing_table/);
+  await requireInjectedMigrationFailure(persistence, "fx_maintenance_deliberate_missing_table");
   expect((await persistence.query("select * from fx_system_index_build_state")).rows).toEqual(beforeMaintenance);
   await restoreMigrationFile(maintenanceMigration, fixture.currentMigrationsFolder);
   await persistence.migrate();
@@ -146,7 +153,15 @@ async function proveCoverageStorage(
   await persistence.query(`insert into fx_app_row_current (scope_uuid,table_id,row_id,commit_seq)
     select scope_uuid,table_id,row_id,commit_seq from fx_app_row_rev`);
   await persistence.query(
-    "update fx_system_scope_clock set last_commit_seq=1000,oldest_available_commit_seq=999",
+    `with authority as materialized (
+       select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+     ), sequence as (
+       update fx_system_scope_clock c set last_commit_seq = 1000
+       from authority a where c.scope_id = a.scope_id returning c.scope_id
+     )
+     update fx_system_scope_execution_authority a set oldest_available_commit_seq = 999
+     from sequence c where a.scope_id = c.scope_id`,
+    [scopeId],
   );
   await persistence.query(
     "update fx_system_index_build_state set covered_through_commit_seq=999,first_readable_commit_seq=100",

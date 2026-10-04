@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import {
   copyBytes,
   isUint8Array,
@@ -688,7 +689,7 @@ function buildOutcomeQuery(
     and ${fxSystemScopeClocks.scopeUuid} = ${fxSystemIdempotency.scopeUuid}
     and ${fxSystemScopeClocks.lastCommitSeq} between 0 and
       ${MAX_PERSISTED_SIGNED_INT64_V1}
-    and ${fxSystemScopeClocks.oldestAvailableCommitSeq} between 0 and
+    and ${fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq} between 0 and
       ${fxSystemScopeClocks.lastCommitSeq}
     and ${fxSystemIdempotency.commitSeq} between 1 and
       ${fxSystemScopeClocks.lastCommitSeq}
@@ -702,9 +703,9 @@ function buildOutcomeQuery(
         ${fxSystemCommits.scopeUuid} is null
         and ${fxSystemCommits.commitSeq} is null
         and ${fxSystemCommits.epochUuid} is null
-        and ${fxSystemScopeClocks.oldestAvailableCommitSeq} > 0
+        and ${fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq} > 0
         and ${fxSystemIdempotency.commitSeq} <
-          ${fxSystemScopeClocks.oldestAvailableCommitSeq}
+          ${fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq}
       )
     )
   `;
@@ -753,7 +754,7 @@ function buildOutcomeQuery(
       clockScopeUuid: fxSystemScopeClocks.scopeUuid,
       lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
       oldestAvailableCommitSeq:
-        fxSystemScopeClocks.oldestAvailableCommitSeq,
+        fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq,
       retainedHeaderScopeUuid: fxSystemCommits.scopeUuid,
       retainedHeaderEpochUuid: fxSystemCommits.epochUuid,
       retainedHeaderCommitSeq: fxSystemCommits.commitSeq,
@@ -770,6 +771,10 @@ function buildOutcomeQuery(
     .leftJoin(
       fxSystemScopeClocks,
       eq(fxSystemScopeClocks.scopeUuid, fxSystemIdempotency.scopeUuid),
+    )
+    .leftJoin(
+      fxSystemScopeExecutionAuthorities,
+      eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId),
     )
     .leftJoin(
       fxSystemCommits,

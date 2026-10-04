@@ -18,7 +18,7 @@ import {
   type DrizzleCopyFixture,
 } from "./migrationFixtureSupport";
 import {
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
   SESSION_TEST_SCOPE_UUID,
   SESSION_TEST_EPOCH_UUID,
 } from "./sessionAuthorityTestSupport";
@@ -35,7 +35,7 @@ export async function verifyRowBodyMigration(
     94,
   );
   await persistence.migrate();
-  await insertSessionTestScope(persistence);
+  await insertLegacySessionTestScope(persistence);
   const tableId = decodeCatalogTableId(1);
   const rowId = decodeAppRowIdHexV1("00950000000000000000000000000001");
   const creationTime = decodeAppCreationTimeV1(1_800_000_000_000.25);

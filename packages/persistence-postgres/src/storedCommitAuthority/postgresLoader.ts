@@ -1,10 +1,15 @@
+import { scopeClockSelection } from "../scopeClock";
+import { fxSystemScopeExecutionAuthorities } from "../schema";
 import { isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
+import { readPreparedFiniteApplicationOriginalControl, type PreparedFiniteActiveApplication } from "../applicationActivation";
 import { readConfirmedFiniteRootSealCapture, type ConfirmedFiniteRootSealCapture } from "../sessionJournalStore";
 
 import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
+  SCHEMA_MANIFEST_CODEC_VERSION_V1,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
 import type {
@@ -178,7 +183,66 @@ export interface PreparedTerminalControl {
   readonly bindingRows: ReadonlyArray<unknown>;
 }
 
-/** Immutable control preparation only. The target capture still authenticates
+/** Finite entry only: the existing native preparation lends its authenticated
+ * originals. No absent-evidence branch can select the full query profile. */
+export const prepareFiniteTerminalControlEffect = Effect.fn("StoredCommitAuthority.prepareFiniteTerminalControl")(
+function* (ports: StoredCommitAuthorityEvidenceLoaderPortsV1, authority: StoredCommitAuthorityCaptureAuthorityV1,
+  session: ApplicationGraphSessionSelector | undefined, application: PreparedFiniteActiveApplication): Effect.fn.Return<
+    PreparedTerminalControl, StoredCommitAuthorityEvidencePersistenceV1Error
+  > {
+  const selector = captureApplicationGraphSelector(session);
+  const db = ports.applicationControlDb;
+  if (selector === undefined || db === undefined) return yield* Effect.fail(
+    new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
+      cause: "Finite Application terminal control evidence unavailable" }));
+  const { basis, schemaVersion, original } = yield* Effect.fromResult(
+    readPreparedFiniteApplicationOriginalControl(application, db, sizes => {
+      const jsonLength = parseLength(sizes.manifestJsonByteLengthText);
+      const canonicalLength = parseLength(sizes.manifestCanonicalByteLengthText);
+      const bindingLength = parseLength(sizes.schemaBindingByteLengthText);
+      return jsonLength === undefined || canonicalLength === undefined || bindingLength === undefined ||
+        jsonLength + canonicalLength + bindingLength > MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1
+        ? Result.fail(new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
+          cause: "Finite Application terminal control materialization budget exceeded" })) : Result.succeed(undefined);
+    })).pipe(Effect.mapError(cause => cause instanceof StoredCommitAuthorityEvidencePersistenceV1Error ? cause :
+      new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause })));
+  const sizes = original.artifact.sizes;
+  const binding = original.schemaAuthority.row;
+  // Replacement admission authenticates the original signed program against a
+  // fresh head. These immutable schema originals do not pin that head's sequence.
+  if (authority.deploymentId !== basis.deploymentId || authority.scopeId !== basis.authority.scopeId ||
+    authority.schemaVersionId !== basis.schemaVersionId || selector.revisionId !== basis.revisionId ||
+    !basis.manifest.functions.some(fn => fn.path === selector.functionPath) ||
+    !bytesEqualFullScan(selector.applicationSchemaSha256, basis.applicationSchemaSha256) ||
+    sizes.deploymentId !== basis.deploymentId || sizes.schemaVersionId !== basis.schemaVersionId ||
+    sizes.version !== schemaVersion || sizes.manifestCodecVersion !== SCHEMA_MANIFEST_CODEC_VERSION_V1 ||
+    !bytesEqualFullScan(sizes.manifestSha256, basis.schemaManifestSha256) ||
+    binding.status !== "published" || binding.deploymentId !== basis.deploymentId ||
+    binding.schemaVersionId !== basis.schemaVersionId || binding.schemaVersion !== schemaVersion ||
+    !bytesEqualFullScan(binding.applicationSchemaSha256, basis.applicationSchemaSha256) ||
+    binding.schemaManifestSha256 === null || binding.bindingSha256 === null ||
+    !bytesEqualFullScan(binding.schemaManifestSha256, basis.schemaManifestSha256) ||
+    !bytesEqualFullScan(binding.bindingSha256, basis.schemaBindingSha256)) return yield* Effect.fail(
+      new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
+        cause: "Finite Application terminal control selector mismatch" }));
+  const canonicalLength = parseLength(sizes.manifestCanonicalByteLengthText);
+  const bindingLength = parseLength(original.schemaAuthority.schemaBindingByteLengthText);
+  const payload = original.artifact.payload;
+  if (payload === null || binding.bindingBytes === null || payload.manifestCodecVersion !== sizes.manifestCodecVersion ||
+    payload.manifestBytes.byteLength !== canonicalLength ||
+    binding.bindingBytes.byteLength !== bindingLength) return yield* Effect.fail(
+      new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
+        cause: "Finite Application terminal control original payload unavailable" }));
+  const bindingRows = yield* Effect.tryPromise({
+    try: () => selectTerminalStableBindings(db, authority, {}),
+    catch: cause => new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause }),
+  });
+  return Object.freeze({ schemaSizeRows: Object.freeze([sizes]), schemaPayloadRows: Object.freeze([payload]),
+    schemaAuthoritySizeRows: Object.freeze([{ schemaBindingByteLengthText: original.schemaAuthority.schemaBindingByteLengthText }]),
+    schemaAuthorityPayloadRows: Object.freeze([binding]), bindingRows });
+});
+
+/** Full, durable-seal and recovery query profile. The target capture still authenticates
  * the complete selected graph and admits all representations before decoding. */
 export const prepareTerminalControlEffect = Effect.fn("StoredCommitAuthority.prepareTerminalControl")(function* (
   ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
@@ -411,11 +475,12 @@ export async function captureStoredCommitAuthorityRowsInTransaction(
   // Each join uses the complete primary key; absent children stay absent.
   // Keep large session and sealed-journal payloads behind size admission.
   const headerQuery = tx.select({
-    clock: getTableColumns(fxSystemScopeClocks),
+    clock: scopeClockSelection(),
     session: sessionSizeFields,
     lease: getTableColumns(fxSystemSnapshotLeases),
     root: rootScalarFields,
   }).from(fxSystemScopeClocks)
+    .innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
     .leftJoin(fxSystemTransactionSessions, and(
       eq(fxSystemTransactionSessions.scopeUuid, fxSystemScopeClocks.scopeUuid),
       eq(fxSystemTransactionSessions.sessionId, authority.sessionId),

@@ -699,7 +699,7 @@ export async function proveApplicationActionAuthorityV1(
   );
 
   await lane.persistence.query(
-    `update fx_system_scope_clock set epoch = 'epoch_aav_a1_stale'
+    `update fx_system_scope_execution_authority set epoch = 'epoch_aav_a1_stale'
       where scope_id = $1`,
     [context.authority.scopeId],
   );

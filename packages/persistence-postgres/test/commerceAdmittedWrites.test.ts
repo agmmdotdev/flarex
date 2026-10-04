@@ -1,3 +1,5 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
+import { selectScopeClockRows } from "../src/scopeClock";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { fxSystemScopeClocks } from "../src/schema";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
@@ -206,10 +208,12 @@ it("keeps colliding foreign-scope rows outside the text predicate", async () => 
   if (table === undefined || id === undefined || value === undefined) throw new Error("Missing plain table");
   const target = sql`${sql.identifier(fixture.descriptor.layout.frame.targetNamespace.schemaName)}.${sql.identifier(table.name)}`;
   const foreignScope = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const clock = (await fixture.persistence.drizzle.select().from(fxSystemScopeClocks))[0];
+  const clock = (await selectScopeClockRows(fixture.persistence.drizzle))[0];
   if (clock === undefined) throw new Error("Missing fixture clock");
-  await fixture.persistence.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId: ScopeIdSchema.make("scope_" + foreignScope), epoch: clock.epoch, storageGeneration: clock.storageGeneration,
+  await fixture.persistence.drizzle.transaction(async tx => {
+    const scopeId = ScopeIdSchema.make("scope_" + foreignScope);
+    await tx.insert(fxSystemScopeClocks).values({ scopeId });
+    await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId, epoch: clock.epoch, storageGeneration: clock.storageGeneration });
   });
   await fixture.persistence.drizzle.execute(sql`insert into ${target} (scope_uuid, ${sql.identifier(id.name)}, ${sql.identifier(value.name)}) values (${foreignScope}::uuid, 'collision', 'foreign-pattern')`);
   const query = { order: { column: "id", direction: "asc" }, predicate: { kind: "textLikeAscii", column: "value", pattern: "%foreign-pattern%" } };

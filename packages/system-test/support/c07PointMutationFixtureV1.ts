@@ -25,13 +25,18 @@ export async function setC07ActivationClockV1(
 ): Promise<void> {
   await persistence.query(
     `
-      update fx_system_scope_clock
+      with authority as materialized (
+        select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+      ), sequencer as (
+        update fx_system_scope_clock c set last_commit_seq = $3, updated_at = clock_timestamp()
+        from authority a where c.scope_id = a.scope_id returning c.scope_id
+      )
+      update fx_system_scope_execution_authority a
       set storage_generation = 'flarexdb_v1',
           storage_generation_fence = $2,
-          last_commit_seq = $3,
           authorization_revocation_epoch = $4,
           updated_at = clock_timestamp()
-      where scope_id = $1
+      from sequencer c where a.scope_id = c.scope_id
     `,
     [
       scopeId,

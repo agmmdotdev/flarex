@@ -16,8 +16,8 @@ import type {
   LocatedScopeClockReader,
   TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
-import type { ScopeClockRecord } from "./scopeClock";
-import type { fxSystemTransactionJournals } from "./schema";
+import type { ScopeClockRecord, FiniteExecutionAuthorityObservation } from "./scopeClock";
+import type { fxSystemTransactionJournals, fxSystemTransactionSessions } from "./schema";
 import type {
   PointMutationSessionAnchorV1,
   PointMutationSessionAttemptExecutionPinV1,
@@ -43,8 +43,12 @@ export interface ExactRunningAttemptKernelInputV1 {
 export interface ExactRunningAttemptKernelContextV1 {
   readonly scopeUuid: ScopeUuidV1;
   readonly scopeClock: ScopeClockRecord;
+  readonly snapshotLease: Readonly<typeof import("./schema").fxSystemSnapshotLeases.$inferSelect>;
+  readonly finiteAuthority?: FiniteExecutionAuthorityObservation;
   readonly anchor: PointMutationSessionAnchorV1;
   readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
+  readonly executionAuthorityGeneration:
+    (typeof fxSystemTransactionSessions.$inferSelect)["executionAuthorityGeneration"];
   /** Projected from the authenticated session already locked by this kernel. */
   readonly principalDigest: string;
   readonly authorizationGrantExpiresAtMilliseconds: number;
@@ -53,6 +57,18 @@ export interface ExactRunningAttemptKernelContextV1 {
   readonly journalRoot: Readonly<TransactionJournalRootRowV1>;
   readonly executionClaim: TransactionExecutionClaimObservationV1;
 }
+
+/** Finite frontier context carries live authority and the original snapshot, never a stable sequence. */
+export type FiniteRunningJournalRoot = Readonly<Pick<TransactionJournalRootRowV1,
+  "scopeUuid" | "sessionId" | "attemptFence" | "journalFormat" |
+  "executionProfile" | "state" | "lastSyscallSequence">>;
+export interface FiniteRunningAttemptKernelContext extends Omit<ExactRunningAttemptKernelContextV1, "scopeClock" | "finiteAuthority" | "journalRoot"> {
+  readonly authority: FiniteExecutionAuthorityObservation;
+  readonly journalRoot: FiniteRunningJournalRoot;
+}
+export type FiniteRunningAttemptEffectWork<Result, Failure> = (
+  tx: AppRowTransaction, context: FiniteRunningAttemptKernelContext,
+) => Effect.Effect<Result, Failure>;
 
 export type ExactRunningAttemptEffectWorkV1<Result, Failure> = (
   tx: AppRowTransaction,

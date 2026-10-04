@@ -50,10 +50,12 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
     const entrySource = sql`${coLocatedInstallationGateSource(refs)} as installed
     cross join lateral ${control}.fx_lock_read_scope_placement(${deploymentId},
       case when installed.first_oid > 0 and installed.second_oid > 0 then ${scopeId} else null end) as placement
+    left join lateral (select * from ${target}.fx_system_scope_execution_authority
+      where scope_id = placement.scope_id for key share) as scope_authority on true
     left join lateral (select * from ${target}.fx_system_scope_clock
-      where scope_id = placement.scope_id for key share) as fx_system_scope_clock on true
+      where scope_id = scope_authority.scope_id for key share) as fx_system_scope_clock on true
     left join lateral (select * from ${target}.fx_system_data_binding_head
-      where scope_id = fx_system_scope_clock.scope_id and storage_generation = fx_system_scope_clock.storage_generation
+      where scope_id = fx_system_scope_clock.scope_id and storage_generation = scope_authority.storage_generation
       for share) as fx_system_data_binding_head on true
     left join lateral (select activation_sequence, readiness_contract_version, revision_id, head_sha256,
       activation_sha256, readiness_sha256 from ${target}.fx_system_application_active_head

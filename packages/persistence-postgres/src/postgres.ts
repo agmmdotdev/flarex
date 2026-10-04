@@ -2,7 +2,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolConfig } from "pg";
 import { Effect, Schema } from "effect";
 import { sql } from "drizzle-orm";
-import { withInstallationMaintenance, runInstallationMigrations, backfillInstallationApplicationBindings,
+import { withInstallationMaintenance, runInstallationMigrations, backfillInstallationMetadataBindings,
   backfillInstallationLogicalReadProjections, bootstrapInstallationMigrations,
   publishFullProofInstallation, publishVerifiedInstallation } from "./postgresInstallationMaintenance";
 import { InstallationLifecycleError } from "./installationLifecycle";
@@ -85,6 +85,10 @@ export interface PostgresPersistenceOptions {
   migrationsFolder?: string;
   migrationsSchema?: string;
   migrationsTable?: string;
+  /** Existing split data installations restore immutable Application/binding catalog
+   * evidence from this genuine control owner. The declared co-located default
+   * is this installer's migration database, selected before maintenance. */
+  immutableCatalog?: FlarexMetadataDatabase;
   /** fullProof is the explicit compatibility installer profile used by owner
    * tests. Managed publication requires exact authenticated runtime pools. */
   installation?: Readonly<{ kind: "fullProof" }> | Readonly<{ kind: "managed";
@@ -303,6 +307,7 @@ export async function createPostgresPersistence(
   const migrationDb = options.migrationPool === undefined
     ? drizzleDb
     : drizzle(options.migrationPool, { schema: flarexSchema });
+  const immutableCatalog = options.immutableCatalog ?? migrationDb;
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPostgresSqlClient(drizzleDb, pool),
@@ -377,7 +382,7 @@ export async function createPostgresPersistence(
       }
       yield* withInstallationMaintenance(maintenanceConfig, target.schemaName, handle => Effect.gen(function* () {
         if (target.installed) yield* runInstallationMigrations(handle, migrationOptions);
-        yield* backfillInstallationApplicationBindings(handle);
+        yield* backfillInstallationMetadataBindings(handle, immutableCatalog);
         yield* backfillInstallationLogicalReadProjections(handle);
         yield* selected.kind === "managed" ? publishVerifiedInstallation(handle, selected.runtimePolicies, migrationOptions) : publishFullProofInstallation(handle, migrationOptions);
       }));

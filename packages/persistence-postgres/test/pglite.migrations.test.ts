@@ -19,7 +19,7 @@ import { seedTaskComputeDeliverySchemaV1 } from
   "./taskComputeDeliverySchemaV1TestSupport";
 import {
   insertLegacyOpenTransactionJournalFixture,
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
@@ -659,7 +659,7 @@ describe("createPGlitePersistence", () => {
       );
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await insertSessionTestScope(previous);
+      await insertLegacySessionTestScope(previous);
       const session = transactionSessionFixture(transactionSessionIdAt(76));
       await insertTransactionSessionFixture(previous, session);
       await insertLegacyOpenTransactionJournalFixture(previous, session);
@@ -1069,7 +1069,7 @@ describe("createPGlitePersistence", () => {
       );
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await insertSessionTestScope(previous);
+      await insertLegacySessionTestScope(previous);
       const sessionId = transactionSessionIdAt(60);
       await insertTransactionSessionFixture(
         previous,
@@ -2150,7 +2150,7 @@ describe("createPGlitePersistence", () => {
         migrationsFolder: previousMigrationsFolder,
       });
       await previousPersistence.migrate();
-      await insertSessionTestScope(previousPersistence);
+      await insertLegacySessionTestScope(previousPersistence);
       const sessionId = transactionSessionIdAt(27);
       await insertTransactionSessionFixture(
         previousPersistence,

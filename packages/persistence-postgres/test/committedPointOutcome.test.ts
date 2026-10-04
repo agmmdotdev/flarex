@@ -327,7 +327,7 @@ describe("O07-A committed point outcome resolver", () => {
       [OUTCOME_SCOPE_A],
     );
     await persistence.query(
-      `update fx_system_scope_clock set oldest_available_commit_seq = 2 where scope_uuid = $1::uuid`,
+      `update fx_system_scope_execution_authority set oldest_available_commit_seq = 2 where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1::uuid)`,
       [OUTCOME_SCOPE_A],
     );
     await expect(resolve(resolver, "old-epoch")).resolves.toMatchObject({
@@ -358,7 +358,7 @@ describe("O07-A committed point outcome resolver", () => {
       "missingRetainedHeader",
     );
     await persistence.query(
-      `update fx_system_scope_clock set oldest_available_commit_seq = 2 where scope_uuid = $1::uuid`,
+      `update fx_system_scope_execution_authority set oldest_available_commit_seq = 2 where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1::uuid)`,
       [OUTCOME_SCOPE_A],
     );
     await expectCorruption(resolve(resolver, "at-floor"), "missingRetainedHeader");

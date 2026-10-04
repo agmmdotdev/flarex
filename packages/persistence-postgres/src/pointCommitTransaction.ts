@@ -1,4 +1,5 @@
-import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect, ScopeAuthorizationRevocationEpochPersistenceError } from "./scopeClock";
+import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect, lockScopeExecutionAuthorityInTransactionEffect,
+  selectScopeClockRows, ScopeAuthorizationRevocationEpochPersistenceError } from "./scopeClock";
 import type { AppSchemaCandidateWriteGuardPlanningHead } from "./appSchemaCandidateValidation";
 import { sqlCall } from "./pointCommitErrors";
 import { PointCommitPublicationObservation, observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "./pointCommitPublicationObservation";
@@ -12,6 +13,13 @@ import { PointCommitDependencyV1, PointCommitRowIntentV1, PreparedLivePointCommi
 import { hasApplicationRelationCommitAuthorityForPointCommit } from "./applicationRelationCommit";
 import { hasAppSchemaCandidateWriteGuardComposition } from "./appSchemaCandidateValidation";
 import { PointCommitConflictV1Error, PointCommitConflictEvidenceV1, PointCommitStaleAuthorityV1Error, PointCommitStaleAuthorityReasonV1, PointCommitCorruptionV1Error, PointCommitCorruptionReasonV1, PointCommitSqlFailureMarkerV1, PointCommitSqlOperationV1, PointCommitSqlErrorV1, mapTransactionFailure, PointCommitRollbackProofV1Error, corruption, sqlError, findSqlState } from "./pointCommitErrors";
+import type { PointCommitConflictCauseV1 } from "./pointCommitErrors";
+import { runEffectTransaction } from "./effectTransaction";
+import { prepareFiniteActiveApplication, type ApplicationActivationRepository, type PreparedFiniteActiveApplication } from "./applicationActivation";
+import { confirmPreparedFiniteSessionJournalEntry, runPreparedFiniteReplacementSessionJournalEntryEffect,
+  type PreparedFiniteSessionJournalEntry, type ConfirmedFiniteRootEntryCapture,
+  type runPreparedFiniteSessionJournalEntryEffect } from "./sessionJournalFiniteEntry";
+import type { ScopeClockRow } from "./scopeClock";
 import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidations } from "./applicationDocumentMaterialization/materialization";
 
 import { type ScopePublicationContribution } from "./commitPublication/scopePublicationModel";
@@ -23,9 +31,15 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import { validateApplicationWriteOwnershipForCommit } from "./applicationWriteOwnership/Commit";
-import { hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthoritySource, requireLogicalParticipantCommitAuthorityEffect, type LogicalParticipantCommitAuthority } from "./logicalDocuments/participantAdmission";
+import { hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthoritySource, inspectLogicalParticipantCommitMetadataProjection, requireLogicalParticipantCommitAuthorityEffect, requireFiniteLogicalParticipantCommitAuthorityEffect, type LogicalParticipantCommitAuthority } from "./logicalDocuments/participantAdmission";
 import { withSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceAdmission";
 import { validateLogicalParticipantDependencyEvidence } from "./logicalDocuments/commitEvidence";
+import { decodeLogicalParticipantDependencyEvidence } from "./logicalDocuments/journalEvidence";
+import { validateConsumedMetadataDependencies, captureFiniteMetadataDependency, finiteMetadataTableKey,
+  finiteMetadataContractKey } from "./finiteMetadataDependencies";
+import { readStoredFiniteMetadataReservation, type FiniteMetadataReservation } from "./finiteMetadataReservation";
+import { FiniteMetadataConflictSchema, LogicalMetadataReadDependencySchema, logicalMetadataDependencyIdentity,
+  type LogicalMetadataReadDependency } from "flarex-protocol/commit-protocol";
 import { maintainLogicalSearchEntries, type LogicalSearchDefinition } from "./logicalDocuments/searchEntries";
 import { admittedCommerceEventGroup, validateAdmittedCommerceEventIntents, validateAdmittedOperationEventIntents,
   type ParticipantEventSelection, prepareAtomicCommerceEvents } from "./atomicCommerce/events";
@@ -72,7 +86,7 @@ import { fxSystemApplicationReadiness } from "./applicationRelationSchema";
 import { fxSystemCommits, fxSystemIdempotency, fxSystemApplicationReadinessV1, fxSystemScopeClocks, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims, fxSystemTransactionJournalReceipts, fxSystemTransactionJournalIndexRanges, fxSystemTransactionJournalPoints, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournalWriteEvents, fxSystemTransactionJournals, fxSystemTransactionSessions } from "./schema";
 import { deriveTransactionExecutionClaimV1, lockExactTransactionExecutionClaimV1Result, requireLiveTransactionExecutionClaimV1Result, TransactionExecutionClaimCorruptionV1Error, TransactionExecutionClaimStaleV1Error } from "./transactionExecutionClaimPersistence";
 import { decodeTransactionExecutionClaimFenceV1, decodeTransactionExecutionClaimOwnerV1, type TransactionExecutionClaimObservationV1, type TransactionExecutionClaimOwnerV1, type TransactionExecutionClaimPinV1 } from "./transactionExecutionClaimModel";
-import { isLocatedPointCommitPublicationTargetV1, isLocatedReadCommittedAttemptTargetV1, LocatedReadCommittedTransactionFailureV1, RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1, RUN_LOCATED_READ_COMMITTED_V1, type LocatedReadCommittedAttemptTargetV1, type LocatedPointCommitPublicationTargetV1 } from "./transactionSessionAttemptKernel";
+import { isLocatedExactRunningAttemptKernelV1, isLocatedPointCommitPublicationTargetV1, isLocatedReadCommittedAttemptTargetV1, LocatedReadCommittedTransactionFailureV1, RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1, RUN_LOCATED_READ_COMMITTED_V1, type LocatedReadCommittedAttemptTargetV1, type LocatedPointCommitPublicationTargetV1 } from "./transactionSessionAttemptKernel";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "./transactionSessionActivation";
 import type { TrustedScopeAuthorityResolutionPorts } from "./scopeAuthorityResolution";
 import { buildFreshTransactionAttemptFacetV1, isPristineFreshTransactionAttemptJournalRootV1 } from "./transactionSessionAttemptFacet";
@@ -98,6 +112,17 @@ const decodePointCommitRowIdResult = Schema.decodeUnknownResult(
 const decodePointCommitSchemaVersionIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogSchemaVersionIdSchema),
 );
+const decodePointCommitMetadataDependenciesEffect = Schema.decodeUnknownEffect(Schema.Array(LogicalMetadataReadDependencySchema));
+const decodePointCommitMetadataConflictResult = Schema.decodeUnknownResult(Schema.toType(FiniteMetadataConflictSchema));
+const decodePointCommitEdgeDefinitionIdResult = Schema.decodeUnknownResult(CatalogEdgeDefinitionIdSchema);
+const decodePointCommitEncodedRowIdResult = Schema.decodeUnknownResult(AppRowIdHexV1Schema);
+const decodePointCommitIndexRangeDependencyResult = Schema.decodeUnknownResult(LogicalIndexRangeReadDependencyV1Schema);
+const decodePointCommitRelationDependencyResult = Schema.decodeUnknownResult(Schema.toType(LogicalApplicationRelationIncomingReadDependencyV1Schema));
+const decodePointCommitSyscallSequenceResult = Schema.decodeUnknownResult(Schema.toType(CommitSyscallSequenceV1Schema));
+const decodePointCommitEncodedTableIdResult = Schema.decodeUnknownResult(CatalogTableIdSchema);
+const decodePointCommitIndexDefinitionIdResult = Schema.decodeUnknownResult(CatalogIndexDefinitionIdSchema);
+const decodePointCommitOrderedKeyResult = Schema.decodeUnknownResult(OrderedIndexKeyBytesHexV1Schema);
+const decodePointCommitOrderedRowIdResult = Schema.decodeUnknownResult(OrderedIndexRowIdHexV1Schema);
 
 interface PointCommitAuthorityCommonPinsV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
@@ -366,6 +391,7 @@ export class PointMutationAttemptReplacementSqlErrorV1
   }> {}
 
 export type PointMutationAttemptReplacementV1Error =
+  | PointMutationAttemptReplacementFiniteEntryError
   | PointMutationAttemptReplacementConfigurationV1Error
   | PointMutationAttemptReplacementCommittedOutcomeV1Error
   | PointMutationAttemptReplacementConflictNoLongerPresentV1Error
@@ -374,6 +400,32 @@ export type PointMutationAttemptReplacementV1Error =
   | PointMutationAttemptReplacementStaleAuthorityV1Error
   | PointMutationAttemptReplacementResourceExhaustionV1Error
   | PointMutationAttemptReplacementSqlErrorV1;
+
+export class PointMutationAttemptReplacementFiniteEntryError extends Data.TaggedError(
+  "PointMutationAttemptReplacementFiniteEntryError",
+)<{ readonly cause: unknown }> {}
+
+interface PreparedFiniteReplacementEntry {
+  readonly preparation: PreparedFiniteSessionJournalEntry;
+  readonly application: PreparedFiniteActiveApplication;
+  capture?: Effect.Success<ReturnType<typeof runPreparedFiniteSessionJournalEntryEffect>>;
+}
+
+const prepareFiniteReplacementEntryEffect = Effect.fn("PointMutationAttemptReplacement.prepareFiniteEntry")(
+  function* (composition: NonNullable<PointMutationAttemptReplacementOptionsV1["finiteEntry"]>) {
+    const preparation = yield* composition.prepareEntry();
+    const application = yield* prepareFiniteActiveApplication(composition.application).pipe(Effect.mapError(cause =>
+      new PointMutationAttemptReplacementFiniteEntryError({ cause })));
+    return { preparation, application } satisfies PreparedFiniteReplacementEntry;
+  },
+);
+
+function confirmFiniteReplacementEntry(observation: PointMutationAttemptReplacementObservationV1,
+  entry: PreparedFiniteReplacementEntry | undefined): PointMutationAttemptReplacementObservationV1 {
+  if (observation.kind !== "replaced" || entry?.capture === undefined) return observation;
+  return Object.freeze({ ...observation, finiteEntry: Object.freeze({ preparation: entry.preparation,
+    capture: confirmPreparedFiniteSessionJournalEntry(entry.preparation, entry.capture) }) });
+}
 
 /**
  * Persistence settlement evidence. The structural claim receipt remains
@@ -386,6 +438,7 @@ export type PointMutationAttemptReplacementObservationV1 = Readonly<{
   readonly previousAttemptFence: TransactionAttemptFence;
   readonly attemptFence: TransactionAttemptFence;
   readonly executionClaim: TransactionExecutionClaimObservationV1;
+  readonly finiteEntry?: Readonly<{ preparation: PreparedFiniteSessionJournalEntry; capture: ConfirmedFiniteRootEntryCapture }>;
 }> | Readonly<{
   readonly kind: "alreadyReplaced";
   readonly scopeUuid: ScopeUuidV1;
@@ -1036,6 +1089,12 @@ export type PointMutationAttemptReplacementProofStepV1 =
 
 export interface PointMutationAttemptReplacementOptionsV1 {
   readonly leaseDurationMilliseconds: number;
+  /** Trusted reserved-graph composition. Stored profile and reservation require
+   * it; its presence never chooses a weaker admission path. */
+  readonly finiteEntry?: Readonly<{
+    application: ApplicationActivationRepository<unknown, unknown>;
+    prepareEntry: () => Effect.Effect<PreparedFiniteSessionJournalEntry, PointMutationAttemptReplacementFiniteEntryError, import("effect").Scope.Scope>;
+  }>;
   /** Same trusted aggregate profile selection used by final publication. */
   readonly logicalOperationProfiles?: PointCommitTransactionProofOptionsV1["logicalOperationProfiles"];
   readonly executionClaimDurationMilliseconds?: number;
@@ -1075,6 +1134,8 @@ interface PreparedPointCommitTransactionCommandV1
   readonly participantJournal: SessionJournal | null;
   readonly participantMaterialDocumentIds: ReadonlySet<string>;
   readonly participantEventIntents: readonly CommittedEvent[];
+  readonly metadataDependencies: readonly LogicalMetadataReadDependency[];
+  readonly finiteMetadataReservationSha256Hex: string | null;
 }
 
 interface PreparedPointCommitPublicationCommandV1
@@ -1346,8 +1407,9 @@ export function createPointMutationAttemptReplacementPortV1(
         "readCommittedCapabilityMissing",
       ));
     }
-    return yield* Effect.uninterruptible(Effect.tryPromise({
-      try: () => runPointMutationAttemptReplacement(
+    return yield* Effect.scoped(Effect.gen(function* () {
+      const entry = options.finiteEntry === undefined ? undefined : yield* prepareFiniteReplacementEntryEffect(options.finiteEntry);
+      return yield* Effect.uninterruptible(runPointMutationAttemptReplacement(
         target,
         located.authority,
         command,
@@ -1355,8 +1417,8 @@ export function createPointMutationAttemptReplacementPortV1(
         proofOptions,
         decodedOwner,
         executionClaimDurationMilliseconds,
-      ),
-      catch: mapPointMutationAttemptReplacementTransactionFailure,
+        entry,
+      ).pipe(Effect.map(observation => confirmFiniteReplacementEntry(observation, entry))));
     }));
   });
 
@@ -1403,8 +1465,9 @@ export function createPointMutationAttemptReplacementPortV1(
           "readCommittedCapabilityMissing",
         ));
       }
-      return yield* Effect.uninterruptible(Effect.tryPromise({
-        try: () => runRunningRelationConflictAttemptReplacement(
+      return yield* Effect.scoped(Effect.gen(function* () {
+        const entry = options.finiteEntry === undefined ? undefined : yield* prepareFiniteReplacementEntryEffect(options.finiteEntry);
+        return yield* Effect.uninterruptible(runRunningRelationConflictAttemptReplacement(
           target,
           located.authority,
           command,
@@ -1412,8 +1475,8 @@ export function createPointMutationAttemptReplacementPortV1(
           proofOptions,
           decodedOwner,
           executionClaimDurationMilliseconds,
-        ),
-        catch: mapPointMutationAttemptReplacementTransactionFailure,
+          entry,
+        ).pipe(Effect.map(observation => confirmFiniteReplacementEntry(observation, entry))));
       }));
     });
 
@@ -1787,6 +1850,8 @@ const preparePointCommitCommand = Effect.fn(
   let attemptedTableIds: ReadonlyArray<CatalogTableId> | null = null;
   let participantOperations: readonly AdmittedParticipantOperation[] = Object.freeze([]);
   let participantJournal: SessionJournal | null = null;
+  let finiteMetadataReservationSha256Hex: string | null = null;
+  const metadataDependencies: LogicalMetadataReadDependency[] = [];
   let participantMaterialDocumentIds: ReadonlySet<string> = new Set();
   const participantEventIntents: CommittedEvent[] = [];
   if (captured.journalBytes !== undefined) {
@@ -1802,6 +1867,27 @@ const preparePointCommitCommand = Effect.fn(
     attemptedTableIds = Object.freeze([...tables]);
     participantOperations = journal.journal.participantOperations;
     participantJournal = journal.journal;
+    finiteMetadataReservationSha256Hex = journal.journal.finiteMetadataReservationSha256Hex ?? null;
+    metadataDependencies.push(...journal.journal.readDependencies.filter(dependency => dependency.kind === "metadata"));
+    for (const operation of participantOperations) for (const contribution of operation.sourceContributions) {
+      const evidence = yield* Effect.fromResult(decodeLogicalParticipantDependencyEvidence(contribution.dependencyEvidence)
+        .pipe(Result.mapError(() => corruption("commandInvalid"))));
+      if (evidence.version === 2) {
+        if (finiteMetadataReservationSha256Hex === null) return yield* Effect.fail(corruption("commandInvalid"));
+        const sourceMetadataDependencies = yield* decodePointCommitMetadataDependenciesEffect(
+          evidence.metadataDependencies).pipe(Effect.mapError(() => corruption("commandInvalid")));
+        for (const dependency of sourceMetadataDependencies) {
+          const retained = metadataDependencies.find(member => logicalMetadataDependencyIdentity(member) === logicalMetadataDependencyIdentity(dependency));
+          if (retained === undefined || retained.capturedWatermark !== dependency.capturedWatermark || retained.observed.kind !== dependency.observed.kind ||
+            retained.observed.kind === "present" && dependency.observed.kind === "present" && retained.observed.semanticSha256Hex !== dependency.observed.semanticSha256Hex)
+            return yield* Effect.fail(corruption("commandInvalid"));
+        }
+      } else if (finiteMetadataReservationSha256Hex !== null) return yield* Effect.fail(corruption("commandInvalid"));
+    }
+    if (metadataDependencies.length > 0 && finiteMetadataReservationSha256Hex === null)
+      return yield* Effect.fail(corruption("commandInvalid"));
+    if (finiteMetadataReservationSha256Hex !== null && captured.relationDependencies.length > 0)
+      return yield* Effect.fail(corruption("commandInvalid"));
     const documents = new Set<string>();
     const appDocuments = new Set(journal.journal.writes.map(write => write.documentId));
     for (const operation of participantOperations) for (const contribution of operation.sourceContributions)
@@ -1854,6 +1940,8 @@ const preparePointCommitCommand = Effect.fn(
     attemptedTableIds,
     participantOperations,
     participantJournal,
+    metadataDependencies: Object.freeze([...new Map(metadataDependencies.map(dependency => [logicalMetadataDependencyIdentity(dependency), dependency])).values()]),
+    finiteMetadataReservationSha256Hex,
     participantMaterialDocumentIds,
     participantEventIntents: Object.freeze(participantEventIntents),
     rowIntents: Object.freeze(rowIntents),
@@ -2186,14 +2274,10 @@ function captureRunningRelationConflictAttemptReplacementCommandResult(
     ) {
       return yield* Result.fail(corruption("commandInvalid"));
     }
-    const edgeDefinitionId = yield* Schema.decodeUnknownResult(
-      CatalogEdgeDefinitionIdSchema,
-    )(conflict.edgeDefinitionId).pipe(
+    const edgeDefinitionId = yield* decodePointCommitEdgeDefinitionIdResult(conflict.edgeDefinitionId).pipe(
       Result.mapError(() => corruption("commandInvalid")),
     );
-    const targetRowId = yield* Schema.decodeUnknownResult(
-      AppRowIdHexV1Schema,
-    )(conflict.targetRowId).pipe(
+    const targetRowId = yield* decodePointCommitEncodedRowIdResult(conflict.targetRowId).pipe(
       Result.mapError(() => corruption("commandInvalid")),
     );
     const expectedAdjacencyVersion = yield* decodePointCommitSeqResult(
@@ -2297,9 +2381,7 @@ function capturePointCommitIndexRangeDependenciesResult(
       if (!Object.hasOwn(input, index)) {
         return yield* Result.fail(corruption("commandInvalid"));
       }
-      const dependency = yield* Schema.decodeUnknownResult(
-        LogicalIndexRangeReadDependencyV1Schema,
-      )(input[index]).pipe(Result.mapError(() => corruption("commandInvalid")));
+      const dependency = yield* decodePointCommitIndexRangeDependencyResult(input[index]).pipe(Result.mapError(() => corruption("commandInvalid")));
       captured.push(dependency);
       evidenceBytes += yield* measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result(
         dependency,
@@ -2367,9 +2449,7 @@ function capturePointCommitRelationDependenciesResult(
       if (!Object.hasOwn(input, index)) {
         return yield* Result.fail(corruption("commandInvalid"));
       }
-      const dependency = yield* Schema.decodeUnknownResult(
-        Schema.toType(LogicalApplicationRelationIncomingReadDependencyV1Schema),
-      )(input[index]).pipe(Result.mapError(() => corruption("commandInvalid")));
+      const dependency = yield* decodePointCommitRelationDependencyResult(input[index]).pipe(Result.mapError(() => corruption("commandInvalid")));
       const previous = captured.at(-1);
       if (
         dependency.observedAdjacencyVersion > snapshotCommitSeq ||
@@ -2449,7 +2529,7 @@ function capturePointCommitConflictEvidenceResult(
     const currentCommitSeq = yield* decodePointCommitSeqResult(
       captured.currentCommitSeq,
     ).pipe(Result.mapError(() => corruption("commandInvalid")));
-    if (currentCommitSeq <= expectedSnapshotCommitSeq) {
+    if (currentCommitSeq < expectedSnapshotCommitSeq || currentCommitSeq === expectedSnapshotCommitSeq && cause.kind !== "metadata") {
       return yield* Result.fail(corruption("commandInvalid"));
     }
     if (cause.kind === "appRowPoint") {
@@ -2471,9 +2551,7 @@ function capturePointCommitConflictEvidenceResult(
       });
     }
     if (cause.kind === "appRelationIncoming") {
-      const edgeDefinitionId = yield* Schema.decodeUnknownResult(
-        CatalogEdgeDefinitionIdSchema,
-      )(cause.edgeDefinitionId).pipe(
+      const edgeDefinitionId = yield* decodePointCommitEdgeDefinitionIdResult(cause.edgeDefinitionId).pipe(
         Result.mapError(() => corruption("commandInvalid")),
       );
       const targetRowId = yield* decodePointCommitRowIdResult(
@@ -2496,13 +2574,17 @@ function capturePointCommitConflictEvidenceResult(
       });
     }
     if (cause.kind === "logicalParticipant") {
-      const syscallSequence = yield* Schema.decodeUnknownResult(
-        Schema.toType(CommitSyscallSequenceV1Schema),
-      )(cause.syscallSequence).pipe(Result.mapError(() => corruption("commandInvalid")));
+      const syscallSequence = yield* decodePointCommitSyscallSequenceResult(cause.syscallSequence).pipe(Result.mapError(() => corruption("commandInvalid")));
       if (typeof cause.participant !== "string" || cause.participant.length === 0)
         return yield* Result.fail(corruption("commandInvalid"));
       return Object.freeze({ conflict: Object.freeze({ kind: "logicalParticipant", participant: cause.participant,
         syscallSequence }), snapshotCommitSeq: expectedSnapshotCommitSeq, currentCommitSeq });
+    }
+    if (cause.kind === "metadata") {
+      const witness = yield* decodePointCommitMetadataConflictResult(cause)
+        .pipe(Result.mapError(() => corruption("commandInvalid")));
+      return Object.freeze({ conflict: Object.freeze(witness),
+        snapshotCommitSeq: expectedSnapshotCommitSeq, currentCommitSeq });
     }
     if (
       cause.kind !== "appIndexRange" ||
@@ -2514,12 +2596,10 @@ function capturePointCommitConflictEvidenceResult(
     ) {
       return yield* Result.fail(corruption("commandInvalid"));
     }
-    const tableId = yield* Schema.decodeUnknownResult(CatalogTableIdSchema)(
+    const tableId = yield* decodePointCommitEncodedTableIdResult(
       cause.tableId,
     ).pipe(Result.mapError(() => corruption("commandInvalid")));
-    const indexDefinitionId = yield* Schema.decodeUnknownResult(
-      CatalogIndexDefinitionIdSchema,
-    )(cause.indexDefinitionId).pipe(
+    const indexDefinitionId = yield* decodePointCommitIndexDefinitionIdResult(cause.indexDefinitionId).pipe(
       Result.mapError(() => corruption("commandInvalid")),
     );
     const dependency = indexRangeDependencies[cause.dependencyOrdinal];
@@ -2532,12 +2612,8 @@ function capturePointCommitConflictEvidenceResult(
     }
     const overlap = cause.reason === "overlap"
       ? Result.all({
-          encodedKey: Schema.decodeUnknownResult(
-            OrderedIndexKeyBytesHexV1Schema,
-          )(cause.encodedKey),
-          rowId: Schema.decodeUnknownResult(
-            OrderedIndexRowIdHexV1Schema,
-          )(cause.rowId),
+          encodedKey: decodePointCommitOrderedKeyResult(cause.encodedKey),
+          rowId: decodePointCommitOrderedRowIdResult(cause.rowId),
         }).pipe(Result.mapError(() => corruption("commandInvalid")))
       : Result.succeed(undefined);
     const overlapEvidence = yield* overlap;
@@ -3250,7 +3326,7 @@ interface LockedPointCommitClockV1 {
   readonly authorizationRevocationEpoch: TransactionAuthorizationRevocationEpoch;
 }
 
-type PointCommitScopeClockRowV1 = typeof fxSystemScopeClocks.$inferSelect;
+type PointCommitScopeClockRowV1 = ScopeClockRow;
 
 const decodePointCommitScopeUuidResult = Schema.decodeUnknownResult(
   Schema.toType(ScopeUuidV1Schema),
@@ -3281,6 +3357,7 @@ interface LockedCommittedPointOutcomeV1 {
 
 interface LockedPointCommitLeaseV1 {
   readonly expiresAtMilliseconds: number;
+  readonly row: typeof fxSystemSnapshotLeases.$inferSelect;
 }
 
 type PointCommitKernelResultV1 =
@@ -3319,7 +3396,60 @@ type PointCommitPublicationRunDecisionV1 =
       >;
     }>;
 
-async function runPointMutationAttemptReplacement(
+function runReplacementTransactionEffect<Value>(target: LocatedReadCommittedAttemptTargetV1,
+  work: (tx: AppRowTransaction) => Effect.Effect<Value, PointMutationAttemptReplacementV1Error>) {
+  return runEffectTransaction(callback => target[RUN_LOCATED_READ_COMMITTED_V1](callback).catch(cause => {
+    // Only this runner's callback rollback contains the Effect bridge's private sentinel.
+    if (cause instanceof LocatedReadCommittedTransactionFailureV1 && cause.issue.kind === "callbackRolledBack")
+      throw cause.issue.callbackCause;
+    throw cause;
+  }), "Point mutation replacement callback rolled back", work, mapPointMutationAttemptReplacementTransactionFailure);
+}
+
+function requireFiniteReplacementComposition(profile: "durableOperations" | "finiteRoot",
+  generation: PointCommitAuthorityPinsV1["executionAuthorityGeneration"],
+  lease: typeof fxSystemSnapshotLeases.$inferSelect, entry: PreparedFiniteReplacementEntry | undefined,
+  expectedReservationDigest: string | undefined): boolean {
+  const hasReservation = lease.metadataWatermark !== null || lease.finiteMetadataReservationBytes !== null ||
+    lease.finiteMetadataReservationSha256 !== null;
+  if (expectedReservationDigest === undefined) {
+    // A finishing attempt's authenticated journal selects its contract. NULL
+    // lease columns cannot turn a reserved root into a direct replacement.
+    if (hasReservation || profile === "finiteRoot" && generation !== "legacy_dynamic_worker_v1")
+      // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - reject journal/lease contract downgrade through the typed Promise rollback adapter
+      throw replacementCorruption("leaseInvalid");
+    return false;
+  }
+  if (profile !== "finiteRoot" || lease.metadataWatermark === null || lease.finiteMetadataReservationBytes === null ||
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - reject incomplete reserved lease evidence through the typed Promise rollback adapter
+    lease.finiteMetadataReservationSha256 === null) throw replacementCorruption("leaseInvalid");
+  // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - missing genuine finite entry composition must roll back with its precise configured-entry error
+  if (entry === undefined) throw new PointMutationAttemptReplacementFiniteEntryError({
+    cause: new Error("A reserved finite attempt requires its genuine aggregate entry composition."),
+  });
+  return true;
+}
+
+const completeFiniteReplacementEntryEffect = Effect.fn("PointMutationAttemptReplacement.completeFiniteEntry")(
+  function* (tx: AppRowTransaction, target: LocatedReadCommittedAttemptTargetV1,
+    preliminaryAuthority: TrustedScopeAuthority, command: PreparedPointCommitAuthorityCommandV1,
+    observation: PointMutationAttemptReplacementObservationV1, required: boolean,
+    entry: PreparedFiniteReplacementEntry | undefined) {
+    if (observation.kind !== "replaced" || !required) return observation;
+    if (entry === undefined || !isLocatedExactRunningAttemptKernelV1(target))
+      return yield* Effect.fail(replacementCorruption("replacementMutationInvalid"));
+    entry.capture = yield* runPreparedFiniteReplacementSessionJournalEntryEffect(entry.preparation, entry.application, tx, {
+      selector: { deploymentId: command.authorityPins.deploymentId, scopeId: command.authorityPins.scopeId,
+        sessionId: observation.sessionId, attemptFence: observation.attemptFence },
+      preliminaryAuthority,
+      executionClaim: { claimOwner: observation.executionClaim.claimOwner, claimFence: observation.executionClaim.claimFence },
+    }, { authority: preliminaryAuthority, target }).pipe(Effect.mapError(cause =>
+      new PointMutationAttemptReplacementFiniteEntryError({ cause })));
+    return observation;
+  },
+);
+
+function runPointMutationAttemptReplacement(
   target: LocatedReadCommittedAttemptTargetV1,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointMutationAttemptReplacementCommandV1,
@@ -3327,8 +3457,11 @@ async function runPointMutationAttemptReplacement(
   sharedOptions: PointCommitTransactionProofOptionsV1,
   executionClaimOwner: TransactionExecutionClaimOwnerV1,
   executionClaimDurationMilliseconds: number,
-): Promise<PointMutationAttemptReplacementObservationV1> {
-  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+  entry: PreparedFiniteReplacementEntry | undefined,
+): Effect.Effect<PointMutationAttemptReplacementObservationV1, PointMutationAttemptReplacementV1Error> {
+  return runReplacementTransactionEffect(target, tx => {
+    let requiresEntry = false;
+    return Effect.tryPromise({ try: async () => {
     const clock = await lockPointCommitClock(tx, command, sharedOptions);
     await emitReplacementStep(options, command, "clockLocked");
     const outcome = await inspectCommittedOutcomeInTransaction(
@@ -3367,6 +3500,7 @@ async function runPointMutationAttemptReplacement(
         command,
         session,
         options,
+        command.expectedConflict.conflict.kind === "metadata" ? command.expectedConflict.conflict : undefined,
       );
     }
     await validateActiveRelationSelectionForPointCommit(tx, command);
@@ -3381,6 +3515,12 @@ async function runPointMutationAttemptReplacement(
     const lease = await lockPointCommitLease(tx, command, sharedOptions);
     await emitReplacementStep(options, command, "leaseLocked");
     const executionProfile = await lockPointCommitJournalRoot(tx, command, sharedOptions);
+    const sealedJournal = await readSealedPointCommitJournal(tx, command, sharedOptions);
+    requiresEntry = requireFiniteReplacementComposition(executionProfile,
+      command.authorityPins.executionAuthorityGeneration, lease.row, entry, sealedJournal.finiteMetadataReservationSha256Hex);
+    const finiteReservation = requiresEntry ? projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      requireFinitePointCommitReservation({ authorityPins: command.authorityPins,
+        finiteMetadataReservationSha256Hex: sealedJournal.finiteMetadataReservationSha256Hex ?? null }, lease.row))) : null;
     await emitReplacementStep(options, command, "journalRootLocked");
     await requireNoFinishingExecutionClaim(
       tx,
@@ -3410,6 +3550,8 @@ async function runPointMutationAttemptReplacement(
       heads,
       sharedOptions,
       preliminaryAuthority,
+      sealedJournal,
+      finiteReservation,
     );
     await emitReplacementStep(options, command, "dependenciesValidated");
 
@@ -3425,10 +3567,18 @@ async function runPointMutationAttemptReplacement(
       executionClaimDurationMilliseconds,
       executionProfile,
     );
+    }, catch: mapPointMutationAttemptReplacementTransactionFailure }).pipe(
+      Effect.flatMap(observation => completeFiniteReplacementEntryEffect(tx, target, preliminaryAuthority,
+        command, observation, requiresEntry, entry)),
+      Effect.tap(observation => observation.kind === "replaced" ? Effect.tryPromise({
+        try: () => emitReplacementStep(options, command, "beforeCommit"),
+        catch: mapPointMutationAttemptReplacementTransactionFailure,
+      }) : Effect.void),
+    );
   });
 }
 
-async function runRunningRelationConflictAttemptReplacement(
+function runRunningRelationConflictAttemptReplacement(
   target: LocatedReadCommittedAttemptTargetV1,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedRunningRelationConflictAttemptReplacementCommandV1,
@@ -3436,8 +3586,11 @@ async function runRunningRelationConflictAttemptReplacement(
   sharedOptions: PointCommitTransactionProofOptionsV1,
   executionClaimOwner: TransactionExecutionClaimOwnerV1,
   executionClaimDurationMilliseconds: number,
-): Promise<PointMutationAttemptReplacementObservationV1> {
-  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+  entry: PreparedFiniteReplacementEntry | undefined,
+): Effect.Effect<PointMutationAttemptReplacementObservationV1, PointMutationAttemptReplacementV1Error> {
+  return runReplacementTransactionEffect(target, tx => {
+    let requiresEntry = false;
+    return Effect.tryPromise({ try: async () => {
     const clock = await lockPointCommitClock(tx, command, sharedOptions);
     await emitReplacementStep(options, command, "clockLocked");
     const outcome = await inspectCommittedOutcomeInTransaction(
@@ -3487,6 +3640,13 @@ async function runRunningRelationConflictAttemptReplacement(
       command,
       options,
     );
+    const reservationDigest = lease.row.finiteMetadataReservationSha256 === null ? undefined :
+      encodeBytesToLowercaseHex(lease.row.finiteMetadataReservationSha256);
+    requiresEntry = requireFiniteReplacementComposition(conflictJournal.executionProfile,
+      command.authorityPins.executionAuthorityGeneration, lease.row, entry, reservationDigest);
+    if (requiresEntry) projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      requireFinitePointCommitReservation({ authorityPins: command.authorityPins,
+        finiteMetadataReservationSha256Hex: reservationDigest ?? null }, lease.row)));
     await emitReplacementStep(options, command, "journalRootLocked");
     const databaseNowMilliseconds = await readPointCommitDatabaseTime(
       tx,
@@ -3572,6 +3732,14 @@ async function runRunningRelationConflictAttemptReplacement(
       executionClaimDurationMilliseconds,
       conflictJournal.executionProfile,
       mutationTimeMilliseconds,
+    );
+    }, catch: mapPointMutationAttemptReplacementTransactionFailure }).pipe(
+      Effect.flatMap(observation => completeFiniteReplacementEntryEffect(tx, target, preliminaryAuthority,
+        command, observation, requiresEntry, entry)),
+      Effect.tap(observation => observation.kind === "replaced" ? Effect.tryPromise({
+        try: () => emitReplacementStep(options, command, "beforeCommit"),
+        catch: mapPointMutationAttemptReplacementTransactionFailure,
+      }) : Effect.void),
     );
   });
 }
@@ -3762,7 +3930,7 @@ async function recoverRunningRelationConflictEvidence(
   readonly activeSelection: RecoveredApplicationRelationActiveSelection;
 }>> {
   const receiptSequence = projectPointCommitTransactionResult(
-    Schema.decodeUnknownResult(Schema.toType(CommitSyscallSequenceV1Schema))(
+    decodePointCommitSyscallSequenceResult(
       journal.lastSyscallSequence,
     ).pipe(Result.mapError(() => replacementCorruption("occEvidenceInvalid"))),
   );
@@ -4330,7 +4498,6 @@ if (running.length !== 1 || running[0]?.lifecycle !== "running") {
   throw replacementCorruption("replacementMutationInvalid");
 }
 await emitReplacementStep(options, command, "sessionRunning");
-await emitReplacementStep(options, command, "beforeCommit");
 return replacementObservation(
   "replaced",
   command,
@@ -4381,6 +4548,7 @@ async function observeReplacedPointMutationAttempt(
   command: PreparedPointCommitAuthorityCommandV1,
   session: LockedPointCommitSessionV1,
   options: PointMutationAttemptReplacementOptionsV1,
+  metadataConflict?: Extract<PointCommitConflictCauseV1, { readonly kind: "metadata" }>,
 ): Promise<PointMutationAttemptReplacementObservationV1> {
   const expectedFence = command.authorityPins.attemptFence <
       MAX_TRANSACTION_ATTEMPT_FENCE
@@ -4418,7 +4586,10 @@ async function observeReplacedPointMutationAttempt(
     lease.sessionId !== command.authorityPins.sessionId ||
     lease.attemptFence !== expectedFence ||
     lease.snapshotEpochUuid !== clock.epochUuid ||
-    lease.snapshotCommitSeq <= command.authorityPins.snapshotToken.commitSeq ||
+    lease.snapshotCommitSeq < command.authorityPins.snapshotToken.commitSeq ||
+    lease.snapshotCommitSeq === command.authorityPins.snapshotToken.commitSeq && metadataConflict === undefined ||
+    metadataConflict !== undefined && (clock.record.lastMetadataSequence <= metadataConflict.capturedMetadataWatermark ||
+      clock.record.lastMetadataSequence < metadataConflict.lastChangedMetadataSequence) ||
     lease.snapshotCommitSeq > clock.record.lastCommitSeq ||
     leaseExpiresAtMilliseconds === undefined ||
     leaseExpiresAtMilliseconds <= session.updatedAtMilliseconds ||
@@ -5004,6 +5175,7 @@ async function runPointCommitTransactionKernel(
     );
   }
   const validatedApplicationRelations =
+    command.finiteMetadataReservationSha256Hex !== null ? preparedApplicationRelationsForFiniteCommit(applicationRelations) :
     await observePointCommitPublicationPromise(options.publicationObservation, "lifecycleAcceptance", () => validateActiveApplicationSchemaForPointCommit(
     tx,
     command,
@@ -5074,10 +5246,21 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
   );
+  const finiteReservation = command.finiteMetadataReservationSha256Hex === null ? null :
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(requireFinitePointCommitReservation(command, lease.row)));
+  if (finiteReservation !== null) projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    validateConsumedMetadataDependencies(tx, command.authorityPins.scopeId, finiteReservation.metadataWatermark, command.metadataDependencies)
+      .pipe(Effect.mapError(error => error.reason === "writeConflict" && error.dependency !== undefined &&
+        error.capturedMetadataWatermark !== undefined && error.lastChangedMetadataSequence !== undefined
+        ? new PointCommitConflictV1Error({ conflict: { kind: "metadata", ...error.dependency,
+          capturedMetadataWatermark: error.capturedMetadataWatermark, lastChangedMetadataSequence: error.lastChangedMetadataSequence },
+          snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq, currentCommitSeq: clock.record.lastCommitSeq })
+        : error.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("validateIndexRanges", error.cause ?? error)
+          : corruption("dependencySetInvalid")))));
 
   const admittedParticipants = await observePointCommitPublicationPromise(options.publicationObservation, "participantProof", () =>
     validateAdmittedParticipantOperations(tx, preliminaryAuthority, command, clock.record,
-      developerDefinitions, uniqueDefinitions, options));
+      developerDefinitions, uniqueDefinitions, options, finiteReservation));
 
   let loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>;
   options.publicationObservation?.record({ kind: "phase", phase: "occProof", edge: "begin" });
@@ -5264,11 +5447,11 @@ async function validateParticipantPointCorrelation(
   for (const row of rows) {
     const rowId = projectPointCommitTransactionResult(appRowIdHexV1FromBytesResult(row.rowId)
       .pipe(Result.mapError(() => corruption("occEvidenceInvalid"))));
-    const tableId = projectPointCommitTransactionResult(Schema.decodeUnknownResult(CatalogTableIdSchema)(row.tableId)
+    const tableId = projectPointCommitTransactionResult(decodePointCommitEncodedTableIdResult(row.tableId)
       .pipe(Result.mapError(() => corruption("occEvidenceInvalid"))));
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
     const revision = row.dependencyRevisionCommitSeq === null ? null : projectPointCommitTransactionResult(
-      Schema.decodeUnknownResult(Schema.toType(CommitSeqSchema))(row.dependencyRevisionCommitSeq)
+      decodePointCommitRetainedFloorResult(row.dependencyRevisionCommitSeq)
         .pipe(Result.mapError(() => corruption("occEvidenceInvalid"))));
     const observed: ParticipantPointCorrelation["observed"] = row.dependencyKind === "present" && revision !== null
       ? { kind: "present", revisionCommitSeq: revision }
@@ -5354,6 +5537,7 @@ async function validateAdmittedParticipantOperations(
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
+  finiteReservation: FiniteMetadataReservation | null = null,
 ): Promise<readonly Readonly<{ search: readonly LogicalSearchDefinition[] }>[]> {
   if (command.participantOperations.length === 0) return [];
   await validateParticipantPointCorrelation(tx, command);
@@ -5361,7 +5545,7 @@ async function validateAdmittedParticipantOperations(
   // evidence is shared only within the already locked publication transaction.
   return projectPointCommitTransactionResult((await runPointCommitInTransactionEffect(
     withSharedLogicalSourceBindingChecks(tx, () => validateAdmittedParticipantOperationsInTransaction(
-      tx, authority, command, clock, developerDefinitions, uniqueDefinitions, options)),
+      tx, authority, command, clock, developerDefinitions, uniqueDefinitions, options, finiteReservation)),
   )).pipe(Result.mapError(error => error instanceof PointCommitAdmissionDigestProviderError ? error.cause : error)));
 }
 
@@ -5374,6 +5558,7 @@ function* (
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
+  finiteReservation: FiniteMetadataReservation | null,
 ){
   const operations = command.participantOperations;
   const principalDigest = encodeBytesToLowercaseHex(command.session.identityAccessPolicySha256);
@@ -5381,7 +5566,32 @@ function* (
   for (const operation of operations) {
     const selectedProfile = yield* Effect.fromResult(selectLogicalOperationProfileResult(options, operation));
     for (const [ordinal, contribution] of operation.sourceContributions.entries()) {
+    const dependencyEvidence = yield* Effect.fromResult(decodeLogicalParticipantDependencyEvidence(contribution.dependencyEvidence)
+      .pipe(Result.mapError(() => corruption("dependencySetInvalid"))));
+    if (finiteReservation === null ? dependencyEvidence.version !== 1 : dependencyEvidence.version !== 2 ||
+      dependencyEvidence.metadataWatermark !== finiteReservation.metadataWatermark.toString())
+      return yield* Effect.fail(corruption("dependencySetInvalid"));
     const token = selectedProfile.authorities[ordinal]!;
+    if (finiteReservation !== null && dependencyEvidence.version === 2) {
+      const projection = inspectLogicalParticipantCommitMetadataProjection(token, operation, contribution);
+      if (projection === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
+      const metadata = yield* decodePointCommitMetadataDependenciesEffect(dependencyEvidence.metadataDependencies)
+        .pipe(Effect.mapError(() => corruption("dependencySetInvalid")));
+      for (const tableId of new Set(contribution.effects.map(effect => effect.tableId))) {
+        const table = finiteMetadataTableKey(projection, tableId, "table"), closure = finiteMetadataTableKey(projection, tableId, "writeClosure");
+        if (table === null || closure === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
+        for (const key of [table, closure, { namespace: table.namespace, ownerKey: table.ownerKey, contractKey: finiteMetadataContractKey("sourcePolicy") }]) {
+          const expected = yield* Effect.fromResult(captureFiniteMetadataDependency(projection, key, finiteReservation.metadataWatermark)
+            .pipe(Result.mapError(() => corruption("dependencySetInvalid"))));
+          if (expected.observed.kind !== "present") return yield* Effect.fail(corruption("dependencySetInvalid"));
+          const semanticSha256Hex = expected.observed.semanticSha256Hex;
+          if (!metadata.some(member =>
+            logicalMetadataDependencyIdentity(member) === logicalMetadataDependencyIdentity(expected) && member.observed.kind === "present" &&
+            member.capturedWatermark === expected.capturedWatermark && member.observed.semanticSha256Hex === semanticSha256Hex))
+            return yield* Effect.fail(corruption("dependencySetInvalid"));
+        }
+      }
+    }
     const binding = yield* Effect.fromResult(canonicalizeAdmittedParticipantBindingV1Result({
       scopeId: command.authorityPins.scopeId,
       sessionId: command.authorityPins.sessionId,
@@ -5401,7 +5611,7 @@ function* (
     });
     if (encodeBytesToLowercaseHex(new Uint8Array(bindingBytes)) !== contribution.sourceBindingSha256Hex)
       return yield* Effect.fail(corruption("commandInvalid"));
-    const admittedEffect = requireLogicalParticipantCommitAuthorityEffect(
+    const admittedEffect = (finiteReservation === null ? requireLogicalParticipantCommitAuthorityEffect : requireFiniteLogicalParticipantCommitAuthorityEffect)(
       token, operation, contribution, tx, authority, clock).pipe(
       Effect.mapError(error => error.reason === "resourceFailure"
         ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
@@ -5430,7 +5640,8 @@ function* (
     }
     validated.push(Object.freeze({ search: admitted.search.filter(definition => touched.has(definition.tableId)) }));
     const dependencyEffect = validateLogicalParticipantDependencyEvidence(
-      tx, command.authorityPins.scopeId, operation, contribution, admitted, options.publicationObservation).pipe(
+      tx, command.authorityPins.scopeId, operation, contribution,
+      { tableIds: admitted.tableIds, ...admitted.readDefinitions }, options.publicationObservation).pipe(
         Effect.mapError(error => error.reason === "writeConflict"
           ? new PointCommitConflictV1Error({ conflict: { kind: "logicalParticipant",
             participant: operation.participant, syscallSequence: operation.syscallSequence },
@@ -5502,15 +5713,17 @@ async function lockPointCommitClock(
   options: PointCommitTransactionProofOptionsV1,
   protection: "key share" | "no key update" = "no key update",
 ): Promise<LockedPointCommitClockV1> {
-  const query = tx
-    .select()
-    .from(fxSystemScopeClocks)
+  if (protection === "key share") projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    lockScopeExecutionAuthorityInTransactionEffect(tx, command.authorityPins.scopeId, "key share").pipe(Effect.mapError(cause =>
+      cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
+        ? new PointCommitSqlFailureMarkerV1("lockScopeClock", cause.cause) : corruption("scopeClockInvalid")))));
+  const query = selectScopeClockRows(tx)
     .where(eq(
       fxSystemScopeClocks.scopeId,
       command.authorityPins.scopeId,
     ))
     .limit(2)
-    .for(protection);
+    .for(protection, { of: fxSystemScopeClocks });
   if (protection === "key share") observeDrizzleQuery("lockScopeClock", query, options);
   const rows = protection === "no key update"
     ? projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
@@ -5944,6 +6157,30 @@ async function validateActiveApplicationSchemaForPointCommit(
     : null;
 }
 
+function preparedApplicationRelationsForFiniteCommit(
+  prepared: PreparedPointCommitApplicationRelations | null,
+): LocatedPreparedPointCommitApplicationRelations | null {
+  return prepared?.definitions == null ? null : Object.freeze({ port: prepared.port, definitions: prepared.definitions });
+}
+
+const requireFinitePointCommitReservation = Effect.fn("PointCommit.requireFiniteReservation")(function* (
+  command: Pick<PreparedPointCommitTransactionCommandV1, "authorityPins" | "finiteMetadataReservationSha256Hex">,
+  lease: typeof fxSystemSnapshotLeases.$inferSelect,
+) {
+  const reservation = yield* readStoredFiniteMetadataReservation(lease).pipe(Effect.mapError(error =>
+    error.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("lockLease", error.cause ?? error) : corruption("leaseInvalid")));
+  const pins = command.authorityPins;
+  if (lease.finiteMetadataReservationSha256 === null ||
+    encodeBytesToLowercaseHex(lease.finiteMetadataReservationSha256) !== command.finiteMetadataReservationSha256Hex ||
+    reservation.deploymentId !== pins.deploymentId || reservation.scopeId !== pins.scopeId || reservation.sessionId !== pins.sessionId ||
+    reservation.attemptFence !== pins.attemptFence || reservation.storageGeneration !== pins.storageGeneration ||
+    reservation.storageGenerationFence !== pins.storageGenerationFence || reservation.schemaVersionId !== pins.schemaVersionId ||
+    reservation.snapshotToken.scopeId !== pins.snapshotToken.scopeId || reservation.snapshotToken.epoch !== pins.snapshotToken.epoch ||
+    reservation.snapshotToken.commitSeq !== pins.snapshotToken.commitSeq)
+    return yield* Effect.fail(corruption("leaseInvalid"));
+  return reservation;
+});
+
 async function lockPointCommitSession(
   tx: AppRowTransaction,
   command: PreparedPointCommitAuthorityCommandV1,
@@ -6248,6 +6485,7 @@ async function lockPointCommitLease(
     }
     return Object.freeze({
       expiresAtMilliseconds: leaseExpiresAtMilliseconds,
+      row,
     });
   }));
 }
@@ -6400,7 +6638,7 @@ async function lockPointCommitJournalRoot(
 
 function requireAttemptIsLiveResult(
   session: LockedPointCommitSessionV1,
-  lease: LockedPointCommitLeaseV1,
+  lease: Pick<LockedPointCommitLeaseV1, "expiresAtMilliseconds">,
   databaseNowMilliseconds: number,
 ): Result.Result<void, PointCommitStaleAuthorityV1Error> {
   if (
@@ -6659,7 +6897,7 @@ function decodePointCommitIndexRangeConflictRowResult(
         () => corruption("occEvidenceInvalid"),
       ),
       Result.flatMap((parsed) =>
-        Schema.decodeUnknownResult(CatalogTableIdSchema)(parsed).pipe(
+        decodePointCommitEncodedTableIdResult(parsed).pipe(
           Result.mapError(() => corruption("occEvidenceInvalid")),
         )
       ),
@@ -6709,6 +6947,31 @@ function decodePointCommitIndexRangeConflictRowResult(
   });
 }
 
+/** Cold replacement authenticates the sealed contract before inspecting lease
+ * presence. Its exact journal also owns conflict reproduction below. */
+async function readSealedPointCommitJournal(
+  tx: AppRowTransaction, command: PreparedPointCommitAttemptScalarCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<SessionJournal> {
+  const query = tx.select({ sealedJournalBytes: fxSystemTransactionJournals.sealedJournalBytes })
+    .from(fxSystemTransactionJournals).where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, command.sealIdentity.scopeUuid),
+      eq(fxSystemTransactionJournals.sessionId, command.authorityPins.sessionId),
+      eq(fxSystemTransactionJournals.attemptFence, command.authorityPins.attemptFence),
+    )).limit(2);
+  observeDrizzleQuery("lockJournalRoot", query, options);
+  const rows = await sqlCall("lockJournalRoot", () => query);
+  const bytes = rows[0]?.sealedJournalBytes;
+  if (rows.length !== 1 || !isUint8ArrayWithByteLength(bytes, command.sealIdentity.journalByteLength))
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - corrupt sealed journal rows refuse before replacement through the typed Promise rollback adapter
+    throw corruption("occEvidenceInvalid");
+  const sealed = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    decodeCanonicalSessionJournalEffect({ canonicalBytes: bytes,
+      expectedSha256Hex: encodeBytesToLowercaseHex(command.sealIdentity.journalSha256) })
+      .pipe(Effect.mapError(() => corruption("occEvidenceInvalid")))));
+  return sealed.journal;
+}
+
 async function requireReproduciblePointCommitConflict(
   tx: AppRowTransaction,
   clock: LockedPointCommitClockV1,
@@ -6716,9 +6979,17 @@ async function requireReproduciblePointCommitConflict(
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
   options: PointCommitTransactionProofOptionsV1,
   authority: TrustedScopeAuthority,
+  sealedJournal: SessionJournal,
+  finiteReservation: FiniteMetadataReservation | null,
 ): Promise<void> {
+  const metadataConflict = command.expectedConflict.conflict;
+  if (metadataConflict.kind === "metadata" && (clock.record.lastMetadataSequence <= metadataConflict.capturedMetadataWatermark ||
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - inconsistent authenticated metadata witness must refuse through the typed Promise rollback adapter
+    clock.record.lastMetadataSequence < metadataConflict.lastChangedMetadataSequence)) throw corruption("occEvidenceInvalid");
   const actual = command.expectedConflict.conflict.kind === "logicalParticipant"
-    ? await findPointCommitLogicalParticipantConflict(tx, clock, command, options, authority)
+    ? await findPointCommitLogicalParticipantConflict(tx, clock, command, options, authority, sealedJournal, finiteReservation)
+    : command.expectedConflict.conflict.kind === "metadata"
+    ? await findPointCommitMetadataConflict(tx, clock, command, sealedJournal, finiteReservation)
     : projectPointCommitTransactionResult(
       findPointCommitConflictAfterEvidenceValidationResult(command, heads),
     ) ?? await findPointCommitIndexRangeConflict(tx, clock, command) ??
@@ -6733,34 +7004,40 @@ async function requireReproduciblePointCommitConflict(
   }
 }
 
+async function findPointCommitMetadataConflict(tx: AppRowTransaction, clock: LockedPointCommitClockV1,
+  command: PreparedPointMutationAttemptReplacementCommandV1, sealedJournal: SessionJournal,
+  reservation: FiniteMetadataReservation | null): Promise<PointCommitConflictEvidenceV1 | null> {
+  const expected = command.expectedConflict.conflict;
+  if (expected.kind !== "metadata") return null;
+  // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - metadata conflict without its reserved authority must refuse through the typed Promise rollback adapter
+  if (reservation === null) throw corruption("occEvidenceInvalid");
+  const dependencies = sealedJournal.readDependencies.filter((dependency): dependency is LogicalMetadataReadDependency => dependency.kind === "metadata" &&
+    logicalMetadataDependencyIdentity(dependency) === logicalMetadataDependencyIdentity(expected));
+  // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - missing or nonunique sealed dependency refuses through the typed Promise rollback adapter
+  if (dependencies.length !== 1) throw corruption("occEvidenceInvalid");
+  return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    validateConsumedMetadataDependencies(tx, command.authorityPins.scopeId, reservation.metadataWatermark, dependencies).pipe(
+      Effect.as(null), Effect.catchTag("FiniteMetadataError", error => error.reason === "writeConflict" &&
+        error.capturedMetadataWatermark !== undefined && error.lastChangedMetadataSequence !== undefined ? Effect.succeed(Object.freeze({
+        conflict: Object.freeze({ kind: "metadata" as const, namespace: expected.namespace, ownerKey: expected.ownerKey, contractKey: expected.contractKey,
+          capturedMetadataWatermark: error.capturedMetadataWatermark, lastChangedMetadataSequence: error.lastChangedMetadataSequence }),
+        snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq, currentCommitSeq: clock.record.lastCommitSeq,
+      })) : Effect.fail(error.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("validateIndexRanges", error.cause ?? error)
+        : corruption("occEvidenceInvalid"))))));
+}
+
 async function findPointCommitLogicalParticipantConflict(
   tx: AppRowTransaction,
   clock: LockedPointCommitClockV1,
   command: PreparedPointMutationAttemptReplacementCommandV1,
   options: PointCommitTransactionProofOptionsV1,
   authority: TrustedScopeAuthority,
+  sealedJournal: SessionJournal,
+  finiteReservation: FiniteMetadataReservation | null,
 ): Promise<PointCommitConflictEvidenceV1 | null> {
   const expected = command.expectedConflict.conflict;
   if (expected.kind !== "logicalParticipant") return null;
-  // The root was locked and authenticated against sealIdentity above. Read its
-  // sealed bytes under the same transaction and authenticate the canonical
-  // journal digest before selecting any participant operation.
-  const query = tx.select({ sealedJournalBytes: fxSystemTransactionJournals.sealedJournalBytes })
-    .from(fxSystemTransactionJournals).where(and(
-      eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
-      eq(fxSystemTransactionJournals.sessionId, command.authorityPins.sessionId),
-      eq(fxSystemTransactionJournals.attemptFence, command.authorityPins.attemptFence),
-    )).limit(2);
-  observeDrizzleQuery("lockJournalRoot", query, options);
-  const rows = await sqlCall("lockJournalRoot", () => query);
-  const bytes = rows[0]?.sealedJournalBytes;
-  if (rows.length !== 1 || !isUint8ArrayWithByteLength(bytes, command.sealIdentity.journalByteLength))
-    throw corruption("occEvidenceInvalid");
-  const sealed = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-    decodeCanonicalSessionJournalEffect({ canonicalBytes: bytes,
-      expectedSha256Hex: encodeBytesToLowercaseHex(command.sealIdentity.journalSha256) })
-      .pipe(Effect.mapError(() => corruption("occEvidenceInvalid")))));
-  const matching = sealed.journal.participantOperations.filter(operation =>
+  const matching = sealedJournal.participantOperations.filter(operation =>
     operation.participant === expected.participant && operation.syscallSequence === expected.syscallSequence);
   if (matching.length !== 1) throw corruption("occEvidenceInvalid");
   const operation = matching[0]!;
@@ -6786,7 +7063,7 @@ async function findPointCommitLogicalParticipantConflict(
     await crypto.subtle.digest("SHA-256", new Uint8Array(binding.bytes).buffer)));
   if (bindingDigest !== contribution.sourceBindingSha256Hex) throw corruption("commandInvalid");
   const admitted = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-    requireLogicalParticipantCommitAuthorityEffect(selectedProfile.authorities[ordinal]!,
+    (finiteReservation === null ? requireLogicalParticipantCommitAuthorityEffect : requireFiniteLogicalParticipantCommitAuthorityEffect)(selectedProfile.authorities[ordinal]!,
       operation, contribution, tx, authority, clock.record).pipe(
       Effect.mapError(error => error.reason === "resourceFailure"
         ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
@@ -6794,7 +7071,7 @@ async function findPointCommitLogicalParticipantConflict(
           : new PointCommitStaleAuthorityV1Error({ reason: "activeSchemaChanged" })))));
   const validation = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(Effect.result(
     validateLogicalParticipantDependencyEvidence(tx, command.authorityPins.scopeId,
-      operation, contribution, admitted))));
+      operation, contribution, { tableIds: admitted.tableIds, ...admitted.readDefinitions }))));
   const conflict = Result.match(validation, {
     onSuccess: () => null,
     onFailure: failure => {
@@ -6838,6 +7115,11 @@ function pointCommitConflictsReproduce(
       expected.conflict.syscallSequence === actual.conflict.syscallSequence &&
       actual.currentCommitSeq >= expected.currentCommitSeq;
   }
+  if (expected.conflict.kind === "metadata") return actual.conflict.kind === "metadata" &&
+    logicalMetadataDependencyIdentity(expected.conflict) === logicalMetadataDependencyIdentity(actual.conflict) &&
+    expected.conflict.capturedMetadataWatermark === actual.conflict.capturedMetadataWatermark &&
+    actual.conflict.lastChangedMetadataSequence >= expected.conflict.lastChangedMetadataSequence &&
+    actual.currentCommitSeq >= expected.currentCommitSeq;
   if (actual.conflict.kind !== "appIndexRange") return false;
   if (
     expected.conflict.reason !== actual.conflict.reason ||
@@ -7213,6 +7495,7 @@ function mapPointMutationAttemptReplacementTransactionFailure(
   cause: unknown,
 ): PointMutationAttemptReplacementV1Error {
   if (
+    cause instanceof PointMutationAttemptReplacementFiniteEntryError ||
     cause instanceof PointMutationAttemptReplacementCommittedOutcomeV1Error ||
     cause instanceof PointMutationAttemptReplacementConflictNoLongerPresentV1Error ||
     cause instanceof PointMutationAttemptReplacementRequestKeyReuseV1Error ||

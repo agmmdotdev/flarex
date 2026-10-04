@@ -3,6 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
@@ -459,13 +460,8 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
 async function insertClocks(
   persistence: PostgresFlarexPersistence,
 ): Promise<void> {
-  await persistence.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, last_commit_seq, epoch)
-     values ($1, 'flarexdb_v1', 100, $2),
-            ($3, 'flarexdb_v1', 100, $4)`,
-    [scopeId, epoch, otherScopeId, otherEpoch],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch, lastCommitSeq: 100n });
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: otherScopeId, epoch: otherEpoch, lastCommitSeq: 100n });
 }
 
 async function seedSkewedEdges(

@@ -6,6 +6,7 @@ import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
+import { logicalMetadataDependencyIdentity, type LogicalMetadataKey, type LogicalMetadataReadDependency, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { compileAppOrderedIndexBoundsV1, InvalidOrderedIndexRangeV1Error,
   OrderedIndexCodecV1InputError, OrderedIndexKeyTooLargeError,
   type OrderedIndexRangeExpressionV1 } from
@@ -46,7 +47,9 @@ import { fxSystemScopeClocks } from "../schema";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { BoundedRequestContext, PresentedTransactionId, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import type { LogicalDocumentWorkingSetInput, LogicalRelationalStore, LogicalStorageReadDemand } from "./model";
-import { attachLogicalDocumentRootEvaluator } from "./rootEvaluator";
+import { attachLogicalDocumentRootEvaluator, recordLogicalDocumentRootMetadataDependency } from "./rootEvaluator";
+import { captureFiniteMetadataDependency, finiteMetadataTableKey, finiteMetadataAccessKey,
+  finiteMetadataContractKey, type PreparedFiniteMetadataProjection } from "../finiteMetadataDependencies";
 import { detachLogicalDocumentChanges } from "./detachChanges";
 import { captureHostPreparationLifetime, PreparedHostRuntimeError } from "../preparedHostRuntime";
 import type { LogicalDocumentTable, PreparedLogicalDocumentReadMechanics, PreparedLogicalDocumentWriteMechanics,
@@ -103,6 +106,9 @@ export interface LogicalDocumentObservedRow {
   readonly value: JsonObject;
 }
 export interface LogicalDocumentChanges {
+  /** Present only for the attempt-fixed finite execution profile. */
+  readonly metadataDependencies?: readonly LogicalMetadataReadDependency[];
+  readonly metadataWatermark?: MetadataSequence;
   readonly changes: readonly LogicalDocumentChange[];
   readonly attempts: readonly LogicalDocumentAttempt[];
   readonly lifecycle: readonly LogicalRelationalLifecycleObservation[];
@@ -165,6 +171,7 @@ interface PreparedReadMechanicsState {
 const preparedReadMechanics = new WeakMap<object, PreparedReadMechanicsState>();
 
 interface PreparedWriteMechanicsState {
+  readonly metadataProjections: readonly PreparedFiniteMetadataProjection[];
   readonly lifetimes: readonly NonNullable<Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>>[];
   readonly tablesByName: ReadonlyMap<string, LogicalDocumentTable>;
   readonly tablesById: ReadonlyMap<CatalogTableId, LogicalDocumentTable>;
@@ -178,6 +185,8 @@ interface PreparedWriteMechanicsState {
 }
 const preparedWriteMechanics = new WeakMap<object, PreparedWriteMechanicsState>();
 type WriteMechanicsInput = Readonly<{ tables: readonly LogicalDocumentTable[];
+  metadataProjection?: PreparedFiniteMetadataProjection;
+  metadataProjections?: readonly PreparedFiniteMetadataProjection[];
   relationalCapabilities?: readonly import("flarex-protocol/internal/relational-schema").RelationalPersistenceCapability[];
   searchDefinitions?: readonly import("./searchEntries").LogicalSearchDefinition[];
   indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>;
@@ -283,7 +292,9 @@ const issueWriteMechanics = Effect.fn("LogicalDocuments.issueWriteMechanics")(fu
     tableName: (tableId: CatalogTableId) => tablesById.get(tableId)?.logicalName,
     tableId: (logicalName: string) => tablesByName.get(logicalName)?.tableId,
   }) as PreparedLogicalDocumentWriteMechanics;
-  preparedWriteMechanics.set(prepared, { lifetimes, tablesByName, tablesById, indexesByTable, uniqueByTable, foreignKeys,
+  preparedWriteMechanics.set(prepared, { metadataProjections: input.metadataProjections ??
+    (input.metadataProjection === undefined ? [] : [input.metadataProjection]),
+    lifetimes, tablesByName, tablesById, indexesByTable, uniqueByTable, foreignKeys,
     indexCandidates, uniqueCandidates, searchCandidates, relationalAccess });
   return prepared;
 });
@@ -327,6 +338,7 @@ export const combineLogicalWriteMechanics = Effect.fn("LogicalDocuments.combineW
   const capabilities = inputs.some(input => input.relationalCapabilities !== undefined)
     ? inputs.flatMap(input => input.relationalCapabilities ?? []) : undefined;
   const prepared = yield* issueWriteMechanics({ tables: inputs.flatMap(input => input.tables),
+    metadataProjections: [...new Set(inputs.flatMap(input => preparedWriteMechanics.get(input)?.metadataProjections ?? []))],
     ...(capabilities === undefined ? {} : { relationalCapabilities: capabilities }),
     indexes: inputs.flatMap(input => input.indexes), unique: inputs.flatMap(input => input.unique),
     searchDefinitions: inputs.flatMap(input => input.searchDefinitions) }, Object.freeze(lifetimes), error);
@@ -405,8 +417,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   // Borrowed readTransaction authenticates inside its storage transaction;
   // only a directly supplied native transaction needs this separate guard.
   const requireReadAdmission = state.tx === undefined ? Effect.void : state.requireAdmission;
-  const requireReadDemand = (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) =>
-    state.readReadiness === undefined || state.readReadiness.kind === "full" ? Effect.void : state.readReadiness.requireDemand(tx, demand);
+  const requireReadDemand = Effect.fn("LogicalDocuments.requireReadDemand")(function* (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) {
+    if (demand.kind !== "clock") {
+      yield* Effect.fromResult(consumeTableMetadataResult(demand.tableId, "table"));
+      if (demand.kind === "index") yield* Effect.fromResult(consumeDefinitionMetadataResult(demand.tableId, "index", demand.indexDefinitionId));
+      if (demand.kind === "unique") yield* Effect.fromResult(consumeDefinitionMetadataResult(demand.tableId, "unique", demand.uniqueConstraintDefinitionId));
+    }
+    if (state.readReadiness !== undefined && state.readReadiness.kind !== "full") yield* state.readReadiness.requireDemand(tx, demand);
+  });
   const uniqueDefinitions = finiteProfile?.mechanics.unique ?? Object.freeze([...uniqueInput]);
   const indexDefinitions = finiteProfile?.mechanics.indexes ?? Object.freeze([...indexInput]);
   const indexesForTable = (tableId: CatalogTableId) => writeMechanics?.indexesByTable.get(tableId) ?? (writeMechanics === undefined ? indexDefinitions : []);
@@ -424,6 +442,48 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         scopeId: state.scopeId, snapshotCommitSeq: state.snapshotCommitSeq, attemptFence: state.rootAttemptFence });
   if (root === null || root !== undefined && state.pendingRows !== undefined)
     return yield* Effect.fail(state.error("invalidAuthority"));
+  if (root?.pins.metadataWatermark !== undefined && (writeMechanics?.metadataProjections.length ?? 0) === 0)
+    return yield* Effect.fail(state.error("invalidAuthority"));
+  const consumedMetadata = new Map<string, LogicalMetadataReadDependency>();
+  const projectionForTable = (tableId: CatalogTableId) => writeMechanics?.metadataProjections.find(projection =>
+    finiteMetadataTableKey(projection, tableId, "table") !== null);
+  const consumeMetadataResult = (projection: PreparedFiniteMetadataProjection, key: LogicalMetadataKey): Result.Result<void, Failure> => {
+    if (root?.pins.metadataWatermark === undefined) return Result.succeed(undefined);
+    return captureFiniteMetadataDependency(projection, key, root.pins.metadataWatermark).pipe(
+      Result.mapError(cause => error("invalidAuthority", cause)), Result.flatMap(dependency => {
+        if (!recordLogicalDocumentRootMetadataDependency(root, dependency)) return Result.fail(error("invalidAuthority"));
+        consumedMetadata.set(logicalMetadataDependencyIdentity(dependency), dependency);
+        return Result.succeed(undefined);
+      }));
+  };
+  const consumeTableMetadataResult = (tableId: CatalogTableId, kind: "table" | "writeClosure"): Result.Result<void, Failure> => {
+    if (root?.pins.metadataWatermark === undefined) return Result.succeed(undefined);
+    const projection = projectionForTable(tableId), key = projection === undefined ? null : finiteMetadataTableKey(projection, tableId, kind);
+    if (projection === undefined || key === null) return Result.fail(error("invalidAuthority"));
+    return Result.gen(function* () {
+      yield* consumeMetadataResult(projection, key);
+      yield* consumeMetadataResult(projection, { namespace: key.namespace, ownerKey: key.ownerKey,
+        contractKey: finiteMetadataContractKey("sourcePolicy") });
+    });
+  };
+  const consumeDefinitionMetadataResult = (tableId: CatalogTableId, kind: "index" | "unique", definitionId: number): Result.Result<void, Failure> => {
+    if (root?.pins.metadataWatermark === undefined) return Result.succeed(undefined);
+    const projection = projectionForTable(tableId), tableKey = projection === undefined ? null : finiteMetadataTableKey(projection, tableId, "table");
+    return projection === undefined || tableKey === null ? Result.fail(error("invalidAuthority")) :
+      consumeMetadataResult(projection, { namespace: tableKey.namespace, ownerKey: tableKey.ownerKey,
+        contractKey: finiteMetadataContractKey(kind, definitionId) });
+  };
+  const consumeAccessMetadata = Effect.fn("LogicalDocuments.consumeAccessMetadata")(function* (tableId: CatalogTableId,
+    families: readonly string[], fields: readonly string[]) {
+    if (root?.pins.metadataWatermark === undefined) return;
+    const projection = projectionForTable(tableId);
+    if (projection === undefined) return yield* Effect.fail(error("invalidAuthority"));
+    for (const family of families) for (const field of new Set(fields)) {
+      const key = finiteMetadataAccessKey(projection, tableId, family, field);
+      if (key === null) return yield* Effect.fail(error("invalidAuthority"));
+      yield* Effect.fromResult(consumeMetadataResult(projection, key));
+    }
+  });
   const foreignKeys = writeMechanics?.foreignKeys ?? (readProfile === undefined ? yield* Effect.fromResult(prepareLogicalRelationalForeignKeys(state.tables, state.error)) : []);
   for (const foreignKey of writeMechanics === undefined ? foreignKeys : []) {
     const reverse = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, foreignKey.source.tableId,
@@ -498,22 +558,27 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const ownedTable = (id: CatalogTableId) => tablesById === undefined ? tables.find(table => table.tableId === id) : tablesById.get(id);
   const tableForName = (name: string) => {
     const table = tablesByName === undefined ? tables.find(candidate => candidate.logicalName === name) : tablesByName.get(name);
-    return table !== undefined ? Effect.succeed(table) : readMechanics?.metadata !== undefined ? loadReadTable(name) : Effect.fail(error("invalidAuthority"));
+    return (table !== undefined ? Effect.succeed(table) : readMechanics?.metadata !== undefined ? loadReadTable(name) : Effect.fail(error("invalidAuthority")))
+      .pipe(Effect.tap(selected => Effect.fromResult(consumeTableMetadataResult(selected.tableId, "table"))));
   };
   const tableForId = (id: CatalogTableId) => {
     const table = ownedTable(id);
-    return table !== undefined ? Effect.succeed(table) : readMechanics?.metadata !== undefined ? loadReadTable(id) : Effect.fail(error("invalidAuthority"));
+    return (table !== undefined ? Effect.succeed(table) : readMechanics?.metadata !== undefined ? loadReadTable(id) : Effect.fail(error("invalidAuthority")))
+      .pipe(Effect.tap(selected => Effect.fromResult(consumeTableMetadataResult(selected.tableId, "table"))));
   };
   const selectedIndexesFor = (table: LogicalDocumentTable, where: LogicalWhere, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) =>
-    writeMechanics !== undefined ? Effect.succeed(writeMechanics.indexCandidates(table.tableId, Object.keys(where))) :
+    writeMechanics !== undefined ? consumeAccessMetadata(table.tableId, ["ordered"], Object.keys(where)).pipe(
+      Effect.as(writeMechanics.indexCandidates(table.tableId, Object.keys(where)))) :
     readMechanics?.metadata === undefined ? Effect.succeed(indexesForTable(table.tableId)) :
       readMechanics.metadata.selectIndex(table.logicalName, where, exactPoint).pipe(Effect.map(definition => definition === null ? [] : [definition]),
         Effect.mapError(cause => error("invalidAuthority", cause)));
   const selectedUniqueFor = (table: LogicalDocumentTable, where: LogicalWhere) => readMechanics?.metadata === undefined ?
-    Effect.succeed(writeMechanics?.uniqueCandidates(table.tableId, Object.keys(where)) ?? uniqueForTable(table.tableId)) : readMechanics.metadata.selectUnique(table.logicalName, where).pipe(
+    consumeAccessMetadata(table.tableId, ["unique"], Object.keys(where)).pipe(Effect.as(
+      writeMechanics?.uniqueCandidates(table.tableId, Object.keys(where)) ?? uniqueForTable(table.tableId))) : readMechanics.metadata.selectUnique(table.logicalName, where).pipe(
       Effect.map(definition => definition === null ? [] : [definition]), Effect.mapError(cause => error("invalidAuthority", cause)));
   const nativeIndexesFor = (table: LogicalDocumentTable, demand: LogicalRelationalReadDemand) => writeMechanics !== undefined ?
-    Effect.succeed(writeMechanics.relationalAccess(table.tableId, demand.fields)) : readMechanics?.metadata === undefined ? Effect.succeed(undefined) :
+    consumeAccessMetadata(table.tableId, ["nativeIndex", "nativeKey", "reverse"], demand.fields).pipe(
+      Effect.as(writeMechanics.relationalAccess(table.tableId, demand.fields))) : readMechanics?.metadata === undefined ? Effect.succeed(undefined) :
     readMechanics.metadata.queryAccess(table.logicalName, demand).pipe(Effect.mapError(cause => error("invalidInput", cause)));
   const compileRelationalRead = Effect.fn("LogicalDocuments.compileRelationalRead")(function* (
     table: LogicalDocumentTable, input: unknown,
@@ -801,10 +866,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     return yield* (pendingSeeds(selection).length > 0 && checkedTx === undefined
       ? withStorageFrontier({ kind: "rows", tableId: identity.tableId }, selection, read) : read);
   });
-  const historicalUniqueSelection = Effect.fn("LogicalDocuments.historicalUniqueSelection")(function* (
+  // Selection preparation stays beneath the named read/write operation. Avoid
+  // capturing another caller stack and span for this immutable local derivation.
+  const historicalUniqueSelection = Effect.fnUntraced(function* (
     definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1,
   ) {
     const fields = definition.physicalSpec.orderedFields, predicate = definition.physicalSpec.predicate;
+    yield* consumeAccessMetadata(definition.tableId, ["ordered"], fields.slice(0, 1));
     const definitions = writeMechanics?.indexCandidates(definition.tableId, fields.slice(0, 1)) ?? indexesForTable(definition.tableId);
     const index = definitions.find(candidate => candidate.access.kind === "developer" &&
       candidate.access.tableId === definition.tableId && candidate.physicalSpec.orderedFields.length >= fields.length &&
@@ -826,33 +894,44 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         throw cause;
       },
     }));
-    return { definition: index, bounds,
-      identity: JSON.stringify([index.indexDefinitionId, bounds.startInclusive ?? null, bounds.endExclusive ?? null]) };
+    return Object.freeze({ definition: index, bounds,
+      identity: JSON.stringify([index.indexDefinitionId, bounds.startInclusive ?? null, bounds.endExclusive ?? null]) });
   });
-  const uniqueStorageDemand = Effect.fn("LogicalDocuments.uniqueStorageDemand")(function* (
+  type UniqueStorageSelection =
+    | Readonly<{ kind: "current"; demand: LogicalStorageReadDemand }>
+    | Readonly<{ kind: "historical"; demand: LogicalStorageReadDemand;
+        selection: Effect.Success<ReturnType<typeof historicalUniqueSelection>> }>;
+  // The first demand owns metadata consumption; its result is passed through
+  // this call, rather than deriving the same bounds again inside the frontier.
+  const prepareUniqueStorageSelection = Effect.fnUntraced(function* (
     definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1,
-  ): Effect.fn.Return<LogicalStorageReadDemand, Failure> {
-    if (state.snapshotCommitSeq === undefined) return { kind: "unique", tableId: definition.tableId,
-      uniqueConstraintDefinitionId: definition.uniqueConstraintDefinitionId };
+  ): Effect.fn.Return<UniqueStorageSelection, Failure> {
+    yield* Effect.fromResult(consumeDefinitionMetadataResult(definition.tableId, "unique", definition.uniqueConstraintDefinitionId));
+    if (state.snapshotCommitSeq === undefined) return Object.freeze({ kind: "current",
+      demand: Object.freeze({ kind: "unique", tableId: definition.tableId,
+        uniqueConstraintDefinitionId: definition.uniqueConstraintDefinitionId }) });
     const selected = yield* historicalUniqueSelection(definition, projected);
-    return { kind: "index", tableId: definition.tableId, indexDefinitionId: selected.definition.indexDefinitionId };
+    return Object.freeze({ kind: "historical", selection: selected,
+      demand: Object.freeze({ kind: "index", tableId: definition.tableId, indexDefinitionId: selected.definition.indexDefinitionId }) });
   });
   const locateUnique = Effect.fn("LogicalDocuments.locateUnique")(function* (
     definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1,
+    prepareSelection: Effect.Effect<UniqueStorageSelection, Failure>,
   ) {
     const readKey = uniqueReadKey(definition, projected);
     if (projected.kind !== "claim" || readKey === null) return null;
     const selection = { tableId: definition.tableId };
-    const demand = uniqueReads.has(readKey) ? { kind: "rows" as const, tableId: definition.tableId } :
-      yield* uniqueStorageDemand(definition, projected);
+    const storageSelection = uniqueReads.has(readKey) ? undefined : yield* prepareSelection;
+    const demand = storageSelection === undefined ? { kind: "rows" as const, tableId: definition.tableId } : storageSelection.demand;
     const read = Effect.gen(function* () {
       const cached = uniqueReads.get(readKey);
       if (cached !== undefined) return cached.owner === null ? null : appDocumentIdV1FromRowIdentity(cached.owner);
-      if (state.snapshotCommitSeq !== undefined) {
+      if (storageSelection === undefined) return yield* Effect.fail(error("invalidAuthority"));
+      if (storageSelection.kind === "historical") {
         // Unique slots are current-only. A matching retained ordered index gives
         // the historical owner and the negative membership witness. The final
         // unique slot is still checked under publication exclusion at settlement.
-        const selected = yield* historicalUniqueSelection(definition, projected);
+        const selected = storageSelection.selection;
         const index = selected.definition;
         const entries = yield* runRead(tx => requireReadDemand(tx, { kind: "index", tableId: definition.tableId,
           indexDefinitionId: index.indexDefinitionId }).pipe(Effect.andThen(() =>
@@ -930,8 +1009,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
         .pipe(Result.mapError(cause => error("documentInvalid", cause))));
       if (projected.kind !== "claim") return yield* validateNext(position + 1);
-      const validate = Effect.gen(function* () {
-        yield* locateUnique(definition, projected);
+      const validate = (prepareSelection: Effect.Effect<UniqueStorageSelection, Failure>) => Effect.gen(function* () {
+        yield* locateUnique(definition, projected, prepareSelection);
         for (const other of rows.values()) {
           if (other.tableId !== pending.tableId || other.documentId === pending.documentId || other.current === null) continue;
           const existing = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, other.current)
@@ -944,8 +1023,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       });
       const key = uniqueReadKey(definition, projected);
       const selection = { tableId: pending.tableId };
-      return yield* (pendingSeeds(selection).length > 0 || key !== null && !uniqueReads.has(key)
-        ? withStorageFrontier(yield* uniqueStorageDemand(definition, projected), selection, validate) : validate);
+      if (pendingSeeds(selection).length > 0 || key !== null && !uniqueReads.has(key)) {
+        const prepared = yield* prepareUniqueStorageSelection(definition, projected);
+        return yield* withStorageFrontier(prepared.demand, selection, validate(Effect.succeed(prepared)));
+      }
+      return yield* validate(prepareUniqueStorageSelection(definition, projected));
     });
     return yield* validateNext(0);
   });
@@ -953,7 +1035,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     after: CanonicalFlarexValueV1 | null) => {
     const attempt = Object.freeze({ ordinal: attempts.length, documentId: pending.documentId, operation,
       tableId: pending.tableId, tableName: localTableName(pending.tableId) ?? pending.tableName, before: pending.current, after });
-    return chargeResult(128).pipe(Result.map(() => {
+    return consumeTableMetadataResult(pending.tableId, "writeClosure").pipe(Result.flatMap(() => chargeResult(128)), Result.map(() => {
       pending.attempts.push(attempt.ordinal);
       attempts.push(attempt);
     }));
@@ -1097,12 +1179,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (readKey === null) return yield* Effect.fail(error("invalidInput"));
       // Earlier key observations survive scans; local edits apply to both.
       const usesKey = !scanned.has(table.tableId) || uniqueReads.has(readKey);
+      const prepared = yield* prepareUniqueStorageSelection(definition, projected);
       return yield* continueSelection(usesKey && !uniqueReads.has(readKey), Effect.gen(function* () {
         if (!usesKey) return rows.values();
-        const ownerId = yield* locateUnique(definition, projected);
+        const ownerId = yield* locateUnique(definition, projected, Effect.succeed(prepared));
         return [...rows.values()].filter(row => row.tableId === table.tableId &&
           (row.documentId === ownerId || row.seeded === true || row.attempts.length > 0));
-      }), yield* uniqueStorageDemand(definition, projected));
+      }), prepared.demand);
     }
     const selected = yield* Effect.fromResult(selectLogicalIndex(yield* selectedIndexesFor(table, where, exactPoint), table.tableId, where, error, exactPoint));
     if (Option.isNone(selected)) {
@@ -1324,6 +1407,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       ? undefined : { column: pageSelection.column, value: pageSelection.value };
     if (pageSelection !== undefined && pageEquality === undefined)
       return yield* Effect.fail(error("invalidInput"));
+    yield* consumeAccessMetadata(table.tableId, ["ordered"], [pageEquality?.column ?? query.orderColumn]);
     const pageDefinitions = writeMechanics !== undefined ? writeMechanics.indexCandidates(table.tableId,
       [pageEquality?.column ?? query.orderColumn]) : readMechanics?.metadata === undefined ? indexesForTable(table.tableId) :
       yield* readMechanics.metadata.selectPage(table.logicalName, query.orderColumn, pageEquality, query.requiredNulls)
@@ -1750,6 +1834,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         rows.get(row.documentId)?.attempts.some(ordinal => ordinal >= localCursor.attempts))),
       changes: Object.freeze(changes),
       noFinalRows: Object.freeze(noFinalRows),
+      ...(root?.pins.metadataWatermark === undefined ? {} : { metadataWatermark: root.pins.metadataWatermark,
+        metadataDependencies: Object.freeze([...consumedMetadata.values()]) }),
       dependencies: Object.freeze([...dependencies.values()].filter(dependency => root === undefined ||
         freshDependencies.has(dependency.documentId) || changedIds.has(dependency.documentId))
         .toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),

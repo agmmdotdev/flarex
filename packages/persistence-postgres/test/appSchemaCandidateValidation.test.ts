@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
-import { fxSystemScopeClocks } from "../src/schema";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -465,8 +466,8 @@ describe("M03-A app-schema candidate validation", () => {
     const failedPlan = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(guard,
       { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId }));
     const nextEpoch = ScopeEpochSchema.make("epoch_candidate_write_guard_replaced");
-    await fixture.persistence.drizzle.update(fxSystemScopeClocks).set({ epoch: nextEpoch })
-      .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+    await fixture.persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({ epoch: nextEpoch })
+      .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.scopeId));
     await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
       const changedClock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
       expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx, guard,
@@ -1073,7 +1074,8 @@ describe("M03-A app-schema candidate validation", () => {
          value_sha256)
        select scope_uuid, $2, decode($3, 'hex'), 2, 1, epoch_uuid, $4,
          1750000000000, 1, true, null, null
-       from fx_system_scope_clock
+       from fx_system_scope_clock as sequence
+       join fx_system_scope_execution_authority as authority using (scope_id)
        where scope_id = $1`,
       [fixture.scopeId, fixture.tableId, id, fixture.schemaVersionId],
     );
@@ -1193,12 +1195,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     projectId: `project_schema_validation_${suffix}`,
   });
   await persistence.insertScopeMetadata({ scopeId, deploymentId, physicalLocator: LOCATOR });
-  await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
-    [scopeId, epoch],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch });
   const first = await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId,

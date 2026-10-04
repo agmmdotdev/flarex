@@ -106,7 +106,7 @@ describe("Application publication generation", () => {
   it("rejects both stale callers and fresh callers for a stale candidate", async () => {
     const fixture = await publicationFixture();
     await fixture.persistence.query(
-      "update fx_system_scope_clock set storage_generation_fence = 2 where scope_id = $1",
+      "update fx_system_scope_execution_authority set storage_generation_fence = 2 where scope_id = $1",
       [AUTHORITY.scopeId],
     );
     const stale = await runEffect(Effect.result(

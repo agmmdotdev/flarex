@@ -148,7 +148,7 @@ async function seedMaximumCommitGroup(
         relation_adjacency_change_count, committed_at)
      select scope_uuid, epoch_uuid, values.commit_seq, values.change_count,
             values.relation_change_count, clock_timestamp()
-     from fx_system_scope_clock,
+     from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
           (values
             (1::bigint, 16000::integer, 8192::integer),
             (2::bigint, 0::integer, 0::integer))
@@ -166,7 +166,7 @@ async function seedMaximumCommitGroup(
             decode(lpad(to_hex(generated_id::bigint + 1), 32, '0'), 'hex'),
             1, null, epoch_uuid, 'schema_v1', generated_id + 1,
             1, true, null, null
-     from fx_system_scope_clock,
+     from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
           generate_series(0, 15999) as generated_id
      where scope_id = $1`,
     [scopeId],
@@ -176,7 +176,7 @@ async function seedMaximumCommitGroup(
        (scope_uuid, epoch_uuid, commit_seq, change_ordinal, table_id, row_id)
      select scope_uuid, epoch_uuid, 1, generated_id, 1,
             decode(lpad(to_hex(generated_id::bigint + 1), 32, '0'), 'hex')
-     from fx_system_scope_clock,
+     from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
           generate_series(0, 15999) as generated_id
      where scope_id = $1`,
     [scopeId],
@@ -189,15 +189,23 @@ async function seedMaximumCommitGroup(
             case when generated_id % 2 = 0
               then 'outgoing' else 'incoming' end,
             decode(lpad(to_hex(generated_id::bigint + 20001), 32, '0'), 'hex')
-     from fx_system_scope_clock,
+     from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
           generate_series(0, 8191) as generated_id
      where scope_id = $1`,
     [scopeId],
   );
   await persistence.query(
-    `update fx_system_scope_clock
-     set last_commit_seq = 2, oldest_available_commit_seq = 2
-     where scope_id = $1`,
+    `with authority as materialized (
+       select scope_id from fx_system_scope_execution_authority
+       where scope_id = $1 for update
+     ), sequence as (
+       update fx_system_scope_clock as clock set last_commit_seq = 2
+       from authority where clock.scope_id = authority.scope_id
+       returning clock.scope_id
+     )
+     update fx_system_scope_execution_authority as authority
+     set oldest_available_commit_seq = 2
+     from sequence where authority.scope_id = sequence.scope_id`,
     [scopeId],
   );
 }

@@ -1,4 +1,6 @@
-import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservationIdentity, readExactScopeWriteClockObservation } from "./scopeClock";
+import { fxSystemScopeExecutionAuthorities } from "./schema";
+import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservationIdentity, readExactScopeWriteClockObservation,
+  readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation } from "./scopeClock";
 import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import { and, desc, eq, getTableColumns, inArray, lte, or, sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
@@ -938,7 +940,7 @@ export function projectBoundedCurrentAppRowPoint(input: CurrentAppRowReadLimits,
     and ${bytes} <= ${input.maximumDocumentBytes} and ${bytes} <= ${input.maximumTotalValueBytes})`;
   return {
     observedCommitSeq: clock.commitSeq.mapWith(fxSystemScopeClocks.lastCommitSeq),
-    observedEpoch: clock.epoch.mapWith(fxSystemScopeClocks.epoch),
+    observedEpoch: clock.epoch.mapWith(fxSystemScopeExecutionAuthorities.epoch),
     withinBudget, bodyWithheld: sql<boolean>`false`, pointer: fxAppRowCurrent,
     revision: { ...getTableColumns(fxAppRowRevisions),
       valueBytes: sql`case when ${withinBudget} then ${fxAppRowRevisions.valueBytes} else null end`
@@ -992,8 +994,8 @@ const captureBoundedCurrentAppRows = Effect.fn(
     Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidScopeId", cause })),
   ));
   const clock = tx.$with("capture_clock").as(tx.select({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
-    epoch: fxSystemScopeClocks.epoch })
-    .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid.scopeUuid)).limit(1));
+    epoch: fxSystemScopeExecutionAuthorities.epoch })
+    .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid.scopeUuid)).limit(1));
   const join = and(
       eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
       eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
@@ -2052,6 +2054,14 @@ const requireScopeUuidInTransactionEffect = Effect.fn(
   const { identity, projection } = decodedIdentity;
   const observed = readExactScopeWriteClockObservation(tx, decodedIdentity.identity.scopeId);
   if (observed !== undefined) return decodedIdentity.projection.scopeUuid;
+  const finite = readFiniteExecutionAuthorityObservation(tx, identity.scopeId);
+  if (finite !== undefined) {
+    const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, finite).pipe(
+      Result.mapError(() => new AppRowScopeAuthorityUnavailableError(identity.scopeId))));
+    if (live.scopeId !== identity.scopeId || live.scopeUuid !== projection.scopeUuid)
+      return yield* Effect.fail(new AppRowScopeAuthorityUnavailableError(identity.scopeId));
+    return live.scopeUuid;
+  }
   const query = selectScopeAuthorityRows(
     tx,
     projection,
@@ -2100,7 +2110,7 @@ function selectScopeAuthorityRows(
       scopeId: fxSystemScopeClocks.scopeId,
       scopeUuid: fxSystemScopeClocks.scopeUuid,
     })
-    .from(fxSystemScopeClocks)
+    .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
     .where(eq(fxSystemScopeClocks.scopeId, projection.scopeId))
     .limit(1);
   return query;

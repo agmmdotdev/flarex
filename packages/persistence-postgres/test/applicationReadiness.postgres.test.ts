@@ -345,7 +345,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
           await writer.query("begin");
           await writer.query("set local lock_timeout = '2s'");
           await writer.query(
-            "update fx_system_scope_clock set storage_generation = 'legacy_v1' where scope_id = $1",
+            "update fx_system_scope_execution_authority set storage_generation = 'legacy_v1' where scope_id = $1",
             [fixture.authority.scopeId],
           );
           await writer.query("commit");
@@ -819,7 +819,7 @@ async function readinessFixture(
     projectId: "project_application_readiness_postgres",
   });
   await target.query(
-    `update fx_system_scope_clock
+    `update fx_system_scope_execution_authority
         set storage_generation = 'flarexdb_v1'
       where scope_id = $1`,
     [provisioned.scope.scopeId],

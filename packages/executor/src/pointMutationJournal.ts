@@ -632,6 +632,7 @@ export function createPointMutationJournalV1(
       Result.map(({ context }) => Object.freeze({ selector: context.anchor, storageGeneration: context.anchor.storageGeneration,
         storageGenerationFence: context.anchor.storageGenerationFence, snapshotToken: context.anchor.snapshotToken,
         schemaVersionId: context.executionPin.schemaVersionId, requestKey: context.anchor.requestKey,
+        lastMetadataSequence: context.scopeClock.lastMetadataSequence,
         attemptFacet: Object.freeze({ kind: "pristineOpen" as const }) })));
   };
 

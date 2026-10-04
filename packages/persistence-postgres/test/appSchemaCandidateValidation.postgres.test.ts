@@ -38,6 +38,7 @@ import { appendPreparedAppRowRevisionsInTransactionEffect } from
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { runEffect } from "./effectTestRuntime";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -218,9 +219,10 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
            value_sha256)
          select clock.scope_uuid, $2::integer,
            decode(lpad(to_hex(series.value), 32, '0'), 'hex'),
-           2, null, clock.epoch_uuid, $3, 1750000000000,
+           2, null, authority.epoch_uuid, $3, 1750000000000,
            1, true, null, null
          from fx_system_scope_clock as clock
+         join fx_system_scope_execution_authority as authority using (scope_id)
          cross join generate_series(1000, 5999) as series(value)
          where clock.scope_id = $1`,
         [fixture.scopeId, fixture.tableId, fixture.schemaVersionId],
@@ -299,12 +301,7 @@ async function fixtureFor(
     projectId: `project_schema_validation_pg_${suffix}`,
   });
   await persistence.insertScopeMetadata({ scopeId, deploymentId, physicalLocator: LOCATOR });
-  await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
-    [scopeId, epoch],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch });
   const published = await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId,

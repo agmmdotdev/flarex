@@ -23,9 +23,13 @@ import {
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TransactionAttemptFenceSchema,
+  TransactionExecutionModuleV1Schema,
+  TransactionFunctionKindV1Schema,
+  TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
@@ -604,8 +608,12 @@ function loadResult(
 ): PointMutationSessionAttemptLoadResultV1 {
   return Object.freeze({
     status: "loaded",
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
     anchor: anchor(selector),
-    executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID }),
+    executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID,
+      functionPath: TransactionFunctionPathV1Schema.make("messages:create"),
+      functionKind: TransactionFunctionKindV1Schema.make("mutation"),
+      executionModule: TransactionExecutionModuleV1Schema.make("flarex/_generated/execution.mjs") }),
     attemptFacet: Object.freeze({ kind: "nonPristine" }),
   });
 }

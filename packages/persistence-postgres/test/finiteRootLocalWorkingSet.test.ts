@@ -1,6 +1,7 @@
 import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
+import { MetadataSequenceSchema, LogicalMetadataReadDependencySchema, canonicalizeSessionJournalEffect, SESSION_JOURNAL_FORMAT } from "flarex-protocol/commit-protocol";
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema,
@@ -8,7 +9,8 @@ import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema,
 import { makeBoundedRequestLifetime, type RequestFailureReason } from "../src/boundedRequestLifetime";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import type { SessionJournalAttempt } from "../src/sessionJournalStore";
-import { makeLogicalDocumentRootEvaluator } from "../src/logicalDocuments/rootEvaluator";
+import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
+  recordLogicalDocumentRootMetadataDependency } from "../src/logicalDocuments/rootEvaluator";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
 import { runEffect } from "./effectTestRuntime";
 
@@ -21,6 +23,31 @@ const attempt = Object.freeze({}) as SessionJournalAttempt;
 const attemptFence = "1";
 const missingId = appDocumentIdV1FromRowIdentity({ tableId,
   rowId: decodeAppRowIdHexV1("ffffffffffffffffffffffffffffffff") });
+
+it("preserves canonical metadata ordering across punctuation and non-ASCII names at seal", () =>
+  runEffect(Effect.gen(function* () {
+    const metadataWatermark = MetadataSequenceSchema.make(1n);
+    const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence, metadataWatermark };
+    const root = makeLogicalDocumentRootEvaluator(pins, { identities: 16, workingBytes: 16_000 });
+    try {
+      const state = attachLogicalDocumentRootEvaluator(root, pins);
+      if (state === null) throw new Error("Missing local evaluator owner state");
+      for (const name of ["é", "a_", "a.", "a-"]) expect(recordLogicalDocumentRootMetadataDependency(state,
+        LogicalMetadataReadDependencySchema.make({ kind: "metadata", namespace: "binding", ownerKey: "source_a",
+          contractKey: JSON.stringify(["index", name]), capturedWatermark: metadataWatermark,
+          observed: { kind: "present", semanticSha256Hex: "a".repeat(64) } }))).toBe(true);
+      const dependencies = root.snapshot().metadataDependencies;
+      if (dependencies === undefined) throw new Error("Missing captured finite dependencies");
+      expect(dependencies.map(member => member.contractKey)).toEqual(["a-", "a.", "a_", "é"].map(name => JSON.stringify(["index", name])));
+      const sealed = yield* canonicalizeSessionJournalEffect({
+        format: SESSION_JOURNAL_FORMAT, protocolVersion: 1, valueCodecVersion: 1,
+        finalSyscallSequence: 0n, finiteMetadataReservationSha256Hex: "b".repeat(64),
+        readDependencies: dependencies, readUsage: { documentsRead: 0, semanticBytesRead: 0 },
+        writes: [], operationUsage: { receiptEvidenceBytes: 0, participantWorkBytes: 0, participantWorkCalls: 0 }, participantOperations: [],
+      });
+      expect(sealed.journal.readDependencies).toEqual(dependencies);
+    } finally { root.close(); }
+  })));
 
 const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Error("unexpected database read")),
   calls = 32) =>
@@ -38,6 +65,7 @@ const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Er
       requireAdmission: Effect.void,
       scopeId, clock: { scopeId, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(1n), lastCommitSeq: snapshotCommitSeq,
+        lastMetadataSequence: MetadataSequenceSchema.make(0n),
         oldestAvailableCommitSeq: CommitSeqSchema.make(0n), epoch: ScopeEpochSchema.make("test_epoch"),
         updatedAt: new Date(0) },
       snapshotCommitSeq, rootEvaluator: root, rootAttempt: attempt, rootAttemptFence: attemptFence,

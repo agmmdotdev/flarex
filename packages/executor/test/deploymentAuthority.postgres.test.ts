@@ -144,7 +144,7 @@ async function authorityCounts(
       (select count(*)::text from deployments) as deployments,
       (select count(*)::text from fx_control_scope) as scopes,
       (select count(*)::text from fx_system_scope_clock) as clocks,
-      (select count(distinct epoch)::text from fx_system_scope_clock) as epochs,
+      (select count(distinct epoch)::text from fx_system_scope_execution_authority) as epochs,
       (
         select count(*)::text
         from deployments d

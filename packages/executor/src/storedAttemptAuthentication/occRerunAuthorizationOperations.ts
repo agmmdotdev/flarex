@@ -1,5 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Duration, Effect, Random, Result } from "effect";
+import { logicalMetadataDependencyIdentity } from "flarex-protocol/commit-protocol";
 
 import type {
   CommittedPointOutcomeResolutionV1,
@@ -309,7 +310,8 @@ export function makeStoredPointMutationOccRerunAuthorizationOperationsV1(
         : runningRelationConflictEvidenceIsBound(ticket, conflict);
       if (
         conflict.snapshotCommitSeq !== previousSnapshot.commitSeq ||
-        conflict.currentCommitSeq <= conflict.snapshotCommitSeq ||
+        conflict.currentCommitSeq < conflict.snapshotCommitSeq ||
+        conflict.currentCommitSeq === conflict.snapshotCommitSeq && conflictCause.kind !== "metadata" ||
         !sourceEvidenceIsValid
       ) {
         return yield* Effect.fail(
@@ -433,6 +435,11 @@ function finishingConflictCauseIsBound(
         dependency.edgeDefinitionId === conflictCause.edgeDefinitionId &&
         dependency.targetRowId === conflictCause.targetRowId
       )
+    : conflictCause.kind === "metadata"
+    ? prepared.plan.metadataDependencies.some(dependency =>
+        logicalMetadataDependencyIdentity(dependency) === logicalMetadataDependencyIdentity(conflictCause) &&
+        dependency.capturedWatermark === conflictCause.capturedMetadataWatermark &&
+        conflictCause.lastChangedMetadataSequence > conflictCause.capturedMetadataWatermark)
     : prepared.plan.logicalParticipantOperations.some((participant) =>
         participant.participant === conflictCause.participant &&
         participant.syscallSequence === conflictCause.syscallSequence

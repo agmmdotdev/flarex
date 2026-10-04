@@ -10,6 +10,8 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { FlarexPersistence } from "../src";
+import type { FlarexMetadataDatabase } from "../src/deployments";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import type { ResolveCommittedPointOutcomeInputV1 } from "../src/committedPointOutcome";
 
 export const OUTCOME_SCOPE_A = "97000000-0000-0000-0000-000000000001";
@@ -43,7 +45,7 @@ export function outcomeLookup(
 }
 
 export async function insertOutcomeScope(
-  persistence: SqlPersistence,
+  persistence: SqlPersistence & { readonly drizzle: FlarexMetadataDatabase },
   input: {
     readonly scopeUuid?: string;
     readonly epochUuid?: string;
@@ -53,20 +55,8 @@ export async function insertOutcomeScope(
 ): Promise<void> {
   const scopeUuid = input.scopeUuid ?? OUTCOME_SCOPE_A;
   const epochUuid = input.epochUuid ?? OUTCOME_EPOCH_A;
-  await persistence.query(
-    `
-      insert into fx_system_scope_clock
-        (scope_id, storage_generation, last_commit_seq,
-         oldest_available_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', $2, $3, $4)
-    `,
-    [
-      `scope_${scopeUuid}`,
-      (input.lastCommitSeq ?? 1n).toString(),
-      (input.oldestAvailableCommitSeq ?? 0n).toString(),
-      `epoch_${epochUuid}`,
-    ],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: `scope_${scopeUuid}`, epoch: `epoch_${epochUuid}`,
+    lastCommitSeq: input.lastCommitSeq ?? 1n, oldestAvailableCommitSeq: input.oldestAvailableCommitSeq ?? 0n });
 }
 
 export async function insertOutcomeHeader(

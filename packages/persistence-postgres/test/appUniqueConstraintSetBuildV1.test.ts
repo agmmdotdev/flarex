@@ -448,7 +448,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
 
     await fixture.persistence.query(
-      `update fx_system_scope_clock
+      `update fx_system_scope_execution_authority
           set storage_generation_fence = 2, epoch = $2
         where scope_id = $1`,
       [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_eligibility_2")],
@@ -670,9 +670,11 @@ describe("C08-B1 closed unique-set build foundation", () => {
     }]);
 
     await fixture.persistence.query(
-      `update fx_system_scope_clock
-       set storage_generation_fence = 2, epoch = $2, last_commit_seq = 7
-       where scope_id = $1`,
+      `with authority as (
+         update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
+         where scope_id = $1 returning scope_id
+       ) update fx_system_scope_clock set last_commit_seq = 7
+         where scope_id in (select scope_id from authority)`,
       [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_build_2")],
     );
     await expect(reconcile(fixture)).resolves.toMatchObject({
@@ -881,9 +883,11 @@ describe("C08-B1 closed unique-set build foundation", () => {
     const fixture = await closedFixture("workspace_stale_authority");
     await reconcile(fixture);
     await fixture.persistence.query(
-      `update fx_system_scope_clock
-          set storage_generation_fence = 2, epoch = $2, last_commit_seq = 7
-        where scope_id = $1`,
+      `with authority as (
+         update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
+         where scope_id = $1 returning scope_id
+       ) update fx_system_scope_clock set last_commit_seq = 7
+         where scope_id in (select scope_id from authority)`,
       [fixture.scopeId, ScopeEpochSchema.make("epoch_workspace_stale_2")],
     );
     const failure = await runEffectFailure(
@@ -1090,9 +1094,11 @@ describe("C08-B1 closed unique-set build foundation", () => {
       email: "old-epoch@example.com",
     });
     await fixture.persistence.query(
-      `update fx_system_scope_clock
-          set epoch = $2, last_commit_seq = 1
-        where scope_id = $1`,
+      `with authority as (
+         update fx_system_scope_execution_authority set epoch = $2
+         where scope_id = $1 returning scope_id
+       ) update fx_system_scope_clock set last_commit_seq = 1
+         where scope_id in (select scope_id from authority)`,
       [
         fixture.scopeId,
         ScopeEpochSchema.make(
@@ -1113,7 +1119,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     }>(
       `select
          current_row.commit_seq = revision.commit_seq same_parent_epoch,
-         revision.write_epoch_uuid <> clock.epoch_uuid differs_from_current_epoch
+         revision.write_epoch_uuid <> authority.epoch_uuid differs_from_current_epoch
        from fx_app_unique_key claim
        inner join fx_app_row_current current_row on current_row.scope_uuid = claim.scope_uuid and current_row.table_id = claim.table_id and current_row.row_id = claim.row_id
        inner join fx_app_row_rev revision
@@ -1121,8 +1127,8 @@ describe("C08-B1 closed unique-set build foundation", () => {
         and revision.table_id = claim.table_id
         and revision.row_id = claim.row_id
         and revision.commit_seq = current_row.commit_seq
-       inner join fx_system_scope_clock clock
-         on clock.scope_uuid = claim.scope_uuid`,
+       inner join fx_system_scope_clock clock on clock.scope_uuid = claim.scope_uuid
+       inner join fx_system_scope_execution_authority authority on authority.scope_id = clock.scope_id`,
     );
     expect(lineage.rows).toEqual([{
       same_parent_epoch: true,
@@ -1408,9 +1414,11 @@ async function fixtureFor(suffix: string, tableNames: ReadonlyArray<string> = ["
     physicalLocator: LOCATOR,
   });
   await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
+    `with clock as (
+       insert into fx_system_scope_clock (scope_id, last_commit_seq) values ($1, 0) returning scope_id
+     ) insert into fx_system_scope_execution_authority
+       (scope_id, storage_generation, storage_generation_fence, oldest_available_commit_seq, authorization_revocation_epoch, epoch)
+       select scope_id, 'flarexdb_v1', 1, 0, 0, $2 from clock`,
     [scopeId, epoch],
   );
   const published = await persistence.publishAppSchemaV1({
@@ -1648,8 +1656,9 @@ async function appendDocument(
 // Fixture-only authoritative history setup for direct builder tests.
 async function setClockCommit(fixture: Fixture, commitSeq: bigint) {
   await fixture.persistence.query(`insert into fx_system_commit (scope_uuid, epoch_uuid, commit_seq, change_count, relation_adjacency_change_count)
-    select clock.scope_uuid, clock.epoch_uuid, seq, (select count(*)::int from fx_app_row_rev revision where revision.scope_uuid = clock.scope_uuid and revision.commit_seq = seq), 0
-    from fx_system_scope_clock clock cross join lateral generate_series(clock.last_commit_seq + 1, $2::bigint) seq where clock.scope_id = $1`, [fixture.scopeId, commitSeq.toString()]);
+    select clock.scope_uuid, authority.epoch_uuid, seq, (select count(*)::int from fx_app_row_rev revision where revision.scope_uuid = clock.scope_uuid and revision.commit_seq = seq), 0
+    from fx_system_scope_clock clock join fx_system_scope_execution_authority authority using (scope_id)
+    cross join lateral generate_series(clock.last_commit_seq + 1, $2::bigint) seq where clock.scope_id = $1`, [fixture.scopeId, commitSeq.toString()]);
   await fixture.persistence.query(`insert into fx_system_commit_app_row_change (scope_uuid, epoch_uuid, commit_seq, change_ordinal, table_id, row_id)
     select revision.scope_uuid, revision.write_epoch_uuid, revision.commit_seq, (row_number() over (partition by revision.commit_seq order by revision.table_id, revision.row_id) - 1)::int, revision.table_id, revision.row_id
     from fx_app_row_rev revision join fx_system_scope_clock clock on clock.scope_uuid = revision.scope_uuid

@@ -621,7 +621,7 @@ async function waitForBlockedPointCommit(
       where datname = current_database()
         and wait_event_type = 'Lock'
         and cardinality(pg_blocking_pids(pid)) > 0
-        and query ilike '%fx_system_scope_clock%'
+        and (query ilike '%fx_system_scope_clock%' or query ilike '%fx_system_scope_execution_authority%')
     `);
     if ((result.rows[0]?.blocked ?? 0) >= expectedBlocked) return;
     await delay(25);

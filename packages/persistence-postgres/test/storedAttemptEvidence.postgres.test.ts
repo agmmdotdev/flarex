@@ -673,9 +673,8 @@ describePostgres("real Postgres stored-attempt authority", () => {
             if (revocationCommitted) return;
             await revocationClient.query(
               `
-                update fx_system_scope_clock
-                set authorization_revocation_epoch =
-                  authorization_revocation_epoch + 1
+                update fx_system_scope_execution_authority
+                set authorization_revocation_epoch = authorization_revocation_epoch + 1
                 where scope_id = $1
               `,
               [racing.anchor.scopeId],

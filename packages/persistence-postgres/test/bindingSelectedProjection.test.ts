@@ -7,8 +7,7 @@ import { ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authori
 import { captureBindingValue, isDataBindingSetFrame } from "../src/frameworkSchema/binding/canonical";
 import { dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import type { DataBindingHeadToken, DataBindingSetFrame } from "../src/frameworkSchema/binding/model";
-import { prepareBindingSelectedStructure, readBindingSelectedEvidence, readBindingSelectedProjection,
-  readUnprotectedBindingSelectedProjection, storeBindingCandidate, writeBindingActivation,
+import { prepareBindingSelectedStructure, readBindingSelectedEvidence, storeBindingCandidate, writeBindingActivation,
   retainBindingSelectedStructure,
   type PreparedBindingSelectedStructure } from "../src/frameworkSchema/binding/repository";
 import { fxSystemDataBindingHeads } from "../src/frameworkSchema/binding/schema";
@@ -57,7 +56,7 @@ async function seed(persistence: Persistence, policyCount: number, referenceCoun
     const candidate = yield* captureBindingValue(frame, isDataBindingSetFrame);
     yield* storeBindingCandidate(tx, candidate, []);
     yield* writeBindingActivation(tx, dataBindingActivationRequest(application.scopeId, application.storageGeneration,
-      `select_${suffix}`, candidate.sha256Hex, null), references);
+      `select_${suffix}`, candidate.sha256Hex, null), references, { projection: null, owners: [], withdrawsPermission: false });
   })));
   return { frame, location: { scopeId: application.scopeId, storageGeneration: application.storageGeneration } };
 }
@@ -67,7 +66,7 @@ function required<A>(value: Option.Option<A>): A {
   return value.value;
 }
 
-describe("finite selected binding projection", () => {
+describe("full selected binding evidence and preparation", () => {
   it("keeps the explicit no-role profile fully authenticated and detached", async () => {
     const persistence = await createMigratedPGlitePersistence();
       const selected = await seed(persistence, 1, 1, "control");
@@ -80,10 +79,10 @@ describe("finite selected binding projection", () => {
         expect(retainBindingSelectedStructure(tx, forged, forged, { sequence: "1", sha256: "a".repeat(64) }))
           .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
       })));
-      const read = () => persistence.drizzle.transaction(tx => runEffect(readUnprotectedBindingSelectedProjection(tx, selected.location)));
+      const read = () => persistence.drizzle.transaction(tx => runEffect(readBindingSelectedEvidence(tx, selected.location)));
       const first = required(await read());
-      Reflect.set(first.reference.application.physicalLocator, "schemaName", "mutated");
-      expect(required(await read()).reference.application).toEqual(selected.frame.application);
+      Reflect.set(first.candidate.frame.application.physicalLocator, "schemaName", "mutated");
+      expect(required(await read()).candidate.frame.application).toEqual(selected.frame.application);
       const row = (await persistence.drizzle.select().from(fxSystemDataBindingHeads)
         .where(eq(fxSystemDataBindingHeads.scopeId, selected.location.scopeId)))[0];
       if (row === undefined) throw new Error("Missing head witness");
@@ -112,7 +111,6 @@ describe("finite selected binding projection", () => {
         const selections = [await seed(persistence, 1, 1, "small"), await seed(persistence, 64, 100, "large")];
         const epoch = await persistence.drizzle.transaction(tx => runEffect(
           captureProtectedMetadataEpoch(fixture.protectedMetadata, persistence.drizzle, tx)));
-        const projectionSizes: number[] = [];
         const chargedSizes: number[] = [];
         for (const selected of selections) {
           const protection = { token: fixture.protectedMetadata, database: persistence.drizzle, epoch };
@@ -123,7 +121,8 @@ describe("finite selected binding projection", () => {
           const host = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
             const lifetime = yield* captureHostPreparationLifetime();
             return { prepared: prepareBindingSelectedStructure(selected.location, protection, lifetime),
-              empty: prepareBindingSelectedStructure(selected.location, protection, lifetime) };
+              empty: prepareBindingSelectedStructure(selected.location, protection, lifetime),
+              unopened: prepareBindingSelectedStructure(selected.location, protection, lifetime) };
           })));
           const recipient = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
             const lifetime = yield* captureHostPreparationLifetime();
@@ -156,12 +155,14 @@ describe("finite selected binding projection", () => {
                 try {
                   // SAFETY: forged token deliberately witnesses private issuer refusal.
                   const forged = new Proxy({} as PreparedBindingSelectedStructure, { get() { throw new Error("Foreign token inspected"); } });
-                  expect(yield* readBindingSelectedProjection(tx, selected.location, forged).pipe(Effect.result))
-                    .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
-                  expect(yield* readBindingSelectedProjection(tx, selected.location, tokens.empty).pipe(Effect.result))
+                  expect(yield* readBindingSelectedEvidence(tx, selected.location, forged).pipe(Effect.result))
                     .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
                   expect(before).not.toHaveBeenCalled();
                 } finally { before.mockRestore(); }
+                // A genuine unfilled preparation acquires and retains its full
+                // canonical evidence under this transaction's protected guard.
+                expect(required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.empty)).candidate.frame)
+                  .toEqual(selected.frame);
                 const full = required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared));
                 expect(full.candidate.frame).toEqual(selected.frame);
                 const head = { sequence: full.head.frame.sequence, sha256: full.head.sha256 };
@@ -180,7 +181,7 @@ describe("finite selected binding projection", () => {
                     .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
                   expect(retainBindingSelectedStructure(tx, tokens.prepared, unboundedRecipient, head))
                     .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
-                  expect(retainBindingSelectedStructure(tx, tokens.empty, received.prepared, head))
+                  expect(retainBindingSelectedStructure(tx, tokens.unopened, received.prepared, head))
                     .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
                   for (const invalidHead of [{ ...head, sequence: "999" }, { ...head, sha256: "f".repeat(64) }])
                     expect(retainBindingSelectedStructure(tx, tokens.prepared, received.prepared, invalidHead))
@@ -209,45 +210,64 @@ describe("finite selected binding projection", () => {
                 expect(Result.isSuccess(retainBindingSelectedStructure(tx, tokens.prepared, received.prepared, head))).toBe(true);
                 expect(Result.getOrThrow(recipient.readUsage()).chargedBytes).toBe(before);
               })));
-              const receivedProjection = required(await guarded(tx => readBindingSelectedProjection(tx, selected.location, received.prepared)));
-              expect(receivedProjection.reference.application).toEqual(selected.frame.application);
-              Reflect.set(receivedProjection.reference.application.physicalLocator, "schemaName", "mutated-recipient-result");
-              expect(required(await guarded(tx => readBindingSelectedProjection(tx, selected.location, received.prepared)))
-                .reference.application).toEqual(selected.frame.application);
+              const receivedEvidence = required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, received.prepared)));
+              expect(receivedEvidence.candidate.frame).toEqual(selected.frame);
+              Reflect.set(receivedEvidence.candidate.frame.application.physicalLocator, "schemaName", "mutated-recipient-result");
+              expect(required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, received.prepared)))
+                .candidate.frame).toEqual(selected.frame);
+              const scopedRecipient = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
+                return prepareBindingSelectedStructure(selected.location, protection, yield* captureHostPreparationLifetime());
+              })));
+              const scopedToken = await runEffect(scopedRecipient.use(value => Effect.succeed(value)));
+              try {
+                await guarded(tx => Effect.gen(function* () {
+                  const donor = required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared));
+                  yield* Effect.fromResult(retainBindingSelectedStructure(tx, tokens.prepared, scopedToken,
+                    { sequence: donor.head.frame.sequence, sha256: donor.head.sha256 }));
+                  const borrowed = required(yield* readBindingSelectedEvidence(tx, selected.location, scopedToken));
+                  expect(borrowed.candidate.frame).toEqual(selected.frame);
+                  Reflect.set(borrowed.candidate.frame.application.physicalLocator, "schemaName", "mutated-borrowed-result");
+                  expect(required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared)).candidate.frame)
+                    .toEqual(selected.frame);
+                  yield* scopedRecipient.close;
+                  const select = vi.spyOn(tx, "select");
+                  try {
+                    expect(yield* readBindingSelectedEvidence(tx, selected.location, scopedToken).pipe(Effect.result))
+                      .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "closed" } } });
+                    expect(select).not.toHaveBeenCalled();
+                  } finally { select.mockRestore(); }
+                  expect(required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared)).candidate.frame)
+                    .toEqual(selected.frame);
+                }));
+              } finally { await runEffect(scopedRecipient.close); }
               const usage = Result.getOrThrow(host.readUsage()).chargedBytes;
               chargedSizes.push(usage);
-              const clone = vi.spyOn(globalThis, "structuredClone");
-              try {
-                for (let iteration = 0; iteration < 10; iteration++) {
-                  const projection = required(await guarded(tx => readBindingSelectedProjection(tx, selected.location, tokens.prepared)));
-                  expect(projection.reference).toEqual({ application: selected.frame.application, logicalSchema: null });
-                  expect(projection.hasPayloadContent).toBe(true);
-                  expect(projection.hasPayloadLifecycle).toBe(false);
-                  expect(Object.keys(projection).sort()).toEqual(["hasPayloadContent", "hasPayloadLifecycle", "head", "reference"]);
-                  if (iteration === 0) projectionSizes.push(JSON.stringify(projection.reference).length);
-                  Reflect.set(projection.reference.application.physicalLocator, "schemaName", "mutated-demand-result");
-                  expect(Result.getOrThrow(host.readUsage()).chargedBytes).toBe(usage);
-                }
-                expect(clone.mock.calls.some(([value]) => typeof value === "object" && value !== null &&
-                  ("candidate" in value || "activation" in value || "strongReferences" in value))).toBe(false);
-              } finally { clone.mockRestore(); }
+              const detached = required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, tokens.prepared)));
+              expect(detached.candidate.frame).toEqual(selected.frame);
+              Reflect.set(detached.candidate.frame.application.physicalLocator, "schemaName", "mutated-read-result");
+              expect(required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, tokens.prepared))).candidate.frame)
+                .toEqual(selected.frame);
+              expect(Result.getOrThrow(host.readUsage()).chargedBytes).toBe(usage);
               const row = (await persistence.drizzle.select().from(fxSystemDataBindingHeads)
                 .where(eq(fxSystemDataBindingHeads.scopeId, selected.location.scopeId)))[0];
               if (row === undefined) throw new Error("Missing protected head witness");
               const corrupt = Uint8Array.from(row.canonicalBytes); corrupt[0] = 32;
               await persistence.drizzle.update(fxSystemDataBindingHeads).set({ canonicalBytes: corrupt })
                 .where(eq(fxSystemDataBindingHeads.scopeId, selected.location.scopeId));
-              await expect(guarded(tx => readBindingSelectedProjection(tx, selected.location, tokens.prepared)))
-                .rejects.toMatchObject({ reason: "storedCorruption" });
-              await persistence.drizzle.update(fxSystemDataBindingHeads).set({ canonicalBytes: row.canonicalBytes })
-                .where(eq(fxSystemDataBindingHeads.scopeId, selected.location.scopeId));
+              try {
+                await expect(guarded(tx => readBindingSelectedEvidence(tx, selected.location, tokens.prepared)))
+                  .rejects.toMatchObject({ reason: "storedCorruption" });
+              } finally {
+                await persistence.drizzle.update(fxSystemDataBindingHeads).set({ canonicalBytes: row.canonicalBytes })
+                  .where(eq(fxSystemDataBindingHeads.scopeId, selected.location.scopeId));
+              }
             } finally {
               await runEffect(host.close);
               await runEffect(Scope.close(tiny.scope, Exit.succeed(undefined)));
             }
             {
-              expect(required(await guarded(tx => readBindingSelectedProjection(tx, selected.location, received.prepared)))
-                .reference.application).toEqual(selected.frame.application);
+              expect(required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, received.prepared)))
+                .candidate.frame).toEqual(selected.frame);
               if (checkedHead === undefined) throw new Error("Missing checked head after donor close");
               const head = checkedHead;
               await guarded(tx => Effect.sync(() => {
@@ -258,7 +278,7 @@ describe("finite selected binding projection", () => {
             await guarded(tx => Effect.gen(function* () {
               const select = vi.spyOn(tx, "select");
               try {
-                expect(yield* readBindingSelectedProjection(tx, selected.location, tokens.prepared).pipe(Effect.result))
+                expect(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared).pipe(Effect.result))
                   .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "closed" } } });
                 expect(select).not.toHaveBeenCalled();
               } finally { select.mockRestore(); }
@@ -266,7 +286,6 @@ describe("finite selected binding projection", () => {
           } finally { await runEffect(recipient.close); }
         }
         expect(chargedSizes[1]).toBeGreaterThan(chargedSizes[0] ?? 0);
-        expect(projectionSizes[1]).toBe(projectionSizes[0]);
       } finally { await fixture.dispose(); }
     }, 180_000,
   );

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { compileAppOrderedIndexBoundsV1, appOrderedIndexDocumentPathV1, orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
 import { scanCurrentAppIndexInTransactionEffect, scanCurrentPublicationIndexInTransactionEffect } from "../src/appIndexEntries";
 import { describe, expect, it } from "vitest";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -207,15 +208,8 @@ async function makeFixture(persistence: PostgresFlarexPersistence, decimals?: re
     deploymentId,
     physicalLocator: LOCATOR,
   });
-  await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
-    [
-      scopeId,
-      ScopeEpochSchema.make("epoch_c08e0000-0000-0000-0000-000000000001"),
-    ],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId,
+    epoch: ScopeEpochSchema.make("epoch_c08e0000-0000-0000-0000-000000000001") });
   await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId,

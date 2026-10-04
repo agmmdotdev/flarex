@@ -41,6 +41,7 @@ import { createSessionJournalStorePersistence, readConfirmedFiniteRootSealCaptur
 import type { LogicalParticipantBorrow } from
   "@flarex/persistence-postgres/session-journal-store";
 import type { PerformanceSettlementLedger } from "./mixedMutationMeasurementContracts";
+import { traceMixedMutationEffect } from "./measurement";
 interface MixedMutationPublicationObserver {
   begin(name: string): Promise<void>;
   end(name: string): Promise<void>;
@@ -52,7 +53,8 @@ import { createStoredAttemptEvidenceLoaderV1 } from
 import { createStoredCommitAuthorityEvidenceLoaderV1 } from
   "../../../../persistence-postgres/src/storedCommitAuthorityEvidence";
 import { createPointCommitFinishingTransitionPortV1,
-  createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1 } from
+  createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1,
+  PointMutationAttemptReplacementFiniteEntryError } from
   "../../../../persistence-postgres/src/pointCommitTransaction";
 import type { PointCommitPublicationObservation } from
   "@flarex/persistence-postgres/point-commit-transaction";
@@ -159,6 +161,7 @@ export interface MixedMutationProductFixtureHooks {
    * Application preparation, aggregate entry and initial authentication. */
   readonly onPreparedContext?: (currency: CurrencyFixture) => Promise<MixedMutationPerformanceTrace | undefined>;
   readonly onFiniteEntryPrepared?: (preparation: Effect.Success<ReturnType<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>>) => void;
+  readonly afterReplacementStep?: NonNullable<Parameters<typeof createPointMutationAttemptReplacementPortV1>[1]>["afterReplacementStep"];
   readonly transformFiniteEntrySources?: (participants: Parameters<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>[0]) =>
     Parameters<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>[0];
   readonly beforeFinalEntry?: (context: MixedMutationFinalEntryTestContext) => Promise<void>;
@@ -768,8 +771,14 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
     binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget } = context;
   const { seed, baseline } = seedGraph;
-  const { preparedAdmission, applicationAdmission, activationInput } = await context.prepareAttempt(
-    input.suffix, performance?.validatedArgsJson);
+  const tracePhase = <A>(name: string, run: () => Promise<A>): Promise<A> =>
+    performance?.trace === undefined ? run() : performance.trace.withPhase(name, run);
+  const traceEffect = <A, E>(name: string, operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+    traceMixedMutationEffect(performance?.trace, name, operation);
+  // Historical diagnostic label: this is stored Application admission/evidence
+  // preparation, not the framework's actual-demand checked-read frontend.
+  const { preparedAdmission, applicationAdmission, activationInput } = await tracePhase(
+    "stored read and source preparation", () => context.prepareAttempt(input.suffix, performance?.validatedArgsJson));
   const executionClaims = createPointMutationExecutionClaimVaultV1();
     const hasSqlObserver = currency.observeSql !== undefined;
     let sqlPhase = "request admission";
@@ -862,9 +871,9 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           sources: [{ selection: prepared,
             methods: ["update", "retrieve", "listByHandle"] }] },
         borrow: borrowedInput => Effect.suspend(() => input.hooks?.beforeProductBorrow?.(borrowedInput.method) ?? Effect.void).pipe(
-          Effect.andThen(makeBorrowedLogicalAttempt({
+          Effect.andThen(traceEffect("Product borrow and source checks", makeBorrowedLogicalAttempt({
             ...borrowedInput, admission: borrowedInput.admissions[0]!,
-          })),
+          }))),
           Effect.map(borrowed => Object.freeze({
             abort: borrowed.abort,
             currentUsage: borrowed.currentUsage,
@@ -885,18 +894,16 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
               yield* input.hooks?.beforeNative?.(method) ?? Effect.void;
               yield* input.hooks?.afterProductBorrow?.(method, borrowed, borrowedInput.rootEvaluator) ?? Effect.void;
               const beforeProductClose = input.hooks?.beforeProductClose;
-              const nativeBorrowed = beforeProductClose === undefined ? borrowed : Object.freeze({ ...borrowed,
-                close: Effect.suspend(() => beforeProductClose(method, borrowed)).pipe(Effect.andThen(borrowed.close)) });
-              const operation = executePrivateProductAttemptOperation(binding, nativeBorrowed, method, args, eventPolicy);
+              const nativeBorrowed = beforeProductClose === undefined && performance?.trace === undefined
+                ? borrowed : Object.freeze({ ...borrowed,
+                  close: traceEffect("Product operation close", Effect.suspend(() =>
+                    beforeProductClose?.(method, borrowed) ?? Effect.void).pipe(Effect.andThen(borrowed.close))) });
+              const operation = traceEffect("native Product operation",
+                executePrivateProductAttemptOperation(binding, nativeBorrowed, method, args, eventPolicy));
               const observer = input.hooks?.onNativeOperationExit;
               const observed = observer === undefined ? operation : Effect.gen(function* () {
                 const started = globalThis.performance.now();
-                const readTrace = performance?.trace;
-                // Diagnostic bridge only: runPromiseExit preserves the whole
-                // Cause, and forwards cancellation into the actual operation.
-                const exit = readTrace === undefined ? yield* Effect.exit(operation)
-                  : yield* Effect.promise(signal => readTrace.withPhase("native Product operation",
-                    () => Effect.runPromiseExit(operation, { signal })));
+                const exit = yield* Effect.exit(operation);
                 return yield* observer.observeAndReplay(method, args, exit, globalThis.performance.now() - started);
               });
               const completed = yield* observed;
@@ -919,11 +926,11 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
         borrow: Effect.fn("MixedFixture.borrowPayload")(function* (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) {
           const runtime = yield* ensurePayloadRuntime(borrowedInput.attempt).pipe(
             Effect.mapError(projectPayloadParticipantFailure));
-          const borrowed = yield* runtime.borrowParticipant(borrowedInput);
+          const borrowed = yield* traceEffect("Payload borrow and source checks", runtime.borrowParticipant(borrowedInput));
           return Object.freeze({ ...borrowed,
             invoke: Effect.fn("MixedFixture.observePayload")(function* (method: string, args: Json) {
               nativeInvokeCount.set(method, (nativeInvokeCount.get(method) ?? 0) + 1);
-              const completed = yield* borrowed.invoke(method, args);
+              const completed = yield* traceEffect("native Payload operation", borrowed.invoke(method, args));
               yield* (input.hooks?.afterPayloadBeforeAck?.(method, completed.result) ?? Effect.void).pipe(
                 Effect.mapError(projectPayloadParticipantFailure));
               return completed;
@@ -940,7 +947,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           })) },
         borrow: (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) =>
           Effect.suspend(() => input.hooks?.beforeWorkflowBorrow?.() ?? Effect.void).pipe(
-            Effect.andThen(workflowBinding.borrow(borrowedInput)),
+            Effect.andThen(traceEffect("Workflow borrow and source checks", workflowBinding.borrow(borrowedInput))),
             Effect.map(borrowed => {
               lastBorrowedWorkflowInvoke = value => Effect.runPromise(borrowed.invoke(value));
               return Object.freeze({
@@ -962,7 +969,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
                 serviceTransactionDepth.push(openTransactionDepth);
                 nativeInvokeCount.set("workflow:run", (nativeInvokeCount.get("workflow:run") ?? 0) + 1);
                 yield* input.hooks?.beforeNative?.("workflow:run") ?? Effect.void;
-                const completed = yield* borrowed.invoke(args);
+                const completed = yield* traceEffect("native Medusa workflow", borrowed.invoke(args));
                 yield* input.hooks?.afterNativeBeforeAck?.("workflow:run", completed.result) ?? Effect.void;
                 return completed;
               }).pipe(Effect.mapError(mapProductInvocationFailure)),
@@ -980,7 +987,8 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       preparedAdmission, admissionContext: context.admissionContext, evidence: activationInput.evidence,
     });
     const competingPreparations = new Map<string, ReturnType<typeof context.prepareAttempt>>();
-    const activationExit = await Effect.runPromiseExit(activationPort.activateFinite(finiteActivationInput));
+    const activationExit = await tracePhase("finite outer entry activation", () =>
+      Effect.runPromiseExit(activationPort.activateFinite(finiteActivationInput)));
     if (Exit.isFailure(activationExit)) await input.hooks?.onFinalEntryFailure?.(finalEntryTestContext, activationExit);
     const activated = Exit.isSuccess(activationExit) ? activationExit.value
       : await Effect.runPromise(Effect.failCause(activationExit.cause));
@@ -1065,7 +1073,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
         } else throw new Error("Unsupported bridge request");
         return value;
       } catch (cause) {
-        bridgeFailures.push(`${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n${inspect(cause, { depth: 5 })}`);
+        bridgeFailures.push(`${cause instanceof Error ? cause.stack ?? cause.message : String(cause)}\n${inspect(cause, { depth: 10 })}`);
         throw cause;
       }
     };
@@ -1264,18 +1272,20 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     "sealSuccessfulResult"]>>,
     publisherOverride: ReturnType<typeof createPointCommitPublisherPortV1> | undefined,
     withOccRetry: boolean) {
-    await Effect.runPromise(closePayloadScopes);
+    await tracePhase("Payload operation scopes close", () => Effect.runPromise(closePayloadScopes));
     selectedPublisher = publisherOverride ?? defaultPublisher;
     if (withOccRetry) retryExecutor = initialExecution;
     const executor = initialExecution;
-    const authority = await Effect.runPromise(authenticatedInitialEntry.deriveStoredAuthority);
-    const stored = await Effect.runPromise(executor.authenticate(authority,
-      Schema.encodeSync(CommitEnvelopeV1Schema)(envelope), journal.confirmedSealCapture?.(attempt)));
-    const authenticated = await Effect.runPromise(executor.authenticateCommitAuthority(stored));
-    const verified = await Effect.runPromise(executor.verifyCommitInput(authenticated));
-    const planned = await Effect.runPromise(executor.planPointCommit(verified));
+    const planned = await tracePhase("stored verification and planning", async () => {
+      const authority = await Effect.runPromise(authenticatedInitialEntry.deriveStoredAuthority);
+      const stored = await Effect.runPromise(executor.authenticate(authority,
+        Schema.encodeSync(CommitEnvelopeV1Schema)(envelope), journal.confirmedSealCapture?.(attempt)));
+      const authenticated = await Effect.runPromise(executor.authenticateCommitAuthority(stored));
+      const verified = await Effect.runPromise(executor.verifyCommitInput(authenticated));
+      return Effect.runPromise(executor.planPointCommit(verified));
+    });
     sqlPhase = "finish";
-    const finishing = await Effect.runPromise(authenticatedInitialEntry.enterFinishing(planned));
+    const finishing = await tracePhase("finishing", () => Effect.runPromise(authenticatedInitialEntry.enterFinishing(planned)));
     publication = Object.freeze({ executor, finishing });
     sqlPhase = "publish";
     return executor.publishPointCommit(finishing);
@@ -1284,7 +1294,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     publisherOverride: ReturnType<typeof createPointCommitPublisherPortV1> | undefined,
     withOccRetry: boolean) {
     sqlPhase = "seal";
-    const envelope = await Effect.runPromise(journal.sealSuccessfulResult(attempt, returnedValue));
+    const envelope = await tracePhase("freeze and seal", () => Effect.runPromise(journal.sealSuccessfulResult(attempt, returnedValue)));
     return preparePublicationFromEnvelope(envelope, publisherOverride, withOccRetry);
   }
   async function prepareSealedPublication(envelope: Effect.Success<ReturnType<Journal[
@@ -1501,7 +1511,8 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       });
     }
     const postgresSession = postgresTarget === undefined || separate === undefined ? undefined :
-      makePostgresRelationalSession({ drizzle: postgresTarget.drizzle, pool: separate.pool });
+      makePostgresRelationalSession({ drizzle: postgresTarget.drizzle, pool: separate.pool }, undefined,
+        currency.managedRead === undefined ? undefined : { kind: "managed", installation: currency.managedRead.installation });
     if (separate !== undefined) {
       const authenticated = (await separate.query<{ schemaName: string; login: string; role: string; databaseName: string }>(
         'select current_schema() as "schemaName", session_user as login, current_user as role, current_database() as "databaseName"')).rows[0];
@@ -1552,6 +1563,8 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
   let selectedPublisher = defaultPublisher;
   const configuredPublisher: ReturnType<typeof createPointCommitPublisherPortV1> = Object.freeze({ ...defaultPublisher,
     publish: (command: Parameters<typeof defaultPublisher.publish>[0]) => Effect.suspend(() => selectedPublisher.publish(command)) });
+  const prepareFiniteEntry = journal.prepareFiniteEntry;
+  if (typeof prepareFiniteEntry !== "function") throw new Error("Mixed finite retry requires the initial journal entry factory");
   const initialExecution = createPointMutationInitialExecutionV1(
     createStoredAttemptEvidenceLoaderV1(application.sessionAuthority), {
       evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(application.sessionAuthority),
@@ -1562,7 +1575,10 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       pointCommit: configuredPublisher,
       pointCommitFinishing: createPointCommitFinishingTransitionPortV1(application.sessionAuthority),
       pointMutationAttemptReplacement: createPointMutationAttemptReplacementPortV1(application.sessionAuthority,
-        { leaseDurationMilliseconds: 60_000, logicalOperationProfiles }),
+        { leaseDurationMilliseconds: 60_000, logicalOperationProfiles,
+          ...(input.hooks?.afterReplacementStep === undefined ? {} : { afterReplacementStep: input.hooks.afterReplacementStep }),
+          finiteEntry: { application: application.activation, prepareEntry: () => prepareFiniteEntry.bind(journal)().pipe(
+            Effect.mapError(cause => new PointMutationAttemptReplacementFiniteEntryError({ cause }))) } }),
       pointMutationOccRerun: {
         attemptLoading: createPointMutationSessionAttemptLoadingV1(
           createPointMutationSessionAttemptLoadPersistenceV1(application.sessionAuthority)),
@@ -1584,10 +1600,13 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
   const initialReady = await Effect.runPromise(Deferred.make<AuthenticatedFiniteInitialEntry,
     Effect.Error<ReturnType<typeof initialExecution.executeInitialPointMutationAttempt>>>());
   const initialDone = await Effect.runPromise(Deferred.make<void>());
-  const initialFiber = Effect.runFork(initialExecution.runAuthenticatedFiniteInitialEntry(activated,
-    entry => Deferred.succeed(initialReady, entry).pipe(Effect.andThen(Deferred.await(initialDone)))).pipe(
-      Effect.onError(cause => Deferred.failCause(initialReady, cause))));
-  const authenticatedInitialEntry = await Effect.runPromise(Deferred.await(initialReady));
+  const { initialFiber, authenticatedInitialEntry } = await tracePhase("authenticated outer entry", async () => {
+    const initialFiber = Effect.runFork(initialExecution.runAuthenticatedFiniteInitialEntry(activated,
+      entry => Deferred.succeed(initialReady, entry).pipe(Effect.andThen(Deferred.await(initialDone)))).pipe(
+        Effect.onError(cause => Deferred.failCause(initialReady, cause))));
+    const authenticatedInitialEntry = await Effect.runPromise(Deferred.await(initialReady));
+    return { initialFiber, authenticatedInitialEntry };
+  });
   const attempt = authenticatedInitialEntry.journalAttempt;
   const bound = bindPointMutationOccJournal(journal, attempt);
   const runAdmitted = bound.runAdmittedOperation;

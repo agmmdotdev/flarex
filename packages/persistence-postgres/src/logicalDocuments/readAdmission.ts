@@ -94,10 +94,11 @@ export const prepareLogicalReadAdmission = Effect.fn("LogicalReadAdmission.prepa
       yield* metadata.authenticateAndRegister(tx).pipe(Effect.mapError(metadataFailure));
       const selected = yield* readBindingSelectedEvidence(tx, authority, preparedTarget);
       if (Option.isNone(selected)) return yield* Effect.fail(failure("bindingMissing"));
-      const { candidate, head } = selected.value;
+      const { candidate, head, activation } = selected.value;
       return yield* withStandaloneApplicationBindingEvidenceInTransaction(application, tx, clock, evidence => Effect.gen(function* () {
         yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding({ applicationAnalysis: root.applicationAnalysis,
-          reference: { schemaVersionId: root.schemaVersionId, manifestSha256: root.manifestSha256 } }, candidate.frame, evidence));
+          reference: { schemaVersionId: root.schemaVersionId, manifestSha256: root.manifestSha256 } }, candidate.frame, evidence,
+          { kind: "activated", activation }));
         if (candidate.frame.payloadContent !== null || candidate.frame.payloadLifecycle !== null)
           return yield* Effect.fail(failure("unsupportedProfile"));
         const checked = new Set<string>();

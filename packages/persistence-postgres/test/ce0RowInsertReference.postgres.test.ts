@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -368,14 +369,11 @@ async function prepareRows(
   const epoch = ScopeEpochSchema.make(
     "epoch_97460000-0000-4000-8000-000000000001",
   );
-  await persistence.drizzle
-    .insert(fxSystemScopeClocks)
-    .values({
-      scopeId,
-      epoch,
-      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-      lastCommitSeq: CommitSeqSchema.make(128n),
-    });
+  await persistence.drizzle.transaction(async tx => {
+    await tx.insert(fxSystemScopeClocks).values({ scopeId, lastCommitSeq: CommitSeqSchema.make(128n) });
+    await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId, epoch,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") });
+  });
   const rows: Insert[] = [];
   for (let index = 0; index < rowCount; index += 1) {
     const tableId = decodeCatalogTableId(1);

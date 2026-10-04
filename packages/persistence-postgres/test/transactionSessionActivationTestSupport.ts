@@ -26,6 +26,10 @@ import {
 } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import { Result } from "effect";
+import { eq } from "drizzle-orm";
+import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import type { FlarexMetadataDatabase } from "../src/deployments";
+import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../src/schema";
 
 import type { TransactionExecutionClaimObservationV1 } from
   "../src/transactionExecutionClaimModel";
@@ -211,7 +215,7 @@ export function pointMutationSessionActivationFixture(
 }
 
 export async function setFlarexActivationClock(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: Pick<FlarexSqlClient, "query"> & { readonly drizzle: FlarexMetadataDatabase },
   scopeId: ReplacementScopeIdV1,
   input: {
     readonly storageGenerationFence?: bigint;
@@ -219,23 +223,14 @@ export async function setFlarexActivationClock(
     readonly authorizationRevocationEpoch?: bigint;
   } = {},
 ): Promise<void> {
-  await persistence.query(
-    `
-      update fx_system_scope_clock
-      set storage_generation = 'flarexdb_v1',
-          storage_generation_fence = $2,
-          last_commit_seq = $3,
-          authorization_revocation_epoch = $4,
-          updated_at = clock_timestamp()
-      where scope_id = $1
-    `,
-    [
-      scopeId,
-      input.storageGenerationFence ?? 1n,
-      input.lastCommitSeq ?? 0n,
-      input.authorizationRevocationEpoch ?? 0n,
-    ],
-  );
+  await persistence.drizzle.transaction(async tx => {
+    await tx.update(fxSystemScopeExecutionAuthorities).set({ storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: StorageGenerationFenceSchema.make(input.storageGenerationFence ?? 1n),
+      authorizationRevocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(input.authorizationRevocationEpoch ?? 0n) })
+      .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(input.lastCommitSeq ?? 0n), updatedAt: new Date() })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+  });
 }
 
 export function uuidSequence(...values: readonly string[]): () => string {

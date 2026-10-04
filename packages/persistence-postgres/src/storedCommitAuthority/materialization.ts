@@ -1,3 +1,4 @@
+import { type ScopeClockRow } from "../scopeClock";
 import { isRetainedTransactionSessionIdentityV1, isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
 import {
   bytesEqualFullScan as bytesEqual,
@@ -180,7 +181,7 @@ type ApplicationRelationFunctionRow =
 type ApplicationRelationRevisionSchemaRow =
   typeof import("../applicationRelationSchema").fxSystemApplicationRevisionSchemas.$inferSelect;
 export type ClockRow =
-  typeof import("../schema").fxSystemScopeClocks.$inferSelect;
+  ScopeClockRow;
 
 export interface SessionSizeRow extends Omit<
   SessionRow,
@@ -1907,6 +1908,7 @@ interface ClockAuthorityProjectionRow {
   readonly storageGeneration: unknown;
   readonly storageGenerationFence: unknown;
   readonly lastCommitSeq: unknown;
+  readonly lastMetadataSequence: unknown;
   readonly oldestAvailableCommitSeq: unknown;
   readonly epoch: unknown;
   readonly updatedAt: unknown;
@@ -2404,26 +2406,27 @@ const verifySchemaArtifactEffect = Effect.fn(
   ) {
     return Result.fail("schemaArtifactInvalid" as const);
   }
-  const decoded = decodeStoredSchemaArtifactResult(row);
-  if (
-    Result.isFailure(decoded) ||
-    decoded.success.schemaVersionId !== expected.schemaVersionId
-  ) {
-    return Result.fail("schemaArtifactInvalid" as const);
-  }
-  const decodedArtifact = decoded.success;
-  const canonical = yield* runMaterializationPromise(
-    "schemaManifestCanonicalization",
-    () => canonicalizeSchemaManifestV1(decodedArtifact.json),
+  return yield* decodeStoredSchemaArtifactResult(row).pipe(
+    Result.filterOrFail(artifact => artifact.schemaVersionId === expected.schemaVersionId,
+      () => "schemaArtifactInvalid" as const),
+    Result.match({
+      onFailure: () => Effect.succeed(Result.fail("schemaArtifactInvalid" as const)),
+      onSuccess: decodedArtifact => Effect.gen(function* () {
+        const canonical = yield* runMaterializationPromise(
+          "schemaManifestCanonicalization",
+          () => canonicalizeSchemaManifestV1(decodedArtifact.json),
+        );
+        if (
+          decodedArtifact.codecVersion !== canonical.codecVersion ||
+          !bytesEqual(decodedArtifact.canonicalBytes, canonical.canonicalBytes) ||
+          !bytesEqual(decodedArtifact.sha256, canonical.sha256)
+        ) {
+          return Result.fail("schemaArtifactInvalid" as const);
+        }
+        return decodeAppSchemaResult(canonical.manifestJson);
+      }),
+    }),
   );
-  if (
-    decodedArtifact.codecVersion !== canonical.codecVersion ||
-    !bytesEqual(decodedArtifact.canonicalBytes, canonical.canonicalBytes) ||
-    !bytesEqual(decodedArtifact.sha256, canonical.sha256)
-  ) {
-    return Result.fail("schemaArtifactInvalid" as const);
-  }
-  return decodeAppSchemaResult(canonical.manifestJson);
 });
 
 interface StoredSchemaArtifactProjectionRow {

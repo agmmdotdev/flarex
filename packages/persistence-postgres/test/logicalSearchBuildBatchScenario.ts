@@ -87,7 +87,10 @@ export async function verifyLogicalSearchBuildBatch(
   db: FlarexMetadataDatabase,
 ) {
   await persistence.query(
-    "insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)",
+    `with created as (
+       insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id
+     ) insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+       select scope_id, 'flarexdb_v1', $2 from created`,
     [scopeId, epoch],
   );
   const clock = await getScopeClock(db, scopeId);

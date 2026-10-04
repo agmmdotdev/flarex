@@ -1,3 +1,5 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
+import { selectScopeClockRows } from "./scopeClock";
 import {
   ApplicationAnalysisRejectionCodeV1,
   APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
@@ -787,27 +789,27 @@ function decodeCanonical<A extends { readonly canonicalBytes: Uint8Array }>(
   });
 }
 
-function requireExactAuthority(
+const requireExactAuthority = Effect.fn("ApplicationAnalysisRegistration.requireExactAuthority")(function* (
   tx: AppRowTransaction,
   operation: ApplicationAnalysisPersistenceError["operation"],
   authority: ApplicationAnalysisAuthority,
-): Effect.Effect<void, ApplicationAnalysisPersistenceError> {
-  return Effect.gen(function* () {
-    const rows = yield* query(
-      operation,
-      tx.select().from(fxSystemScopeClocks).where(
-        eq(fxSystemScopeClocks.scopeId, authority.scopeId),
-      ).limit(1).for("update"),
-    );
-    const clock = rows[0];
-    if (
-      clock === undefined ||
-      clock.storageGeneration !== authority.storageGeneration ||
-      clock.storageGenerationFence !== authority.storageGenerationFence ||
-      clock.epoch !== authority.epoch
-    ) return yield* failure(operation, "authorityChanged");
-  });
-}
+): Effect.fn.Return<void, ApplicationAnalysisPersistenceError> {
+  yield* query(operation, tx.select({ scopeId: fxSystemScopeExecutionAuthorities.scopeId }).from(fxSystemScopeExecutionAuthorities)
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, authority.scopeId)).limit(1).for("share"));
+  const rows = yield* query(
+    operation,
+    selectScopeClockRows(tx).where(
+      eq(fxSystemScopeClocks.scopeId, authority.scopeId),
+    ).limit(1).for("no key update", { of: fxSystemScopeClocks }),
+  );
+  const clock = rows[0];
+  if (
+    clock === undefined ||
+    clock.storageGeneration !== authority.storageGeneration ||
+    clock.storageGenerationFence !== authority.storageGenerationFence ||
+    clock.epoch !== authority.epoch
+  ) return yield* failure(operation, "authorityChanged");
+});
 
 function databaseTime(
   tx: AppRowTransaction,

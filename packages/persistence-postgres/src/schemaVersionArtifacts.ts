@@ -45,6 +45,26 @@ export interface SchemaVersionArtifact extends SchemaVersionArtifactIdentity {
   readonly createdAt: Date;
 }
 
+type OriginalSchemaVersionScalars = Readonly<Pick<
+  typeof fxControlSchemaVersions.$inferSelect,
+  "deploymentId" | "schemaVersionId" | "version" | "manifestCodecVersion" |
+  "manifestSha256" | "createdAt"
+>>;
+export interface OriginalSchemaVersionSizeRow extends OriginalSchemaVersionScalars {
+  readonly manifestJsonByteLengthText: string;
+  readonly manifestCanonicalByteLengthText: string;
+}
+export interface OriginalSchemaVersionPayloadRow extends OriginalSchemaVersionScalars {
+  readonly manifestJsonText: string;
+  readonly manifestBytes: Uint8Array;
+}
+/** Detached originals from a genuine admitted read, never a publication result.
+ * A withheld payload preserves semantic readability while retaining exact sizes. */
+export interface OriginalSchemaVersionRead {
+  readonly sizes: OriginalSchemaVersionSizeRow;
+  readonly payload: OriginalSchemaVersionPayloadRow | null;
+}
+
 export interface EnsureSchemaVersionArtifactInput
   extends SchemaVersionArtifactIdentity {
   readonly version: CatalogSchemaVersion;
@@ -119,6 +139,7 @@ export class InvalidSchemaVersionArtifactInputError extends Error {
       | "schemaVersionId"
       | "version"
       | "manifest"
+      | "originalRepresentationByteLimit"
       | ForbiddenSchemaVersionArtifactInputField,
     options?: ErrorOptions,
   ) {
@@ -496,6 +517,48 @@ export const getSchemaVersionArtifactByIdEffect = Effect.fn(
     validatedDeploymentId,
     decodedId,
   );
+});
+
+/** Package-internal original acquisition; the caller supplies its existing
+ * materialization budget. This inert evidence grants no accepting authority. */
+export const getSchemaVersionArtifactWithOriginalByIdEffect = Effect.fn(
+  "SchemaVersionArtifacts.getByIdWithOriginal",
+)(function* (db: FlarexMetadataDatabase, deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId, originalRepresentationByteLimit: number): Effect.fn.Return<
+    Readonly<{ artifact: SchemaVersionArtifact; original: OriginalSchemaVersionRead }> | null,
+    ReadSchemaVersionArtifactError
+  > {
+  const validatedDeploymentId = yield* Effect.fromResult(validateDeploymentIdResult(deploymentId));
+  const decodedId = yield* Effect.fromResult(decodeInputFieldResult("schemaVersionId",
+    decodeCatalogSchemaVersionIdResult(schemaVersionId)));
+  if (!Number.isSafeInteger(originalRepresentationByteLimit) || originalRepresentationByteLimit <= 0)
+    return yield* Effect.fail(new InvalidSchemaVersionArtifactInputError("originalRepresentationByteLimit"));
+  const rows = yield* runSchemaVersionArtifactQueryEffect("readById",
+    db.select({
+      ...schemaVersionArtifactReadSelection,
+      manifestJsonByteLengthText: sql<string>`octet_length(${fxControlSchemaVersions.manifestJson}::text)::bigint::text`,
+      manifestCanonicalByteLengthText: sql<string>`octet_length(${fxControlSchemaVersions.manifestBytes})::bigint::text`,
+      manifestJsonText: sql<string | null>`case when
+        octet_length(${fxControlSchemaVersions.manifestJson}::text)::bigint +
+          octet_length(${fxControlSchemaVersions.manifestBytes})::bigint <= ${originalRepresentationByteLimit}
+        then ${fxControlSchemaVersions.manifestJson}::text else null end`,
+    }).from(fxControlSchemaVersions).where(and(
+      eq(fxControlSchemaVersions.deploymentId, validatedDeploymentId),
+      eq(fxControlSchemaVersions.schemaVersionId, decodedId),
+    )).limit(1));
+  const row = rows[0];
+  if (row === undefined) return null;
+  const artifact = yield* decodeSchemaVersionArtifactRowEffect(db, "readById", row);
+  const scalars = { deploymentId: row.deploymentId, schemaVersionId: row.schemaVersionId,
+    version: row.version, manifestCodecVersion: row.manifestCodecVersion };
+  const sizes = Object.freeze({ ...scalars, manifestSha256: copySchemaManifestSha256(row.manifestSha256),
+    createdAt: new Date(row.createdAt.getTime()), manifestJsonByteLengthText: row.manifestJsonByteLengthText,
+    manifestCanonicalByteLengthText: row.manifestCanonicalByteLengthText });
+  const payload = row.manifestJsonText === null || row.manifestBytes === null ? null : Object.freeze({
+    ...scalars, manifestJsonText: row.manifestJsonText, manifestBytes: new Uint8Array(row.manifestBytes),
+    manifestSha256: copySchemaManifestSha256(row.manifestSha256), createdAt: new Date(row.createdAt.getTime()),
+  });
+  return Object.freeze({ artifact, original: Object.freeze({ sizes, payload }) });
 });
 
 /** Full JSON/byte/digest integrity read; keep it outside locked write phases. */

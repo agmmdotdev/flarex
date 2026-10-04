@@ -54,6 +54,7 @@ import {
   CatalogTableIdSchema,
   type CatalogEdgeDefinitionId,
   type CatalogIndexId,
+  type CatalogIndexDefinitionId,
   type CatalogRelationId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
@@ -266,22 +267,31 @@ import {
   TrustedScopeAuthorityPortError,
   type TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
-import { decodeScopeClockRecord } from "./scopeClock";
+import { decodeScopeClockRecord, selectScopeClockRows } from "./scopeClock";
 import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError,
   inspectLogicalParticipantAttemptAdmission, hasLogicalParticipantAttemptAdmission,
   issueLogicalParticipantAdmissionBundle, inspectLogicalParticipantAdmissionBundle,
   requireLogicalParticipantAttemptAdmissionInTransactionEffect,
+  requireLogicalParticipantFiniteAttemptAdmissionInTransactionEffect,
   type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptReadTransaction,
   type LogicalParticipantAdmissionBundle, type LogicalParticipantSelection } from "./logicalDocuments/participantAdmission";
 import type { ApplicationBindingInput } from "./applicationActivation";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
-import type { ScopeClockRecord } from "./scopeClock";
-import { withSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceAdmission";
+import type { ScopeClockRecord, FiniteExecutionAuthorityObservation } from "./scopeClock";
+import { withSharedLogicalSourceBindingChecks, inspectFiniteAttemptMetadata,
+  captureFiniteApplicationAttemptMetadata, prepareFiniteAttemptMetadataProjection, getFiniteAttemptMetadataProjection,
+  getFiniteApplicationDemandMetadataKeys, requireFiniteApplicationAttemptReadDemandInTransactionEffect,
+  type FiniteAttemptMetadata } from "./logicalDocuments/sourceAdmission";
+import { APPLICATION_EXECUTION_METADATA_OWNER, captureFiniteMetadataDependency, finiteMetadataContractKey } from "./finiteMetadataDependencies";
+import { captureFiniteMetadataReservation, persistFiniteMetadataReservationInTransaction,
+  requireCapturedFiniteMetadataReservationRow, getCapturedFiniteMetadataReservationSha256Hex,
+  type CapturedFiniteMetadataReservation } from "./finiteMetadataReservation";
 import { projectLogicalDocumentJournalContribution, type LogicalJournalContributionError } from "./logicalDocuments/journalContribution";
 import { serializeLogicalParticipantDependencyEvidence, type LogicalParticipantEvidenceError } from "./logicalDocuments/journalEvidence";
 import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
 import type { LogicalDocumentBorrowView, LogicalPendingDocumentSeed } from "./logicalDocuments/model";
-import { makeLogicalDocumentRootEvaluator, type LogicalDocumentRootEvaluator } from
+import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
+  recordLogicalDocumentRootMetadataDependency, type LogicalDocumentRootEvaluator } from
   "./logicalDocuments/rootEvaluator";
 import {
   encodeAdmittedFrameworkOperationV1Result,
@@ -312,11 +322,13 @@ import {
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedExactRunningAttemptKernelV1,
   type ExactRunningAttemptKernelContextV1,
+  type FiniteRunningAttemptKernelContext,
   type LocatedExactRunningAttemptKernelV1,
 } from "./transactionSessionAttemptKernel";
 import {
   PointMutationSessionAuthorityCorruptionV1Error,
   PointMutationSessionAttemptLoadV1Error,
+  recognizeFiniteMetadataReservationUpdate,
   type PointMutationExecutionProfile,
   type PointMutationSessionAttemptLoadIssueV1,
   type PointMutationSessionAttemptSelectorV1,
@@ -324,6 +336,8 @@ import {
 } from "./transactionSessionActivation";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
+  RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT,
+  isLocatedFiniteRunningAttemptReadSyscallKernel,
   isLocatedExactRunningAttemptReadSyscallKernelV1,
 } from "./transactionSessionReadSyscallKernel";
 import {
@@ -1527,7 +1541,8 @@ interface FiniteRootRelationRecord {
 type FiniteRootRecord = FiniteRootAdmittedRecord | FiniteRootPointRecord |
   FiniteRootIndexRecord | FiniteRootRelationRecord;
 
-export interface FiniteRootAttemptState {
+interface FiniteRootAttemptData {
+  readonly handle: SessionJournalAttempt;
   readonly initialContext: ExactRunningAttemptKernelContextV1;
   readonly initialSessionSizes: readonly SessionSizeRow[];
   readonly admissions: Map<string, Readonly<{ selection: SessionJournalParticipantSelection;
@@ -1541,11 +1556,20 @@ export interface FiniteRootAttemptState {
   status: "open" | "aborted" | "sealing" | "sealed";
   inFlightOperations: number;
   lastSequence: bigint;
-  nextCreationTime?: AppCreationTimeV1;
+  nextCreationTime: AppCreationTimeV1;
   counters: SessionJournalCountersV1;
   participantWorkBytes: number;
   participantWorkCalls: number;
 }
+
+/** Direct-core proofs retain their full transaction profile. Reserved roots
+ * require both issued metadata and the confirmed lease commitment; missing
+ * evidence cannot select the direct profile. */
+export type FiniteRootAttemptState = FiniteRootAttemptData & (
+  | Readonly<{ contract: "direct"; metadata?: never; reservation?: never }>
+  | Readonly<{ contract: "reserved"; metadata: FiniteAttemptMetadata;
+      reservation: CapturedFiniteMetadataReservation }>
+);
 
 /** Keep an inert exact-claim tombstone after abort or uncertain seal while
  * releasing provisional documents and receipts. Only a durable terminal or
@@ -1702,6 +1726,7 @@ const requireAdmittedBundleSourcesInTransactionEffect = Effect.fn(
   tx: FlarexMetadataTransaction,
   authority: TrustedScopeAuthority,
   clock: ScopeClockRecord,
+  finiteAuthority?: FiniteExecutionAuthorityObservation,
 ) {
   const selected = inspectLogicalParticipantAdmissionBundle(bundle, attempt,
     request.participant, request.method, request.profileRevision);
@@ -1712,8 +1737,9 @@ const requireAdmittedBundleSourcesInTransactionEffect = Effect.fn(
   for (const [ordinal, admission] of selected.admissions.entries()) {
     const methods = selected.sourceMethods[ordinal]!;
     const expected = request.sources[ordinal];
-    const state = yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
-      admission, attempt, methods[0]!, tx, authority, clock);
+    const state = yield* (finiteAuthority === undefined
+      ? requireLogicalParticipantAttemptAdmissionInTransactionEffect(admission, attempt, methods[0]!, tx, authority, clock)
+      : requireLogicalParticipantFiniteAttemptAdmissionInTransactionEffect(admission, attempt, methods[0]!, tx, authority, finiteAuthority));
     if (expected === undefined || expected.sourceKey !== state.sourceKey ||
       expected.sourceSha256Hex !== state.sourceSha256 ||
       expected.bindingHead.sequence !== state.head.sequence ||
@@ -2061,6 +2087,9 @@ const prepareAdmittedContributionsEffect = Effect.fn(
         index => index.indexDefinitionId === read.definition.indexDefinitionId)),
       uniqueReads: completed.changes.uniqueReads.filter(read => owner.unique.some(
         constraint => constraint.uniqueConstraintDefinitionId === read.constraintId)),
+      ...(completed.changes.metadataDependencies === undefined ? {} : {
+        metadataDependencies: completed.changes.metadataDependencies.filter(metadataDependency => metadataDependency.ownerKey === owner.sourceKey),
+      }),
     });
     sources.push(Object.freeze({ ...source,
       effects: Object.freeze(contribution.effects.filter(effect => owner.tableIds.has(effect.tableId))),
@@ -2425,6 +2454,7 @@ export function createSessionJournalStorePersistence(
               return yield* Effect.fail(corruption(state, "journalStateInvalid"));
             const admissions = new Map<string, Readonly<{ selection: SessionJournalParticipantSelection; bundle: LogicalParticipantAdmissionBundle }>>();
             const readTransaction = makeAttemptReadTransaction(state, resolved);
+            let metadata: FiniteAttemptMetadata | undefined;
             for (const selection of selections) {
               const sources = [];
               for (const source of selection.sources) {
@@ -2433,7 +2463,13 @@ export function createSessionJournalStorePersistence(
                   principalDigest: context.principalDigest, executionProfile: state.executionProfile,
                   snapshotCommitSeq: state.snapshotToken.commitSeq, schemaVersionId: state.schemaVersionId,
                 }, readTransaction, source.methods, { tx, authority: resolved.authority, clock: context.scopeClock,
-                  applicationBinding: { selection: source.selection, binding } });
+                  applicationBinding: { selection: source.selection, binding },
+                  finiteMetadata: metadata === undefined ? { kind: "capture", metadataWatermark: context.scopeClock.lastMetadataSequence,
+                    borrowedApplicationBinding: binding } : { kind: "derive", metadata } });
+                const issued = inspectLogicalParticipantAttemptAdmission(admission, handle, source.methods[0]!);
+                if (issued?.metadata === undefined || metadata !== undefined && issued.metadata !== metadata)
+                  return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+                metadata = issued.metadata;
                 sources.push(Object.freeze({ admission, methods: source.methods }));
               }
               const acceptedSelection = Object.freeze({ ...selection,
@@ -2441,7 +2477,17 @@ export function createSessionJournalStorePersistence(
               const bundle = yield* Effect.fromResult(issueLogicalParticipantAdmissionBundle(handle, { ...selection, sources }));
               admissions.set(selection.participant, Object.freeze({ selection: acceptedSelection, bundle }));
             }
+            metadata ??= yield* Effect.fromResult(captureFiniteApplicationAttemptMetadata(binding, application, handle,
+              tx, context.scopeClock, resolved.authority, {
+                scopeId: state.selector.scopeId, sessionId: state.selector.sessionId, attemptFence: state.selector.attemptFence,
+                principalDigest: context.principalDigest, executionProfile: state.executionProfile,
+                snapshotCommitSeq: state.snapshotToken.commitSeq, schemaVersionId: state.schemaVersionId,
+              }, context.scopeClock.lastMetadataSequence).pipe(Result.mapError(cause =>
+                new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause }))));
             yield* verifyFinalRows;
+            yield* prepareFiniteAttemptMetadataProjection(metadata, handle, tx).pipe(Effect.mapError(cause =>
+              new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause })));
+            const reservation = yield* captureAndPersistFiniteMetadataReservationEffect(tx, handle, state, context, metadata);
             const rows = yield* Effect.tryPromise({
               try: () => captureStoredCommitAuthorityRowsInTransaction(tx, {
                 ...state.selector, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
@@ -2450,14 +2496,16 @@ export function createSessionJournalStorePersistence(
               catch: cause => new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }),
             });
             const finite: FiniteRootAttemptState = {
-              admissions, initialContext: structuredClone(context), initialSessionSizes: rows.sessionSizeRows,
+              handle, contract: "reserved", admissions, metadata, reservation, initialContext: structuredClone(context), initialSessionSizes: rows.sessionSizeRows,
               evaluator: makeLogicalDocumentRootEvaluator({ attempt: handle, scopeId: state.selector.scopeId,
-                snapshotCommitSeq: state.snapshotToken.commitSeq, attemptFence: String(state.selector.attemptFence) }, {
+                snapshotCommitSeq: state.snapshotToken.commitSeq, attemptFence: String(state.selector.attemptFence),
+                metadataWatermark: context.scopeClock.lastMetadataSequence }, {
                 identities: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1, workingBytes: MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1 }),
               entries: new Map(), points: new Map(), pointReads: new Map(), indexRanges: [], relationDependencies: [],
               status: "open", lastSequence: 0n, inFlightOperations: 0, counters: { ...ZERO_FINITE_COUNTERS },
-              participantWorkBytes: 0, participantWorkCalls: 0,
+              participantWorkBytes: 0, participantWorkCalls: 0, nextCreationTime: context.journalRoot.nextCreationTime,
             };
+            yield* recordFiniteExecutionMetadataEffect(handle, state, finite, context);
             const finiteKey = JSON.stringify([state.selector.deploymentId, state.selector.scopeId, state.selector.sessionId,
               String(state.selector.attemptFence), state.executionClaim.claimOwner, String(state.executionClaim.claimFence)]);
             const issuedAdmissions = new Map([...admissions].map(([key, value]) => [key, value.bundle]));
@@ -2511,6 +2559,8 @@ export function createSessionJournalStorePersistence(
     if (finiteKey !== undefined) {
       const existing = finiteClaims.get(finiteKey);
       if (existing !== undefined) {
+        if (input.logicalParticipants !== undefined && existing.state.contract !== "reserved")
+          return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         yield* admitExactRunningAttemptEffect(resolved, state, "openAttempt");
         const prior = attemptStates.get(existing.handle);
         if (prior === undefined ||
@@ -2543,6 +2593,11 @@ export function createSessionJournalStorePersistence(
           return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return existing.handle;
       }
+      // Application/framework entry must have been confirmed by its entry
+      // owner, including a graph with no borrowed participants. Only the
+      // explicit direct-core input omits logicalParticipants entirely.
+      if (input.logicalParticipants !== undefined)
+        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
       if (finiteClaims.size >= 1_024) {
         yield* retireFinishedFiniteRootsEffect().pipe(Effect.mapError(error =>
           error instanceof ExactRunningAttemptTransactionV1Error
@@ -2557,38 +2612,30 @@ export function createSessionJournalStorePersistence(
     }
     const handle = createAttemptHandle();
     if (state.executionProfile === "finiteRoot") {
-      const admissions = yield* resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]({
+      const direct = yield* resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]({
         selector: state.selector, preliminaryAuthority: resolved.authority, executionClaim: state.executionClaim,
       }, (tx, context) => withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
         if (!kernelContextMatchesAttempt(context, state) || context.journalRoot.executionProfile !== "finiteRoot" ||
           context.journalRoot.state !== "open" || context.journalRoot.lastSyscallSequence !== 0n)
           return yield* Effect.fail(corruption(state, "journalStateInvalid"));
-        const result = new Map<string, Readonly<{ selection: SessionJournalParticipantSelection; bundle: LogicalParticipantAdmissionBundle }>>();
-        const readTransaction = makeAttemptReadTransaction(state, resolved);
-        for (const selection of selections) {
-          const sources = [];
-          for (const source of selection.sources) {
-            const admission = yield* source.bindAttemptEffect(source.application, handle, {
-              scopeId: state.selector.scopeId, sessionId: state.selector.sessionId, attemptFence: state.selector.attemptFence,
-              principalDigest: context.principalDigest, executionProfile: state.executionProfile,
-              snapshotCommitSeq: state.snapshotToken.commitSeq, schemaVersionId: state.schemaVersionId,
-            }, readTransaction, source.methods, { tx, authority: resolved.authority, clock: context.scopeClock });
-            sources.push(Object.freeze({ admission, methods: source.methods }));
-          }
-          const bundle = yield* Effect.fromResult(issueLogicalParticipantAdmissionBundle(handle, { ...selection, sources }));
-          result.set(selection.participant, Object.freeze({ selection, bundle }));
-        }
+        if (context.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
+          context.snapshotLease.metadataWatermark !== null ||
+          context.snapshotLease.finiteMetadataReservationBytes !== null ||
+          context.snapshotLease.finiteMetadataReservationSha256 !== null)
+          return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         const sessionSizes = yield* Effect.tryPromise({
           try: () => captureTerminalSessionSizeInTransaction(tx, context.scopeUuid, context.anchor.sessionId),
           catch: cause => new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }),
         });
-        return Object.freeze({ admissions: result, context: structuredClone(context), sessionSizes });
+        return Object.freeze({ context: structuredClone(context), sessionSizes });
       }))).pipe(Effect.mapError(cause => cause instanceof ExactRunningAttemptTransactionV1Error
         ? mapExactAdmissionFailure("openAttempt", cause) : cause));
       const finite: FiniteRootAttemptState = {
-        admissions: admissions.admissions,
-        initialContext: admissions.context,
-        initialSessionSizes: admissions.sessionSizes,
+        handle,
+        contract: "direct", admissions: new Map(),
+        initialContext: direct.context,
+        nextCreationTime: direct.context.journalRoot.nextCreationTime,
+        initialSessionSizes: direct.sessionSizes,
         evaluator: makeLogicalDocumentRootEvaluator({
           attempt: handle,
           scopeId: state.selector.scopeId,
@@ -2626,9 +2673,23 @@ export function createSessionJournalStorePersistence(
       const finite = finiteRootStates.get(state);
       if (state.executionProfile === "finiteRoot" && finite?.status !== "open")
         return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-      return resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]({
+      const input = {
         selector: state.selector, preliminaryAuthority: resolved.authority, executionClaim: state.executionClaim,
-      }, (tx, context) => work(tx, resolved.authority, context.scopeClock)).pipe(
+      };
+      const checked = finite === undefined || finite.contract === "direct"
+        ? resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](input,
+          (tx, context) => work(tx, resolved.authority, context.scopeClock))
+        : !isLocatedFiniteRunningAttemptReadSyscallKernel(resolved.target)
+          ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }))
+          : resolved.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](input,
+            (tx, context) => Effect.gen(function* () {
+              if (!kernelContextMatchesAttempt(context, state))
+                return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+              yield* Effect.fromResult(requireCapturedFiniteMetadataReservationRow(finite.reservation!, context.snapshotLease)
+                .pipe(Result.mapError(cause => new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause }))));
+              return yield* work(tx, resolved.authority, context.authority);
+            }));
+      return checked.pipe(
         Effect.onError(() => Effect.sync(() => {
           if (finite !== undefined) { finite.status = "aborted"; discardFiniteRootEvidence(finite); }
         })),
@@ -3229,7 +3290,10 @@ export function createSessionJournalStorePersistence(
     const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
     const resolved = yield* resolveJournalTargetEffect(tableState.attempt);
     let documentRejection: ApplicationRevisionSyscallDocumentValidationV1Error | undefined;
-    const applied = yield* resolved.target[
+    const finite = finiteRootStates.get(tableState.attempt);
+    const pins = { selector: tableState.attempt.selector, preliminaryAuthority: resolved.authority,
+      executionClaim: tableState.attempt.executionClaim };
+    const checked = finite === undefined || finite.contract === "direct" ? resolved.target[
       RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
     ](
       {
@@ -3238,18 +3302,31 @@ export function createSessionJournalStorePersistence(
         executionClaim: tableState.attempt.executionClaim,
       },
       (tx, context) => {
-        const finite = finiteRootStates.get(tableState.attempt);
+        const currentFinite = finiteRootStates.get(tableState.attempt);
         if (tableState.attempt.executionProfile === "finiteRoot") {
-          return finite === undefined
+          return currentFinite === undefined
             ? Effect.fail(corruption(tableState.attempt, "journalStateInvalid"))
             : runFinitePointOperationInTransactionEffect(tx, context,
-              tableState, request, requestEvidence, randomUuid, validator, finite,
+              tableState, request, requestEvidence, randomUuid, validator, currentFinite,
               error => { documentRejection = error; });
         }
         return runPointOperationInTransactionEffect(tx, context, tableState,
           request, requestEvidence, randomUuid, validator);
       },
-    ).pipe(
+    ) : !isLocatedFiniteRunningAttemptReadSyscallKernel(resolved.target)
+      ? Effect.fail(new SessionJournalTargetUnavailableV1Error({ scopeId: tableState.attempt.selector.scopeId }))
+      : resolved.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](pins, (tx, context) => Effect.gen(function* () {
+        yield* Effect.fromResult(requireCapturedFiniteMetadataReservationRow(finite.reservation, context.snapshotLease)
+          .pipe(Result.mapError(cause => corruption(tableState.attempt, "exactAttemptPinsChanged", cause))));
+        yield* requireFiniteApplicationAttemptReadDemandInTransactionEffect(finite.metadata, finite.handle, tx,
+          resolved.authority, context.authority, { kind: "rows", tableId: tableState.tableId }).pipe(Effect.mapError(cause =>
+            new SessionJournalPersistenceV1Error({ operation: "runPointOperation", cause })));
+        yield* recordFiniteApplicationDemandMetadataEffect(tableState.attempt, finite, tableState.tableId,
+          request.kind !== "get");
+        return yield* runFinitePointOperationInTransactionEffect(tx, context, tableState, request, requestEvidence,
+          randomUuid, validator, finite, error => { documentRejection = error; });
+      }));
+    const applied = yield* checked.pipe(
       Effect.onError(cause => Effect.sync(() => {
         const reason = cause.reasons.length === 1 ? cause.reasons[0] : undefined;
         // Only this call's pre-stage validator refusal is catchable. A failed
@@ -3257,10 +3334,10 @@ export function createSessionJournalStorePersistence(
         // the finite root even if it contains a document validation failure.
         if (documentRejection !== undefined && reason !== undefined &&
           Cause.isFailReason(reason) && reason.error === documentRejection) return;
-        const finite = finiteRootStates.get(tableState.attempt);
-        if (finite !== undefined) {
-          finite.status = "aborted";
-          discardFiniteRootEvidence(finite);
+        const currentFinite = finiteRootStates.get(tableState.attempt);
+        if (currentFinite !== undefined) {
+          currentFinite.status = "aborted";
+          discardFiniteRootEvidence(currentFinite);
         }
       })),
       Effect.mapError((error) =>
@@ -3269,7 +3346,6 @@ export function createSessionJournalStorePersistence(
           : error
       ),
     );
-    const finite = finiteRootStates.get(tableState.attempt);
     if (finite?.status === "aborted") discardFiniteRootEvidence(finite);
     return projectPointOperationResult(applied);
   });
@@ -3374,7 +3450,10 @@ export function createSessionJournalStorePersistence(
         scopeId: state.attempt.selector.scopeId,
       }));
     }
-    const applied = yield* resolved.target[
+    const finite = finiteRootStates.get(state.attempt);
+    const pins = { selector: state.attempt.selector, preliminaryAuthority: resolved.authority,
+      executionClaim: state.attempt.executionClaim };
+    const checked = finite === undefined || finite.contract === "direct" ? resolved.target[
       RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
     ](
       {
@@ -3383,22 +3462,35 @@ export function createSessionJournalStorePersistence(
         executionClaim: state.attempt.executionClaim,
       },
       (tx, context) => {
-        const finite = finiteRootStates.get(state.attempt);
+        const currentFinite = finiteRootStates.get(state.attempt);
         if (state.attempt.executionProfile === "finiteRoot") {
-          return finite === undefined
+          return currentFinite === undefined
             ? Effect.fail(corruption(state.attempt, "journalStateInvalid"))
             : runFiniteIndexedQueryInTransactionEffect(tx, context, state,
-              request, requestEvidence, finite);
+              request, requestEvidence, currentFinite);
         }
         return runIndexedQueryInTransactionEffect(tx, context, state,
           request, requestEvidence, faultAfter);
       },
-    ).pipe(
+    ) : !isLocatedFiniteRunningAttemptReadSyscallKernel(resolved.target)
+      ? Effect.fail(new SessionJournalTargetUnavailableV1Error({ scopeId: state.attempt.selector.scopeId }))
+      : resolved.target[RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT](pins, (tx, context) => Effect.gen(function* () {
+        yield* Effect.fromResult(requireCapturedFiniteMetadataReservationRow(finite.reservation, context.snapshotLease)
+          .pipe(Result.mapError(cause => corruption(state.attempt, "exactAttemptPinsChanged", cause))));
+        yield* requireFiniteApplicationAttemptReadDemandInTransactionEffect(finite.metadata, finite.handle, tx,
+          resolved.authority, context.authority, { kind: "index", tableId: state.tableId,
+            indexDefinitionId: state.definition.indexDefinitionId }).pipe(Effect.mapError(cause =>
+              new SessionJournalPersistenceV1Error({ operation: "runIndexedQuery", cause })));
+        yield* recordFiniteApplicationDemandMetadataEffect(state.attempt, finite, state.tableId, false,
+          state.definition.indexDefinitionId);
+        return yield* runFiniteIndexedQueryInTransactionEffect(tx, context, state, request, requestEvidence, finite);
+      }));
+    const applied = yield* checked.pipe(
       Effect.onError(() => Effect.sync(() => {
-        const finite = finiteRootStates.get(state.attempt);
-        if (finite !== undefined) {
-          finite.status = "aborted";
-          discardFiniteRootEvidence(finite);
+        const currentFinite = finiteRootStates.get(state.attempt);
+        if (currentFinite !== undefined) {
+          currentFinite.status = "aborted";
+          discardFiniteRootEvidence(currentFinite);
         }
       })),
       Effect.mapError((error) =>
@@ -3407,7 +3499,6 @@ export function createSessionJournalStorePersistence(
           : error
       ),
     );
-    const finite = finiteRootStates.get(state.attempt);
     if (finite?.status === "aborted") discardFiniteRootEvidence(finite);
     return projectIndexedQueryResult(applied);
   });
@@ -3424,6 +3515,8 @@ export function createSessionJournalStorePersistence(
           capability: "attempt",
         }));
       }
+      if (finiteRootStates.get(attemptState)?.reservation !== undefined)
+        return yield* Effect.fail(new ApplicationRelationReadUnavailableError({ reason: "capabilityMismatch" }));
       if (
         applicationRelationPort === undefined ||
         !applicationRelationCompositionIsExact
@@ -3687,7 +3780,7 @@ export function createSessionJournalStorePersistence(
           ? cause : new SessionJournalSealV1Error({ reason: "journalFailed", cause }),
       });
       const finalProjectionRows = orderSealProjectionRowsForCapture(frozenRows);
-      const candidate = yield* materializeSealCandidateEffect(attemptState, frozenRows);
+      const candidate = yield* materializeSealCandidateEffect(attemptState, frozenRows, finite);
       const canonical = yield* canonicalizeSessionJournalEffect(candidate.journal).pipe(
         Effect.mapError(() => new SessionJournalSealV1Error({ reason: "canonicalJournalMismatch" })));
       const evidence = yield* validateCanonicalSealEvidenceEffect(candidate, canonical, successfulResult);
@@ -3709,6 +3802,12 @@ export function createSessionJournalStorePersistence(
       if (!sealProjectionValuesEqual(context.journalRoot, finite.initialContext.journalRoot)) {
         return yield* Effect.fail(corruption(attemptState, "journalStateInvalid"));
       }
+      if (finite.contract === "reserved") {
+        if (context.finiteAuthority === undefined)
+          return yield* Effect.fail(corruption(attemptState, "exactAttemptPinsChanged"));
+        yield* Effect.fromResult(requireCapturedFiniteMetadataReservationRow(finite.reservation, context.snapshotLease)
+          .pipe(Result.mapError(cause => corruption(attemptState, "exactAttemptPinsChanged", cause))));
+      }
       const children = yield* Effect.tryPromise({
         try: () => selectAttemptChildExistenceRows(tx, context.scopeUuid, context.anchor.sessionId,
           context.anchor.attemptFence, {}),
@@ -3720,7 +3819,8 @@ export function createSessionJournalStorePersistence(
       yield* withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
         for (const entry of sourceBindings) {
           yield* requireAdmittedBundleSourcesInTransactionEffect(entry.admission, attempt,
-            entry.request, tx, resolved.authority, context.scopeClock);
+            entry.request, tx, resolved.authority, context.scopeClock,
+            finite.contract === "direct" ? undefined : context.finiteAuthority);
         }
       })).pipe(Effect.mapError(cause => new SessionJournalSealV1Error({
         reason: "journalFailed", cause,
@@ -5258,7 +5358,7 @@ const runFinitePointOperationInTransactionEffect = Effect.fn(
   "SessionJournalStore.runFinitePointOperationInTransaction",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: ExactRunningAttemptKernelContextV1 | FiniteRunningAttemptKernelContext,
   table: PinnedPointTableStateV1,
   request: SessionJournalStoredPointRequest,
   requestEvidence: CanonicalFlarexValueV1,
@@ -5357,7 +5457,7 @@ const runFiniteIndexedQueryInTransactionEffect = Effect.fn(
   "SessionJournalStore.runFiniteIndexedQueryInTransaction",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: ExactRunningAttemptKernelContextV1 | FiniteRunningAttemptKernelContext,
   index: PinnedDeveloperIndexStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "indexRange" }>,
   requestEvidence: CanonicalFlarexValueV1,
@@ -5388,18 +5488,20 @@ const runFiniteIndexedQueryInTransactionEffect = Effect.fn(
     kind: "sequenceRejected", issue: Object.freeze({ reason: "sequenceExhausted",
       lastAccepted: CommitFinalSyscallSequenceV1Schema.make(finite.lastSequence) }),
   });
-  const build = yield* readFencedIndexBuildStateEffect(tx, {
-    scopeId: index.attempt.selector.scopeId, indexDefinitionId: index.definition.indexDefinitionId,
-  });
-  if (build.status !== "current" || !(yield* isIndexBuildSnapshotCoveredInTransactionEffect(
-    tx, build.buildState, { ...index.definition, tableId: index.tableId }, index.attempt.snapshotToken.commitSeq,
-    yield* readIndexCoverageContextInTransactionEffect(tx, context.scopeClock).pipe(Effect.mapError(cause =>
+  if ("scopeClock" in context) {
+    const build = yield* readFencedIndexBuildStateEffect(tx, {
+      scopeId: index.attempt.selector.scopeId, indexDefinitionId: index.definition.indexDefinitionId,
+    });
+    if (build.status !== "current" || !(yield* isIndexBuildSnapshotCoveredInTransactionEffect(
+      tx, build.buildState, { ...index.definition, tableId: index.tableId }, index.attempt.snapshotToken.commitSeq,
+      yield* readIndexCoverageContextInTransactionEffect(tx, context.scopeClock).pipe(Effect.mapError(cause =>
+        cause.reason === "resourceFailure" ? new SessionJournalPersistenceV1Error({ operation: "runIndexedQuery", cause })
+          : corruption(index.attempt, "indexMaintenanceInvalid", cause))),
+    ).pipe(Effect.catchTag("IndexMaintenanceError", cause => Effect.fail(
       cause.reason === "resourceFailure" ? new SessionJournalPersistenceV1Error({ operation: "runIndexedQuery", cause })
-        : corruption(index.attempt, "indexMaintenanceInvalid", cause))),
-  ).pipe(Effect.catchTag("IndexMaintenanceError", cause => Effect.fail(
-    cause.reason === "resourceFailure" ? new SessionJournalPersistenceV1Error({ operation: "runIndexedQuery", cause })
-      : corruption(index.attempt, "indexMaintenanceInvalid", cause))))))
-    return yield* Effect.fail(new SessionJournalDeveloperIndexUnavailableV1Error({ reason: "buildNotEnabled" }));
+        : corruption(index.attempt, "indexMaintenanceInvalid", cause))))))
+      return yield* Effect.fail(new SessionJournalDeveloperIndexUnavailableV1Error({ reason: "buildNotEnabled" }));
+  }
   const staged = [...finite.points.values()].filter(point => point.tableId === index.tableId && point.overlay.kind !== "none");
   if (staged.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1)
     return yield* Effect.fail(corruption(index.attempt, "pointDependencyCountMismatch"));
@@ -7469,11 +7571,14 @@ async function replaceStoredIndexRanges(
   );
 }
 
+type PointOperationPlanningContext = Omit<ExactRunningAttemptKernelContextV1, "scopeClock"> |
+  FiniteRunningAttemptKernelContext;
+
 const planFreshPointOperationEffect = Effect.fn(
   "SessionJournalStore.planFreshPointOperation",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
   request: SessionJournalStoredPointRequest,
   randomUuid: () => string,
@@ -7528,7 +7633,7 @@ const planInsertEffect = Effect.fn(
   "SessionJournalStore.planInsert",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "insert" }>,
   randomUuid: () => string,
@@ -7550,9 +7655,14 @@ const planInsertEffect = Effect.fn(
     tableId: table.tableId,
     rowId,
   });
-  const creationTime = decodeAppCreationTimeV1(
-    finite?.nextCreationTime ?? context.journalRoot.nextCreationTime,
-  );
+  let creationTimeInput;
+  if (finite !== undefined) creationTimeInput = finite.nextCreationTime;
+  else {
+    if (!("nextCreationTime" in context.journalRoot))
+      return yield* Effect.fail(corruption(table.attempt, "exactAttemptPinsChanged"));
+    creationTimeInput = context.journalRoot.nextCreationTime;
+  }
+  const creationTime = decodeAppCreationTimeV1(creationTimeInput);
   const nextCreationTime = nextAppCreationTime(creationTime);
 
   const historical = yield* fromPointOperationPromise(() =>
@@ -7661,7 +7771,7 @@ const planPatchEffect = Effect.fn(
   "SessionJournalStore.planPatch",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "patch" }>,
   finite?: FiniteRootAttemptState,
@@ -7770,7 +7880,7 @@ const planReplaceEffect = Effect.fn(
   "SessionJournalStore.planReplace",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "replace" }>,
   finite?: FiniteRootAttemptState,
@@ -7881,7 +7991,7 @@ const planDeleteEffect = Effect.fn(
   "SessionJournalStore.planDelete",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "delete" }>,
   finite?: FiniteRootAttemptState,
@@ -7937,7 +8047,7 @@ const readLogicalPointEffect = Effect.fn(
   "SessionJournalStore.readLogicalPoint",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
   rowId: AppRowIdHexV1,
   finite?: FiniteRootAttemptState,
@@ -8048,7 +8158,7 @@ const loadJournalPointRowEffect = Effect.fn(
   "SessionJournalStore.loadJournalPointRow",
 )(function* (
   tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
+  context: PointOperationPlanningContext,
   tableId: CatalogTableId,
   rowId: AppRowIdHexV1,
 ): Effect.fn.Return<
@@ -9436,7 +9546,7 @@ function projectSuccessfulStoredOutcome(
 }
 
 function kernelContextMatchesAttempt(
-  context: ExactRunningAttemptKernelContextV1,
+  context: Pick<ExactRunningAttemptKernelContextV1, "anchor" | "executionPin">,
   attempt: SessionJournalAttemptStateV1,
 ): boolean {
   const anchor = context.anchor;
@@ -9449,6 +9559,76 @@ function kernelContextMatchesAttempt(
     anchor.snapshotToken.epoch === attempt.snapshotToken.epoch &&
     anchor.snapshotToken.commitSeq === attempt.snapshotToken.commitSeq;
 }
+
+const captureAndPersistFiniteMetadataReservationEffect = Effect.fn("SessionJournal.captureFiniteMetadataReservation")(
+  function* (tx: AppRowTransaction, handle: SessionJournalAttempt, state: SessionJournalAttemptStateV1,
+    context: ExactRunningAttemptKernelContextV1, metadata: FiniteAttemptMetadata) {
+    const selected = inspectFiniteAttemptMetadata(metadata, handle);
+    if (selected?.application === null || selected?.application === undefined ||
+      selected.metadataWatermark !== context.scopeClock.lastMetadataSequence ||
+      selected.owner.scopeId !== state.selector.scopeId || selected.owner.sessionId !== state.selector.sessionId ||
+      selected.owner.attemptFence !== state.selector.attemptFence || selected.owner.snapshotCommitSeq !== state.snapshotToken.commitSeq ||
+      selected.owner.schemaVersionId !== state.schemaVersionId)
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    const binding = selected.binding;
+    if (binding !== undefined && (binding.candidateSha256 === undefined || binding.activationSha256 === undefined))
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    const reservation = yield* captureFiniteMetadataReservation({ ...state.selector,
+      storageGeneration: "flarexdb_v1", storageGenerationFence: context.anchor.storageGenerationFence,
+      snapshotToken: state.snapshotToken, schemaVersionId: state.schemaVersionId,
+      metadataWatermark: selected.metadataWatermark, application: selected.application,
+      binding: binding === undefined ? null : { sequence: binding.sequence, sha256: binding.sha256,
+        candidateSha256: binding.candidateSha256!, activationSha256: binding.activationSha256! },
+    }).pipe(Effect.mapError(cause => new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause })));
+    const updated = yield* persistFiniteMetadataReservationInTransaction(tx, reservation).pipe(Effect.mapError(cause =>
+      new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause })));
+    yield* Effect.fromResult(recognizeFiniteMetadataReservationUpdate(tx, context.snapshotLease, updated)
+      .pipe(Result.mapError(cause => new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause }))));
+    return reservation;
+  });
+
+const recordFiniteExecutionMetadataEffect = Effect.fn("SessionJournal.recordFiniteExecutionMetadata")(
+  function* (handle: SessionJournalAttempt, attempt: SessionJournalAttemptStateV1, finite: FiniteRootAttemptState,
+    context: ExactRunningAttemptKernelContextV1) {
+    if (finite.contract !== "reserved")
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    const projection = getFiniteAttemptMetadataProjection(finite.metadata, handle);
+    const root = attachLogicalDocumentRootEvaluator(finite.evaluator, { attempt: handle, scopeId: attempt.selector.scopeId,
+      snapshotCommitSeq: attempt.snapshotToken.commitSeq, attemptFence: String(attempt.selector.attemptFence),
+      metadataWatermark: context.scopeClock.lastMetadataSequence });
+    if (projection === null || root === null)
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    for (const contractKey of [finiteMetadataContractKey("function", context.executionPin.functionPath),
+      finiteMetadataContractKey("executionGroup", "legacy_dynamic_worker_v1")]) {
+      const dependency = yield* Effect.fromResult(captureFiniteMetadataDependency(projection,
+        { ...APPLICATION_EXECUTION_METADATA_OWNER, contractKey }, context.scopeClock.lastMetadataSequence)
+        .pipe(Result.mapError(cause => new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause }))));
+      if (dependency.observed.kind !== "present" || !recordLogicalDocumentRootMetadataDependency(root, dependency))
+        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    }
+  });
+
+const recordFiniteApplicationDemandMetadataEffect = Effect.fn("SessionJournal.recordFiniteApplicationDemandMetadata")(
+  function* (attempt: SessionJournalAttemptStateV1, finite: FiniteRootAttemptState, tableId: CatalogTableId,
+    write: boolean, indexDefinitionId?: CatalogIndexDefinitionId) {
+    if (finite.contract !== "reserved") return yield* Effect.fail(corruption(attempt, "exactAttemptPinsChanged"));
+    const projection = getFiniteAttemptMetadataProjection(finite.metadata, finite.handle);
+    const watermark = finite.initialContext.scopeClock.lastMetadataSequence;
+    const root = attachLogicalDocumentRootEvaluator(finite.evaluator, { attempt: finite.handle,
+      scopeId: attempt.selector.scopeId, snapshotCommitSeq: attempt.snapshotToken.commitSeq,
+      attemptFence: String(attempt.selector.attemptFence), metadataWatermark: watermark });
+    if (projection === null || root === null)
+      return yield* Effect.fail(corruption(attempt, "exactAttemptPinsChanged"));
+    const keys = yield* Effect.fromResult(getFiniteApplicationDemandMetadataKeys(
+      finite.metadata, finite.handle, tableId, write ? "write" : "read", indexDefinitionId)
+      .pipe(Result.mapError(cause => corruption(attempt, "requestTableCapabilityMismatch", cause))));
+    for (const key of keys) {
+      const dependency = yield* Effect.fromResult(captureFiniteMetadataDependency(projection, key, watermark)
+        .pipe(Result.mapError(cause => corruption(attempt, "exactAttemptPinsChanged", cause))));
+      if (dependency.observed.kind !== "present" || !recordLogicalDocumentRootMetadataDependency(root, dependency))
+        return yield* Effect.fail(corruption(attempt, "exactAttemptPinsChanged"));
+    }
+  });
 
 function attemptFromContext(
   context: ExactRunningAttemptKernelContextV1,
@@ -9762,9 +9942,7 @@ function prepareFiniteRootRows(context: ExactRunningAttemptKernelContextV1,
     receiptEvidenceBytes: counters.receiptEvidenceBytes,
     participantWorkBytes: finite.participantWorkBytes,
     participantWorkCalls: finite.participantWorkCalls,
-    ...(finite.nextCreationTime === undefined ? {} : {
-      nextCreationTime: finite.nextCreationTime,
-    }),
+    nextCreationTime: finite.nextCreationTime,
     updatedAt: context.databaseNow,
  };
   return { root, receipts, points, indexRanges, relationDependencies: relationRows, events };
@@ -10030,6 +10208,7 @@ const materializeSealCandidateEffect = Effect.fn(
 )(function* (
   attempt: SessionJournalAttemptStateV1,
   snapshot: SessionJournalSealRowsV1,
+  finite?: FiniteRootAttemptState,
 ): Effect.fn.Return<
   SessionJournalSealCandidateV1,
   SessionJournalSealV1Error | SessionJournalStorageCorruptionV1Error
@@ -10186,6 +10365,7 @@ const materializeSealCandidateEffect = Effect.fn(
     ...pointDependencies,
     ...indexRangeDependencies,
     ...relationDependencies,
+    ...(finite === undefined || finite.contract === "direct" ? [] : finite.evaluator.snapshot().metadataDependencies ?? []),
   ];
 
   const eventRows = snapshot.events;
@@ -10346,6 +10526,9 @@ const materializeSealCandidateEffect = Effect.fn(
     format: SESSION_JOURNAL_FORMAT,
     protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+    ...(finite === undefined || finite.contract === "direct" ? {} : {
+      finiteMetadataReservationSha256Hex: getCapturedFiniteMetadataReservationSha256Hex(finite.reservation)!,
+    }),
     finalSyscallSequence: lastSyscallSequence,
     readDependencies: Object.freeze(dependencies),
     readUsage: Object.freeze({
@@ -10387,9 +10570,7 @@ async function requireRepeatableReadAttemptAuthority(
   attempt: SessionJournalAttemptStateV1,
   preliminary: TrustedScopeAuthority,
 ): Promise<RepeatableReadAttemptAuthorityV1> {
-  const clockRows = await tx
-    .select()
-    .from(fxSystemScopeClocks)
+  const clockRows = await selectScopeClockRows(tx)
     .where(eq(fxSystemScopeClocks.scopeId, attempt.selector.scopeId))
     .limit(2);
   const clockRow = clockRows[0];

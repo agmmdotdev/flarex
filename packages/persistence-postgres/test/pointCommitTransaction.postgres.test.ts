@@ -491,10 +491,10 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       const revocation = persistence
         .query(
           `
-          update fx_system_scope_clock
+          update fx_system_scope_execution_authority
           set authorization_revocation_epoch =
             authorization_revocation_epoch + 1
-          where scope_uuid = $1
+          where scope_id = (select scope_id from fx_system_scope_clock where scope_uuid = $1)
         `,
           [attempt.command.sealIdentity.scopeUuid],
         )
@@ -5428,7 +5428,7 @@ async function setValidatingUniqueSetBuild(
 ) {
   await persistence.query(
     `insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
-    select scope_id, $2, storage_generation, storage_generation_fence, epoch, last_commit_seq, last_commit_seq, 'validating', decode(repeat('ff',16),'hex'), 1 from fx_system_scope_clock where scope_id = $1
+    select clock.scope_id, $2, authority.storage_generation, authority.storage_generation_fence, authority.epoch, clock.last_commit_seq, clock.last_commit_seq, 'validating', decode(repeat('ff',16),'hex'), 1 from fx_system_scope_clock clock join fx_system_scope_execution_authority authority using (scope_id) where clock.scope_id = $1
     on conflict (scope_id, unique_constraint_definition_id) do nothing`,
     [scope.scopeId, definitionId],
   );
@@ -6176,7 +6176,7 @@ async function waitForBlockedPointCommit(
         where datname = current_database()
           and wait_event_type = 'Lock'
           and cardinality(pg_blocking_pids(pid)) > 0
-          and query ilike '%fx_system_scope_clock%'
+          and (query ilike '%fx_system_scope_clock%' or query ilike '%fx_system_scope_execution_authority%')
       `,
     );
     if ((result.rows[0]?.blocked ?? 0) >= expectedBlocked) return;

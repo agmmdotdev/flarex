@@ -1,5 +1,6 @@
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -11,6 +12,7 @@ import {
 } from "flarex-protocol/catalog";
 import {
   APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+  APP_BY_ID_PHYSICAL_SPEC_V1,
   encodeOrderedIndexComponentsV1,
   orderedIndexCreationTimeV1,
   type OrderedIndexKeyHexV1,
@@ -30,9 +32,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   AppIndexEntryRevisionAlreadyExistsError,
+  AppIndexEntryStorageCorruptionError,
   appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,
+  scanCurrentPublicationIndexInTransactionEffect,
 } from "../src/appIndexEntries";
 import {
   locateAppIndexDefinitionByIdEffect,
@@ -40,7 +44,7 @@ import {
 } from "../src/appIndexDefinitions";
 import { appendPreparedAppRowRevisionsInTransactionEffect } from "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   postgresUrl,
   withPostgresSequentialScansDisabled,
@@ -70,6 +74,35 @@ const deploymentId = "deployment_s10_postgres";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describePostgres("real PostgreSQL S10 app-index storage", () => {
+  it("retains genuine frozen catalog specifications and authenticates raw publication digests", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await insertClock(persistence);
+      const definition = locatedDefinition;
+      expect(Object.isFrozen(definition)).toBe(true);
+      expect(Object.isFrozen(definition.physicalSpec)).toBe(true);
+      expect(Object.isFrozen(definition.physicalSpec.orderedFields)).toBe(true);
+      expect(Object.isFrozen(definition.physicalSpec.orderedFields[0])).toBe(true);
+      expect(Object.isFrozen(definition.physicalSpec.tieBreaker)).toBe(true);
+      expect(Reflect.set(definition.physicalSpec, "maxEncodedKeyBytes", 1)).toBe(false);
+      expect(Reflect.set(definition.physicalSpec.orderedFields, "0", { kind: "documentPath", path: "other" })).toBe(false);
+      expect(Reflect.set(definition, "physicalSpecSha256Hex", "0".repeat(64))).toBe(false);
+      expect(await persistence.drizzle.transaction(tx => runEffect(scanAppIndexAtSnapshotInTransactionEffect(tx, {
+        scopeId, definition, bounds: {}, snapshotCommitSeq: CommitSeqSchema.make(1n), limit: 10,
+      })))).toMatchObject({ entries: [], isDone: true });
+      for (const publicationIndex of [
+        { indexDefinitionId: definition.indexDefinitionId, physicalSpec: definition.physicalSpec,
+          physicalSpecSha256Hex: "0".repeat(64) },
+        { indexDefinitionId: definition.indexDefinitionId, physicalSpec: APP_BY_ID_PHYSICAL_SPEC_V1,
+          physicalSpecSha256Hex: definition.physicalSpecSha256Hex },
+      ]) {
+        const refused = await persistence.drizzle.transaction(tx => runEffectFailure(
+          scanCurrentPublicationIndexInTransactionEffect(tx, { scopeId, publicationIndex, bounds: {}, limit: 10 })));
+        expect(refused).toBeInstanceOf(AppIndexEntryStorageCorruptionError);
+        expect(refused).toMatchObject({ reason: "activation index digest mismatch" });
+      }
+    });
+  });
+
   it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       await insertClock(persistence);
@@ -182,12 +215,7 @@ async function insertClock(
   persistence: PostgresFlarexPersistence,
 ): Promise<void> {
   await seedLocatedDefinition(persistence);
-  await persistence.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, last_commit_seq, epoch)
-     values ($1, 'flarexdb_v1', 100, $2)`,
-    [scopeId, epoch],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch, lastCommitSeq: 100n });
 }
 
 async function seedLocatedDefinition(

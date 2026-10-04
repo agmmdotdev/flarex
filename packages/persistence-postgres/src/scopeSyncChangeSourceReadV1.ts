@@ -1,3 +1,5 @@
+import { type ScopeClockRow } from "./scopeClock";
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
@@ -127,7 +129,7 @@ export interface ScopeSyncChangeSourceReaderV1 {
 }
 
 type ScopeClockAuthorityRow = Pick<
-  typeof fxSystemScopeClocks.$inferSelect,
+  ScopeClockRow,
   | "scopeId"
   | "scopeUuid"
   | "storageGeneration"
@@ -179,16 +181,16 @@ export function createScopeSyncChangeSourceReaderV1(
             .select({
               scopeId: fxSystemScopeClocks.scopeId,
               scopeUuid: fxSystemScopeClocks.scopeUuid,
-              storageGeneration: fxSystemScopeClocks.storageGeneration,
+              storageGeneration: fxSystemScopeExecutionAuthorities.storageGeneration,
               storageGenerationFence:
-                fxSystemScopeClocks.storageGenerationFence,
+                fxSystemScopeExecutionAuthorities.storageGenerationFence,
               lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
               oldestAvailableCommitSeq:
-                fxSystemScopeClocks.oldestAvailableCommitSeq,
-              epoch: fxSystemScopeClocks.epoch,
-              epochUuid: fxSystemScopeClocks.epochUuid,
+                fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq,
+              epoch: fxSystemScopeExecutionAuthorities.epoch,
+              epochUuid: fxSystemScopeExecutionAuthorities.epochUuid,
             })
-            .from(fxSystemScopeClocks)
+            .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
             .where(eq(fxSystemScopeClocks.scopeUuid, input.scopeUuid))
             .limit(2),
           catch: cause => new ScopeSyncChangeSourceSqlV1Error({

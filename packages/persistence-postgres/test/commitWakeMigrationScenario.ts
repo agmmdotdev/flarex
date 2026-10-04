@@ -1,6 +1,7 @@
 import { expect } from "vitest";
 
 import type { FlarexPersistence } from "../src";
+import { InstallationLifecycleError } from "../src/installationLifecycle";
 import {
   WAKE_EPOCH_A,
   WAKE_EPOCH_B,
@@ -70,7 +71,14 @@ export async function verifyCommitWakeMigration(
 
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 92);
   await injectMigrationFailure(fixture.migrationPath, "fx_commit_wake_deliberate_missing_table");
-  await expect(persistence.migrate()).rejects.toThrow(/fx_commit_wake_deliberate_missing_table/);
+  const migrationFailure: unknown = await persistence.migrate().then(() => null, cause => cause);
+  // The PostgreSQL installation owner retains the original Drizzle SQL failure
+  // inside its typed resource failure; PGlite's historical migrator exposes it directly.
+  if (migrationFailure instanceof InstallationLifecycleError)
+    expect(migrationFailure.reason).toBe("resourceFailure");
+  const sqlFailure = migrationFailure instanceof InstallationLifecycleError ? migrationFailure.cause : migrationFailure;
+  expect(sqlFailure).toBeInstanceOf(Error);
+  expect(sqlFailure).toMatchObject({ message: expect.stringContaining("fx_commit_wake_deliberate_missing_table") });
   expect((await persistence.query(`
     select to_jsonb(w) as wake from fx_system_outbox w order by commit_seq
   `)).rows).toEqual(original.rows);

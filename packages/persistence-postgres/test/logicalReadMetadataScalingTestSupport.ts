@@ -56,7 +56,7 @@ export const prepareLogicalReadMetadataScalingCandidate = Effect.fn("LogicalRead
         : [sideTable(target), { ...sideTable(unused, 100),
           constraints: Array.from({ length: scale.count }, (_, index) => ({
             constraintId: `${unused}.reference_${index}`, kind: "foreignKey", sourceColumns: [`value_${index}`],
-            targetColumns: [{ tableId: target, columnId: "id" }], onDelete: "restrict", onUpdate: "noAction", origin,
+            targetColumns: [{ tableId: target, columnId: "id" }], onDelete: "noAction", onUpdate: "noAction", origin,
           })),
           relationships: Array.from({ length: scale.count }, (_, index) => ({
             relationshipId: `${unused}.reference_${index}`, kind: "manyToOne",

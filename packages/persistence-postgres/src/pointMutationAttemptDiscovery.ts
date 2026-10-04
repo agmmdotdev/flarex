@@ -497,12 +497,13 @@ export function buildPointMutationAttemptDiscoveryStatementV1(
           date_trunc('milliseconds', statement_timestamp())
         ) as horizon,
         clock.scope_uuid,
-        clock.storage_generation,
-        clock.storage_generation_fence,
-        clock.epoch
+        authority.storage_generation,
+        authority.storage_generation_fence,
+        authority.epoch
       from (select 1) as singleton
       left join fx_system_scope_clock as clock
         on clock.scope_uuid = ${input.scopeUuid}::uuid
+      left join fx_system_scope_execution_authority as authority on authority.scope_id = clock.scope_id
     ),
     expired_claim_candidates as materialized (
       select candidate.*

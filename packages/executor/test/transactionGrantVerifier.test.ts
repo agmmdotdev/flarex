@@ -887,7 +887,7 @@ describe("current-epoch transaction-grant admission", () => {
     });
     await persistence.query(
       `
-        update fx_system_scope_clock
+        update fx_system_scope_execution_authority
         set storage_generation = 'flarexdb_v1'
         where scope_id = $1
       `,

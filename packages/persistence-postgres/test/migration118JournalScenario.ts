@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 import type { FlarexSqlClient } from "../src";
-import { insertSessionTestScope, insertTransactionSessionFixture,
+import { insertLegacySessionTestScope, insertTransactionSessionFixture,
   transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
 
 type MigratingClient = Pick<FlarexSqlClient, "query"> & Readonly<{ migrate: () => Promise<void> }>;
@@ -34,7 +34,7 @@ export async function assertMigration118JournalCutover(previous: MigratingClient
   migrationsSchema: string): Promise<void> {
   if (!/^[a-z_][a-z_0-9]*$/.test(migrationsSchema)) throw new Error("Invalid migrations schema");
   const session = transactionSessionFixture(transactionSessionIdAt(118));
-  await insertSessionTestScope(previous);
+  await insertLegacySessionTestScope(previous);
   await insertTransactionSessionFixture(previous, session);
   const before = await previous.query<{ sessionCount: string; formatCheck: string }>(`select
     (select count(*)::text from fx_system_tx_session where session_id = $1) as "sessionCount",

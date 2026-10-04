@@ -6,6 +6,7 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { fxSystemPreparedMetadataEpoch } from "./schema";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { runningAttemptTailProtectionSql } from "./exactRunningAttemptTail";
+import { scopeExecutionAuthorityInstallationSql } from "./scopeExecutionAuthorityInstallation";
 import { acquireInstallationAdmission, lockInstallationForCurrentTransaction,
   isManagedInstallationTransaction, managedInstallationMetadataIncarnation, managedInstallationSchema,
   managedInstallationIdentity,
@@ -92,7 +93,7 @@ const protectionSql = sql<boolean>`(
       and t.tgnewtable is null and t.tgnargs = 0
       and p.pronamespace = c.relnamespace and p.proname = 'fx_invalidate_prepared_metadata'
   )
-  select ${runningAttemptTailProtectionSql(sql`attestation_functions`, sql`attestation_tables`, sql`attestation_context`)}
+  select ${scopeExecutionAuthorityInstallationSql(sql`current_schema()`)} and ${runningAttemptTailProtectionSql(sql`attestation_functions`, sql`attestation_tables`, sql`attestation_context`)}
   and
   current_user = session_user
   and pg_catalog.current_setting('session_replication_role') = 'origin'

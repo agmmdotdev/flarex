@@ -1,11 +1,16 @@
 /** Package-internal finite entry lifecycle. Only the activation owner confirms these facts. */
 import { Effect } from "effect";
 import type { AppRowTransaction } from "./appRows";
-import type { AcceptedApplicationBinding, ApplicationActiveSelection } from "./applicationActivation";
+import { withPreparedFiniteActiveApplicationInTransaction,
+  type PreparedFiniteActiveApplication, type AcceptedApplicationBinding, type ApplicationActiveSelection } from "./applicationActivation";
+import { requireFiniteReplacementApplicationExecutionAuthority } from "./applicationMutationAdmission";
+import { captureFiniteReplacementAttemptInTransactionEffect } from "./transactionSessionActivation";
+import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
+  openProtectedMetadataFinalGuardScope } from "./preparedMetadataEpoch";
 import { LogicalParticipantAdmissionError, type LogicalParticipantAdmissionBundle } from "./logicalDocuments/participantAdmission";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
-import type { ExactRunningAttemptKernelContextV1 } from "./transactionSessionAttemptKernel";
-import { prepareTerminalControlEffect, type PreparedTerminalControl, type StoredCommitAuthorityEvidenceLoaderPortsV1 } from "./storedCommitAuthority/postgresLoader";
+import type { ExactRunningAttemptKernelContextV1, ExactRunningAttemptKernelInputV1 } from "./transactionSessionAttemptKernel";
+import { prepareFiniteTerminalControlEffect, type PreparedTerminalControl, type StoredCommitAuthorityEvidenceLoaderPortsV1 } from "./storedCommitAuthority/postgresLoader";
 import type { CapturedRowsV1 } from "./storedCommitAuthority/materialization";
 import type { StoredOccExecutionEvidenceAuthorityV1 } from "./storedOccExecution/model";
 import { SessionJournalPersistenceV1Error, type SessionJournalAttempt, type SessionJournalAttemptStateV1,
@@ -66,10 +71,10 @@ export function abandonPreparedFiniteSessionJournalEntry(entry: PreparedFiniteSe
 
 export const prepareFiniteSessionJournalEntryControlEffect = Effect.fn("SessionJournalStore.prepareFiniteEntryControl")(
   function* (entry: PreparedFiniteSessionJournalEntry, authority: StoredOccExecutionEvidenceAuthorityV1,
-    session: Parameters<typeof prepareTerminalControlEffect>[2]) {
+    session: Parameters<typeof prepareFiniteTerminalControlEffect>[2], application: PreparedFiniteActiveApplication) {
     const state = preparedFiniteEntries.get(entry);
     if (state?.status !== "prepared") return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    return yield* prepareTerminalControlEffect(state.issuer, authority, session).pipe(Effect.mapError(cause =>
+    return yield* prepareFiniteTerminalControlEffect(state.issuer, authority, session, application).pipe(Effect.mapError(cause =>
       new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
   });
 
@@ -85,6 +90,35 @@ export const runPreparedFiniteSessionJournalEntryEffect = Effect.fn("SessionJour
     state.capture = capture;
     return capture;
   });
+
+/** Replacement uses the original entry issuer in the transaction creating its fresh claim. */
+export const runPreparedFiniteReplacementSessionJournalEntryEffect = Effect.fn(
+  "SessionJournalStore.enterFiniteReplacementInTransaction",
+)(function* (entry: PreparedFiniteSessionJournalEntry, application: PreparedFiniteActiveApplication,
+  tx: AppRowTransaction, input: ExactRunningAttemptKernelInputV1, resolved: ResolvedJournalTargetV1) {
+  openProtectedMetadataFinalGuardScope(tx);
+  return yield* Effect.gen(function* () {
+    const fresh = yield* captureFiniteReplacementAttemptInTransactionEffect(tx, input);
+    return yield* withPreparedFiniteActiveApplicationInTransaction(application, tx, fresh.context.scopeClock,
+      (accepted, binding) => Effect.gen(function* () {
+        yield* requireFiniteReplacementApplicationExecutionAuthority(accepted.basis, fresh.executionAuthority);
+        const { anchor, executionPin } = fresh.context;
+        const control = yield* prepareFiniteSessionJournalEntryControlEffect(entry, {
+          kind: "claimedAttempt", deploymentId: anchor.deploymentId, scopeId: anchor.scopeId,
+          scopeUuid: fresh.context.scopeUuid, sessionId: anchor.sessionId, attemptFence: anchor.attemptFence,
+          storageGeneration: anchor.storageGeneration, storageGenerationFence: anchor.storageGenerationFence,
+          snapshotToken: anchor.snapshotToken, schemaVersionId: executionPin.schemaVersionId,
+          executionClaim: input.executionClaim,
+        }, fresh.applicationSelector, application);
+        const capture = yield* runPreparedFiniteSessionJournalEntryEffect(entry, tx, fresh.context,
+          resolved, accepted.selection, binding, control, fresh.verifyFinalRows.pipe(Effect.mapError(cause =>
+            new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))));
+        yield* fresh.verifyFinalRows;
+        yield* flushProtectedMetadataFinalGuards(tx);
+        return capture;
+      })).pipe(Effect.ensuring(Effect.sync(fresh.close)));
+  }).pipe(Effect.ensuring(Effect.sync(() => closeProtectedMetadataFinalGuardScope(tx))));
+});
 
 /** The activation owner calls this only after its transaction has confirmed COMMIT. */
 export function confirmPreparedFiniteSessionJournalEntry(entry: PreparedFiniteSessionJournalEntry,

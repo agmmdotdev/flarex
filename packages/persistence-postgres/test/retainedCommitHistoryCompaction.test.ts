@@ -239,7 +239,7 @@ describe("O11-D retained commit-history compaction", () => {
       if (rotateBeforeTransaction) {
         rotateBeforeTransaction = false;
         await persistence.query(
-          `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+          `update fx_system_scope_execution_authority set epoch = $2 where scope_id = $1`,
           [
             stale.scopeId,
             "epoch_98000000-0000-4000-8000-999999999999",
@@ -350,7 +350,7 @@ async function seedCommitHistory(
          (scope_uuid, epoch_uuid, commit_seq, change_count,
           relation_adjacency_change_count, committed_at)
        select scope_uuid, epoch_uuid, $2, $3, $4, clock_timestamp()
-       from fx_system_scope_clock where scope_id = $1`,
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
       [
         scopeId,
         commit.commitSeq,
@@ -369,14 +369,14 @@ async function seedCommitHistory(
             value_bytes, value_sha256)
          select scope_uuid, 1, decode($3, 'hex'), $2, null,
                 epoch_uuid, 'schema_v1', $4, 1, true, null, null
-         from fx_system_scope_clock where scope_id = $1`,
+         from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
         [scopeId, commit.commitSeq, rowIdHex, ordinal + 1],
       );
       await persistence.query(
         `insert into fx_system_commit_app_row_change
            (scope_uuid, epoch_uuid, commit_seq, change_ordinal, table_id, row_id)
          select scope_uuid, epoch_uuid, $2, $3, 1, decode($4, 'hex')
-         from fx_system_scope_clock where scope_id = $1`,
+         from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
         [scopeId, commit.commitSeq, ordinal, rowIdHex],
       );
     }
@@ -394,16 +394,24 @@ async function seedCommitHistory(
          select scope_uuid, epoch_uuid, $2, $3, 1,
                 case when $3 % 2 = 0 then 'outgoing' else 'incoming' end,
                 decode($4, 'hex')
-         from fx_system_scope_clock where scope_id = $1`,
+         from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
         [scopeId, commit.commitSeq, ordinal, rowIdHex],
       );
     }
   }
   const lastCommitSeq = input.commits.at(-1)?.commitSeq ?? 0n;
   await persistence.query(
-    `update fx_system_scope_clock
-     set last_commit_seq = $2, oldest_available_commit_seq = $3
-     where scope_id = $1`,
+    `with authority as materialized (
+       select scope_id from fx_system_scope_execution_authority
+       where scope_id = $1 for update
+     ), sequence as (
+       update fx_system_scope_clock as clock set last_commit_seq = $2
+       from authority where clock.scope_id = authority.scope_id
+       returning clock.scope_id
+     )
+     update fx_system_scope_execution_authority as authority
+     set oldest_available_commit_seq = $3
+     from sequence where authority.scope_id = sequence.scope_id`,
     [scopeId, lastCommitSeq, input.floor],
   );
 }

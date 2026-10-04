@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
@@ -345,10 +346,7 @@ describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
         reason: "creation_authority_invalid",
       });
 
-      await fixture.persistence.drizzle
-        .update(fxSystemScopeClocks)
-        .set({ epoch: staleScopeEpoch })
-        .where(eq(fxSystemScopeClocks.scopeId, taskScopeId));
+      await fixture.persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({epoch: staleScopeEpoch}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, taskScopeId));
       const staleFailure = await runEffectFailure(store.createRun(
         creationRequest("request-stale", 0x55),
       ));

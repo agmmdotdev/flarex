@@ -1,0 +1,727 @@
+{
+  "format": "flarex.matched-finite-native-product-retrieve",
+  "mode": "cpu",
+  "label": "finite-contract-native-cpu-01",
+  "managedRead": true,
+  "nativeModuleSetupMs": 1216.7959000000046,
+  "warmups": 0,
+  "count": 2,
+  "checkpoint": "8c394df-plus-selected-finite-contract",
+  "sourceHashes": {
+    "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts": "10cd109d96d1e24fabe46af61c7e11f81b59aaf571abec87615045132e77a4b5",
+    "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/cpu-profile.ts": "7c45dcd2ac0a7059a2aa89b6a2a99d5bd744e1168f8b22b3a5a5e6d32030af0a",
+    "packages/flarex-backend/test/support/mixedMutationWorkerdFixture.ts": "1e7ca490e84d1f2d35aa8826d5777b2ed34e7f515ada70a833b288612c1af45e",
+    "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts": "b074fd93c9f3bb148df802eef2c566142973464cea246b9969c5c035e735715f",
+    "packages/executor/test/performance/support/mixedMutationProductFixture.ts": "f63233e069fab0b759c212327598ea590088ca4b7f8820debbf426bbacfc1b13",
+    "packages/executor/test/performance/support/mixedMutationInProcessRuntime.ts": "8d18fe9ff106829248a4c8f3815de9907029ca7c2c5baec52ec13c5919a2ed6c",
+    "packages/executor/test/performance/support/nativeProductOperationDiagnostics.ts": "9700673d0c25bfa79084a3f82b491fff8273add4414eefd5a5e3bb81d8ee5c5a",
+    "packages/persistence-postgres/src/preparedHostRuntime.ts": "dcf8ff3a589593c7b69d802cf32515838e129e296d6e48a889e7549f902bee43",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "92470da484d378baa8092bb4015575a3460e846b34980f53ea94c0e15e99bf60",
+    "packages/persistence-postgres/test/logicalReadMetadataScalingTestSupport.ts": "b6d24057304dbf60ae6fe6369d5fb2455f00eb3e35e088f846adf1bdcd090329",
+    "packages/persistence-postgres/src/scopeAuthorityControlRead.ts": "4829cfecb1305dfe55e65e40a5d193fd466cde6276834ab340e265f5d29f2973",
+    "packages/persistence-postgres/src/scopeClock.ts": "4cf8d71a919907658a1bff901dec4dea255e94f476c2ac3b557a05e9c7fee234",
+    "packages/persistence-postgres/src/finiteRunningAttempt.ts": "48ea4f3f6c3db16dea33fc842ab827db6820c42fe589c40ec2cc77ba0de48b4b",
+    "packages/persistence-postgres/src/scopeExecutionAuthorityInstallation.ts": "9a309ad880ab391eaba4da1ca27505f58af8a57a87b78205feaa1d730bcbcf7a",
+    "packages/persistence-postgres/drizzle/0126_finite_execution_authority.sql": "db691d887edd6fb13d31deb4348c0c3c10d782f2b088f931ae7bf5a9d0aff83b",
+    "packages/persistence-postgres/src/finiteMetadataDependencies.ts": "d3549b5ea3781c49938c399f92135ecf697dba5946e169bdbda85d314e611388",
+    "packages/persistence-postgres/src/finiteMetadataReservation.ts": "584218ac90eeac7f32bc8986ebff0cf3374a869efce68ebc3ca9ef4d46724ddf",
+    "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts": "46d8f8944dd324c69fa3305a75e09582deecdf5af9fdb1dcc54904867bf61b22",
+    "packages/persistence-postgres/src/physicalDefinitionRetirementPins.ts": "d32aec0837f28984bb1c82ac291dc1124cf58b4684ddd153ed50406e5f0ed1bb",
+    "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts": "2bfa99de7787858fe4ae500285245309bbc9903a2cf22d9f269413adf281ae2f",
+    "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts": "406822cf054d2f4c0c651945c53adcb4ebe78e30a05f75fa4e9e43cda846e2a3",
+    "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts": "8d02c10aabd5f2758e8d8a9c6acacd16b1c0d84933a2b88428460da1e0321a8d",
+    "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts": "202c82d923a69d540fd5a2e4909ff0dccd608b8f438bd446baa42ee0720f26f0",
+    "packages/persistence-postgres/src/logicalDocuments/readAdmission.ts": "b807ffd15377eac83fe736db750b539bd86c9bedb75a7a10fc20a95c2249df18",
+    "packages/persistence-postgres/src/logicalDocuments/rootEvaluator.ts": "3619608d2ae546dd9cd591f6381fa43a2b3d4e3173f6a0ebff22f11856baf4dc",
+    "packages/persistence-postgres/src/logicalDocuments/journalEvidence.ts": "a0e7669e9d2c629a2a45cfd4585cef062f7e5a094cdafb6f62f1ef0ec2de89db",
+    "packages/persistence-postgres/src/logicalDocuments/commitEvidence.ts": "b419d8b9d37cfcbb05a9450d6d4b6dd2b06de8cfc3f92a8e3c0ce53785e41dfc",
+    "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts": "cb77f502e505ef7bebe79218ac27dac9b539f2c433680555ae38ba6685cadf57",
+    "packages/persistence-postgres/src/frameworkSchema/binding/host.ts": "b0d970b52668bbf0c2c2f158588cc4fe26ebd008fe7d815ef1090defac9a1b15",
+    "packages/persistence-postgres/src/frameworkSchema/binding/canonical.ts": "722ba504846f80ea48c76858bbd0e536e823cb2627c1c5a108ca50f614bd03b3",
+    "packages/persistence-postgres/src/frameworkSchema/binding/model.ts": "254b4ae3517b515c34e8cddfe1dbb8bc7e7b7819272bba83889472bbb614bb6c",
+    "packages/persistence-postgres/src/frameworkSchema/binding/logicalSchema.ts": "f576d9ab203b09cd1a932128877ee1f851e66cd563313b228ecba3904faad7da",
+    "packages/persistence-postgres/src/commerceTransaction/admission.ts": "9551437010f4986d0d400a6ce92a984c1241a122f2c54673003d6eacbf872d23",
+    "packages/persistence-postgres/src/commerceTransaction/logicalInitialization.ts": "192ee315c51e13837b75f6136602325b420486bbdcce93f4f7494800b90f9b60",
+    "packages/persistence-postgres/src/commerceTransaction/host.ts": "b7d4962d70e0959aa7fb4f8fa21a62391abde2039324d9c90650753dab4c27f9",
+    "packages/persistence-postgres/src/atomicCommerce/admission.ts": "a39446a3352fd32aaf27ea14a7e2d5cbdec7410cee5faf336ddaf4b2130c8d85",
+    "packages/persistence-postgres/src/crossDomainCommand/host.ts": "060a9bccded0cfe63b15f3bdbfc3bc7775f0ea3ea9273edb98cb7e1af1973acf",
+    "packages/persistence-postgres/src/applicationActivation.ts": "b4be4f44ca7bd2b571ea7177fd0fb03ca7cdce28d104819ef4ca647026d84494",
+    "packages/persistence-postgres/src/applicationBindingProjection.ts": "ddb26a5a21f627de927821c10632301647808b553cdfc250e7e57e39838c90cb",
+    "packages/persistence-postgres/src/applicationActiveHeadRead.ts": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79",
+    "packages/persistence-postgres/src/applicationReadiness.ts": "feabd25d95912dfabfb4e410ed585a3d7944f6c78428e324100a81879808ef62",
+    "packages/persistence-postgres/src/applicationRelationReadinessFold.ts": "3c2d11a380656c97f5cb67a5bf67e1e3e6fe6f357bf47df017ae630e6b7e8349",
+    "packages/persistence-postgres/src/applicationStandaloneBinding.ts": "092bf423f7b7617a9b008df5b8a42894ba5d3a6c8c2c7402e2cf01b45b5340d9",
+    "packages/persistence-postgres/src/schemaVersionArtifacts.ts": "b2c4914ea54d05a1b6b86c0ccb7b59c70a184e21619b2ad397dfb0c7c3de20a8",
+    "packages/persistence-postgres/src/appIndexDefinitions.ts": "369c01a81aa4f4bec985c5ab16ac9532023faba34e0d75d0d304fc76b310022d",
+    "packages/persistence-postgres/src/appIndexEntries.ts": "9135c913bc8175e9fe39f592cfe1aa41d387c373d7e7cd3dfa25372ce489fb04",
+    "packages/persistence-postgres/src/appRows.ts": "11e2e5b35d518eb199f5c65be70f90728b148c4845cbd4cc9076d33d78e7ba59",
+    "packages/persistence-postgres/src/appUniqueConstraintDefinitions.ts": "0deed159ac128bed973868d4e9728de6480061a30da444ff6d6122f6ede5ad88",
+    "packages/persistence-postgres/src/appUniqueConstraintCommitV1.ts": "cfbb6de1025d9707562e8fee7e82eaef2a13c150754a032ab1293913bd66652f",
+    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts": "02ae76aefe6c992602be220bb26e318c957a6f5d95e3029c07ae22ebc859a486",
+    "packages/persistence-postgres/src/indexBuildStates.ts": "f50a64a43c7ab840ab034b31c65c08a9c3514ac388eff8027c98b7fa627bf90a",
+    "packages/persistence-postgres/src/indexBuildReconciliation.ts": "384045be549cb8fd3e02ad4d6b13aa4e0232c790f18e7f461c75eb03b8579740",
+    "packages/persistence-postgres/src/indexMaintenance.ts": "9c46b85c49dd99a96064af70005760dd40098abe08c587695482fe97cea499a5",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "187cd0f20aa2b653dcf07e7e7a64c9e82b036a9f40cffd58f5c555b6d287b996",
+    "packages/persistence-postgres/src/logicalStorageDefinitions.ts": "96bc189da5040170a1206ea74b9058cd27d5190bf830da24bbdeb4470878064b",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "37efa2f0a7950865c9fe078ad19f5661f016c7d76398a6a3f8db43bcc28936e4",
+    "packages/persistence-postgres/src/logicalSearchBuild.ts": "e3008811fcac0919924f90323a2a99a302599703e08a0e59a2dd40f089723411",
+    "packages/persistence-postgres/src/sessionJournalStore.ts": "5b7c099520cb926547f0162c895d66cc2ce52dcc0db0e22cfc2f988cd6db38f5",
+    "packages/persistence-postgres/src/sessionJournalFiniteEntry.ts": "3fad1a32f7076ec99348e212b134a40213c6fa3a3f6555bca9108a7c69d110b7",
+    "packages/persistence-postgres/src/applicationMutationAdmission.ts": "90629a7e0d82e3b0f4a59d3695db79726074316beb2c7cd6478e50090e87f2f8",
+    "packages/persistence-postgres/src/effectTransaction.ts": "ffa54e0f792ab002a127939463bf7559bcbf7837acd0ee65260abb541dfb0e21",
+    "packages/persistence-postgres/src/pointCommitTransaction.ts": "d7bb07fd58ec59f2fde56095a4e98a7666cc24ced5bb4a440656009b2bd8e31d",
+    "packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts": "6081caf9fea67322ae0aae46eb611857d8777d92b408af3d619ff188a03a992c",
+    "packages/executor/src/storedAttemptAuthentication/capabilityState.ts": "e08455b3fed50b509fdcd66b5d87732edf97b1dcba8763efeffc6def4b90785f",
+    "packages/executor/src/storedAttemptAuthentication/occRerunExecutionOperations.ts": "78cc0ee0f2d35abab5bf653585e3f07d62313d17cb44ea359a889d5c638907ad",
+    "packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts": "331337b1d94ab3bc7d681dfb5ee4c435d3d2ba383d55bf3ff3d03c7cab89132a",
+    "packages/executor/src/pointMutationJournal.ts": "305355bf94fd29571863842b473efeb14da62f5699f47023ae530e1cc8e3823c",
+    "packages/executor/src/pointMutationSessionAttemptState.ts": "c565ee6d60807ab90026068dd47c990b1f994dc51349ec57c433acc2ed771f3f",
+    "packages/flarex-protocol/src/commit-protocol.ts": "65b07dab051071b3e3246b536ae07b2c5fb98e0f7169e248308a6dce86514528",
+    "packages/persistence-postgres/src/transactionSessionActivation.ts": "f6ae044fa47d3be42e469f7245e852522806633465a19a9323251db0d69a6aa7",
+    "packages/persistence-postgres/src/transactionSessionReadSyscallKernel.ts": "a0cbea2b150df7b27b7dd4ff5563c7945bc7004fa58eb0b254aa60d0fdcd369f",
+    "packages/persistence-postgres/src/logicalReadMetadata.ts": "b60c98ca61c9fec2328db22195779e3b57a50d21ba84ddc111be3b5d6c19a6c6",
+    "packages/persistence-postgres/src/preparedMetadataEpoch.ts": "7775c1d3739455dac7d953edb1c4cecf8ad7f67aaf9f67397456a98165ca946c",
+    "packages/persistence-postgres/src/installationLifecycle.ts": "976f08f7e9fa8dc77d30c3511c3f6b73f3c0cc183b7cfaec92ecf0cf52f18826",
+    "packages/medusa-adapter/src/product-attempt.ts": "34720033a89cde4508110fa763211d58d6a2d92c7f0afb0c654c4de27fddf9ae"
+  },
+  "setup": [
+    {
+      "branch": "hit",
+      "finiteSetupMs": 16911.210100000004,
+      "nativeSeedingMs": 89.79509999999573,
+      "nativeSettings": {
+        "database": "flarex_read_redesign_native",
+        "role": "flarex_read_redesign_native",
+        "dbid": 16391,
+        "userid": 16388,
+        "pid": 11032,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "mixed_native_read"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "finiteSettings": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1791069019692_2p0scmhh1c1",
+        "dbid": 16392,
+        "userid": 6404136,
+        "pid": 12516,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1791069017044_f0dcna6bkv"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "metadataCounts": {
+        "sources": 4,
+        "tables": 16,
+        "indexes": 46,
+        "relations": 15
+      },
+      "sourcePreparationRetainedBytes": 1263521,
+      "builtInSqlObserver": false,
+      "serverObserver": null,
+      "provisioningMs": 13464.654500000004,
+      "modulePreparationMs": 1911.6940000000031,
+      "initialSeedingMs": 1534.0540000000037,
+      "additionalSeedingMs": 513.8733999999968,
+      "lifetime": "one prepared module/schema/pool graph; fresh authenticated attempt and single-use Worker per sample"
+    },
+    {
+      "branch": "miss",
+      "finiteSetupMs": 15651.963199999998,
+      "nativeSeedingMs": 47.425900000002,
+      "nativeSettings": {
+        "database": "flarex_read_redesign_native",
+        "role": "flarex_read_redesign_native",
+        "dbid": 16391,
+        "userid": 16388,
+        "pid": 11032,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "mixed_native_read"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "finiteSettings": {
+        "database": "flarex_read_redesign_logical",
+        "role": "flarex_runtime_1791069040826_gxenoy7gkgn",
+        "dbid": 16392,
+        "userid": 6415237,
+        "pid": 1428,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1791069038408_t3krpz38fk"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "metadataCounts": {
+        "sources": 4,
+        "tables": 16,
+        "indexes": 46,
+        "relations": 15
+      },
+      "sourcePreparationRetainedBytes": 1263521,
+      "builtInSqlObserver": false,
+      "serverObserver": null,
+      "provisioningMs": 12274.968800000002,
+      "modulePreparationMs": 1906.361200000014,
+      "initialSeedingMs": 1470.5385999999999,
+      "additionalSeedingMs": 472.34139999999024,
+      "lifetime": "one prepared module/schema/pool graph; fresh authenticated attempt and single-use Worker per sample"
+    }
+  ],
+  "samples": [
+    {
+      "branch": "hit",
+      "sample": 0,
+      "warmup": false,
+      "nativeFirst": true,
+      "finiteDataPreparationMs": 0.06739999999990687,
+      "nativeMs": 10.829099999995378,
+      "finiteOperationMs": 29.035100000000966,
+      "finiteRequestMs": 766.2407000000021,
+      "nativeResult": {
+        "id": "prod_mixed_finite-contract-native-cpu-01-hit-0",
+        "title": "Mixed draft finite-contract-native-cpu-01-hit-0",
+        "handle": "mixed-draft-finite-contract-native-cpu-01-hit-0",
+        "subtitle": null,
+        "description": null,
+        "is_giftcard": false,
+        "status": "draft",
+        "thumbnail": "https://example.invalid/finite-contract-native-cpu-01-hit-0.png",
+        "weight": null,
+        "length": null,
+        "height": null,
+        "width": null,
+        "origin_country": null,
+        "hs_code": null,
+        "mid_code": null,
+        "material": null,
+        "discountable": true,
+        "external_id": null,
+        "metadata": null,
+        "type_id": null,
+        "type": null,
+        "collection_id": null,
+        "collection": null,
+        "created_at": "2026-10-03T23:10:33.999Z",
+        "updated_at": "2026-10-03T23:10:33.999Z",
+        "deleted_at": null
+      },
+      "finiteResult": {
+        "collection": null,
+        "collection_id": null,
+        "created_at": "2026-10-03T23:10:31.917Z",
+        "deleted_at": null,
+        "description": null,
+        "discountable": true,
+        "external_id": null,
+        "handle": "mixed-draft-finite-contract-native-cpu-01-hit-0",
+        "height": null,
+        "hs_code": null,
+        "id": "prod_mixed_finite-contract-native-cpu-01-hit-0",
+        "is_giftcard": false,
+        "length": null,
+        "material": null,
+        "metadata": null,
+        "mid_code": null,
+        "origin_country": null,
+        "status": "draft",
+        "subtitle": null,
+        "thumbnail": "https://example.invalid/finite-contract-native-cpu-01-hit-0.png",
+        "title": "Mixed draft finite-contract-native-cpu-01-hit-0",
+        "type": null,
+        "type_id": null,
+        "updated_at": "2026-10-03T23:10:31.917Z",
+        "weight": null,
+        "width": null
+      },
+      "nativeError": null,
+      "finiteError": null,
+      "nativeSql": null,
+      "nativeServer": null,
+      "finiteServer": null,
+      "finiteOperationServer": null,
+      "sourcePreparationUsage": null,
+      "methodDecodedResults": null,
+      "methodMetadataDecodedResults": null,
+      "methodBusinessDecodedResults": null,
+      "finiteTrace": null,
+      "nativeCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-hit-0-native.cpuprofile",
+        "sha256Hex": "44692f5979f5659bd70289794609a5f3db115aeff730291d8823b5a5e07a4bd4",
+        "startTime": 123615074111,
+        "endTime": 123615862508,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 83,
+        "sampleCount": 24
+      },
+      "finiteCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-hit-0-finite.cpuprofile",
+        "sha256Hex": "94c4a7a5f8bd15ecc5e63c0544db6c31edb1b2372aa4fa47c9b8d4646f9ce8fe",
+        "startTime": 123616191777,
+        "endTime": 123616462444,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 215,
+        "sampleCount": 57
+      }
+    },
+    {
+      "branch": "hit",
+      "sample": 1,
+      "warmup": false,
+      "nativeFirst": false,
+      "finiteDataPreparationMs": 513.8059999999969,
+      "nativeMs": 4.9865999999965425,
+      "finiteOperationMs": 14.449899999999616,
+      "finiteRequestMs": 633.2876000000033,
+      "nativeResult": {
+        "id": "prod_mixed_finite-contract-native-cpu-01-hit-1",
+        "title": "Mixed draft finite-contract-native-cpu-01-hit-1",
+        "handle": "mixed-draft-finite-contract-native-cpu-01-hit-1",
+        "subtitle": null,
+        "description": null,
+        "is_giftcard": false,
+        "status": "draft",
+        "thumbnail": "https://example.invalid/finite-contract-native-cpu-01-hit-1.png",
+        "weight": null,
+        "length": null,
+        "height": null,
+        "width": null,
+        "origin_country": null,
+        "hs_code": null,
+        "mid_code": null,
+        "material": null,
+        "discountable": true,
+        "external_id": null,
+        "metadata": null,
+        "type_id": null,
+        "type": null,
+        "collection_id": null,
+        "collection": null,
+        "created_at": "2026-10-03T23:10:34.031Z",
+        "updated_at": "2026-10-03T23:10:34.031Z",
+        "deleted_at": null
+      },
+      "finiteResult": {
+        "collection": null,
+        "collection_id": null,
+        "created_at": "2026-10-03T23:10:35.873Z",
+        "deleted_at": null,
+        "description": null,
+        "discountable": true,
+        "external_id": null,
+        "handle": "mixed-draft-finite-contract-native-cpu-01-hit-1",
+        "height": null,
+        "hs_code": null,
+        "id": "prod_mixed_finite-contract-native-cpu-01-hit-1",
+        "is_giftcard": false,
+        "length": null,
+        "material": null,
+        "metadata": null,
+        "mid_code": null,
+        "origin_country": null,
+        "status": "draft",
+        "subtitle": null,
+        "thumbnail": "https://example.invalid/finite-contract-native-cpu-01-hit-1.png",
+        "title": "Mixed draft finite-contract-native-cpu-01-hit-1",
+        "type": null,
+        "type_id": null,
+        "updated_at": "2026-10-03T23:10:35.873Z",
+        "weight": null,
+        "width": null
+      },
+      "nativeError": null,
+      "finiteError": null,
+      "nativeSql": null,
+      "nativeServer": null,
+      "finiteServer": null,
+      "finiteOperationServer": null,
+      "sourcePreparationUsage": null,
+      "methodDecodedResults": null,
+      "methodMetadataDecodedResults": null,
+      "methodBusinessDecodedResults": null,
+      "finiteTrace": null,
+      "nativeCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-hit-1-native.cpuprofile",
+        "sha256Hex": "d10380d86ce9474b2103665f0d324ee0e0e443c8ea1b8d202e91148e9a70cbc6",
+        "startTime": 123617806625,
+        "endTime": 123618111538,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 50,
+        "sampleCount": 11
+      },
+      "finiteCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-hit-1-finite.cpuprofile",
+        "sha256Hex": "b61bf9f7a89abd2346a6bb7d7f1a4e079c180fe7d88dd5d99908afe71a7d20f2",
+        "startTime": 123617375242,
+        "endTime": 123617670013,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 133,
+        "sampleCount": 28
+      }
+    },
+    {
+      "branch": "miss",
+      "sample": 0,
+      "warmup": false,
+      "nativeFirst": true,
+      "finiteDataPreparationMs": 0.0044999999954598024,
+      "nativeMs": 6.104200000001583,
+      "finiteOperationMs": 18.205500000010943,
+      "finiteRequestMs": 560.5424000000057,
+      "nativeError": {
+        "name": "Error",
+        "message": "Product with id: prod_missing_finite-contract-native-cpu-01-miss was not found",
+        "type": "not_found"
+      },
+      "finiteError": {
+        "name": "Error",
+        "message": "Product with id: prod_missing_finite-contract-native-cpu-01-miss was not found",
+        "type": "not_found"
+      },
+      "nativeSql": null,
+      "nativeServer": null,
+      "finiteServer": null,
+      "finiteOperationServer": null,
+      "sourcePreparationUsage": null,
+      "methodDecodedResults": null,
+      "methodMetadataDecodedResults": null,
+      "methodBusinessDecodedResults": null,
+      "finiteTrace": null,
+      "nativeCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-miss-0-native.cpuprofile",
+        "sha256Hex": "7210a5072fc17be27afa3a5a727654366c86fc022b95ca78476d3302238368ab",
+        "startTime": 123635126279,
+        "endTime": 123635820265,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 32,
+        "sampleCount": 11
+      },
+      "finiteCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-miss-0-finite.cpuprofile",
+        "sha256Hex": "0f85ce00dd10c7e1e928c67d427c427237fe6d259374bd0aaa95b797c3a76e88",
+        "startTime": 123636073321,
+        "endTime": 123636352543,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 143,
+        "sampleCount": 35
+      }
+    },
+    {
+      "branch": "miss",
+      "sample": 1,
+      "warmup": false,
+      "nativeFirst": false,
+      "finiteDataPreparationMs": 472.3368999999948,
+      "nativeMs": 3.73410000000149,
+      "finiteOperationMs": 11.238000000012107,
+      "finiteRequestMs": 559.5354000000079,
+      "nativeError": {
+        "name": "Error",
+        "message": "Product with id: prod_missing_finite-contract-native-cpu-01-miss was not found",
+        "type": "not_found"
+      },
+      "finiteError": {
+        "name": "Error",
+        "message": "Product with id: prod_missing_finite-contract-native-cpu-01-miss was not found",
+        "type": "not_found"
+      },
+      "nativeSql": null,
+      "nativeServer": null,
+      "finiteServer": null,
+      "finiteOperationServer": null,
+      "sourcePreparationUsage": null,
+      "methodDecodedResults": null,
+      "methodMetadataDecodedResults": null,
+      "methodBusinessDecodedResults": null,
+      "finiteTrace": null,
+      "nativeCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-miss-1-native.cpuprofile",
+        "sha256Hex": "3cd800c9b0019901c50febb1799709b166a1f4129f492774c1cbce6d90e5f2e7",
+        "startTime": 123637442006,
+        "endTime": 123637745396,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 28,
+        "sampleCount": 8
+      },
+      "finiteCpuProfile": {
+        "file": "finite-contract-native-cpu-01-cpu-miss-1-finite.cpuprofile",
+        "sha256Hex": "c4b05fa9ddb7ab7a3a96618bca64f20b0339826797cedcadcfbd807d9e99fa55",
+        "startTime": 123637090751,
+        "endTime": 123637397615,
+        "samplingIntervalMicroseconds": 100,
+        "nodeCount": 145,
+        "sampleCount": 22
+      }
+    }
+  ],
+  "summary": [
+    {
+      "branch": "hit",
+      "native": {
+        "count": 2,
+        "medianMs": 10.829099999995378,
+        "p95Ms": 10.829099999995378,
+        "minMs": 4.9865999999965425,
+        "maxMs": 10.829099999995378
+      },
+      "finiteOperation": {
+        "count": 2,
+        "medianMs": 29.035100000000966,
+        "p95Ms": 29.035100000000966,
+        "minMs": 14.449899999999616,
+        "maxMs": 29.035100000000966
+      },
+      "pairedOperationExcess": {
+        "count": 2,
+        "medianMs": 18.206000000005588,
+        "p95Ms": 18.206000000005588,
+        "minMs": 9.463300000003073,
+        "maxMs": 18.206000000005588
+      },
+      "finiteRequest": {
+        "count": 2,
+        "medianMs": 766.2407000000021,
+        "p95Ms": 766.2407000000021,
+        "minMs": 633.2876000000033,
+        "maxMs": 766.2407000000021
+      }
+    },
+    {
+      "branch": "miss",
+      "native": {
+        "count": 2,
+        "medianMs": 6.104200000001583,
+        "p95Ms": 6.104200000001583,
+        "minMs": 3.73410000000149,
+        "maxMs": 6.104200000001583
+      },
+      "finiteOperation": {
+        "count": 2,
+        "medianMs": 18.205500000010943,
+        "p95Ms": 18.205500000010943,
+        "minMs": 11.238000000012107,
+        "maxMs": 18.205500000010943
+      },
+      "pairedOperationExcess": {
+        "count": 2,
+        "medianMs": 12.10130000000936,
+        "p95Ms": 12.10130000000936,
+        "minMs": 7.503900000010617,
+        "maxMs": 12.10130000000936
+      },
+      "finiteRequest": {
+        "count": 2,
+        "medianMs": 560.5424000000057,
+        "p95Ms": 560.5424000000057,
+        "minMs": 559.5354000000079,
+        "maxMs": 560.5424000000057
+      }
+    }
+  ],
+  "interpretation": [
+    "Exact admitted ID-only private retrieve; full native default DTO and error contract retained.",
+    "Actual generated created_at/updated_at differ between authoritative stores; every field and timestamp is retained and validated, all other values/structure compared exactly.",
+    "Every finite hit is the first Product demand in a fresh attempt; no pending-only or repeated-row observation is presented as a storage hit.",
+    "Missing Product failures poison their own attempt and keep the native Commerce adapter cause; no failure recovery or publication is introduced.",
+    "Finite operation covers actual private native operation, close and receipt validation; complete request includes admission, fresh Worker, execution, seal, publication and fixture disposal.",
+    "Schema/module/seeding costs are separately charged per actual series lifetime; measured native schema/module bootstrap remains runner-owned and outside per-operation samples.",
+    "Each finite disjoint data graph is prepared before its alternating pair; per-sample preparation is recorded and included in setup additionalSeedingMs outside request and operation intervals.",
+    "Quiet and trace are separate runs; trace observations are client SQL dispatches, never network round trips or server execution time."
+  ],
+  "cpuInterpretation": [
+    "Diagnostic V8 sampling at 100 microseconds; timings carry profiler overhead and cannot satisfy quiet gates.",
+    "Profiles start before the method clock and stop after its completed outcome; finite service construction, close and receipt validation are included.",
+    "Returned startTime/endTime are genuine profiler timestamps in microseconds; profiles sample the local Node isolate, including asynchronous and inspector work.",
+    "Short samples are noisy; no exclusive CPU is inferred by subtracting SQL awaits or from overlapping spans."
+  ],
+  "unavailable": [
+    "network round trips",
+    "server execution time",
+    "driver wire bytes",
+    "isolated CPU"
+  ]
+}

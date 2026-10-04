@@ -14,6 +14,8 @@ import { makeCommerceBinding } from "../src/commerce";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { fxSystemDataBindingPhysicalLanes } from "../src/frameworkSchema/binding/schema";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
+import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../src/scopeClock";
 import { captureBindingValue, isDataBindingSetFrame } from "../src/frameworkSchema/binding/canonical";
 import { commerceInventory } from "./commerceInventory";
 import { defineAtomicCommerceParticipant } from "../src/atomicCommerce/commands";
@@ -103,12 +105,48 @@ describe("module-neutral installation profile membership", () => {
     const selected = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
     const reduced = await runEffect(makeCommerceBinding(fixture.availability, profiles.filter((_value, index) => index !== 1)));
     const revocation = await runEffect(bindings.prepare({ ...frame, commerce: [reduced] }));
-    await runEffect(bindings.activate(dataBindingActivationRequest(frame.application.scopeId, frame.application.storageGeneration, "revoke-beta", revocation.sha256, selected.head)));
+    const withdrawn = await runEffect(bindings.activate(dataBindingActivationRequest(frame.application.scopeId,
+      frame.application.storageGeneration, "revoke-beta", revocation.sha256, selected.head)));
+    const withdrawnCurrent = Result.getOrThrow(withdrawn.current);
+    expect(withdrawnCurrent.selected).toBe(true);
+    expect(withdrawn.receipt.frame.version).toBe(3);
+    if (withdrawn.receipt.frame.version !== 3) throw new Error("Missing accepted withdrawal epoch");
+    const [authority] = await fixture.persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
+      .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.cms.fixture.authority.scopeId));
+    if (authority === undefined) throw new Error("Missing actual withdrawal authority");
+    expect(withdrawn.receipt.frame.authorizationRevocationEpoch).toBe(authority.authorizationRevocationEpoch.toString());
+    expect(BigInt(withdrawn.receipt.frame.authorizationRevocationEpoch)).toBe(BigInt(frame.application.authorizationRevocationEpoch) + 1n);
+    // The candidate retains the proposal's authentic pre-withdrawal reference.
+    expect(revocation.frame.application).toEqual(frame.application);
+    expect((await runEffect(bindings.withCurrent(readAdmittedDataBinding))).head).toEqual(withdrawnCurrent.head);
+    expect((await runEffect(bindings.recover(withdrawn.receipt.frame.request))).receipt).toEqual(withdrawn.receipt);
+    // The receipt can authorize current admission, never a new proposal from
+    // the old observed epoch, even with an otherwise current CAS token.
+    expect(await runEffectFailure(bindings.activate(dataBindingActivationRequest(frame.application.scopeId,
+      frame.application.storageGeneration, "stale-withdrawal-proposal", revocation.sha256, withdrawnCurrent.head))))
+      .toMatchObject({ reason: "staleApplication" });
     expect(await runEffectFailure(beta.host.read(betaCommand.read, {}))).toMatchObject({ reason: "unsupportedProfile" });
-    const remaining = hosts[0]; const remainingCommand = commands[0];
-    if (remaining === undefined || remainingCommand === undefined) throw new Error("Missing retained host");
+    const remaining = hosts[0]; const remainingCommand = commands[0]; const remainingProfile = profiles[0];
+    const withdrawnProfile = profiles[1];
+    if (remaining === undefined || remainingCommand === undefined || remainingProfile === undefined || withdrawnProfile === undefined)
+      throw new Error("Missing retained profile fixture");
+    // Physical hosts retain installation evidence and reauthenticate the
+    // Application and selected membership on every request.
     expect(await runEffect(remaining.host.read(remainingCommand.read, {}))).toEqual([{ id: "alpha", value: 1 }]);
+    const freshRemaining = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, profile: remainingProfile,
+      commands: registeredCommands }, events));
+    const freshWithdrawn = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, profile: withdrawnProfile,
+      commands: registeredCommands }, events));
+    cleanup.push(() => runEffect(freshRemaining.host.close), () => runEffect(freshWithdrawn.host.close));
+    expect(await runEffect(freshRemaining.host.read(remainingCommand.read, {}))).toEqual([{ id: "alpha", value: 1 }]);
+    expect(await runEffectFailure(freshWithdrawn.host.read(betaCommand.read, {}))).toMatchObject({ reason: "unsupportedProfile" });
     expect(await commerceInventory(fixture)).toEqual(after);
+    // A separate live revocation is not the selected receipt's accepted epoch.
+    await fixture.persistence.drizzle.transaction(tx => runEffect(
+      advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, fixture.cms.fixture.authority.scopeId)));
+    expect(await runEffectFailure(bindings.withCurrent(readAdmittedDataBinding))).toMatchObject({ reason: "staleApplication" });
+    expect(await runEffectFailure(remaining.host.read(remainingCommand.read, {}))).toMatchObject({ reason: "bindingChanged" });
+    expect(await runEffectFailure(freshRemaining.host.read(remainingCommand.read, {}))).toMatchObject({ reason: "bindingChanged" });
   }, 120000);
 
   it("rejects conflicting grants, malformed direct references and old triplets", async () => {
@@ -121,7 +159,14 @@ describe("module-neutral installation profile membership", () => {
     // SAFETY: deliberately wrong nominal family proves the schema issuer grants no execution authority.
     expect(await runEffectFailure(makeCommerceBinding(fixture.availability, [schemaOnly as unknown as CommerceProfile]))).toMatchObject({ reason: "unsupportedProfile" });
     const descriptor = await runEffect(requireCommerceProfile(fixture.prepared.profile));
-    expect(await runEffectFailure(fixture.bindings.prepare({ ...fixture.candidate.frame, commerce: [{ ...binding,
+    const currentApplication = await runEffect(fixture.bindings.readApplicationReference());
+    const currentFrame = { ...fixture.candidate.frame, application: currentApplication,
+      payloadContent: fixture.candidate.frame.payloadContent === null ? null :
+        { ...fixture.candidate.frame.payloadContent, application: currentApplication } };
+    expect(isDataBindingSetFrame(currentFrame)).toBe(true);
+    expect(await runEffectFailure(fixture.bindings.prepare({ ...fixture.candidate.frame, application: currentApplication,
+      commerce: [binding] }))).toMatchObject({ reason: "invalidInput" });
+    expect(await runEffectFailure(fixture.bindings.prepare({ ...currentFrame, commerce: [{ ...binding,
       profiles: [{ profileId: descriptor.profileId, contractSha256: "f".repeat(64) }] }] }))).toMatchObject({ reason: "unsupportedProfile" });
     const eight = Array.from({ length: 8 }, (_value, index) => ({ profileId: `test.p${index}`, contractSha256: descriptor.contractSha256 }));
     expect(isDataBindingSetFrame({ ...fixture.candidate.frame, commerce: [{ ...binding, profiles: eight }] })).toBe(true);

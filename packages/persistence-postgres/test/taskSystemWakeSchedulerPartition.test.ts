@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { PGlite } from "@electric-sql/pglite";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
@@ -138,10 +139,7 @@ describe("DTE05-C1 located-scope scheduler composition - PGlite", () => {
           runAttemptStore: { randomUuid: attemptUuidSequence() },
         }),
       );
-      await persistence.drizzle
-        .update(fxSystemScopeClocks)
-        .set({ epoch: staleScopeEpoch })
-        .where(eq(fxSystemScopeClocks.scopeId, taskScopeId));
+      await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({epoch: staleScopeEpoch}).where(eq(fxSystemScopeExecutionAuthorities.scopeId, taskScopeId));
 
       const observed = await runEffectFailure(scheduler.run({
         dueKind: "start_attempt",

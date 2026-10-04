@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { closeExactAttemptScopeClockObservation } from "./scopeClock";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { and, asc, desc, eq, gt, gte, sql } from "drizzle-orm";
@@ -468,22 +469,21 @@ const publishInTransaction = Effect.fn(
   closeExactAttemptScopeClockObservation(tx);
   const updatedRows = yield* queryEffect(
     "publication",
-    tx.update(fxSystemScopeClocks)
+    tx.update(fxSystemScopeExecutionAuthorities)
       .set({
         oldestAvailableCommitSeq: observation.candidateFloor,
         updatedAt: sql`clock_timestamp()`,
       })
       .where(and(
-        eq(fxSystemScopeClocks.scopeId, authority.scopeId),
-        eq(fxSystemScopeClocks.storageGeneration, clock.storageGeneration),
+        eq(fxSystemScopeExecutionAuthorities.scopeId, authority.scopeId),
+        eq(fxSystemScopeExecutionAuthorities.storageGeneration, clock.storageGeneration),
         eq(
-          fxSystemScopeClocks.storageGenerationFence,
+          fxSystemScopeExecutionAuthorities.storageGenerationFence,
           clock.storageGenerationFence,
         ),
-        eq(fxSystemScopeClocks.epoch, clock.epoch),
-        eq(fxSystemScopeClocks.lastCommitSeq, clock.lastCommitSeq),
+        eq(fxSystemScopeExecutionAuthorities.epoch, clock.epoch),
         eq(
-          fxSystemScopeClocks.oldestAvailableCommitSeq,
+          fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq,
           clock.oldestAvailableCommitSeq,
         ),
       ))
@@ -496,7 +496,7 @@ const publishInTransaction = Effect.fn(
       "storedEvidenceInvalid",
     ));
   }
-  const updated = yield* decodeScopeClockRecordResult(updatedRow).pipe(
+  const updated = yield* decodeScopeClockRecordResult({ ...clock, ...updatedRow, updatedAt: clock.updatedAt }).pipe(
     Result.mapError(cause => observationError(
       authority,
       "storedEvidenceInvalid",

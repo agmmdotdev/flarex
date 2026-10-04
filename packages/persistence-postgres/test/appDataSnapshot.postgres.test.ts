@@ -15,7 +15,7 @@ import {
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
-import { fxSystemScopeClocks } from "../src/schema";
+import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { insertInitialScopeClockInTransactionResult } from "../src/scopeClockInitialization";
 import type { ExactTrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
@@ -105,8 +105,8 @@ describePostgres("real Postgres app-data snapshot resolution", () => {
       await persistence.insertScopeMetadata({
         scopeId: secondScopeId, deploymentId: first.scope.deploymentId, physicalLocator: sharedLocator,
       });
-      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(persistence.drizzle,
-        { scopeId: secondScopeId, initialEpoch: secondEpoch }));
+      await persistence.drizzle.transaction(async tx => Result.getOrThrow(await insertInitialScopeClockInTransactionResult(tx,
+        { scopeId: secondScopeId, initialEpoch: secondEpoch })));
       await updateClock(persistence, first.scope.scopeId, 7n);
       await updateClock(persistence, secondScopeId, 9n);
       const resolver = createAppDataSnapshotResolver(sharedResolutionPorts(persistence));
@@ -146,16 +146,18 @@ async function updateClock(
   scopeId: ScopeId,
   commitSeq: bigint,
 ): Promise<void> {
-  await persistence.drizzle
-    .update(fxSystemScopeClocks)
+  await persistence.drizzle.transaction(async tx => {
+    await tx.update(fxSystemScopeExecutionAuthorities)
     .set({
       storageGeneration:
         FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(19n),
-      lastCommitSeq: CommitSeqSchema.make(commitSeq),
       updatedAt: sql<Date>`now()`,
     })
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(commitSeq),
+      updatedAt: sql<Date>`now()` }).where(eq(fxSystemScopeClocks.scopeId, scopeId));
+  });
 }
 
 function uuidSequence(...values: readonly string[]): () => string {

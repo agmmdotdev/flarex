@@ -2,6 +2,7 @@ import { webcrypto } from "node:crypto";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { asc, eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Result } from "effect";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
@@ -700,13 +701,8 @@ describe("S12 app relation-edge storage", () => {
 async function edgePersistence(): Promise<PGliteFlarexPersistence> {
   const persistence = await createPGlitePersistence();
   await persistence.migrate();
-  await persistence.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, last_commit_seq, epoch)
-     values ($1, 'flarexdb_v1', 100, $2),
-            ($3, 'flarexdb_v1', 100, $4)`,
-    [scopeId, epoch, otherScopeId, otherEpoch],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch, lastCommitSeq: 100n });
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: otherScopeId, epoch: otherEpoch, lastCommitSeq: 100n });
   return persistence;
 }
 

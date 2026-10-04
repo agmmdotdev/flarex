@@ -6,7 +6,7 @@ import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { canonicalizeAppUniqueKeyV1Result, decodeAppUniqueConstraintIdV1Result,
   type AppUniqueKeyProjectionV1 } from "../src/appUniqueKeyContract";
 import { AppUniqueKeyStorageCorruptionError, CanonicalAppUniqueKeyHashCollisionError,
@@ -15,6 +15,7 @@ import { AppRowStorageCorruptionError, InvalidAppRowReadInputError,
   appendPreparedAppRowRevisionsInTransactionEffect } from "../src/appRows";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { fxAppRowRevisions, fxAppUniqueKeys, fxSystemScopeClocks } from "../src/schema";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 
 /** Real committed storage shared by owner PGlite and restricted-login PG. */
 export async function committedUniqueRowScenario(database: FlarexMetadataDatabase) {
@@ -30,8 +31,7 @@ export async function committedUniqueRowScenario(database: FlarexMetadataDatabas
   const projection = key("owner");
   const document = await canonicalizeAppDocumentV1({ tableId, rowId, creationTime,
     fields: { name: "owner", value: 58 } });
-  await database.insert(fxSystemScopeClocks).values({ scopeId, epoch: writeEpoch,
-    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") });
+  await insertCurrentScopeClockFixture(database, { scopeId, epoch: writeEpoch });
   await database.transaction(tx => Effect.runPromise(Effect.gen(function* () {
     yield* appendPreparedAppRowRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId, tableId, rowId,
       writeEpoch, commitSeq, prevCommitSeq: null, creationTime,

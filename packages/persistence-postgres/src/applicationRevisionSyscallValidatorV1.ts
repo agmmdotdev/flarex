@@ -145,7 +145,7 @@ export interface ApplicationRevisionSyscallValidationContextV1 {
   readonly executionPin: Readonly<{
     readonly schemaVersionId: CatalogSchemaVersionId;
   }>;
-  readonly scopeClock: ScopeClockRecord;
+  readonly scopeClock?: ScopeClockRecord;
 }
 
 /** Package-private C03 operation; callers retain the transaction owner. */
@@ -177,6 +177,8 @@ export const validateApplicationRevisionSyscallDocumentInTransactionV1 =
         });
       }
       if (captured.kind === "activationFenced") {
+        if (context.scopeClock === undefined)
+          return yield* new ApplicationRevisionSyscallValidatorStaleV1Error({ reason: "sessionPins" });
         yield* validateActiveApplicationRevisionSelectionInTransactionV1(
           captured.selection,
           tx,

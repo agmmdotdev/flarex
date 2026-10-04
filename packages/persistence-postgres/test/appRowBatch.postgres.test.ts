@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -39,10 +40,7 @@ describePostgres("ordinary-role PostgreSQL prepared row batches", () => {
       const writeEpoch = ScopeEpochSchema.make(
         "epoch_50191000-0000-0000-0000-000000000002",
       );
-      await persistence.query(
-        "insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)",
-        [scopeId, writeEpoch],
-      );
+      await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: writeEpoch });
       const tableId = decodeCatalogTableId(1);
       const creationTime = decodeAppCreationTimeV1(42);
       const rows: AppendPreparedAppRowRevisionV1Input[] = [];

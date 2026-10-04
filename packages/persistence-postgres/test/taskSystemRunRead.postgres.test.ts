@@ -309,10 +309,9 @@ describePostgres("DTE04-E Task System reads - PostgreSQL", () => {
       }
 
       await fixture.persistence.query(`
-        insert into fx_system_scope_clock
-          (scope_id, storage_generation, epoch)
-        values ($1, 'flarexdb_v1',
-          'epoch_72000000-0000-4000-8000-000000000097')
+        with root as (insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,epoch)
+      select root.scope_id,'flarexdb_v1','epoch_72000000-0000-4000-8000-000000000097' from root
       `, [FOREIGN_READER_SCOPE_ID]);
       const foreignLocated = await locatedTaskAuthorityV1(
         fixture.persistence.drizzle,

@@ -14,6 +14,7 @@ import {
 } from "../src/frameworkSchema/binding/selection";
 import type { DataBindingSetFrame } from "../src/frameworkSchema/binding/model";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { capturePrivateCanonicalValue } from "../src/frameworkSchema/privateCanonicalValue";
 
 function frame(): DataBindingSetFrame {
   return {
@@ -70,10 +71,32 @@ describe("data binding value boundaries", () => {
     const captured = await runEffect(captureBindingValue(activation, isDataBindingActivationFrame));
     expect(await runEffect(restoreBindingValue(captured.copyCanonicalBytes(), captured.sha256Hex,
       activation.format, isDataBindingActivationFrame))).toEqual(activation);
+    const accepted = { ...activation, version: 3, authorizationRevocationEpoch: "1" };
+    const current = await runEffect(captureBindingValue(accepted, isDataBindingActivationFrame));
+    expect(await runEffect(restoreBindingValue(current.copyCanonicalBytes(), current.sha256Hex,
+      activation.format, isDataBindingActivationFrame))).toEqual(accepted);
+    for (const invalid of [{ ...accepted, authorizationRevocationEpoch: "-1" },
+      { ...accepted, authorizationRevocationEpoch: "01" }, { ...activation, authorizationRevocationEpoch: "1" },
+      { ...activation, version: 3 }])
+      expect(await runEffectFailure(captureBindingValue(invalid, isDataBindingActivationFrame)))
+        .toMatchObject({ reason: "invalidInput" });
     for (const predecessor of [{ ...activation, version: 1 },
       (({ strongReferences: _, ...missing }) => missing)(activation)])
       expect(await runEffectFailure(captureBindingValue(predecessor, isDataBindingActivationFrame)))
         .toMatchObject({ reason: "invalidInput" });
+    // Stored decoding must authenticate exact durable versions independently
+    // of the writer's input guard, including a hash-valid malformed artifact.
+    for (const invalid of [{ ...activation, version: 1 }, { ...accepted, version: 4 },
+      (({ version: _, ...missing }) => missing)(activation),
+      { ...accepted, authorizationRevocationEpoch: "01" },
+      { ...activation, authorizationRevocationEpoch: "1" }]) {
+      const stored = await runEffect(capturePrivateCanonicalValue(invalid, 1_048_576, {
+        invalidInput: () => new Error("Invalid test canonical artifact"),
+        hashFailure: cause => new Error("Cannot hash test canonical artifact", { cause }),
+      }));
+      expect(await runEffectFailure(restoreBindingValue(stored.copyCanonicalBytes(), stored.sha256Hex,
+        activation.format, isDataBindingActivationFrame))).toMatchObject({ reason: "storedCorruption" });
+    }
   });
   it("round-trips the current contract and rejects development-only predecessor formats", async () => {
     for (const input of [frame()]) {

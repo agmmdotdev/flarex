@@ -1,7 +1,7 @@
 import { expect } from "vitest";
 import type { FlarexPersistence } from "../src";
 import {
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
   SESSION_TEST_SCOPE_UUID,
   SESSION_TEST_EPOCH_UUID,
 } from "./sessionAuthorityTestSupport";
@@ -24,7 +24,7 @@ export async function verifyIndexMembershipMigration(
     97,
   );
   await persistence.migrate();
-  await insertSessionTestScope(persistence);
+  await insertLegacySessionTestScope(persistence);
   await persistence.query(
     `insert into fx_app_row_rev(scope_uuid,table_id,row_id,commit_seq,prev_commit_seq,write_epoch_uuid,schema_version_id,creation_time,value_codec_version,is_tombstone,value_bytes,value_sha256)
     select $1,1,decode(repeat('ab',16),'hex'),n,case when n=1 then null else n-1 end,$2,'schema_membership_migration',42,1,true,null,null from generate_series(1,3) n`,

@@ -16,6 +16,7 @@ import {
   type LogicalIndexRangeReadDependencyV1,
   type LogicalApplicationRelationIncomingReadDependencyV1,
   type LogicalReadDependencyV1,
+  type LogicalMetadataReadDependency,
   type SessionJournal,
 } from "flarex-protocol/commit-protocol";
 
@@ -112,6 +113,7 @@ export type PreparedPointRowIntentV1 =
     }>;
 
 export interface PreparedPointCommitStateV1 {
+  readonly metadataDependencies: readonly LogicalMetadataReadDependency[];
   readonly journalBytes: Uint8Array;
   readonly logicalParticipantOperations: ReadonlyArray<Pick<
     SessionJournal["participantOperations"][number], "participant" | "syscallSequence"
@@ -170,6 +172,10 @@ export function planPointCommitStateV1(
     const relationDependencies = captureRelationDependencies(
       source.journal.readDependencies,
     );
+    const metadataDependencies = Object.freeze(source.journal.readDependencies.filter(dependency => dependency.kind === "metadata")
+      .map(dependency => Object.freeze({ ...dependency, observed: Object.freeze({ ...dependency.observed }) })));
+    if (metadataDependencies.length > 0 && source.journal.finiteMetadataReservationSha256Hex === undefined)
+      return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({ issue: { reason: "unsupportedReadDependency" } }));
 
     const candidates: OrderedPointCandidateV1[] = [];
     const materialCandidates: OrderedPointCandidateV1[] = [];
@@ -266,6 +272,7 @@ export function planPointCommitStateV1(
       dependencies,
       indexRangeDependencies,
       relationDependencies,
+      metadataDependencies,
       rowIntents: Object.freeze(
         materialCandidates.map(captureRowIntent),
       ),
@@ -299,6 +306,7 @@ function captureIndexRangeDependencies(
         ranges.push(captureIndexRangeDependency(dependency));
         break;
       case "appRelationIncoming":
+      case "metadata":
         break;
       default:
         return Result.fail(new UnsupportedPointCommitPlanV1Error({

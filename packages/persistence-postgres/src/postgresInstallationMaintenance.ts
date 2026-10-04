@@ -10,6 +10,7 @@ import { attestProtectedMetadataInstallation } from "./preparedMetadataEpoch";
 import { InstallationLifecycleError, verifyInstallationWriterProtection, verifyManagedRuntimePrivileges,
   type InstallationAccessProfile } from "./installationLifecycle";
 import { backfillStandaloneApplicationBindings } from "./applicationActivation";
+import { backfillBindingMetadataProjections } from "./frameworkSchema/binding/repository";
 import { backfillLogicalReadProjections } from "./logicalStorageDefinitions";
 import { frameworkSchemaTargetSnapshot, hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget, type FrameworkSchemaTargetCompositionError } from "./frameworkSchema/target";
 import { makeFrameworkSchemaArtifactMaintenanceReader, type FrameworkSchemaArtifactRepository } from "./frameworkSchema/artifact/repository";
@@ -283,9 +284,12 @@ const protectNewPhysicalTables = Effect.fn("InstallationMaintenance.protectPhysi
 );
 
 /** Fixed installer operation. No raw database or callback escapes this owner. */
-export const backfillInstallationApplicationBindings = Effect.fn("InstallationMaintenance.backfillApplications")(
-  (handle: InstallationMaintenance) => command(handle, owner =>
-    backfillStandaloneApplicationBindings(owner.database).pipe(Effect.mapError(cause => fail("invalidInstallation", cause)))),
+export const backfillInstallationMetadataBindings = Effect.fn("InstallationMaintenance.backfillMetadataBindings")(
+  (handle: InstallationMaintenance, controlDb: FlarexMetadataDatabase) => command(handle, owner =>
+    Effect.gen(function* () {
+      yield* backfillStandaloneApplicationBindings(owner.database, controlDb);
+      yield* backfillBindingMetadataProjections(owner.database, controlDb);
+    }).pipe(Effect.mapError(cause => fail("invalidInstallation", cause)))),
 );
 
 export const backfillInstallationLogicalReadProjections = Effect.fn("InstallationMaintenance.backfillLogicalReads")(
@@ -359,17 +363,24 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
       yield* driver(() => owner.client.query(`revoke all (${names}) on table ${qualified} from ${role}`));
       if (relation.readable) yield* driver(() => owner.client.query(`grant select on table ${qualified} to ${role}`));
     }
+    if (accessProfile === "dataRuntime") yield* driver(() => owner.client.query(
+      `grant select,insert,update,delete on table ${schema}.fx_system_scope_execution_authority,
+        ${schema}.fx_system_metadata_contract_observation to ${role}`));
     yield* driver(() => owner.client.query(`grant usage on schema ${schema} to ${role}`));
     yield* driver(() => owner.client.query(`grant execute on function ${schema}.fx_lock_installation_admission(),
       ${schema}.fx_lock_prepared_metadata_epoch() to ${role}`));
     yield* driver(() => owner.client.query(accessProfile === "dataRuntime" ?
-      `grant execute on function ${schema}.fx_publish_application_read_binding(bytea,bytea) to ${role}` :
+      `grant execute on function ${schema}.fx_publish_application_read_binding(bytea,bytea),
+        ${schema}.fx_lock_finite_scope_observation(text),
+        ${schema}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text) to ${role}` :
       `grant execute on function ${schema}.fx_lock_read_scope_placement(text,text) to ${role}`));
     yield* driver(() => owner.client.query(accessProfile === "dataRuntime" ?
       `revoke all on function ${schema}.fx_lock_read_scope_placement(text,text) from ${role}` :
-      `revoke all on function ${schema}.fx_publish_application_read_binding(bytea,bytea) from ${role}`));
+      `revoke all on function ${schema}.fx_publish_application_read_binding(bytea,bytea),
+        ${schema}.fx_lock_finite_scope_observation(text),
+        ${schema}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text) from ${role}`));
     yield* driver(() => owner.client.query(`revoke all on function ${schema}.fx_require_active_installation(),
-      ${schema}.fx_invalidate_prepared_metadata() from ${role}`));
+      ${schema}.fx_invalidate_prepared_metadata(), ${schema}.fx_check_scope_execution_authority() from ${role}`));
   },
 );
 

@@ -2,23 +2,34 @@
 
 ## Status And Outcome
 
-**Acceptance is incomplete. The owner resumed the bounded failing-consumer
-correction and daily measurement harness in [slice 21](./21-core-performance-harness-preflight.md);
-the wider latency/scaling redesign remains outside that follow-up.**
+**Acceptance is incomplete. The failing-consumer correction and daily measurement
+harness in [slice 21](./21-core-performance-harness-preflight.md) are handed off.
+The authorized transaction-local common observation replacement below is
+implemented in an uncommitted candidate. It has not passed this slice's
+acceptance gates.**
 The owner requested the foundation roadmap first and has authorized implementation.
 The standalone/read and runtime/participant slice is committed and its source
 paths are released. This is a
 connected replacement of the existing private finite read path, not a new query
 API or a claim of implemented performance.
 
-The draft replaces source-wide intermediate proof and hydration with captured
-read demands, bounded preparation and fresh installed transaction authority.
-Its matched native comparison still exceeds the fixed added-latency budget and
-regresses complete request latency. Most of the observed hit regression is
-outside the Product method; the responsible phase is not yet established.
-Metadata scaling, the complete connected consumer regression set and integrated
-acceptance remain open. A saved checkpoint does not complete this package or
-authorize package 2.
+The query-required draft replaces source-wide intermediate proof and hydration
+with captured read demands, bounded preparation and fresh installed transaction
+authority. Its retained matched-native comparison exceeds the fixed added-latency
+budget and regresses complete request latency. Most of that observed hit
+regression is outside the Product method; the responsible phase is not established.
+Metadata scaling and integrated acceptance remain open. The common-observation
+candidate removes repeated common head proof within a transaction, but the
+matched native method still exceeds the fixed added-latency budget. The
+100-table scaling fixture cannot prepare its complete catalog under that
+candidate's ordered-definition limit. This sharing candidate improves the existing protocol;
+it does not implement Convex's attempt-fixed metadata/dependency contract. The
+selected [finite execution contract](./23-finite-execution-contract-preflight.md)
+now owns the authorized replacement: captured metadata and consumed dependencies,
+snapshot-compatible demanded readiness, separated live authority, durable entry
+reservation and relevant-change publication validation. Its implementation is in
+progress, including complete ordered-catalog capacity of 512 definitions. A saved
+checkpoint does not complete this package or authorize package 2.
 
 The earlier full-workload checkpoint was additionally blocked by execution
 failures: the Product/Payload graph refused its first Payload create with
@@ -100,7 +111,98 @@ is historical, not a fresh measurement of the active draft. It does not causally
 assign whole-request latency to one of these mechanisms. Standalone retrieval
 costs cannot be copied into a finite attempt as its per-read cost.
 
-## Selected Contract
+## Predecessor Contract And Retained Obligations
+
+Slice 23 replaces the common-observation and finite metadata-admission choreography
+below. The actual query, snapshot, pending-state, framework behavior and fixed
+performance gates remain obligations. These predecessor acquisition mechanisms
+do not override slice 23's selected entry, authority and publication contract.
+
+### Transaction-Local Common Finite Observations
+
+The finite implementation already carries actual read demands, reuses managed
+installation/preparation and selects relevant pending hydration. Complete those
+mechanisms rather than creating another read engine. The remaining source-proven
+repetition is common binding/Application head and schema observation across the
+sources participating in one accepting transaction. Compact projections and
+fixed basis copies are not evidence of source-size traversal or dominant CPU.
+
+Use the existing shared source-check lifetime to retain one genuine common
+observation within that exact SQL transaction. Application activation owns its
+checked active head/schema and nominal correlation; binding persistence owns the
+selected binding projection and protected preparation identity. Projection owns
+compact evidence derived from the live checked handle. No adapter or host gets
+authority-cache controls, and no common verdict survives the transaction.
+
+Every source still validates its own issued correlation, exact Application
+selection/root/clock, immutable head/schema pins, target/protection identity and
+open preparation lease before reuse. Common evidence must match that source's
+actual basis, not merely a digest or structurally similar token. Binding reuse
+still registers each distinct required protection guard and checks the source's
+retained head/preparation. Source-specific pins, demand ownership, required
+serving state, budgets, fresh authority/fence/revocation, lock/refusal order and
+protected tails remain complete.
+
+Both bundled and singleton finite frontiers use that existing sharing lifetime.
+New dynamically discovered demands reenter their source's authenticated finite
+read binding before readiness rather than losing the live checked Application
+issuer. Exact-transaction demand memoization remains separate: its fast path
+still checks the source preparation and target lease locally before reuse. This
+connects participant admission and the document/relational demand closures; it
+does not add a new demand interpreter or cache across transactions.
+
+A shared full-source verdict does not issue an Application binding capability.
+Separate full frame verification from finite participant pinning at this owner.
+Frame callbacks receive authenticated frame/head/clock data, not an optional
+Application issuer. Seal, publication, Application admission and direct/durable
+verification retain their full proof but do not mint a capability they never use.
+
+The explicit finite pin method obtains its own live issuer from the existing
+authenticated Application binding owner and compares that owner's evidence with
+the shared source frame. The caller's existing required local pin validation
+still precedes correlation capture, preserving its refusal order. The source
+owner captures the genuine finite correlation before returning. Never borrow a
+released prior callback's issuer or return an
+absent issuer merely because another source passed the common proof. Document
+and relational finite pin callers migrate together; remove the optional issuer
+field and direct capture reexport. This preserves whole-root Payload retry and
+initial execution without adding issuer authentication to frame-only completion.
+
+The enclosing scope owns checked-handle release. An individual source callback
+cannot revoke a handle still borrowed by another source in that scope. Normal
+exit, failure and interruption revoke it and discard common observations;
+catching a failed inner callback cannot revive its evidence. A later genuine
+call must authenticate again. Scope cleanup must also tolerate out-of-order
+closure without restoring a completed observation owner or overwriting a live
+sibling scope. This does not enable overlapping native working-set operations.
+Preserve detached output ownership rather than
+sharing mutable callback-facing projections or byte arrays.
+
+This replaces private finite observation plumbing across Application activation,
+binding projection, source admission and binding persistence together. Existing
+full entry, full seal/publication, standalone and durable profiles retain their
+contracts. No schema, journal format, durable outcome, event identity, retry or
+seal-recovery change is selected. Remove displaced repeated finite assembly as
+consumers migrate; no fallback observation engine is retained.
+
+Before runtime edits, freeze the direct baseline and use a bounded diagnostic of
+existing entry, actual storage/native work, operation close and terminal phases.
+Diagnostic report additions must leave quiet execution and business graphs
+unchanged. A diagnostic runtime bridge must abort and join its child before
+fixture or transaction cleanup completes, preserving the child's full outcome.
+The new five-scenario runner supplies iteration and connected
+regression evidence; the fixed matched-native and scaling gates below still own
+slice acceptance. Source repetition and total SQL counts alone do not establish
+the responsible latency phase.
+
+Connected proof includes genuine Product/Payload/workflow frontiers sharing
+common observations, subsequent transactions repeating fresh checks, foreign or
+closed issuer/preparation refusal, detached value ownership and cleanup after
+caught failure/interruption. Preserve the existing head/maintenance/placement,
+snapshot/pending, hook/event, rollback, retry and uncertain-outcome witnesses.
+Finish affected PGlite/ordinary-role PostgreSQL and Worker regressions, matched
+native budgets, unrelated-metadata scaling, both reviews, cleanup and one scoped
+commit. Passing common-observation tests does not complete this slice.
 
 ### Concrete Construction And Storage Boundary
 

@@ -1,3 +1,5 @@
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   LegacyV1StorageGenerationSchema,
@@ -66,6 +68,7 @@ describePostgres("real Postgres split scope authority provisioning", () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
         epoch: `epoch_${testUuid(2)}`,
       });
 
@@ -93,13 +96,10 @@ describePostgres("real Postgres split scope authority provisioning", () => {
       });
 
       const conflictScopeId = ScopeIdSchema.make(`scope_${testUuid(3)}`);
-      await target.drizzle.insert(fxSystemScopeClocks).values({
-        scopeId: conflictScopeId,
-        storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
-        storageGenerationFence: StorageGenerationFenceSchema.make(1n),
-        lastCommitSeq: CommitSeqSchema.make(0n),
-        epoch: ScopeEpochSchema.make("epoch_existing_target_authority"),
-      });
+      await target.drizzle.transaction(async authorityTx => {
+      await authorityTx.insert(fxSystemScopeClocks).values({scopeId: conflictScopeId,lastCommitSeq: CommitSeqSchema.make(0n)});
+      await authorityTx.insert(fxSystemScopeExecutionAuthorities).values({scopeId: conflictScopeId,storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),storageGenerationFence: StorageGenerationFenceSchema.make(1n),epoch: ScopeEpochSchema.make("epoch_existing_target_authority")});
+    });
       await expect(
         provisionerFor(control, target, uuidSequence(3, 4)).ensure({
           deploymentId: "deployment_split_pg_conflict",
@@ -202,6 +202,7 @@ describePostgres("real Postgres split scope authority provisioning", () => {
           storageGeneration: "legacy_v1",
           storageGenerationFence: 1n,
           lastCommitSeq: 0n,
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
           epoch: `epoch_${testUuid(6)}`,
         });
         await expect(

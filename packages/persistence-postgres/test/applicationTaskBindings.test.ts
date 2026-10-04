@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { canonicalizeApplicationManifestV1 } from
   "@flarex/analysis/application-analysis";
 import {
@@ -33,6 +34,9 @@ import { makeApplicationPublicationRepository } from
 import { makeApplicationTaskBindingRepository, createApplicationTaskCatalogSnapshotPort } from
   "../src/applicationTaskBindings";
 import { createPGlitePersistence } from "../src/pglite";
+import type { PostgresFlarexPersistence } from "../src/postgres";
+import { withTemporaryPostgresPersistence, rollbackAndReleasePostgresClient } from "./postgresHelpers";
+import { relationReadinessFixture } from "./applicationRelationReadinessFixture";
 import { runEffect } from "./effectTestRuntime";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
@@ -236,7 +240,7 @@ describe("Application task-binding persistence", () => {
   it("rejects stale authority and a fresh caller for the stale candidate", async () => {
     const fixture = await taskBindingFixture();
     await fixture.persistence.query(
-      "update fx_system_scope_clock set storage_generation_fence = 2 where scope_id = $1",
+      "update fx_system_scope_execution_authority set storage_generation_fence = 2 where scope_id = $1",
       [AUTHORITY.scopeId],
     );
     const stale = await runEffect(Effect.result(
@@ -606,10 +610,72 @@ describe("Application task-binding persistence", () => {
       definitions: "0",
     });
   });
+
+  for (const writer of ["task registration", "relation task registration", "relation publication"] as const) {
+    it.skipIf(!process.env.FLAREX_POSTGRES_DATABASE_URL)(
+      `locks authority before the sequencer for actual ${writer} on PostgreSQL`, async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        let scopeId: ApplicationAnalysisAuthority["scopeId"];
+        let replay: () => Promise<unknown>;
+        if (writer === "task registration") {
+          const fixture = await taskBindingFixture(false, persistence);
+          scopeId = fixture.input.authority.scopeId;
+          replay = () => runEffect(fixture.repository.register(fixture.input));
+        } else {
+          const fixture = await relationReadinessFixture({ persistence });
+          scopeId = fixture.authority.scopeId;
+          replay = writer === "relation task registration"
+            ? () => runEffect(fixture.taskBindings.register(fixture.taskBindingInput))
+            : () => runEffect(fixture.publications.publish(fixture.publicationInput));
+        }
+        const registered = await replay();
+        const clockBefore = await persistence.getScopeClock(scopeId);
+        if (clockBefore === null) throw new Error("Missing actual task-writer scope clock");
+        const holder = await persistence.pool.connect();
+        let pending: Promise<unknown> | undefined;
+        let settled = false;
+        try {
+          await holder.query("begin");
+          const authority = await holder.query(`select scope_id from fx_system_scope_execution_authority
+            where scope_id = $1 for update`, [scopeId]);
+          expect(authority.rows).toHaveLength(1);
+          const blockerPid = (await holder.query<{ pid: number }>("select pg_backend_pid()::int as pid")).rows[0]?.pid;
+          if (blockerPid === undefined) throw new Error("Missing actual authority blocker PID");
+          pending = replay().finally(() => { settled = true; });
+          void pending.catch(() => undefined);
+          const deadline = Date.now() + 5_000;
+          let waiterPid: number | undefined;
+          while (Date.now() < deadline) {
+            const waiters = await persistence.query<{ pid: number }>(`select pid from pg_stat_activity
+              where datname = current_database() and wait_event_type = 'Lock'
+                and $1::int = any(pg_blocking_pids(pid))`, [blockerPid]);
+            if (waiters.rows.length === 1) { waiterPid = waiters.rows[0]?.pid; break; }
+            if (settled) throw new Error("Actual registration settled before its authority gate");
+            await delay(25);
+          }
+          expect(waiterPid).toBeDefined();
+          expect(settled).toBe(false);
+          // The waiting actual owner must not have locked the sequencer first:
+          // its authority holder can still acquire the actual row immediately.
+          const sequencer = await holder.query(`select last_commit_seq::text as sequence from fx_system_scope_clock
+            where scope_id = $1 for update nowait`, [scopeId]);
+          expect(sequencer.rows).toEqual([{ sequence: clockBefore.lastCommitSeq.toString() }]);
+          expect(settled).toBe(false);
+          await holder.query("commit");
+          expect(await pending).toEqual(registered);
+          expect(await persistence.getScopeClock(scopeId)).toEqual(clockBefore);
+          expect(await replay()).toEqual(registered);
+        } finally {
+          await rollbackAndReleasePostgresClient(holder);
+          await pending?.catch(() => undefined);
+        }
+      });
+    }, 180_000);
+  }
 });
 
 async function taskBindingCounts(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>> | PostgresFlarexPersistence,
 ): Promise<Readonly<{ readonly catalogs: string; readonly definitions: string }>> {
   const rows = await persistence.query<{
     catalogs: string;
@@ -626,7 +692,7 @@ async function taskBindingCounts(
   return Object.freeze({ ...row });
 }
 
-async function taskBindingFixture(empty = false, suppliedPersistence?: Awaited<ReturnType<typeof createPGlitePersistence>>) {
+async function taskBindingFixture(empty = false, suppliedPersistence?: Awaited<ReturnType<typeof createPGlitePersistence>> | PostgresFlarexPersistence) {
   const persistence = suppliedPersistence ?? await createPGlitePersistence();
   await persistence.migrate();
   await insertSessionTestScope(persistence);

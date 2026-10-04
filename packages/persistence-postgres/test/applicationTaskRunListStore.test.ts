@@ -32,7 +32,7 @@ import { selectApplicationTask } from "../src/applicationTaskSelection";
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
 } from "../src/pglite";
-import { fxSystemDurableTaskRunsV1, fxSystemScopeClocks } from "../src/schema";
+import { fxSystemDurableTaskRunsV1, fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { createTaskAttemptLifecycleGateway } from
   "../src/taskAttemptLifecycleGateway";
 import { makeApplicationTaskSystemRunAttemptStoreV1 } from
@@ -122,12 +122,12 @@ describe("DTE07 located Application Task-run list store - PGlite", () => {
     await withFixture(async fixture => {
       await createRuns(fixture, [RUN_UUID_A]);
       const store = makeApplicationTaskRunListStore(fixture.located);
-      await fixture.persistence.drizzle.update(fxSystemScopeClocks).set({
+      await fixture.persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
         epoch: ScopeEpochSchema.make(
           "epoch_73000000-0000-4000-8000-000000000099",
         ),
       }).where(eq(
-        fxSystemScopeClocks.scopeId,
+        fxSystemScopeExecutionAuthorities.scopeId,
         fixture.located.authority.scopeId,
       ));
       await expect(runEffectFailure(store.listRuns({

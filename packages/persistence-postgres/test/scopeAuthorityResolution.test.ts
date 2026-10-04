@@ -1,3 +1,4 @@
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   CommitSeqSchema,
@@ -242,6 +243,7 @@ describe("trusted scope authority resolution", () => {
         FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(9n),
       lastCommitSeq: CommitSeqSchema.make(41n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
       epoch: ScopeEpochSchema.make(
         "epoch_20000000-0000-4000-8000-000000000099",
       ),
@@ -773,6 +775,7 @@ function scopeClock(
       LegacyV1StorageGenerationSchema.make("legacy_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
     oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
     epoch: initialEpoch,
     updatedAt: new Date("2026-07-11T00:00:00.000Z"),

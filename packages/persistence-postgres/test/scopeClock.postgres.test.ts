@@ -34,6 +34,7 @@ import {
   type FlarexPersistence,
 } from "../src";
 import { runEffect } from "./effectTestRuntime";
+import { writeJournalThrough } from "./migrationFixtureSupport";
 import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
   createPostgresPersistence,
@@ -48,14 +49,14 @@ import {
 import type {
   SharedDatabaseScopePhysicalLocator,
 } from "../src/scopeMetadataTypes";
-import { fxSystemScopeClocks } from "../src/schema";
+import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../src/schema";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "./postgresHelpers";
 import {
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
@@ -73,8 +74,8 @@ describePostgres("real Postgres scope clock locking", () => {
       await insertScopeClock(persistence, scopeId, "epoch-snapshot");
       // Deliberately probe the proposed lock protocol, not production publication.
       const read = (tx: Parameters<typeof lockScopeClockForUpdateInTransactionEffect>[0]) =>
-        tx.select({ sequence: fxSystemScopeClocks.lastCommitSeq, epoch: fxSystemScopeClocks.authorizationRevocationEpoch })
-          .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId));
+        tx.select({ sequence: fxSystemScopeClocks.lastCommitSeq, epoch: fxSystemScopeExecutionAuthorities.authorizationRevocationEpoch })
+          .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(eq(fxSystemScopeClocks.scopeId, scopeId));
       const advance = async (tx: Parameters<typeof lockScopeClockForUpdateInTransactionEffect>[0]) => {
         await tx.execute(sql`set local lock_timeout = '500ms'`);
         await read(tx).for("no key update");
@@ -109,7 +110,7 @@ describePostgres("real Postgres scope clock locking", () => {
       const scopeId = ScopeIdSchema.make("scope_clock_snapshot_revocation_wait");
       await insertScopeClock(persistence, scopeId, "epoch-snapshot");
       await persistence.drizzle.transaction(async reader => {
-        await reader.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId)).for("key share");
+        await reader.select().from(fxSystemScopeExecutionAuthorities).where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId)).for("key share");
         await expect(persistence.drizzle.transaction(async writer => {
           await writer.execute(sql`set local lock_timeout = '500ms'`);
           return advanceScopeAuthorizationRevocationEpochInTransaction(writer, scopeId);
@@ -117,8 +118,8 @@ describePostgres("real Postgres scope clock locking", () => {
           _tag: "ScopeAuthorizationRevocationEpochPersistenceError", operation: "lockForUpdate",
           cause: { cause: { code: "55P03" } },
         });
-        expect(await reader.select({ epoch: fxSystemScopeClocks.authorizationRevocationEpoch })
-          .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId))).toEqual([{ epoch: 0n }]);
+        expect(await reader.select({ epoch: fxSystemScopeExecutionAuthorities.authorizationRevocationEpoch })
+          .from(fxSystemScopeExecutionAuthorities).where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId))).toEqual([{ epoch: 0n }]);
       }, { isolationLevel: "repeatable read" });
       await expect(persistence.drizzle.transaction(tx => advanceScopeAuthorizationRevocationEpochInTransaction(tx, scopeId)))
         .resolves.toEqual({ previous: 0n, current: 1n });
@@ -130,8 +131,8 @@ describePostgres("real Postgres scope clock locking", () => {
       const scopeId = ScopeIdSchema.make("scope_clock_snapshot_revocation_stale");
       await insertScopeClock(persistence, scopeId, "epoch-snapshot");
       await expect(persistence.drizzle.transaction(async reader => {
-        expect(await reader.select({ epoch: fxSystemScopeClocks.authorizationRevocationEpoch })
-          .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId))).toEqual([{ epoch: 0n }]);
+        expect(await reader.select({ epoch: fxSystemScopeExecutionAuthorities.authorizationRevocationEpoch })
+          .from(fxSystemScopeExecutionAuthorities).where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId))).toEqual([{ epoch: 0n }]);
         await persistence.drizzle.transaction(tx => advanceScopeAuthorizationRevocationEpochInTransaction(tx, scopeId));
         if (advanceAfterRevocation) {
           await persistence.drizzle.transaction(async writer => {
@@ -140,7 +141,8 @@ describePostgres("real Postgres scope clock locking", () => {
               .where(eq(fxSystemScopeClocks.scopeId, scopeId));
           });
         }
-        await reader.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId)).for("key share");
+        await reader.select().from(fxSystemScopeExecutionAuthorities)
+          .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId)).for("key share");
       }, { isolationLevel: "repeatable read" })).rejects.toMatchObject({ cause: { code: "40001" } });
       expect(await persistence.drizzle.transaction(tx => requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId))).toBe(1n);
     });
@@ -173,17 +175,18 @@ describePostgres("real Postgres scope clock locking", () => {
             lockScopeClockForUpdateInTransactionEffect(tx, lockedScopeId),
           );
           await tx
-            .update(fxSystemScopeClocks)
+            .update(fxSystemScopeExecutionAuthorities)
             .set({
               storageGeneration:
                 FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
               storageGenerationFence:
                 StorageGenerationFenceSchema.make(2n),
-              lastCommitSeq: CommitSeqSchema.make(1n),
               epoch: ScopeEpochSchema.make("epoch-tentative"),
               updatedAt: new Date("2026-07-11T00:00:00.000Z"),
             })
-            .where(sql`${fxSystemScopeClocks.scopeId} = ${lockedScopeId}`);
+            .where(sql`${fxSystemScopeExecutionAuthorities.scopeId} = ${lockedScopeId}`);
+          await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n),
+            updatedAt: new Date("2026-07-11T00:00:00.000Z") }).where(eq(fxSystemScopeClocks.scopeId, lockedScopeId));
           lockerPidReady.resolve(lockerPid);
           await releaseLocker.promise;
           throw new Error("scope-clock-postgres-rollback-probe");
@@ -536,8 +539,8 @@ describePostgres("real Postgres scope clock locking", () => {
       );
       await persistence.query(
         `
-          update fx_system_scope_clock
-          set authorization_revocation_epoch = $2
+          update fx_system_scope_execution_authority
+      set authorization_revocation_epoch = $2
           where scope_id = $1
         `,
         [
@@ -573,7 +576,6 @@ describePostgres("real Postgres scope clock locking", () => {
       "test/fixtures/drizzle-through-0026-journal.json",
     );
     const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-    const currentMigrationReceiptCount = await journalEntryCount(currentJournal);
     const migrationName = "0027_graceful_silver_fox.sql";
     const copiedMigration = resolve(migrationsFolder, migrationName);
 
@@ -593,7 +595,7 @@ describePostgres("real Postgres scope clock locking", () => {
           | undefined;
         try {
           await previousPersistence.migrate();
-          await insertSessionTestScope(previousPersistence);
+          await insertLegacySessionTestScope(previousPersistence);
           const sessionId = transactionSessionIdAt(28);
           await insertTransactionSessionFixture(
             previousPersistence,
@@ -607,8 +609,13 @@ describePostgres("real Postgres scope clock locking", () => {
             ),
           ).rejects.toThrow();
 
-          await copyFile(
+          // Keep the seeded historical session within this S07-A migration proof.
+          await writeJournalThrough(
             currentJournal,
+            resolve(migrationsFolder, "meta/_journal.json"),
+            27,
+          );
+          const targetMigrationReceiptCount = await journalEntryCount(
             resolve(migrationsFolder, "meta/_journal.json"),
           );
           const realMigration = await readFile(copiedMigration, "utf8");
@@ -666,7 +673,7 @@ describePostgres("real Postgres scope clock locking", () => {
             from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
           `);
           expect(recoveredReceipts.rows).toEqual([
-            { count: String(currentMigrationReceiptCount) },
+            { count: String(targetMigrationReceiptCount) },
           ]);
         } finally {
           await Promise.all([
@@ -696,11 +703,10 @@ async function insertScopeClock(
 ): Promise<void> {
   await persistence.query(
     `
-      insert into fx_system_scope_clock (
-        scope_id,
-        storage_generation,
-        epoch
-      ) values ($1, 'legacy_v1', $2)
+      with sequencer as (insert into fx_system_scope_clock (scope_id)
+        values ($1) returning scope_id)
+      insert into fx_system_scope_execution_authority (scope_id,storage_generation,epoch)
+      select sequencer.scope_id,'legacy_v1',$2 from sequencer
     `,
     [scopeId, epoch],
   );

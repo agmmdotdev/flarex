@@ -36,6 +36,7 @@ import {
   CommitFinalSyscallSequenceV1Schema,
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
+  MetadataSequenceSchema,
   CommitSyscallSequenceV1Schema,
   SESSION_JOURNAL_FORMAT,
   type CanonicalSessionJournal,
@@ -59,6 +60,9 @@ import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transactio
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionAttemptFenceSchema,
+  TransactionExecutionModuleV1Schema,
+  TransactionFunctionKindV1Schema,
+  TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
@@ -1199,8 +1203,12 @@ function loadResult(
 ): PointMutationSessionAttemptLoadResultV1 {
   return Object.freeze({
     status: "loaded",
+    lastMetadataSequence: MetadataSequenceSchema.make(0n),
     anchor: anchor(selector),
-    executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID }),
+    executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID,
+      functionPath: TransactionFunctionPathV1Schema.make("messages:create"),
+      functionKind: TransactionFunctionKindV1Schema.make("mutation"),
+      executionModule: TransactionExecutionModuleV1Schema.make("flarex/_generated/execution.mjs") }),
     attemptFacet: Object.freeze({ kind: "nonPristine" }),
   });
 }

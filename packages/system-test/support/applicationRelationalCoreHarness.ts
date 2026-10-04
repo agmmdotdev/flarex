@@ -2,6 +2,7 @@
 
 import {
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
   type fxAppRowRevisions,
 } from "@flarex/persistence-postgres/internal/system-test/schema";
 import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
@@ -471,12 +472,15 @@ async function proveExactQueryScopeUnderSharedDeployment(
     deploymentId: fixture.deploymentId,
     physicalLocator: originalScope.physicalLocator,
   });
-  await fixture.target.drizzle.insert(fxSystemScopeClocks).values({
-    scopeId: otherScopeId,
-    storageGeneration: fixture.authority.storageGeneration,
-    epoch: ScopeEpochSchema.make(
-      "epoch_40000000-0000-4000-8000-000000000092",
-    ),
+  await fixture.target.drizzle.transaction(async tx => {
+    await tx.insert(fxSystemScopeClocks).values({ scopeId: otherScopeId });
+    await tx.insert(fxSystemScopeExecutionAuthorities).values({
+      scopeId: otherScopeId,
+      storageGeneration: fixture.authority.storageGeneration,
+      epoch: ScopeEpochSchema.make(
+        "epoch_40000000-0000-4000-8000-000000000092",
+      ),
+    });
   });
   const opened = await runSystemTestEffectV1(Effect.scoped(
     openApplicationQuerySnapshot(

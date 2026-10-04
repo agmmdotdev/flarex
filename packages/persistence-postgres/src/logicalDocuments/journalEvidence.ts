@@ -1,6 +1,7 @@
 import { Data, Effect, Result, Schema } from "effect";
 import { encodeCanonicalJson } from "flarex-protocol/json";
-import { MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 } from "flarex-protocol/commit-protocol";
+import { MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1, MAX_COMMIT_METADATA_READ_DEPENDENCIES,
+  LogicalMetadataReadDependencySchema, MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { AppRowIdHexV1Schema } from "flarex-protocol/app-document-id";
 import { CatalogIndexDefinitionIdSchema, CatalogTableIdSchema,
   CatalogUniqueConstraintDefinitionIdSchema } from "flarex-protocol/catalog";
@@ -30,14 +31,24 @@ const uniqueKey = Schema.Union([
 const unique = Schema.Struct({ constraintId: CatalogUniqueConstraintDefinitionIdSchema, key: uniqueKey,
   owner: Schema.NullOr(Schema.Struct({ tableId: CatalogTableIdSchema,
     rowId: AppRowIdHexV1Schema }).annotate(strict)) }).annotate(strict);
-export const LogicalParticipantDependencyEvidenceSchema = Schema.Struct({
+const LegacyLogicalParticipantDependencyEvidenceSchema = Schema.Struct({
   format: Schema.Literal("flarex.logical-participant-evidence"), version: Schema.Literal(1),
   indexRanges: Schema.Array(range).check(Schema.isMaxLength(256)),
   indexPages: Schema.Array(page).check(Schema.isMaxLength(256)),
   uniqueReads: Schema.Array(unique).check(Schema.isMaxLength(256)),
 }).annotate(strict);
+export const FiniteLogicalParticipantDependencyEvidenceSchema = Schema.Struct({
+  ...LegacyLogicalParticipantDependencyEvidenceSchema.fields, version: Schema.Literal(2),
+  metadataWatermark: Schema.toEncoded(MetadataSequenceSchema),
+  metadataDependencies: Schema.Array(Schema.toEncoded(LogicalMetadataReadDependencySchema)).check(
+    Schema.isMaxLength(MAX_COMMIT_METADATA_READ_DEPENDENCIES)),
+}).annotate(strict);
+export const LogicalParticipantDependencyEvidenceSchema = Schema.Union([
+  LegacyLogicalParticipantDependencyEvidenceSchema, FiniteLogicalParticipantDependencyEvidenceSchema,
+]);
 export type LogicalParticipantDependencyEvidence = typeof LogicalParticipantDependencyEvidenceSchema.Type;
 const decode = Schema.decodeUnknownResult(LogicalParticipantDependencyEvidenceSchema, { onExcessProperty: "error" });
+const encodeMetadataArrayEffect = Schema.encodeUnknownEffect(Schema.Array(LogicalMetadataReadDependencySchema));
 const utf8 = new TextEncoder();
 export class LogicalParticipantEvidenceError extends Data.TaggedError("LogicalParticipantEvidenceError")<{
   readonly reason: "unsupportedProfile" | "invalidEvidence" | "limitExceeded" | "writeConflict" | "resourceFailure";
@@ -54,7 +65,12 @@ export const serializeLogicalParticipantDependencyEvidence = Effect.fn("LogicalD
       closed.referenceReplacements.length > 0 || closed.lifecycle.length > 0)
       return yield* Effect.fail(logicalParticipantEvidenceError("unsupportedProfile"));
     const projected = {
-      format: "flarex.logical-participant-evidence" as const, version: 1 as const,
+      format: "flarex.logical-participant-evidence" as const,
+      ...(closed.metadataDependencies === undefined ? { version: 1 as const } : {
+        version: 2 as const, metadataWatermark: closed.metadataWatermark?.toString(),
+        metadataDependencies: yield* encodeMetadataArrayEffect(closed.metadataDependencies)
+          .pipe(Effect.mapError(cause => logicalParticipantEvidenceError("invalidEvidence", cause))),
+      }),
       indexRanges: closed.indexReads.map(read => ({ indexDefinitionId: read.definition.indexDefinitionId,
         bounds: read.bounds, entries: read.entries.map(member => ({ rowId: member.rowId,
           encodedKey: member.encodedKey, commitSeq: member.commitSeq.toString() })) })),

@@ -1,3 +1,4 @@
+import { selectScopeClockRows, type ScopeClockRow } from "./scopeClock";
 import { isRetainedTransactionSessionIdentityV1, isTerminalTransactionSessionLifecycleV1 } from "./transactionSessionAttemptFacet";
 import {
   copyBytes,
@@ -117,7 +118,6 @@ type TransactionSessionRow =
 type SnapshotLeaseRow = typeof fxSystemSnapshotLeases.$inferSelect;
 type JournalRootRow = typeof fxSystemTransactionJournals.$inferSelect;
 type JournalPointRow = typeof fxSystemTransactionJournalPoints.$inferSelect;
-type ScopeClockRow = typeof fxSystemScopeClocks.$inferSelect;
 
 const decodeStoredAttemptScopeUuidResult = Schema.decodeUnknownResult(
   Schema.toType(ScopeUuidV1Schema),
@@ -597,9 +597,7 @@ export async function captureStoredAttemptRows(
   selector: PointMutationSessionAttemptSelectorV1,
   observeQuery: StoredAttemptEvidenceLoaderOptionsV1["observeQuery"],
 ): Promise<CapturedStoredAttemptRowsV1> {
-  const clockQuery = tx
-    .select()
-    .from(fxSystemScopeClocks)
+  const clockQuery = selectScopeClockRows(tx)
     .where(eq(fxSystemScopeClocks.scopeId, selector.scopeId))
     .limit(2);
   observeStoredAttemptQuery("clock", clockQuery, observeQuery);

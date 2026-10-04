@@ -1,5 +1,6 @@
 import { issueSetupSeededSyscallValidatorProofV1 } from "./applicationRevisionSyscallValidatorTestSupport";
 import { setTimeout as delay } from "node:timers/promises";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import { loseBindingCommitResponse } from "./frameworkDataBindingPostgresTestSupport";
 
 import {
@@ -2840,12 +2841,7 @@ async function fixtureFor(
     deploymentId,
     physicalLocator: LOCATOR,
   });
-  await target.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
-    [scopeId, epoch],
-  );
+  await insertCurrentScopeClockFixture(target.drizzle, { scopeId, epoch });
   const pointTarget = createPostgresLocatedPointMutationSessionActivationTargetV1(
     target,
     LOCATOR,

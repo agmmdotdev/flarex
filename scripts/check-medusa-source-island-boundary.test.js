@@ -225,12 +225,17 @@ describe("Medusa source-island boundary checker", () => {
     }
   });
 
-  it("admits only the two committed baseline backend test edges and exact authored targets", () => {
+  it("admits only the named connected proof edges and exact authored targets", () => {
     const edges = [
       { importer: "packages/flarex-backend/test/mixedMutationProduct.workerd.test.ts",
         specifier: "../../medusa-adapter/src/product-attempt", target: "packages/medusa-adapter/src/product-attempt.ts" },
       { importer: "packages/flarex-backend/test/preparedTargetMetadata.postgres.test.ts",
         specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" },
+      { importer: "packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts",
+        specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts" },
+      ...["applicationFiniteBindingCorrelation.test.ts", "bindingMetadataBackfillScenario.ts", "finiteSourceCommitClosure.test.ts"]
+        .map(file => ({ importer: `packages/persistence-postgres/test/${file}`,
+          specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" })),
     ];
     const promotion = { ...nativeControlPromotion, files: edges.map(edge =>
       ({ target: edge.target, targetSha256: "pinned", classification: "authored" })) };
@@ -238,12 +243,16 @@ describe("Medusa source-island boundary checker", () => {
       const text = `import { operation } from ${JSON.stringify(edge.specifier)};`;
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
         rootSources: [{ relativePath: edge.importer, text }] }).errors).toEqual([]);
-      for (const relativePath of ["packages/flarex-backend/test/adjacent.test.ts", "packages/flarex-backend/src/runtime.ts"]) {
+      for (const relativePath of ["packages/flarex-backend/test/adjacent.test.ts", "packages/flarex-backend/src/runtime.ts",
+        "packages/persistence-postgres/test/adjacent.test.ts", "packages/persistence-postgres/src/runtime.ts"]) {
         expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
           rootSources: [{ relativePath, text }] }).errors.some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
       }
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput,
         currencyPromotion: { ...promotion, files: [] }, rootSources: [{ relativePath: edge.importer, text }] }).errors.length).toBeGreaterThan(0);
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput,
+        currencyPromotion: { ...promotion, files: promotion.files.map(file => file.target === edge.target
+          ? { ...file, classification: "preserved" } : file) }, rootSources: [{ relativePath: edge.importer, text }] }).errors.length).toBeGreaterThan(0);
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
         rootSources: [{ relativePath: edge.importer, text: 'import "../../medusa-adapter/src/product-module";' }] }).errors.length).toBeGreaterThan(0);
     }

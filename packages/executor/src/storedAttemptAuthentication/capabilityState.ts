@@ -4,6 +4,7 @@ import type {
   PointCommitConflictEvidenceV1,
   PointCommitAuthorityPinsV1,
   PointCommitPublicationCommandV1,
+  PointMutationAttemptReplacementObservationV1,
   RunningRelationConflictAttemptReplacementCommandV1,
 } from
   "@flarex/persistence-postgres/point-commit-transaction";
@@ -88,6 +89,8 @@ export interface PointCommitDecisionUncertainTicketStateV1 {
 export interface AuthorizedPointMutationOccRerunStateV1 {
   readonly loadedAttempt: LoadedPointMutationSessionAttemptV1;
   readonly executionClaim: PointMutationExecutionClaimV1;
+  readonly finiteEntry?: NonNullable<Extract<PointMutationAttemptReplacementObservationV1,
+    { readonly kind: "replaced" }>["finiteEntry"]> & Readonly<{ executionClaim: PointMutationExecutionClaimV1 }>;
   readonly lineage: PointMutationOccRetryLineage;
   readonly conflict: CapturedPointMutationOccConflictV1;
   readonly inspection: AuthorizedPointMutationOccRerunInspectionV1;

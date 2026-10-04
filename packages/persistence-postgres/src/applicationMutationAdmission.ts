@@ -13,6 +13,7 @@ import { Data, Effect, Result } from "effect";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
   type CanonicalApplicationMutationExecutionAuthorityV1,
+  type ApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
   canonicalizeApplicationRuntimeTargetV1,
@@ -97,7 +98,9 @@ declare const finiteMutationPreparationBrand: unique symbol;
 export interface PreparedFiniteApplicationMutationAdmission {
   readonly [finiteMutationPreparationBrand]: true;
 }
-export type PreparedFiniteApplicationMutationInputs = Omit<ApplicationMutationAdmission, "selection">;
+export type PreparedFiniteApplicationMutationInputs = Omit<ApplicationMutationAdmission, "selection"> & {
+  readonly application: PreparedFiniteActiveApplication;
+};
 const finiteMutationPreparations = new WeakMap<PreparedFiniteApplicationMutationAdmission, {
   readonly active: PreparedFiniteActiveApplication;
   readonly context: ApplicationMutationAdmissionContext;
@@ -129,7 +132,7 @@ export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   const entrySha256 = encodeBytesToLowercaseHex(yield* sha256(entryBytes));
   const executionAuthority = yield* prepareMutationExecutionAuthority(basis, Object.freeze({ ...fn,
     kind: "mutation" as const, visibility: "public" as const, entrySha256 }));
-  const inputs = Object.freeze({ basis, schema, executionAuthority });
+  const inputs = Object.freeze({ basis, schema, executionAuthority, application: active });
   yield* chargeHostPreparation({ basis, executionAuthority: { ...executionAuthority } }).pipe(
     Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
   // SAFETY: only the issuing owner registry authenticates this inert nominal handle.
@@ -144,7 +147,8 @@ export function readPreparedFiniteApplicationMutationInputs(prepared: PreparedFi
   const state = finiteMutationPreparations.get(prepared);
   if (state === undefined || state.context !== context) return Result.fail(failureValue("invalidComposition"));
   return readPreparedFiniteActiveApplication(state.active).pipe(Result.map(({ claimed, schema }) =>
-    Object.freeze({ basis: claimed.basis, schema, executionAuthority: structuredClone(state.inputs.executionAuthority) })));
+    Object.freeze({ basis: claimed.basis, schema, executionAuthority: structuredClone(state.inputs.executionAuthority),
+      application: state.active })));
 }
 
 export type PreparedFiniteApplicationMutationAdmissionAcceptanceError = ApplicationMutationAdmissionError |
@@ -292,6 +296,24 @@ const selectApplicationMutationAdmissionForVisibility = Effect.fn(
   return Object.freeze({ selection, basis, executionAuthority, schema });
 });
 
+/** A fresh entry may select a new head, but must execute the original signed program. */
+export const requireFiniteReplacementApplicationExecutionAuthority = Effect.fn(
+  "ApplicationMutationAdmission.requireFiniteReplacementExecutionAuthority",
+)(function* (basis: ApplicationExecutableActiveSelection["basis"], expected: ApplicationMutationExecutionAuthorityV1) {
+  const fn = basis.manifest.functions.find(candidate => candidate.path === expected.runtimeTarget.function.path);
+  if (fn === undefined) return yield* failure("functionMissing");
+  if (fn.kind !== "mutation" || (fn.visibility !== "public" && fn.visibility !== "internal"))
+    return yield* failure("functionUnsupported");
+  const entryBytes = yield* Effect.fromResult(applicationFunctionEntryPublicationFrameV1(fn).pipe(
+    Result.mapError(cause => failureValue("storedFunction", false, cause))));
+  const entrySha256 = encodeBytesToLowercaseHex(yield* sha256(entryBytes));
+  const current = yield* prepareMutationExecutionAuthority(basis, Object.freeze({ ...fn,
+    kind: "mutation" as const, visibility: fn.visibility, entrySha256 }));
+  if (current.authority.runtimeTargetSha256 !== expected.runtimeTargetSha256 ||
+    current.authority.schemaVersionId !== expected.schemaVersionId)
+    return yield* failure("invalidExecutionAuthority");
+});
+
 const prepareMutationExecutionAuthority = Effect.fn('ApplicationMutationAdmission.prepareExecutionAuthority')(
 function* (basis: ApplicationExecutableActiveSelection['basis'],
   storedFunction: ApplicationExecutableActiveSelection['basis']['manifest']['functions'][number] & {
@@ -359,7 +381,7 @@ const resolveApplicationMutationSchema = Effect.fn(
     return yield* context.schema.readPublished({
       deploymentId: context.deploymentId,
       manifest: claimed.basis.manifest,
-    });
+    }).pipe(Effect.map(published => published.schema));
   }
   const relationSchema = context.relationSchema;
   if (!hasApplicationRelationSchemaAuthorityComposition(

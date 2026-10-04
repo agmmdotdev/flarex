@@ -4,7 +4,7 @@
 
 Status: the Application, Product, selected Payload Local API, and finite
 Medusa workflow slices are implemented as a private, isolated-scope execution
-profile. The finite-root redesign is delivered for that graph; its proposed
+profile. The earlier finite-root design is delivered for that graph; its proposed
 latency goal is unmet. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
 owns architecture and open contract questions. This roadmap owns current status,
 sequencing and finite delivery gates. Numbered slice preflights own their
@@ -25,11 +25,30 @@ complete [query-required mixed reads](./20-query-required-read-execution-preflig
 first, then finite contribution/settlement/recovery under an explicit terminal
 durability decision, and connected whole-request acceptance. Query-required
 mixed reads have an incomplete implementation checkpoint from the verified,
-committed standalone-read and framework-organization handoff. The owner resumed
-its failing-consumer correction in slice 21. Its selected contract and fixed native budget
-are recorded in slice 20; added latency and complete request performance fail
-acceptance, and connected validation remains open. The predecessor's remaining standalone latency and hosted gates
+committed standalone-read and framework-organization handoff. Slice 21 completes
+its bounded failing-consumer correction and direct measurement harness. The owner
+authorized transaction-local common finite observation sharing in slice 20.
+That replacement is an uncommitted candidate; its fixed native added-latency
+budget remains unmet. The 100-table scaling fixture exceeds that predecessor's
+complete ordered-catalog capacity. This candidate improves the existing protocol;
+it does not deliver the full Convex-inspired execution design. The selected
+[finite execution contract](./23-finite-execution-contract-preflight.md) replaces that choreography with
+attempt-fixed metadata/dependencies, demanded snapshot-compatible readiness,
+explicit live authority and one settlement. Its architectural cutover is delivered
+for the existing private finite profiles,
+including separated authority and commit sequencing, relevant-change metadata
+OCC, durable reservations, and the selected complete ordered-catalog capacity of
+512 definitions. This is an execution-contract replacement with affected consumer
+and durable-format cutover, not only acquisition optimization. Fixed native
+added-latency, complete-request non-regression and mixed performance acceptance
+remain open. The predecessor's remaining standalone latency and hosted gates
 stay with their owners.
+
+The owner requires [architecture-first sequencing](./14-execution-redesign-roadmap.md#architecture-first-small-optimizations-afterward):
+finish the selected connected redesign, migrate its consumers and remove displaced
+paths before separate small optimizations. Query-count reductions alone do not
+establish completion. Correctness and validation continue throughout; architectural
+cutover and the still-required performance acceptance remain separate claims.
 
 The implemented [direct core performance harness](./21-core-performance-harness-preflight.md)
 places daily framework/database measurement in executor test composition, with

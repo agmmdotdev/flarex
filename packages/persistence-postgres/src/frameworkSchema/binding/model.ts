@@ -96,12 +96,11 @@ export type DataBindingActivationRequest = Readonly<{
   JsonObject;
 export type DataBindingActivationFrame = Readonly<{
   format: "flarex.data-binding-activation";
-  version: 2;
   request: DataBindingActivationRequest;
   sequence: string;
   activatedAt: string;
   strongReferences: readonly StrongReferenceActivationProjection[];
-}> &
+} & ({ version: 2 } | { version: 3; authorizationRevocationEpoch: string })> &
   JsonObject;
 export type DataBindingHeadFrame = Readonly<{
   format: "flarex.data-binding-head";

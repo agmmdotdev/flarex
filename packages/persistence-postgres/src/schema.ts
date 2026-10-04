@@ -84,6 +84,8 @@ import {
   type CommitProtocolV1LimitDimension,
   type CommitSyscallSequenceV1,
   type LogicalAppWriteV1,
+  type LogicalMetadataKey,
+  type MetadataSequence,
 } from "flarex-protocol/commit-protocol";
 import type {
   CatalogEdgeDefinitionId,
@@ -1573,6 +1575,7 @@ export const fxControlScopeProvisioning = pgTable(
   ],
 );
 
+/** Stable identity/FK root and exclusive commit/metadata sequencer. */
 export const fxSystemScopeClocks = pgTable(
   "fx_system_scope_clock",
   {
@@ -1586,6 +1589,29 @@ export const fxSystemScopeClocks = pgTable(
           else null
         end
       `),
+    lastCommitSeq: bigint("last_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull()
+      .default(sql`0`),
+    lastMetadataSequence: bigint("last_metadata_sequence", { mode: "bigint" })
+      .$type<MetadataSequence>().notNull().default(sql`0`),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("fx_system_scope_clock_scope_uuid_unique").on(table.scopeUuid),
+    check("fx_system_scope_clock_scope_id_non_empty_check", nonBlankText(table.scopeId)),
+    check("fx_system_scope_clock_last_commit_seq_non_negative_check", sql`${table.lastCommitSeq} >= 0`),
+    check("fx_system_scope_clock_last_metadata_sequence_non_negative_check", sql`${table.lastMetadataSequence} >= 0`),
+  ],
+);
+
+/** One live lifecycle authority; finite reads share this row, never the sequencer. */
+export const fxSystemScopeExecutionAuthorities = pgTable(
+  "fx_system_scope_execution_authority",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().primaryKey(),
     storageGeneration: text("storage_generation")
       .$type<StorageGeneration>()
       .notNull(),
@@ -1595,10 +1621,6 @@ export const fxSystemScopeClocks = pgTable(
       .$type<StorageGenerationFence>()
       .notNull()
       .default(sql`1`),
-    lastCommitSeq: bigint("last_commit_seq", { mode: "bigint" })
-      .$type<CommitSeq>()
-      .notNull()
-      .default(sql`0`),
     oldestAvailableCommitSeq: bigint("oldest_available_commit_seq", {
       mode: "bigint",
     })
@@ -1626,35 +1648,39 @@ export const fxSystemScopeClocks = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("fx_system_scope_clock_scope_uuid_unique").on(table.scopeUuid),
-    check(
-      "fx_system_scope_clock_scope_id_non_empty_check",
-      nonBlankText(table.scopeId),
-    ),
-    check(
-      "fx_system_scope_clock_storage_generation_check",
-      sql`${table.storageGeneration} in ('legacy_v1', 'flarexdb_v1')`,
-    ),
-    check(
-      "fx_system_scope_clock_storage_generation_fence_positive_check",
-      sql`${table.storageGenerationFence} >= 1`,
-    ),
-    check(
-      "fx_system_scope_clock_last_commit_seq_non_negative_check",
-      sql`${table.lastCommitSeq} >= 0`,
-    ),
-    check(
-      "fx_system_scope_clock_oldest_available_commit_seq_check",
-      sql`${table.oldestAvailableCommitSeq} >= 0 and ${table.oldestAvailableCommitSeq} <= ${table.lastCommitSeq}`,
-    ),
-    check(
-      "fx_system_scope_clock_authorization_revocation_epoch_non_negative_check",
-      sql`${table.authorizationRevocationEpoch} >= 0`,
-    ),
-    check(
-      "fx_system_scope_clock_epoch_non_empty_check",
-      nonBlankText(table.epoch),
-    ),
+    foreignKey({ name: "fx_scope_execution_authority_scope_fk", columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId] }).onDelete("restrict").onUpdate("restrict"),
+    check("fx_scope_execution_authority_generation_check", sql`${table.storageGeneration} in ('legacy_v1', 'flarexdb_v1')`),
+    check("fx_scope_execution_authority_fence_check", sql`${table.storageGenerationFence} >= 1`),
+    check("fx_scope_execution_authority_floor_check", sql`${table.oldestAvailableCommitSeq} >= 0`),
+    check("fx_scope_execution_authority_revocation_check", sql`${table.authorizationRevocationEpoch} >= 0`),
+    check("fx_scope_execution_authority_epoch_check", nonBlankText(table.epoch)),
+  ],
+);
+
+/** Tombstones retain semantic changes, including remove/readd ABA observations. */
+export const fxSystemMetadataContractObservations = pgTable(
+  "fx_system_metadata_contract_observation",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    namespace: text("namespace").$type<LogicalMetadataKey["namespace"]>().notNull(),
+    ownerKey: text("owner_key").notNull(),
+    contractKey: text("contract_key").notNull(),
+    semanticSha256Hex: text("semantic_sha256_hex"),
+    present: boolean("present").notNull(),
+    lastChangedMetadataSequence: bigint("last_changed_metadata_sequence", { mode: "bigint" })
+      .$type<MetadataSequence>().notNull(),
+  },
+  table => [
+    primaryKey({ columns: [table.scopeId, table.namespace, table.ownerKey, table.contractKey] }),
+    foreignKey({ name: "fx_metadata_contract_scope_fk", columns: [table.scopeId], foreignColumns: [fxSystemScopeClocks.scopeId] })
+      .onDelete("restrict").onUpdate("restrict"),
+    check("fx_metadata_contract_namespace_check", sql`${table.namespace} in ('application', 'binding', 'execution')`),
+    check("fx_metadata_contract_owner_check", nonBlankText(table.ownerKey)),
+    check("fx_metadata_contract_key_check", nonBlankText(table.contractKey)),
+    check("fx_metadata_contract_sequence_check", sql`${table.lastChangedMetadataSequence} > 0`),
+    check("fx_metadata_contract_digest_check", sql`(${table.present} = (${table.semanticSha256Hex} is not null))
+      and (${table.semanticSha256Hex} is null or ${table.semanticSha256Hex} ~ '^[0-9a-f]{64}$')`),
   ],
 );
 
@@ -2735,11 +2761,19 @@ export const fxSystemSnapshotLeases = pgTable(
     snapshotCommitSeq: bigint("snapshot_commit_seq", { mode: "bigint" })
       .$type<CommitSeq>()
       .notNull(),
+    metadataWatermark: bigint("metadata_watermark", { mode: "bigint" }).$type<MetadataSequence>(),
+    finiteMetadataReservationBytes: bytea("finite_metadata_reservation_bytes"),
+    finiteMetadataReservationSha256: bytea("finite_metadata_reservation_sha256"),
     leaseExpiresAt: timestamp("lease_expires_at", {
       withTimezone: true,
     }).notNull(),
   },
   (table) => [
+    check("fx_snapshot_lease_finite_metadata_reservation_check", sql`
+      (${table.metadataWatermark} is null and ${table.finiteMetadataReservationBytes} is null and ${table.finiteMetadataReservationSha256} is null)
+      or (${table.metadataWatermark} is not null and ${table.metadataWatermark} >= 0 and ${table.finiteMetadataReservationBytes} is not null
+        and octet_length(${table.finiteMetadataReservationBytes}) between 1 and 65536
+        and ${table.finiteMetadataReservationSha256} is not null and octet_length(${table.finiteMetadataReservationSha256}) = 32)`),
     primaryKey({ columns: [table.scopeUuid, table.sessionId] }),
     foreignKey({
       name: "fx_system_snapshot_lease_current_attempt_fk",
@@ -9924,6 +9958,8 @@ export const flarexSchema = {
   fxSystemExternalEffectAttemptsV1,
   fxSystemSnapshotLeases,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
+  fxSystemMetadataContractObservations,
   fxSystemPointMutationRedeliveryScheduler,
   fxSystemDurableTaskRepairSchedulerV1,
   fxSystemTransactionExecutionClaims,

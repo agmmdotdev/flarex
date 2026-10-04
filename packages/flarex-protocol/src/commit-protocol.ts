@@ -145,6 +145,42 @@ export const ApplicationActivationSequenceV1Schema =
 export type ApplicationActivationSequenceV1 =
   typeof ApplicationActivationSequenceV1Schema.Type;
 
+/** Metadata activation order is independent of application-data commit order. */
+export const MetadataSequenceSchema = CanonicalNonNegativePostgresBigIntFromString.pipe(
+  Schema.brand("FlarexDB/MetadataSequence"),
+);
+export type MetadataSequence = typeof MetadataSequenceSchema.Type;
+
+export const LogicalMetadataKeySchema = Schema.Struct({
+  namespace: Schema.Literals(["application", "binding", "execution"]),
+  ownerKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  contractKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
+}).annotate(StrictStructOptions);
+export type LogicalMetadataKey = typeof LogicalMetadataKeySchema.Type;
+
+export const LogicalMetadataReadDependencySchema = Schema.Struct({
+  kind: Schema.Literal("metadata"),
+  ...LogicalMetadataKeySchema.fields,
+  capturedWatermark: MetadataSequenceSchema,
+  observed: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("present"),
+      semanticSha256Hex: Schema.String.check(Schema.isPattern(LOWERCASE_SHA256_PATTERN)),
+    }).annotate(StrictStructOptions),
+    Schema.Struct({ kind: Schema.Literal("missing") }).annotate(StrictStructOptions),
+  ]),
+}).annotate(StrictStructOptions);
+export type LogicalMetadataReadDependency = typeof LogicalMetadataReadDependencySchema.Type;
+export const FiniteMetadataConflictSchema = Schema.Struct({ kind: Schema.Literal("metadata"),
+  ...LogicalMetadataKeySchema.fields, capturedMetadataWatermark: MetadataSequenceSchema,
+  lastChangedMetadataSequence: MetadataSequenceSchema,
+}).check(Schema.makeFilter(value =>
+  value.lastChangedMetadataSequence > value.capturedMetadataWatermark ? undefined : "Expected a changed metadata sequence"))
+  .annotate(StrictStructOptions);
+export type FiniteMetadataConflict = typeof FiniteMetadataConflictSchema.Type;
+export const MAX_COMMIT_METADATA_READ_DEPENDENCIES = 4096;
+export const logicalMetadataDependencyIdentity = (key: LogicalMetadataKey): string =>
+  JSON.stringify([key.namespace, key.ownerKey, key.contractKey]);
+
 export const ApplicationActiveHeadSha256HexV1Schema = Schema.String.check(
   Schema.isPattern(LOWERCASE_SHA256_PATTERN),
 ).pipe(Schema.brand("FlarexDB/ApplicationActiveHeadSha256HexV1"));
@@ -261,6 +297,7 @@ export const LogicalReadDependencyV1Schema = Schema.Union([
   LogicalPointReadDependencyV1Schema,
   LogicalIndexRangeReadDependencyV1Schema,
   LogicalApplicationRelationIncomingReadDependencyV1Schema,
+  LogicalMetadataReadDependencySchema,
 ]);
 export type LogicalReadDependencyV1 =
   typeof LogicalReadDependencyV1Schema.Type;
@@ -499,6 +536,7 @@ export const SessionJournalSchema = Schema.Struct({
   operationUsage: SessionJournalOperationUsageSchema,
   participantOperations: Schema.Array(AdmittedParticipantOperationSchema)
     .check(Schema.isMaxLength(MAX_COMMIT_WRITE_OPERATIONS_V1)),
+  finiteMetadataReservationSha256Hex: Schema.optionalKey(Schema.String.check(Schema.isPattern(LOWERCASE_SHA256_PATTERN))),
 }).annotate(StrictStructOptions);
 export type SessionJournal = typeof SessionJournalSchema.Type;
 
@@ -688,6 +726,7 @@ export type CommitProtocolV1Component =
   | "successfulResult";
 
 export type CommitProtocolV1LimitDimension =
+  | "metadataReadDependencies"
   | "readDocuments"
   | "readSemanticBytes"
   | "pointReadDependencies"
@@ -851,6 +890,8 @@ export const canonicalizeSessionJournalEffect = Effect.fn(
     Effect.mapError(() => invalidSchemaError("journal")),
   );
   const app = yield* normalizeAppJournalFieldsEffect(detached);
+  if (app.readDependencies.some(dependency => dependency.kind === "metadata") && detached.finiteMetadataReservationSha256Hex === undefined)
+    return yield* Effect.fail(invalidSchemaError("journal"));
   const ordered = [...detached.participantOperations].toSorted((left, right) =>
     left.syscallSequence < right.syscallSequence ? -1
     : left.syscallSequence > right.syscallSequence ? 1
@@ -1010,6 +1051,8 @@ export const canonicalizeSessionJournalEffect = Effect.fn(
     format: SESSION_JOURNAL_FORMAT,
     operationUsage: detached.operationUsage,
     participantOperations,
+    ...(detached.finiteMetadataReservationSha256Hex === undefined ? {} : {
+      finiteMetadataReservationSha256Hex: detached.finiteMetadataReservationSha256Hex }),
   };
   const encoded = yield* encodeUnknownSessionJournal(journal).pipe(
     Effect.mapError(() => invalidSchemaError("journal")),
@@ -1247,6 +1290,25 @@ const normalizeAppJournalFieldsEffect = Effect.fn(function* (
   const applicationRelationDependencies = journal.readDependencies.filter(
     (dependency) => dependency.kind === "appRelationIncoming",
   );
+  const metadataDependencies = journal.readDependencies.filter(
+    (dependency) => dependency.kind === "metadata",
+  );
+  yield* enforceLimitEffect("metadataReadDependencies", metadataDependencies.length,
+    MAX_COMMIT_METADATA_READ_DEPENDENCIES);
+  metadataDependencies.sort((left, right) => compareUtf16Strings(
+    logicalMetadataDependencyIdentity(left), logicalMetadataDependencyIdentity(right)));
+  const normalizedMetadataDependencies: LogicalMetadataReadDependency[] = [];
+  for (const dependency of metadataDependencies) {
+    const previous = normalizedMetadataDependencies.at(-1);
+    if (previous !== undefined && logicalMetadataDependencyIdentity(previous) === logicalMetadataDependencyIdentity(dependency)) {
+      if (previous.capturedWatermark !== dependency.capturedWatermark || previous.observed.kind !== dependency.observed.kind ||
+        previous.observed.kind === "present" && dependency.observed.kind === "present" &&
+          previous.observed.semanticSha256Hex !== dependency.observed.semanticSha256Hex)
+        return yield* Effect.fail(invalidSchemaError("journal"));
+      continue;
+    }
+    normalizedMetadataDependencies.push(dependency);
+  }
   yield* enforceLimitEffect(
     "pointReadDependencies",
     pointDependencies.length,
@@ -1363,6 +1425,7 @@ const normalizeAppJournalFieldsEffect = Effect.fn(function* (
     ...pointDependencies,
     ...mergedIndexedDependencies,
     ...normalizedApplicationRelationDependencies,
+    ...normalizedMetadataDependencies,
   ];
 
   const orderedWrites = [...journal.writes].toSorted((left, right) =>
@@ -1405,7 +1468,7 @@ const normalizeAppJournalFieldsEffect = Effect.fn(function* (
 
   if (
     journal.finalSyscallSequence === 0n &&
-    (readDependencies.length > 0 ||
+    (readDependencies.some(dependency => dependency.kind !== "metadata") ||
       journal.readUsage.documentsRead > 0 ||
       journal.readUsage.semanticBytesRead > 0 ||
       writes.length > 0)
@@ -1985,7 +2048,7 @@ function preflightSessionJournalCandidate(
     input.readDependencies.length >
       MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 +
         MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 +
-        MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1
+        MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 + MAX_COMMIT_METADATA_READ_DEPENDENCIES
   ) {
     return {
       reason: "invalidSchema",

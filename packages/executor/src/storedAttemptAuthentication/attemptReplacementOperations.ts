@@ -68,6 +68,7 @@ export type PointMutationOccRerunFreshAttemptMismatchV1 =
   | "schema"
   | "requestKey"
   | "snapshotNotAdvanced"
+  | "metadataNotAdvanced"
   | "conflictingCommitNotVisible"
   | "attemptNotPristine";
 
@@ -330,6 +331,9 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
       Object.freeze({
         loadedAttempt,
         executionClaim,
+        ...(replacementObservation.finiteEntry === undefined ? {} : {
+          finiteEntry: Object.freeze({ ...replacementObservation.finiteEntry, executionClaim }),
+        }),
         lineage,
         conflict,
         inspection,
@@ -377,9 +381,13 @@ export function pointMutationOccFreshAttemptMismatch(
   if (loaded.snapshotToken.epoch !== previousSnapshot.epoch) return "epoch";
   if (loaded.schemaVersionId !== pins.schemaVersionId) return "schema";
   if (loaded.requestKey !== pins.requestKey) return "requestKey";
-  if (loaded.snapshotToken.commitSeq <= previousSnapshot.commitSeq) {
+  if (loaded.snapshotToken.commitSeq < previousSnapshot.commitSeq ||
+    loaded.snapshotToken.commitSeq === previousSnapshot.commitSeq && conflict.conflict.kind !== "metadata") {
     return "snapshotNotAdvanced";
   }
+  if (conflict.conflict.kind === "metadata" && (loaded.lastMetadataSequence === undefined ||
+    loaded.lastMetadataSequence <= conflict.conflict.capturedMetadataWatermark ||
+    loaded.lastMetadataSequence < conflict.conflict.lastChangedMetadataSequence)) return "metadataNotAdvanced";
   if (loaded.snapshotToken.commitSeq < conflict.currentCommitSeq) {
     return "conflictingCommitNotVisible";
   }

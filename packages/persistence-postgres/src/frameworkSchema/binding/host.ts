@@ -2,7 +2,12 @@ import { Cause, Effect, Option, Result } from "effect";
 import { and, eq, inArray } from "drizzle-orm";
 import { projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { prepareLogicalStorageReadiness } from "../../logicalStorageReadiness";
+import { prepareLogicalStorageReadiness, prepareLogicalStorageMetadataProjection } from "../../logicalStorageReadiness";
+import { readUniqueMaintenanceRequirements } from "../../appUniqueConstraintSetBuildV1";
+import { loadPublishedPhysicalRequirementSnapshotV1, IndexBuildReconciliationCatalogV1Error } from "../../indexBuildReconciliation";
+import { SchemaVersionArtifactPersistenceError } from "../../schemaVersionArtifacts";
+import { AppIndexDefinitionReadPersistenceError, AppSchemaVersionIndexBindingPersistenceError } from "../../appIndexDefinitions";
+import { inspectFiniteMetadataProjection, type FiniteMetadataOwner } from "../../finiteMetadataDependencies";
 import type { AppUniqueConstraintSetEligibilityPortV1 } from "../../appUniqueConstraintSetBuildV1";
 import type { ScopeClockRecord } from "../../scopeClock";
 import type { FlarexMetadataDatabase } from "../../deployments";
@@ -12,7 +17,8 @@ import {
   type ApplicationBindingSelectionReader,
 } from "../../applicationActivation";
 import { readApplicationBindingProjectionInTransaction, readApplicationBindingEvidenceInTransaction } from "../../applicationBindingProjection";
-import { verifyLogicalSchemaBindingInTransaction, type PreparedLogicalStorage } from "./logicalSchema";
+import { verifyLogicalSchemaBindingInTransaction, verifyBindingApplicationReference,
+  type BindingApplicationAcceptance, type PreparedLogicalStorage } from "./logicalSchema";
 import {
   captureExactTrustedScopeAuthorityResolutionPorts,
   resolveLocatedTrustedScopeAuthorityByIdEffect,
@@ -50,6 +56,7 @@ import {
   storeBindingCandidate,
   readBindingActivation,
   readBindingHead,
+  readRetainedBindingActivation,
   readBindingActiveReferenceProjection,
   writeBindingActivation,
   type StoredBindingValue,
@@ -278,13 +285,14 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
     frame: DataBindingSetFrame, evidence: Effect.Success<ReturnType<typeof readApplicationBindingEvidenceInTransaction>>,
     tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     logicalStorage: PreparedLogicalStorage | null,
+    acceptance: BindingApplicationAcceptance,
   ) {
     if (logicalStorage === null) {
       if (frame.logicalSchema !== null) return yield* Effect.fail(bindingError("logicalSchemaMismatch"));
-      if (!sameBindingValue(frame.application, evidence.projection)) return yield* Effect.fail(bindingError("staleApplication"));
+      yield* Effect.fromResult(verifyBindingApplicationReference(frame.application, evidence.projection, acceptance));
       return;
     }
-    yield* verifyLogicalSchemaBindingInTransaction(logicalStorage, frame, evidence, tx, authority, clock);
+    yield* verifyLogicalSchemaBindingInTransaction(logicalStorage, frame, evidence, tx, authority, clock, acceptance);
   });
 
   const readApplicationReference = Effect.fn(
@@ -326,7 +334,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           if (searchBuild.status !== "ready")
             return yield* Effect.fail(bindingError("logicalSchemaNotReady", searchBuild));
         }
-        yield* verifyLogicalStorage(candidate.frame, evidence, tx, authority, clock, logicalStorage);
+        yield* verifyLogicalStorage(candidate.frame, evidence, tx, authority, clock, logicalStorage, { kind: "proposal" });
         const verified = yield* verifyBindingLanes(
           tx,
           candidate.frame,
@@ -369,7 +377,13 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
         );
         if (Option.isNone(candidate))
           return yield* Effect.fail(bindingError("storedCorruption"));
-        yield* verifyLogicalStorage(candidate.value.frame, evidence, tx, authority, clock, logicalStorage);
+        const activation = yield* readRetainedBindingActivation(tx, authority, {
+          sequence: hint.value.frame.sequence, sha256: hint.value.frame.activationSha256,
+          candidateSha256: hint.value.frame.candidateSha256, headSha256: hint.value.sha256,
+        });
+        if (Option.isNone(activation)) return yield* Effect.fail(bindingError("storedCorruption"));
+        yield* verifyLogicalStorage(candidate.value.frame, evidence, tx, authority, clock, logicalStorage,
+          { kind: "activated", activation: activation.value });
         yield* verifyBindingLanes(
           tx,
           candidate.value.frame,
@@ -469,7 +483,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
         );
         if (Option.isNone(candidate))
           return yield* Effect.fail(bindingError("missingDependency"));
-        yield* verifyLogicalStorage(candidate.value.frame, evidence, tx, authority, clock, logicalStorage);
+        yield* verifyLogicalStorage(candidate.value.frame, evidence, tx, authority, clock, logicalStorage, { kind: "proposal" });
         yield* verifyBindingLanes(
           tx,
           candidate.value.frame,
@@ -495,8 +509,40 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
             : [];
           yield* requireSafeStrongReferenceActivation(tx, clock.scopeId, previouslyEnforced, proposedReferences);
         }
-        const written = yield* writeBindingActivation(tx, request,
-          proposedReferences);
+        const projection = logicalStorage === null || logicalInput === null ? null : yield* Effect.gen(function* () {
+          const unique = yield* readUniqueMaintenanceRequirements(logicalInput.controlDb, deploymentId,
+            logicalStorage.reference.schemaVersionId, hasLocatedReadCommittedTargetDatabaseV1(located.target, logicalInput.controlDb) ? tx : undefined)
+            .pipe(Effect.mapError(cause => bindingError(cause.reason === "resourceFailure" ? "resourceFailure" : "storedCorruption", cause)));
+          return yield* prepareLogicalStorageMetadataProjection(
+            { deploymentId, schemaVersionId: logicalStorage.reference.schemaVersionId, profile: "binding" }, logicalStorage.snapshot, unique.members);
+        });
+        const owners: FiniteMetadataOwner[] = [...(projection === null ? [] : inspectFiniteMetadataProjection(projection)?.owners ?? [])];
+        let withdrawsPermission = false;
+        if (Option.isSome(current)) {
+          const old = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
+          if (Option.isNone(old)) return yield* Effect.fail(bindingError("storedCorruption"));
+          const previousFrame = old.value.frame;
+          const incomingProfiles = new Set(profileIds(candidate.value.frame));
+          withdrawsPermission = profileIds(previousFrame).some(profile => !incomingProfiles.has(profile)) ||
+            (previousFrame.payloadContent !== null && candidate.value.frame.payloadContent === null);
+          if (previousFrame.logicalSchema !== null && logicalInput !== null) {
+            const previousRequirements = yield* loadPublishedPhysicalRequirementSnapshotV1(logicalInput.controlDb,
+              { deploymentId, schemaVersionId: previousFrame.logicalSchema.schemaVersionId }).pipe(Effect.mapError(cause =>
+                bindingError(cause instanceof SchemaVersionArtifactPersistenceError || cause instanceof AppIndexDefinitionReadPersistenceError ||
+                  cause instanceof AppSchemaVersionIndexBindingPersistenceError ||
+                  (cause instanceof IndexBuildReconciliationCatalogV1Error && cause.reason === "resourceFailure")
+                  ? "resourceFailure" : "storedCorruption", cause)));
+            if (previousRequirements === null) return yield* Effect.fail(bindingError("storedCorruption"));
+            for (const source of previousRequirements.logicalRequirements?.evidence.candidate.sources ?? []) {
+              const owner: FiniteMetadataOwner = { namespace: "binding", ownerKey: source.key };
+              if (!owners.some(member => member.namespace === owner.namespace && member.ownerKey === owner.ownerKey)) owners.push(owner);
+              const next = logicalStorage?.requirements.evidence.candidate.sources.find(member => member.key === source.key && member.owner === source.owner);
+              if (next === undefined || next.writeProfile !== source.writeProfile) withdrawsPermission = true;
+            }
+          }
+        }
+        const written = yield* writeBindingActivation(tx, request, proposedReferences,
+          { projection, owners, withdrawsPermission });
         if (afterAcceptance !== undefined) yield* afterAcceptance();
         return written;
       }),
@@ -559,4 +605,11 @@ export function dataBindingActivationRequest(
     candidateSha256,
     expectedHead,
   };
+}
+
+function profileIds(frame: DataBindingSetFrame): readonly string[] {
+  return [
+    ...(frame.payloadLifecycle?.profiles.map(profile => `${profile.kind}:${profile.profileId}`) ?? []),
+    ...frame.commerce.flatMap(binding => binding.profiles.map(profile => `commerce:${profile.profileId}`)),
+  ];
 }

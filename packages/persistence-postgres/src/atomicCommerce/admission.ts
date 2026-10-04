@@ -48,7 +48,7 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
         const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
         if (state.tables.some(table => logicalTables.has(table.tableId)))
           return yield* Effect.fail(commerceError("unsupportedProfile"));
-        yield* requireLogicalCommerceInitialization(admission, tx, member.descriptor.initialization, member.contractSha256);
+        yield* requireLogicalCommerceInitialization(admission, tx, member.descriptor.initialization);
         return yield* visit(index + 1, [...admitted, { kind: "logical", admission }],
           new Set([...logicalTables, ...state.tables.map(table => table.tableId)]));
       })).pipe(

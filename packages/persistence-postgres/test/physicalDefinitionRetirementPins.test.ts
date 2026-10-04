@@ -7,7 +7,12 @@ import { decodeTaskDurationMsV1 } from
   "@flarex/durable-task/internal/run-attempt-v1";
 import { makeStandardApplicationTaskSha256V1 } from
   "@flarex/standard-application-definition/internal/task-definition-v1";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { eq } from "drizzle-orm";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { SnapshotTokenSchema, ReplacementScopeIdV1Schema, replacementScopeEpochV1FromUuid } from "flarex-protocol/storage-authority";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import { TransactionSessionIdV1Schema } from "flarex-protocol/transaction-session";
 import { projectScopeIdUuidV1Result } from
   "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
@@ -23,6 +28,8 @@ import {
   inspectPhysicalDefinitionRetirementPinsInTransactionEffect,
 } from "../src/physicalDefinitionRetirementPins";
 import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
+import { captureFiniteMetadataReservation, persistFiniteMetadataReservationInTransaction } from "../src/finiteMetadataReservation";
+import { fxSystemSnapshotLeases } from "../src/schema";
 import { createLocatedTaskSystemRunAttemptTargetV1 } from
   "../src/taskSystemRunAttemptStoreV1";
 import { runEffect } from "./effectTestRuntime";
@@ -493,24 +500,45 @@ describe("M05-B3 physical-definition retirement pins - PGlite", {
     );
     await expect(inspect()).resolves.toEqual({ status: "clear" });
     const legacySessionId = transactionSessionIdAt(952);
-    await insertTransactionSessionFixture(
-      fixture.target,
-      transactionSessionFixture(legacySessionId, {
-        scopeUuid,
-        schemaVersionId,
-        functionPath: "users:create",
-        functionKind: "mutation",
-        storageGenerationFence:
-          fixture.authority.storageGenerationFence.toString(),
-      }),
-    );
-    await insertSnapshotLeaseFixture(
-      fixture.target,
-      snapshotLeaseFixture(legacySessionId, {
-        scopeUuid,
-        leaseExpiresAt: "2030-01-01T12:00:00.000Z",
-      }),
-    );
+    await insertTransactionSessionFixture(fixture.target, transactionSessionFixture(legacySessionId, {
+      scopeUuid, schemaVersionId, functionPath: "users:create", functionKind: "mutation",
+      storageGenerationFence: fixture.authority.storageGenerationFence.toString(),
+    }));
+    await insertSnapshotLeaseFixture(fixture.target, snapshotLeaseFixture(legacySessionId, {
+      scopeUuid, leaseExpiresAt: "2030-01-01T12:00:00.000Z",
+    }));
     await expect(inspect()).resolves.toEqual({ status: "clear" });
+    const [legacyLease] = await fixture.target.drizzle.select().from(fxSystemSnapshotLeases)
+      .where(eq(fxSystemSnapshotLeases.sessionId, TransactionSessionIdV1Schema.make(legacySessionId)));
+    if (legacyLease === undefined) throw new Error("Missing finite lease fixture");
+    const clock = await fixture.target.drizzle.transaction(tx => runEffect(
+      lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId)));
+    const reservation = await runEffect(captureFiniteMetadataReservation({
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(fixture.deploymentId),
+      scopeId: ReplacementScopeIdV1Schema.make(fixture.authority.scopeId),
+      sessionId: legacyLease.sessionId, attemptFence: legacyLease.attemptFence,
+      storageGeneration: "flarexdb_v1", storageGenerationFence: fixture.authority.storageGenerationFence,
+      snapshotToken: Schema.decodeUnknownSync(SnapshotTokenSchema)({ scopeId: fixture.authority.scopeId,
+        epoch: replacementScopeEpochV1FromUuid(legacyLease.snapshotEpochUuid),
+        commitSeq: legacyLease.snapshotCommitSeq.toString() }),
+      schemaVersionId, metadataWatermark: clock.lastMetadataSequence,
+      application: { revisionId: fixture.active.basis.revisionId,
+        activationSequence: fixture.active.basis.activationSequence.toString(),
+        headSha256: encodeBytesToLowercaseHex(fixture.active.basis.headSha256),
+        activationSha256: encodeBytesToLowercaseHex(fixture.active.basis.activationSha256),
+        schemaVersionId, manifestSha256: encodeBytesToLowercaseHex(fixture.active.basis.schemaManifestSha256) },
+      binding: null,
+    }));
+    await fixture.target.drizzle.transaction(tx => runEffect(persistFiniteMetadataReservationInTransaction(tx, reservation)));
+    // A genuine finite reservation also protects the legacy Worker generation.
+    // Nonterminal finish-only recovery retains the pin after ordinary expiry.
+    await fixture.target.query(`update fx_system_snapshot_lease set lease_expires_at = clock_timestamp() - interval '1 minute'
+      where scope_uuid = $1 and session_id = $2`, [scopeUuid, legacySessionId]);
+    await expect(inspect()).resolves.toMatchObject({ status: "pinned",
+      pin: { owner: "mutation_session", identity: legacySessionId, schemaVersionId } });
+    await fixture.target.query(`update fx_system_snapshot_lease set finite_metadata_reservation_bytes = decode('00', 'hex')
+      where scope_uuid = $1 and session_id = $2`, [scopeUuid, legacySessionId]);
+    await expect(inspect()).rejects.toMatchObject({ _tag: "PhysicalDefinitionRetirementPinCorruptionError",
+      owner: "mutation_session", identity: legacySessionId });
   });
 });

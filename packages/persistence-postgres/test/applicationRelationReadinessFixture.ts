@@ -363,7 +363,7 @@ export async function relationReadinessFixture(
     projectId: `project_application_relation_fold_${fixtureOrdinal}`,
   });
   await persistence.query(
-    `update fx_system_scope_clock
+    `update fx_system_scope_execution_authority
         set storage_generation = 'flarexdb_v1'
       where scope_id = $1`,
     [provisioned.scope.scopeId],

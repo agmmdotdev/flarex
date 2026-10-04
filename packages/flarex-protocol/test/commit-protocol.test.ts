@@ -29,6 +29,8 @@ import {
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
+  MetadataSequenceSchema,
+  FiniteMetadataConflictSchema,
   SESSION_JOURNAL_FORMAT,
   SuccessfulResultSha256HexV1Schema,
   canonicalizeSessionJournalEffect,
@@ -84,6 +86,33 @@ const DOCUMENT_B = documentId(2);
 const encodeCommitEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
 
 describe("commit protocol C02", () => {
+  it("retains canonical consumed metadata at syscall zero only with a finite reservation", async () => {
+    const dependency = { kind: "metadata", namespace: "binding", ownerKey: "medusa.product",
+      contractKey: '["accessFamily","product","ordered","title"]',
+      capturedWatermark: Schema.decodeUnknownSync(MetadataSequenceSchema)("7"), observed: { kind: "missing" } } as const;
+    const journal = { ...sessionJournal({ finalSyscallSequence: 0n, readDependencies: [dependency, dependency] }),
+      finiteMetadataReservationSha256Hex: "a".repeat(64) };
+    const canonical = await runEffect(canonicalizeSessionJournalEffect(journal));
+    expect(canonical.journal.readDependencies).toEqual([dependency]);
+    expect(canonical.canonicalText).toContain('"capturedWatermark":"7"');
+    expect((await runEffect(decodeCanonicalSessionJournalEffect({ canonicalBytes: canonical.canonicalBytes,
+      expectedSha256Hex: canonical.sha256Hex }))).journal.readDependencies).toEqual([dependency]);
+    expect(await runEffect(Effect.result(canonicalizeSessionJournalEffect(sessionJournal({
+      finalSyscallSequence: 0n, readDependencies: [dependency],
+    }))))).toMatchObject({ _tag: "Failure" });
+    expect(await runEffect(Effect.result(canonicalizeSessionJournalEffect({ ...journal,
+      readDependencies: [dependency, { ...dependency, observed: { kind: "present", semanticSha256Hex: "b".repeat(64) } }],
+    })))).toMatchObject({ _tag: "Failure" });
+  });
+  it("requires a strict, advancing metadata conflict witness independently of data sequences", () => {
+    const witness = { kind: "metadata", namespace: "application", ownerKey: "application", contractKey: '["function","users:create"]',
+      capturedMetadataWatermark: "5", lastChangedMetadataSequence: "6" };
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)(witness)).toMatchObject({ _tag: "Success" });
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)({ ...witness, lastChangedMetadataSequence: "5" }))
+      .toMatchObject({ _tag: "Failure" });
+    expect(Schema.decodeUnknownResult(FiniteMetadataConflictSchema)({ ...witness, unexpected: true }))
+      .toMatchObject({ _tag: "Failure" });
+  });
   it("pins canonical journal bytes and digest with result evidence outside the journal", async () => {
     const canonical = await runEffect(canonicalizeSessionJournalEffect(
       sessionJournal({

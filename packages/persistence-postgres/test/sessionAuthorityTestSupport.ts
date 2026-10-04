@@ -118,17 +118,20 @@ export function snapshotLeaseFixture(
 export async function insertSessionTestScope(
   client: Pick<FlarexSqlClient, "query">,
 ): Promise<void> {
-  await client.query(
-    `
-      insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)
-    `,
-    [
-      `scope_${SESSION_TEST_SCOPE_UUID}`,
-      `epoch_${SESSION_TEST_EPOCH_UUID}`,
-    ],
-  );
+  // The Client compatibility facade deliberately exposes SQL only. One statement
+  // creates both real owners atomically without expanding that runtime facade.
+  await client.query(`with created as (
+    insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id
+  ) insert into fx_system_scope_execution_authority (scope_id, storage_generation, storage_generation_fence, epoch)
+    select scope_id, 'flarexdb_v1', 1, $2 from created`,
+  [`scope_${SESSION_TEST_SCOPE_UUID}`, `epoch_${SESSION_TEST_EPOCH_UUID}`]);
+}
+
+/** Exact predecessor schema retained only by explicitly staged migration proofs. */
+export async function insertLegacySessionTestScope(client: Pick<FlarexSqlClient, "query">): Promise<void> {
+  await client.query(`insert into fx_system_scope_clock
+    (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+    values ($1, 'flarexdb_v1', 1, 0, $2)`, [`scope_${SESSION_TEST_SCOPE_UUID}`, `epoch_${SESSION_TEST_EPOCH_UUID}`]);
 }
 
 export async function insertTransactionSessionFixture(

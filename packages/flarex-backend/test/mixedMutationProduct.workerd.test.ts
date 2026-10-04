@@ -18,7 +18,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalPoints, fxSystemTransactionJournalWriteEvents,
-  fxSystemIndexBuildStates } from "../../persistence-postgres/src/schema";
+  fxSystemIndexBuildStates, fxSystemCommits, fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
 import { fxSystemDataBindingHeads } from "../../persistence-postgres/src/frameworkSchema/binding/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
@@ -30,6 +30,37 @@ import { createMixedMutationProductFixture } from "./support/mixedMutationWorker
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
+
+type ProductFixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
+
+async function committedInventory(fixture: ProductFixture) {
+  const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
+  const database = fixture.currency.persistence.drizzle;
+  return Promise.all([
+    database.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, scopeUuid))
+      .orderBy(fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
+    database.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, scopeUuid))
+      .orderBy(fxSystemCommits.commitSeq),
+    database.select().from(fxSystemCommitEvents).where(eq(fxSystemCommitEvents.scopeUuid, scopeUuid))
+      .orderBy(fxSystemCommitEvents.commitSeq),
+    database.select({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq }).from(fxSystemScopeClocks)
+      .where(eq(fxSystemScopeClocks.scopeId, fixture.activation.anchor.scopeId)),
+  ]);
+}
+
+async function returnedWorkerValue(raw: unknown) {
+  const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
+    result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
+  return (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(success.result.result))).value;
+}
+
+async function expectPristineFiniteChildren(fixture: ProductFixture) {
+  for (const table of [fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
+    fxSystemTransactionJournalWriteEvents]) {
+    expect(await fixture.currency.persistence.drizzle.select().from(table)
+      .where(eq(table.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
+  }
+}
 
 describe.each(drivers)("native Product in one Application mutation attempt on %s", driver => {
   it("recovers a genuine document rejection through the authenticated Worker bridge", async () => {
@@ -107,15 +138,21 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
     }, 180_000);
 
   it.each(["required", "sameSourceUnused", "unrelated", "applicationUnused"] as const)(
-    "checks %s readiness after Product entry before tentative reads and full seal", async changed => {
+    "checks demanded reads and current publication maintenance after %s readiness changes", async changed => {
       let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
       let readChecked = false;
       let checkingRead = false;
       let dataStatements = 0;
-      fixture = await createMixedMutationProductFixture({ driver, suffix: `selected-read-${changed}-${driver}`,
+      let readHeadStatements = 0;
+      let sealHeadStatements = 0;
+      fixture = await createMixedMutationProductFixture({ driver, suffix: `selected-read-${changed.toLowerCase()}-${driver}`,
         hooks: {
-          observeSql: (_phase, sql) => {
+          observeSql: (phase, sql) => {
             if (checkingRead && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) dataStatements += 1;
+            if (/\bfrom\s+"fx_system_(?:data_binding_head|application_active_head)"/i.test(sql)) {
+              if (checkingRead) readHeadStatements += 1;
+              if (phase === "seal") sealHeadStatements += 1;
+            }
           },
           afterProductBorrow: (method, borrowed) => method !== "update" ? Effect.void : Effect.gen(function* () {
             const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
@@ -140,8 +177,11 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
               located.filter(index => index !== null).filter(index => index.access.kind === "developer"), productTableId,
               { id: fixture.seed.productId }, logicalCommerceError));
             const index = changed === "required" ? Option.isSome(selected) ? selected.value.definition : undefined :
-              located.find(index => index !== null && (changed !== "sameSourceUnused" ||
-                Option.isSome(selected) && index.access.tableId === productTableId && index.indexDefinitionId !== selected.value.definition.indexDefinitionId));
+              located.find(index => index !== null &&
+                (changed === "applicationUnused" ? index.access.kind === "by_creation_time" : index.access.kind === "developer") &&
+                (changed !== "sameSourceUnused" || index.access.tableId === productTableId &&
+                  index.physicalSpec.orderedFields[0]?.kind === "documentPath" &&
+                  !["id", "handle"].includes(index.physicalSpec.orderedFields[0].path)));
             if (index === undefined || index === null) throw new Error("Missing source readiness index");
             yield* Effect.tryPromise({ try: async () => {
               const updated = await fixture.currency.persistence.drizzle.update(fxSystemIndexBuildStates)
@@ -158,6 +198,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
               order: { column: "id", direction: "asc" },
             }));
             checkingRead = false;
+            if (fixture.hasSqlObserver) expect(readHeadStatements).toBe(0);
             if (changed === "required") {
               expect(read).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
               expect(dataStatements).toBe(0);
@@ -169,26 +210,62 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
           }),
         } });
       try {
-        const runFailure = await fixture.runExecution().then(() => undefined, failure => failure);
-        expect(readChecked, String(runFailure) + " " + fixture.bridgeFailures.join("\n")).toBe(true);
-        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
-          .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
-        for (const table of [fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
-          fxSystemTransactionJournalWriteEvents]) {
-          expect(await fixture.currency.persistence.drizzle.select().from(table)
-            .where(eq(table.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
+        const before = await committedInventory(fixture);
+        if (changed === "required") {
+          await expect(fixture.runExecution()).rejects.toBeDefined();
+          expect(readChecked, fixture.bridgeFailures.join("\n")).toBe(true);
+          await expectPristineFiniteChildren(fixture);
+          await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
+            .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
+          expect(await committedInventory(fixture)).toEqual(before);
+        } else {
+          const value = await returnedWorkerValue(await fixture.runExecution());
+          expect(readChecked, fixture.bridgeFailures.join("\n")).toBe(true);
+          expect(value).toMatchObject({ updated: { id: fixture.seed.productId, handle: fixture.seed.newHandle },
+            pending: { id: fixture.seed.productId, title: fixture.seed.newTitle }, listed: [{ id: fixture.seed.productId }] });
+          expect(Object.fromEntries(fixture.nativeInvokeCount)).toMatchObject({ update: 1, retrieve: 1, listByHandle: 1 });
+          await expectPristineFiniteChildren(fixture);
+          fixture.setSqlPhase("seal");
+          const envelope = await Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, value));
+          if (fixture.hasSqlObserver) expect(sealHeadStatements).toBe(0);
+          const publication = await fixture.prepareSealedPublication(envelope);
+          if (changed === "unrelated") {
+            expect(await Effect.runPromise(publication)).toMatchObject({ kind: "published" });
+            expect(await fixture.readCurrentProduct()).toMatchObject({ id: fixture.seed.productId,
+              title: fixture.seed.newTitle, handle: fixture.seed.newHandle });
+            const events = await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)
+              .where(eq(fxSystemCommitEvents.scopeUuid, projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid));
+            expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(1);
+            const after = await committedInventory(fixture);
+            expect(after[1]).toHaveLength(before[1].length + 1);
+            const originalClock = before[3][0];
+            if (originalClock === undefined) throw new Error("Missing original commit sequence");
+            expect(after[3][0]?.lastCommitSeq).toBe(originalClock.lastCommitSeq + 1n);
+          } else {
+            await expect(Effect.runPromise(publication)).rejects.toMatchObject({
+              _tag: "PointCommitCorruptionV1Error",
+              reason: changed === "applicationUnused" ? "intrinsicIndexBuildInvalid" : "developerIndexBuildInvalid",
+            });
+            expect(await committedInventory(fixture)).toEqual(before);
+          }
         }
+        expect(fixture.getOpenTransactionDepth()).toBe(0);
       } finally { await fixture.close(); }
     }, 180_000);
 
   it.each(["sourceHead", "readiness"] as const)(
-    "refuses aggregate seal after %s changes following the last native database read", async changed => {
+    "retains fixed metadata at seal and refuses publication after %s changes following the last native read", async changed => {
       let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
       let changedBeforeClose = false;
       let localClosed = false;
       let localTransactionCount = 0;
+      let sealHeadStatements = 0;
       fixture = await createMixedMutationProductFixture({ driver, suffix: `seal-${changed.toLowerCase()}-${driver}`,
         hooks: {
+          observeSql: (phase, sql) => {
+            if (phase === "seal" && /\bfrom\s+"fx_system_(?:data_binding_head|application_active_head)"/i.test(sql))
+              sealHeadStatements += 1;
+          },
           beforeProductClose: (method, borrowed) => method !== "listByHandle" ? Effect.void : Effect.gen(function* () {
             yield* Effect.tryPromise({
               try: async () => {
@@ -216,21 +293,24 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
             if (fixture.hasSqlObserver) expect(fixture.getTransactionCounts().beginCount).toBe(localTransactionCount);
           }),
         } });
-      const expectPristine = async () => {
-        for (const table of [fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
-          fxSystemTransactionJournalWriteEvents]) {
-          expect(await fixture.currency.persistence.drizzle.select().from(table)
-            .where(eq(table.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
-        }
-      };
       try {
-        await fixture.runExecution();
+        const before = await committedInventory(fixture);
+        const value = await returnedWorkerValue(await fixture.runExecution());
         expect(changedBeforeClose).toBe(true);
         expect(localClosed).toBe(true);
-        await expectPristine();
-        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
-          .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
-        await expectPristine();
+        expect(value).toMatchObject({ updated: { id: fixture.seed.productId, handle: fixture.seed.newHandle },
+          pending: { id: fixture.seed.productId, title: fixture.seed.newTitle }, listed: [{ id: fixture.seed.productId }] });
+        expect(Object.fromEntries(fixture.nativeInvokeCount)).toMatchObject({ update: 1, retrieve: 1, listByHandle: 1 });
+        await expectPristineFiniteChildren(fixture);
+        fixture.setSqlPhase("seal");
+        const envelope = await Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, value));
+        if (fixture.hasSqlObserver) expect(sealHeadStatements).toBe(0);
+        await expect(Effect.runPromise(await fixture.prepareSealedPublication(envelope))).rejects.toMatchObject({
+          _tag: "PointCommitCorruptionV1Error",
+          reason: changed === "sourceHead" ? "activeApplicationHeadInvalid" : "intrinsicIndexBuildInvalid",
+        });
+        expect(await committedInventory(fixture)).toEqual(before);
+        expect(fixture.getOpenTransactionDepth()).toBe(0);
       } finally { await fixture.close(); }
     }, 180_000);
 
@@ -350,7 +430,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
     expect(baseline).toMatchObject({ id: seed.productId, tags: [{ id: seed.tagId }] });
     fixture.setSqlPhase("seal");
     const envelope = await Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, returnedValue));
-    if (fixture.hasSqlObserver) expect(sealBindingReads).toBe(1);
+    if (fixture.hasSqlObserver) expect(sealBindingReads).toBe(0);
     fixture.setSqlPhase("verify");
     const publication = await fixture.prepareSealedPublication(envelope);
     const sealedRoots = await currency.persistence.drizzle.select().from(fxSystemTransactionJournals)

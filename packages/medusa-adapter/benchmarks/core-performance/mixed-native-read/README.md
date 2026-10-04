@@ -1,12 +1,12 @@
 # Matched finite Product retrieval
 
-The query-required implementation is paused for design discussion as an
-incomplete checkpoint. The matched quiet comparison still fails the fixed
-added-latency and whole-request regression gates. Successful scenario execution
-confirms its result/error assertions and records measurements; it does not mean
-the numerical performance gates passed. Latest local evidence and remaining
-validation are inventoried in
-`work/validation/mixed-query-read-20261003/HANDOFF.md` at the workspace root.
+The selected [finite execution contract](../../../../../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
+replaces current-head correlation at finite read boundaries with authenticated
+attempt metadata and demanded serving checks. Its cutover and acceptance remain
+in progress. The frozen predecessor comparison failed the fixed added-latency
+and whole-request regression gates; those reports remain evidence of that
+earlier runtime. Successful scenario execution confirms result/error assertions
+and records measurements; it does not mean numerical performance gates passed.
 
 This optional component benchmark compares the actual pinned native
 `retrieveProduct(id)` with the admitted private finite Product `retrieve` call.
@@ -101,6 +101,50 @@ actual method uses nineteen dispatches for a hit and eighteen for a miss in one
 accepting transaction; the selected indexed-method ceiling is thirteen/twelve,
 including BEGIN/COMMIT and the required positive row observation.
 
+For CPU attribution, run a separate diagnostic series with a unique label and
+an owned report directory, retaining the same PostgreSQL inputs:
+
+```powershell
+$env:FLAREX_MIXED_NATIVE_READ_MODE = 'cpu'
+$env:FLAREX_MIXED_NATIVE_READ_SAMPLES = '2'
+$env:FLAREX_MIXED_NATIVE_READ_WARMUPS = '0'
+$env:FLAREX_MIXED_NATIVE_READ_LABEL = '<unique diagnostic label>'
+$env:FLAREX_MIXED_NATIVE_READ_REPORT_DIR = '<owned evidence directory>'
+node ../../node_modules/vitest/vitest.mjs run --config vitest.mixed-native-read.config.ts
+```
+
+The command runs from `packages/medusa-adapter`, as above. It writes the CPU
+report and eight genuine V8 `.cpuprofile` files: native and finite profiles for
+each of two hit and two miss samples. Profiles use the installed
+`node:inspector/promises` owner with a requested 100 microsecond sampling
+interval. Profiler initialization and start finish before the actual method
+clock; stop and profile file writes follow the completed method interval. The
+finite profile covers the existing private native operation, including its
+service construction, close and receipt validation, through the awaited
+complete Exit observer. That observer preserves the original native outcome;
+diagnostic failures refuse the measurement. Outstanding inspector operations
+drain before session disconnect and fixture disposal, including interruption.
+Profile files refuse overwriting existing evidence under the same label.
+
+The report retains the actual returned profiler timestamps, profile hashes and
+source fingerprints. Profiles sample the local Node isolate, including its
+asynchronous and inspector work; they do not profile remote Worker compute or
+Postgres execution. Short profiles are noisy. Profile spans and SQL awaits
+overlap, and subtracting them does not establish exclusive CPU. CPU-mode method
+and whole-request timings include diagnostic overhead and cannot satisfy quiet
+latency gates. The lane retains the same DTO/error, durability and statistics
+checks, with `pg_stat_statements.track=none` and disabled `auto_explain` logging.
+
+The first recorded eight-profile diagnostic requested 100 microseconds but its
+following sample deltas had medians near 0.54 ms. Warm finite hit/miss profiles
+contained only 28/22 samples. Returned profile spans also include the initial
+inspector `post` sample for profiler startup, which weighed 240–776 ms before
+the method clock. Those spans are not method intervals. Keep the genuine
+timestamps and complete profiles; do not trim startup or interpret weighted
+self/inclusive frame samples as exclusive CPU. Inclusive stacks overlap, and
+idle/GC/inspector samples must remain distinct from business work. Two samples
+per branch cannot establish a broad construction or cache optimization.
+
 For unrelated metadata scaling, set `FLAREX_MIXED_NATIVE_READ_METADATA_AXIS` to
 `tables`, `indexes`, `relations` or `otherSourceDefinitions`, and
 `FLAREX_MIXED_NATIVE_READ_METADATA_COUNT` to `1` or `100`. The existing canonical
@@ -119,10 +163,24 @@ Run `MODE=server` separately with effective `pg_stat_statements.track=all` and
 native/Flarex databases. The existing observer authenticates actual database
 identities and records all executing roles, including protected function owners.
 It requires actual calls for both native and finite methods, control tracking
-`all`, and visible nested installation, placement/receipt, journal/claim and
-metadata tail statements. It does not reset global statistics. Quiet/trace require tracking `none` and
-disabled `auto_explain` logging; all lanes retain fsync, synchronous commit and
-full page writes. Server mode measures full native/finite intervals and finite
+`all`, and positive nested reads of installation, placement/receipt, execution
+authority, publication sequencer, session, snapshot lease, journal and claim.
+The actual finite acceptance has two separately observed top-level statements:
+installed acceptance invokes the installation/placement/scope functions and
+reads both qualified target/control epoch joins; JavaScript authenticates that
+projection before compact attempt acceptance invokes the running-attempt
+function and acquires session/lease/root/claim locks. The scope function locks
+execution authority and reads the sequencer without a stable sequence lock.
+Finite metadata stays fixed by its entry reservation, so its epoch projections
+are not an additional nested whole-metadata tail. The diagnostic requires both
+actual phases and every nested owner rather than substituting any epoch mention
+for the installed projection. The classifier recognizes the scope-observation
+function explicitly; existing installed/compact statements already matched
+other owner names, so this addition does not establish a prior undercount.
+
+The observer does not reset global statistics. Quiet/trace/CPU require tracking
+`none` and disabled `auto_explain` logging; all lanes retain fsync, synchronous
+commit and full page writes. Server mode measures full native/finite intervals and finite
 method work. The complete Exit hook awaits the post-operation snapshot before
 success acknowledgement or failure teardown, outside the quiet method interval.
 Nested server timings, Effect spans and client awaited intervals overlap and

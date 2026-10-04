@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { eq } from "drizzle-orm";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import { expect, vi } from "vitest";
 import {
   canonicalizeAppDocumentV1,
@@ -28,7 +29,6 @@ import {
 import {
   CommitSeqSchema,
   ScopeIdSchema,
-  FlarexDbV1StorageGenerationSchema,
   type ScopeEpoch,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
@@ -54,6 +54,7 @@ import {
   fxControlScopes,
   fxControlTables,
   fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
 } from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
@@ -311,11 +312,7 @@ export async function verifyMembershipReadPreparation(
   );
   if (otherDefinition === null)
     throw new Error("Missing other-scope definition.");
-  await db.insert(fxSystemScopeClocks).values({
-    scopeId: otherScope,
-    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    epoch,
-  });
+  await insertCurrentScopeClockFixture(db, { scopeId: otherScope, epoch });
   for (const mutation of ["scope", "position"] as const) {
     await db.transaction(async (tx) => {
       const position = { ...livePosition };
@@ -328,7 +325,7 @@ export async function verifyMembershipReadPreparation(
       };
       const originalSelect = tx.select.bind(tx);
       const select = vi.spyOn(tx, "select").mockImplementation((...args) => {
-        // Definition hashing has yielded before scope-query construction.
+        // Mutate caller input at the scope-query construction boundary.
         if (mutation === "scope") input.scopeId = otherScope;
         else {
           position.definition = otherDefinition;
@@ -368,6 +365,8 @@ export async function verifyMembershipReadPreparation(
         readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput).pipe(Effect.map(selection => selection.heads)),
       ),
     ).toEqual([null]);
+    await tx.delete(fxSystemScopeExecutionAuthorities)
+      .where(eq(fxSystemScopeExecutionAuthorities.scopeId, otherScope));
     await tx
       .delete(fxSystemScopeClocks)
       .where(eq(fxSystemScopeClocks.scopeId, otherScope));

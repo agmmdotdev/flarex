@@ -42,7 +42,9 @@ describe("S07 transaction-session authority schema", () => {
     );
 
     await persistence.query(
-      `update fx_system_scope_clock set epoch = $2 where scope_uuid = $1`,
+      `update fx_system_scope_execution_authority as authority set epoch = $2
+       from fx_system_scope_clock as clock
+       where authority.scope_id = clock.scope_id and clock.scope_uuid = $1`,
       [
         SESSION_TEST_SCOPE_UUID,
         `epoch_${SESSION_TEST_HISTORICAL_EPOCH_UUID}`,
@@ -413,7 +415,7 @@ describe("S07 transaction-session authority schema", () => {
 
     const clock = await persistence.query<{ epoch_uuid: string }>(`
       select epoch_uuid::text
-      from fx_system_scope_clock
+      from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id)
       where scope_uuid = '${SESSION_TEST_SCOPE_UUID}'::uuid
     `);
     expect(clock.rows).toEqual([{ epoch_uuid: SESSION_TEST_EPOCH_UUID }]);

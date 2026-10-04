@@ -1,3 +1,5 @@
+import { type ScopeClockRow as FullScopeClockRow } from "./scopeClock";
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { bytesEqual, copyBytes } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { and, asc, eq, gt, gte, lte } from "drizzle-orm";
@@ -187,7 +189,7 @@ export interface CommitFeedQueryV1 {
 }
 
 type ScopeClockRow = Pick<
-  typeof fxSystemScopeClocks.$inferSelect,
+  FullScopeClockRow,
   "scopeUuid" | "lastCommitSeq" | "oldestAvailableCommitSeq"
 >;
 
@@ -379,9 +381,9 @@ async function captureCommitFeedRowsInTransaction(
         scopeUuid: fxSystemScopeClocks.scopeUuid,
         lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
         oldestAvailableCommitSeq:
-          fxSystemScopeClocks.oldestAvailableCommitSeq,
+          fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq,
       })
-      .from(fxSystemScopeClocks)
+      .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
       .where(eq(fxSystemScopeClocks.scopeUuid, input.scopeUuid))
       .limit(2);
     observeCommitFeedQuery("clock", clockQuery, observeQuery);

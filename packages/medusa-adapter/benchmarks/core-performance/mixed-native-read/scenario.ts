@@ -16,9 +16,11 @@ import { makeNativeProductOperationDiagnostics } from "../../../../executor/test
 import { observeRetrievalPgClients, type RetrievalObservation } from "../native-retrieval/observation";
 import { readRetrievalRuntimeSettings, openRetrievalServerObserver, retrievalServerDifference,
   selectRetrievalServerDatabases, requireRetrievalServerObservedCalls } from "../native-retrieval/server";
+import { NativeReadCpuProfiler, CPU_SAMPLING_INTERVAL_MICROSECONDS } from "./cpu-profile";
 
 const root = fileURLToPath(new URL("../../../../../", import.meta.url));
 const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
+  "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/cpu-profile.ts",
   "packages/flarex-backend/test/support/mixedMutationWorkerdFixture.ts",
   "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts",
   "packages/executor/test/performance/support/mixedMutationProductFixture.ts",
@@ -28,17 +30,64 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts",
   "packages/persistence-postgres/test/logicalReadMetadataScalingTestSupport.ts",
   "packages/persistence-postgres/src/scopeAuthorityControlRead.ts",
+  "packages/persistence-postgres/src/scopeClock.ts",
+  "packages/persistence-postgres/src/finiteRunningAttempt.ts",
+  "packages/persistence-postgres/src/scopeExecutionAuthorityInstallation.ts",
+  "packages/persistence-postgres/drizzle/0126_finite_execution_authority.sql",
+  "packages/persistence-postgres/src/finiteMetadataDependencies.ts",
+  "packages/persistence-postgres/src/finiteMetadataReservation.ts",
+  "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+  "packages/persistence-postgres/src/physicalDefinitionRetirementPins.ts",
   "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
   "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+  "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
+  "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+  "packages/persistence-postgres/src/logicalDocuments/readAdmission.ts",
+  "packages/persistence-postgres/src/logicalDocuments/rootEvaluator.ts",
+  "packages/persistence-postgres/src/logicalDocuments/journalEvidence.ts",
+  "packages/persistence-postgres/src/logicalDocuments/commitEvidence.ts",
   "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+  "packages/persistence-postgres/src/frameworkSchema/binding/host.ts",
+  "packages/persistence-postgres/src/frameworkSchema/binding/canonical.ts",
+  "packages/persistence-postgres/src/frameworkSchema/binding/model.ts",
   "packages/persistence-postgres/src/frameworkSchema/binding/logicalSchema.ts",
+  "packages/persistence-postgres/src/commerceTransaction/admission.ts",
+  "packages/persistence-postgres/src/commerceTransaction/logicalInitialization.ts",
+  "packages/persistence-postgres/src/commerceTransaction/host.ts",
+  "packages/persistence-postgres/src/atomicCommerce/admission.ts",
+  "packages/persistence-postgres/src/crossDomainCommand/host.ts",
   "packages/persistence-postgres/src/applicationActivation.ts",
   "packages/persistence-postgres/src/applicationBindingProjection.ts",
   "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
+  "packages/persistence-postgres/src/applicationReadiness.ts",
+  "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+  "packages/persistence-postgres/src/applicationStandaloneBinding.ts",
+  "packages/persistence-postgres/src/schemaVersionArtifacts.ts",
+  "packages/persistence-postgres/src/appIndexDefinitions.ts",
+  "packages/persistence-postgres/src/appIndexEntries.ts",
+  "packages/persistence-postgres/src/appRows.ts",
+  "packages/persistence-postgres/src/appUniqueConstraintDefinitions.ts",
+  "packages/persistence-postgres/src/appUniqueConstraintCommitV1.ts",
+  "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts",
+  "packages/persistence-postgres/src/indexBuildStates.ts",
+  "packages/persistence-postgres/src/indexBuildReconciliation.ts",
+  "packages/persistence-postgres/src/indexMaintenance.ts",
   "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+  "packages/persistence-postgres/src/logicalStorageDefinitions.ts",
   "packages/persistence-postgres/src/logicalStorageReadiness.ts",
   "packages/persistence-postgres/src/logicalSearchBuild.ts",
   "packages/persistence-postgres/src/sessionJournalStore.ts",
+  "packages/persistence-postgres/src/sessionJournalFiniteEntry.ts",
+  "packages/persistence-postgres/src/applicationMutationAdmission.ts",
+  "packages/persistence-postgres/src/effectTransaction.ts",
+  "packages/persistence-postgres/src/pointCommitTransaction.ts",
+  "packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts",
+  "packages/executor/src/storedAttemptAuthentication/capabilityState.ts",
+  "packages/executor/src/storedAttemptAuthentication/occRerunExecutionOperations.ts",
+  "packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts",
+  "packages/executor/src/pointMutationJournal.ts",
+  "packages/executor/src/pointMutationSessionAttemptState.ts",
+  "packages/flarex-protocol/src/commit-protocol.ts",
   "packages/persistence-postgres/src/transactionSessionActivation.ts",
   "packages/persistence-postgres/src/transactionSessionReadSyscallKernel.ts",
   "packages/persistence-postgres/src/logicalReadMetadata.ts",
@@ -51,8 +100,11 @@ const Count = Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ m
 type Branch = "hit" | "miss";
 type DecodedResults = Readonly<{ dispatches: number; returnedRowCount: number;
   decodedResultJsonUtf8Bytes: number; unknownResultEncodingDispatches: number }>;
+type CpuProfileEvidence = Readonly<{ file: string; sha256Hex: string; startTime: number; endTime: number;
+  samplingIntervalMicroseconds: number; nodeCount: number; sampleCount: number | null }>;
 interface Sample {
   readonly branch: Branch; readonly sample: number; readonly warmup: boolean; readonly nativeFirst: boolean;
+  readonly finiteDataPreparationMs: number;
   readonly nativeMs: number; readonly finiteOperationMs: number; readonly finiteRequestMs: number;
   readonly nativeResult: unknown; readonly finiteResult: unknown;
   readonly nativeError: ReturnType<typeof errorSummary> | null;
@@ -67,6 +119,8 @@ interface Sample {
   readonly methodDecodedResults: DecodedResults | null;
   readonly methodMetadataDecodedResults: DecodedResults | null;
   readonly methodBusinessDecodedResults: DecodedResults | null;
+  readonly nativeCpuProfile: CpuProfileEvidence | null;
+  readonly finiteCpuProfile: CpuProfileEvidence | null;
 }
 
 /** Diagnostic projection only; the entire native error remains in the Exit.
@@ -103,7 +157,7 @@ function distribution(values: readonly number[]) {
     p95Ms: sorted[Math.max(0, Math.ceil(sorted.length * .95) - 1)], minMs: sorted[0], maxMs: sorted.at(-1) };
 }
 
-const authorityStatement = /fx_system_(?:scope_clock|data_binding_head|application_active_head|index_build_state|prepared_metadata_epoch|installation(?:_runtime)?|tx_session|snapshot_lease|tx_journal|tx_execution_claim)\b|fx_lock_(?:installation_admission|read_scope_placement|prepared_metadata_epoch|running_attempt_tail)\b|fx_control_scope(?:_provisioning)?\b/;
+const authorityStatement = /fx_system_(?:scope_clock|scope_execution_authority|data_binding_head|application_active_head|index_build_state|prepared_metadata_epoch|installation(?:_runtime)?|tx_session|snapshot_lease|tx_journal|tx_execution_claim)\b|fx_lock_(?:installation_admission|read_scope_placement|prepared_metadata_epoch|running_attempt_tail|finite_scope_observation|finite_running_attempt)\b|fx_control_scope(?:_provisioning)?\b/;
 const businessStatement = /fx_app_(?:row|index|unique|search|relation)/;
 function decodedResults(dispatches: readonly TraceDispatchRecord[]): DecodedResults {
   return { dispatches: dispatches.length,
@@ -114,22 +168,49 @@ function decodedResults(dispatches: readonly TraceDispatchRecord[]): DecodedResu
 }
 
 function requireProtectedServerWork(statements: ReturnType<typeof retrievalServerDifference>) {
-  for (const [owner, pattern] of [
-    ["installation", /\bfx_system_installation\b/],
-    ["placement", /\bfx_control_scope\b/],
-    ["placement receipt", /\bfx_control_scope_provisioning\b/],
-    ["journal tail", /\bfx_system_tx_journal\b/],
-    ["execution claim tail", /\bfx_system_tx_execution_claim\b/],
-    ["protected metadata tail", /\bfx_system_prepared_metadata_epoch\b/],
+  const qualifier = String.raw`(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*)\s*\.\s*`;
+  for (const [owner, table] of [
+    ["installation", "fx_system_installation"],
+    ["placement", "fx_control_scope"],
+    ["placement receipt", "fx_control_scope_provisioning"],
+    ["execution authority", "fx_system_scope_execution_authority"],
+    ["publication sequencer", "fx_system_scope_clock"],
+    ["session", "fx_system_tx_session"],
+    ["snapshot lease", "fx_system_snapshot_lease"],
+    ["journal tail", "fx_system_tx_journal"],
+    ["execution claim tail", "fx_system_tx_execution_claim"],
   ] as const) {
+    const pattern = new RegExp(String.raw`\bselect\b[\s\S]*?\b(?:from|join)\s+(?:${qualifier})?"?${table}"?\b`, "i");
     if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && pattern.test(statement.query)))
       throw new Error(`Missing observed nested finite ${owner} server work`);
   }
+  const targetEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+as\s+target_epoch\b`, "i");
+  const controlEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+as\s+control_epoch\b`, "i");
+  const installedCalls = /\bfx_lock_installation_admission\s*\(/i;
+  const placementCalls = /\bfx_lock_read_scope_placement\s*\(/i;
+  const finiteScopeCalls = /\bfx_lock_finite_scope_observation\s*\(/i;
+  const finiteAttemptCalls = /\bfx_lock_finite_running_attempt\s*\(/i;
+  const selectStatement = /^\s*(?:select|with)\b/i;
+  // Installation identities and both epoch projections are accepted before
+  // the separate compact statement may acquire session/lease/root/claim locks.
+  if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) &&
+    targetEpoch.test(statement.query) && controlEpoch.test(statement.query) &&
+    installedCalls.test(statement.query) && placementCalls.test(statement.query) &&
+    finiteScopeCalls.test(statement.query) && !finiteAttemptCalls.test(statement.query)))
+    throw new Error("Missing observed top-level finite installed acceptance with both epoch projections");
+  if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) &&
+    finiteAttemptCalls.test(statement.query) && !installedCalls.test(statement.query) &&
+    !placementCalls.test(statement.query) && !finiteScopeCalls.test(statement.query)))
+    throw new Error("Missing observed separate top-level finite compact attempt acceptance");
 }
 
 export async function runMixedNativeReadPerformanceScenario(native: Pick<IProductModuleService,
   "retrieveProduct" | "createProducts" | "createProductTags" | "createProductCategories">, nativeModuleSetupMs: number) {
-  const mode = Schema.decodeUnknownSync(Schema.Literals(["quiet", "trace", "server"]))(process.env.FLAREX_MIXED_NATIVE_READ_MODE ?? "quiet");
+  const mode = Schema.decodeUnknownSync(Schema.Literals(["quiet", "trace", "server", "cpu"]))(process.env.FLAREX_MIXED_NATIVE_READ_MODE ?? "quiet");
+  const output = process.env.FLAREX_MIXED_NATIVE_READ_REPORT_DIR;
+  if (mode === "cpu" && output === undefined) throw new Error("CPU mode requires an owned report directory");
   const managedRead = true;
   const count = Schema.decodeUnknownSync(Count)(process.env.FLAREX_MIXED_NATIVE_READ_SAMPLES ?? (mode === "quiet" ? "30" : "2"));
   const warmups = Schema.decodeUnknownSync(Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 5 })))(
@@ -165,22 +246,52 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
     let operationAfter: typeof operationBefore;
     let beforeOperationBytes: number | undefined;
     let afterOperationBytes: number | undefined;
+    let finiteCpuProfiler: NativeReadCpuProfiler | undefined;
+    let cpuSample: number | undefined;
+    let finiteCpuProfile: CpuProfileEvidence | null = null;
+    const saveCpuProfile = async (owner: "native" | "finite", index: number,
+      profiler: NativeReadCpuProfiler): Promise<CpuProfileEvidence> => {
+      const profile = await profiler.stop();
+      if (output === undefined) throw new Error("Missing CPU profile output directory");
+      const file = `${label}-cpu-${branch}-${index}-${owner}.cpuprofile`;
+      const bytes = JSON.stringify(profile);
+      await mkdir(output, { recursive: true });
+      await writeFile(join(output, file), bytes, { flag: "wx" });
+      return { file, sha256Hex: createHash("sha256").update(bytes).digest("hex"),
+        startTime: profile.startTime, endTime: profile.endTime,
+        samplingIntervalMicroseconds: CPU_SAMPLING_INTERVAL_MICROSECONDS,
+        nodeCount: profile.nodes.length, sampleCount: profile.samples?.length ?? null };
+    };
     const operationDiagnostics: ReturnType<typeof makeNativeProductOperationDiagnostics> = makeNativeProductOperationDiagnostics((_method, _args, exit, elapsedMs) => {
       observed = { exit, elapsedMs };
       if (mode === "trace") afterOperationBytes = Result.getOrThrow(series.readSourcePreparationUsage()).chargedBytes;
+      const profiler = finiteCpuProfiler;
+      if (profiler !== undefined) return (async () => {
+        if (cpuSample === undefined) throw new Error("Missing finite CPU sample identity");
+        finiteCpuProfile = await saveCpuProfile("finite", cpuSample, profiler);
+      })();
       return server?.snapshot().then(snapshot => { operationAfter = snapshot; });
     });
     const series = await prepareMixedMutationPerformanceSeries({ driver: "postgres", suffix, profile: "product", sampleCount: attemptCount,
       ...(readMetadataScale === undefined ? {} : { readMetadataScale }),
       hooks: { onNativeOperationExit: operationDiagnostics,
-        beforeNative: () => (mode === "trace" ? Effect.sync(() => {
-          beforeOperationBytes = Result.getOrThrow(series.readSourcePreparationUsage()).chargedBytes;
-        }) : Effect.void).pipe(Effect.andThen(server === undefined ? Effect.void : Effect.tryPromise({ try: async () => {
-          operationBefore = await server?.snapshot();
-        }, catch: cause => commerceError("resourceFailure", cause) }))) },
+        beforeNative: () => {
+          const beforeNative = (mode === "trace" ? Effect.sync(() => {
+            beforeOperationBytes = Result.getOrThrow(series.readSourcePreparationUsage()).chargedBytes;
+          }) : Effect.void).pipe(Effect.andThen(server === undefined ? Effect.void : Effect.tryPromise({ try: async () => {
+            operationBefore = await server?.snapshot();
+          }, catch: cause => commerceError("resourceFailure", cause) })));
+          const profiler = finiteCpuProfiler;
+          return profiler === undefined ? beforeNative : beforeNative.pipe(Effect.andThen(Effect.tryPromise({
+            try: () => profiler.start(), catch: cause => commerceError("resourceFailure", cause),
+          })));
+        } },
       applicationSource: seed => `export default { users: { create: { isMutation: true, isPublic: true,
         _handler: async ctx => ctx.privateMixed.call("medusa.product", "retrieve", { id: ${JSON.stringify(branch === "hit" ? seed.productId : `prod_missing_${suffix}`)} }) } } };`,
     });
+    // No sampling resource exists while series initialization can fail.
+    const nativeCpuProfiler = mode === "cpu" ? new NativeReadCpuProfiler() : undefined;
+    finiteCpuProfiler = mode === "cpu" ? new NativeReadCpuProfiler() : undefined;
     const finiteSetupMs = performance.now() - setupStart;
     const nativeSeedStart = performance.now();
     try {
@@ -209,7 +320,7 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
         server = await openRetrievalServerObserver(observerUrl,
           selectRetrievalServerDatabases(nativeDatabase, nativeSettings, finiteSettings, controlSettings));
       }
-      setup.push({ branch, finiteSetupMs, nativeSeedingMs: performance.now() - nativeSeedStart,
+      const branchSetup = { branch, finiteSetupMs, nativeSeedingMs: performance.now() - nativeSeedStart,
         nativeSettings, finiteSettings,
         metadataCounts: series.currency.metadataCounts, metadataScaling: series.currency.metadataScaling,
         sourcePreparationRetainedBytes: Result.getOrThrow(series.readSourcePreparationUsage()).chargedBytes,
@@ -217,12 +328,20 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
         serverObserver: server === undefined ? null : { settings: server.settings, identity: server.observerIdentity, coverage: server.coverage },
         provisioningMs: series.provisioningMilliseconds, modulePreparationMs: series.preparedModuleMilliseconds,
         initialSeedingMs: series.initialSeedingMilliseconds, additionalSeedingMs: series.additionalSetupSeedingMilliseconds,
-        lifetime: "one prepared module/schema/pool graph; fresh authenticated attempt and single-use Worker per sample" });
+        lifetime: "one prepared module/schema/pool graph; fresh authenticated attempt and single-use Worker per sample" };
+      setup.push(branchSetup);
       const trace = mode === "trace" && series.currency.resource.kind === "postgres"
         ? createMixedMutationPerformanceTrace({ controlPool: series.currency.resource.control.pool, targetPool: series.currency.resource.target.pool }) : undefined;
       series.setTrace(trace);
       try {
         for (let index = 0; index < attemptCount; index++) {
+          // The series requires each disjoint data graph before request entry.
+          // Charge this setup separately, before either alternating pair member
+          // opens its timing, trace or server-observation interval.
+          const preparationStarted = performance.now();
+          await series.prepareAttempt(index);
+          const finiteDataPreparationMs = performance.now() - preparationStarted;
+          branchSetup.additionalSeedingMs += finiteDataPreparationMs;
           const seed = productAttemptSeed(`${suffix}-${index}`);
           const id = branch === "hit" ? seed.productId : `prod_missing_${suffix}`;
           let nativeResult: unknown;
@@ -235,14 +354,17 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
           let finiteServer: Sample["finiteServer"] = null;
           let finiteOperationServer: Sample["finiteOperationServer"] = null;
           let sourcePreparationUsage: Sample["sourcePreparationUsage"] = null;
+          let nativeCpuProfile: CpuProfileEvidence | null = null;
           const nativeSql: RetrievalObservation[] | null = mode === "trace" ? [] : null;
           const runNative = async () => {
             const before = await server?.snapshot();
             const close = nativeSql === null ? undefined : observeRetrievalPgClients(nativeSql);
+            if (nativeCpuProfiler !== undefined) await nativeCpuProfiler.start();
             const started = performance.now();
             try { nativeResult = await native.retrieveProduct(id); }
             catch (error) { nativeError = errorSummary(error); }
             finally { nativeMs = performance.now() - started; close?.(); }
+            if (nativeCpuProfiler !== undefined) nativeCpuProfile = await saveCpuProfile("native", index, nativeCpuProfiler);
             if (before !== undefined && server !== undefined) {
               nativeServer = retrievalServerDifference(before, await server.snapshot());
               requireRetrievalServerObservedCalls({ database: nativeSettings.database, dbid: nativeSettings.dbid }, nativeServer);
@@ -250,6 +372,8 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
           };
           const runFinite = async () => {
             observed = undefined;
+            cpuSample = index;
+            finiteCpuProfile = null;
             operationBefore = undefined;
             operationAfter = undefined;
             beforeOperationBytes = undefined;
@@ -265,6 +389,7 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
             else await trace.withInvocation({ id: `${branch}/${index}`, mode: "recon" }, work);
             finiteRequestMs = performance.now() - started;
             operationDiagnostics.assertMeasurement();
+            finiteCpuProfiler?.assertMeasurement();
             if (beforeRequestBytes !== undefined && beforeOperationBytes !== undefined && afterOperationBytes !== undefined)
               sourcePreparationUsage = { beforeRequestBytes, beforeOperationBytes, afterOperationBytes,
                 afterRequestBytes: Result.getOrThrow(series.readSourcePreparationUsage()).chargedBytes };
@@ -303,6 +428,10 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
             expect(finiteError).toEqual(nativeError);
           }
           const finiteTrace = trace?.records().find(record => record.id === `${branch}/${index}`) ?? null;
+          if (mode === "cpu") {
+            expect(nativeCpuProfile).not.toBeNull();
+            expect(finiteCpuProfile).not.toBeNull();
+          }
           const methodDispatches = finiteTrace?.dispatches.filter(dispatch => dispatch.phasePath.includes("native Product operation"));
           const methodDecodedResults = methodDispatches === undefined ? null : decodedResults(methodDispatches);
           const methodMetadataDecodedResults = methodDispatches === undefined ? null : decodedResults(methodDispatches.filter(dispatch =>
@@ -313,13 +442,20 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
             expect(sourcePreparationUsage).not.toBeNull();
             expect(methodDecodedResults?.unknownResultEncodingDispatches).toBe(0);
           }
-          samples.push({ branch, sample: index, warmup: index < warmups, nativeFirst, nativeMs, finiteOperationMs: observed.elapsedMs,
+          samples.push({ branch, sample: index, warmup: index < warmups, nativeFirst, finiteDataPreparationMs,
+            nativeMs, finiteOperationMs: observed.elapsedMs,
             finiteRequestMs, nativeResult, finiteResult, nativeError, finiteError, nativeSql,
             nativeServer, finiteServer, finiteOperationServer, sourcePreparationUsage, methodDecodedResults,
-            methodMetadataDecodedResults, methodBusinessDecodedResults, finiteTrace });
+            methodMetadataDecodedResults, methodBusinessDecodedResults, finiteTrace, nativeCpuProfile, finiteCpuProfile });
         }
       } finally { trace?.close(); }
-    } finally { try { await server?.close(); } finally { await series.close(); } }
+    } finally {
+      try { await nativeCpuProfiler?.dispose(); }
+      finally {
+        try { await finiteCpuProfiler?.dispose(); }
+        finally { try { await server?.close(); } finally { await series.close(); } }
+      }
+    }
   }
   expect(await sourceHashes()).toEqual(before);
   const report = { format: "flarex.matched-finite-native-product-retrieve", mode, label, managedRead, readMetadataScale, nativeModuleSetupMs, warmups, count,
@@ -337,9 +473,15 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
       "Missing Product failures poison their own attempt and keep the native Commerce adapter cause; no failure recovery or publication is introduced.",
       "Finite operation covers actual private native operation, close and receipt validation; complete request includes admission, fresh Worker, execution, seal, publication and fixture disposal.",
       "Schema/module/seeding costs are separately charged per actual series lifetime; measured native schema/module bootstrap remains runner-owned and outside per-operation samples.",
+      "Each finite disjoint data graph is prepared before its alternating pair; per-sample preparation is recorded and included in setup additionalSeedingMs outside request and operation intervals.",
       "Quiet and trace are separate runs; trace observations are client SQL dispatches, never network round trips or server execution time."],
+    cpuInterpretation: mode === "cpu" ? [
+      "Diagnostic V8 sampling at 100 microseconds; timings carry profiler overhead and cannot satisfy quiet gates.",
+      "Profiles start before the method clock and stop after its completed outcome; finite service construction, close and receipt validation are included.",
+      "Returned startTime/endTime are genuine profiler timestamps in microseconds; profiles sample the local Node isolate, including asynchronous and inspector work.",
+      "Short samples are noisy; no exclusive CPU is inferred by subtracting SQL awaits or from overlapping spans.",
+    ] : null,
     unavailable: ["network round trips", ...(mode === "server" ? [] : ["server execution time"]), "driver wire bytes", "isolated CPU"] };
-  const output = process.env.FLAREX_MIXED_NATIVE_READ_REPORT_DIR;
   if (output !== undefined) {
     await mkdir(output, { recursive: true });
     await writeFile(join(output, `${label}-${mode}.json`), `${JSON.stringify(report, null, 2)}\n`);

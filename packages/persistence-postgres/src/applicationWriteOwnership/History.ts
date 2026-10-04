@@ -125,7 +125,7 @@ export const readPreviouslyApplicationWritableTables = Effect.fn("ApplicationWri
         if (!bytesEqualFullScan(yield* digest(frame), publication.publicationSha256)) return yield* invalid();
         const schemaVersionId = CatalogSchemaVersionIdSchema.make(`application_${hex(publication.schemaSha256)}`);
         yield* chargeSchemaArtifact(controlDb, input.deploymentId, schemaVersionId, budget);
-        const bound = yield* makeApplicationSchemaAuthorityPublisher({ db: catalog.database, runTransaction: run => catalog.database.transaction(run) })
+        const { schema: bound } = yield* makeApplicationSchemaAuthorityPublisher({ db: catalog.database, runTransaction: run => catalog.database.transaction(run) })
           .readPublished({ deploymentId: input.deploymentId, manifest }, controlDb).pipe(Effect.mapError(failure));
         for (const table of bound.tables) writable.add(table.tableId);
       } else {

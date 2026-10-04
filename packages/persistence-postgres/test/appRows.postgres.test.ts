@@ -1,4 +1,5 @@
 import { snapshotHydrationBatchScenario } from "./snapshotHydrationBatchScenario";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -52,7 +53,7 @@ const secondCommitSeq = CommitSeqSchema.make(firstCommitSeq + 2n);
 describePostgres("real Postgres FlarexDB app-row storage", () => {
   it("hydrates bounded historical batches in request order with exact failures", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
-      await persistence.query("insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)", [scopeId, firstEpoch]);
+      await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch });
       await persistence.drizzle.transaction(tx => snapshotHydrationBatchScenario(tx,
         { identity: { scopeId, tableId, rowId }, epoch: firstEpoch, schemaVersionId, creationTime }));
     });
@@ -60,12 +61,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
 
   it("proves exact history, rollback, epoch independence, and indexed lookup", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      await persistence.query(
-        `insert into fx_system_scope_clock
-           (scope_id, storage_generation, last_commit_seq, epoch)
-         values ($1, 'flarexdb_v1', $2, $3)`,
-        [scopeId, secondCommitSeq, firstEpoch],
-      );
+      await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch, lastCommitSeq: secondCommitSeq });
       const first = await canonicalizeAppDocumentV1({
         tableId,
         rowId,
@@ -159,7 +155,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
       expect(staleCount.rows).toEqual([{ count: "0" }]);
 
       await persistence.query(
-        `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+        `update fx_system_scope_execution_authority set epoch = $2 where scope_id = $1`,
         [scopeId, secondEpoch],
       );
       await expect(readAt(persistence, secondCommitSeq)).resolves.toMatchObject({
@@ -180,12 +176,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
 
   it("keeps semantic point reads pinned while a later revision commits", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      await persistence.query(
-        `insert into fx_system_scope_clock
-           (scope_id, storage_generation, last_commit_seq, epoch)
-         values ($1, 'flarexdb_v1', $2, $3)`,
-        [scopeId, secondCommitSeq, firstEpoch],
-      );
+      await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch, lastCommitSeq: secondCommitSeq });
       const first = await canonicalizeAppDocumentV1({
         tableId,
         rowId,
@@ -282,7 +273,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
       });
 
       await persistence.query(
-        `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+        `update fx_system_scope_execution_authority set epoch = $2 where scope_id = $1`,
         [scopeId, secondEpoch],
       );
       await expect(

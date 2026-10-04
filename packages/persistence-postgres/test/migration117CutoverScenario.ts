@@ -8,7 +8,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import type { FlarexSqlClient } from "../src";
 import { SESSION_TEST_EPOCH_UUID, SESSION_TEST_SCOPE_UUID, insertOpenTransactionJournalFixture,
   insertLegacyOpenTransactionJournalFixture,
-  insertSessionTestScope, insertTransactionSessionFixture, transactionSessionFixture,
+  insertLegacySessionTestScope, insertTransactionSessionFixture, transactionSessionFixture,
   transactionSessionIdAt } from "./sessionAuthorityTestSupport";
 
 type MigratingClient = Pick<FlarexSqlClient, "query"> & Readonly<{ migrate: () => Promise<void> }>;
@@ -40,7 +40,7 @@ export async function assertMigration117Cutover(previous: MigratingClient, curre
   if (!/^[a-z_][a-z_0-9]*$/.test(migrationsSchema)) throw new Error("Invalid fixture migrations schema");
   const receipts = `"${migrationsSchema}".__drizzle_migrations`;
   const session = transactionSessionFixture(transactionSessionIdAt(117));
-  await insertSessionTestScope(previous);
+  await insertLegacySessionTestScope(previous);
   await insertTransactionSessionFixture(previous, session);
   await insertLegacyOpenTransactionJournalFixture(previous, session);
   await previous.query(`insert into fx_system_tx_journal_latest_receipt

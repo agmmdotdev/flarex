@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FlarexPersistence } from "../src";
 import { createPGlitePersistence } from "../src/pglite";
+import { writeJournalThrough } from "./migrationFixtureSupport";
 
 const SCOPE_A = "81000000-0000-0000-0000-000000000001";
 const EPOCH_A = "81000000-0000-0000-0000-000000000002";
@@ -59,7 +60,7 @@ describe("S08 commit/change-feed schema", () => {
       select column_default, is_nullable
       from information_schema.columns
       where table_schema = current_schema()
-        and table_name = 'fx_system_scope_clock'
+        and table_name = 'fx_system_scope_execution_authority'
         and column_name = 'oldest_available_commit_seq'
     `);
     expect(floor.rows).toEqual([
@@ -83,7 +84,7 @@ describe("S08 commit/change-feed schema", () => {
       );
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await insertScope(previous, SCOPE_A, EPOCH_A, "7");
+      await insertLegacyScope(previous, SCOPE_A, EPOCH_A, "7");
       await previous.query(`
         insert into commits (deployment_id, ts, source, write_summary)
         values ('legacy-deployment', 11, 'legacy-source', '{"writes":1}'::jsonb)
@@ -154,7 +155,7 @@ describe("S08 commit/change-feed schema", () => {
       await writeJournalThrough0028(currentJournal, temporaryJournal);
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await insertScope(previous, SCOPE_A, EPOCH_A, "0");
+      await insertLegacyScope(previous, SCOPE_A, EPOCH_A, "0");
       await writeJournalThrough0029(currentJournal, temporaryJournal);
 
       const migration = await readFile(copiedMigration, "utf8");
@@ -237,14 +238,10 @@ describe("S08 commit/change-feed schema", () => {
       await writeJournalBeforeIndex(currentJournal, temporaryJournal, 77);
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await insertScope(previous, SCOPE_A, EPOCH_A, "1");
+      await insertLegacyScope(previous, SCOPE_A, EPOCH_A, "1");
       await insertHeader(previous, SCOPE_A, EPOCH_A, "1", 0);
 
-      await writeFile(
-        temporaryJournal,
-        await readFile(currentJournal, "utf8"),
-        "utf8",
-      );
+      await writeJournalThrough(currentJournal, temporaryJournal, 77);
       const migration = await readFile(copiedMigration, "utf8");
       await writeFile(
         copiedMigration,
@@ -318,7 +315,7 @@ describe("S08 commit/change-feed schema", () => {
         column_default: "0",
         is_nullable: "NO",
         relation_children: "0",
-        receipts: "81",
+        receipts: "78",
       }]);
     } finally {
       try {
@@ -335,10 +332,10 @@ describe("S08 commit/change-feed schema", () => {
     await insertScope(persistence, SCOPE_A, EPOCH_A, "10");
 
     for (const statement of [
-      `update fx_system_scope_clock set oldest_available_commit_seq = -1
-       where scope_uuid = '${SCOPE_A}'::uuid`,
-      `update fx_system_scope_clock set oldest_available_commit_seq = 11
-       where scope_uuid = '${SCOPE_A}'::uuid`,
+      `update fx_system_scope_execution_authority a set oldest_available_commit_seq = -1
+       from fx_system_scope_clock c where a.scope_id = c.scope_id and c.scope_uuid = '${SCOPE_A}'::uuid`,
+      `update fx_system_scope_execution_authority a set oldest_available_commit_seq = 11
+       from fx_system_scope_clock c where a.scope_id = c.scope_id and c.scope_uuid = '${SCOPE_A}'::uuid`,
       `insert into fx_system_commit
          (scope_uuid, epoch_uuid, commit_seq, change_count)
        values ('${SCOPE_A}', '${EPOCH_A}', 0, 0)`,
@@ -639,6 +636,25 @@ async function writeJournalBeforeIndex(
 }
 
 async function insertScope(
+  persistence: SqlPersistence,
+  scopeUuid: string,
+  epochUuid: string,
+  lastCommitSeq: string,
+): Promise<void> {
+  await persistence.query(
+    `
+      with clock as (
+        insert into fx_system_scope_clock (scope_id, last_commit_seq)
+        values ($1, $2) returning scope_id
+      )
+      insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+      select scope_id, 'flarexdb_v1', $3 from clock
+    `,
+    [`scope_${scopeUuid}`, lastCommitSeq, `epoch_${epochUuid}`],
+  );
+}
+
+async function insertLegacyScope(
   persistence: SqlPersistence,
   scopeUuid: string,
   epochUuid: string,

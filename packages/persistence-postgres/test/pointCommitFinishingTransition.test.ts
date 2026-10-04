@@ -649,6 +649,9 @@ describe("C05-A point-commit finishing transition", () => {
           jsonb_build_object(
             'clock', (select to_jsonb(clock) from fx_system_scope_clock clock
               where clock.scope_uuid = session.scope_uuid),
+            'authority', (select to_jsonb(authority) from fx_system_scope_execution_authority authority
+              join fx_system_scope_clock clock using (scope_id)
+              where clock.scope_uuid = session.scope_uuid),
             'lease', (select to_jsonb(lease) from fx_system_snapshot_lease lease
               where lease.scope_uuid = session.scope_uuid
                 and lease.session_id = session.session_id),

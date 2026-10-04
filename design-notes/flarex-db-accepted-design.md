@@ -378,6 +378,37 @@ initial authentication and renewal, so its timing distribution establishes no
 profile equivalence or causal regression. Host lifecycle work remains conditional
 and unapproved.
 
+### Selected Finite Execution Contract
+
+The owner selects [the finite execution contract](../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
+for the existing private Application/Payload/Medusa graph. Implementation and
+acceptance are incomplete. It replaces finite current-head re-admission,
+whole-version epoch refusal and commit-sequencer locking with entry-fixed exact
+metadata selectors, demanded original-snapshot serving, a separate live authority/
+retention owner and consumed metadata OCC. Prior paragraphs retain their exact
+contract for actual unmigrated profiles; they do not constrain the selected
+finite replacement's proof choreography.
+
+Metadata selection is explicit at authenticated entry, using retained canonical
+versions; data timestamp alone does not reconstruct a metadata registry. Capture
+and persist its watermark/selector with the genuine attempt reservation. Only
+confirmed entry makes it usable. Relevant semantic changes, including ABA,
+conflict at publication; unrelated immutable head movement is not a live-authority
+failure. Actual permission withdrawal advances the live scope revocation owner.
+
+Authority holds protect revocation, storage fencing and retained-history floor
+through each real data transaction. Commit sequencing has a separate owner.
+Ordinary commits need not exclude finite snapshot reads; expiry during a read
+does not permit pruning its history. Distinct nominal evidence preserves the
+stronger existing direct/write/durable observation contracts.
+
+Framework business semantics and one Postgres settlement remain unchanged.
+Finite seal retains the current durable model while authenticating captured
+metadata/dependencies; package 2's terminal durability change remains gated.
+Forward migration preserves stored scope fields, identities and outcomes, and
+refuses new finite activation until any incompatible nonterminal records have
+an explicit drain/migration disposition. No silent data deletion is authorized.
+
 ### Overall Direction
 
 The storage backbone is good, but the original unified-runtime proposal was

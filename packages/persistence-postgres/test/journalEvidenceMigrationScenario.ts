@@ -4,7 +4,7 @@ import {
   injectMigrationFailure, restoreMigrationFile, writeJournalThrough, type DrizzleCopyFixture,
 } from "./migrationFixtureSupport";
 import {
-  insertLegacyOpenTransactionJournalFixture, insertSessionTestScope, insertTransactionSessionFixture,
+  insertLegacyOpenTransactionJournalFixture, insertLegacySessionTestScope, insertTransactionSessionFixture,
   transactionSessionFixture, transactionSessionIdAt,
 } from "./sessionAuthorityTestSupport";
 
@@ -15,7 +15,7 @@ export async function verifyJournalEvidenceMigration(
 ): Promise<void> {
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 92);
   await persistence.migrate();
-  await insertSessionTestScope(persistence);
+  await insertLegacySessionTestScope(persistence);
   const states = ["open", "failed", "relation_conflicted", "sealed"] as const;
   for (const [index, state] of states.entries()) {
     const session = transactionSessionFixture(transactionSessionIdAt(9300 + index));

@@ -632,10 +632,11 @@ async function seedTaskParentAuthorityFixture(
   parent: DeliveryFixtureIdentity,
 ): Promise<void> {
   await persistence.query(`
-    insert into fx_system_scope_clock
-      (scope_id, storage_generation, epoch)
-    values ($1, 'flarexdb_v1',
-      'epoch_72000000-0000-4000-8000-000000000016')
+    with clock as (
+      insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id
+    )
+    insert into fx_system_scope_execution_authority (scope_id, storage_generation, epoch)
+    select scope_id, 'flarexdb_v1', 'epoch_72000000-0000-4000-8000-000000000016' from clock
   `, [parent.scopeId]);
 }
 

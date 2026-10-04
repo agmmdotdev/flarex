@@ -1,3 +1,5 @@
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
+import { selectScopeClockRows } from "../src/scopeClock";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import { eq, sql } from "drizzle-orm";
@@ -265,9 +267,13 @@ it("publishes operation-local IDs atomically, supports event-only restore and re
 
 it("confines colliding composite keys to the admitted scope", async () => {
   const foreign = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const clock = (await fixture.persistence.drizzle.select().from(fxSystemScopeClocks))[0];
+  const clock = (await selectScopeClockRows(fixture.persistence.drizzle))[0];
   if (clock === undefined) throw new Error("Missing clock");
-  await fixture.persistence.drizzle.insert(fxSystemScopeClocks).values({ scopeId: ScopeIdSchema.make("scope_" + foreign), epoch: clock.epoch, storageGeneration: clock.storageGeneration });
+  await fixture.persistence.drizzle.transaction(async tx => {
+    const scopeId = ScopeIdSchema.make("scope_" + foreign);
+    await tx.insert(fxSystemScopeClocks).values({ scopeId });
+    await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId, epoch: clock.epoch, storageGeneration: clock.storageGeneration });
+  });
   const table = fixture.descriptor.layout.frame.tables[0];
   if (table === undefined) throw new Error("Missing table");
   const column = (id: string) => {
@@ -282,5 +288,9 @@ it("confines colliding composite keys to the admitted scope", async () => {
   const actual = await fixture.persistence.drizzle.execute(sql`select ${column("id")} as id, ${column("deleted_at")} as deleted_at from ${target} where scope_uuid = ${foreign}::uuid`);
   expect("rows" in actual ? actual.rows : actual).toMatchObject([{ id: "foreign", deleted_at: null }]);
   await fixture.persistence.drizzle.execute(sql`delete from ${target} where scope_uuid = ${foreign}::uuid`);
-  await fixture.persistence.drizzle.delete(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, ScopeIdSchema.make("scope_" + foreign)));
+  await fixture.persistence.drizzle.transaction(async tx => {
+    const scopeId = ScopeIdSchema.make("scope_" + foreign);
+    await tx.delete(fxSystemScopeExecutionAuthorities).where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+    await tx.delete(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId));
+  });
 });

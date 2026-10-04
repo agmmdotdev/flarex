@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import { Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { expect } from "vitest";
@@ -47,10 +48,7 @@ export async function verifyAppRowBatches(
   const writeEpoch = ScopeEpochSchema.make(
     "epoch_50190000-0000-0000-0000-000000000002",
   );
-  await persistence.query(
-    "insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)",
-    [scopeId, writeEpoch],
-  );
+  await insertCurrentScopeClockFixture(db, { scopeId, epoch: writeEpoch });
   const rows: AppendPreparedAppRowRevisionV1Input[] = [];
   for (let i = 0; i < 33; i += 1) {
     const tableId = decodeCatalogTableId(1 + (i % 2));
@@ -227,10 +225,7 @@ export async function verifyAppRowBatchBindings(
     const scopeUuid = `a5290000-0000-4000-8000-${scopeOrdinal.toString().padStart(12, "0")}`;
     const scopeId = ScopeIdSchema.make(`scope_${scopeUuid}`);
     const writeEpoch = ScopeEpochSchema.make(`epoch_${scopeUuid}`);
-    await persistence.query(
-      "insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)",
-      [scopeId, writeEpoch],
-    );
+    await insertCurrentScopeClockFixture(db, { scopeId, epoch: writeEpoch });
     const rows: AppendPreparedAppRowRevisionV1Input[] = [];
     for (let i = 0; i < 64; i++) {
       const tableId = decodeCatalogTableId(1);

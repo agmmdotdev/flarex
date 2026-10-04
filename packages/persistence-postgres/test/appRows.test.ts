@@ -1,5 +1,6 @@
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import { snapshotHydrationBatchScenario } from "./snapshotHydrationBatchScenario";
+import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -150,7 +151,7 @@ describe("FlarexDB app-row revision storage", () => {
     ).resolves.toMatchObject({ kind: "tombstone", commitSeq: 5n });
 
     await persistence.query(
-      `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+      `update fx_system_scope_execution_authority set epoch = $2 where scope_id = $1`,
       [scopeId, secondEpoch],
     );
     await expect(readAt(persistence, 4n)).resolves.toMatchObject({
@@ -243,7 +244,7 @@ describe("FlarexDB app-row revision storage", () => {
     });
 
     await persistence.query(
-      `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+      `update fx_system_scope_execution_authority set epoch = $2 where scope_id = $1`,
       [scopeId, secondEpoch],
     );
     await expect(pointReadAt(persistence, 5n, secondEpoch)).resolves.toMatchObject(
@@ -979,11 +980,7 @@ async function insertClock(
   insertedScopeId: ReturnType<typeof ScopeIdSchema.make>,
   epoch: ReturnType<typeof ScopeEpochSchema.make>,
 ): Promise<void> {
-  await persistence.query(
-    `insert into fx_system_scope_clock (scope_id, storage_generation, epoch)
-     values ($1, 'flarexdb_v1', $2)`,
-    [insertedScopeId, epoch],
-  );
+  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId: insertedScopeId, epoch });
 }
 
 async function canonicalDocument(fields: unknown) {

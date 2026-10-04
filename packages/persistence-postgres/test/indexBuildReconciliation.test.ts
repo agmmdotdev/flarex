@@ -5,9 +5,11 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import {
+  FlarexDbV1StorageGenerationSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
+import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
@@ -21,11 +23,15 @@ import {
 } from "../src/indexBuildReconciliation";
 import {
   createPGliteLocatedIndexBuildReconciliationTargetV1,
+  createPGliteLocatedSplitScopeClockTarget,
   createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
 import { IndexBuildStateCorruptionError } from "../src/indexBuildStates";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { fxSystemScopeExecutionAuthorities } from "../src/schema";
+import { getScopeAuthorityProvisioningReceipt, publishScopeAuthorityReadyInTransaction,
+  reserveScopeAuthorityProvisioningReceiptInTransaction } from "../src/scopeAuthorityProvisioningReceipt";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../src/transactionSessionAttemptKernel";
@@ -171,9 +177,12 @@ describe("S03-D3 durable index-build reconciliation", () => {
     const fixture = await publishedFixture("stale");
     await reconcile(fixture, fixture.schemaVersionId);
     await fixture.persistence.query(
-      `update fx_system_scope_clock
-       set storage_generation_fence = 2, epoch = $2, last_commit_seq = 9
-       where scope_id = $1`,
+      `with authority as (
+         update fx_system_scope_execution_authority
+         set storage_generation_fence = 2, epoch = $2 where scope_id = $1
+         returning scope_id
+       ) update fx_system_scope_clock as clock set last_commit_seq = 9
+         from authority where clock.scope_id = authority.scope_id`,
       [fixture.scopeId, "epoch_reconcile_stale_2"],
     );
 
@@ -307,7 +316,7 @@ describe("S03-D3 durable index-build reconciliation", () => {
         if (!changed) {
           changed = true;
           await fixture.persistence.query(
-            `update fx_system_scope_clock
+            `update fx_system_scope_execution_authority
              set storage_generation_fence = 2
              where scope_id = $1`,
             [fixture.scopeId],
@@ -332,7 +341,7 @@ describe("S03-D3 durable index-build reconciliation", () => {
   it("rejects a legacy-generation clock instead of declaring replacement builds", async () => {
     const fixture = await publishedFixture("legacy_generation");
     await fixture.persistence.query(
-      `update fx_system_scope_clock set storage_generation = 'legacy_v1'
+      `update fx_system_scope_execution_authority set storage_generation = 'legacy_v1'
        where scope_id = $1`,
       [fixture.scopeId],
     );
@@ -416,17 +425,8 @@ describe("S03-D3 durable index-build reconciliation", () => {
               fixture.persistence.getScopeMetadataByDeploymentId(deploymentId),
           },
           provisioningReceipts: {
-            getScopeAuthorityProvisioningReceipt: async () => ({
-              scopeId: fixture.scopeId,
-              protocolVersion: "split_scope_authority_v1",
-              physicalLocator: locator,
-              initialEpoch: ScopeEpochSchema.make(
-                `epoch_reconcile_topology_${kind}`,
-              ),
-              state: "ready",
-              reservedAt: new Date(0),
-              readyAt: new Date(1),
-            }),
+            getScopeAuthorityProvisioningReceipt: scopeId =>
+              getScopeAuthorityProvisioningReceipt(fixture.persistence.drizzle, scopeId),
           },
           scopeClockTargets: {
             resolve: async (physicalLocator) => {
@@ -472,12 +472,27 @@ async function baseFixture(
     deploymentId,
     physicalLocator: locator,
   });
-  await persistence.query(
-    `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
-      values ($1, 'flarexdb_v1', 1, 0, $2)`,
+  if (locator.kind === "shared_database") {
+    await persistence.query(
+    `with created as (
+       insert into fx_system_scope_clock (scope_id) values ($1) returning scope_id
+     ) insert into fx_system_scope_execution_authority
+       (scope_id, storage_generation, storage_generation_fence, epoch)
+       select scope_id, 'flarexdb_v1', 1, $2 from created`,
     [scopeId, ScopeEpochSchema.make(`epoch_reconcile_${suffix}`)],
-  );
+    );
+  } else {
+    const reserved = await persistence.drizzle.transaction(tx => reserveScopeAuthorityProvisioningReceiptInTransaction(tx, {
+      scopeId, physicalLocator: locator, candidateInitialEpoch: ScopeEpochSchema.make(`epoch_reconcile_${suffix}`),
+    }));
+    await createPGliteLocatedSplitScopeClockTarget(persistence, locator).ensureInitialClock({
+      scopeId, initialEpoch: reserved.receipt.initialEpoch,
+    });
+    await persistence.drizzle.transaction(tx => publishScopeAuthorityReadyInTransaction(tx, { expected: reserved.receipt }));
+    await persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    }).where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+  }
   return {
     persistence,
     deploymentId,

@@ -137,9 +137,13 @@ export async function provePqvA1RetainedFloorBoundariesV1(
     );
     const active = yield* readActiveApplicationRevisionV1(fixture.context);
     yield* Effect.promise(() => lane.persistence.query(
-      `update fx_system_scope_clock
-       set last_commit_seq = 2, oldest_available_commit_seq = 1
-       where scope_id = $1`,
+      `with authority as materialized (
+         select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+       ), sequencer as (
+         update fx_system_scope_clock c set last_commit_seq = 2 from authority a
+         where c.scope_id = a.scope_id returning c.scope_id
+       ) update fx_system_scope_execution_authority a set oldest_available_commit_seq = 1
+         from sequencer c where a.scope_id = c.scope_id`,
       [active.metadata.scopeId],
     ));
     const opened = yield* openApplicationPointQuerySnapshotV1(
@@ -152,7 +156,7 @@ export async function provePqvA1RetainedFloorBoundariesV1(
       opened.capability,
     );
     yield* Effect.promise(() => lane.persistence.query(
-      `update fx_system_scope_clock
+      `update fx_system_scope_execution_authority
        set oldest_available_commit_seq = 2 where scope_id = $1`,
       [active.metadata.scopeId],
     ));
@@ -160,9 +164,13 @@ export async function provePqvA1RetainedFloorBoundariesV1(
       opened.capability,
     );
     yield* Effect.promise(() => lane.persistence.query(
-      `update fx_system_scope_clock
-       set last_commit_seq = 3, oldest_available_commit_seq = 3
-       where scope_id = $1`,
+      `with authority as materialized (
+         select scope_id from fx_system_scope_execution_authority where scope_id = $1 for update
+       ), sequencer as (
+         update fx_system_scope_clock c set last_commit_seq = 3 from authority a
+         where c.scope_id = a.scope_id returning c.scope_id
+       ) update fx_system_scope_execution_authority a set oldest_available_commit_seq = 3
+         from sequencer c where a.scope_id = c.scope_id`,
       [active.metadata.scopeId],
     ));
     const belowFloor = yield* Effect.result(
@@ -663,8 +671,9 @@ function withClockFault(
   return Effect.acquireUseRelease(
     Effect.tryPromise({
       try: () => persistence.query(
-        `update fx_system_scope_clock set ${mutation}
-          where scope_id = (select scope_id from fx_control_scope limit 1)`,
+        `update fx_system_scope_execution_authority a set ${mutation}
+          from fx_system_scope_clock c where a.scope_id = c.scope_id
+          and a.scope_id = (select id from fx_control_scope limit 1)`,
       ),
       catch: cause => cause,
     }),
@@ -676,8 +685,9 @@ function withClockFault(
     )),
     () => Effect.tryPromise({
       try: () => persistence.query(
-        `update fx_system_scope_clock set ${restore}
-          where scope_id = (select scope_id from fx_control_scope limit 1)`,
+        `update fx_system_scope_execution_authority a set ${restore}
+          from fx_system_scope_clock c where a.scope_id = c.scope_id
+          and a.scope_id = (select id from fx_control_scope limit 1)`,
       ),
       catch: cause => cause,
     }),
@@ -989,9 +999,9 @@ async function proveCleanupCausePreservation(
     yield* Effect.acquireUseRelease(
       Effect.tryPromise({
         try: () => lane.persistence.query(
-          `update fx_system_scope_clock
+          `update fx_system_scope_execution_authority
               set storage_generation = 'legacy_v1'
-            where scope_id = (select scope_id from fx_control_scope limit 1)`,
+            where scope_id = (select id from fx_control_scope limit 1)`,
         ),
         catch: cause => cause,
       }),
@@ -1009,9 +1019,9 @@ async function proveCleanupCausePreservation(
       )),
       () => Effect.tryPromise({
         try: () => lane.persistence.query(
-          `update fx_system_scope_clock
+          `update fx_system_scope_execution_authority
               set storage_generation = 'flarexdb_v1'
-            where scope_id = (select scope_id from fx_control_scope limit 1)`,
+            where scope_id = (select id from fx_control_scope limit 1)`,
         ),
         catch: cause => cause,
       }),

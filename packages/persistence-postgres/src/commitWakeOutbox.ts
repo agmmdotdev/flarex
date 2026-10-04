@@ -1000,6 +1000,7 @@ function captureStatement(
         oldest_available_commit_seq,
         clock_timestamp() as database_now
       from fx_system_scope_clock
+      join fx_system_scope_execution_authority using(scope_id)
       where scope_uuid = ${scopeUuid}
       limit 1
     ),

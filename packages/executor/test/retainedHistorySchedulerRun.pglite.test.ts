@@ -66,10 +66,9 @@ describe("O11-F2 connected PGlite retained-history scheduler", () => {
         scopeId: decodeReplacementScopeIdV1(provisioned.scope.scopeId),
       }));
       await persistence.query(
-        `update fx_system_scope_clock
+        `update fx_system_scope_execution_authority
          set storage_generation = 'flarexdb_v1',
              storage_generation_fence = 1,
-             last_commit_seq = 0,
              authorization_revocation_epoch = 0,
              updated_at = clock_timestamp()
          where scope_id = $1`,

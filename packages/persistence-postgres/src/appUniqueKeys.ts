@@ -1,3 +1,4 @@
+import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation } from "./scopeClock";
 import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import {
@@ -1057,9 +1058,9 @@ const requireScopeAuthorityEffect = Effect.fn(
     tx
       .select({
         scopeUuid: fxSystemScopeClocks.scopeUuid,
-        epoch: fxSystemScopeClocks.epoch,
+        epoch: fxSystemScopeExecutionAuthorities.epoch,
       })
-      .from(fxSystemScopeClocks)
+      .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
       .where(eq(fxSystemScopeClocks.scopeId, scopeId))
       .limit(1),
   ) : [{ scopeUuid: expectedScopeUuid, epoch: observed.epoch }];
@@ -1495,14 +1496,14 @@ export const withCommittedAppUniqueKeyRowInTransactionEffect = Effect.fn("AppUni
       ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
       publishedThrough: fxSystemScopeClocks.lastCommitSeq, pendingFact: sql<boolean>`false`,
       ...projectBoundedCurrentAppRowPoint(input, { commitSeq: sql`${fxSystemScopeClocks.lastCommitSeq}`,
-        epoch: sql`${fxSystemScopeClocks.epoch}` }),
+        epoch: sql`${fxSystemScopeExecutionAuthorities.epoch}` }),
     }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
       eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
       eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
     )).leftJoin(fxAppRowRevisions, and(
       eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
       eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
-    )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).where(and(
+    )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).leftJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(and(
       eq(fxAppUniqueKeys.scopeUuid, prepared.scope.scopeUuid), eq(fxAppUniqueKeys.constraintId, prepared.identity.constraintId),
       eq(fxAppUniqueKeys.localeKey, expected.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, expected.canonicalKeySha256),
     )).limit(2);
@@ -1561,7 +1562,7 @@ export const withAppUniqueKeySlotsInTransactionEffect = Effect.fn("AppUniqueKeys
       )).leftJoin(fxAppRowRevisions, and(
         eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
         eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
-      )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).where(or(
+      )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).leftJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(or(
         ...selected.map(prepared => and(eq(fxAppUniqueKeys.scopeUuid, prepared.scope.scopeUuid),
           eq(fxAppUniqueKeys.constraintId, prepared.identity.constraintId),
           eq(fxAppUniqueKeys.localeKey, prepared.expected!.localeKey),
@@ -1796,19 +1797,19 @@ export const drainInitialAppUniqueKeyClaimsInTransactionEffect = Effect.fn(
       .select({ scopeId: fxSystemUniqueConstraintBuilds.scopeId })
       .from(fxSystemUniqueConstraintBuilds)
       .innerJoin(
-        fxSystemScopeClocks,
+        fxSystemScopeExecutionAuthorities,
         and(
           eq(
             fxSystemUniqueConstraintBuilds.scopeId,
-            fxSystemScopeClocks.scopeId,
+            fxSystemScopeExecutionAuthorities.scopeId,
           ),
           eq(
             fxSystemUniqueConstraintBuilds.storageGeneration,
-            fxSystemScopeClocks.storageGeneration,
+            fxSystemScopeExecutionAuthorities.storageGeneration,
           ),
           eq(
             fxSystemUniqueConstraintBuilds.storageGenerationFence,
-            fxSystemScopeClocks.storageGenerationFence,
+            fxSystemScopeExecutionAuthorities.storageGenerationFence,
           ),
         ),
       )

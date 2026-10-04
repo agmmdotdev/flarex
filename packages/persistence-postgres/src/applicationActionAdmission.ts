@@ -119,7 +119,7 @@ export const selectApplicationActionAdmission = Effect.fn(
   if (fn.kind !== "action" || fn.visibility !== "public") {
     return yield* failure("functionUnsupported");
   }
-  const schema = yield* context.schema.readPublished({
+  const { schema } = yield* context.schema.readPublished({
     deploymentId: context.deploymentId,
     manifest: basis.manifest,
   });

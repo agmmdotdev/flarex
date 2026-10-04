@@ -125,6 +125,7 @@ export interface ExecuteExactPointMutationAttemptInputV1<
   CurrentValidationError,
 > {
   readonly confirmedInitialActivation?: import("../pointMutationSessionActivation").ActivatedPointMutationSessionV1;
+  readonly confirmedReplacementEntry?: NonNullable<AuthorizedPointMutationOccRerunStateV1["finiteEntry"]>;
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly attemptFence: TransactionAttemptFence;
   readonly snapshotToken: SnapshotToken;
@@ -323,6 +324,7 @@ export function makeStoredPointMutationOccRerunExecutionOperationsV1<
               | PointMutationOccRerunFreshAttemptV1Error
               | PointMutationOccExecutionAuthorityMismatchV1Error
             >({
+              ...(rerunState.finiteEntry === undefined ? {} : { confirmedReplacementEntry: rerunState.finiteEntry }),
               selector: Object.freeze({
                 deploymentId: rerunState.inspection.deploymentId,
                 scopeId: rerunState.inspection.scopeId,

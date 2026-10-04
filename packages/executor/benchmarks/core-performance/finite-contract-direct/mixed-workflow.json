@@ -1,0 +1,902 @@
+{
+  "runId": "3b86ba48-566e-467e-a603-fddca1c846ff",
+  "scenario": "mixed-workflow",
+  "full": true,
+  "plan": {
+    "warmups": 3,
+    "measured": 20
+  },
+  "status": "passed",
+  "failureStage": null,
+  "failureTokens": [],
+  "method": "Node direct execution; fresh requests; real settlement; separate single SQL diagnostic",
+  "environment": {
+    "node": "v24.16.0",
+    "postgres": {
+      "postgresVersion": "18.3",
+      "role": "flarex_runtime_1791077276288_xlchc4cwvr",
+      "superuser": false,
+      "bypassRls": false,
+      "createDb": false,
+      "createRole": false,
+      "synchronousCommit": "on",
+      "fsync": "on",
+      "fullPageWrites": "on"
+    },
+    "revision": "8c394df7747f3a7c8cdebb1b929f53c766499bc9",
+    "dirty": "true"
+  },
+  "latency": {
+    "samples": 20,
+    "medianMs": 1429.8579999999783,
+    "minMs": 1414.8703000000096,
+    "maxMs": 1577.4438000000082,
+    "p95Ms": 1547.943900000013
+  },
+  "sql": {
+    "outcome": "ok",
+    "dispatches": 1515,
+    "statements": 1515,
+    "transactions": 69,
+    "openTransactions": 0,
+    "queryErrors": 0,
+    "lostContextDispatches": 0,
+    "unknownStatementDispatches": 0,
+    "unobservedDispatches": 0,
+    "incompleteSpans": 0,
+    "diagnosticDurationMs": 1720.4686999999976,
+    "dispatchAwaitedMsSum": 521.8581000003614,
+    "dispatchAwaitedUnionMs": 521.8581000003614,
+    "checkoutAwaitedMsSum": 1.856299999926705,
+    "checkoutAwaitedUnionMs": 1.856299999926705,
+    "phases": [
+      {
+        "id": 0,
+        "parentId": null,
+        "name": "invocation",
+        "startMs": 0,
+        "endMs": 1720.4686999999976,
+        "inclusiveMs": 1720.4686999999976,
+        "exclusiveMs": 0.5459000000264496,
+        "complete": true
+      },
+      {
+        "id": 1,
+        "parentId": 0,
+        "name": "request admission",
+        "startMs": 0.038299999985611066,
+        "endMs": 147.73599999997532,
+        "inclusiveMs": 147.6976999999897,
+        "exclusiveMs": 1.636899999983143,
+        "complete": true
+      },
+      {
+        "id": 2,
+        "parentId": 1,
+        "name": "stored read and source preparation",
+        "startMs": 0.07749999998486601,
+        "endMs": 35.0453999999736,
+        "inclusiveMs": 34.96789999998873,
+        "exclusiveMs": 34.96789999998873,
+        "complete": true
+      },
+      {
+        "id": 3,
+        "parentId": 1,
+        "name": "finite outer entry activation",
+        "startMs": 35.336599999980535,
+        "endMs": 132.89389999999548,
+        "inclusiveMs": 97.55730000001495,
+        "exclusiveMs": 97.55730000001495,
+        "complete": true
+      },
+      {
+        "id": 4,
+        "parentId": 1,
+        "name": "authenticated outer entry",
+        "startMs": 134.13859999997658,
+        "endMs": 147.67419999997946,
+        "inclusiveMs": 13.535600000002887,
+        "exclusiveMs": 13.535600000002887,
+        "complete": true
+      },
+      {
+        "id": 5,
+        "parentId": 0,
+        "name": "portable runtime execution",
+        "startMs": 147.74239999998827,
+        "endMs": 483.8393999999971,
+        "inclusiveMs": 336.09700000000885,
+        "exclusiveMs": 16.481999999989057,
+        "complete": true
+      },
+      {
+        "id": 6,
+        "parentId": 5,
+        "name": "Application point",
+        "startMs": 163.0119999999879,
+        "endMs": 174.09149999998044,
+        "inclusiveMs": 11.07949999999255,
+        "exclusiveMs": 11.07949999999255,
+        "complete": true
+      },
+      {
+        "id": 7,
+        "parentId": 5,
+        "name": "medusa.product:update",
+        "startMs": 174.25219999998808,
+        "endMs": 276.75889999998617,
+        "inclusiveMs": 102.50669999999809,
+        "exclusiveMs": 6.306000000011409,
+        "complete": true
+      },
+      {
+        "id": 8,
+        "parentId": 7,
+        "name": "Product borrow and source checks",
+        "startMs": 174.90049999998882,
+        "endMs": 175.72489999997197,
+        "inclusiveMs": 0.8243999999831431,
+        "exclusiveMs": 0.8243999999831431,
+        "complete": true
+      },
+      {
+        "id": 9,
+        "parentId": 7,
+        "name": "native Product operation",
+        "startMs": 175.79109999997308,
+        "endMs": 271.1673999999766,
+        "inclusiveMs": 95.37630000000354,
+        "exclusiveMs": 94.80430000001797,
+        "complete": true
+      },
+      {
+        "id": 10,
+        "parentId": 9,
+        "name": "Product operation close",
+        "startMs": 270.20819999999367,
+        "endMs": 270.78019999997923,
+        "inclusiveMs": 0.5719999999855645,
+        "exclusiveMs": 0.5719999999855645,
+        "complete": true
+      },
+      {
+        "id": 11,
+        "parentId": 5,
+        "name": "medusa.product:retrieve",
+        "startMs": 276.862999999983,
+        "endMs": 281.8896999999997,
+        "inclusiveMs": 5.026700000016717,
+        "exclusiveMs": 1.4622000000090338,
+        "complete": true
+      },
+      {
+        "id": 12,
+        "parentId": 11,
+        "name": "Product borrow and source checks",
+        "startMs": 277.51109999997425,
+        "endMs": 278.4494999999879,
+        "inclusiveMs": 0.9384000000136439,
+        "exclusiveMs": 0.9384000000136439,
+        "complete": true
+      },
+      {
+        "id": 13,
+        "parentId": 11,
+        "name": "native Product operation",
+        "startMs": 278.48629999998957,
+        "endMs": 281.1123999999836,
+        "inclusiveMs": 2.6260999999940395,
+        "exclusiveMs": 2.424399999988964,
+        "complete": true
+      },
+      {
+        "id": 14,
+        "parentId": 13,
+        "name": "Product operation close",
+        "startMs": 280.85429999997723,
+        "endMs": 281.0559999999823,
+        "inclusiveMs": 0.2017000000050757,
+        "exclusiveMs": 0.2017000000050757,
+        "complete": true
+      },
+      {
+        "id": 15,
+        "parentId": 5,
+        "name": "medusa.workflow:run",
+        "startMs": 281.9916999999841,
+        "endMs": 452.9114999999874,
+        "inclusiveMs": 170.9198000000033,
+        "exclusiveMs": 9.652999999991152,
+        "complete": true
+      },
+      {
+        "id": 16,
+        "parentId": 15,
+        "name": "Workflow borrow and source checks",
+        "startMs": 282.8100999999733,
+        "endMs": 288.4470999999903,
+        "inclusiveMs": 5.637000000016997,
+        "exclusiveMs": 5.637000000016997,
+        "complete": true
+      },
+      {
+        "id": 17,
+        "parentId": 15,
+        "name": "native Medusa workflow",
+        "startMs": 288.74809999999707,
+        "endMs": 444.3778999999922,
+        "inclusiveMs": 155.62979999999516,
+        "exclusiveMs": 155.62979999999516,
+        "complete": true
+      },
+      {
+        "id": 18,
+        "parentId": 5,
+        "name": "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create",
+        "startMs": 453.04509999998845,
+        "endMs": 466.5076999999874,
+        "inclusiveMs": 13.462599999998929,
+        "exclusiveMs": 2.8914999999688007,
+        "complete": true
+      },
+      {
+        "id": 19,
+        "parentId": 18,
+        "name": "Payload borrow and source checks",
+        "startMs": 454.4779999999737,
+        "endMs": 455.10149999998976,
+        "inclusiveMs": 0.6235000000160653,
+        "exclusiveMs": 0.6235000000160653,
+        "complete": true
+      },
+      {
+        "id": 20,
+        "parentId": 18,
+        "name": "native Payload operation",
+        "startMs": 455.14909999998054,
+        "endMs": 465.0966999999946,
+        "inclusiveMs": 9.947600000014063,
+        "exclusiveMs": 9.947600000014063,
+        "complete": true
+      },
+      {
+        "id": 21,
+        "parentId": 5,
+        "name": "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID",
+        "startMs": 466.62979999999516,
+        "endMs": 468.9174999999814,
+        "inclusiveMs": 2.2876999999862164,
+        "exclusiveMs": 0.9514999999664724,
+        "complete": true
+      },
+      {
+        "id": 22,
+        "parentId": 21,
+        "name": "Payload borrow and source checks",
+        "startMs": 467.14549999998417,
+        "endMs": 467.74559999999474,
+        "inclusiveMs": 0.6001000000105705,
+        "exclusiveMs": 0.6001000000105705,
+        "complete": true
+      },
+      {
+        "id": 23,
+        "parentId": 21,
+        "name": "native Payload operation",
+        "startMs": 467.7870999999868,
+        "endMs": 468.523199999996,
+        "inclusiveMs": 0.7361000000091735,
+        "exclusiveMs": 0.7361000000091735,
+        "complete": true
+      },
+      {
+        "id": 24,
+        "parentId": 5,
+        "name": "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update",
+        "startMs": 469.00989999997546,
+        "endMs": 471.95839999997406,
+        "inclusiveMs": 2.948499999998603,
+        "exclusiveMs": 1.100799999985611,
+        "complete": true
+      },
+      {
+        "id": 25,
+        "parentId": 24,
+        "name": "Payload borrow and source checks",
+        "startMs": 469.43289999998524,
+        "endMs": 469.9467000000004,
+        "inclusiveMs": 0.5138000000151806,
+        "exclusiveMs": 0.5138000000151806,
+        "complete": true
+      },
+      {
+        "id": 26,
+        "parentId": 24,
+        "name": "native Payload operation",
+        "startMs": 469.98629999998957,
+        "endMs": 471.3201999999874,
+        "inclusiveMs": 1.3338999999978114,
+        "exclusiveMs": 1.3338999999978114,
+        "complete": true
+      },
+      {
+        "id": 27,
+        "parentId": 5,
+        "name": "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID",
+        "startMs": 472.06869999997434,
+        "endMs": 473.9896000000008,
+        "inclusiveMs": 1.9209000000264496,
+        "exclusiveMs": 0.8206000000354834,
+        "complete": true
+      },
+      {
+        "id": 28,
+        "parentId": 27,
+        "name": "Payload borrow and source checks",
+        "startMs": 472.4710999999952,
+        "endMs": 472.972299999994,
+        "inclusiveMs": 0.5011999999987893,
+        "exclusiveMs": 0.5011999999987893,
+        "complete": true
+      },
+      {
+        "id": 29,
+        "parentId": 27,
+        "name": "native Payload operation",
+        "startMs": 473.01189999998314,
+        "endMs": 473.6109999999753,
+        "inclusiveMs": 0.5990999999921769,
+        "exclusiveMs": 0.5990999999921769,
+        "complete": true
+      },
+      {
+        "id": 30,
+        "parentId": 5,
+        "name": "Application point",
+        "startMs": 474.0874999999942,
+        "endMs": 483.5500999999931,
+        "inclusiveMs": 9.462599999998929,
+        "exclusiveMs": 9.462599999998929,
+        "complete": true
+      },
+      {
+        "id": 31,
+        "parentId": 0,
+        "name": "journal seal and OCC verification",
+        "startMs": 484.1939999999886,
+        "endMs": 654.2624999999825,
+        "inclusiveMs": 170.06849999999395,
+        "exclusiveMs": 0.046999999991385266,
+        "complete": true
+      },
+      {
+        "id": 32,
+        "parentId": 31,
+        "name": "freeze and seal",
+        "startMs": 484.2023999999801,
+        "endMs": 606.4569999999949,
+        "inclusiveMs": 122.25460000001476,
+        "exclusiveMs": 122.25460000001476,
+        "complete": true
+      },
+      {
+        "id": 33,
+        "parentId": 31,
+        "name": "Payload operation scopes close",
+        "startMs": 606.4630999999936,
+        "endMs": 606.5009999999893,
+        "inclusiveMs": 0.037899999995715916,
+        "exclusiveMs": 0.037899999995715916,
+        "complete": true
+      },
+      {
+        "id": 34,
+        "parentId": 31,
+        "name": "stored verification and planning",
+        "startMs": 606.5022999999928,
+        "endMs": 643.5743999999831,
+        "inclusiveMs": 37.072099999990314,
+        "exclusiveMs": 37.072099999990314,
+        "complete": true
+      },
+      {
+        "id": 35,
+        "parentId": 31,
+        "name": "finishing",
+        "startMs": 643.5804999999818,
+        "endMs": 654.2373999999836,
+        "inclusiveMs": 10.65690000000177,
+        "exclusiveMs": 10.65690000000177,
+        "complete": true
+      },
+      {
+        "id": 36,
+        "parentId": 0,
+        "name": "authoritative publication",
+        "startMs": 654.2690000000002,
+        "endMs": 1720.328599999979,
+        "inclusiveMs": 1066.0595999999787,
+        "exclusiveMs": 1066.0595999999787,
+        "complete": true
+      }
+    ],
+    "sqlByPhase": [
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "request admission",
+          "stored read and source preparation"
+        ],
+        "dispatches": 42,
+        "statements": 42,
+        "awaitedMsSum": 9.619300000194926
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission",
+          "stored read and source preparation"
+        ],
+        "dispatches": 19,
+        "statements": 19,
+        "awaitedMsSum": 5.146200000017416
+      },
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "request admission",
+          "finite outer entry activation"
+        ],
+        "dispatches": 13,
+        "statements": 13,
+        "awaitedMsSum": 3.2145000000018626
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission",
+          "finite outer entry activation"
+        ],
+        "dispatches": 47,
+        "statements": 47,
+        "awaitedMsSum": 49.36669999992591
+      },
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "request admission",
+          "authenticated outer entry"
+        ],
+        "dispatches": 8,
+        "statements": 8,
+        "awaitedMsSum": 1.5389999999897555
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "request admission",
+          "authenticated outer entry"
+        ],
+        "dispatches": 14,
+        "statements": 14,
+        "awaitedMsSum": 3.6860000000160653
+      },
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution"
+        ],
+        "dispatches": 8,
+        "statements": 8,
+        "awaitedMsSum": 1.490399999980582
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution"
+        ],
+        "dispatches": 11,
+        "statements": 11,
+        "awaitedMsSum": 8.438899999979185
+      },
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "Application point"
+        ],
+        "dispatches": 16,
+        "statements": 16,
+        "awaitedMsSum": 2.864499999996042
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "Application point"
+        ],
+        "dispatches": 13,
+        "statements": 13,
+        "awaitedMsSum": 9.080800000054296
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "medusa.product:update",
+          "native Product operation"
+        ],
+        "dispatches": 82,
+        "statements": 82,
+        "awaitedMsSum": 44.73830000020098
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "medusa.workflow:run",
+          "native Medusa workflow"
+        ],
+        "dispatches": 111,
+        "statements": 111,
+        "awaitedMsSum": 54.5555999999342
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "portable runtime execution",
+          "payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create",
+          "native Payload operation"
+        ],
+        "dispatches": 8,
+        "statements": 8,
+        "awaitedMsSum": 4.310900000040419
+      },
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "journal seal and OCC verification",
+          "freeze and seal"
+        ],
+        "dispatches": 13,
+        "statements": 13,
+        "awaitedMsSum": 2.869500000058906
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "journal seal and OCC verification",
+          "freeze and seal"
+        ],
+        "dispatches": 36,
+        "statements": 36,
+        "awaitedMsSum": 39.62310000011348
+      },
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "journal seal and OCC verification",
+          "finishing"
+        ],
+        "dispatches": 8,
+        "statements": 8,
+        "awaitedMsSum": 1.6814000000013039
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "journal seal and OCC verification",
+          "finishing"
+        ],
+        "dispatches": 14,
+        "statements": 14,
+        "awaitedMsSum": 4.301899999991292
+      },
+      {
+        "pool": "control",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "dispatches": 944,
+        "statements": 944,
+        "awaitedMsSum": 208.7801999997755
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation",
+          "authoritative publication"
+        ],
+        "dispatches": 108,
+        "statements": 108,
+        "awaitedMsSum": 66.55090000008931
+      }
+    ]
+  },
+  "timings": {
+    "loadMs": 0.03500000000349246,
+    "prepareMs": 21221.916599999997,
+    "preparation": {
+      "provisionAndPrepareMs": 16629.045999999973,
+      "runtimeConstructionMs": 2991.0492000000086,
+      "initialSeedMs": 1601.6956000000064,
+      "installation": {
+        "migrationMs": 3495.1527999999817,
+        "managedSetupMs": 540.9832999999635,
+        "coLocatedSetupMs": 233.0966999999946,
+        "totalInstallationMs": 4269.23279999994
+      },
+      "fixturePreparation": {
+        "provisionAndMigrateMs": 2315.4133999999904,
+        "applicationAndReadInstallationMs": 745.4646999999823,
+        "compositionAndCompilationMs": 79.2670999999973,
+        "logicalAdmissionMs": 3115.6140000000014,
+        "indexAndUniqueBuildMs": 8814.395300000004,
+        "bindingAndInitializationMs": 1558.6564999999828
+      }
+    },
+    "cleanupMs": 3250.853600000002,
+    "runnerTotalMs": 97556.48330000002
+  },
+  "samples": [
+    {
+      "id": "mixed-workflow-sql-0",
+      "kind": "sql",
+      "requestMs": 1722.0305999999982,
+      "seedMs": 0.006800000002840534,
+      "verifyMs": 1090.1382999999914,
+      "cleanupMs": 0.003000000026077032,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-warmup-1",
+      "kind": "warmup",
+      "requestMs": 1508.6534000000102,
+      "seedMs": 500.9400000000023,
+      "verifyMs": 1124.3145000000077,
+      "cleanupMs": 0.0023000000219326466,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-warmup-2",
+      "kind": "warmup",
+      "requestMs": 1447.086099999986,
+      "seedMs": 499.7752000000037,
+      "verifyMs": 1099.1675999999861,
+      "cleanupMs": 0.0027000000118277967,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-warmup-3",
+      "kind": "warmup",
+      "requestMs": 1425.5345000000088,
+      "seedMs": 485.2137999999977,
+      "verifyMs": 1088.0236999999906,
+      "cleanupMs": 0.0031000000017229468,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-4",
+      "kind": "measured",
+      "requestMs": 1427.7463999999745,
+      "seedMs": 501.0540000000037,
+      "verifyMs": 1088.4113999999827,
+      "cleanupMs": 0.002800000016577542,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-5",
+      "kind": "measured",
+      "requestMs": 1441.8051000000269,
+      "seedMs": 486.719299999997,
+      "verifyMs": 1077.4738999999827,
+      "cleanupMs": 0.0027999999874737114,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-6",
+      "kind": "measured",
+      "requestMs": 1547.943900000013,
+      "seedMs": 531.1255999999994,
+      "verifyMs": 1087.726800000004,
+      "cleanupMs": 0.0032999999821186066,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-7",
+      "kind": "measured",
+      "requestMs": 1497.1229000000167,
+      "seedMs": 513.498499999987,
+      "verifyMs": 1121.001499999984,
+      "cleanupMs": 0.0027999999874737114,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-8",
+      "kind": "measured",
+      "requestMs": 1529.574900000007,
+      "seedMs": 529.1753000000026,
+      "verifyMs": 1088.9698999999964,
+      "cleanupMs": 0.0031000000017229468,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-9",
+      "kind": "measured",
+      "requestMs": 1414.8703000000096,
+      "seedMs": 492.95959999997285,
+      "verifyMs": 1091.1097000000009,
+      "cleanupMs": 0.0029999999969732016,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-10",
+      "kind": "measured",
+      "requestMs": 1416.102199999994,
+      "seedMs": 491.1155999999901,
+      "verifyMs": 1074.9739000000118,
+      "cleanupMs": 0.0026999999827239662,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-11",
+      "kind": "measured",
+      "requestMs": 1417.386200000008,
+      "seedMs": 504.86759999999776,
+      "verifyMs": 1094.9100000000035,
+      "cleanupMs": 0.0031000000017229468,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-12",
+      "kind": "measured",
+      "requestMs": 1424.8842000000004,
+      "seedMs": 492.18270000000484,
+      "verifyMs": 1086.4245999999985,
+      "cleanupMs": 0.0032999999821186066,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-13",
+      "kind": "measured",
+      "requestMs": 1577.4438000000082,
+      "seedMs": 509.71689999999944,
+      "verifyMs": 1114.2252000000153,
+      "cleanupMs": 0.0026999999827239662,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-14",
+      "kind": "measured",
+      "requestMs": 1429.8579999999783,
+      "seedMs": 506.128400000016,
+      "verifyMs": 1080.9309999999823,
+      "cleanupMs": 0.0028999999922234565,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-15",
+      "kind": "measured",
+      "requestMs": 1433.474200000026,
+      "seedMs": 515.0460000000021,
+      "verifyMs": 1081.2045999999973,
+      "cleanupMs": 0.0027000000118277967,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-16",
+      "kind": "measured",
+      "requestMs": 1428.6225999999733,
+      "seedMs": 501.4841000000015,
+      "verifyMs": 1080.8424999999988,
+      "cleanupMs": 0.0029999999969732016,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-17",
+      "kind": "measured",
+      "requestMs": 1417.7105000000156,
+      "seedMs": 501.300499999983,
+      "verifyMs": 1085.3175000000047,
+      "cleanupMs": 0.002800000016577542,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-18",
+      "kind": "measured",
+      "requestMs": 1435.543399999995,
+      "seedMs": 514.8494000000064,
+      "verifyMs": 1078.2049999999872,
+      "cleanupMs": 0.0029999999969732016,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-19",
+      "kind": "measured",
+      "requestMs": 1508.8172000000195,
+      "seedMs": 509.5864999999758,
+      "verifyMs": 1102.3641000000061,
+      "cleanupMs": 0.0025000000023283064,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-20",
+      "kind": "measured",
+      "requestMs": 1427.5657000000065,
+      "seedMs": 509.85270000001765,
+      "verifyMs": 1102.5192000000097,
+      "cleanupMs": 0.0027000000118277967,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-21",
+      "kind": "measured",
+      "requestMs": 1415.6386999999813,
+      "seedMs": 508.8779000000213,
+      "verifyMs": 1097.8145000000077,
+      "cleanupMs": 0.0033999999868683517,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-22",
+      "kind": "measured",
+      "requestMs": 1430.4549999999872,
+      "seedMs": 584.6042000000016,
+      "verifyMs": 1084.7307999999903,
+      "cleanupMs": 0.0031000000017229468,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "mixed-workflow-measured-23",
+      "kind": "measured",
+      "requestMs": 1438.1849999999977,
+      "seedMs": 511.5591999999888,
+      "verifyMs": 1095.9369000000006,
+      "cleanupMs": 0.0025000000023283064,
+      "failureStage": null,
+      "failureTokens": []
+    }
+  ]
+}
