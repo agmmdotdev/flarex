@@ -5133,7 +5133,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-business/README.md",
       "classification": "authored",
-      "targetSha256": "0c963471a8630e249c2f092738b7dc0f0cc63428785bfe39459bdf311469cae6"
+      "targetSha256": "87781f164e71f5a37abc85433ddb7a1ad19307f762ead7b878d9bc8b12fa4328"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-business/run.ts",

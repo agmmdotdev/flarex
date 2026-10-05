@@ -98,15 +98,20 @@ must inspect/drop those resources. Imports precede this runner deadline.
 
 ## Acceptance direction
 
-Use these complete graphs to establish a native-relative target: at most **5 ms
+The owner selects these complete graphs as the reference for ongoing optimization
+and a native-relative target: at most **5 ms
 added median / 10 ms added P95 for the complete mixed root**, with the cost of
 Flarex-only snapshot/OCC/history/durable outcomes explicitly attributed. Aim for
 10-15 ms total median for small warm graphs whose native business cost permits it.
 A larger native graph may require a larger total budget. The old 100/200/500 ms
-median targets are intermediate milestones, not native parity.
+median targets are historical intermediate milestones and no longer final
+acceptance. This allowance applies once per complete root. Method-specific
+retrieval/unique probes retain their diagnostic role. Additional graphs need
+matching native references before they can claim native-relative acceptance.
 
 This baseline alone does not pass that target. Final acceptance needs comparable
-final-source runs and paired complete-request excess before percentiles; do not
+final-source quiet runs with at least thirty samples after five warmups (prefer
+one hundred), and paired complete-request excess before percentiles; do not
 subtract independent native and historical Flarex percentile summaries. Local
 Node/PostgreSQL timings establish no hosted Cloudflare or Hyperdrive latency.
 

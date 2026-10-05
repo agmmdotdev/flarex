@@ -5,6 +5,30 @@ Medusa workflows and Flarex execution/persistence owners directly in Node.
 It uses ordinary-role PostgreSQL and real transaction settlement. It does not
 start Workerd, Miniflare or an HTTP server.
 
+## Complete native reference
+
+Use the [complete native business baseline](../../../medusa-adapter/benchmarks/core-performance/native-business/README.md)
+for the matched daily graphs. The owner-selected
+[acceptance policy](../../../../roadmaps/mixed-mutation-core/26-native-business-baseline-preflight.md)
+is at most 5 ms added median / 10 ms added P95 for the complete matched request.
+The old mixed absolute targets are historical intermediate milestones, and native
+retrieval/unique probes are method diagnostics. Additional flows and sizes require
+their own matching native business graphs before acceptance claims.
+
+Use paired final-source quiet measurements, at least thirty retained samples
+after five warmups (prefer one hundred), matching versions, durability, inputs,
+hooks, graph cardinality, outputs and construction lifetime. Retain failures and
+tails; calculate complete-request paired excess before percentiles. The reference
+uses independent native commits and Application SQL surrogates, so attribute
+Flarex's OCC/history/atomic-outcome/publication work explicitly. Do not subtract
+unmatched percentile summaries or relax correctness to approach native costs.
+The runner's existing short/smoke and twenty-sample/three-warmup full modes remain
+iteration evidence; meeting this acceptance sampling policy requires the runner
+owner's sampling extension. This documentation does not claim that extension
+is implemented.
+
+## Run the Flarex measurement harness
+
 From the workspace root, with `FLAREX_POSTGRES_DATABASE_URL` configured for the
 existing isolated PostgreSQL test environment:
 

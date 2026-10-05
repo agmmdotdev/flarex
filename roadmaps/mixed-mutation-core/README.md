@@ -1,5 +1,18 @@
 # Mixed Mutation Core
 
+## Active Native-Relative Acceptance
+
+The [complete native business baseline](./26-native-business-baseline-preflight.md)
+now owns the selected performance reference: at most 5 ms added median / 10 ms
+added P95 for a complete matched root. It supersedes the old mixed absolute
+targets as final acceptance; those remain historical intermediate milestones.
+The [native ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/README.md)
+owns the current measured reference and its independent-commit/Application-surrogate
+limits. Method-level native probes remain diagnostic. New extended flows require
+matching native business references, and paired final-source quiet measurements
+must establish complete overhead and stable tails without weakening correctness.
+Historical gate passes reported below do not close this selected acceptance.
+
 ## Status And Scope
 
 Status: the Application, Product, selected Payload Local API, and finite

@@ -2,7 +2,8 @@
 
 Status: native business reference implemented. Complete graph timings are
 retained in the [benchmark ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/README.md).
-Final paired Flarex overhead and stable tail acceptance remain open.
+The owner selects this complete business reference for ongoing optimization and
+acceptance. Final paired Flarex overhead and stable tail acceptance remain open.
 
 ## Outcome and ownership
 
@@ -57,12 +58,47 @@ SQL stand-ins for frameworks or invented adapter implementations. Retain the
 existing read baselines with their method-specific scope. Add complete business
 baselines; do not loosen existing gates or modify another session's runtime.
 
-After the measured complete native graph is available, propose a per-root budget
-of native business cost plus at most 5 ms median / 10 ms P95, and 10-15 ms total
-median for small warm graphs where the native baseline supports it. These are
-proposed targets, not a claim of equivalent guarantees or achieved latency.
+The selected complete-request budget is native business cost plus at most
+5 ms median / 10 ms P95 for the whole matched graph, and 10-15 ms total
+median for small warm graphs where the native baseline supports it. This
+supersedes the old mixed 100/200, 200/400 and 500/1,000 ms median/P95 targets as
+final acceptance for preflight 24 and the executor measurement program. Those
+thresholds remain historical intermediate milestones; passing them does not
+finish native-relative performance work. The allowance applies once to the
+complete root, not separately to each method, child workflow or core component.
+These are selected targets, not equivalent guarantees or achieved latency.
 Paired final-source comparisons and explicit attribution of Flarex-only semantic
 cost are required before declaring native-relative acceptance.
+
+## Active measurement and optimization policy
+
+Use the final-source reference linked by the native business ledger for the
+existing daily graphs. Preserve older reports and native retrieval/unique probes
+as historical or method-specific evidence. A method probe may explain a cost;
+it cannot replace the complete graph's baseline or acceptance result.
+
+Map inputs, graph order/cardinality, hooks, outputs, native versions, driver,
+durability and warm construction lifetime before a comparison. Keep the native
+independent-commit and Application-surrogate limitations explicit. Attribute
+Flarex-only snapshot, OCC, history, journal, atomic outcome and event publication
+cost without weakening those obligations. Fresh matched quiet runs on the final
+sources require at least thirty samples after five warmups; prefer the reference's
+one hundred samples. Compute per-pair complete-request excess before its
+median/P95, retain every failure and tail, and resolve unstable tails before
+claiming acceptance. Unmatched historical percentile subtraction is not a gate.
+
+Preflight 25's additional CRUD, relations, sizes and repeated graphs need their
+own declared matching native business references before native-relative
+acceptance. They do not inherit another graph's measured number. Extend the
+existing runner/reporting owner to present the reference, observed complete cost,
+paired excess, selected budget and remaining semantic attribution. Smoke and
+the older twenty-sample/three-warmup full mode remain useful iteration evidence;
+they do not satisfy this reference's acceptance sampling policy.
+
+Optimize at the responsible core owner toward these complete costs. Preserve
+connected correctness, finite lifetime, authority and settlement/recovery proofs;
+fewer SQL submissions or a local component pass do not finish the root. Active
+runtime scope and disjoint session ownership remain with their current owners.
 
 ## Completion
 

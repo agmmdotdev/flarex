@@ -1,5 +1,15 @@
 # Direct core performance measurements
 
+## Active native-relative acceptance
+
+The owner selects the [complete native business reference](../../../medusa-adapter/benchmarks/core-performance/native-business/README.md)
+and [preflight 26's policy](../../../../roadmaps/mixed-mutation-core/26-native-business-baseline-preflight.md)
+for ongoing optimization and final acceptance: at most 5 ms added median / 10 ms
+added P95 once per complete matched root. Historical mixed absolute gates are
+intermediate milestones. Native method probes retain diagnostic scope; extended
+graphs need matching references. Final-source paired quiet runs and stable tails
+remain required. The historical results below do not establish that acceptance.
+
 These measurements use the [daily core runner](../../test/performance/README.md).
 They execute actual Payload Local API, Medusa workflows and Flarex admission,
 journal and publication owners directly in Node, without a Worker or HTTP hop.

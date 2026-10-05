@@ -57,8 +57,14 @@ visible. A helper improvement or fewer dispatches cannot pass this slice.
 The earlier standalone <400 ms / <10% regression guardrail remains historical
 integration context, not this slice's acceptance. Existing
 [mixed execution](../mixed-mutation-core/14-execution-redesign-roadmap.md) p50/p95
-goals 100/200, 200/400 and 500/1,000 ms remain separate. The first read result does not
-claim those mixed or hosted goals. Failed gates keep original evidence and
+goals 100/200, 200/400 and 500/1,000 ms are historical intermediate milestones.
+The owner-selected [complete native business reference](../mixed-mutation-core/26-native-business-baseline-preflight.md)
+now governs complete mixed acceptance: at most 5 ms added median / 10 ms added
+P95 per matched root, with final-source paired quiet measurements and explicit
+Flarex-only semantic costs. The [native business ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/README.md)
+owns measured graph costs; native retrieval/unique probes retain their narrower
+diagnostic scope. Extended graphs need their own matched reference. The first
+read result does not claim those complete mixed or hosted goals. Failed gates keep original evidence and
 require an owner-level design correction, not looser thresholds.
 
 ## Current Runtime And Preserved Evidence
