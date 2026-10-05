@@ -31,6 +31,34 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("confines complete native business imports and loader use to the inventoried benchmark", () => {
+    const prefix = "packages/medusa-adapter/benchmarks/core-performance/native-business/";
+    const owners = ["native.ts", "workflow.ts", "run.ts", "tsconfig.json"].map(file => prefix + file);
+    const promotion = { ...nativeControlPromotion, files: [...nativeControlPromotion.files,
+      ...owners.map(target => ({ target, targetSha256: "pinned", classification: "authored" }))] };
+    /** @param {string} file @param {string} text
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (file, text, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected, rootSources: [{ relativePath: file, text }],
+    }).errors;
+    const specifier = "../../../../../third_party/medusa/upstream/packages/core/core-flows/dist/product/steps/create-product-variants.js";
+    const importing = `import { step } from ${JSON.stringify(specifier)};`;
+    expect(check(prefix + "workflow.ts", importing)).toEqual([]);
+    expect(check(prefix + "native.ts", importing).length).toBeGreaterThan(0);
+    expect(check(prefix + "adjacent.ts", importing).length).toBeGreaterThan(0);
+    expect(check("packages/medusa-adapter/src/native.ts", importing).length).toBeGreaterThan(0);
+    for (const missing of owners) expect(check(prefix + "workflow.ts", importing,
+      { ...promotion, files: promotion.files.filter(file => file.target !== missing) }).length).toBeGreaterThan(0);
+    const mock = "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/mock-event-bus-service.js";
+    const loading = `import { createRequire } from "node:module"; const event = createRequire(import.meta.url)(${JSON.stringify(mock)});`;
+    expect(check(prefix + "native.ts", loading)).toEqual([]);
+    expect(check(prefix + "native.ts", loading.replace("mock-event-bus-service", "database")).length).toBeGreaterThan(0);
+    expect(check(prefix + "native.ts", loading.replace("import.meta.url", "root")).length).toBeGreaterThan(0);
+    expect(check(prefix + "native.ts", 'const load = createRequire(import.meta.url); load("pg");').length).toBeGreaterThan(0);
+    expect(check(prefix + "native.ts", 'import("pg");').length).toBeGreaterThan(0);
+    expect(check(prefix + "run.ts", 'const require = createRequire(import.meta.url); Object.keys(require.cache);')).toEqual([]);
+    expect(check(prefix + "run.ts", 'const require = createRequire(import.meta.url); require("pg");').length).toBeGreaterThan(0);
+  });
   it("limits matched finite retrieval to named inventoried controls and the pinned runner", () => {
     const scenario = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts";
     const test = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts";

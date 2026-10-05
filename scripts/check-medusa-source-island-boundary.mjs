@@ -102,6 +102,29 @@ const nativeRetrievalRunner = "packages/medusa-adapter/benchmarks/core-performan
 const mixedNativeReadScenario = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts";
 const mixedNativeReadTest = "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts";
 const mixedNativeReadConfig = "packages/medusa-adapter/vitest.mixed-native-read.config.ts";
+const nativeBusinessPrefix = "packages/medusa-adapter/benchmarks/core-performance/native-business/";
+const nativeBusinessOwners = ["native.ts", "workflow.ts", "run.ts", "tsconfig.json"].map(file => nativeBusinessPrefix + file);
+const nativeBusinessImports = new Map([
+  [nativeBusinessPrefix + "native.ts", new Set([
+    "core/framework/dist/deps/awilix", "core/framework/dist/utils/index", "core/modules-sdk/dist/medusa-app",
+    "medusa-test-utils/dist/module-test-persistence-adapter", "medusa-test-utils/dist/database",
+    "medusa-test-utils/dist/init-modules", "medusa-test-utils/dist/mock-event-bus-service",
+    "modules/product/dist/services/product-module-service", "modules/pricing/dist/services/pricing-module",
+  ].map(file => `../../../../../third_party/medusa/upstream/packages/${file}.js`))],
+  [nativeBusinessPrefix + "workflow.ts", new Set([
+    "core/workflows-sdk/dist/index", "core/framework/dist/types/index",
+    "core/core-flows/dist/product/steps/create-product-variants", "core/core-flows/dist/pricing/steps/create-price-sets",
+    "core/core-flows/dist/product/steps/create-variant-pricing-link", "core/core-flows/dist/product/workflows/update-product-tags",
+    "core/core-flows/dist/common/steps/use-query-graph",
+  ].map(file => `../../../../../third_party/medusa/upstream/packages/${file}.js`))],
+]);
+/** Benchmark-only native business reference. Every named owner must be inventoried;
+ * neighbors and production consumers receive no source-island permission.
+ * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion */
+function admitsNativeBusinessOwner(promotion) {
+  return promotion !== undefined && nativeBusinessOwners.every(target =>
+    promotion.files.some(file => file.target === target && file.classification === "authored"));
+}
 const nativeRunnerSource = "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts";
 const nativeRunnerImports = new Set([
   "../../../../../third_party/medusa/upstream/packages/core/framework/dist/logger",
@@ -167,6 +190,19 @@ function admitsMixedNativeReadOwner(promotion) {
 /** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
  * @param {string} relativePath @param {ts.StringLiteralLike} node */
 function admitsNativeRetrievalPath(promotion, relativePath, node) {
+  if (admitsNativeBusinessOwner(promotion) && relativePath === nativeBusinessPrefix + "native.ts") {
+    const parent = node.parent;
+    if (node.text === "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/mock-event-bus-service.js")
+      return (ts.isLiteralTypeNode(parent) && ts.isImportTypeNode(parent.parent))
+        || ts.isCallExpression(parent) && parent.arguments[0] === node && parent.arguments.length === 1
+        && ts.isCallExpression(parent.expression) && ts.isIdentifier(parent.expression.expression)
+        && parent.expression.expression.text === "createRequire"
+        && parent.expression.arguments.length === 1 && parent.expression.arguments[0]?.getText() === "import.meta.url";
+    if (["product", "pricing", "link-modules"].some(name => node.text === `../../../../../third_party/medusa/upstream/packages/modules/${name}`))
+      return ts.isNewExpression(parent) && parent.arguments?.[0] === node && parent.arguments.length === 2
+        && parent.arguments[1]?.getText() === "import.meta.url" && ts.isCallExpression(parent.parent)
+        && ts.isIdentifier(parent.parent.expression) && parent.parent.expression.text === "fileURLToPath";
+  }
   if (!admitsNativeRetrievalOwner(promotion)) return false;
   const parent = node.parent;
   if (relativePath === mixedNativeReadTest && admitsMixedNativeReadOwner(promotion)
@@ -214,6 +250,26 @@ function admitsNativeRetrievalPath(promotion, relativePath, node) {
  * the existing literal package keys may be resolved/loaded.
  * @param {ts.Node} node @param {string} relativePath */
 function invalidNativeRetrievalLoader(node, relativePath) {
+  if ([nativeBusinessPrefix + "native.ts", nativeBusinessPrefix + "run.ts"].includes(relativePath)) {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) return true;
+    if (!ts.isIdentifier(node) || !["createRequire", "require"].includes(node.text)) return false;
+    const parent = node.parent;
+    if (node.text === "createRequire") {
+      if (ts.isImportSpecifier(parent)) return parent.name !== node || parent.propertyName !== undefined;
+      if (!ts.isCallExpression(parent) || parent.expression !== node || parent.arguments.length !== 1
+        || parent.arguments[0]?.getText() !== "import.meta.url") return true;
+      if (relativePath === nativeBusinessPrefix + "run.ts")
+        return !ts.isVariableDeclaration(parent.parent) || parent.parent.name.getText() !== "require";
+      const invocation = parent.parent;
+      return !ts.isCallExpression(invocation) || invocation.expression !== parent || invocation.arguments.length !== 1
+        || invocation.arguments[0] === undefined || !ts.isStringLiteralLike(invocation.arguments[0])
+        || !["../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/mock-event-bus-service.js",
+          "../../../../../work/native-business-baseline/dependencies/node_modules/pg/lib/index.js"].includes(invocation.arguments[0].text);
+    }
+    if (ts.isVariableDeclaration(parent) && parent.name === node) return relativePath !== nativeBusinessPrefix + "run.ts";
+    return relativePath !== nativeBusinessPrefix + "run.ts" || !ts.isPropertyAccessExpression(parent)
+      || parent.expression !== node || parent.name.text !== "cache";
+  }
   if (![nativeRetrievalScenario, nativeRetrievalObservation, mixedNativeReadScenario, mixedNativeReadTest].includes(relativePath)) return false;
   if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)
     && ["node:module", "module"].includes(node.moduleSpecifier.text)) {
@@ -482,6 +538,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   );
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath, node) => {
+    if (admitsNativeBusinessOwner(promotion) && nativeBusinessImports.get(relativePath)?.has(specifier)) return undefined;
     if (admitsSelectedMedusaTestTypeImport(promotion, relativePath, specifier, node)) return undefined;
     if (admitsSelectedMixedTestImport(promotion, relativePath, specifier)) return undefined;
     if (relativePath === nativeRetrievalScenario && admitsNativeRetrievalOwner(promotion)

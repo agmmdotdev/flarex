@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@payloadcms/db-postgres": "3.88.0",
+    "payload": "3.88.0"
+  }
+}
