@@ -20,6 +20,116 @@ const prepare = Effect.gen(function* () {
   return { metadata };
 });
 
+it("reconstructs with the original lease allocation while ordinary requests remain outside construction", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 256 });
+    const retained = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+      const lifetime = yield* captureHostPreparationLifetime();
+      const charge = yield* captureHostPreparationCharge();
+      if (lifetime === undefined || charge === undefined) return yield* Effect.die("Missing genuine construction lease");
+      yield* chargeHostPreparation("original");
+      return { lifetime, charge };
+    }));
+    const before = Result.getOrThrow(retained.readUsage()).chargedBytes;
+    const reconstructed = yield* retained.reconstruct(host => Effect.gen(function* () {
+      const lifetime = yield* captureHostPreparationLifetime();
+      const charge = yield* captureHostPreparationCharge();
+      if (lifetime === undefined || charge === undefined) return yield* Effect.die("Missing reconstruction allocation");
+      expect(lifetime.checkOpen).toBe(host.lifetime.checkOpen);
+      expect(lifetime.charge).toBe(host.lifetime.charge);
+      expect(charge).toBe(host.charge);
+      yield* chargeHostPreparation("replacement");
+      return lifetime;
+    }));
+    const after = Result.getOrThrow(retained.readUsage()).chargedBytes;
+    expect(after).toBeGreaterThan(before);
+    expect(yield* retained.use(() => captureHostPreparationLifetime())).toBeUndefined();
+    expect(yield* retained.use(() => captureHostPreparationCharge())).toBeUndefined();
+    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(after);
+    yield* retained.reconstruct(() => chargeHostPreparation("next"));
+    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBeGreaterThan(after);
+    yield* retained.close;
+    expect(reconstructed.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    expect(reconstructed.charge("escaped")).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+  }))));
+
+it("keeps reconstruction charges cumulative and poisons a rejected lease even if its callback catches overflow", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 2, maximumPreparedBytes: 128 });
+    const first = yield* retainPreparedHost(runtime, prepare);
+    const second = yield* retainPreparedHost(runtime, prepare);
+    let escaped: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
+    const refused = yield* Effect.flip(first.reconstruct(() => Effect.gen(function* () {
+      escaped = yield* captureHostPreparationLifetime();
+      yield* chargeHostPreparation("x".repeat(32)).pipe(Effect.catchTag("PreparedHostRuntimeError", () => Effect.void));
+      return "caught refusal";
+    })));
+    expect(refused).toMatchObject({ reason: "capacityExceeded" });
+    if (escaped === undefined) return yield* Effect.die("Missing original allocation capture");
+    expect(escaped.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "capacityExceeded" } });
+    expect(escaped.charge(null)).toMatchObject({ _tag: "Failure", failure: { reason: "capacityExceeded" } });
+    let ran = false;
+    const work = () => Effect.sync(() => { ran = true; });
+    expect(yield* Effect.flip(first.use(work))).toMatchObject({ reason: "capacityExceeded" });
+    expect(yield* Effect.flip(first.reconstruct(work))).toMatchObject({ reason: "capacityExceeded" });
+    expect(ran).toBe(false);
+    expect(yield* second.use(host => Effect.succeed(host.metadata.length))).toBe(32);
+    yield* first.close;
+    const replacement = yield* retainPreparedHost(runtime, prepare);
+    expect(yield* replacement.use(host => Effect.succeed(host.metadata.length))).toBe(32);
+  }))));
+
+it("drains reconstruction on close and preserves cancellation without exposing a closed capability", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 256 });
+    const retained = yield* retainPreparedHost(runtime, prepare);
+    const initialCharged = Result.getOrThrow(retained.readUsage()).chargedBytes;
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    let escaped: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
+    const rebuilding = yield* Effect.forkChild(retained.reconstruct(() => Effect.gen(function* () {
+      escaped = yield* captureHostPreparationLifetime();
+      yield* chargeHostPreparation("new payload");
+      yield* Deferred.succeed(entered, undefined);
+      yield* Deferred.await(release);
+      return escaped;
+    })));
+    yield* Deferred.await(entered);
+    let closed = false;
+    const closing = yield* Effect.forkChild(retained.close.pipe(Effect.tap(() => Effect.sync(() => { closed = true; }))));
+    yield* Effect.yieldNow;
+    expect(closed).toBe(false);
+    expect(yield* Effect.flip(retained.reconstruct(() => Effect.succeed("late")))).toMatchObject({ reason: "closed" });
+    if (escaped === undefined) return yield* Effect.die("Missing genuine reconstruction lifetime");
+    expect(escaped.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    yield* Deferred.succeed(release, undefined);
+    expect(yield* Effect.flip(Fiber.join(rebuilding))).toMatchObject({ reason: "closed" });
+    yield* Fiber.join(closing);
+    expect(closed).toBe(true);
+
+    const next = yield* retainPreparedHost(runtime, prepare);
+    const cancelEntered = yield* Deferred.make<void>();
+    let drained = false;
+    const cancelled = yield* Effect.forkChild(next.reconstruct(() => chargeHostPreparation("cancelled payload").pipe(
+      Effect.andThen(Deferred.succeed(cancelEntered, undefined)),
+      Effect.andThen(Effect.never),
+      Effect.ensuring(Effect.sync(() => { drained = true; })),
+    )));
+    yield* Deferred.await(cancelEntered);
+    const charged = Result.getOrThrow(next.readUsage()).chargedBytes;
+    expect(charged).toBeGreaterThan(initialCharged);
+    yield* Fiber.interrupt(cancelled);
+    const cancelledExit = yield* Fiber.await(cancelled);
+    expect(Exit.isFailure(cancelledExit)).toBe(true);
+    if (Exit.isFailure(cancelledExit)) expect(Cause.hasInterruptsOnly(cancelledExit.cause)).toBe(true);
+    expect(drained).toBe(true);
+    expect(Result.getOrThrow(next.readUsage()).chargedBytes).toBe(charged);
+    expect(yield* next.use(host => Effect.succeed(host.metadata.length))).toBe(32);
+    yield* next.close;
+    const replacement = yield* retainPreparedHost(runtime, prepare);
+    expect(Result.getOrThrow(replacement.readUsage()).chargedBytes).toBe(initialCharged);
+  }))));
+
 it("reports actual retained lease charges without spending capacity and refuses usage after close", () =>
   runEffect(Effect.scoped(Effect.gen(function* () {
     const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 128 });

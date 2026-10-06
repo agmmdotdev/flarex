@@ -1,15 +1,14 @@
 import { eq } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Result } from "effect";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
-import { FiniteMetadataReservationSchema, MAX_FINITE_METADATA_RESERVATION_BYTES,
-  readStoredFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
-import { fxAppRowRevisions, fxSystemCommits, fxSystemSnapshotLeases,
+import { captureFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
+import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { fxAppRowRevisions, fxSystemCommits, fxSystemTransactionSessions,
   fxSystemTransactionJournalReceipts } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
@@ -19,7 +18,7 @@ const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
 const dataRead = /\bfx_app_(?:row_(?:rev|current)|index_entry_(?:rev|current)|unique_key)\b/;
 
 describe.each(drivers)("finite entry reservation integrity on %s", driver => {
-  it("refuses a coherently rehashed lease watermark before the next uncached read and poisons seal", async () => {
+  it("refuses a coherently rehashed anchor watermark before the next uncached read and poisons freeze", async () => {
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
     let checkingRead = false;
     let dataStatements = 0;
@@ -44,24 +43,22 @@ describe.each(drivers)("finite entry reservation integrity on %s", driver => {
           yield* Effect.tryPromise({ try: async () => {
             const database = fixture.currency.persistence.drizzle;
             const sessionId = fixture.activation.anchor.sessionId;
-            const [lease] = await database.select().from(fxSystemSnapshotLeases)
-              .where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
-            if (lease === undefined) throw new Error("Missing genuine finite entry lease");
-            const reservation = await Effect.runPromise(readStoredFiniteMetadataReservation(lease));
+            const [session] = await database.select().from(fxSystemTransactionSessions)
+              .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+            if (session === undefined) throw new Error("Missing genuine finite entry anchor");
+            const anchor = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+            const reservation = anchor.reservation;
+            if (reservation === null) throw new Error("Missing genuine finite entry reservation");
             const metadataWatermark = MetadataSequenceSchema.make(reservation.metadataWatermark + 1n);
             // Negative forensic fixture only: the frame, digest and dedicated
             // column agree with each other, but differ from confirmed entry.
-            const corrupt = await Effect.runPromise(capturePrivateCanonicalValue(
-              Schema.encodeSync(FiniteMetadataReservationSchema)({ ...reservation, metadataWatermark }),
-              MAX_FINITE_METADATA_RESERVATION_BYTES, {
-                invalidInput: () => commerceError("resourceFailure"),
-                hashFailure: cause => commerceError("resourceFailure", cause),
-              }));
+            const corruptReservation = await Effect.runPromise(captureFiniteMetadataReservation({ ...reservation, metadataWatermark }));
+            const corruptAnchor = await Effect.runPromise(captureFiniteAttemptAnchor({ snapshotToken: anchor.snapshotToken,
+              reservation: corruptReservation }));
+            const corrupt = Result.getOrThrow(projectCapturedFiniteAttemptAnchor(corruptAnchor));
             try {
-              await database.update(fxSystemSnapshotLeases).set({ metadataWatermark,
-                finiteMetadataReservationBytes: corrupt.copyCanonicalBytes(),
-                finiteMetadataReservationSha256: corrupt.copySha256Bytes() })
-                .where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
+              await database.update(fxSystemTransactionSessions).set(corrupt)
+                .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
               dataStatements = 0;
               checkingRead = true;
               // This valid identity has not been observed by the working set.
@@ -75,10 +72,9 @@ describe.each(drivers)("finite entry reservation integrity on %s", driver => {
               checked = true;
             } finally {
               checkingRead = false;
-              await database.update(fxSystemSnapshotLeases).set({ metadataWatermark: lease.metadataWatermark,
-                finiteMetadataReservationBytes: lease.finiteMetadataReservationBytes,
-                finiteMetadataReservationSha256: lease.finiteMetadataReservationSha256 })
-                .where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
+              await database.update(fxSystemTransactionSessions).set({ finiteMetadataWatermark: session.finiteMetadataWatermark,
+                finiteAttemptBytes: session.finiteAttemptBytes, finiteAttemptSha256: session.finiteAttemptSha256 })
+                .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
             }
           }, catch: cause => commerceError("resourceFailure", cause) });
         }),
@@ -118,7 +114,7 @@ describe.each(drivers)("finite entry reservation integrity on %s", driver => {
       const rowsBefore = await database.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, scopeUuid));
       await expect(fixture.runExecution()).rejects.toBeDefined();
       expect(checked, fixture.bridgeFailures.join("\n")).toBe(true);
-      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
+      await expect(Effect.runPromise(fixture.freeze(null)))
         .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
       expect(await database.select().from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);

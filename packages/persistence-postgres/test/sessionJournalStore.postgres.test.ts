@@ -106,7 +106,7 @@ import {
 } from "./transactionSessionActivationTestSupport";
 import {
   insertLegacyOpenTransactionJournalFixture,
-  insertSessionTestScope,
+  insertLegacySessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
@@ -118,7 +118,7 @@ interface ScenarioOptions {
   readonly grantRetentionPolicy?: GrantRetentionPolicyV1;
   readonly randomUuid?: () => string;
   readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
-  readonly executionProfile?: "finiteRoot";
+  readonly executionProfile?: "durableOperations";
 }
 
 interface JournalScenario {
@@ -440,7 +440,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           );
           expect(version.rows[0]?.version).toMatch(/^PostgreSQL /);
           await previous.migrate();
-          await insertSessionTestScope(previous);
+          await insertLegacySessionTestScope(previous);
           const session = transactionSessionFixture(
             transactionSessionIdAt(176),
           );
@@ -466,9 +466,12 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             ...databaseOptions,
             migrationsFolder,
           });
-          await expect(current.migrate()).rejects.toThrow(
-            /cannot add active relation selection authority to populated private relation journal evidence/,
-          );
+          await expect(current.migrate()).rejects.toMatchObject({
+            _tag: "InstallationLifecycleError", reason: "resourceFailure", cause: { cause: {
+              code: "P0001",
+              message: "cannot add active relation selection authority to populated private relation journal evidence",
+            } },
+          });
           const rejected = await current.query<{
             rows: number;
             new_columns: number;
@@ -734,32 +737,31 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
     });
   }, 120_000);
 
-  it("preserves finite accepted work across pre-stage document validation rejection", async () => {
+  it("preserves durable accepted work across pre-stage document validation rejection", async () => {
     await withPostgresPersistence(async persistence => {
-      await finiteDocumentValidationScenario(persistence, await scenario(persistence, "finite_document_validation", { executionProfile: "finiteRoot" }));
+      await finiteDocumentValidationScenario(persistence, await scenario(persistence, "finite_document_validation", { executionProfile: "durableOperations" }));
     });
   }, 120_000);
 
-  it("refuses a finite root seal after claim expiry without another operation read", async () => {
+  it("refuses durable seal preparation after claim expiry", async () => {
     await withPostgresPersistence(async persistence => {
-      const current = await scenario(persistence, "finite_seal_claim_expiry", { executionProfile: "finiteRoot" });
+      const current = await scenario(persistence, "finite_seal_claim_expiry", { executionProfile: "durableOperations" });
       expect(await runPointOperation(current.store, current.table, {
         kind: "insert", syscallSequence: syscallSequence(1n), fields: { name: "tentative" },
       })).toMatchObject({ kind: "completed", delivery: "executed" });
       await expect(journalCounts(persistence, current.anchor.sessionId))
-        .resolves.toMatchObject({ receipts: 0, points: 0 });
+        .resolves.toMatchObject({ receipts: 1, points: 1 });
       await persistence.query(
         `update fx_system_tx_execution_claim
          set claimed_at = clock_timestamp() - interval '2 minutes',
              claim_expires_at = clock_timestamp() - interval '1 minute'
          where session_id = $1`, [current.anchor.sessionId]);
-      await expect(runEffect(current.store.sealFiniteRootEffect(current.attempt,
-        await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))))).rejects.toMatchObject({
+      await expect(prepareSeal(current.store, current.attempt)).rejects.toMatchObject({
         _tag: "SessionJournalAttemptUnavailableV1Error",
         issue: { reason: "executionClaimUnavailable" },
       });
       await expect(journalCounts(persistence, current.anchor.sessionId))
-        .resolves.toMatchObject({ receipts: 0, points: 0, events: 0 });
+        .resolves.toMatchObject({ receipts: 1, points: 1, events: 1 });
     });
   }, 120_000);
 

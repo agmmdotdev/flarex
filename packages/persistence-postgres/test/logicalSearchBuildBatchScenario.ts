@@ -14,6 +14,7 @@ import { prepareLogicalSearchBuild } from "../src/logicalSearchBuild";
 import { readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect, type IndexCoverageContext } from "../src/indexBuildStates";
 import { fxSystemScopeClocks, fxSystemSearchBuildStates } from "../src/schema";
 import { getScopeClock } from "../src/scopeClock";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import type { TrustedScopeAuthority } from "../src/scopeAuthorityResolution";
 
 // The control-catalog preparation is isolated here so this scenario exercises
@@ -236,14 +237,17 @@ export async function verifyLogicalSearchBuildBatch(
   const creationTime = decodeAppCreationTimeV1(1);
   const document = await canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { title: "later" } });
   await db.transaction(async tx => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live", scopeId, tableId, rowId, writeEpoch: epoch,
-      commitSeq: CommitSeqSchema.make(1n), prevCommitSeq: null, schemaVersionId,
-      creationTime, value: { codecVersion: document.codecVersion, valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes, sha256: document.sha256 },
-    });
-    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
-      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live", scopeId, tableId, rowId, writeEpoch: epoch,
+        commitSeq: CommitSeqSchema.make(1n), prevCommitSeq: null, schemaVersionId,
+        creationTime, value: { codecVersion: document.codecVersion, valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes, sha256: document.sha256 },
+      });
+      await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    } finally { closeInstallationAdmission(tx); }
   });
   expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
   await db.update(fxSystemSearchBuildStates).set({ coveredThroughCommitSeq: CommitSeqSchema.make(1n) })

@@ -1,10 +1,36 @@
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
+import { LocatedReadCommittedTransactionFailureV1 } from "./transactionSessionAttemptKernel";
 
 /** The single audited Effect runtime bridge for the Promise transaction. */
-export function runPointCommitInTransactionEffect<Value, Failure>(
+export async function runPointCommitInTransactionEffect<Value, Failure>(
   effect: Effect.Effect<Value, Failure>,
-) {
-  return Effect.runPromise(Effect.result(effect));
+): Promise<Result.Result<Value, Failure>> {
+  const exit = await Effect.runPromiseExit(effect);
+  if (Exit.isSuccess(exit)) return Result.succeed(exit.value);
+  const reason = exit.cause.reasons[0];
+  if (exit.cause.reasons.length === 1 && reason !== undefined && Cause.isFailReason(reason))
+    return Result.fail(reason.error);
+  throw exit.cause;
+}
+
+/** Reenter the owned Promise kernel without treating a full Cause as one
+ * scalar error. Settlement uncertainty and cleanup failures retain their owner. */
+export function runPointCommitPromiseEffect<Value, Failure>(
+  work: () => PromiseLike<Value>,
+  mapFailure: (cause: unknown) => Failure,
+): Effect.Effect<Value, Failure> {
+  return Effect.tryPromise({
+    try: work,
+    catch: cause => {
+      const callback = cause instanceof LocatedReadCommittedTransactionFailureV1 && cause.issue.kind === "callbackRolledBack"
+        ? cause.issue.callbackCause : cause;
+      return Cause.isCause(callback) ? callback : cause;
+    },
+  }).pipe(
+    Effect.catchIf(Cause.isCause,
+      cause => Effect.failCause(Cause.map(cause, mapFailure)),
+      cause => Effect.failSync(() => mapFailure(cause))),
+  );
 }
 
 /**

@@ -10,7 +10,9 @@ import {
   allocateScopePublicationResult,
   readScopePublicationDatabaseTime,
   writeScopePublicationPrefix as writeSharedPublicationPrefix,
+  reproveScopePublicationPrefix as reproveSharedPublicationPrefix,
   advanceScopePublicationClock as advanceSharedPublicationClock,
+  requireScopePublicationStrongReferences as requireSharedPublicationStrongReferences,
 } from "../commitPublication/publication";
 import {
   ScopePublicationCorruptionError,
@@ -46,9 +48,14 @@ export const writeScopePublicationPrefix: typeof writeSharedPublicationPrefix =
   (...args) =>
     writeSharedPublicationPrefix(...args).catch(rethrowPublicationFailure);
 
+export const reproveScopePublicationPrefix: typeof reproveSharedPublicationPrefix =
+  (...args) => reproveSharedPublicationPrefix(...args).catch(rethrowPublicationFailure);
+
 export const advanceScopePublicationClock: typeof advanceSharedPublicationClock =
   (...args) =>
     advanceSharedPublicationClock(...args).catch(rethrowPublicationFailure);
+export const requireScopePublicationStrongReferences: typeof requireSharedPublicationStrongReferences =
+  (...args) => requireSharedPublicationStrongReferences(...args).catch(rethrowPublicationFailure);
 
 export function rethrowPublicationFailure(cause: unknown): never {
   if (cause instanceof ScopePublicationUnsupportedProfileError)

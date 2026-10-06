@@ -25,7 +25,7 @@ describe("prepared private mixed mutation performance series", () => {
         });
         expect(sample.publication).toMatchObject({ kind: "published" });
         expect(sample.workerConstructionMilliseconds).toBeGreaterThan(0);
-        expect(sample.sealedJournalBytes).toBeGreaterThan(0);
+        expect(sample.canonicalResultBytes).toBeGreaterThan(0);
         expect(sample.fixture.nativeInvokeCount.get("update")).toBe(1);
       }
       await expect(series.runAttempt(0)).rejects.toThrow("already used");

@@ -1,5 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Data, Effect } from "effect";
+import { Data, Effect, type Result } from "effect";
 
 import type {
   PointMutationAttemptReplacementCommandV1,
@@ -101,7 +101,7 @@ export interface StoredPointMutationAttemptReplacementOperationDependenciesV1 {
   readonly captureReplacementCommand: (
     state: PreparedPointCommitCapabilityStateV1,
     conflict: CapturedPointMutationOccConflictV1,
-  ) => PointMutationAttemptReplacementCommandV1;
+  ) => Result.Result<PointMutationAttemptReplacementCommandV1, InvalidPreparedPointCommitV1Error>;
 }
 
 export function makeStoredPointMutationAttemptReplacementOperationsV1(
@@ -135,9 +135,8 @@ export function makeStoredPointMutationAttemptReplacementOperationsV1(
           reason: "notFinishing",
         }));
       }
-      return yield* pointMutationAttemptReplacement.replace(
-        captureReplacementCommand(state, conflict),
-      );
+      const command = yield* Effect.fromResult(captureReplacementCommand(state, conflict));
+      return yield* pointMutationAttemptReplacement.replace(command);
     });
 
   return Object.freeze({
@@ -331,9 +330,6 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
       Object.freeze({
         loadedAttempt,
         executionClaim,
-        ...(replacementObservation.finiteEntry === undefined ? {} : {
-          finiteEntry: Object.freeze({ ...replacementObservation.finiteEntry, executionClaim }),
-        }),
         lineage,
         conflict,
         inspection,

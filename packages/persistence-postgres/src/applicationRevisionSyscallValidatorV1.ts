@@ -35,8 +35,9 @@ import {
   issueApplicationRevisionSyscallValidatorStateV1,
   readApplicationRevisionSyscallValidatorStateV1,
   revokeApplicationRevisionSyscallValidatorStateV1,
-  setupSeededSyscallValidatorStateV1,
+  sessionPinnedSyscallValidatorState,
   type ApplicationRevisionSyscallValidatorV1,
+  type SyscallValidatorStateV1,
 } from "./applicationRevisionSyscallValidatorStateV1";
 export type { ApplicationRevisionSyscallValidatorV1 } from
   "./applicationRevisionSyscallValidatorStateV1";
@@ -122,7 +123,7 @@ export const deriveApplicationSyscallValidator = Effect.fn(
   never,
   Scope.Scope
 > {
-  const state = setupSeededSyscallValidatorStateV1(input);
+  const state = sessionPinnedSyscallValidatorState(input);
   return yield* Effect.acquireRelease(
     Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(state)),
     capability => Effect.sync(() => {
@@ -185,6 +186,31 @@ export const validateApplicationRevisionSyscallDocumentInTransactionV1 =
           context.scopeClock,
         ).pipe(Effect.mapError(mapActiveSelectionFailure));
       }
+      yield* validateCapturedDocument(captured, input);
+    },
+  );
+
+/** Tentative local work consumes the genuine immutable session schema. Fresh
+ * activation-fenced validation remains with the transaction operation above. */
+export const validateSessionPinnedApplicationDocument = Effect.fn(
+  "ApplicationSyscallValidator.validateSessionPinnedDocument",
+)(function* (
+  capability: ApplicationRevisionSyscallValidatorV1,
+  context: ApplicationRevisionSyscallValidationContextV1,
+  input: ValidateApplicationRevisionSyscallDocumentV1Input,
+): Effect.fn.Return<void, ApplicationRevisionSyscallValidatorV1Error> {
+  const captured = yield* Effect.fromResult(readApplicationRevisionSyscallValidatorStateV1(capability)
+    .pipe(Result.mapError(() => new InvalidApplicationRevisionSyscallValidatorV1Error({ reason: "notIssued" }))));
+  if (captured.kind !== "sessionPinned" || captured.scopeId !== context.anchor.scopeId ||
+    captured.schemaVersionId !== context.executionPin.schemaVersionId ||
+    captured.tablesByName === null || captured.idPolicy === null)
+    return yield* new ApplicationRevisionSyscallValidatorStaleV1Error({ reason: "sessionPins" });
+  yield* validateCapturedDocument(captured, input);
+});
+
+const validateCapturedDocument = Effect.fn("ApplicationSyscallValidator.validateCapturedDocument")(
+  function* (captured: SyscallValidatorStateV1, input: ValidateApplicationRevisionSyscallDocumentV1Input):
+    Effect.fn.Return<void, ApplicationRevisionSyscallValidatorV1Error> {
       const tables = captured.tablesByName;
       const idPolicy = captured.idPolicy;
       if (tables === null || idPolicy === null) return;

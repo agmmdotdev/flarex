@@ -46,7 +46,7 @@ import {
   AppRowReadPersistenceError,
   type AppRowTransaction,
 } from "../src/appRows";
-import { IndexMaintenanceError } from "../src/indexMaintenanceEvidence";
+import { IndexMaintenanceError } from "../src/indexMaintenanceModel";
 import { APP_UNIQUE_KEY_CODEC_VERSION_V1 } from "../src/appUniqueKeyContract";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { ScopeClockRecord } from "../src/scopeClock";
@@ -251,10 +251,10 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
       if (
         build.lifecycle !== "enabled" ||
         build.maintenance === null ||
-        build.maintenance.frame.schemaVersionId !==
+        build.maintenance.schemaVersionId !==
           prepared.schema.schemaVersionId ||
-        build.maintenance.frame.deploymentId !== prepared.schema.deploymentId ||
-        build.maintenance.frame.physicalSpecSha256Hex !==
+        build.maintenance.deploymentId !== prepared.schema.deploymentId ||
+        encodeBytesToLowercaseHex(build.maintenance.physicalSpecSha256) !==
           definition.physicalSpecSha256Hex
       )
         return yield* Effect.fail(cmsError("storedCorruption"));

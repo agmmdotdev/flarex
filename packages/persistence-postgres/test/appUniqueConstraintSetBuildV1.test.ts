@@ -67,6 +67,7 @@ import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
 import { LocatedReadCommittedTransactionFailureV1 } from
   "../src/transactionSessionAttemptKernel";
 import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const LOCATOR = Object.freeze({
@@ -383,7 +384,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     const mutableInput = { ...eligibilityInput(fixture) };
     let mutatedDuringRead = false;
     const tracer = Tracer.make({ span(options) {
-      if (options.name === "AppUniqueConstraintSetClosure.read") {
+      if (options.name === "AppUniqueConstraintSetClosure.readControl") {
         Object.assign(mutableInput, eligibilityInput(absent));
         mutatedDuringRead = true;
       }
@@ -1636,7 +1637,9 @@ async function appendDocument(
     fields,
   });
   await fixture.persistence.drizzle.transaction(async (tx) => {
-    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           tableId,
@@ -1650,6 +1653,7 @@ async function appendDocument(
           creationTime,
           document,
         }]));
+    } finally { closeInstallationAdmission(tx); }
   });
 }
 

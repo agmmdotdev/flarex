@@ -75,8 +75,8 @@ export interface PerformanceSample {
   readonly cpuDiagnosticSecondaryFailures?: readonly Readonly<{ stage: string; name: string }>[];
   readonly wallMs: number | null;
   readonly requestWorkerConstructionMs: number | null;
-  /** Encoded canonical journal bytes captured at a successful seal through the test store port. */
-  readonly sealedJournalBytes: number | null;
+  /** Canonical successful result bytes captured from the authentic local frozen attempt. */
+  readonly canonicalResultBytes: number | null;
   readonly settlementLedger?: PerformanceSettlementLedger | null;
   /** Outer envelope minus the trace's inner request duration; includes trace finalization. */
   readonly instrumentationFinalizationMs: number | null;
@@ -254,7 +254,7 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
       `${shown(setup.setupTotalMs)} |`);
   }
   lines.push("", "## Retained state growth per successful warm request", "",
-    "| Workload | Rows Δ median | Index entries Δ median | Commits Δ median | Events Δ median | Live journal rows Δ median | Sealed attempt bytes median | Live journal bytes Δ median |",
+    "| Workload | Rows Δ median | Index entries Δ median | Commits Δ median | Events Δ median | Live journal rows Δ median | Canonical result bytes median | Live journal bytes Δ median |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
   for (const workload of workloads) {
     const completed = raw.samples.filter(sample => sample.workload === workload &&
@@ -270,25 +270,24 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
     lines.push(`| ${workload} | ${shown(delta(value => value.rowCurrent))} | ` +
       `${shown(delta(value => value.indexCurrent))} | ${shown(delta(value => value.commits))} | ` +
       `${shown(delta(value => value.events))} | ${shown(delta(value => value.journals))} | ` +
-      `${shown(distribution(completed.flatMap(sample => sample.sealedJournalBytes === null
-        ? [] : [sample.sealedJournalBytes])).median)} | ` +
+      `${shown(distribution(completed.flatMap(sample => sample.canonicalResultBytes === null
+        ? [] : [sample.canonicalResultBytes])).median)} | ` +
       `${shown(delta(value => value.liveJournalBytes))} |`);
   }
-  lines.push("", "## Original settlement demands and seal chunks", "",
-    "These observations come from the confirmed owner capture after the request timer. Projection chunks use the owner's 128-row bound. Unobserved publication demands are unavailable rather than inferred from net rows.", "",
-    "| Sample | Receipts / document occurrences | Point dependencies | Indexed syscalls | Range dependencies | Relation syscalls / dependencies | Admitted range / page / unique observations | Range / page entry occurrences | Admitted index / constraint definitions (distinct) | Receipt / point / range / relation chunks | Owner byte partitions | Unavailable demands |",
-    "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |");
+  lines.push("", "## Frozen settlement demands", "",
+    "These observations come from the issued frozen graph after the request timer. Observed documents count distinct original dependencies; repeated read occurrences and unmeasured graph bytes remain unavailable. Unobserved publication demands are not inferred from net rows.", "",
+    "| Sample | Receipts / observed documents | Point dependencies | Indexed syscalls | Range dependencies | Relation syscalls / dependencies | Admitted range / page / unique observations | Range / page entry occurrences | Admitted index / constraint definitions (distinct) | Final rows | Measured owner bytes | Unavailable demands |",
+    "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | --- | --- |");
   for (const sample of raw.samples.filter(sample => sample.status === "ok" && sample.settlementLedger != null)) {
     const ledger = sample.settlementLedger;
     if (ledger === undefined || ledger === null) continue;
-    lines.push(`| ${sample.id} | ${ledger.syscallReceipts} / ${ledger.readDocumentOccurrences} | ${ledger.pointDependencies} | ${ledger.indexedQuerySyscalls} | ` +
+    lines.push(`| ${sample.id} | ${ledger.syscallReceipts} / ${ledger.observedDocuments} | ${ledger.pointDependencies} | ${ledger.indexedQuerySyscalls} | ` +
       `${ledger.indexRangeDependencies} | ${ledger.relationReadSyscalls} / ${ledger.relationDependencies} | ` +
       `${ledger.admittedRangeDemands} / ${ledger.admittedPageDemands} / ${ledger.admittedUniqueDemands} | ` +
       `${ledger.admittedRangeEntryOccurrences} / ${ledger.admittedPageEntryOccurrences} | ` +
       `${ledger.admittedIndexDefinitionDemands} / ${ledger.admittedConstraintDefinitionDemands} (${ledger.distinctAdmittedIndexDefinitions} / ${ledger.distinctAdmittedConstraintDefinitions}) | ` +
-      `${ledger.receiptProjectionChunks} / ${ledger.pointProjectionChunks} / ${ledger.indexRangeProjectionChunks} / ${ledger.relationProjectionChunks} | ` +
-      `${Object.entries(ledger.bytes).map(([owner, bytes]) => `${owner}: ${bytes}`).join("; ")}; ` +
-      `${Object.entries(ledger.dependencyBytesBySource).map(([owner, bytes]) => `${owner} dependencies: ${bytes}`).join("; ")} | ${ledger.unavailable.join(", ")} |`);
+      `${ledger.finalRows} | ` +
+      `${Object.entries(ledger.bytes).map(([owner, bytes]) => `${owner}: ${bytes}`).join("; ")} | ${ledger.unavailable.join(", ")} |`);
   }
   lines.push("", "## Observed publication query partitions", "",
     "Traced samples only: parameter counts and scalar bytes come from existing owner query observers. Quiet untraced samples install no SQL observer. Complex PostgreSQL wire encodings and owners without observers remain unavailable. No parameter values are retained.", "",

@@ -1,5 +1,4 @@
 import { Data, Effect } from "effect";
-import type { ConfirmedFiniteRootSealCapture } from "../sessionJournalStore";
 import type { ApplicationManifest } from
   "@flarex/analysis/application-analysis";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -156,6 +155,11 @@ export interface StoredCommitAuthorityApplicationEvidenceV1 {
   readonly schemaBindingSha256: Uint8Array;
 }
 
+/** Admitted executable projection; fresh entry authority is owned by the
+ * accepted Application selection, not historical activation graph evidence. */
+export type FiniteApplicationExecutionEvidence = Pick<StoredCommitAuthorityApplicationEvidenceV1,
+  "manifest" | "runtimeHostIdentity" | "compatibilityDate" | "executionAuthority" | "runtimeTarget">;
+
 export type StoredCommitAuthorityCorruptionReasonV1 =
   | "repeatableReadCapabilityMissing"
   | "authorityProjectionInvalid"
@@ -215,7 +219,6 @@ export class StoredCommitAuthorityEvidencePersistenceV1Error
 export interface StoredCommitAuthorityEvidenceLoaderV1 {
   readonly loadEffect: (
     authority: StoredCommitAuthorityEvidenceAuthorityV1,
-    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     StoredCommitAuthorityEvidenceLoadResultV1,
     StoredCommitAuthorityEvidencePersistenceV1Error

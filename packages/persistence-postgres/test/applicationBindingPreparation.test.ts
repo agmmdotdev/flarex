@@ -212,6 +212,7 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   const buildWhere = eq(fxSystemUniqueConstraintBuilds.scopeId, scopeId);
   const builds = await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).where(buildWhere);
   expect(builds.length).toBeGreaterThan(0);
+  await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: null }).where(buildWhere);
   await persistence.drizzle.delete(fxSystemUniqueConstraintBuilds).where(buildWhere);
   try {
     const missingBuildPlan = await prepare();
@@ -219,8 +220,7 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
     await expect(accept(prepared)).rejects.toMatchObject({ reason: "authorityChanged" });
   } finally { await persistence.drizzle.insert(fxSystemUniqueConstraintBuilds).values(builds); }
   await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ lifecycle: "declared",
-    coveredThroughCommitSeq: null, maintenanceActivationSequence: null, maintenanceBytes: null,
-    maintenanceSha256: null }).where(buildWhere);
+    coveredThroughCommitSeq: null, maintenanceActivationSequence: null, }).where(buildWhere);
   try {
     await expect(accept(await prepare())).rejects.toMatchObject({ reason: "authorityChanged" });
   } finally {

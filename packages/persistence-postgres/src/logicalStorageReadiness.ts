@@ -15,17 +15,12 @@ import type { JsonObject } from "flarex-protocol/json";
 import { readRequiredEnabledIndexBuildsInTransactionEffect, decodeIndexBuildStateRowResult,
   readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
   isIndexBuildSnapshotCoveredInTransactionEffect,
-  isFiniteIndexBuildSnapshotCoveredInTransactionEffect,
   validateIndexBuildStateFrontierResult } from "./indexBuildStates";
 import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, selectPreparedAppUniqueConstraintSet, inspectSelectedAppUniqueConstraintDefinitions,
   chargeUniqueConstraintPreparation,
-  inspectFiniteAppUniqueConstraintDefinitions,
   type AppUniqueConstraintSetEligibilityPortV1, type AppUniqueConstraintSetBuildPortsV1 } from "./appUniqueConstraintSetBuildV1";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
-import { lockScopeClockForSnapshotReadInTransactionEffect, requireFiniteExecutionAuthorityObservation,
-  type FiniteExecutionAuthorityObservation, type ScopeClockRecord } from "./scopeClock";
-import { readFiniteApplicationMetadata, type FiniteApplicationMetadata, type ApplicationBindingInput } from "./applicationActivation";
-import type { SessionJournalAttempt } from "./sessionJournalStore";
+import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord } from "./scopeClock";
 import type { AppRowTransaction } from "./appRows";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
 import type { IndexCoverageContext } from "./indexBuildStates";
@@ -383,48 +378,6 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
         (sourceLifetime === undefined ? Effect.void : Effect.fromResult(sourceLifetime.checkOpen())).pipe(
           Effect.andThen(inspectDemand(sourceKey, byId, tx, authority, clock, demand, checkedActive)));
     }),
-    prepareFiniteSourceDemand: Effect.fn("LogicalStorageReadiness.prepareFiniteSourceDemand")(function* (
-      sourceKey: string, sourceUnique: readonly LocatedAppUniqueConstraintDefinitionV1[],
-    ) {
-      const sourceLifetime = yield* captureHostPreparationLifetime();
-      const uniqueById = new Map(sourceUnique.map(member => [member.uniqueConstraintDefinitionId, member]));
-      yield* chargeHostPreparation({ finiteUniqueLookup: [...uniqueById.keys()] });
-      return Effect.fn("LogicalStorageReadiness.inspectFiniteSourceDemand")(function* (
-        tx: AppRowTransaction, authority: TrustedScopeAuthority, observation: FiniteExecutionAuthorityObservation,
-        applicationMetadata: FiniteApplicationMetadata, application: ApplicationBindingInput, root: SessionJournalAttempt,
-        demand: LogicalStorageReadDemand,
-      ) {
-        if (sourceLifetime !== undefined) yield* Effect.fromResult(sourceLifetime.checkOpen());
-        const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, observation));
-        yield* Effect.fromResult(readFiniteApplicationMetadata(applicationMetadata, application, root, tx, observation));
-        const tables = sourceTableIds.get(sourceKey);
-        if (tables === undefined || authority.deploymentId !== captured.deploymentId || live.scopeId !== captured.scopeId ||
-          authority.scopeId !== live.scopeId || (demand.kind !== "clock" && !tables.has(demand.tableId)))
-          return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
-        if (demand.kind === "search")
-          return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition", cause: "finiteHistoricalSearchUnsupported" }));
-        if (demand.kind === "index") {
-          const definition = definitionById.get(demand.indexDefinitionId);
-          if (definition === undefined || definition.tableId !== demand.tableId)
-            return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
-          const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, live, [definition.indexDefinitionId], "key share");
-          if (builds.status !== "ready") return builds;
-          const row = builds.rows[0];
-          if (row === undefined) return yield* Effect.die("Required finite build disappeared");
-          const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, live.scopeId, definition.indexDefinitionId));
-          if (!(yield* isFiniteIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition,
-            observation, applicationMetadata, application, root)))
-            return Object.freeze({ status: "not_ready" as const, reason: "notCovered" as const, indexDefinitionId: definition.indexDefinitionId });
-        } else if (demand.kind === "unique") {
-          const definition = uniqueById.get(demand.uniqueConstraintDefinitionId);
-          if (definition === undefined || definition.tableId !== demand.tableId)
-            return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
-          return yield* inspectFiniteAppUniqueConstraintDefinitions(captured, [definition], tx, authority, observation,
-            applicationMetadata, application, root);
-        }
-        return Object.freeze({ status: "ready" as const });
-      });
-    }),
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
     applicationAnalysis, strongReferences });
   preparedCatalogs.set(prepared, { ports: Object.freeze({ ...ports }), unique, input: captured, lifetime });
@@ -486,7 +439,7 @@ export function makeLogicalIndexReadinessInspector(
       const selected = definitions.map(definition => {
         const row = buildByDefinitionId.get(definition.indexDefinitionId);
         if (row === undefined) return { definition, state: null } as const;
-        const decoded = decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId);
+        const decoded = decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId, row.maintenanceObligation);
         return { definition, state: decoded } as const;
       });
       const tableIds = selected.flatMap(({ definition, state }) => {

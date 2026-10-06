@@ -1,5 +1,8 @@
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { Data, Effect, Result, Schema } from "effect";
+import { INSTALLED_SCOPE_AUTHORITY_TARGET } from "./scopeAuthorityControlRead";
+import { readPreparedFiniteApplicationMutationAuthority, type PreparedFiniteApplicationMutationAdmission,
+  type ApplicationMutationAdmissionContext } from "./applicationMutationAdmission";
 import type { GrantRetentionPolicyV1 } from
   "flarex-protocol/grant-retention-policy";
 import {
@@ -56,6 +59,10 @@ export interface PointMutationExecutionClaimLivenessOptionsV1 {
   readonly claimDurationMilliseconds: number;
   readonly leaseRenewalDurationMilliseconds: number;
   readonly grantRetentionPolicy: GrantRetentionPolicyV1;
+  /** Immutable construction provenance only; placement and liveness are read
+   * afresh inside each installed target renewal transaction. */
+  readonly finiteApplication?: Readonly<{ prepared: PreparedFiniteApplicationMutationAdmission;
+    context: ApplicationMutationAdmissionContext }>;
 }
 
 /** Frozen correlation evidence only; never an execution or renewal capability. */
@@ -186,6 +193,7 @@ export interface LocatedPointMutationExecutionClaimLivenessInputV1 {
   readonly claimDurationMilliseconds: number;
   readonly leaseRenewalDurationMilliseconds: number;
   readonly maximumLiveSnapshotRetentionMilliseconds: number;
+  readonly installedFinite?: true;
 }
 
 export const RENEW_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1: unique symbol =
@@ -328,6 +336,7 @@ export function createPointMutationExecutionClaimLivenessV1(
   options: PointMutationExecutionClaimLivenessOptionsV1,
 ): PointMutationExecutionClaimLivenessV1 {
   const configuration = captureLivenessConfiguration(options);
+  const finiteApplication = options.finiteApplication === undefined ? undefined : Object.freeze({ ...options.finiteApplication });
   const renewEffect = Effect.fn("PointMutationExecutionClaimLiveness.renew")(
     function* (
       input: PointMutationExecutionClaimLivenessInputV1,
@@ -337,6 +346,21 @@ export function createPointMutationExecutionClaimLivenessV1(
     > {
       const config = yield* Effect.fromResult(configuration);
       const captured = yield* Effect.fromResult(captureLivenessInput(input));
+      if (finiteApplication !== undefined) {
+        const authority = yield* Effect.fromResult(readPreparedFiniteApplicationMutationAuthority(
+          finiteApplication.prepared, finiteApplication.context)).pipe(
+          Effect.mapError(cause => new PointMutationExecutionClaimLivenessPersistenceV1Error({ operation: "prelude", cause })));
+        if (authority.scopeId !== captured.selector.scopeId || authority.deploymentId !== captured.selector.deploymentId)
+          return yield* Effect.fail(new PointMutationExecutionClaimLivenessStaleV1Error({ reason: "scopeChanged" }));
+        const target = yield* Effect.tryPromise({ try: () => ports.scopeSessionTargets.resolve(authority.physicalLocator),
+          catch: cause => new PointMutationExecutionClaimLivenessPersistenceV1Error({ operation: "prelude", cause }) });
+        if (Reflect.get(target, INSTALLED_SCOPE_AUTHORITY_TARGET) === true) {
+          if (!isLocatedLivenessTarget(target)) return yield* Effect.fail(new PointMutationExecutionClaimLivenessPersistenceV1Error({
+            operation: "prelude", cause: new Error("Installed scope target cannot renew execution-claim liveness.") }));
+          return yield* target[RENEW_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]({ ...captured, ...config,
+            preliminaryAuthority: authority, installedFinite: true });
+        }
+      }
       const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
         { deploymentId: captured.selector.deploymentId, scopeId: captured.selector.scopeId },
         {
@@ -474,7 +498,7 @@ function captureLivenessInput(
   });
 }
 
-function isLocatedLivenessTarget(
+export function isLocatedLivenessTarget(
   target: LocatedScopeClockReader,
 ): target is LocatedPointMutationExecutionClaimLivenessTargetV1 {
   return typeof Reflect.get(

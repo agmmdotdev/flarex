@@ -1,3 +1,4 @@
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
 import { createHash } from "node:crypto";
 import { and, asc, eq, getTableName, sql } from "drizzle-orm";
 import { Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
@@ -19,18 +20,14 @@ import { ADMITTED_FRAMEWORK_OPERATION_FORMAT_V1,
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { fxSystemCommitEvents } from
   "../../persistence-postgres/src/commitEvents/schema";
-import { createStoredOccExecutionEvidenceLoaderV1 } from
-  "@flarex/persistence-postgres/stored-occ-execution";
 import {
   fxAppRowRevisions,
-  fxSystemTransactionExecutionClaims,
-  fxSystemSnapshotLeases,
   fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalWriteEvents,
-  fxSystemTransactionJournals,
+  fxSystemTransactionJournals, fxSystemTransactionSessions,
 } from "../../persistence-postgres/src/schema";
 import { createMixedMutationProductFixture } from
   "./support/mixedMutationWorkerdFixture";
@@ -51,28 +48,11 @@ function isPostgresClient(value: unknown): value is PostgresClient {
     "release" in value && typeof value.release === "function";
 }
 
-function classifyCurrentExecutionRoot(
-  fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>,
-) {
-  const anchor = fixture.activation.anchor;
-  return Effect.runPromise(createStoredOccExecutionEvidenceLoaderV1(
-    fixture.application.sessionAuthority,
-  ).loadEffect({
-    kind: "claimedAttempt",
-    deploymentId: anchor.deploymentId,
-    scopeId: anchor.scopeId,
-    scopeUuid: projectScopeIdUuidV1(anchor.scopeId).scopeUuid,
-    sessionId: anchor.sessionId,
-    attemptFence: anchor.attemptFence,
-    storageGeneration: anchor.storageGeneration,
-    storageGenerationFence: anchor.storageGenerationFence,
-    snapshotToken: anchor.snapshotToken,
-    schemaVersionId: fixture.schemaVersionId,
-    executionClaim: Object.freeze({
-      claimOwner: fixture.activation.executionClaim.claimOwner,
-      claimFence: fixture.activation.executionClaim.claimFence,
-    }),
-  }));
+async function inspectCurrentFiniteAnchor(fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>) {
+  const rows = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+    .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+  if (rows.length !== 1 || rows[0] === undefined) throw new Error("Missing exact finite anchor");
+  return Effect.runPromise(readFiniteAttemptAnchorRow(rows[0]));
 }
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
@@ -131,21 +111,11 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     });
     let running: Promise<unknown> | undefined;
     try {
-      const secondHandle = await Effect.runPromise(fixture.store.openAttemptEffect({
-        selector: selectorFromRelationAnchor(fixture.activation.anchor),
-        snapshotToken: fixture.activation.anchor.snapshotToken,
-        schemaVersionId: fixture.schemaVersionId,
-        executionClaim: fixture.activation.executionClaim,
-        executionProfile: "finiteRoot",
-      }));
-      const canonicalHandle = await Effect.runPromise(fixture.store.openAttemptEffect({
-        selector: selectorFromRelationAnchor(fixture.activation.anchor),
-        snapshotToken: fixture.activation.anchor.snapshotToken,
-        schemaVersionId: fixture.schemaVersionId,
-        executionClaim: fixture.activation.executionClaim,
-        executionProfile: "finiteRoot",
-      }));
-      expect(canonicalHandle).toBe(secondHandle);
+      await expect(Effect.runPromise(fixture.store.openAttemptEffect({
+        selector: selectorFromRelationAnchor(fixture.activation.anchor), snapshotToken: fixture.activation.anchor.snapshotToken,
+        schemaVersionId: fixture.schemaVersionId, executionClaim: fixture.activation.executionClaim, executionProfile: "finiteRoot",
+      }))).rejects.toMatchObject({ _tag: "LogicalParticipantAdmissionError" });
+      const secondHandle = fixture.persistenceAttempt;
       const secondAdmission = await Effect.runPromise(
         fixture.store.admitLogicalParticipantsEffect(secondHandle, {
           participant: "medusa.product",
@@ -168,11 +138,8 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(roots).toHaveLength(1);
-      expect(roots[0]).toMatchObject({ state: "open", executionProfile: "finiteRoot",
-        lastSyscallSequence: 0n,
-        scopeUuid: projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid,
-        attemptFence: fixture.activation.anchor.attemptFence });
+      expect(roots).toHaveLength(0);
+      expect(await inspectCurrentFiniteAnchor(fixture)).toMatchObject({ session: { lifecycle: "running", executionProfile: "finiteRoot" } });
       // The held callback is tentative local work. None of the five durable
       // child families may be published before the aggregate seal.
       for (const child of [fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
@@ -186,9 +153,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
           )).limit(1);
         expect(children, getTableName(child)).toEqual([]);
       }
-      expect(await classifyCurrentExecutionRoot(fixture)).toMatchObject({
-        kind: "loaded",
-      });
+      expect(await inspectCurrentFiniteAnchor(fixture)).toMatchObject({ session: { executionProfile: "finiteRoot", lifecycle: "running" } });
       let duplicateInvocations = 0;
       const duplicate = await Effect.runPromise(fixture.store.runAdmittedOperationEffect(
         secondHandle, secondAdmission, {
@@ -251,8 +216,8 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(roots).toHaveLength(1);
-      expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
+      expect(roots).toHaveLength(0);
+      expect(await inspectCurrentFiniteAnchor(fixture)).toMatchObject({ session: { lifecycle: "running", executionProfile: "finiteRoot" } });
       const receipts = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId,
@@ -292,8 +257,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
       } finally {
         await Effect.runPromise(committedRead.close);
       }
-      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
-        fixture.attempt, null,
+      await expect(Effect.runPromise(fixture.freeze(null,
       ))).rejects.toBeDefined();
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
     } finally {
@@ -338,9 +302,10 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
       // Exercise the persistence freeze directly while the native callback is
       // still active; the executor's serial journal would otherwise queue seal.
       expect(fixture.getOpenTransactionDepth()).toBe(0);
-      await expect(Effect.runPromise(fixture.sealFiniteRootDirect({ ok: true })))
+      await expect(Effect.runPromise(fixture.freezeFiniteRootDirect({ ok: true })))
         .rejects.toBeDefined();
-      expect(fixture.journal.confirmedSealCapture?.(fixture.attempt)).toBeUndefined();
+      await expect(Effect.runPromise(fixture.freezeFiniteRootDirect({ ok: true })))
+        .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
       await Effect.runPromise(Fiber.interrupt(fiber));
       const interrupted = await Effect.runPromise(Fiber.await(fiber));
       expect(Exit.isFailure(interrupted)).toBe(true);
@@ -348,8 +313,8 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(roots[0]).toMatchObject({ state: "open",
-        lastSyscallSequence: 0n });
+      expect(roots).toHaveLength(0);
+      expect(await inspectCurrentFiniteAnchor(fixture)).toMatchObject({ session: { lifecycle: "running", executionProfile: "finiteRoot" } });
       await expect(Effect.runPromise(fixture.reopenJournalAttempt()))
         .rejects.toBeDefined();
       const receipts = await fixture.currency.persistence.drizzle.select()
@@ -380,8 +345,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
       } finally {
         await Effect.runPromise(committedRead.close);
       }
-      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
-        fixture.attempt, null,
+      await expect(Effect.runPromise(fixture.freeze(null,
       ))).rejects.toBeDefined();
     } finally {
       await Effect.runPromise(Deferred.succeed(release, undefined));
@@ -423,7 +387,8 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
+      expect(roots).toHaveLength(0);
+      expect(await inspectCurrentFiniteAnchor(fixture)).toMatchObject({ session: { lifecycle: "running", executionProfile: "finiteRoot" } });
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
     } finally {
       await fixture.close();
@@ -441,9 +406,10 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
           projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid))
         .orderBy(asc(fxAppRowRevisions.tableId), asc(fxAppRowRevisions.rowId),
           asc(fxAppRowRevisions.commitSeq));
-      await fixture.currency.persistence.drizzle.update(fxSystemSnapshotLeases)
-        .set({ leaseExpiresAt: sql`clock_timestamp() - interval '1 minute'` })
-        .where(eq(fxSystemSnapshotLeases.sessionId,
+      await fixture.currency.persistence.drizzle.update(fxSystemTransactionSessions)
+        .set({ finiteClaimedAt: sql`clock_timestamp()-interval '3 minutes'`,
+          finiteClaimExpiresAt: sql`clock_timestamp()-interval '2 minutes'`, finiteLeaseExpiresAt: sql`clock_timestamp()-interval '1 minute'` })
+        .where(eq(fxSystemTransactionSessions.sessionId,
           fixture.activation.anchor.sessionId));
       const failure = await fixture.runExecution().then(() => null, cause => cause);
       if (!(failure instanceof Error)) {
@@ -468,7 +434,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     }
   });
 
-  it("finishes a sealed native Product attempt from durable evidence without a service rerun", async () => {
+  it("publishes a frozen Product root and replays its durable outcome without a service rerun", async () => {
     const fixture = await createMixedMutationProductFixture({
       driver, suffix: `sealed-finish-${driver}`,
     });
@@ -487,7 +453,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(sealed[0]?.state).toBe("sealed");
+      expect(sealed).toHaveLength(0);
       const published = await Effect.runPromise(publication);
       expect(published).toMatchObject({ kind: "published" });
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
@@ -538,11 +504,11 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(before[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
-      await fixture.currency.persistence.drizzle.update(fxSystemTransactionExecutionClaims)
-        .set({ claimedAt: sql`clock_timestamp() - interval '2 minutes'`,
-          claimExpiresAt: sql`clock_timestamp() - interval '1 minute'` })
-        .where(eq(fxSystemTransactionExecutionClaims.sessionId,
+      expect(before).toHaveLength(0);
+      await fixture.currency.persistence.drizzle.update(fxSystemTransactionSessions)
+        .set({ finiteClaimedAt: sql`clock_timestamp() - interval '2 minutes'`,
+          finiteClaimExpiresAt: sql`clock_timestamp() - interval '1 minute'` })
+        .where(eq(fxSystemTransactionSessions.sessionId,
           fixture.activation.anchor.sessionId));
       const next = await Effect.runPromise(
         createPointMutationExecutionClaimAcquisitionV1(
@@ -558,7 +524,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(after[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
+      expect(after).toHaveLength(0);
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       await Effect.runPromise(Deferred.succeed(release, undefined));
       const oldCompletion = await running.catch(cause => cause);
@@ -612,7 +578,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
 
 describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
   "native mixed mutation PostgreSQL driver uncertainty", () => {
-    it("retains the sealed Product root after aggregate-seal COMMIT acknowledgement loss", async () => {
+    it("resolves final Product COMMIT acknowledgement loss without rerunning callbacks", async () => {
       let lostAcknowledgement = false;
       let acquiredClients = 0;
       const fixture = await createMixedMutationProductFixture({
@@ -636,17 +602,17 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
         acquiredClients += 1;
         const queryDescriptor = Object.getOwnPropertyDescriptor(candidate, "query");
         const query = candidate.query;
-        let aggregateReceiptsInserted = false;
+        let finalOutcomeInserted = false;
         if (!Reflect.set(candidate, "query", (...args: readonly unknown[]): unknown => {
           const statement = args[0];
           const sql = typeof statement === "string" ? statement :
             typeof statement === "object" && statement !== null &&
               "text" in statement && typeof statement.text === "string"
               ? statement.text : "";
-          if (sql.toLowerCase().includes("fx_system_tx_journal_receipt") &&
-            sql.trimStart().toLowerCase().startsWith("insert")) aggregateReceiptsInserted = true;
+          if (sql.toLowerCase().includes("fx_system_idempotency") &&
+            sql.trimStart().toLowerCase().startsWith("insert")) finalOutcomeInserted = true;
           const result: unknown = Reflect.apply(query, candidate, args);
-          if (sql.trim().toLowerCase() === "commit" && aggregateReceiptsInserted &&
+          if (sql.trim().toLowerCase() === "commit" && finalOutcomeInserted &&
             !lostAcknowledgement) {
             return Promise.resolve(result).then(() => {
               lostAcknowledgement = true;
@@ -676,21 +642,20 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
         });
       })) throw new Error("Could not install PostgreSQL connection fault");
       try {
-        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
-          fixture.attempt, returnedValue))).rejects.toBeDefined();
+        const publication = await fixture.preparePublication(returnedValue);
+        expect(await Effect.runPromise(publication)).toMatchObject({ kind: "replayed" });
         expect(lostAcknowledgement, `acquired=${acquiredClients}`).toBe(true);
         expect(fixture.nativeInvokeCount.get("update")).toBe(1);
         const roots = await fixture.currency.persistence.drizzle.select()
           .from(fxSystemTransactionJournals)
           .where(eq(fxSystemTransactionJournals.sessionId,
             fixture.activation.anchor.sessionId));
-        expect(roots).toMatchObject([{ state: "sealed", lastSyscallSequence: 5n }]);
+        expect(roots).toHaveLength(0);
         const receipts = await fixture.currency.persistence.drizzle.select()
           .from(fxSystemTransactionJournalReceipts)
           .where(eq(fxSystemTransactionJournalReceipts.sessionId,
             fixture.activation.anchor.sessionId));
-        expect(receipts.filter(receipt => receipt.outcomeKind ===
-          "admittedLogicalResult")).toHaveLength(3);
+        expect(receipts).toHaveLength(0);
         const request = fixture.getUpdateRequest();
         if (request === undefined) throw new Error("Missing accepted Product request");
         await expect(Effect.runPromise(fixture.runAdmitted(request))).rejects.toBeDefined();
@@ -699,7 +664,9 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
           .from(fxSystemCommitEvents)
           .where(eq(fxSystemCommitEvents.scopeUuid,
             projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid));
-        expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(0);
+        expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(1);
+        expect(await fixture.replayPublication()).toMatchObject({ kind: "replayed" });
+        expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       } finally {
         for (const restore of restoreQueries.toReversed()) restore();
         if (connectDescriptor === undefined) Reflect.deleteProperty(pool, "connect");
@@ -723,20 +690,8 @@ it("refuses a Product capability from another scope on the same physical target"
         projectId: "mixed_foreign_project", uuidOffset: 300 },
     });
     expect(second.activation.anchor.scopeId).not.toBe(first.activation.anchor.scopeId);
-    const firstHandle = await Effect.runPromise(first.store.openAttemptEffect({
-      selector: selectorFromRelationAnchor(first.activation.anchor),
-      snapshotToken: first.activation.anchor.snapshotToken,
-      schemaVersionId: first.schemaVersionId,
-      executionClaim: first.activation.executionClaim,
-      executionProfile: "finiteRoot",
-    }));
-    const foreignHandle = await Effect.runPromise(second.store.openAttemptEffect({
-      selector: selectorFromRelationAnchor(second.activation.anchor),
-      snapshotToken: second.activation.anchor.snapshotToken,
-      schemaVersionId: second.schemaVersionId,
-      executionClaim: second.activation.executionClaim,
-      executionProfile: "finiteRoot",
-    }));
+    const firstHandle = first.persistenceAttempt;
+    const foreignHandle = second.persistenceAttempt;
     const foreignAdmission = await Effect.runPromise(
       second.store.admitLogicalParticipantsEffect(foreignHandle, {
         participant: "medusa.product",
@@ -765,7 +720,7 @@ it("refuses a Product capability from another scope on the same physical target"
         return Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection",
           cause: new CommerceTransactionError({ reason: "adapterFailure" }) }));
       },
-    ))).rejects.toMatchObject({ _tag: "InvalidSessionJournalCapabilityV1Error" });
+    ))).rejects.toMatchObject({ _tag: "LogicalParticipantAdmissionError" });
     expect(invoked).toBe(0);
     expect(first.nativeInvokeCount.get("update") ?? 0).toBe(0);
     expect(second.nativeInvokeCount.get("update") ?? 0).toBe(0);

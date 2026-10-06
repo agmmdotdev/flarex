@@ -1,3 +1,4 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { describe, expect, it } from "vitest";
 import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
@@ -28,7 +29,19 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 describePostgres("ordinary-role PostgreSQL prepared row batches", () => {
   it("preserves exact identities, predecessors and complete rollback", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      await verifyAppRowBatches(persistence, persistence.drizzle);
+      await verifyAppRowBatches(persistence, persistence.drizzle, async run => {
+        const measured = await withPostgresExecutionObservation(persistence.pool, run, { returnedCommands: true });
+        expect(measured.observation.checkouts).toBe(1);
+        expect(measured.observation.releases).toBe(1);
+        expect(measured.observation.returnedCommands.filter(command => command.submittedCommand === "begin" || command.submittedCommand === "commit"))
+          .toEqual([{ checkout: 1, submittedCommand: "begin", returnedCommand: "BEGIN" },
+            { checkout: 1, submittedCommand: "commit", returnedCommand: "ROLLBACK" }]);
+      }, async run => {
+        const measured = await withPostgresExecutionObservation(persistence.pool, run);
+        expect(measured.observation.checkouts).toBe(1);
+        expect(measured.observation.releases).toBe(1);
+        expect(measured.observation.familyQueries.fx_apply_app_row_batch ?? 0).toBe(0);
+      });
       await verifyAppRowBatchBindings(persistence, persistence.drizzle);
     });
   }, 120_000);
@@ -67,16 +80,20 @@ describePostgres("ordinary-role PostgreSQL prepared row batches", () => {
       const measured = await withPostgresExecutionObservation(
         persistence.pool,
         () =>
-          persistence.drizzle.transaction((tx) =>
-            runEffect(
+          persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffect(
               appendPreparedAppRowRevisionsInTransactionEffect(tx, rows),
-            ),
+            );
+        } finally { closeInstallationAdmission(tx); }
+      },
           ),
       );
       expect(measured.value).toHaveLength(3);
-      expect(measured.observation.familyQueries.fx_app_row_rev).toBe(3);
-      expect(measured.observation.familyQueries.fx_app_row_current).toBe(3);
-      expect(measured.observation.queryCalls).toBe(9); // BEGIN + scope + 3*(revision,current) + COMMIT.
+      expect(measured.observation.familyQueries.fx_apply_app_row_batch).toBe(3);
+      expect(measured.observation.commands.begin).toBe(1);
+      expect(measured.observation.commands.commit).toBe(1);
     });
   }, 120_000);
 });

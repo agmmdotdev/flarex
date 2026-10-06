@@ -1,15 +1,15 @@
 # Execution Checks And Framework Lifecycles
 
-Status: **selected direction; the mixed-read/performance handoff is complete and
-slice 20 owns the authorized common-observation candidate, with acceptance
-incomplete.** The selected [finite execution contract](./23-finite-execution-contract-preflight.md)
-owns the authorized replacement now in progress. It distinguishes
+Status: **selected direction adopted by the finite foundation; whole-mutation
+replacement is under final validation and numerical acceptance remains open.**
+The delivered [finite execution contract](./23-finite-execution-contract-preflight.md)
+and selected [whole mutation replacement](./24-whole-mutation-redesign-preflight.md)
+own the connected runtime contracts. They distinguish
 the Convex-inspired attempt/snapshot/metadata boundary from optimizations to the
 current live-check protocol. This note
 clarifies the foundation replacement in
 [the execution roadmap](./14-execution-redesign-roadmap.md). It does not declare
-slice 20 complete, select package 2's terminal durability change, or start a new
-runtime implementation outside that focused scope.
+numerical acceptance or start runtime work outside those focused scopes.
 
 ## Outcome And Owners
 
@@ -98,9 +98,12 @@ Preserve the existing profile's policy while optimizing its checks.
 | Committed event with failed subscriber delivery | Retry delivery under the event contract, not the committed business operation. |
 
 The [terminal durability decision](./14-execution-redesign-roadmap.md#terminal-decision-for-package-2)
-remains open. Removing durable seal would change when recovery can finish without
-reexecuting callbacks. It must not be bundled silently into an admission or
-readiness optimization.
+is now selected by [the whole mutation successor](./24-whole-mutation-redesign-preflight.md):
+finite callbacks may rerun after proven precommit nonacceptance; uncertain COMMIT
+must resolve first. Its connected implementation requires further
+accepting-boundary corrections; numerical acceptance remains open.
+This choice is an explicit lifecycle replacement, not an admission/readiness
+optimization or a change to ordinary durable-operation recovery.
 
 ## Replacement Inventory And Non-Goals
 
@@ -110,7 +113,8 @@ readiness optimization.
 | Source-wide metadata/readiness assembly in selected finite reads | Replace with actual-demand preparation and serving checks through slice 20; remove displaced callers, exports and tests when their behavior is covered. |
 | Repeated equivalent proof or contribution construction | Replace at the responsible owner when measured and covered; cross-transaction freshness and distinct framework event families are not equivalent work. |
 | Native framework lifecycle, request reuse, constraints and supported locks | Retain their meaning; migrate bindings rather than reimplement business behavior. |
-| Current durable seal/finishing recovery and retained outcomes | Retain until package 2 selects its explicit contract and drain/migration disposition for named durable data. |
+| Finite durable seal/finishing | Replace under slice 24's compact anchor, conclusive nonacceptance and final settlement contract. Named old nonterminal obligations require drain or reviewed migration before activation. |
+| Ordinary durable-operation recovery and committed outcomes | Retain for actual consumers; finite replacement does not authorize deletion of committed evidence. |
 | Full-proof profiles outside the proved managed coverage | Retain for their named callers. Inventory those callers and establish a removal gate before further replacement. |
 
 Necessary private API, type, identity, schema and format breaks are accepted under
@@ -124,12 +128,11 @@ evolution, new host lifecycles and hosted activation retain their existing gates
 
 1. Audit the completed mixed-read correction/performance-harness handoff and its
    remaining correctness/performance failures; do not absorb unrelated dirty work.
-2. Complete slice 20's actual contract and remaining gates with this direction.
-   Its transaction-local common-observation amendment records the next connected
-   owners, freshness boundaries, preparation lifetime, breaks and removal scope.
+2. Preserve slice 23's delivered attempt-fixed metadata, demanded readiness and
+   consumed-metadata OCC while replacing its remaining choreography under slice 24.
    Complete affected Application/Product/Payload/workflow consumers together.
-3. Decide and preflight contribution/settlement/recovery separately for package 2.
-   Retain durable-seal behavior unless its replacement is explicitly selected.
+3. Validate slice 24's selected entry, pending-state and final settlement/recovery
+   replacement, including old durable-record disposition and incremental removal.
 4. Prove integrated acceptance and retirement under the execution roadmap.
 
 Validation must cover fresh authorization/revocation, maintenance races, wrong

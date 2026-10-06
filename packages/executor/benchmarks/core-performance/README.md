@@ -14,7 +14,69 @@ These measurements use the [daily core runner](../../test/performance/README.md)
 They execute actual Payload Local API, Medusa workflows and Flarex admission,
 journal and publication owners directly in Node, without a Worker or HTTP hop.
 
-## Current measured graph
+## Whole-mutation acceptance
+
+The [ordered materialization investigation](./whole-mutation-cutover/materialization-composition/README.md)
+records 161.38 ms median, 165.98 ms P95 and 40 commands for complete mixed
+Product. Its source, harness and bounded promoted native-artifact fingerprints
+remain unchanged across the run. The seven removed publication submissions do
+not establish performance near native; complete paired acceptance remains open.
+The preceding [prepared-database investigation](./whole-mutation-cutover/prepared-database/README.md)
+retains a complete Product iteration after pure SQL preparation reuse: 167.06 ms
+median, 200.29 ms P95 and 47 commands. Source fingerprints were unchanged across
+that run, but complete paired-native acceptance remains pending. It establishes
+no accepted performance improvement. The preceding
+[immutable preparation investigation](./whole-mutation-cutover/immutable-preparation/README.md)
+also retains its measurement and source-isolation limitations. The connected
+cutover is implemented under preflight 24 with selected correctness proofs;
+its native-relative acceptance remains open.
+
+The preceding [publication-domain comparison](./whole-mutation-cutover/publication-domain/README.md)
+records six entry commands and 47/49/70 total mixed commands for Product,
+Product/Payload and workflow. Their quiet median/P95 values are 169.52/178.96,
+191.80/201.29 and 391.51/421.51 ms. Product meets its P95 gate but still misses
+its former median gate; Product/Payload and workflow meet both former gates. The separate native
+unique lookup meets both added-overhead gates for misses and P95 for hits, while
+the hit median and complete miss-request tail non-regression remain open. Full
+samples, actual SQL attribution and source/executing fingerprints are preserved.
+Immutable native preparation and private owned-evidence repetition are implemented
+owner corrections under preflight 24; their source repetition is not measured CPU
+attribution. The [complete-entry comparison](./whole-mutation-cutover/complete-finite-entry/README.md)
+retains its preceding failed gates. Earlier frozen evidence follows.
+
+The [immutable evidence comparison](./whole-mutation-cutover/immutable-evidence-reuse/README.md)
+records compact entry acknowledgement, fixed capture mapping, authenticated
+original predecessor lending and bounded implicit transport. Twenty retained quiet
+requests follow three warmups; SQL comes from a separate diagnostic request.
+All business checks passed, but numerical acceptance remains open under
+[preflight 24](../../../../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md).
+
+| Scenario | Median ms | P95 ms | SQL dispatches | Transactions |
+| --- | ---: | ---: | ---: | ---: |
+| Payload create | 84.07 | 86.70 | 130 | 9 |
+| Standalone Medusa workflow | 339.04 | 355.19 | 295 | 13 |
+| Mixed Application + Product | 205.60 | 222.74 | 92 | 2 |
+| Mixed + Payload | 236.21 | 255.88 | 95 | 2 |
+| Mixed + Medusa workflow + Payload | 417.84 | 556.44 | 130 | 2 |
+
+Product misses both its 100 ms median and 200 ms P95 gates;
+Product/Payload misses its 200 ms median gate; workflow meets its 500/1,000 ms
+median/P95 gates. The raw reports retain
+all samples, maxima and setup costs. These are complete workload targets, not
+matched native-method overhead results. Current source is changing; this frozen
+comparison is not a measurement of subsequent edits.
+The earlier [owned-entry cutover](./whole-mutation-cutover/owned-entry-cutover/README.md),
+[dependency cutover](./whole-mutation-cutover/dependency-cutover/README.md),
+[accepting-boundary cutover](./whole-mutation-cutover/accepting-boundary-cutover/README.md)
+and [baseline](./whole-mutation-cutover/accepting-boundary-baseline/README.md)
+retain preceding comparisons. Lower statement counts do not close the
+remaining acceptance gates. The [preceding capture replacement](./whole-mutation-cutover/finite-storage-capture/README.md)
+and [prepared capture comparison](./whole-mutation-cutover/prepared-storage-capture/README.md)
+remain preserved. Complete entry construction and compact metadata acceptance
+are implemented in the newer comparison above. Median differences cannot be assigned solely to
+the latest edits; earlier Product tail spikes remain unexplained.
+
+## Original daily-run measurements
 
 The complete `pnpm perf:core --all --sql` command took **133.52 seconds**.
 All five scenarios committed and passed their native persisted-result checks.

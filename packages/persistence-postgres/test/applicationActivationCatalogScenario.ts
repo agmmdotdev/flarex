@@ -83,11 +83,11 @@ export async function applicationActivationCatalogScenario(
     if (armed) { refuseReads++; throw new Error("Original catalog handle read under activation lease"); }
     return originalSelect(...args);
   });
-  const activation = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+  const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
     readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts,
     faultAfter: point => {
       if (point === "activationInserted") armed = true;
-      if (point === "uniqueMaintenanceOpened") {
+      if (point === "uniqueMaintenanceWritten") {
         reachedMaintenance++;
         if (injectedFailure !== undefined) throw injectedFailure;
       }

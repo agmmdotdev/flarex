@@ -1,4 +1,5 @@
 import { newTestPGlite, createTestPGlite } from "./pgliteSearchExtensions";
+import { PGlite } from "@electric-sql/pglite";
 import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { onTestFinished } from "vitest";
 
@@ -30,8 +31,10 @@ function migratedDataDir(): Promise<Blob | File> {
  * The snapshot is built once in each Vitest worker and the database is closed
  * automatically when the current test finishes.
  */
-export async function createMigratedPGlitePersistence(registerCleanup: (cleanup: () => Promise<void>) => void = onTestFinished): Promise<PGlitePersistence> {
-  const db = await createTestPGlite({ loadDataDir: await migratedDataDir() });
+export async function createMigratedPGlitePersistence(registerCleanup: (cleanup: () => Promise<void>) => void = onTestFinished,
+  transport: "ordinary" | "finiteCapture" = "ordinary"): Promise<PGlitePersistence> {
+  const db = await createTestPGlite({ loadDataDir: await migratedDataDir(),
+    ...(transport === "finiteCapture" ? { startParams: [...PGlite.defaultStartParams, "-c", "statement_timeout=30000"] } : {}) });
 
   try {
     const persistence = await createPGlitePersistence({ db });

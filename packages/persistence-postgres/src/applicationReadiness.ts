@@ -1,7 +1,11 @@
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
-import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
+import { UniqueMaintenanceError } from "./indexMaintenanceModel";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
+import { getActivationServingInstallationReferencesResult, isManagedInstallationTransaction,
+  type PreparedActivationServingInstallation, type PreparedInstallation } from "./installationLifecycle";
+import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
+import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { acquireProtectedMetadataInstallationAdmission, captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, guardProtectedMetadataEpoch, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
   type ProtectedMetadataEpochIdentity, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import {
@@ -90,12 +94,13 @@ import {
   type IndexBuildReconciliationCatalogV1Error,
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
-import { IndexMaintenanceError } from "./indexMaintenanceEvidence";
+import { IndexMaintenanceError } from "./indexMaintenanceModel";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
   decodeIndexBuildStateRowResult,
+  indexMaintenanceBindingPredicate,
   type IndexBuildStateRecord,
   validateIndexBuildStateFrontierResult,
 } from "./indexBuildStates";
@@ -152,6 +157,7 @@ import {
   fxSystemApplicationRevisionsV2,
   fxSystemApplicationCandidatesV1,
   fxSystemIndexBuildStates,
+  fxSystemIndexMaintenanceObligations,
   fxSystemScopeClocks,
   fxSystemScopeExecutionAuthorities,
 } from "./schema";
@@ -192,6 +198,37 @@ export interface ApplicationReadinessContext<SchemaFailure, ColdFailure> {
   /** Exact scope-local physical-definition availability authority. */
   readonly physicalDefinitionLifecycle: PhysicalDefinitionLifecyclePort;
   readonly cold: ApplicationReadinessColdMaterializationPort<ColdFailure>;
+}
+
+/** Activation construction is explicit. Full proof retains the privileged
+ * compatibility/test owner; managed serving logins cannot execute publishers. */
+export type ApplicationActivationTargetProfile =
+  | Readonly<{ readonly kind: "installed"; readonly installation: PreparedActivationServingInstallation;
+      readonly target: LocatedReadCommittedAttemptTargetV1 }>
+  | Readonly<{ readonly kind: "fullProof" }>;
+
+export interface ApplicationActivationTargetPreparation {
+  readonly target: LocatedReadCommittedAttemptTargetV1;
+  readonly installed?: Readonly<{ database: FlarexMetadataDatabase; installation: PreparedInstallation }>;
+}
+
+/** Domain construction only: the readiness issuer still authenticates its own
+ * result, and the real selected runner freshly admits the activation login. */
+export function selectApplicationActivationTargetResult(profile: ApplicationActivationTargetProfile,
+  servingTarget: LocatedReadCommittedAttemptTargetV1, locator: ScopePhysicalLocator):
+  Result.Result<ApplicationActivationTargetPreparation, ApplicationReadinessError> {
+  return Result.gen(function* () {
+    if (!scopePhysicalLocatorsEqual(servingTarget.physicalLocator, locator))
+      return yield* Result.fail(readinessFailureValue("invalidComposition"));
+    if (profile.kind === "fullProof") return Object.freeze({ target: servingTarget });
+    const references = yield* getActivationServingInstallationReferencesResult(profile.installation).pipe(
+      Result.mapError(cause => readinessFailureValue("invalidComposition", false, cause)));
+    if (!hasLocatedReadCommittedTargetDatabaseV1(servingTarget, references.serving.database) ||
+      !hasLocatedReadCommittedTargetDatabaseV1(profile.target, references.activation.database) ||
+      !scopePhysicalLocatorsEqual(profile.target.physicalLocator, locator))
+      return yield* Result.fail(readinessFailureValue("invalidComposition"));
+    return Object.freeze({ target: profile.target, installed: references.activation });
+  });
 }
 
 export type ApplicationReadinessNotReadyReason =
@@ -405,6 +442,7 @@ interface PreparedIssuedApplicationReadinessState {
 }
 
 interface StoredReadinessAuthority {
+  readonly preparationProfile?: "finiteEntry";
   readonly bundle: StoredBundle;
   readonly schemaVersion: CatalogSchemaVersion;
   readonly schema: ApplicationSchemaAuthority;
@@ -463,6 +501,34 @@ const issuedReadinessStates = new WeakMap<
   Extract<ApplicationReadinessResult, { readonly status: "ready" }>,
   IssuedApplicationReadinessState
 >();
+
+declare const readinessActivationViewBrand: unique symbol;
+export interface PreparedApplicationReadinessActivation {
+  readonly [readinessActivationViewBrand]: true;
+}
+const readinessActivationViews = new WeakMap<PreparedApplicationReadinessActivation, Readonly<{
+  owner: ApplicationReadinessIssuerState;
+  issued: Extract<ApplicationReadinessResult, { readonly status: "ready" }>;
+  target: ApplicationActivationTargetPreparation;
+}>>();
+
+/** Reuses the original ready result and issuer. No serving preparation or
+ * readiness graph is transferred to another database object. */
+export const prepareApplicationReadinessActivation = Effect.fn("ApplicationReadiness.prepareActivation")(
+  function* (repository: unknown, issued: ApplicationReadinessResult,
+    profile: ApplicationActivationTargetProfile, servingTarget: LocatedReadCommittedAttemptTargetV1) {
+    const owner = typeof repository === "object" && repository !== null ? readinessRepositoryStates.get(repository) : undefined;
+    const ready = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
+    if (owner === undefined || ready?.kind !== "prepared" || ready.issuer !== owner.issuer || issued.status !== "ready")
+      return yield* readinessFailure("invalidComposition");
+    const target = yield* Effect.fromResult(selectApplicationActivationTargetResult(profile, servingTarget,
+      ready.prepared.bundle.authority.physicalLocator));
+    // SAFETY: the issuer registry alone authenticates this inert target view.
+    const preparation = Object.freeze({}) as PreparedApplicationReadinessActivation;
+    readinessActivationViews.set(preparation, Object.freeze({ owner, issued, target }));
+    return Object.freeze({ target: target.target, preparation });
+  },
+);
 
 interface CapturedReadinessRows {
   readonly authority: ApplicationReadinessAuthority;
@@ -595,7 +661,8 @@ export const captureApplicationReadinessInTransaction = Effect.fn(
 /** Complete immutable authentication and configured control preparation after target SQL closes. */
 export const prepareCapturedApplicationReadiness = Effect.fn(
   "ApplicationReadiness.prepareCapturedRows",
-)(function* (repository: ApplicationReadinessRepository<unknown, unknown>, capture: CapturedApplicationReadiness) {
+)(function* (repository: ApplicationReadinessRepository<unknown, unknown>, capture: CapturedApplicationReadiness,
+  preparationProfile: "full" | "finiteEntry" = "full") {
   const state = readinessRepositoryStates.get(repository);
   const captured = readinessCaptures.get(capture);
   if (state === undefined || captured === undefined || captured.issuer !== state.issuer)
@@ -614,12 +681,14 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     { deploymentId: rows.deploymentId, schemaVersionId: schema.schemaVersionId });
   if (requirements === null || encodeBytesToLowercaseHex(requirements.manifestSha256) !== schema.schemaManifestSha256 ||
     requirements.definitions.length > MAX_PHYSICAL_DEFINITIONS) return yield* readinessFailure("storedState");
-  const unique = yield* loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(state.context.pointCommit,
-    { deploymentId: rows.deploymentId, scopeId: rows.authority.scopeId, schemaVersionId: schema.schemaVersionId },
-    state.context.controlDb, state.context.authority);
-  if (unique.status === "not_ready") return captured.profile === "request"
-    ? notReady(rows.revisionId, uniqueNotReadyReason(unique.reason), unique.lifecycle)
-    : yield* readinessFailure("authorityChanged");
+  if (preparationProfile === "full") {
+    const unique = yield* loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(state.context.pointCommit,
+      { deploymentId: rows.deploymentId, scopeId: rows.authority.scopeId, schemaVersionId: schema.schemaVersionId },
+      state.context.controlDb, state.context.authority);
+    if (unique.status === "not_ready") return captured.profile === "request"
+      ? notReady(rows.revisionId, uniqueNotReadyReason(unique.reason), unique.lifecycle)
+      : yield* readinessFailure("authorityChanged");
+  }
   const physicalDefinitionLifecycle = yield* preparePhysicalDefinitionLifecycleReadinessEffect(
     state.context.physicalDefinitionLifecycle, rows.authority.scopeId, requirements);
   const binding = yield* runTransaction(state.context.controlDb,
@@ -647,6 +716,7 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
       Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   }
   const issued = storedReadyProjection(Object.freeze({ ...stored, originalControl,
+    ...(preparationProfile === "finiteEntry" ? { preparationProfile: "finiteEntry" as const } : {}),
     ...(rows.protection === undefined ? {} : { protectedMetadata: rows.protection }) }), state.issuer);
   if (issued.status !== "ready") return yield* readinessFailure("storedState");
   const issuedState = issuedReadinessStates.get(issued);
@@ -661,6 +731,16 @@ export function readApplicationReadinessTargetProtection(repository: unknown, is
   const ready = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
   return state !== undefined && ready?.kind === "stored" && ready.issuer === state.issuer
     ? ready.stored.protectedMetadata : undefined;
+}
+
+/** The compatibility capture owner borrows the exact readiness issuer's
+ * existing authority ports; caller-authored placement cannot issue them. */
+export function readApplicationReadinessCapturePorts(repository: unknown, issued: ApplicationReadinessResult):
+  Result.Result<Pick<ApplicationReadinessContext<unknown, unknown>, "authority" | "controlDb">, ApplicationReadinessError> {
+  const state = typeof repository === "object" && repository !== null ? readinessRepositoryStates.get(repository) : undefined;
+  const ready = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
+  return state === undefined || ready === undefined || ready.issuer !== state.issuer
+    ? Result.fail(readinessFailureValue("invalidComposition")) : Result.succeed(Object.freeze({ authority: state.context.authority, controlDb: state.context.controlDb }));
 }
 
 /** Immutable closed membership from the exact retained readiness issuer. */
@@ -1102,6 +1182,7 @@ export const validateApplicationReadinessForActivationInTransaction =
       issued: ApplicationReadinessResult,
       tx: AppRowTransaction,
       currentClock: ScopeClockRecord,
+      activationPreparation?: PreparedApplicationReadinessActivation,
     ): Effect.fn.Return<
       ApplicationReadinessActivationValidation,
       | ApplicationReadinessError
@@ -1123,6 +1204,13 @@ export const validateApplicationReadinessForActivationInTransaction =
         issuedState.issuer !== repositoryState.issuer ||
         issuedState.prepared.bundle.authority.scopeId !== currentClock.scopeId) {
         return yield* readinessFailure("invalidComposition");
+      }
+      if (activationPreparation !== undefined) {
+        const activation = readinessActivationViews.get(activationPreparation);
+        if (activation === undefined || activation.owner !== repositoryState || activation.issued !== issued ||
+          (activation.target.installed !== undefined && !isManagedInstallationTransaction(tx,
+            activation.target.installed.database, activation.target.installed.installation)))
+          return yield* readinessFailure("invalidComposition");
       }
       const replay = yield* settleReadiness(
         tx,
@@ -1171,6 +1259,7 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
       const issuedState = issuedReadinessStates.get(issued);
       if (repositoryState === undefined || issuedState === undefined ||
         issuedState.kind !== "stored" ||
+        issuedState.stored.preparationProfile === "finiteEntry" ||
         issuedState.issuer !== repositoryState.issuer ||
         issuedState.stored.bundle.authority.scopeId !== currentClock.scopeId) {
         return yield* readinessFailure("invalidComposition");
@@ -1184,6 +1273,21 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
       );
     },
   );
+
+/** Finite entry authenticates immutable publication under fresh head and scope
+ * authority; demanded reads and final touched maintenance own build coverage. */
+export const validateFiniteApplicationReadinessInTransaction = Effect.fn("ApplicationReadiness.validateFiniteEntry")(
+  function* (repository: unknown, issued: ApplicationReadinessResult, tx: AppRowTransaction,
+    currentClock: ScopeClockRecord, checkedActive?: CheckedApplicationActiveHead) {
+    const owner = typeof repository === "object" && repository !== null ? readinessRepositoryStates.get(repository) : undefined;
+    const state = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
+    if (owner === undefined || state?.kind !== "stored" || state.issuer !== owner.issuer ||
+      state.stored.preparationProfile !== "finiteEntry" || state.stored.bundle.authority.scopeId !== currentClock.scopeId)
+      return yield* readinessFailure("invalidComposition");
+    yield* requireExactAuthority(state.stored.bundle.authority, currentClock);
+    return yield* validateStoredIssuedReadiness(owner, state, tx, currentClock, checkedActive);
+  },
+);
 
 /** Only the Application request owner calls this after its live head/activation
  * read. The original issuer's canonical projection stays inside this callback;
@@ -1200,6 +1304,7 @@ export const withStoredApplicationReadinessForBindingInTransaction = Effect.fn(
   const repositoryState = readinessRepositoryStates.get(repository);
   const issuedState = issuedReadinessStates.get(issued);
   if (repositoryState === undefined || issuedState === undefined || issuedState.kind !== "stored" ||
+    issuedState.stored.preparationProfile === "finiteEntry" ||
     issuedState.issuer !== repositoryState.issuer || issuedState.stored.bundle.authority.scopeId !== currentClock.scopeId ||
     hasProtectedMetadataFinalGuardScope(tx)) return yield* readinessFailure("invalidComposition");
   const protection = issuedState.stored.protectedMetadata;
@@ -1258,6 +1363,20 @@ const validateStoredIssuedReadiness = Effect.fn(
     if ("status" in loaded || !storedBundlesEqual(loaded, issuedState.stored.bundle))
       return yield* readinessFailure("authorityChanged");
     currentBundle = loaded;
+  }
+  if (issuedState.stored.preparationProfile === "finiteEntry") {
+    if (repositoryState.context.cold.runtimeHostIdentity !== issuedState.stored.cold.runtimeHostIdentity ||
+      repositoryState.context.cold.compatibilityDate !== issuedState.stored.cold.compatibilityDate)
+      return yield* readinessFailure("authorityChanged");
+    if (!useProtectedProjection) {
+      const replay = yield* loadStoredReadinessAuthority(tx, currentBundle, issuedState.stored.schemaVersion,
+        issuedState.stored.schema, issuedState.stored.schemaBindingSha256, issuedState.stored.requirements,
+        issuedState.stored.physicalDefinitionLifecycle, issuedState.stored.physicalReadinessSha256,
+        repositoryState.context.cold, clock);
+      if (replay === null || !bytesEqualFullScan(replay.readinessSha256, issuedState.readinessSha256) ||
+        !bytesEqualFullScan(replay.readinessBytes, issuedState.readinessBytes)) return yield* readinessFailure("authorityChanged");
+    }
+    return Object.freeze({ status: "ready" as const, basis: activationBasis(issuedState) });
   }
   const physical = yield* loadPhysicalReadiness(
     tx,
@@ -2460,8 +2579,9 @@ const loadPhysicalBuildRows = Effect.fn(
     // The clock and mutable index coverage must come from one MVCC statement.
     // A provisional read must not wait on the index row a point commit holds.
     const unordered = definitionIds.length === 0 ? [] : yield* query(
-      tx.select({ build: fxSystemIndexBuildStates, scopeClock: scopeClockSelection() })
+      tx.select({ build: fxSystemIndexBuildStates, maintenanceObligation: getTableColumns(fxSystemIndexMaintenanceObligations), scopeClock: scopeClockSelection() })
         .from(fxSystemIndexBuildStates)
+        .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
         .innerJoin(fxSystemScopeClocks, eq(
           fxSystemScopeClocks.scopeId,
           fxSystemIndexBuildStates.scopeId,
@@ -2476,7 +2596,7 @@ const loadPhysicalBuildRows = Effect.fn(
     );
     yield* requireExactAuthority(authority, snapshotClock);
     const rowsById = new Map(
-      unordered.map(row => [row.build.indexDefinitionId, row.build] as const),
+      unordered.map(row => [row.build.indexDefinitionId, { ...row.build, maintenanceObligation: row.maintenanceObligation }] as const),
     );
     const context = yield* readIndexCoverageContextInTransactionEffect(tx, snapshotClock, checkedActive).pipe(Effect.mapError(cause =>
       readinessFailureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", cause.reason === "resourceFailure" && (cause.retryable ?? retryableCause(cause.cause)), cause)));
@@ -2498,7 +2618,7 @@ const loadPhysicalBuildRows = Effect.fn(
         decodeIndexBuildStateRowResult(
           build,
           authority.scopeId,
-          definitionId,
+          definitionId, build.maintenanceObligation,
         ).pipe(Result.mapError(cause => readinessFailureValue(
           "storedState",
           false,

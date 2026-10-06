@@ -193,15 +193,30 @@ snapshot; no data-timestamp metadata registry is assumed. Live revocation,
 storage fencing, claim/expiry and retention protection belong to a distinct
 execution authority, while commit sequencing retains its own lock. This
 replacement is delivered for the existing private graph; it supersedes current-head
-proof choreography without changing native framework behavior or the
-current durable seal/finishing model.
+proof choreography without changing native framework behavior. Its original
+durable seal/finishing model is the predecessor terminal contract.
 
 The owner requests a complete remaining mutation replacement. The
 [whole mutation preflight](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
 records its compact entry, unified Application/native pending owner, one frozen
-contribution and distinct-table current write-maintenance contract. Its recommended
-one-final transaction changes precommit recovery; that choice remains pending.
-Current durable seal/finishing remains authoritative until selection and cutover.
+contribution and distinct-table current write-maintenance contract. The owner
+selects one final transaction and replay-safe whole-root re-execution after proven
+precommit nonacceptance. Unknown COMMIT must be resolved before callback replay.
+The connected implementation now uses a compact anchor, local receipts and one
+final acceptance instead of a finite durable seal. Final validation and numerical
+acceptance remain open; named ordinary/durable profiles retain their actual
+recovery obligations.
+
+The selected finite start owns prepared admission, acknowledged entry settlement,
+immediate callback continuation, heartbeat supervision and teardown. It exposes
+no detached finite executable handle. Final entry acceptance uses fresh database
+time after required waits; permission is issued only after acknowledged COMMIT.
+Admission linearizes before COMMIT, as initial renewal already does, and makes no
+claim of freshness at delayed acknowledgement arrival. Storage frontiers and final
+settlement still check current ownership. Unknown entry COMMIT issues no callback
+permission. Warm replacement retains the authenticated original signed program
+while independently accepting a fresh compatible head; cold recovery retains
+full stored authentication. Ordinary detached/durable execution still renews.
 
 The native coordinator owns one attempt and its existing lifecycle. Framework
 calls receive opaque borrowed capabilities bound to that attempt, scope,
@@ -493,8 +508,10 @@ Keep request identity, attempt identity and operation sequencing distinct. Pin
 framework bindings, workflow/hook revisions and event contracts as required for
 admission and recovery. Define whether a conflict retry retains those pins or
 refuses after activation changes; never silently swap behavior. Existing native
-sealing, fencing, retained outcomes and uncertainty recovery remain the starting
-owners. Neither the adapters nor workflow runner introduce another recovery ledger.
+fencing, retained outcomes and uncertainty recovery remain the shared owners.
+Finite settlement consumes the frozen local graph; ordinary durable profiles
+retain their seal/checkpoint owner. Neither adapters nor the workflow runner
+introduce another recovery ledger.
 
 ## Refactor, Compatibility And Cleanup
 
@@ -597,9 +614,11 @@ The replacement separates installation integrity, bounded immutable preparation,
 fresh operation authority, actual query demand and terminal settlement. It must
 remove source-size and repeated-proof amplification while preserving native
 behavior, exact observations and atomic outcomes. The selected read direction
-requires the accepted-design amendment recorded in its preflight; current finite
-read checks remain authoritative until that amendment and cutover. Removing
-durable seal is a distinct unresolved recovery decision in the successor package.
+requires the accepted-design amendment recorded in its preflight. The whole
+mutation successor selects removal of the finite durable seal together with
+replay eligibility, conclusive nonacceptance, persisted retry bounds and
+unknown-COMMIT resolution. It is a connected lifecycle replacement; ordinary
+durable-operation recovery remains with its actual profile.
 
 The owner wants representative workflows to approach native Medusa performance
 where practical. This is an engineering target, not a measured result or a
@@ -728,7 +747,7 @@ follow-on work.
   Which native/reference comparisons are runnable with matching obligations?
   No broad throughput benefit or numerical parity target is assumed upfront.
 
-The implemented first slice uses one journal-backed pending view, durable child-operation
+The predecessor first slice used one journal-backed pending view, durable child-operation
 acknowledgements, sticky rollback-only after staged failure, fresh whole-attempt
 retries under root budgets, durable outcome resolution before an uncertain
 commit can rerun callbacks, and the existing lock protocol. The same root and
@@ -740,4 +759,6 @@ preflights; named durable-environment activation still requires its explicit
 data disposition. The approved finite workflow package replaces that durable
 format in isolated proof scopes and retains its named-environment data gates. Later admissions require their
 own focused preflights;
-developer APIs remain deferred.
+developer APIs remain deferred. Slice 24 replaces the selected finite journal
+and child acknowledgements with one local evaluator and compact receipts,
+retaining sticky failure, exact replay, one final outcome and fenced recovery.

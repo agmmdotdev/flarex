@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 import { withInstallationMaintenance, runInstallationMigrations, backfillInstallationMetadataBindings,
   backfillInstallationLogicalReadProjections, bootstrapInstallationMigrations,
   publishFullProofInstallation, publishVerifiedInstallation } from "./postgresInstallationMaintenance";
-import { InstallationLifecycleError } from "./installationLifecycle";
+import { InstallationLifecycleError, type InstallationAccessProfile } from "./installationLifecycle";
 import type { FlarexMetadataDatabase } from "./deployments";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
@@ -45,8 +45,13 @@ import {
 } from "./retainedHistoryFloorObservation";
 import {
   createLocatedPointMutationSessionActivationTargetV1,
+  FINITE_STORAGE_CAPTURE_DRIVER,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
 } from "./transactionSessionActivation";
+import { makePostgresPhysicalSessionDriver } from "./physicalSession/postgres";
+import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
+import { FiniteStorageCaptureError } from "./finiteStorageCapture";
+import { physicalSessionErrors } from "./physicalSession/errors";
 import {
   createLocatedTaskSystemRunAttemptTargetV1,
   type LocatedTaskSystemRunAttemptTargetV1,
@@ -71,6 +76,10 @@ import {
 } from "./postgresLocatedReadCommitted";
 import { flarexSchema } from "./schema";
 
+// Code-defined extraction and dialect belong to this database adapter. Each
+// checkout still constructs fresh database/transaction views for its own client.
+const physicalSessionAccess = makePhysicalSessionAccess(flarexSchema);
+
 export {
   makeTaskSystemRunAttemptStoreV1,
   type TaskSystemRunAttemptStoreOptionsV1,
@@ -93,7 +102,7 @@ export interface PostgresPersistenceOptions {
    * tests. Managed publication requires exact authenticated runtime pools. */
   installation?: Readonly<{ kind: "fullProof" }> | Readonly<{ kind: "managed";
     runtimePolicies: ReadonlyArray<Readonly<{ database: FlarexMetadataDatabase; endpointPolicy: string;
-      accessProfile?: "dataRuntime" | "controlRead" }>> }>;
+      accessProfile?: InstallationAccessProfile }>> }>;
 }
 const decodeMigrationTarget = Schema.decodeUnknownEffect(Schema.Tuple([
   Schema.Struct({ schemaName: Schema.NonEmptyString, installed: Schema.Boolean }),
@@ -167,11 +176,24 @@ export function createPostgresLocatedPointMutationSessionActivationTargetV1(
     physicalLocator,
     {
       ...options,
+      [FINITE_STORAGE_CAPTURE_DRIVER]: makePostgresPhysicalSessionDriver(persistence.pool, {
+        access: physicalSessionAccess,
+        errors: {
+          resource: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
+          deadline: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
+          invariant: physicalSessionErrors.invariant,
+          cleanup: physicalSessionErrors.cleanup,
+        },
+      }),
       [LOCATED_READ_COMMITTED_RUNNER_V1]:
         createPostgresLocatedReadCommittedTransactionRunnerV1(
           persistence.pool,
-          options.managedInstallation === undefined ? {} : { managedInstallation: {
-            installation: options.managedInstallation.installation, database: persistence.drizzle } },
+          {
+            ...(options.managedInstallation === undefined ? {} : { managedInstallation: {
+              installation: options.managedInstallation.installation, database: persistence.drizzle } }),
+            ...(options.directInstallation === undefined ? {} : { directInstallation: {
+              installation: options.directInstallation, database: persistence.drizzle } }),
+          },
         ),
     },
   );
@@ -307,7 +329,6 @@ export async function createPostgresPersistence(
   const migrationDb = options.migrationPool === undefined
     ? drizzleDb
     : drizzle(options.migrationPool, { schema: flarexSchema });
-  const immutableCatalog = options.immutableCatalog ?? migrationDb;
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPostgresSqlClient(drizzleDb, pool),
@@ -381,8 +402,8 @@ export async function createPostgresPersistence(
         }
       }
       yield* withInstallationMaintenance(maintenanceConfig, target.schemaName, handle => Effect.gen(function* () {
-        if (target.installed) yield* runInstallationMigrations(handle, migrationOptions);
-        yield* backfillInstallationMetadataBindings(handle, immutableCatalog);
+        if (target.installed) yield* runInstallationMigrations(handle, migrationOptions, options.immutableCatalog);
+        yield* backfillInstallationMetadataBindings(handle, options.immutableCatalog);
         yield* backfillInstallationLogicalReadProjections(handle);
         yield* selected.kind === "managed" ? publishVerifiedInstallation(handle, selected.runtimePolicies, migrationOptions) : publishFullProofInstallation(handle, migrationOptions);
       }));

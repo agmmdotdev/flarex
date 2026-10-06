@@ -5,8 +5,9 @@ import { chargeUniqueConstraintPreparation } from "./appUniqueConstraintSetBuild
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
+import { UniqueMaintenanceError } from "./indexMaintenanceModel";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
+import { isManagedInstallationTransaction } from "./installationLifecycle";
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
 import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
 import { withApplicationWriteOwnershipCatalog } from "./applicationWriteOwnership/Catalog";
@@ -59,6 +60,9 @@ import {
   type ApplicationReadinessAuthority,
   ApplicationReadinessError,
   validateApplicationPhysicalReadinessInTransactionEffect,
+  selectApplicationActivationTargetResult,
+  type ApplicationActivationTargetProfile,
+  type ApplicationActivationTargetPreparation,
 } from "./applicationReadiness";
 import {
   ApplicationRelationSemanticValidationAttemptFenceSchema,
@@ -467,6 +471,34 @@ interface IssuedReadyResultState {
 }
 const issuedReadyResults = new WeakMap<object, IssuedReadyResultState>();
 
+declare const relationActivationViewBrand: unique symbol;
+export interface PreparedApplicationRelationReadinessActivation {
+  readonly [relationActivationViewBrand]: true;
+}
+const relationActivationViews = new WeakMap<PreparedApplicationRelationReadinessActivation, Readonly<{
+  repository: FoldRepositoryState;
+  issued: ApplicationRelationReadinessFoldResult;
+  target: ApplicationActivationTargetPreparation;
+}>>();
+
+/** The original issued result remains the requirement and catalog-lease owner.
+ * This view only prepares the accepting target for that exact result. */
+export const prepareApplicationRelationReadinessActivation = Effect.fn("ApplicationRelationReadinessFold.prepareActivation")(
+  function* (repository: ApplicationRelationReadinessFoldRepository, issued: ApplicationRelationReadinessFoldResult,
+    profile: ApplicationActivationTargetProfile, servingTarget: LocatedReadCommittedAttemptTargetV1) {
+    const state = issuedReadyResults.get(issued);
+    if (state === undefined || state.kind !== "prepared" || repositoryStates.get(repository) !== state.repository)
+      return yield* failure("invalidComposition");
+    const target = yield* Effect.fromResult(selectApplicationActivationTargetResult(profile, servingTarget,
+      state.prepared.bundle.authority.physicalLocator)).pipe(
+      Effect.mapError(cause => failureValue("invalidComposition", false, cause)));
+    // SAFETY: only this readiness issuer's registry authenticates the inert view.
+    const preparation = Object.freeze({}) as PreparedApplicationRelationReadinessActivation;
+    relationActivationViews.set(preparation, Object.freeze({ repository: state.repository, issued, target }));
+    return Object.freeze({ target: target.target, preparation });
+  }, Effect.mapError(error => exposeFoldIssue("validate", error)),
+);
+
 export function makeApplicationRelationReadinessFoldRepository(
   context: ApplicationRelationReadinessFoldContext,
 ): ApplicationRelationReadinessFoldRepository {
@@ -741,6 +773,7 @@ export const validateApplicationRelationReadinessForActivationInTransaction =
     tx: AppRowTransaction,
     currentClock: ScopeClockRecord,
     catalogLease?: ApplicationActivationCatalogLease,
+    activationPreparation?: PreparedApplicationRelationReadinessActivation,
   ): Effect.fn.Return<
     ApplicationRelationReadinessActivationValidation,
     SettleApplicationRelationReadinessFoldError
@@ -752,6 +785,7 @@ export const validateApplicationRelationReadinessForActivationInTransaction =
       tx,
       currentClock,
       catalogLease,
+      activationPreparation,
     ).pipe(
       Effect.mapError(error => exposeFoldIssue("validate", error)),
     );
@@ -1929,6 +1963,7 @@ const validateIssuedRelationReadinessForActivation = Effect.fn(
   tx: AppRowTransaction,
   currentClock: ScopeClockRecord,
   catalogLease?: ApplicationActivationCatalogLease,
+  activationPreparation?: PreparedApplicationRelationReadinessActivation,
 ): Effect.fn.Return<
   ApplicationRelationReadinessActivationValidation,
   InternalApplicationRelationReadinessFoldError
@@ -1946,6 +1981,13 @@ const validateIssuedRelationReadinessForActivation = Effect.fn(
     issuedState.repository !== repositoryState ||
     issuedState.prepared.bundle.authority.scopeId !== currentClock.scopeId
   ) return yield* failure("invalidComposition");
+  if (activationPreparation !== undefined) {
+    const activation = relationActivationViews.get(activationPreparation);
+    if (activation === undefined || activation.repository !== repositoryState || activation.issued !== issued ||
+      (activation.target.installed !== undefined && !isManagedInstallationTransaction(tx,
+        activation.target.installed.database, activation.target.installed.installation)))
+      return yield* failure("invalidComposition");
+  }
   const catalog = catalogLease === undefined ? undefined : activationCatalogLeases.get(catalogLease);
   if (catalogLease !== undefined && (catalog === undefined || catalog.issued !== issued)) return yield* failure("invalidComposition");
   const validated = yield* validatePreparedFoldInTransaction(

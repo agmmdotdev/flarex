@@ -1,6 +1,6 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { CatalogIndexDefinitionId } from "flarex-protocol/catalog";
 import type { AppRowTransaction } from "./appRows";
 import { MAX_RECONCILED_DEFINITIONS, type PublishedPhysicalRequirementSnapshotV1, type ReadRelatedPublishedPhysicalRequirements } from "./indexBuildReconciliation";
@@ -9,16 +9,27 @@ import { SchemaVersionArtifactPersistenceError } from "./schemaVersionArtifacts"
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect, type IndexBuildStateRecord } from "./indexBuildStates";
-import { hashIndexMaintenanceEvidence, indexMaintenanceFrameBytes, IndexMaintenanceError,
-  type IndexMaintenanceFrame } from "./indexMaintenanceEvidence";
-import { fxSystemIndexBuildStates } from "./schema";
+import { indexBuildStateSelection, indexMaintenanceBindingPredicate } from "./indexBuildStates";
+import { IndexMaintenanceError } from "./indexMaintenanceModel";
+import { applicationDomainFailureDetail } from "./applicationDocumentMaterialization/domainApplication";
+import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "./applicationActivationSchema";
+import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
+import { DrizzleQueryError } from "drizzle-orm/errors";
+import { fxSystemApplicationReadinessV1, fxSystemIndexBuildStates, fxSystemIndexMaintenanceObligations } from "./schema";
 import type { ScopeClockRecord } from "./scopeClock";
+
+const decodePublisherCounts = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({
+  closedCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  openedCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+})]));
+const decodePublisherRefusal = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
+  domain: Schema.Literal("index"), reason: Schema.Literals(["storedState", "unavailable"]),
+})), { onExcessProperty: "error" });
 
 /** Called only by activation after issued readiness validation, under its scope clock. */
 export const replaceActiveIndexMaintenanceInTransactionEffect = Effect.fn("IndexMaintenance.replaceActive")(
   function* (tx: AppRowTransaction, readRelatedRequirements: ReadRelatedPublishedPhysicalRequirements, clock: ScopeClockRecord, requirements: PublishedPhysicalRequirementSnapshotV1,
-    activationSequence: bigint, headSha256: Uint8Array,
-    afterWrite?: (point: "maintenanceClosed" | "maintenanceOpened") => void | Promise<void>) {
+    activationSequence: bigint, activationSha256: Uint8Array, headSha256: Uint8Array) {
     const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock);
     let outgoingRequirements: PublishedPhysicalRequirementSnapshotV1 | null = null;
     if (context.active !== null) {
@@ -42,14 +53,14 @@ export const replaceActiveIndexMaintenanceInTransactionEffect = Effect.fn("Index
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
     }
     const ids = [...new Set([...outgoing.map(row => row.id), ...requirements.definitions.map(definition => definition.indexDefinitionId)])];
-    if (ids.length === 0) return;
-    const rows = yield* query(tx.select().from(fxSystemIndexBuildStates).where(and(
+    const rows = ids.length === 0 ? [] : yield* query(tx.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(and(
       eq(fxSystemIndexBuildStates.scopeId, clock.scopeId), inArray(fxSystemIndexBuildStates.indexDefinitionId, ids),
-    )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for("update"));
+    )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for("update", { of: fxSystemIndexBuildStates }));
     if (rows.length !== ids.length) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
     const builds = new Map<CatalogIndexDefinitionId, IndexBuildStateRecord>();
     for (const row of rows) {
-      const build = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId, row.indexDefinitionId))
+      const build = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId, row.indexDefinitionId, row.maintenanceObligation))
         .pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
       builds.set(build.indexDefinitionId, build);
       if (build.maintenance !== null) {
@@ -66,46 +77,47 @@ export const replaceActiveIndexMaintenanceInTransactionEffect = Effect.fn("Index
       if (build === undefined || !(yield* isIndexBuildSnapshotCoveredInTransactionEffect(
         tx, build, definition, clock.lastCommitSeq, context,
       ))) return yield* Effect.fail(new IndexMaintenanceError({ reason: "unavailable" }));
-      if (build.maintenance !== null && build.maintenance.frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex) {
+      if (build.maintenance !== null && encodeBytesToLowercaseHex(build.maintenance.physicalSpecSha256) !== definition.physicalSpecSha256Hex) {
         return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
       }
     }
-    const incoming = new Map(requirements.definitions.map(definition => [definition.indexDefinitionId, definition]));
-    for (const build of builds.values()) {
-      const definition = incoming.get(build.indexDefinitionId);
-      let bytes: Uint8Array | null = null;
-      let sha256: Uint8Array | null = null;
-      if (definition !== undefined) {
-        if (build.firstReadableCommitSeq === null) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
-        const frame: IndexMaintenanceFrame = {
-          format: "flarex.index-maintenance", version: 1, scopeId: build.scopeId,
-          storageGeneration: build.storageGeneration, storageGenerationFence: build.storageGenerationFence.toString(), epoch: build.epoch,
-          indexDefinitionId: build.indexDefinitionId, tableId: definition.tableId, physicalSpecSha256Hex: definition.physicalSpecSha256Hex,
-          deploymentId: requirements.deploymentId, schemaVersionId: requirements.schemaVersionId,
-          schemaManifestSha256: encodeBytesToLowercaseHex(requirements.manifestSha256), attemptFence: build.attemptFence.toString(),
-          firstReadableCommitSeq: build.firstReadableCommitSeq.toString(), openedCommitSeq: clock.lastCommitSeq.toString(),
-          activationSequence: activationSequence.toString(), headSha256: encodeBytesToLowercaseHex(headSha256),
-        };
-        bytes = indexMaintenanceFrameBytes(frame);
-        sha256 = yield* hashIndexMaintenanceEvidence(bytes);
-      }
-      const updated = yield* query(tx.update(fxSystemIndexBuildStates).set({
-        coveredThroughCommitSeq: clock.lastCommitSeq,
-        maintenanceActivationSequence: definition === undefined ? null : activationSequence,
-        maintenanceBytes: bytes, maintenanceSha256: sha256, updatedAt: sql`clock_timestamp()`,
-      }).where(and(eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-        eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
-        eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence), eq(fxSystemIndexBuildStates.lifecycle, "enabled")))
-        .returning({ id: fxSystemIndexBuildStates.indexDefinitionId }));
-      if (updated.length !== 1) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
-      if (afterWrite !== undefined) yield* Effect.tryPromise({
-        try: async () => { await afterWrite(definition === undefined ? "maintenanceClosed" : "maintenanceOpened"); },
-        catch: cause => new IndexMaintenanceError({ reason: "resourceFailure", cause }),
-      });
-    }
+    const written = yield* runDrizzleStatementEffect(tx.select({ closedCount: sql<number>`written.closed_count`,
+      openedCount: sql<number>`written.opened_count` }).from(sql`fx_replace_active_index_maintenance(
+        ${clock.scopeId}::text,
+        ${sql.param(context.active?.head.activationSequence ?? null, fxSystemApplicationActivations.activationSequence)}::bigint,
+        ${sql.param(context.active?.head.headSha256 ?? null, fxSystemApplicationActiveHeads.headSha256)}::bytea,
+        ${sql.param(activationSequence, fxSystemApplicationActivations.activationSequence)}::bigint,
+        ${sql.param(activationSha256, fxSystemApplicationActivations.activationSha256)}::bytea,
+        ${sql.param(headSha256, fxSystemApplicationActiveHeads.headSha256)}::bytea,
+        ${outgoingRequirements?.deploymentId ?? null}::text, ${outgoingRequirements?.schemaVersionId ?? null}::text,
+        ${sql.param(outgoingRequirements?.manifestSha256 ?? null, fxSystemApplicationReadinessV1.schemaManifestSha256)}::bytea,
+        ${indexMaintenanceMembers(outgoingRequirements)}::jsonb, ${requirements.deploymentId}::text, ${requirements.schemaVersionId}::text,
+        ${sql.param(requirements.manifestSha256, fxSystemApplicationReadinessV1.schemaManifestSha256)}::bytea,
+        ${indexMaintenanceMembers(requirements)}::jsonb) as written`), publisherFailure);
+    const [counts] = yield* decodePublisherCounts(written).pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
+    if (counts.openedCount !== requirements.definitions.length || counts.closedCount + counts.openedCount !== builds.size)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    return counts;
   },
 );
 
+function indexMaintenanceMembers(snapshot: PublishedPhysicalRequirementSnapshotV1 | null): string {
+  return JSON.stringify((snapshot?.definitions ?? [])
+    .toSorted((left, right) => left.indexDefinitionId - right.indexDefinitionId).map(definition => ({
+      definitionId: definition.indexDefinitionId, tableId: definition.tableId, physicalSpecSha256: definition.physicalSpecSha256Hex,
+    })));
+}
+
 function query<A>(promise: PromiseLike<A>): Effect.Effect<A, IndexMaintenanceError> {
   return runDrizzleStatementEffect(promise, cause => new IndexMaintenanceError({ reason: "resourceFailure", cause }));
+}
+
+function publisherFailure(cause: unknown): IndexMaintenanceError {
+  const detail = applicationDomainFailureDetail(cause, "fx_replace_active_index_maintenance");
+  if (detail !== null) return Result.match(decodePublisherRefusal(detail), {
+    onFailure: () => new IndexMaintenanceError({ reason: "resourceFailure", cause }),
+    onSuccess: refusal => new IndexMaintenanceError({ reason: refusal.reason, cause }),
+  });
+  const provider = cause instanceof DrizzleQueryError ? cause.cause : cause;
+  return new IndexMaintenanceError({ reason: "resourceFailure", retryable: isRetryableSqlTransactionCause(provider), cause });
 }

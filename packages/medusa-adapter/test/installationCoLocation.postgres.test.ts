@@ -48,7 +48,7 @@ native("colocated installation authority", () => {
       const controlOwner = await createFileScopedPostgresFixture(); cleanups.push(controlOwner.dispose);
       const targetOwner = await createFileScopedPostgresFixture(); cleanups.push(targetOwner.dispose);
       const seeded = await logicalCurrencyFixture("postgres", cleanup => { cleanups.push(cleanup); }, {
-        resource: { kind: "postgres", control: controlOwner.persistence, target: targetOwner.persistence },
+        resource: { kind: "postgres", control: controlOwner.persistence, target: targetOwner.persistence, testOwner: targetOwner.persistence },
         fixtureIdentity: { deploymentId: "installation_colocated_scope", projectId: "installation_colocated_scope", uuidOffset: 7000 },
       });
       const target = await createProtectedFileScopedPostgresFixture("managed", targetOwner); cleanups.push(target.dispose);

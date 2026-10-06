@@ -1,3 +1,6 @@
+import type { ApplicationActivationTargetProfile } from "../../../persistence-postgres/src/applicationReadiness";
+import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../../persistence-postgres/src/postgres";
+import { isLocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/transactionSessionAttemptKernel";
 import { Effect, Result } from "effect";
 import { prepareLogicalSchemaCandidate, readPreparedLogicalSchemaCandidate } from "../../../analysis/src/logicalSchemaCandidate";
 import { prepareLogicalReadMetadataScalingCandidate, logicalReadMetadataCounts, type LogicalReadMetadataScale } from
@@ -9,7 +12,7 @@ import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   "../../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
 import { createMigratedPGlitePersistence } from "../../../persistence-postgres/test/pgliteTestFixture";
 import { createRelationalPGliteFixture } from "../../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture } from
+import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture } from
   "../../../persistence-postgres/test/postgresHelpers";
 import { createCoLocatedReadInstallationFixture } from "../../../persistence-postgres/test/postgresHelpers";
 import type { ProtectedMetadataPreparation } from
@@ -81,10 +84,13 @@ export interface LogicalCurrencyPreparationTiming {
 
 type LogicalCurrencyResource =
   | Readonly<{ kind: "pglite"; control: PGliteFlarexPersistence; target: PGliteFlarexPersistence;
+    testOwner: PGliteFlarexPersistence;
     session: RelationalSession; observeSql: (observer: ((text: string) => Promise<void> | void) | undefined) => void }>
   | Readonly<{ kind: "postgres"; control: PostgresFlarexPersistence; target: PostgresFlarexPersistence;
+    testOwner: PostgresFlarexPersistence;
     installationTiming?: LogicalInstallationTiming;
     protectedMetadata?: ProtectedMetadataPreparation;
+    activationProfile?: ApplicationActivationTargetProfile;
     managedRead?: Readonly<{ installation: PreparedInstallation; controlInstallation: PreparedInstallation;
       readInstallation?: PreparedCoLocatedReadInstallation;
       control: PostgresFlarexPersistence }> }>;
@@ -92,6 +98,7 @@ type LogicalCurrencyResource =
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
   includeUserNameIndex?: boolean; includeProductLaunch?: boolean;
+  initialUserDocuments?: ApplicationNativeMutationFixtureOptions["initialUserDocuments"];
   payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
   extensions?: readonly LogicalSchemaExtension[]; additionalSources?: readonly LogicalSchemaSource[];
   includeVariantPricingLink?: boolean;
@@ -101,6 +108,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeProductShippingProfileLink?: boolean;
   protectedRuntime?: boolean;
   managedRead?: boolean;
+  finiteStorageCapture?: true;
   readMetadataScale?: LogicalReadMetadataScale;
   applicationAcceptanceScale?: ApplicationNativeMutationFixtureOptions["acceptanceScale"];
   readinessRuntimeHostIdentity?: string;
@@ -116,6 +124,8 @@ export interface LogicalCurrencyFixture {
   readonly application: ApplicationNativeMutationPGliteFixture | ApplicationNativeMutationPostgresFixture;
   readonly control: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
+  /** Existing database owner used only for deliberate test corruption/restoration. */
+  readonly testOwner: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly deploymentId: string;
   readonly bindingTarget: FrameworkSchemaTarget;
   readonly schemaVersionId: CatalogSchemaVersionId;
@@ -153,6 +163,7 @@ export async function logicalCurrencyFixture(
 ): Promise<LogicalCurrencyFixture> {
   const fixtureStarted = performance.now();
   let observer: ((text: string) => Promise<void> | void) | undefined;
+  let activationResources: Awaited<ReturnType<typeof createActivationServingFileScopedPostgresFixture>> | undefined;
   let prepareReadInstallation: (() => Promise<Readonly<{ readInstallation: PreparedCoLocatedReadInstallation;
     controlInstallation: PreparedInstallation; coLocatedSetupMs: number }>>) | undefined;
   if (options?.resource !== undefined && options.fixtureIdentity === undefined)
@@ -163,8 +174,9 @@ export async function logicalCurrencyFixture(
     throw new Error("Managed logical Currency reads require PostgreSQL");
   const pair: LogicalCurrencyResource = options?.resource ?? (driver === "pglite" ? await (async () => {
     const control = await createMigratedPGlitePersistence(registerCleanup);
-    const target = await createRelationalPGliteFixture({ registerCleanup, observeQuery: text => observer?.(text) });
-    return { kind: "pglite" as const, control, target: target.persistence, session: target.session,
+    const target = await createRelationalPGliteFixture({ registerCleanup, observeQuery: text => observer?.(text),
+      transport: options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary" });
+    return { kind: "pglite" as const, control, target: target.persistence, testOwner: target.persistence, session: target.session,
       observeSql: (next: typeof observer) => { observer = next; } };
   })() : await (async () => {
       // Unique disposable schemas have no dependency on one another. Await
@@ -173,8 +185,14 @@ export async function logicalCurrencyFixture(
       const [controlResult, targetResult] = await Promise.allSettled([
         createFileScopedPostgresFixture().then(resource => { registerCleanup(resource.dispose); return resource; }),
         (options?.protectedRuntime === true || options?.managedRead === true
-          ? createProtectedFileScopedPostgresFixture(options?.managedRead === true ? "managed" : "fullProof")
-          : createFileScopedPostgresFixture()).then(resource => { registerCleanup(resource.dispose); return resource; }),
+          ? createActivationServingFileScopedPostgresFixture(undefined,
+            options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary").then(resource => {
+              activationResources = resource;
+              registerCleanup(resource.dispose);
+              return resource.serving;
+            })
+          : createFileScopedPostgresFixture({}, {}, options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary")
+            .then(resource => { registerCleanup(resource.dispose); return resource; })),
       ]);
       if (controlResult.status === "rejected") {
         if (targetResult.status === "rejected") throw new AggregateError([controlResult.reason, targetResult.reason],
@@ -209,9 +227,18 @@ export async function logicalCurrencyFixture(
         + (managedControl?.installationTiming.managedSetupMs ?? 0);
       const installationTiming = Object.freeze({ migrationMs, managedSetupMs, coLocatedSetupMs: 0,
         totalInstallationMs: migrationMs + managedSetupMs });
+      const activationProfile = activationResources === undefined ? undefined : (() => {
+        const activationTarget = createPostgresLocatedPointMutationSessionActivationTargetV1(activationResources.activation.persistence,
+          { kind: "database_per_scope", databaseKey: "logical_currency_target", schemaName: target.schemaName },
+          { directInstallation: activationResources.activation.installation });
+        if (!isLocatedReadCommittedAttemptTargetV1(activationTarget)) throw new Error("Missing genuine activation runner");
+        return { kind: "installed" as const, installation: activationResources.pair, target: activationTarget };
+      })();
       return { kind: "postgres" as const, control: control.persistence, target: target.persistence,
+        testOwner: activationResources === undefined ? target.persistence : activationResources.owner.persistence,
         installationTiming,
         ...(managedRead === undefined ? {} : { managedRead }),
+        ...(activationProfile === undefined ? {} : { activationProfile }),
         ...("protectedMetadata" in target ? { protectedMetadata: target.protectedMetadata } : {}) };
     })());
   const provisionAndMigrateMs = performance.now() - fixtureStarted;
@@ -230,16 +257,22 @@ export async function logicalCurrencyFixture(
       Effect.flatMap(refs => prepareProtectedMetadata(target.drizzle, refs.controlInstallation))));
   const schemaName = (await target.query<{ schema: string }>("select current_schema() as schema")).rows[0]?.schema;
   if (schemaName === undefined) throw new Error("Missing logical Currency target schema");
-  const applicationOptions = { runtimeHostIdentity: options?.readinessRuntimeHostIdentity ?? "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
+  const applicationProtection = pair.kind !== "postgres" ? undefined :
+    pair.activationProfile?.kind === "installed" && pair.managedRead === undefined
+      ? await Effect.runPromise(prepareProtectedMetadata(target.drizzle)) : pair.protectedMetadata;
+  const applicationOptions = {
+    ...(pair.kind === "postgres" && pair.activationProfile !== undefined ? { activationProfile: pair.activationProfile } : {}),
+    runtimeHostIdentity: options?.readinessRuntimeHostIdentity ?? "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
     ...(managedInstallationSetup === undefined || managedControlProtection === undefined ? {} :
       { managedInstallation: { installation: managedInstallationSetup.readInstallation, controlProtection: managedControlProtection } }),
     ...(options?.applicationAcceptanceScale === undefined ? {} : { acceptanceScale: options.applicationAcceptanceScale }),
     ...(options?.includeApplicationTask === undefined ? {} : { includeTask: options.includeApplicationTask }),
     ...(options?.includeUserNameIndex === true ? { includeUserNameIndex: true } : {}),
+    ...(options?.initialUserDocuments === undefined ? {} : { initialUserDocuments: options.initialUserDocuments }),
     ...(options?.includeProductLaunch === true ? { includeProductLaunch: true } : {}),
     ...(options?.fixtureIdentity === undefined ? {} : { fixtureIdentity: options.fixtureIdentity }),
-    ...(pair.kind === "postgres" && pair.protectedMetadata !== undefined
-      ? { protectedMetadata: { database: target.drizzle, token: pair.protectedMetadata } } : {}),
+    ...(pair.kind === "postgres" && applicationProtection !== undefined
+      ? { protectedMetadata: { database: target.drizzle, token: applicationProtection } } : {}),
     physicalLocator: { kind: "database_per_scope" as const, databaseKey: "logical_currency_target", schemaName } };
   const application = pair.kind === "postgres"
     ? await createApplicationNativeMutationPostgresFixture(applicationOptions, { control: pair.control, target: pair.target })
@@ -398,7 +431,7 @@ export async function logicalCurrencyFixture(
       installationTiming, fixtureConstructionMs: performance.now() - fixtureStarted,
       preparationTiming: { provisionAndMigrateMs, applicationAndReadInstallationMs, compositionAndCompilationMs,
         logicalAdmissionMs, indexAndUniqueBuildMs, bindingAndInitializationMs: performance.now() - bindingStarted },
-      application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
+      application, control, persistence: target, testOwner: pair.testOwner, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource, sourcePins,
       managedRead,
       currencyDefinition: definition,

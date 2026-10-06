@@ -3,9 +3,11 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { sql } from "drizzle-orm";
-import { initializeFullProofInstallation } from "./installationLifecycle";
+import { initializeFullProofInstallation, verifyInstallationWriterProtection, InstallationLifecycleError } from "./installationLifecycle";
+import { prepareTypedMaintenanceMigration } from "./indexMaintenanceMigration";
+import type { FlarexMetadataDatabase } from "./deployments";
 import { backfillStandaloneApplicationBindings } from "./applicationActivation";
 import { backfillBindingMetadataProjections } from "./frameworkSchema/binding/repository";
 import { backfillLogicalReadProjections } from "./logicalStorageDefinitions";
@@ -108,10 +110,15 @@ type PGliteTransactionLike = {
   ): Promise<QueryResult<Row>>;
 };
 
+// PGlite serializes individual statements, but its single PostgreSQL backend
+// reenters session advisory locks. The actual client owns the complete command.
+const activePGliteMaintenance = new WeakSet<PGliteLike>();
+
 export interface PGlitePersistenceOptions {
   dataDir?: string;
   db?: PGliteLike;
   migrationsFolder?: string;
+  immutableCatalog?: FlarexMetadataDatabase;
 }
 
 export interface PGliteFlarexPersistence extends FlarexPersistence {
@@ -322,6 +329,7 @@ export async function createPGlitePersistence(
     client: db as PGlite,
     schema: flarexSchema,
   });
+  const immutableCatalog = options.immutableCatalog ?? drizzleDb;
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPGliteSqlClient(drizzleDb, db),
@@ -352,16 +360,44 @@ export async function createPGlitePersistence(
     ...runtime,
     drizzle: drizzleDb,
     async migrate(): Promise<void> {
-      await migratePGlite(drizzleDb, { migrationsFolder });
-      const [installation] = await drizzleDb.select({ installed: sql<boolean>`pg_catalog.to_regclass('fx_system_installation') is not null` })
-        .from(sql`(values (1)) as pglite_installation(value)`);
-      if (installation?.installed !== true) return; // Historical migration fixture.
+      if (activePGliteMaintenance.has(db)) throw maintenanceIssue("busy");
+      activePGliteMaintenance.add(db);
+      try {
+      await Effect.runPromise(withFullProofInstallationMaintenance(drizzleDb, Effect.gen(function* () {
+      const [existing] = yield* maintenanceQuery(() => drizzleDb.select({
+        present: sql`pg_catalog.to_regclass('fx_system_installation') is not null`,
+        schemaName: sql`current_schema()`,
+      }).from(sql`(values (1)) as pglite_existing_installation(value)`)).pipe(
+        Effect.flatMap(rows => decodeLocatedMaintenancePresenceRows(rows).pipe(
+          Effect.mapError(cause => maintenanceIssue("invalidInstallation", cause)))));
+      if (existing.present) {
+        yield* prepareTypedMaintenanceMigration(drizzleDb, immutableCatalog, existing.schemaName, {}).pipe(
+          Effect.mapError(cause => maintenanceIssue("invalidInstallation", cause)));
+      }
+      yield* Effect.tryPromise({ try: () => migratePGlite(drizzleDb, { migrationsFolder }),
+        catch: cause => new InstallationLifecycleError({ reason: "resourceFailure", cause }) });
+      const [installation] = yield* maintenanceQuery(() => drizzleDb.select({ present: sql`pg_catalog.to_regclass('fx_system_installation') is not null` })
+        .from(sql`(values (1)) as pglite_installation(value)`)).pipe(Effect.flatMap(rows => decodeMaintenancePresenceRows(rows).pipe(
+          Effect.mapError(cause => maintenanceIssue("invalidInstallation", cause)))));
+      if (!installation.present) return; // Historical migration fixture.
       // PGlite's owner-only compatibility lane is single-backend and explicitly
       // fullProof. It cannot issue a managed installation capability.
-      await Effect.runPromise(initializeFullProofInstallation(drizzleDb));
-      await Effect.runPromise(backfillStandaloneApplicationBindings(drizzleDb, drizzleDb));
-      await Effect.runPromise(backfillBindingMetadataProjections(drizzleDb, drizzleDb));
-      await Effect.runPromise(backfillLogicalReadProjections(drizzleDb));
+      const [gate] = yield* maintenanceQuery(() => drizzleDb.select({ state: sql`state` }).from(sql`fx_system_installation`).limit(2)).pipe(
+        Effect.flatMap(rows => decodeMaintenanceStateRows(rows).pipe(Effect.mapError(cause => maintenanceIssue("invalidInstallation", cause)))));
+      if (gate.state === "unverified") yield* initializeFullProofInstallation(drizzleDb);
+      yield* backfillStandaloneApplicationBindings(drizzleDb, immutableCatalog);
+      yield* backfillBindingMetadataProjections(drizzleDb, immutableCatalog);
+      yield* backfillLogicalReadProjections(drizzleDb);
+      })));
+      await Effect.runPromise(Effect.gen(function* () {
+        const [installation] = yield* maintenanceQuery(() => drizzleDb.select({ present: sql`pg_catalog.to_regclass('fx_system_installation') is not null` })
+          .from(sql`(values (1)) as pglite_installation(value)`)).pipe(Effect.flatMap(rows => decodeMaintenancePresenceRows(rows).pipe(
+            Effect.mapError(cause => maintenanceIssue("invalidInstallation", cause)))));
+        if (installation.present) yield* initializeFullProofInstallation(drizzleDb);
+      }));
+      } finally {
+        activePGliteMaintenance.delete(db);
+      }
     },
   };
 }
@@ -384,3 +420,97 @@ function createPGliteSqlClient(
     ) => client.query<Row>(statement, params),
   };
 }
+
+const maintenanceIssue = (reason: InstallationLifecycleError["reason"], cause?: unknown) =>
+  new InstallationLifecycleError({ reason, ...(cause === undefined ? {} : { cause }) });
+const maintenanceQuery = <Value>(run: () => PromiseLike<Value>) => Effect.tryPromise({
+  try: () => Promise.resolve(run()), catch: cause => maintenanceIssue("resourceFailure", cause),
+});
+const maintenancePositiveIntegerText = Schema.String.check(Schema.makeFilter(value =>
+  /^[1-9][0-9]*$/.test(value) ? undefined : "Expected canonical positive integer text"));
+const maintenanceNamespaceOid = maintenancePositiveIntegerText.check(Schema.makeFilter(value =>
+  /^[1-9][0-9]*$/.test(value) && BigInt(value) > 4_294_967_295n ? "Namespace OID exceeds PostgreSQL OID bounds" : undefined));
+const maintenanceGeneration = maintenancePositiveIntegerText.check(Schema.makeFilter(value =>
+  /^[1-9][0-9]*$/.test(value) && BigInt(value) > 9_223_372_036_854_775_807n ? "Installation generation exceeds signed bigint bounds" : undefined));
+const maintenanceUuid = Schema.String.check(Schema.isUUID());
+const maintenancePresenceSchema = Schema.Struct({ present: Schema.Boolean });
+const decodeMaintenancePresenceRows = Schema.decodeUnknownEffect(Schema.Tuple([maintenancePresenceSchema]));
+const decodeLocatedMaintenancePresenceRows = Schema.decodeUnknownEffect(Schema.Tuple([
+  Schema.Struct({ present: Schema.Boolean, schemaName: Schema.NonEmptyString }),
+]));
+const decodeMaintenanceStateRows = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ state: Schema.NonEmptyString })]));
+const maintenanceGateSchema = Schema.Struct({ state: Schema.NonEmptyString, schema: Schema.NonEmptyString,
+  owner: Schema.Boolean, noRuntimePolicies: Schema.Boolean, namespaceOid: maintenanceNamespaceOid,
+  incarnation: maintenanceUuid, generation: maintenanceGeneration });
+const decodeMaintenanceGateRows = Schema.decodeUnknownEffect(Schema.Tuple([maintenanceGateSchema]));
+const decodeMaintenanceLockRows = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ owner: Schema.Boolean, drain: Schema.Boolean })]));
+const maintenanceOwnerSchema = Schema.Struct({ owner: maintenanceUuid, incarnation: maintenanceUuid, generation: maintenanceGeneration });
+const decodeMaintenanceOwnerRows = Schema.decodeUnknownEffect(Schema.Tuple([maintenanceOwnerSchema]));
+const decodeMaintenanceReopenRows = Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ reopened: Schema.Literal(1) })]));
+/** The owner-only single-backend compatibility installer uses the same durable
+ * draining state and admission exclusion as managed maintenance. A failed
+ * upgrade remains closed; this never issues a managed runtime capability. */
+const withFullProofInstallationMaintenance = Effect.fn("InstallationLifecycle.withFullProofMaintenance")(
+  function* <Value, Failure, Requirements>(database: PgliteDatabase<typeof flarexSchema>,
+    work: Effect.Effect<Value, Failure, Requirements>) {
+    const [exists] = yield* maintenanceQuery(() => database.select({ present: sql`pg_catalog.to_regclass('fx_system_installation') is not null` })
+      .from(sql`(values (1)) as installation_presence(value)`)).pipe(Effect.flatMap(rows => decodeMaintenancePresenceRows(rows).pipe(
+        Effect.mapError(cause => maintenanceIssue("invalidInstallation", cause)))));
+    if (!exists.present) return yield* work;
+    const [gate] = yield* maintenanceQuery(() => database.select({ state: sql`i.state`, schema: sql`current_schema()`,
+      owner: sql`pg_catalog.pg_has_role(session_user, c.relowner, 'USAGE')`,
+      noRuntimePolicies: sql`not exists(select 1 from fx_system_installation_runtime)`,
+      namespaceOid: sql`i.namespace_oid::text`, incarnation: sql`i.incarnation::text`, generation: sql`i.structural_generation::text` })
+      .from(sql`fx_system_installation i join pg_catalog.pg_class c
+        on c.oid = 'fx_system_installation'::pg_catalog.regclass where i.singleton_id = 1`).limit(2)).pipe(
+          Effect.flatMap(rows => decodeMaintenanceGateRows(rows).pipe(Effect.mapError(cause => maintenanceIssue("invalidCapability", cause)))));
+    if (!gate.owner || !gate.noRuntimePolicies)
+      return yield* Effect.fail(maintenanceIssue("invalidCapability"));
+    if (gate.state !== "active" && gate.state !== "unverified" && gate.state !== "draining")
+      return yield* Effect.fail(maintenanceIssue("inactive"));
+    const schema = sql.identifier(gate.schema);
+    return yield* Effect.uninterruptible(Effect.gen(function* () {
+    const owned = yield* Effect.exit(maintenanceQuery(() => database.select({ owner: sql`pg_catalog.pg_try_advisory_lock(2147483001,
+      (${gate.namespaceOid}::bigint - 2147483648)::integer)`,
+      drain: sql`pg_catalog.pg_try_advisory_lock(2147483002, (${gate.namespaceOid}::bigint - 2147483648)::integer)` })
+      .from(sql`(values (1)) as compatibility_maintenance(value)`)).pipe(Effect.flatMap(rows => decodeMaintenanceLockRows(rows).pipe(
+        Effect.mapError(cause => maintenanceIssue("invalidCapability", cause))))));
+    const operation = Effect.gen(function* () {
+      if (Exit.isFailure(owned)) return yield* Effect.failCause(owned.cause);
+      const [locks] = owned.value;
+      if (!locks.owner || !locks.drain) return yield* Effect.fail(maintenanceIssue("busy"));
+      const acquired = yield* maintenanceQuery(() => database.execute(sql`update ${schema}.fx_system_installation set state = 'draining',
+        maintenance_owner = pg_catalog.gen_random_uuid(), maintenance_pid = pg_backend_pid(),
+        maintenance_backend_start = (select backend_start from pg_catalog.pg_stat_activity where pid = pg_backend_pid()),
+        incarnation = pg_catalog.gen_random_uuid(), structural_generation = structural_generation + 1 where singleton_id = 1
+        and incarnation = ${gate.incarnation}::uuid and structural_generation = ${gate.generation}::bigint
+        returning maintenance_owner::text as owner, incarnation::text as incarnation, structural_generation::text as generation`));
+      const [owner] = yield* decodeMaintenanceOwnerRows(acquired.rows).pipe(Effect.mapError(cause => maintenanceIssue("changed", cause)));
+      const value = yield* work;
+      yield* verifyInstallationWriterProtection(database, gate.schema);
+      const reopened = yield* maintenanceQuery(() => database.execute(sql`update ${schema}.fx_system_installation set state = 'active',
+        maintenance_owner = null, maintenance_pid = null, maintenance_backend_start = null where singleton_id = 1
+        and state = 'draining' and maintenance_pid = pg_backend_pid()
+        and maintenance_owner = ${owner.owner}::uuid and incarnation = ${owner.incarnation}::uuid
+        and structural_generation = ${owner.generation}::bigint
+        and maintenance_backend_start = (select backend_start from pg_catalog.pg_stat_activity where pid = pg_backend_pid())
+        returning 1 as reopened`));
+      yield* decodeMaintenanceReopenRows(reopened.rows).pipe(Effect.mapError(cause => maintenanceIssue("changed", cause)));
+      return value;
+    });
+    const result = yield* Effect.exit(operation);
+      // The lock query may have acquired a session lock before its result was
+      // lost or failed decoding. This command owns both keys on this backend;
+      // unlock also safely reports false when a key was never acquired.
+      const drained = yield* Effect.exit(maintenanceQuery(() => database.execute(sql`select pg_catalog.pg_advisory_unlock(2147483002,
+        (${gate.namespaceOid}::bigint - 2147483648)::integer)`)));
+      const released = yield* Effect.exit(maintenanceQuery(() => database.execute(sql`select pg_catalog.pg_advisory_unlock(2147483001,
+        (${gate.namespaceOid}::bigint - 2147483648)::integer)`)));
+      const cleanup = Cause.combine(Exit.isFailure(drained) ? drained.cause : Cause.empty,
+        Exit.isFailure(released) ? released.cause : Cause.empty);
+      if (Exit.isFailure(result)) return yield* Effect.failCause(Cause.combine(result.cause, cleanup));
+      if (cleanup.reasons.length > 0) return yield* Effect.failCause(cleanup);
+      return result.value;
+    }));
+  },
+);

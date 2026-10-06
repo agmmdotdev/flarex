@@ -1,18 +1,29 @@
-import { count } from "drizzle-orm";
-import { Cause, Deferred, Effect, Exit, Result } from "effect";
+import { count, eq, sql } from "drizzle-orm";
+import { Cause, Data, Deferred, Duration, Effect, Exit, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
 import { createPostgresPersistence } from "../../persistence-postgres/src/postgres";
-import { fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims,
+import { fxAppRowRevisions, fxSystemCommits, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournals, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { createMixedMutationProductFixture,
   type MixedMutationFinalEntryTestContext, type MixedMutationProductFixtureHooks } from "./support/mixedMutationWorkerdFixture";
-import { inspectActivatedPointMutationSessionV1 } from "../../executor/src/pointMutationSessionActivation";
 import { preparedFiniteEntries } from "../../persistence-postgres/src/sessionJournalFiniteEntry";
+import { FiniteAttemptAnchorError } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { FiniteStorageCaptureError } from "../../persistence-postgres/src/finiteStorageCapture";
+import { SessionJournalPersistenceV1Error } from "../../persistence-postgres/src/sessionJournalStore";
+import { LogicalParticipantAdmissionError } from "../../persistence-postgres/src/logicalDocuments/participantAdmission";
+import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
+import { createPointMutationSessionAttemptTerminalizationPersistenceV1, PointMutationSessionAttemptTerminalizationV1Error } from "../../persistence-postgres/src/transactionSessionActivation";
 import { installOneEntryCommitResponseFault } from "./support/postgresCommitResponseFault";
 
 type EntryParticipants = Parameters<NonNullable<MixedMutationProductFixtureHooks["transformFiniteEntrySources"]>>[0];
 type EntrySourceBinder = EntryParticipants[number]["sources"][number]["selection"]["bindAttemptEffect"];
+
+class DelayedEntryAckTestResourceError extends Data.TaggedError("DelayedEntryAckTestResourceError")<{
+  operation: string;
+  cause: unknown;
+}> {}
 
 function interceptEntryBindings(wrap: (original: EntrySourceBinder) => EntrySourceBinder) {
   const intercepted = new WeakSet<EntrySourceBinder>();
@@ -50,6 +61,18 @@ async function entryInventory(context: MixedMutationFinalEntryTestContext) {
     (await database.select({ count: count() }).from(table))[0]?.count ?? 0));
 }
 
+async function committedBusinessInventory(context: MixedMutationFinalEntryTestContext) {
+  const database = context.currency.persistence.drizzle;
+  return Promise.all([fxAppRowRevisions, fxSystemCommits, fxSystemCommitEvents].map(async table =>
+    (await database.select({ count: count() }).from(table))[0]?.count ?? 0));
+}
+
+function withAddedFiniteAnchors(baseline: readonly number[], created: number) {
+  const sessions = baseline[0];
+  if (sessions === undefined || baseline.length !== 4) throw new Error("Missing complete entry inventory");
+  return [sessions + created, ...baseline.slice(1)];
+}
+
 async function installLateByteInflation(context: MixedMutationFinalEntryTestContext) {
   const target = context.currency.persistence;
   const schema = (await target.query<{ schema: string }>("select current_schema() as schema")).rows[0]?.schema;
@@ -66,7 +89,7 @@ async function installLateByteInflation(context: MixedMutationFinalEntryTestCont
           where scope_uuid = new.scope_uuid and session_id = new.session_id;
         return new;
       end $function$`;
-    const triggerStatement = `create trigger inflate_final_entry_bytes after insert on "${schema}".fx_system_tx_execution_claim
+    const triggerStatement = `create trigger inflate_final_entry_bytes after insert on "${schema}".fx_system_tx_session
         for each row execute function "${schema}".inflate_final_entry_bytes()`;
     for (const statement of [functionStatement, triggerStatement]) {
       if (owner === undefined) await target.query(statement);
@@ -76,6 +99,94 @@ async function installLateByteInflation(context: MixedMutationFinalEntryTestCont
 }
 
 describe("atomic finite aggregate entry", () => {
+  it.skipIf(postgresUrl === null)("acknowledges delayed entry at its transaction admission and refuses the subsequent expired storage frontier", () => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+    let restore: (() => void) | undefined;
+    let fired: (() => boolean) | undefined;
+    let original: ReturnType<typeof preparedFiniteEntries.get>;
+    let originalDeadlines: { claim: Date; lease: Date; grant: Date; hard: Date } | undefined;
+    let business: readonly number[] = [];
+    const resource = <A>(operation: string, run: () => PromiseLike<A>) => Effect.tryPromise({
+      try: run, catch: cause => new DelayedEntryAckTestResourceError({ operation, cause }),
+    });
+    const readDatabaseNow = async (context: MixedMutationFinalEntryTestContext) => {
+      const rows = await context.currency.persistence.drizzle.select({
+        now: sql<Date>`clock_timestamp()`.mapWith(fxSystemTransactionSessions.createdAt),
+      }).from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.executionProfile, "finiteRoot"));
+      if (rows.length !== 1 || rows[0] === undefined) throw new Error("Missing exact committed finite entry clock");
+      return rows[0].now;
+    };
+    const waitForDatabaseDeadline = async (context: MixedMutationFinalEntryTestContext, deadline: Date) => {
+      for (;;) {
+        const now = await readDatabaseNow(context);
+        if (now.getTime() >= deadline.getTime()) return now;
+        await Effect.runPromise(Effect.sleep(Duration.millis(Math.min(1_000, Math.max(1, deadline.getTime() - now.getTime())))));
+      }
+    };
+    yield* Effect.addFinalizer(() => Effect.sync(() => { restore?.(); }));
+    // The scope retains the body's full Cause even if the fixture's native
+    // initial-execution finalizer also refuses its expired abort capability.
+    const fixture = yield* Effect.acquireRelease(resource("create delayed-ACK fixture", () => createMixedMutationProductFixture({ driver: "postgres", suffix: "entry-delayed-ack-expiry",
+      includeUserNameIndex: true, hooks: {
+        finiteGrantLifetimeMilliseconds: 30_000,
+        onFiniteEntryPrepared: preparation => { original = preparedFiniteEntries.get(preparation); },
+        beforeFinalEntry: async context => {
+          business = await committedBusinessInventory(context);
+          const fault = installOneEntryCommitResponseFault(context, async () => {
+            const rows = await context.currency.persistence.drizzle.select({
+              claim: fxSystemTransactionSessions.finiteClaimExpiresAt,
+              lease: fxSystemTransactionSessions.finiteLeaseExpiresAt,
+              grant: fxSystemTransactionSessions.authorizationGrantExpiresAt,
+              hard: fxSystemTransactionSessions.hardExpiresAt,
+            })
+              .from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.executionProfile, "finiteRoot"));
+            const row = rows[0];
+            if (rows.length !== 1 || row === undefined || row.claim === null || row.lease === null)
+              throw new Error("Missing exact committed entry deadlines");
+            originalDeadlines = { claim: row.claim, lease: row.lease, grant: row.grant, hard: row.hard };
+            await waitForDatabaseDeadline(context, row.claim);
+          });
+          restore = fault.restore;
+          fired = fault.fired;
+        },
+      } })), value => resource("close delayed-ACK fixture", () => value.close()).pipe(Effect.orDie));
+      restore?.();
+      expect(fired?.()).toBe(true);
+      expect(original?.status).toBe("confirmed");
+      expect(fixture.activation.status).toBe("created");
+      expect(yield* resource("read acknowledged business inventory", () => committedBusinessInventory(fixture))).toEqual(business);
+      const before = yield* resource("read acknowledged entry inventory", () => entryInventory(fixture));
+      const table = yield* fixture.store.resolvePointTableEffect(fixture.persistenceAttempt, "users");
+      const index = yield* fixture.store.resolveDeveloperIndexEffect(table, "by_name");
+      const refused = yield* fixture.store.runIndexedQueryEffect(index, {
+        kind: "indexRange", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds: {}, limit: 1,
+      }).pipe(Effect.result);
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isSuccess(refused)) throw new Error("Expired installed indexed frontier unexpectedly succeeded", { cause: refused.success });
+      if (!(refused.failure instanceof SessionJournalPersistenceV1Error) || refused.failure.operation !== "runIndexedQuery" ||
+        !(refused.failure.cause instanceof FiniteStorageCaptureError) || refused.failure.cause.reason !== "expired")
+        throw new Error("Expected the installed indexed frontier's exact typed expiry refusal", { cause: refused.failure });
+      expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual({});
+      expect(yield* resource("read refused entry inventory", () => entryInventory(fixture))).toEqual(before);
+      if (originalDeadlines === undefined) throw new Error("Missing original durable deadlines after COMMIT acknowledgement");
+      const terminalDeadline = new Date(Math.min(originalDeadlines.lease.getTime(), originalDeadlines.grant.getTime(), originalDeadlines.hard.getTime()));
+      const terminalization = createPointMutationSessionAttemptTerminalizationPersistenceV1(fixture.pointCommitPorts);
+      const now = yield* resource("read terminalization database clock", () => readDatabaseNow(fixture));
+      if (now.getTime() < terminalDeadline.getTime()) {
+        // An expired execution claim permits takeover, not terminalization of
+        // an otherwise live attempt. Check the real owner's typed refusal.
+        const live = yield* terminalization.expireEffect(fixture.selector).pipe(Effect.result);
+        expect(Result.isFailure(live)).toBe(true);
+        if (Result.isSuccess(live)) throw new Error("Live original attempt unexpectedly terminalized", { cause: live.success });
+        if (!(live.failure instanceof PointMutationSessionAttemptTerminalizationV1Error) || live.failure.issue.reason !== "attemptStillLive" ||
+          live.failure.issue.effectiveExpiresAt !== terminalDeadline.toISOString())
+          throw new Error("Expected the original live attempt's exact typed terminalization refusal", { cause: live.failure });
+      }
+      yield* resource("wait original terminal expiry", () => waitForDatabaseDeadline(fixture, terminalDeadline));
+      const expired = yield* terminalization.expireEffect(fixture.selector);
+      expect(expired).toMatchObject({ status: "terminalized", terminal: { lifecycle: "expired" } });
+      expect(yield* resource("read expired business inventory", () => committedBusinessInventory(fixture))).toEqual(business);
+  }))), 180_000);
+
   it.skipIf(postgresUrl === null)("serializes same-scope entry contenders while a different scope completes on distinct PostgreSQL connections", async () => {
     const entered = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
@@ -98,6 +209,11 @@ describe("atomic finite aggregate entry", () => {
       other = await createMixedMutationProductFixture({ driver: "postgres", suffix: "entry-contention-other",
         resource: first.currency.resource, fixtureIdentity: { deploymentId: "entry-contention-other",
           projectId: "entry-contention-other-project", uuidOffset: 600_000 } });
+      // Both scopes have finished managed metadata setup. Reconstruct through
+      // each original bounded preparation lease before admitting new requests;
+      // the already admitted initial requests keep their original signed pins.
+      await first.reconstructApplicationAdmission();
+      await other.reconstructApplicationAdmission();
       if (first.currency.resource.kind !== "postgres") throw new Error("Expected PostgreSQL runtime");
       const baseline = await entryInventory(first);
       const baselineBindings = sourceBindings;
@@ -146,16 +262,16 @@ describe("atomic finite aggregate entry", () => {
       const independentStarted = Date.now();
       const independent = await Effect.runPromise(other.activateCompetingFiniteRequest("entry-contention-independent"));
       elapsed.independent = Date.now() - independentStarted;
-      expect(inspectActivatedPointMutationSessionV1(independent).status).toBe("created");
+      expect(independent.status).toBe("created");
       expect(replaySettled).toBe(false);
       expect(differentRequestSettled).toBe(false);
       await Effect.runPromise(Deferred.succeed(release, undefined));
       const [created, replayed, distinct] = await Promise.all([holding, replay, differentRequest]);
-      expect(inspectActivatedPointMutationSessionV1(created).status).toBe("created");
-      expect(inspectActivatedPointMutationSessionV1(replayed).status).toBe("busy");
-      expect(inspectActivatedPointMutationSessionV1(distinct).status).toBe("created");
+      expect(created.status).toBe("created");
+      expect(replayed.status).toBe("busy");
+      expect(distinct.status).toBe("created");
       expect(sourceBindings).toBe(baselineBindings + 2);
-      expect(await entryInventory(first)).toEqual(baseline.map(value => value + 3));
+      expect(await entryInventory(first)).toEqual(withAddedFiniteAnchors(baseline, 3));
       expect(Object.values(elapsed).every(value => Number.isFinite(value) && value >= 0 && value <= 240_000)).toBe(true);
       console.info(JSON.stringify({ profile: "finite aggregate entry contention", elapsedMilliseconds: elapsed,
         blockedTransactions: waiters.map(waiter => ({ waitType: waiter.waitType,
@@ -199,7 +315,7 @@ describe("atomic finite aggregate entry", () => {
             restoreFault?.();
             expect(fired?.()).toBe(true);
             expect(String(exit)).toContain("entry COMMIT response lost");
-            expect(await entryInventory(context)).toEqual(baseline.map(value => value + 1));
+            expect(await entryInventory(context)).toEqual(withAddedFiniteAnchors(baseline, 1));
             expect(localState?.status).toBe("abandoned");
             expect(localState?.capture).toBeDefined();
             expect(installed).not.toHaveBeenCalled();
@@ -213,6 +329,106 @@ describe("atomic finite aggregate entry", () => {
   }, 180_000);
 
   for (const driver of ["pglite", "postgres"] as const) {
+    it.skipIf(driver === "postgres" && postgresUrl === null)(
+      `terminalizes the exact acknowledged entry when cancelled before its callback on ${driver}`, async () => {
+        let before: readonly number[] = [];
+        let business: readonly number[] = [];
+        let original: ReturnType<typeof preparedFiniteEntries.get>;
+        let cancelled = false;
+        let observed = false;
+        const failure = await createMixedMutationProductFixture({ driver, suffix: `entry-callback-cancel-${driver}`, hooks: {
+          beforeFinalEntry: async context => {
+            before = await entryInventory(context);
+            business = await committedBusinessInventory(context);
+          },
+          onFiniteEntryPrepared: preparation => { original = preparedFiniteEntries.get(preparation); },
+          beforeFiniteCallback: () => Effect.sync(() => { cancelled = true; }).pipe(Effect.andThen(Effect.interrupt)),
+          onFinalEntryFailure: async (context, exit) => {
+            expect(cancelled).toBe(true);
+            expect(Exit.isFailure(exit)).toBe(true);
+            if (Exit.isFailure(exit)) expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+            expect(original?.status).toBe("confirmed");
+            const captured = original?.capture;
+            if (captured === undefined) throw new Error("Missing actual acknowledged entry capture");
+            const [row] = await context.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+              .where(eq(fxSystemTransactionSessions.sessionId, captured.context.anchor.sessionId));
+            expect(row).toMatchObject({ lifecycle: "aborted", attemptFence: captured.context.anchor.attemptFence,
+              finiteClaimOwner: captured.context.executionClaim.claimOwner,
+              finiteClaimFence: captured.context.executionClaim.claimFence,
+              validatedArgsJson: null, validatedArgsCanonicalBytes: null,
+              authorizationGrantJson: null, authorizationGrantCanonicalBytes: null,
+              applicationExecutionAuthorityJson: null, applicationExecutionAuthorityCanonicalBytes: null });
+            expect(captured.finite.status).toBe("aborted");
+            expect(await entryInventory(context)).toEqual(withAddedFiniteAnchors(before, 1));
+            expect(await committedBusinessInventory(context)).toEqual(business);
+            observed = true;
+          },
+          beforeNative: () => Effect.die(new Error("Cancelled start must not invoke native business callbacks")),
+        } }).then(async fixture => { await fixture.close(); throw new Error("Expected acknowledged continuation cancellation"); }, cause => cause);
+        if (!observed) throw failure;
+        expect(observed).toBe(true);
+      }, 180_000);
+
+    it.skipIf(driver === "postgres" && postgresUrl === null)(
+      `rejects natural authority expiry after source binding before acknowledging entry on ${driver}`, async () => {
+        let baseline: readonly number[] = [];
+        let sourceAccepted = false;
+        let observedFailure = false;
+        let delayed = false;
+        let originalContext: Parameters<NonNullable<ReturnType<typeof preparedFiniteEntries.get>>["run"]>[1] | undefined;
+        let runSpy: ReturnType<typeof vi.spyOn> | undefined;
+        const bindings = interceptEntryBindings(original => (...args) => Effect.gen(function* () {
+          const admission = yield* original(...args);
+          if (!delayed) {
+            delayed = true;
+            sourceAccepted = true;
+            const entry = args[5];
+            if (entry === undefined) throw new Error("Expected genuine finite entry transaction");
+            const rows = yield* Effect.tryPromise({ try: () => entry.tx.select({ sessionId: fxSystemTransactionSessions.sessionId })
+              .from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.sessionId, args[2].sessionId)),
+              catch: cause => new LogicalParticipantAdmissionError({ reason: "resourceFailure", cause }) });
+            expect(rows).toEqual([]);
+            const expiresAt = originalContext?.finiteAttempt.executionClaim.claimExpiresAt;
+            if (expiresAt === undefined) throw new Error("Missing authentic provisional entry deadline");
+            yield* Effect.sleep(Duration.millis(Math.max(1, Date.parse(expiresAt) - Date.now() + 100)));
+          }
+          return admission;
+        }));
+        try {
+          const failure = await createMixedMutationProductFixture({ driver, suffix: `entry-final-expiry-${driver}`, hooks: {
+            finiteGrantLifetimeMilliseconds: 30_000,
+            transformFiniteEntrySources: bindings.transform,
+            onFiniteEntryPrepared: preparation => {
+              const originalState = preparedFiniteEntries.get(preparation);
+              if (originalState === undefined) throw new Error("Missing original finite entry issuer");
+              const nativeRun = originalState.run;
+              runSpy = vi.spyOn(originalState, "run").mockImplementation((...args) => {
+                originalContext = args[1];
+                return nativeRun(...args);
+              });
+            },
+            beforeFinalEntry: async context => { baseline = await entryInventory(context); },
+            onFinalEntryFailure: async (context, exit) => {
+              expect(sourceAccepted).toBe(true);
+              expect(Exit.isFailure(exit)).toBe(true);
+              if (Exit.isFailure(exit)) {
+                expect(exit.cause.reasons.every(Cause.isFailReason)).toBe(true);
+                const failure = Cause.findError(exit.cause);
+                expect(Result.isSuccess(failure)).toBe(true);
+                let nested: unknown = Result.isSuccess(failure) ? failure.success : undefined;
+                while (nested !== null && typeof nested === "object" && !(nested instanceof FiniteAttemptAnchorError) && "cause" in nested)
+                  nested = nested.cause;
+                expect(nested).toBeInstanceOf(FiniteAttemptAnchorError);
+                expect(nested).toMatchObject({ reason: "expired" });
+              }
+              expect(await entryInventory(context)).toEqual(baseline);
+              observedFailure = true;
+            },
+          } }).then(async fixture => { await fixture.close(); throw new Error("Expected post-wait entry expiry"); }, cause => cause);
+          expect(observedFailure, String(failure)).toBe(true);
+        } finally { runSpy?.mockRestore(); bindings.restore(); }
+      }, 180_000);
+
     it.skipIf(driver === "postgres" && postgresUrl === null)(
       `resolves replay before binding a newly invalid source on ${driver}`, async () => {
         let refuseSource = false;
@@ -229,7 +445,7 @@ describe("atomic finite aggregate entry", () => {
           const before = await entryInventory(fixture);
           refuseSource = true;
           const replay = await Effect.runPromise(fixture.replayFiniteActivation());
-          expect(inspectActivatedPointMutationSessionV1(replay).status).toBe("busy");
+          expect(replay.status).toBe("busy");
           expect(refusedBindCalls).toBe(0);
           expect(await entryInventory(fixture)).toEqual(before);
         } finally { await fixture.close(); }
@@ -237,7 +453,7 @@ describe("atomic finite aggregate entry", () => {
 
     for (const failureMode of ["defect", "interruption"] as const) {
     it.skipIf(driver === "postgres" && postgresUrl === null)(
-      `rolls back all four row families after the second source ${failureMode} on ${driver}`, async () => {
+      `rolls back the compact anchor after the second source ${failureMode} on ${driver}`, async () => {
         const sentinel = new Error("second aggregate source defect");
         let baseline: readonly number[] = [];
         let firstSucceeded = false;
@@ -296,10 +512,9 @@ describe("atomic finite aggregate entry", () => {
         } }).then(async fixture => { await fixture.close(); throw new Error("Expected final entry refusal"); }, cause => cause);
         expect(observedFailure, String(failure)).toBe(true);
         if (driver === "pglite") {
-          const finalInsert = entrySql.findIndex(statement => /insert into "fx_system_tx_execution_claim"/i.test(statement));
-          expect(finalInsert).toBeGreaterThanOrEqual(0);
-          const afterInsert = entrySql.slice(finalInsert + 1);
-          expect(afterInsert.some(statement => /is not distinct from/i.test(statement))).toBe(true);
+          const completeEntry = entrySql.findIndex(statement => /fx_complete_finite_entry/i.test(statement));
+          expect(completeEntry).toBeGreaterThanOrEqual(0);
+          const afterInsert = entrySql.slice(completeEntry + 1);
           // A complete scalar verdict fails before the stored evidence owner can
           // select the large canonical session payload.
           expect(afterInsert.some(statement => /^select .*validated_args_canonical_bytes.* from "fx_system_tx_session"/i.test(statement)

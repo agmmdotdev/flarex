@@ -3,9 +3,7 @@ import { Effect, Option, Result, Schema } from "effect";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
-import { decodeCanonicalSessionJournalEffect } from "flarex-protocol/commit-protocol";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -14,13 +12,13 @@ import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvent
 import { locateAppIndexDefinitionByIdEffect } from "../../persistence-postgres/src/appIndexDefinitions";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
 import { readBindingSelectedEvidence } from "../../persistence-postgres/src/frameworkSchema/binding/repository";
-import { readStoredFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalFiniteFreeze";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/indexBuildReconciliation";
 import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
-import { FiniteLogicalParticipantDependencyEvidenceSchema } from "../../persistence-postgres/src/logicalDocuments/journalEvidence";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
 import { fxAppRowRevisions, fxSystemIndexBuildStates, fxSystemScopeClocks,
-  fxSystemScopeExecutionAuthorities, fxSystemSnapshotLeases, fxSystemTransactionJournals } from "../../persistence-postgres/src/schema";
+  fxSystemScopeExecutionAuthorities, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),
@@ -33,24 +31,21 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
     let observing = false;
     let restoreObserver = () => {};
-    let statements: string[] | undefined;
     const frontiers: string[][] = [];
     let historicalIndex: number | undefined;
     let checked = false;
     const observe = (statement: string) => {
       if (!observing) return;
-      if (/^\s*begin\b/i.test(statement)) statements = [];
-      else if (/^\s*(?:commit|rollback)\b/i.test(statement)) {
-        if (statements !== undefined) frontiers.push(statements);
-        statements = undefined;
-      } else statements?.push(statement);
+      // Each installed capture is one implicit target statement. Its accepted
+      // authority cut and named historical read share this submission.
+      if (/\bfx_accept_finite_storage_capture\b/.test(statement)) frontiers.push([statement]);
     };
     fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-snapshot-${driver}`, hooks: {
       observeSql: (_phase, statement) => observe(statement),
       onPreparedContext: async currency => {
         if (currency.resource.kind !== "postgres") return undefined;
-        // Observe the actual accepting target clients, including the finite
-        // transaction boundaries; the fixture's SQL callback is PGlite-only.
+        // Observe actual accepting target submissions; the fixture's SQL
+        // callback is PGlite-only.
         const pool = currency.resource.target.pool;
         const patched = new Map<PoolClient, PoolClient["query"]>();
         const onAcquire = (client: PoolClient) => {
@@ -90,6 +85,27 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
         expect(first).toMatchObject([{ id: fixture.seed.productId, title: baseline.title,
           handle: baseline.handle }]);
         expect(frontiers).toHaveLength(1);
+        expect(frontiers[0]?.[0]).toMatch(/\bfx_read_snapshot_index_page\b/);
+        expect(frontiers[0]?.[0]).toMatch(/\bfx_read_snapshot_rows\b/);
+        // A repeated exact unique selection consumes its authenticated cached
+        // owner and original body without opening another storage demand.
+        observing = true;
+        expect(yield* store.find(borrowed.context.manager, {
+          predicate: { kind: "in", column: "id", values: [fixture.seed.productId] },
+          order: { column: "id", direction: "asc" },
+        })).toEqual(first);
+        observing = false;
+        expect(frontiers).toHaveLength(1);
+        observing = true;
+        const missing = yield* store.find(borrowed.context.manager, {
+          predicate: { kind: "in", column: "id", values: [`${fixture.seed.productId}-missing`] },
+          order: { column: "id", direction: "asc" },
+        });
+        observing = false;
+        expect(missing).toEqual([]);
+        expect(frontiers).toHaveLength(2);
+        expect(frontiers[1]?.[0]).toMatch(/\bfx_read_snapshot_index_page\b/);
+        expect(frontiers[1]?.[0]).toMatch(/\bfx_read_snapshot_rows\b/);
         expect(fixture.getOpenTransactionDepth()).toBe(0);
 
         const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
@@ -151,19 +167,21 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
             .where(eq(fxSystemScopeClocks.scopeId, scopeId));
           const [authority] = await fixture.currency.persistence.drizzle.select().from(fxSystemScopeExecutionAuthorities)
             .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
-          const [lease] = await fixture.currency.persistence.drizzle.select().from(fxSystemSnapshotLeases)
-            .where(and(eq(fxSystemSnapshotLeases.sessionId, fixture.activation.anchor.sessionId),
-              eq(fxSystemSnapshotLeases.attemptFence, fixture.activation.anchor.attemptFence)));
+          const [session] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+            .where(and(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId),
+              eq(fxSystemTransactionSessions.attemptFence, fixture.activation.anchor.attemptFence)));
           const [build] = await fixture.currency.persistence.drizzle.select().from(fxSystemIndexBuildStates)
             .where(and(eq(fxSystemIndexBuildStates.scopeId, scopeId),
               eq(fxSystemIndexBuildStates.indexDefinitionId, handle.indexDefinitionId)));
-          if (current === undefined || authority === undefined || lease === undefined || build === undefined)
+          if (current === undefined || authority === undefined || session === undefined || build === undefined)
             throw new Error("Missing real serving proof after publication");
+          const anchor = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+          if (anchor.reservation === null) throw new Error("Missing authentic finite reservation");
           expect(current.lastCommitSeq).toBeGreaterThan(originalSnapshot);
           expect(current.lastMetadataSequence).toBeGreaterThan(before.lastMetadataSequence);
           expect(authority.authorizationRevocationEpoch).toBe(authorityBefore.authorizationRevocationEpoch);
-          expect(lease.snapshotCommitSeq).toBe(originalSnapshot);
-          expect(lease.metadataWatermark).toBe(before.lastMetadataSequence);
+          expect(anchor.snapshotToken.commitSeq).toBe(originalSnapshot);
+          expect(anchor.reservation.metadataWatermark).toBe(before.lastMetadataSequence);
           expect(build.lifecycle).toBe("enabled");
           if (build.firstReadableCommitSeq === null || build.coveredThroughCommitSeq === null)
             throw new Error("Missing real closed historical index coverage");
@@ -189,8 +207,10 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
         expect(frontiers).toHaveLength(beforeLookup + 1);
         const frontier = frontiers.at(-1);
         if (frontier === undefined) throw new Error("Missing actual original-snapshot frontier");
-        expect(frontier.some(statement => /\bfx_app_index_entry_rev\b/.test(statement))).toBe(true);
-        expect(frontier.some(statement => /\bfx_lock_finite_running_attempt\b/.test(statement))).toBe(true);
+        expect(frontier.some(statement => /\bfx_read_snapshot_index_page\b/.test(statement))).toBe(true);
+        expect(frontier.some(statement => /\bfx_read_snapshot_rows\b/.test(statement))).toBe(true);
+        expect(frontier.some(statement => /\bfx_accept_finite_storage_capture\b/.test(statement))).toBe(true);
+        expect(frontier.some(statement => /\bfx_system_(?:snapshot_lease|tx_journal|tx_execution_claim)\b/.test(statement))).toBe(false);
         expect(frontier.some(statement => /\bfrom\s+"fx_system_(?:data_binding_head|application_active_head)"/i.test(statement))).toBe(false);
         expect(fixture.getOpenTransactionDepth()).toBe(0);
         checked = true;
@@ -200,24 +220,18 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
       const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
       const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(success.result.result))).value;
       expect(checked, fixture.bridgeFailures.join("\n")).toBe(true);
-      const publication = await fixture.prepareOccPublication(returnedValue);
-      const [root] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
-        .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-      if (root?.sealedJournalBytes == null || root.sealedJournalSha256 == null) throw new Error("Missing sealed genuine finite graph");
-      const journal = await Effect.runPromise(decodeCanonicalSessionJournalEffect({ canonicalBytes: root.sealedJournalBytes,
-        expectedSha256Hex: encodeBytesToLowercaseHex(root.sealedJournalSha256) }));
-      const [lease] = await fixture.currency.persistence.drizzle.select().from(fxSystemSnapshotLeases)
-        .where(and(eq(fxSystemSnapshotLeases.sessionId, fixture.activation.anchor.sessionId),
-          eq(fxSystemSnapshotLeases.attemptFence, fixture.activation.anchor.attemptFence)));
-      if (lease === undefined || lease.finiteMetadataReservationSha256 === null) throw new Error("Missing sealed attempt reservation");
-      const reservation = await Effect.runPromise(readStoredFiniteMetadataReservation(lease));
-      expect(reservation.snapshotToken).toEqual(fixture.activation.anchor.snapshotToken);
-      expect(journal.journal.finiteMetadataReservationSha256Hex).toBe(encodeBytesToLowercaseHex(lease.finiteMetadataReservationSha256));
-      const productEvidence = journal.journal.participantOperations.flatMap(operation => operation.sourceContributions)
-        .filter(source => source.sourceKey === "medusa.product")
-        .map(source => Schema.decodeUnknownSync(FiniteLogicalParticipantDependencyEvidenceSchema)(source.dependencyEvidence));
-      const historicalEntries = productEvidence.flatMap(evidence => [...evidence.indexRanges, ...evidence.indexPages])
-        .filter(range => range.indexDefinitionId === historicalIndex).flatMap(range => range.entries);
+      const frozen = await Effect.runPromise(fixture.freeze(returnedValue));
+      const graph = readFrozenFiniteAttempt(frozen);
+      if (graph === undefined) throw new Error("Missing issuer-authentic frozen graph");
+      const publication = await fixture.prepareFrozenPublication(frozen);
+      const [session] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+        .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+      if (session === undefined) throw new Error("Missing genuine compact anchor");
+      const anchor = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+      if (anchor.reservation === null) throw new Error("Missing actual finite reservation");
+      expect(anchor.reservation.snapshotToken).toEqual(fixture.activation.anchor.snapshotToken);
+      const historicalEntries = [...graph.graph.indexReads, ...graph.graph.pageReads]
+        .filter(range => range.definition.indexDefinitionId === historicalIndex).flatMap(range => range.entries);
       expect(historicalEntries.length).toBeGreaterThan(0);
       expect(historicalEntries.every(entry => BigInt(entry.commitSeq) <= fixture.activation.anchor.snapshotToken.commitSeq)).toBe(true);
       const [beforeConflict] = await fixture.currency.persistence.drizzle.select().from(fxSystemScopeClocks)
@@ -227,7 +241,7 @@ describe.each(drivers)("finite original-snapshot Product serving on %s", driver 
       if (Result.isSuccess(outcome)) throw new Error("Concurrent Product publication did not conflict");
       expect(outcome.failure).toBeInstanceOf(PointCommitConflictV1Error);
       if (!(outcome.failure instanceof PointCommitConflictV1Error)) throw new Error("Expected genuine data conflict");
-      expect(outcome.failure.conflict.kind).toBe("logicalParticipant");
+      expect(outcome.failure.conflict.kind).toBe("finiteRootGraph");
       expect(outcome.failure.snapshotCommitSeq).toBe(fixture.activation.anchor.snapshotToken.commitSeq);
       expect(outcome.failure.currentCommitSeq).toBeGreaterThan(outcome.failure.snapshotCommitSeq);
       const [afterConflict] = await fixture.currency.persistence.drizzle.select().from(fxSystemScopeClocks)

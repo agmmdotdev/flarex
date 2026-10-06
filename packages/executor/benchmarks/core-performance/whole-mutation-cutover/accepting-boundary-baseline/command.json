@@ -1,0 +1,35 @@
+{
+  "runId": "3432d4de-f76f-4dc3-8153-5f1d7b58fd01",
+  "revision": "5c9152621a6d4c177be8c314fa336d525e92c585",
+  "dirty": true,
+  "totalMs": 265151.4511,
+  "exitCode": 0,
+  "signal": null,
+  "reports": [
+    {
+      "name": "payload-create",
+      "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\whole-mutation-redesign-20261004\\direct-quiet-final-02\\payload-create.json",
+      "available": true
+    },
+    {
+      "name": "medusa-workflow",
+      "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\whole-mutation-redesign-20261004\\direct-quiet-final-02\\medusa-workflow.json",
+      "available": true
+    },
+    {
+      "name": "mixed-product",
+      "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\whole-mutation-redesign-20261004\\direct-quiet-final-02\\mixed-product.json",
+      "available": true
+    },
+    {
+      "name": "mixed-payload",
+      "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\whole-mutation-redesign-20261004\\direct-quiet-final-02\\mixed-payload.json",
+      "available": true
+    },
+    {
+      "name": "mixed-workflow",
+      "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\whole-mutation-redesign-20261004\\direct-quiet-final-02\\mixed-workflow.json",
+      "available": true
+    }
+  ]
+}

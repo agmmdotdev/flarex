@@ -1,6 +1,19 @@
-import { readFiniteRunningAttempt } from "./finiteRunningAttempt";
+import { CAPTURE_FINITE_STORAGE, bindFiniteStorageCaptureOwner, type FiniteStorageCaptureTarget, type FiniteStorageCaptureProfile } from "./finiteStorageCapture";
+import { runLocatedReadCommittedEffect } from "./locatedReadCommittedEffect";
+import { runPointCommitInTransactionEffect, projectPointCommitTransactionResult, runPointCommitPromiseEffect } from "./pointCommitPromiseBoundary";
 import { selectScopeClockRows, type ScopeClockRow } from "./scopeClock";
 import { SessionJournalPersistenceV1Error, type SessionJournalStorePersistence } from "./sessionJournalStore";
+import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow,
+  lockFiniteAttemptAnchorInTransaction, requireFiniteAttemptIsLive,
+  FiniteAttemptAnchorError } from "./finiteAttemptAnchor";
+import type { FiniteAttemptAnchorContext, FiniteAttemptFrontierRow } from "./finiteAttemptAnchor";
+import { readCapturedFiniteMetadataReservation, type CapturedFiniteMetadataReservation } from "./finiteMetadataReservation";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
+import { captureFiniteEntryObservationInTransactionEffect, closeFiniteEntryObservation,
+  type FiniteEntryObservation } from "./finiteEntryObservation";
+import type { FiniteEntryAttemptKernelContext } from "./transactionSessionAttemptKernel";
+import { prepareFiniteMetadataEntryComparison, acceptFiniteMetadataEntryComparisonVerdict, submitFiniteMetadataEntryComparisonEffect,
+  type PreparedFiniteMetadataProjection } from "./finiteMetadataDependencies";
 import {
   bytesEqual,
   encodeBytesToLowercaseHex,
@@ -13,11 +26,12 @@ import {
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, getTableColumns, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
-import { Data, Effect, Exit, Result, Schema } from "effect";
-import type { Cause as EffectCause } from "effect/Cause";
+import { Cause, Data, Effect, Result, Schema } from "effect";
+import { runEffectTransactionSettlement } from "./effectTransaction";
 
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
+  type CanonicalApplicationMutationExecutionAuthorityV1,
   type ApplicationMutationExecutionAuthorityV1Error,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
@@ -100,6 +114,8 @@ import {
   closeProtectedMetadataFinalGuardScope,
   flushProtectedMetadataFinalGuards,
   openProtectedMetadataFinalGuardScope,
+  prepareProtectedMetadataFinalGuardBatch,
+  acceptProtectedMetadataFinalGuardBatch,
 } from "./preparedMetadataEpoch";
 import type { AppRowTransaction } from "./appRows";
 import { readRunningAttemptTail, type RunningAttemptTailIssue } from "./exactRunningAttemptTail";
@@ -113,7 +129,7 @@ import {
 import {
   getScopeClock,
   decodeScopeClockRecord,
-  readFiniteExecutionAuthorityObservation, ScopeExecutionAuthoritySchema,
+  readFiniteExecutionAuthorityObservation,
   ScopeClockNotFoundError,
   type ScopeClockRecord,
   openExactAttemptScopeClockObservation,
@@ -138,10 +154,10 @@ import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import { ScopeExecutionAuthorityError } from "./scopeExecution/Errors";
 import { liveScopeExecution } from "./scopeExecution/ScopeExecution";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission,
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission, acquireInstallationAdmission,
   requireAdmittedTargetInstallationSchema,
-  type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
-import { prepareInstalledAttemptScopeAuthority, type PreparedInstalledAttemptScopeAuthority } from "./scopeAuthorityControlRead";
+  type PreparedCoLocatedReadInstallation, type PreparedInstallation } from "./installationLifecycle";
+import { INSTALLED_SCOPE_AUTHORITY_TARGET, ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION, RUN_INSTALLED_ACCEPTING_READ_COMMITTED, prepareInstalledAttemptScopeAuthority, type PreparedInstalledAttemptScopeAuthority } from "./scopeAuthorityControlRead";
 import { registerProtectedMetadataTransactionFinalGuard, requireProtectedControlPreparation, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import { defineScopedWriteOperation } from
   "./scopeExecution/ScopedTransaction";
@@ -201,7 +217,8 @@ import {
   type ApplicationActiveSelection,
 } from "./applicationActivation";
 import {
-  readPreparedFiniteApplicationMutationInputs,
+  readPreparedFiniteApplicationMutationActivationInputs,
+  type ApplicationMutationActivationBasis,
   withPreparedFiniteApplicationMutationAdmissionInTransaction,
   type PreparedFiniteApplicationMutationAdmissionAcceptanceError,
   type PreparedFiniteApplicationMutationAdmission,
@@ -213,11 +230,11 @@ import {
   abandonPreparedFiniteSessionJournalEntry,
   prepareFiniteSessionJournalEntryControlEffect,
   runPreparedFiniteSessionJournalEntryEffect,
+  acceptPreparedFiniteSessionJournalEntryForContinuationEffect,
   confirmPreparedFiniteSessionJournalEntry,
   type PreparedFiniteSessionJournalEntry,
   type ConfirmedFiniteRootEntryCapture,
 } from "./sessionJournalFiniteEntry";
-import type { PreparedTerminalControl } from "./storedCommitAuthority/postgresLoader";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
@@ -239,9 +256,7 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
   registerLocatedReadCommittedTargetDatabaseV1,
-  reconcileExactRunningAttemptTransactionFailureV1,
   type ExactRunningAttemptKernelContextV1,
-  type FiniteRunningAttemptKernelContext, type FiniteRunningAttemptEffectWork,
   type ExactRunningAttemptEffectWorkV1,
   type ExactRunningAttemptKernelInputV1,
   type LocatedExactRunningAttemptKernelV1,
@@ -251,7 +266,6 @@ import {
 } from "./transactionSessionAttemptKernel";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
-  RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT, type LocatedFiniteRunningAttemptReadSyscallKernel,
   type LocatedExactRunningAttemptReadSyscallKernelV1,
 } from "./transactionSessionReadSyscallKernel";
 
@@ -320,6 +334,7 @@ type TransactionSessionInsert =
 type TransactionSessionRow =
   typeof fxSystemTransactionSessions.$inferSelect;
 const checkedTransactionSessionSelection = {
+  executionProfile: fxSystemTransactionSessions.executionProfile,
   executionAuthorityGeneration: fxSystemTransactionSessions.executionAuthorityGeneration,
   functionPath: fxSystemTransactionSessions.functionPath,
   functionKind: fxSystemTransactionSessions.functionKind,
@@ -505,6 +520,7 @@ export type PointMutationExecutionClaimAcquisitionResultV1 =
       readonly kind: "busy";
       readonly observation: TransactionExecutionClaimObservationV1;
     }>
+  | Readonly<{ readonly kind: "finiteRecovery"; readonly capture: FiniteRecoveryAttempt }>
   | Readonly<{
       /** Inert routing evidence; C05-B must independently authenticate it. */
       readonly kind: "finishing";
@@ -1033,7 +1049,14 @@ export type PointMutationSessionAttemptTerminalizationEventV1 =
         | "sessionTerminalized";
     };
 
+/** Installed captures borrow only the construction-owned implicit-read driver. */
+export const FINITE_STORAGE_CAPTURE_DRIVER: unique symbol = Symbol("FlarexDB/finiteStorageCaptureDriver");
+export const FINITE_STORAGE_CAPTURE_AUTHORITY: unique symbol = Symbol("FlarexDB/finiteStorageCaptureAuthority");
+
 export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
+  readonly directInstallation?: PreparedInstallation;
+  readonly [FINITE_STORAGE_CAPTURE_DRIVER]?: Extract<FiniteStorageCaptureProfile, { kind: "installed" }>["driver"];
+  readonly [FINITE_STORAGE_CAPTURE_AUTHORITY]?: Extract<FiniteStorageCaptureProfile, { kind: "fullArtifact" }>["authority"];
   readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation;
     controlProtection: ProtectedMetadataPreparation }>;
   /** Internal connected-client runner; its symbol is not package-exported. */
@@ -1074,6 +1097,7 @@ export type PointMutationExecutionClaimLivenessEventV1 =
 
 interface LocatedPointMutationSessionActivationTargetV1
   extends LocatedScopeClockReader {
+  readonly [INSTALLED_SCOPE_AUTHORITY_TARGET]?: true;
   readonly [ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1]: (
     input: LocatedPointMutationSessionActivationInputV1,
   ) => Effect.Effect<
@@ -1096,7 +1120,6 @@ interface LocatedPointMutationSessionActivationTargetV1
     input: LocatedPointMutationSessionActivationInputV1,
     prepared: PreparedFiniteApplicationMutationSessionActivation,
     entry: PreparedFiniteSessionJournalEntry,
-    control: PreparedTerminalControl | undefined,
   ) => Effect.Effect<Readonly<{
     activation: PointMutationSessionActivationResultV1;
     capture?: Effect.Success<ReturnType<typeof runPreparedFiniteSessionJournalEntryEffect>>;
@@ -1151,7 +1174,7 @@ interface LocatedPointMutationSessionTargetV1
     LocatedPointMutationExecutionClaimLivenessTargetV1,
     LocatedExactRunningAttemptKernelV1,
     LocatedExactRunningAttemptReadSyscallKernelV1,
-    LocatedFiniteRunningAttemptReadSyscallKernel,
+    FiniteStorageCaptureTarget,
     LocatedPointCommitPublicationTargetV1 {}
 
 interface LocatedPointMutationSessionActivationInputV1 {
@@ -1316,31 +1339,22 @@ export function createApplicationMutationSessionActivationPersistenceV1(
   const activateFiniteEffect: ApplicationMutationSessionActivationPersistenceV1["activateFiniteEffect"] =
     Effect.fn("ApplicationMutationSessionActivation.activateFinite")(function* (input, entry) {
       return yield* Effect.gen(function* () {
-        const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(input.preparedAdmission, input.admissionContext));
-        const prepared = yield* capturePreparedApplicationActivationFromBasis({ ...input, executionProfile: "finiteRoot" }, inputs.basis);
+        const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationActivationInputs(input.preparedAdmission, input.admissionContext));
+        const prepared = yield* capturePreparedApplicationActivationFromBasis({ ...input, executionProfile: "finiteRoot" }, inputs.basis,
+          inputs.executionAuthority);
         const candidateSessionId = yield* generateSessionIdEffect(randomUuid);
         const executionClaimOwner = yield* generateExecutionClaimOwnerEffect(randomExecutionClaimOwner);
-        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId: input.deploymentId, scopeId: input.scopeId }, {
+        const preparedTarget = yield* Effect.tryPromise({ try: () => ports.scopeSessionTargets.resolve(inputs.basis.authority.physicalLocator),
+          catch: mapActivationTransactionError });
+        const located = Reflect.get(preparedTarget, INSTALLED_SCOPE_AUTHORITY_TARGET) === true
+          ? { target: preparedTarget, authority: inputs.basis.authority }
+          : yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId: input.deploymentId, scopeId: input.scopeId }, {
           scopeMetadata: ports.scopeMetadata, provisioningReceipts: ports.provisioningReceipts, scopeClockTargets: ports.scopeSessionTargets,
         }).pipe(Effect.mapError(mapActivationAuthorityError));
         const target = yield* Effect.fromResult(requireActivationTarget(located.target, input.scopeId));
-        const authority = inputs.executionAuthority.authority;
-        const control = yield* prepareFiniteSessionJournalEntryControlEffect(entry, {
-          kind: "claimedAttempt", deploymentId: input.deploymentId, scopeId: input.scopeId,
-          scopeUuid: projectScopeIdUuidV1(input.scopeId).scopeUuid, sessionId: candidateSessionId,
-          attemptFence: INITIAL_ATTEMPT_FENCE, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-          storageGenerationFence: located.authority.storageGenerationFence,
-          snapshotToken: SnapshotTokenSchema.make({ scopeId: input.scopeId, epoch: located.authority.epoch, commitSeq: located.authority.lastCommitSeq }),
-          schemaVersionId: inputs.basis.schemaVersionId, executionClaim: { claimOwner: executionClaimOwner,
-            claimFence: TransactionExecutionClaimFenceV1Schema.make(1n) },
-        }, { executionAuthorityGeneration: "application_v1", applicationExecutionAuthorityFormat: authority.format,
-          applicationExecutionAuthorityVersionText: String(authority.version), applicationExecutionAuthorityActivationSequence: authority.activationSequence,
-          applicationExecutionAuthorityRevisionId: authority.runtimeTarget.revisionId,
-          applicationExecutionAuthorityFunctionPath: authority.runtimeTarget.function.path,
-          applicationExecutionAuthoritySchemaSha256: authority.runtimeTarget.schemaSha256 }, inputs.application);
         const result = yield* target[ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]({ prepared: prepared.activation,
           preliminaryAuthority: located.authority, candidateSessionId, leaseDurationMilliseconds,
-          executionClaimDurationMilliseconds, executionClaimOwner }, input, entry, control);
+          executionClaimDurationMilliseconds, executionClaimOwner }, input, entry);
         if (result.capture === undefined) {
           abandonPreparedFiniteSessionJournalEntry(entry);
           return Object.freeze({ activation: result.activation });
@@ -1540,14 +1554,11 @@ const legacyActivationScopedOperation = defineScopedWriteOperation(
         step: PointMutationSessionActivationWriteStepV1,
       ) => void | Promise<void>;
     }>,
-  ) => Effect.tryPromise({
-    try: () => activateInTransaction(
+  ) => runPointCommitPromiseEffect(() => activateInTransaction(
       tx,
       operationInput.input,
       operationInput.afterWrite,
-    ),
-    catch: mapActivationTransactionError,
-  }),
+    ), mapActivationTransactionError),
 );
 
 const applicationActivationScopedOperation = defineScopedWriteOperation(
@@ -1561,83 +1572,98 @@ const applicationActivationScopedOperation = defineScopedWriteOperation(
       }>,
     ) {
       const { input, selection } = operationInput;
-      const clock = yield* Effect.tryPromise({
-        try: () => lockPointMutationSessionClock(tx, input.prepared.scopeId),
-        catch: mapActivationTransactionError,
-      });
-      requireStableAuthority(clock, input);
-      const replay = yield* Effect.tryPromise({
-        try: () => replayApplicationSessionIfPresent(tx, input, clock),
-        catch: mapActivationTransactionError,
-      });
+      const clock = yield* runPointCommitPromiseEffect(
+        () => lockPointMutationSessionClock(tx, input.prepared.scopeId), mapActivationTransactionError);
+      yield* Effect.fromResult(requireStableAuthority(clock, input));
+      const replay = yield* runPointCommitPromiseEffect(
+        () => replayApplicationSessionIfPresent(tx, input, clock), mapActivationTransactionError);
       if (replay !== null) return replay;
       yield* validateApplicationExecutableActiveSelectionInTransaction(
         selection,
         tx,
         clock.record,
       );
-      return yield* Effect.tryPromise({
-        try: () => activateAfterLockedClock(tx, input, clock, undefined),
-        catch: mapActivationTransactionError,
-      });
+      return yield* runPointCommitPromiseEffect(
+        () => activateAfterLockedClock(tx, input, clock, undefined), mapActivationTransactionError);
     },
   ),
 );
 
-const finiteApplicationActivationScopedOperation = defineScopedWriteOperation(
-  Effect.fn("ApplicationMutationSessionActivation.enterFiniteInTransaction")(function* (
-    tx: AppRowTransaction, _scoped, operationInput: Readonly<{
+const finiteApplicationActivationOperation = Effect.fn("ApplicationMutationSessionActivation.enterFiniteInTransaction")(function* (
+    tx: AppRowTransaction, operationInput: Readonly<{
       input: LocatedPointMutationSessionActivationInputV1;
       prepared: PreparedFiniteApplicationMutationSessionActivation;
       entry: PreparedFiniteSessionJournalEntry;
-      control: PreparedTerminalControl | undefined;
       target: LocatedExactRunningAttemptKernelV1;
       afterWrite: LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"];
       managedControlProtection?: ProtectedMetadataPreparation;
       database: FlarexMetadataDatabase;
+      installedAuthority?: PreparedInstalledAttemptScopeAuthority;
     }>) {
-    const { input, prepared, entry, target, control, afterWrite } = operationInput;
-    const clock = yield* Effect.tryPromise({
+    const { input, prepared, entry, target, afterWrite } = operationInput;
+    const clock = operationInput.installedAuthority === undefined ? yield* Effect.tryPromise({
       try: () => lockPointMutationSessionClock(tx, input.prepared.scopeId), catch: mapActivationTransactionError,
-    });
-    requireStableAuthority(clock, input);
-    const replay = yield* Effect.tryPromise({ try: () => replayApplicationSessionIfPresent(tx, input, clock), catch: mapActivationTransactionError });
-    if (replay !== null) return Object.freeze({ activation: replay });
+    }) : decodeLockedPointMutationSessionClock((yield* operationInput.installedAuthority.lock(tx, {
+      deploymentId: input.prepared.deploymentId, scopeId: input.prepared.scopeId }, "attempt").pipe(
+        Effect.mapError(mapApplicationActivationTransactionError))).row);
+    yield* Effect.fromResult(requireStableAuthority(clock, input));
+    openExactAttemptScopeClockObservation(tx, clock.record, clock.authorizationRevocationEpoch, "attempt");
+    let observation: FiniteEntryObservation | null = null;
+    return yield* Effect.gen(function* () {
+    const observed = yield* captureFiniteEntryObservationInTransactionEffect(tx,
+      input.preliminaryAuthority.physicalLocator.schemaName, clock.record, clock.scopeUuid,
+      clock.record.storageGeneration, input.prepared.evidence.requestKey).pipe(Effect.mapError(mapApplicationActivationTransactionError));
+    observation = observed.observation;
+    if (observed.sessions.length > 1) return yield* Effect.fail(corruptionError(input.prepared.scopeId, "duplicateRequestAnchors"));
+    const historical = observed.sessions[0];
+    if (historical !== undefined) {
+      const replay = yield* runPointCommitPromiseEffect(
+        () => replayExistingSession(tx, input.prepared, clock, historical, observed.databaseNow), mapActivationTransactionError);
+      return Object.freeze({ activation: replay });
+    }
+    if (observation === null) return yield* Effect.fail(corruptionError(input.prepared.scopeId, "sessionRecordInvalid"));
+    const finiteEntry = observation;
     openProtectedMetadataFinalGuardScope(tx);
     return yield* withPreparedFiniteApplicationMutationAdmissionInTransaction(
       prepared.preparedAdmission, prepared.admissionContext, tx, clock.record, (accepted, binding) => Effect.gen(function* () {
       if (operationInput.managedControlProtection !== undefined)
         yield* registerProtectedMetadataTransactionFinalGuard(operationInput.managedControlProtection, operationInput.database, tx)
           .pipe(Effect.mapError(mapApplicationActivationTransactionError));
-      if (clock.record.lastCommitSeq !== input.preliminaryAuthority.lastCommitSeq)
+      if (operationInput.installedAuthority === undefined && clock.record.lastCommitSeq !== input.preliminaryAuthority.lastCommitSeq)
         return yield* Effect.fail(activationError({ reason: "snapshotCommitSeqChanged" }));
-      let projection: FreshSessionEntryProjection | undefined;
-      const activation = yield* Effect.tryPromise({
-        try: async () => createSession(tx, input, clock, await readDatabaseNow(tx, input.prepared.scopeId), afterWrite,
-          captured => { projection = captured; }),
-        catch: mapActivationTransactionError,
-      });
-      if (activation.status !== "created") return yield* Effect.fail(activationError({ reason: "invalidPreparedEvidence" }));
-      const finalProjection = projection;
-      if (finalProjection === undefined) return yield* Effect.fail(corruptionError(input.prepared.scopeId, "sessionRecordInvalid"));
-      yield* requireCorrelatedFreshSessionEntryEffect(tx, finalProjection, input.prepared.scopeId);
-      const loaded = yield* Effect.fromResult(projectCorrelatedFreshSessionEntry(input, clock, finalProjection));
-      const context = yield* Effect.fromResult(runningAttemptKernelContextResult(loaded, tx));
-      const capture = yield* runPreparedFiniteSessionJournalEntryEffect(entry, tx, context,
-        { authority: input.preliminaryAuthority, target }, accepted.selection, binding, control,
-        requireCorrelatedFreshSessionEntryEffect(tx, finalProjection, input.prepared.scopeId).pipe(Effect.mapError(cause =>
-          new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))));
-      yield* requireCorrelatedFreshSessionEntryEffect(tx, finalProjection, input.prepared.scopeId);
-      yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
-        new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
-      return Object.freeze({ activation, capture });
-    })).pipe(Effect.ensuring(Effect.sync(() => {
+      const created = yield* prepareProvisionalFiniteSessionEffect(tx, input, clock, afterWrite,
+        operationInput.installedAuthority !== undefined, observed.databaseNow);
+      const { context } = created;
+      const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationActivationInputs(prepared.preparedAdmission, prepared.admissionContext));
+      const authority = inputs.executionAuthority.authority;
+      const entryControl = yield* prepareFiniteSessionJournalEntryControlEffect(entry, {
+        kind: "claimedAttempt", deploymentId: input.prepared.deploymentId, scopeId: input.prepared.scopeId,
+        scopeUuid: context.scopeUuid, sessionId: context.anchor.sessionId, attemptFence: context.anchor.attemptFence,
+        storageGeneration: context.anchor.storageGeneration, storageGenerationFence: context.anchor.storageGenerationFence,
+        snapshotToken: context.anchor.snapshotToken, schemaVersionId: context.executionPin.schemaVersionId,
+        executionClaim: context.executionClaim,
+      }, { executionAuthorityGeneration: "application_v1", applicationExecutionAuthorityFormat: authority.format,
+        applicationExecutionAuthorityVersionText: String(authority.version), applicationExecutionAuthorityActivationSequence: authority.activationSequence,
+        applicationExecutionAuthorityRevisionId: authority.runtimeTarget.revisionId,
+        applicationExecutionAuthorityFunctionPath: authority.runtimeTarget.function.path,
+        applicationExecutionAuthoritySchemaSha256: authority.runtimeTarget.schemaSha256 }, inputs.application);
+      let capture = yield* runPreparedFiniteSessionJournalEntryEffect(entry, tx, context,
+        { authority: { ...input.preliminaryAuthority, ...clock.record }, target }, accepted.selection, binding, entryControl,
+        inputs.executionAuthority,
+        requireCorrelatedFiniteEntryEffect(tx, input.prepared.scopeId).pipe(Effect.mapError(cause =>
+          new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))), finiteEntry);
+      capture = yield* acceptPreparedFiniteSessionJournalEntryForContinuationEffect(entry, tx, capture);
+      return Object.freeze({ activation: activationResult("created", capture.context.anchor, capture.context.executionClaim), capture });
+    }), finiteEntry).pipe(Effect.ensuring(Effect.sync(() => {
       closeProtectedMetadataFinalGuardScope(tx);
       closeFiniteExecutionAuthorityObservation(tx);
-      finiteEntryLeaseExpectations.delete(tx);
+      finiteEntryAnchorExpectations.delete(tx);
     })));
-  }),
-);
+    }).pipe(Effect.ensuring(Effect.sync(() => {
+      closeFiniteEntryObservation(observation);
+      closeExactAttemptScopeClockObservation(tx);
+    })));
+  });
 
 export function createLocatedPointMutationSessionActivationTargetV1(
   db: FlarexMetadataDatabase,
@@ -1653,13 +1679,30 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   const capturedLocator = captureScopePhysicalLocator(physicalLocator);
   const installedAuthority = managedInstallation === undefined ? undefined :
     Result.getOrThrowWith(prepareInstalledAttemptScopeAuthority(managedInstallation.installation, db, capturedLocator), cause => cause);
+  const finiteCaptureDriver = options[FINITE_STORAGE_CAPTURE_DRIVER];
+  const finiteCaptureAuthority = options[FINITE_STORAGE_CAPTURE_AUTHORITY];
+  const finiteCaptureProfile: FiniteStorageCaptureProfile = managedInstallation === undefined
+    ? { kind: "fullArtifact", ...(finiteCaptureAuthority === undefined ? {} : { authority: finiteCaptureAuthority }) }
+    : finiteCaptureDriver === undefined
+      ? (() => { throw new Error("Installed finite storage capture requires its implicit-read driver"); })()
+      : { kind: "installed", installation: managedInstallation.installation, driver: finiteCaptureDriver };
+  const finiteStorage = Result.getOrThrowWith(bindFiniteStorageCaptureOwner(db, capturedLocator, finiteCaptureProfile), cause => cause);
   const afterWrite = options.afterWrite;
   const afterLoadLock = options.afterLoadLock;
   const afterTerminalizationEvent = options.afterTerminalizationEvent;
   const afterExecutionClaimLivenessEvent =
     options.afterExecutionClaimLivenessEvent;
+  if (managedInstallation !== undefined && options.directInstallation !== undefined)
+    throw new Error("A located target requires one installation admission profile");
+  const installationAdmission = options.directInstallation === undefined
+    ? managedInstallation === undefined ? undefined : { kind: "coLocated" as const, installation: managedInstallation.installation }
+    : { kind: "direct" as const, installation: options.directInstallation };
   const runReadCommitted = options[LOCATED_READ_COMMITTED_RUNNER_V1] ??
-    createDefaultLocatedReadCommittedTransactionRunnerV1(db, managedInstallation?.installation);
+    createDefaultLocatedReadCommittedTransactionRunnerV1(db, installationAdmission);
+  const runInstalledReadCommitted = installedAuthority === undefined ? undefined :
+    <Value>(selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>, work: (tx: AppRowTransaction) => Promise<Value>) =>
+      createDefaultLocatedReadCommittedTransactionRunnerV1(db, installationAdmission,
+        { owner: installedAuthority, selection, protection: "attempt" })(work);
   const committedOutcomeResolver = createCommittedPointOutcomeResolverV1(db);
   const getCurrentClockAtTarget = (scopeId: ScopeId) =>
     getScopeClock(db, scopeId);
@@ -1669,6 +1712,11 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
   });
   const target = Object.freeze({
+    ...(installedAuthority === undefined ? {} : { [INSTALLED_SCOPE_AUTHORITY_TARGET]: true as const }),
+    ...(installedAuthority === undefined ? {} : { [ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION]:
+      (tx: AppRowTransaction, selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>) =>
+        installedAuthority.lock(tx, selection, "attempt") }),
+    ...(runInstalledReadCommitted === undefined ? {} : { [RUN_INSTALLED_ACCEPTING_READ_COMMITTED]: runInstalledReadCommitted }),
     physicalLocator: capturedLocator,
     getCurrentClock: getCurrentClockAtTarget,
     [ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1]: (
@@ -1688,7 +1736,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
         input,
         ...(afterWrite === undefined ? {} : { afterWrite }),
       }),
-    ).pipe(Effect.mapError(mapActivationTransactionError)),
+    ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapActivationTransactionError)))),
     [ACTIVATE_APPLICATION_MUTATION_SESSION_EFFECT_V1]: (
       input: LocatedPointMutationSessionActivationInputV1,
       selection: ApplicationActiveSelection,
@@ -1704,24 +1752,27 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       },
       applicationActivationScopedOperation,
       Object.freeze({ input, selection }),
-    ).pipe(Effect.mapError(mapApplicationActivationTransactionError)),
+    ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapApplicationActivationTransactionError)))),
     [ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]: (
       input: LocatedPointMutationSessionActivationInputV1,
       prepared: PreparedFiniteApplicationMutationSessionActivation,
       entry: PreparedFiniteSessionJournalEntry,
-      control: PreparedTerminalControl | undefined,
-    ): ReturnType<LocatedPointMutationSessionActivationTargetV1[typeof ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]> => liveScopeExecution.runWrite(locatedActivationAuthority(scopeExecutionTarget, input.preliminaryAuthority), {
-      clockProtection: "ordinaryWrite", rollbackMessage: "Finite Application entry rolled back.",
-      cleanupDefect: mapActivationTransactionError,
-    }, finiteApplicationActivationScopedOperation, { input, prepared, entry, control, target, afterWrite, database: db,
-      ...(managedInstallation === undefined ? {} : { managedControlProtection: managedInstallation.controlProtection }) }).pipe(
-      Effect.mapError(cause => cause instanceof ScopeExecutionAuthorityError || cause instanceof LocatedReadCommittedTransactionFailureV1
-        ? mapApplicationActivationTransactionError(cause) : cause),
+    ): ReturnType<LocatedPointMutationSessionActivationTargetV1[typeof ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]> => runLocatedReadCommittedEffect(
+      runInstalledReadCommitted === undefined ? scopeExecutionTarget : Object.freeze({ ...scopeExecutionTarget,
+        [RUN_LOCATED_READ_COMMITTED_V1]: <Value>(work: (tx: AppRowTransaction) => Promise<Value>) =>
+          runInstalledReadCommitted({ deploymentId: input.prepared.deploymentId, scopeId: input.prepared.scopeId }, work) }), {
+      rollbackMessage: "Finite Application entry rolled back.", cleanupDefect: mapActivationTransactionError,
+    }, tx => finiteApplicationActivationOperation(tx, {
+        input, prepared, entry, target, afterWrite, database: db,
+        ...(installedAuthority === undefined ? {} : { installedAuthority }),
+        ...(managedInstallation === undefined ? {} : { managedControlProtection: managedInstallation.controlProtection }) })).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+        failure => failure instanceof ScopeExecutionAuthorityError || failure instanceof LocatedReadCommittedTransactionFailureV1
+          ? mapApplicationActivationTransactionError(failure) : failure))),
     ),
     [LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptLoadInputV1,
-    ) => Effect.uninterruptible(Effect.tryPromise({
-      try: () =>
+    ) => Effect.uninterruptible(runPointCommitPromiseEffect(() =>
         db.transaction(async tx => {
           await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
           try {
@@ -1729,9 +1780,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
           } finally {
             closeInstallationAdmission(tx);
           }
-        }),
-      catch: mapAttemptLoadTransactionError,
-    })),
+        }), mapAttemptLoadTransactionError)),
     [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]: <Result, Failure>(
       input: ExactRunningAttemptKernelInputV1,
       work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
@@ -1746,9 +1795,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       "attempt",
       installedAuthority, managedInstallation?.controlProtection,
     ),
-    [RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT]: <Result, Failure>(
-      input: ExactRunningAttemptKernelInputV1, work: FiniteRunningAttemptEffectWork<Result, Failure>,
-    ) => runFiniteRunningAttemptEffectTransaction(db, input, work, installedAuthority),
+    [CAPTURE_FINITE_STORAGE]: finiteStorage.capture,
     [RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1]: <
       Result,
       Failure,
@@ -1803,16 +1850,17 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       ),
     [RENEW_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]: (input) =>
       renewLocatedPointMutationExecutionClaimEffect(
-        runReadCommitted,
+        input.installedFinite === true && runInstalledReadCommitted !== undefined ?
+          work => runInstalledReadCommitted(input.selector, work) : runReadCommitted,
         input,
         afterExecutionClaimLivenessEvent,
+        installedAuthority,
       ),
     [DISCOVER_LOCATED_POINT_MUTATION_ATTEMPTS_V1]: (input) =>
       discoverLocatedPointMutationAttemptsEffectV1(db, input),
     [TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
-    ) => Effect.uninterruptible(Effect.tryPromise({
-      try: () =>
+    ) => Effect.uninterruptible(runPointCommitPromiseEffect(() =>
         db.transaction(async tx => {
           await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
           try {
@@ -1824,12 +1872,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
           } finally {
             closeInstallationAdmission(tx);
           }
-        }),
-      catch: (cause) => mapAttemptTerminalizationTransactionError(
-        input.operation,
-        cause,
-      ),
-    })),
+        }), cause => mapAttemptTerminalizationTransactionError(input.operation, cause))),
   } satisfies LocatedPointMutationSessionTargetV1);
   registerLocatedReadCommittedTargetDatabaseV1(target, db);
   return target;
@@ -1845,6 +1888,7 @@ const renewLocatedPointMutationExecutionClaimEffect = Effect.fn(
       "afterExecutionClaimLivenessEvent"
     ]
     | undefined,
+  installedAuthority?: PreparedInstalledAttemptScopeAuthority,
 ): Effect.fn.Return<
   PointMutationExecutionClaimLivenessResultV1,
   Exclude<
@@ -1854,12 +1898,9 @@ const renewLocatedPointMutationExecutionClaimEffect = Effect.fn(
     | TrustedScopeAuthorityResolutionError
   >
 > {
-  return yield* Effect.uninterruptible(Effect.tryPromise({
-    try: () =>
+  return yield* Effect.uninterruptible(runPointCommitPromiseEffect(() =>
       runReadCommitted((tx) =>
-        renewExecutionClaimLivenessInTransaction(tx, input, afterEvent)),
-    catch: mapExecutionClaimLivenessTransactionError,
-  }));
+        renewExecutionClaimLivenessInTransaction(tx, input, afterEvent, installedAuthority)), mapExecutionClaimLivenessTransactionError));
 });
 
 async function renewExecutionClaimLivenessInTransaction(
@@ -1870,22 +1911,28 @@ async function renewExecutionClaimLivenessInTransaction(
       "afterExecutionClaimLivenessEvent"
     ]
     | undefined,
+  installedAuthority?: PreparedInstalledAttemptScopeAuthority,
 ): Promise<PointMutationExecutionClaimLivenessResultV1> {
   const emit = async (
     event: PointMutationExecutionClaimLivenessEventV1,
   ): Promise<void> => {
     await afterEvent?.(event);
   };
-  const clock = await lockPointMutationSessionClock(
-    tx,
-    input.selector.scopeId,
-  );
+  if (input.installedFinite === true && installedAuthority === undefined)
+    throw executionClaimLivenessCorruption("clockInvalid");
+  const clock = input.installedFinite !== true ? await lockPointMutationSessionClock(tx, input.selector.scopeId) :
+    decodeLockedPointMutationSessionClock((await projectPointCommitTransactionResult(
+      await runPointCommitInTransactionEffect(installedAuthority!.lock(tx, input.selector, "attempt")))).row);
   await emit({ phase: "lock", step: "clockLocked" });
-  requireStablePointMutationSessionAttemptAuthority(
+  projectTransactionSessionActivationResult(requireStablePointMutationSessionAttemptAuthority(
     clock,
     input,
     executionClaimLivenessStableAuthorityFailures,
-  );
+  ));
+  if (input.installedFinite === true) {
+    return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      renewFiniteExecutionClaimInTransaction(tx, input, clock, () => emit({ phase: "lock", step: "sessionLocked" }))));
+  }
   const session = await lockExactPointMutationSession(
     tx,
     input.selector,
@@ -1897,6 +1944,9 @@ async function renewExecutionClaimLivenessInTransaction(
     throw new PointMutationExecutionClaimLivenessStaleV1Error({
       reason: "lifecycleChanged",
     });
+  }
+  if (session.executionProfile === "finiteRoot") {
+    return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(renewFiniteExecutionClaimInTransaction(tx, input, clock)));
   }
   const locked = await lockPointMutationSessionAttemptStructure(
     tx,
@@ -2104,6 +2154,54 @@ async function renewExecutionClaimLivenessInTransaction(
     });
 }
 
+declare const finiteRecoveryAttemptBrand: unique symbol;
+/** Original admitted request evidence only. This grants no execution claim. */
+export interface FiniteRecoveryAttempt { readonly [finiteRecoveryAttemptBrand]: true }
+const finiteRecoveryAttempts = new WeakMap<FiniteRecoveryAttempt, FiniteEntryAttemptKernelContext>();
+export function readFiniteRecoveryAttempt(capture: FiniteRecoveryAttempt): Result.Result<FiniteEntryAttemptKernelContext,
+  PointMutationExecutionClaimAcquisitionInputV1Error> {
+  const context = finiteRecoveryAttempts.get(capture);
+  return context === undefined ? Result.fail(new PointMutationExecutionClaimAcquisitionInputV1Error({ reason: "invalidSelector" })) : Result.succeed(structuredClone(context));
+}
+
+/** The Promise transaction callback above owns this one bounded runtime bridge. */
+const renewFiniteExecutionClaimInTransaction = Effect.fn("PointMutationExecutionClaimLiveness.renewFinite")(
+  function* (tx: AppRowTransaction, input: LocatedPointMutationExecutionClaimLivenessInputV1,
+    clock: LockedPointMutationSessionClockV1, afterSessionLock?: () => Promise<void>) {
+    const context = yield* lockFiniteAttemptAnchorInTransaction(tx, input.selector).pipe(Effect.mapError(cause => executionClaimLivenessCorruption("sessionInvalid", cause)));
+    const session = context.session;
+    if (afterSessionLock !== undefined) yield* Effect.tryPromise({ try: afterSessionLock, catch: mapExecutionClaimLivenessTransactionError });
+    if (session.lifecycle !== "running") return yield* Effect.fail(new PointMutationExecutionClaimLivenessStaleV1Error({ reason: "lifecycleChanged" }));
+    if (session.storageGeneration !== clock.record.storageGeneration || session.storageGenerationFence !== clock.record.storageGenerationFence)
+      return yield* Effect.fail(new PointMutationExecutionClaimLivenessStaleV1Error({ reason: "generationChanged" }));
+    if (session.authorizationRevocationEpoch !== clock.authorizationRevocationEpoch)
+      return yield* Effect.fail(new PointMutationExecutionClaimLivenessStaleV1Error({ reason: "revocationEpochChanged" }));
+    const databaseNow = yield* Effect.tryPromise({ try: () => readDatabaseNow(tx, input.selector.scopeId), catch: mapExecutionClaimLivenessTransactionError });
+    if (context.snapshotToken.epoch !== clock.record.epoch) return yield* Effect.fail(new PointMutationExecutionClaimLivenessStaleV1Error({ reason: "epochChanged" }));
+    if (context.snapshotToken.commitSeq < clock.record.oldestAvailableCommitSeq)
+      return yield* Effect.fail(executionClaimLivenessCorruption("leaseInvalid"));
+    const claim = context.executionClaim;
+    if (claim.claimOwner !== input.executionClaim.claimOwner) return yield* Effect.fail(new PointMutationExecutionClaimLivenessStaleV1Error({ reason: "claimOwnerChanged" }));
+    if (claim.claimFence !== input.executionClaim.claimFence) return yield* Effect.fail(new PointMutationExecutionClaimLivenessStaleV1Error({ reason: "claimFenceChanged" }));
+    const projected = yield* Effect.fromResult(projectExecutionClaimRenewalV1Result({
+      databaseNowMilliseconds: databaseNow.getTime(), currentLeaseExpiresAtMilliseconds: context.leaseExpiresAt.getTime(),
+      currentClaimExpiresAtMilliseconds: Date.parse(claim.claimExpiresAt), authorizationGrantExpiresAtMilliseconds: session.authorizationGrantExpiresAt.getTime(),
+      hardExpiresAtMilliseconds: session.hardExpiresAt.getTime(), claimDurationMilliseconds: input.claimDurationMilliseconds,
+      leaseRenewalDurationMilliseconds: input.leaseRenewalDurationMilliseconds,
+      maximumLiveSnapshotRetentionMilliseconds: input.maximumLiveSnapshotRetentionMilliseconds, phase: "open",
+    }).pipe(Result.mapError(mapExecutionClaimRenewalIssue)));
+    const rows = yield* Effect.tryPromise({ try: () => tx.update(fxSystemTransactionSessions).set({
+      finiteLeaseExpiresAt: new Date(projected.targetLeaseExpiresAtMilliseconds), finiteClaimExpiresAt: new Date(projected.targetClaimExpiresAtMilliseconds),
+    }).where(and(eq(fxSystemTransactionSessions.scopeUuid, session.scopeUuid), eq(fxSystemTransactionSessions.sessionId, session.sessionId),
+      eq(fxSystemTransactionSessions.attemptFence, session.attemptFence), eq(fxSystemTransactionSessions.lifecycle, "running"),
+      eq(fxSystemTransactionSessions.finiteClaimOwner, claim.claimOwner), eq(fxSystemTransactionSessions.finiteClaimFence, claim.claimFence)))
+      .returning({ sessionId: fxSystemTransactionSessions.sessionId }), catch: mapExecutionClaimLivenessTransactionError });
+    if (rows.length !== 1) return yield* Effect.fail(executionClaimLivenessCorruption("mutationInvalid"));
+    return Object.freeze({ kind: "renewed" as const, phase: "open" as const,
+      leaseExpiresAt: new Date(projected.targetLeaseExpiresAtMilliseconds).toISOString(),
+      executionClaim: Object.freeze({ ...claim, claimExpiresAt: new Date(projected.targetClaimExpiresAtMilliseconds).toISOString() }) });
+  });
+
 interface PointMutationExecutionClaimAcquisitionPreludeV1 {
   readonly lookup: ResolveCommittedPointOutcomeInputV1;
   readonly attemptFence: TransactionAttemptFence;
@@ -2162,8 +2260,7 @@ const acquireLocatedPointMutationExecutionClaimEffect = Effect.fn(
   }
 
   const transactionResult = yield* Effect.uninterruptible(
-    Effect.tryPromise({
-      try: () => runReadCommitted((tx) =>
+    runPointCommitPromiseEffect(() => runReadCommitted((tx) =>
         acquireExecutionClaimInTransaction(
           tx,
           {
@@ -2173,9 +2270,7 @@ const acquireLocatedPointMutationExecutionClaimEffect = Effect.fn(
             claimOwner: claimOwner.success,
           },
           prelude,
-        )),
-      catch: mapExecutionClaimAcquisitionTransactionFailure,
-    }),
+        )), mapExecutionClaimAcquisitionTransactionFailure),
   );
   if (transactionResult.kind !== "outcomeObserved") {
     return transactionResult;
@@ -2319,6 +2414,19 @@ async function acquireExecutionClaimInTransaction(
     throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
       reason: "committedOutcomeMissing",
     });
+  }
+  if (session.executionProfile === "finiteRoot" && (session.lifecycle === "running" || session.lifecycle === "retrying")) {
+    const context = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(readFiniteAttemptAnchorRow(session)
+      .pipe(Effect.mapError(cause => new PointMutationExecutionClaimAcquisitionCorruptionV1Error({ reason: "sessionInvalid", cause })))));
+    const databaseNow = await readDatabaseNow(tx, selector.scopeId);
+    if (session.lifecycle === "running" && Date.parse(context.executionClaim.claimExpiresAt) > databaseNow.getTime())
+      return Object.freeze({ kind: "busy", observation: context.executionClaim });
+    const evidence = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      finiteEntryAttemptContextFromAnchor(context, selector.deploymentId, clock.record, databaseNow)));
+    // SAFETY: only this locked acquisition owner issues an inert recovery capture.
+    const capture = Object.freeze({}) as FiniteRecoveryAttempt;
+    finiteRecoveryAttempts.set(capture, evidence);
+    return Object.freeze({ kind: "finiteRecovery", capture });
   }
   if (session.lifecycle === "finishing") {
     return Object.freeze({ kind: "finishing" });
@@ -2570,11 +2678,11 @@ function requireStableExecutionClaimAcquisitionAuthority(
       reason: "deploymentChanged",
     });
   }
-  requireStablePointMutationSessionAttemptAuthority(
+  projectTransactionSessionActivationResult(requireStablePointMutationSessionAttemptAuthority(
     clock,
     { selector, preliminaryAuthority: preliminary },
     executionClaimAcquisitionStableAuthorityFailures,
-  );
+  ));
 }
 
 const executionClaimAcquisitionStableAuthorityFailures = Object.freeze({
@@ -2722,7 +2830,10 @@ function mapExecutionClaimAcquisitionTransactionFailure(
  */
 export function createDefaultLocatedReadCommittedTransactionRunnerV1(
   db: FlarexMetadataDatabase,
-  installation?: PreparedCoLocatedReadInstallation,
+  installation?: Readonly<{ kind: "coLocated"; installation: PreparedCoLocatedReadInstallation }> |
+    Readonly<{ kind: "direct"; installation: PreparedInstallation }>,
+  accepting?: Readonly<{ owner: PreparedInstalledAttemptScopeAuthority;
+    selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>; protection: "share" | "attempt" }>,
 ): RunLocatedReadCommittedTransactionV1 {
   return async <Result>(work: (
     tx: AppRowTransaction,
@@ -2734,11 +2845,15 @@ export function createDefaultLocatedReadCommittedTransactionRunnerV1(
     try {
       return await db.transaction(async (tx) => {
         await tx.setTransaction({ isolationLevel: "read committed" });
-        await Effect.runPromise(installation === undefined ? lockInstallationForCurrentTransaction(tx)
-          : acquireCoLocatedInstallationAdmission(installation, db, tx));
+        if (accepting !== undefined) Result.getOrThrowWith(accepting.owner.requireDatabase(db), cause => cause);
+        if (accepting === undefined) await Effect.runPromise(installation === undefined ? lockInstallationForCurrentTransaction(tx)
+          : installation.kind === "coLocated" ? acquireCoLocatedInstallationAdmission(installation.installation, db, tx).pipe(Effect.asVoid)
+          : acquireInstallationAdmission(installation.installation, db, tx).pipe(Effect.asVoid));
         state.phase = "running";
         try {
           const result = await work(tx);
+          if (accepting !== undefined) Result.getOrThrowWith(
+            accepting.owner.requireAcceptedTransaction(tx, accepting.selection, accepting.protection), cause => cause);
           state.phase = "completed";
           return result;
         } catch (cause) {
@@ -2746,6 +2861,7 @@ export function createDefaultLocatedReadCommittedTransactionRunnerV1(
           state.callbackCause = cause;
           throw cause;
         } finally {
+          accepting?.owner.closeAcceptedTransaction(tx);
           closeInstallationAdmission(tx);
         }
       });
@@ -2778,96 +2894,9 @@ export function createDefaultLocatedReadCommittedTransactionRunnerV1(
   };
 }
 
-const decodeFiniteAuthorityResult = Schema.decodeUnknownResult(Schema.toType(ScopeExecutionAuthoritySchema));
 
-/** Explicit finite profile: every accepting transaction rechecks live authority; fixed metadata has its own reservation. */
-function runFiniteRunningAttemptEffectTransaction<Value, Failure>(db: FlarexMetadataDatabase,
-  input: ExactRunningAttemptKernelInputV1, work: FiniteRunningAttemptEffectWork<Value, Failure>,
-  installedAuthority?: PreparedInstalledAttemptScopeAuthority,
-): Effect.Effect<Value, Failure | ExactRunningAttemptTransactionV1Error> {
-  return Effect.suspend(() => {
-    let callbackCause: EffectCause<Failure | ExactRunningAttemptTransactionV1Error> | undefined;
-    const rollbackSignal = new Error("Finite exact-attempt work failed; roll back transaction.");
-    return Effect.uninterruptible(Effect.tryPromise({
-      try: () => db.transaction(async tx => {
-        try {
-          const captureContext = Effect.gen(function* () {
-            if (installedAuthority === undefined) yield* lockInstallationForCurrentTransaction(tx);
-            else yield* installedAuthority.lockFiniteScope(tx, input.selector);
-            if (input.selector.scopeId !== input.preliminaryAuthority.scopeId)
-              return yield* Effect.fail(attemptLoadError({ reason: "selectorScopeMismatch" }));
-            const admittedSchema = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx));
-            const observed = yield* Effect.tryPromise({ try: () => readFiniteRunningAttempt(tx, input, admittedSchema), catch: cause => cause });
-            const row = yield* Effect.fromResult(observed.pipe(Result.mapError(issue =>
-              corruptionError(input.selector.scopeId, "sessionRecordInvalid", issue))));
-            switch (row.disposition) {
-              case "loaded": break;
-              case "scopeClockMissing": return yield* Effect.fail(new ScopeClockNotFoundError(input.selector.scopeId));
-              case "unsupportedStorageGeneration": return yield* Effect.fail(attemptLoadFailures.unsupportedStorageGeneration());
-              case "storageGenerationFenceChanged": return yield* Effect.fail(attemptLoadFailures.storageGenerationFenceChanged());
-              case "scopeEpochChanged": return yield* Effect.fail(attemptLoadFailures.scopeEpochChanged());
-              case "authorizationRevocationEpochChanged": return yield* Effect.fail(attemptLoadFailures.authorizationRevocationEpochChanged());
-              case "sessionMissing": return yield* Effect.fail(attemptLoadExactSessionFailures.sessionMissing());
-              case "staleAttemptFence": return yield* Effect.fail(attemptLoadExactSessionFailures.staleAttemptFence());
-              case "activeAttemptExpired": return yield* Effect.fail(attemptLoadFailures.activeAttemptExpired());
-              case "terminal":
-                if (row.session.lifecycle === "running") return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
-                return yield* Effect.fail(attemptLoadFailures.terminal(row.session.lifecycle));
-              case "executionClaimMissingOrDuplicate": return yield* Effect.fail(new TransactionExecutionClaimCorruptionV1Error({
-                scopeId: input.selector.scopeId, reason: "claimMissingOrDuplicate" }));
-              default: return yield* Effect.fail(corruptionError(input.selector.scopeId, row.disposition));
-            }
-            const scopeId = input.selector.scopeId;
-            const live = yield* Effect.fromResult(decodeFiniteAuthorityResult({ ...row.authority, scopeUuid: row.scopeUuid })
-              .pipe(Result.mapError(cause => corruptionError(scopeId, "scopeClockNativeProjectionInvalid", cause))));
-            const databaseNow = yield* Effect.fromResult(databaseNowFromEpochMillisecondsResult(scopeId, row.databaseNowEpochMilliseconds));
-            const claim = yield* Effect.fromResult(validateLockedRunningAttemptExecutionClaimResult({
-              deploymentId: input.selector.deploymentId, scopeId, failures: attemptLoadFailures, afterLeaseLock: undefined,
-              claimRequirement: "live", executionClaim: input.executionClaim,
-            }, row.claim, databaseNow, databaseNow.getTime()));
-            const schemaVersionId = yield* Effect.fromResult(decodeCheckedSchemaVersionIdResult(row.session.schemaVersionId)
-              .pipe(Result.mapError(cause => corruptionError(scopeId, "sessionRecordInvalid", cause))));
-            if (!isUint8ArrayWithByteLength(row.session.identityAccessPolicySha256, 32))
-              return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
-            const snapshotToken = SnapshotTokenSchema.make({ scopeId, epoch: live.epoch, commitSeq: row.lease.snapshotCommitSeq });
-            const authority = openFiniteExecutionAuthorityObservation(tx, live,
-              { sessionId: row.session.sessionId, attemptFence: row.session.attemptFence, snapshotToken });
-            const context: FiniteRunningAttemptKernelContext = Object.freeze({ scopeUuid: authority.scopeUuid, authority,
-              snapshotLease: Object.freeze({ ...row.lease }),
-              anchor: Object.freeze({ deploymentId: input.selector.deploymentId, scopeId, sessionId: row.session.sessionId,
-                requestKey: row.session.requestKey, executionProfile: row.journalRoot.executionProfile,
-                storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"), storageGenerationFence: authority.storageGenerationFence,
-                attemptFence: row.session.attemptFence, snapshotToken, hardExpiresAt: row.session.hardExpiresAt.toISOString(),
-                leaseExpiresAt: row.lease.leaseExpiresAt.toISOString(), createdAt: row.session.createdAt.toISOString(),
-                updatedAt: row.session.updatedAt.toISOString() }),
-              executionPin: Object.freeze({ schemaVersionId, functionPath: row.session.functionPath, functionKind: row.session.functionKind, executionModule: row.session.executionModule }),
-              executionAuthorityGeneration: row.session.executionAuthorityGeneration,
-              principalDigest: encodeBytesToLowercaseHex(row.session.identityAccessPolicySha256),
-              authorizationGrantExpiresAtMilliseconds: row.session.authorizationGrantExpiresAt.getTime(),
-              hardExpiresAtMilliseconds: row.session.hardExpiresAt.getTime(), databaseNow,
-              journalRoot: Object.freeze({ ...row.journalRoot }), executionClaim: claim,
-            });
-            return context;
-          }).pipe(Effect.mapError(cause => new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
-          // One callback bridge owns admission and work together. Expected
-          // admission refusals keep the transaction error boundary; defects and
-          // interruption retain their complete Cause through rollback.
-          const exit = await Effect.runPromise(Effect.exit(Effect.uninterruptible(Effect.gen(function* () {
-            const context = yield* captureContext;
-            return yield* Effect.suspend(() => work(tx, context));
-          }))));
-          if (Exit.isFailure(exit)) { callbackCause = exit.cause; throw rollbackSignal; }
-          return exit.value;
-        } finally { closeFiniteExecutionAuthorityObservation(tx); closeInstallationAdmission(tx); }
-      }),
-      catch: cause => new ExactRunningAttemptTransactionV1Error({ cause, callbackCause }),
-    }).pipe(Effect.catchTag("ExactRunningAttemptTransactionV1Error", failure =>
-      reconcileExactRunningAttemptTransactionFailureV1(failure, callbackCause, rollbackSignal))));
-  });
-}
-
-// Keep this driver-callback runner as a plain named boundary so the workspace
-// runtime audit attributes its sole Effect.runPromise call exactly here.
+/** The shared bridge owns full callback Cause and native settlement; this
+ * exact-attempt owner retains admission, final guards and cleanup. */
 function runExactRunningAttemptEffectTransaction<Result, Failure>(
   db: FlarexMetadataDatabase,
   input: ExactRunningAttemptKernelInputV1,
@@ -2879,70 +2908,41 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
   installedAuthority?: PreparedInstalledAttemptScopeAuthority,
   controlProtection?: ProtectedMetadataPreparation,
 ): Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error> {
-  return Effect.suspend(() => {
-    let callbackCause: EffectCause<Failure | ExactRunningAttemptTransactionV1Error> | undefined;
-    const rollbackSignal = new Error(
-      "Effect exact-attempt work failed; roll back the transaction.",
-    );
-    return Effect.uninterruptible(
-      Effect.tryPromise({
-        try: () => db.transaction(async (tx): Promise<Result> => {
-          try {
-            const exit = await Effect.runPromise(Effect.exit(
-              Effect.uninterruptible(Effect.gen(function* () {
-                const admission = Effect.gen(function* () {
-                  const installed = installedAuthority === undefined ? undefined :
-                    yield* installedAuthority.lock(tx, input.selector, clockProtection);
-                  if (installed === undefined) yield* lockInstallationForCurrentTransaction(tx);
-                  const locked = yield* Effect.tryPromise({ try: () => lockExactRunningAttemptInTransaction(
-                    tx, input, afterLoadLock, clockProtection,
-                    installed === undefined ? undefined : decodeLockedPointMutationSessionClock(installed.row)),
-                    catch: cause => cause });
-                  const context = yield* Effect.fromResult(runningAttemptKernelContextResult(locked, tx));
-                  openProtectedMetadataFinalGuardScope(tx);
-                  openExactAttemptScopeClockObservation(tx, locked.clock.record,
-                    locked.clock.authorizationRevocationEpoch, clockProtection);
-                  return context;
-                }).pipe(Effect.mapError(cause => new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
-                const context = yield* admission;
-                if (installedAuthority !== undefined) {
-                  if (controlProtection === undefined) return yield* Effect.die("Installed attempt lost its protected control preparation");
-                  yield* registerProtectedMetadataTransactionFinalGuard(controlProtection, db, tx).pipe(Effect.mapError(cause =>
-                    new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
-                }
-                const value = yield* Effect.suspend(() => work(tx, context));
-                yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
-                  new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
-                return value;
-              })),
-            ));
-            if (Exit.isFailure(exit)) {
-              callbackCause = exit.cause;
-              throw rollbackSignal;
-            }
-            return exit.value;
-          } finally {
-            closeExactAttemptScopeClockObservation(tx);
-            closeFiniteExecutionAuthorityObservation(tx);
-            finiteEntryLeaseExpectations.delete(tx);
-            closeProtectedMetadataFinalGuardScope(tx);
-            closeInstallationAdmission(tx);
-          }
-        }),
-        catch: (cause) => new ExactRunningAttemptTransactionV1Error({
-          cause,
-          callbackCause,
-        }),
-      }).pipe(
-        Effect.catch((failure) =>
-          reconcileExactRunningAttemptTransactionFailureV1(
-            failure,
-            callbackCause,
-            rollbackSignal,
-          )),
-      ),
-    );
-  });
+  return Effect.uninterruptible(runEffectTransactionSettlement<Result, Failure | ExactRunningAttemptTransactionV1Error,
+    ExactRunningAttemptTransactionV1Error, AppRowTransaction>(callback => db.transaction(callback),
+    "Effect exact-attempt work failed; roll back the transaction.", tx =>
+      Effect.uninterruptible(Effect.gen(function* () {
+        const admission = Effect.gen(function* () {
+          const installed = installedAuthority === undefined ? undefined :
+            yield* installedAuthority.lock(tx, input.selector, clockProtection);
+          if (installed === undefined) yield* lockInstallationForCurrentTransaction(tx);
+          const locked = yield* runPointCommitPromiseEffect(() => lockExactRunningAttemptInTransaction(
+            tx, input, afterLoadLock, clockProtection,
+            installed === undefined ? undefined : decodeLockedPointMutationSessionClock(installed.row)), cause => cause);
+          const context = yield* Effect.fromResult(runningAttemptKernelContextResult(locked, tx));
+          openProtectedMetadataFinalGuardScope(tx);
+          openExactAttemptScopeClockObservation(tx, locked.clock.record,
+            locked.clock.authorizationRevocationEpoch, clockProtection);
+          return context;
+        }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+          failure => new ExactRunningAttemptTransactionV1Error({ cause: failure, callbackCause: undefined })))));
+        const context = yield* admission;
+        if (installedAuthority !== undefined) {
+          if (controlProtection === undefined) return yield* Effect.die("Installed attempt lost its protected control preparation");
+          yield* registerProtectedMetadataTransactionFinalGuard(controlProtection, db, tx).pipe(Effect.mapError(cause =>
+            new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
+        }
+        const value = yield* Effect.suspend(() => work(tx, context));
+        yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
+          new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
+        return value;
+      }).pipe(Effect.ensuring(Effect.sync(() => {
+        closeExactAttemptScopeClockObservation(tx);
+        closeFiniteExecutionAuthorityObservation(tx);
+        finiteEntryLeaseExpectations.delete(tx);
+        closeProtectedMetadataFinalGuardScope(tx);
+        closeInstallationAdmission(tx);
+      })))), cause => new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
 }
 
 async function activateInTransaction(
@@ -2956,7 +2956,7 @@ async function activateInTransaction(
     tx,
     input.prepared.scopeId,
   );
-  requireStableAuthority(clock, input);
+  projectTransactionSessionActivationResult(requireStableAuthority(clock, input));
   return activateAfterLockedClock(tx, input, clock, afterWrite);
 }
 
@@ -3014,6 +3014,312 @@ function lockSessionsByRequestKey(
   )).orderBy(asc(fxSystemTransactionSessions.sessionId)).limit(2).for("update");
 }
 
+/** The finite profile has one durable session anchor, never a journal facet. */
+const prepareProvisionalFiniteSessionEffect = Effect.fn("ApplicationMutationSessionActivation.prepareFiniteSession")(
+  function* (tx: AppRowTransaction, input: LocatedPointMutationSessionActivationInputV1,
+    clock: LockedPointMutationSessionClockV1, afterWrite: LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"],
+    installed: boolean, databaseNow: Date) {
+    const evidence = input.prepared.evidence;
+    const hardExpiresAt = cloneValidDate(evidence.authorizationGrantExpiresAt);
+    const leaseExpiresAt = yield* Effect.fromResult(deriveInitialLeaseExpiry(databaseNow, hardExpiresAt, input.leaseDurationMilliseconds));
+    const snapshotToken = SnapshotTokenSchema.make({ scopeId: input.prepared.scopeId, epoch: clock.record.epoch,
+      commitSeq: clock.record.lastCommitSeq });
+    const claim = yield* Effect.fromResult(deriveTransactionExecutionClaimV1({ scopeUuid: clock.scopeUuid,
+      sessionId: input.candidateSessionId, attemptFence: INITIAL_ATTEMPT_FENCE, claimFence: 1n, claimOwner: input.executionClaimOwner,
+      databaseNow, durationMilliseconds: input.executionClaimDurationMilliseconds, leaseExpiresAt,
+      authorizationGrantExpiresAt: evidence.authorizationGrantExpiresAt, hardExpiresAt }).pipe(Result.mapError(reason =>
+      reason === "authorityExpired" ? activationError({ reason: "authorizationGrantExpired" }) :
+        corruptionError(input.prepared.scopeId, "sessionRecordInvalid"))));
+    const session = { scopeUuid: clock.scopeUuid, sessionId: input.candidateSessionId,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"), storageGenerationFence: clock.record.storageGenerationFence,
+      ...evidence, executionProfile: "finiteRoot" as const,
+      finiteAttemptBytes: null, finiteAttemptSha256: null, finiteMetadataWatermark: null,
+      finiteSnapshotEpochUuid: projectScopeEpochUuidV1(snapshotToken.epoch).epochUuid,
+      finiteSnapshotCommitSeq: snapshotToken.commitSeq,
+      lifecycle: "running" as const, attemptFence: INITIAL_ATTEMPT_FENCE,
+      protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1, hardExpiresAt, createdAt: databaseNow, updatedAt: databaseNow,
+      finiteLeaseExpiresAt: leaseExpiresAt, finiteClaimOwner: claim.claimOwner, finiteClaimFence: claim.claimFence,
+      finiteClaimedAt: claim.claimedAt, finiteClaimExpiresAt: claim.claimExpiresAt } satisfies TransactionSessionRow;
+    // This private owner-authored state is inert until complete insertion and
+    // acknowledged COMMIT. In particular, no empty durable anchor is created.
+    finiteEntryAnchorExpectations.set(tx, Object.freeze({ session, snapshotToken, provisional: true,
+      schemaName: input.preliminaryAuthority.physicalLocator.schemaName, afterWrite, installed }));
+    const finiteAttempt: FiniteAttemptAnchorContext = Object.freeze({ session, snapshotToken, reservation: null,
+      leaseExpiresAt, executionClaim: Object.freeze({ claimOwner: claim.claimOwner, claimFence: claim.claimFence,
+        claimedAt: claim.claimedAt.toISOString(), claimExpiresAt: claim.claimExpiresAt.toISOString() }) });
+    const context = yield* finiteEntryAttemptContextFromAnchor(finiteAttempt, input.prepared.deploymentId, clock.record, databaseNow);
+    return Object.freeze({ activation: activationResult("created", context.anchor, context.executionClaim), context });
+  });
+
+const finiteAttemptContextScalars = Effect.fn("ApplicationMutationSessionActivation.finiteEntryContext")(
+  function* <Session extends FiniteAttemptFrontierRow>(finiteAttempt: FiniteAttemptAnchorContext<Session>, deploymentId: PointMutationSessionAttemptSelectorV1["deploymentId"],
+    scopeId: PointMutationSessionAttemptSelectorV1["scopeId"], databaseNow: Date) {
+    const session = finiteAttempt.session;
+    if (session.storageGeneration !== "flarexdb_v1") {
+      return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    }
+    const schemaVersionId = yield* Effect.fromResult(decodeCheckedSchemaVersionIdResult(session.schemaVersionId)
+      .pipe(Result.mapError(cause => corruptionError(scopeId, "sessionRecordInvalid", cause))));
+    if (!isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32))
+      return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    return Object.freeze({ scopeUuid: session.scopeUuid, session, finiteAttempt,
+      anchor: Object.freeze({ deploymentId, scopeId: scopeId, sessionId: session.sessionId, requestKey: session.requestKey,
+        executionProfile: "finiteRoot" as const, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+        storageGenerationFence: session.storageGenerationFence, attemptFence: session.attemptFence,
+        snapshotToken: finiteAttempt.snapshotToken, hardExpiresAt: session.hardExpiresAt.toISOString(),
+        leaseExpiresAt: finiteAttempt.leaseExpiresAt.toISOString(), createdAt: session.createdAt.toISOString(), updatedAt: session.updatedAt.toISOString() }),
+      executionPin: Object.freeze({ schemaVersionId, functionPath: session.functionPath, functionKind: session.functionKind, executionModule: session.executionModule }),
+      executionAuthorityGeneration: session.executionAuthorityGeneration, principalDigest: encodeBytesToLowercaseHex(session.identityAccessPolicySha256),
+      authorizationGrantExpiresAtMilliseconds: session.authorizationGrantExpiresAt.getTime(), hardExpiresAtMilliseconds: session.hardExpiresAt.getTime(),
+      databaseNow, executionClaim: finiteAttempt.executionClaim });
+  });
+
+export const finiteEntryAttemptContextFromAnchor = Effect.fn("ApplicationMutationSessionActivation.finiteEntryContext")(
+  function* (finiteAttempt: FiniteAttemptAnchorContext, deploymentId: PointMutationSessionAttemptSelectorV1["deploymentId"],
+    scopeClock: ScopeClockRecord, databaseNow: Date) {
+    return Object.freeze({ ...yield* finiteAttemptContextScalars(finiteAttempt, deploymentId, decodeReplacementScopeIdV1(scopeClock.scopeId), databaseNow), scopeClock });
+  });
+
+const finiteEntryAnchorExpectations = new WeakMap<AppRowTransaction, Readonly<{
+  session: TransactionSessionRow;
+  snapshotToken: SnapshotToken;
+  provisional?: true;
+  schemaName?: string;
+  afterWrite?: LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"];
+  installed?: boolean;
+}>>();
+
+/** Only the private entry issuer can defer the projection check to complete insertion. */
+export function hasProvisionalFiniteEntry(tx: AppRowTransaction): boolean {
+  return finiteEntryAnchorExpectations.get(tx)?.provisional === true;
+}
+
+const FiniteEntryCompletionVerdict = Schema.Struct({
+  reason: Schema.Literals(["accepted", "protectedMetadataChanged", "expired", "sessionIdCollision", "storedCorruption"]),
+  databaseNow: Schema.NullOr(Schema.Date),
+  leaseExpiresAt: Schema.NullOr(Schema.Date), claimExpiresAt: Schema.NullOr(Schema.Date),
+  metadataVerdict: Schema.Unknown, guardValid: Schema.NullOr(Schema.Boolean),
+});
+const decodeFiniteEntryCompletionVerdict = Schema.decodeUnknownResult(FiniteEntryCompletionVerdict);
+
+/** One complete insertion followed by an actual stored-row read inside the
+ * installed owner. INSERT RETURNING alone cannot see AFTER-trigger changes. */
+const completeProvisionalFiniteEntry = Effect.fn("ApplicationMutationSessionActivation.completeFiniteEntry")(
+  function* (tx: AppRowTransaction, context: FiniteEntryAttemptKernelContext,
+    anchor: import("./finiteAttemptAnchor").CapturedFiniteAttemptAnchor,
+    projection: PreparedFiniteMetadataProjection, schemaName: string, installed: boolean,
+    afterWrite: LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"]) {
+    const scopeId = context.anchor.scopeId;
+    const expected = finiteEntryAnchorExpectations.get(tx);
+    if (expected?.provisional !== true || !sessionAnchorRowsEqual(expected.session, context.session))
+      return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    const metadata = yield* Effect.fromResult(prepareFiniteMetadataEntryComparison(projection))
+      .pipe(Effect.mapError(cause => new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
+    const guard = installed ? yield* prepareProtectedMetadataFinalGuardBatch(tx).pipe(Effect.mapError(cause =>
+      new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))) : undefined;
+    if (guard === undefined) {
+      yield* submitFiniteMetadataEntryComparisonEffect(tx, scopeId, context.scopeClock.lastMetadataSequence, metadata)
+        .pipe(Effect.mapError(cause => new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
+      yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
+        new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
+    }
+    const columns = Object.entries(getTableColumns(fxSystemTransactionSessions));
+    const row = sql`row(${sql.join(columns.map(([key, column]) =>
+      sql`${sql.param(Reflect.get(expected.session, key), column)}::${sql.raw(column.getSQLType())}`), sql`, `)})
+      ::${sql.identifier(schemaName)}.fx_finite_entry_expected`;
+    // Materialization performs the genuine comparison once. CASE never acquires
+    // an epoch lock for a known metadata refusal, including NOWAIT contention.
+    const source = guard === undefined ? sql`(values (true, null::jsonb))` : sql`(
+      with metadata_check as materialized (select ${sql.identifier(schemaName)}.fx_compare_finite_metadata(
+        ${scopeId}::text, ${context.scopeClock.lastMetadataSequence.toString()}::bigint,
+        ${JSON.stringify(metadata)}::jsonb) as verdict),
+      epoch_check as materialized (select case when verdict->>'reason' = 'accepted'
+        then (select valid from ${guard.source} as actual_epoch(valid)) else null::boolean end as valid,
+        verdict from metadata_check)
+      select valid, verdict from epoch_check)`;
+    const rows = yield* runDrizzleStatementEffect(tx.select({
+      guardValid: sql<boolean | null>`epoch_guard.valid`, reason: sql<string>`completion.reason`,
+      databaseNow: sql`completion.database_now`.mapWith(fxSystemTransactionSessions.createdAt),
+      leaseExpiresAt: sql`completion.lease_expires_at`.mapWith(fxSystemTransactionSessions.finiteLeaseExpiresAt),
+      claimExpiresAt: sql`completion.claim_expires_at`.mapWith(fxSystemTransactionSessions.finiteClaimExpiresAt),
+      metadataVerdict: sql<unknown>`epoch_guard.verdict`,
+    }).from(sql`${source} as epoch_guard(valid, verdict) cross join lateral
+      ${sql.identifier(schemaName)}.fx_complete_finite_entry(${row}, epoch_guard.valid) completion`), mapActivationTransactionError);
+    if (rows.length !== 1) return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    const verdict = yield* Effect.fromResult(decodeFiniteEntryCompletionVerdict(rows[0])).pipe(
+      Effect.mapError(cause => corruptionError(scopeId, "sessionRecordInvalid", cause)));
+    if (guard !== undefined) {
+      yield* Effect.fromResult(acceptFiniteMetadataEntryComparisonVerdict(verdict.metadataVerdict, metadata, context.scopeClock.lastMetadataSequence)
+        .pipe(Result.mapError(cause => new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))));
+      // Only accepted metadata may correlate with an evaluated Boolean guard.
+      // NULL denotes the unexecuted metadata-refusal branch.
+      if (verdict.guardValid === null) return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+      yield* acceptProtectedMetadataFinalGuardBatch(tx, [{ valid: verdict.guardValid }])
+        .pipe(Effect.mapError(cause => new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
+    }
+    if (verdict.reason === "expired") return yield* Effect.fail(new FiniteAttemptAnchorError({ reason: "expired" }));
+    if (verdict.reason === "sessionIdCollision") return yield* Effect.fail(activationError({ reason: "sessionIdCollision" }));
+    if (verdict.reason !== "accepted") return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    const { databaseNow, leaseExpiresAt, claimExpiresAt } = verdict;
+    if (databaseNow === null || leaseExpiresAt === null || claimExpiresAt === null ||
+      ![databaseNow, leaseExpiresAt, claimExpiresAt].every(date => Number.isSafeInteger(date.getTime())))
+      return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    const current = context.finiteAttempt;
+    const projected = yield* Effect.fromResult(projectExecutionClaimRenewalV1Result({
+      databaseNowMilliseconds: databaseNow.getTime(), currentLeaseExpiresAtMilliseconds: current.leaseExpiresAt.getTime(),
+      currentClaimExpiresAtMilliseconds: Date.parse(current.executionClaim.claimExpiresAt),
+      authorizationGrantExpiresAtMilliseconds: context.authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds: context.hardExpiresAtMilliseconds,
+      claimDurationMilliseconds: Date.parse(current.executionClaim.claimExpiresAt) - Date.parse(current.executionClaim.claimedAt),
+      leaseRenewalDurationMilliseconds: current.leaseExpiresAt.getTime() - Date.parse(current.executionClaim.claimedAt),
+      maximumLiveSnapshotRetentionMilliseconds: current.leaseExpiresAt.getTime() - Date.parse(current.executionClaim.claimedAt),
+      phase: "open",
+    }).pipe(Result.mapError(mapExecutionClaimRenewalIssue)));
+    if (leaseExpiresAt.getTime() !== projected.targetLeaseExpiresAtMilliseconds ||
+      claimExpiresAt.getTime() !== projected.targetClaimExpiresAtMilliseconds)
+      return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    const session = { ...expected.session, finiteLeaseExpiresAt: leaseExpiresAt, finiteClaimExpiresAt: claimExpiresAt };
+    const accepted = yield* readFiniteAttemptAnchorRow(session, anchor);
+    finiteEntryAnchorExpectations.set(tx, Object.freeze({ session, snapshotToken: expected.snapshotToken }));
+    if (afterWrite !== undefined) {
+      yield* runPointCommitPromiseEffect(async () => afterWrite("sessionInserted"), mapActivationTransactionError);
+      // The test hook may perform a real trusted write after the installed
+      // proof. Such a mutation requires a new complete actual-row correlation.
+      yield* requireCorrelatedFiniteEntryEffect(tx, scopeId);
+    }
+    return Object.freeze({ ...context, session, finiteAttempt: accepted, databaseNow,
+      executionClaim: accepted.executionClaim, anchor: Object.freeze({ ...context.anchor,
+        leaseExpiresAt: leaseExpiresAt.toISOString() }) });
+  });
+
+/** Bind each owner-authored column once. The database compares the complete
+ * previous and resulting rows, including changes made by BEFORE triggers. */
+function correlatedFiniteSessionUpdateStatement(tx: AppRowTransaction,
+  previous: Readonly<TransactionSessionRow>, changes: Readonly<Partial<TransactionSessionRow>>) {
+  const projectionName = "finite_entry_row";
+  const fields: Record<string, SQL.Aliased> = {};
+  const updates: Record<string, SQL> = {};
+  const previousChecks: SQL[] = [], resultingChecks: SQL[] = [];
+  const reference = (name: string) => sql`${sql.identifier(projectionName)}.${sql.identifier(name)}`;
+  for (const [key, column] of Object.entries(getTableColumns(fxSystemTransactionSessions))) {
+    const originalName = `original_${key}`;
+    fields[originalName] = sql`${sql.param(Reflect.get(previous, key), column)}::${sql.raw(column.getSQLType())}`.as(originalName);
+    previousChecks.push(sql`${column} is not distinct from ${reference(originalName)}`);
+    if (Object.hasOwn(changes, key)) {
+      const resultingName = `resulting_${key}`;
+      fields[resultingName] = sql`${sql.param(Reflect.get(changes, key), column)}::${sql.raw(column.getSQLType())}`.as(resultingName);
+      updates[key] = reference(resultingName);
+      resultingChecks.push(sql`${column} is not distinct from ${reference(resultingName)}`);
+    } else {
+      resultingChecks.push(sql`${column} is not distinct from ${reference(originalName)}`);
+    }
+  }
+  const projection = tx.$with(projectionName).as(tx.select(fields)
+    .from(sql`(values (true)) as finite_entry_source(present)`));
+  return tx.with(projection).update(fxSystemTransactionSessions).set(updates).from(projection)
+    .where(sql.join(previousChecks, sql` and `))
+    .returning({ matches: sql<boolean>`(${sql.join(resultingChecks, sql` and `)})` });
+}
+
+/** The same transaction that issued entry owns its final post-wait admission.
+ * No historical session row or confirmed-entry handle can request this write. */
+export const acceptFiniteEntryForContinuationInTransactionEffect = Effect.fn("ApplicationMutationSessionActivation.acceptFiniteContinuation")(
+  function* (tx: AppRowTransaction, context: FiniteEntryAttemptKernelContext,
+    anchor: import("./finiteAttemptAnchor").CapturedFiniteAttemptAnchor,
+    projection?: PreparedFiniteMetadataProjection) {
+    const expected = finiteEntryAnchorExpectations.get(tx);
+    const scopeId = context.anchor.scopeId;
+    if (expected === undefined || !sessionAnchorRowsEqual(expected.session, context.session))
+      return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    if (expected.provisional === true) {
+      if (projection === undefined || expected.schemaName === undefined)
+        return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+      return yield* completeProvisionalFiniteEntry(tx, context, anchor, projection, expected.schemaName, expected.installed === true, expected.afterWrite);
+    }
+    const session = expected.session;
+    const current = yield* readFiniteAttemptAnchorRow(session, anchor);
+    const databaseNow = yield* Effect.tryPromise({ try: () => readDatabaseNow(tx, scopeId), catch: mapActivationTransactionError });
+    yield* Effect.fromResult(requireFiniteAttemptIsLive(current, databaseNow));
+    const claimedAt = Date.parse(current.executionClaim.claimedAt);
+    const claimDurationMilliseconds = Date.parse(current.executionClaim.claimExpiresAt) - claimedAt;
+    const leaseDurationMilliseconds = current.leaseExpiresAt.getTime() - claimedAt;
+    const projected = yield* Effect.fromResult(projectExecutionClaimRenewalV1Result({
+      databaseNowMilliseconds: databaseNow.getTime(), currentLeaseExpiresAtMilliseconds: current.leaseExpiresAt.getTime(),
+      currentClaimExpiresAtMilliseconds: Date.parse(current.executionClaim.claimExpiresAt),
+      authorizationGrantExpiresAtMilliseconds: session.authorizationGrantExpiresAt.getTime(),
+      hardExpiresAtMilliseconds: session.hardExpiresAt.getTime(), claimDurationMilliseconds,
+      leaseRenewalDurationMilliseconds: leaseDurationMilliseconds, maximumLiveSnapshotRetentionMilliseconds: leaseDurationMilliseconds,
+      phase: "open",
+    }).pipe(Result.mapError(mapExecutionClaimRenewalIssue)));
+    const next = { ...session, finiteLeaseExpiresAt: new Date(projected.targetLeaseExpiresAtMilliseconds),
+      finiteClaimExpiresAt: new Date(projected.targetClaimExpiresAtMilliseconds) };
+    const rows = yield* runDrizzleStatementEffect(correlatedFiniteSessionUpdateStatement(tx, session, {
+      finiteLeaseExpiresAt: next.finiteLeaseExpiresAt, finiteClaimExpiresAt: next.finiteClaimExpiresAt,
+    }), mapActivationTransactionError);
+    if (rows.length !== 1 || rows[0]?.matches !== true)
+      return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    const accepted = yield* readFiniteAttemptAnchorRow(next, anchor);
+    finiteEntryAnchorExpectations.set(tx, Object.freeze({ ...expected, session: next }));
+    return yield* finiteEntryAttemptContextFromAnchor(accepted, context.anchor.deploymentId, context.scopeClock, databaseNow);
+  });
+
+/** Complete private entry construction without creating a durable placeholder.
+ * Replacement retains the existing exact-row update of its durable anchor. */
+export const captureFiniteAttemptReservationInTransaction = Effect.fn("ApplicationMutationSessionActivation.captureFiniteMetadata")(
+  function* (tx: AppRowTransaction, selector: PointMutationSessionAttemptSelectorV1,
+    reservation: CapturedFiniteMetadataReservation) {
+    const expected = finiteEntryAnchorExpectations.get(tx);
+    if (expected === undefined)
+      return yield* Effect.fail(corruptionError(selector.scopeId, "sessionRecordInvalid"));
+    const { session, snapshotToken } = expected;
+    if (session.lifecycle !== "running" || session.finiteMetadataWatermark !== null)
+      return yield* Effect.fail(new FiniteAttemptAnchorError({ reason: "lifecycleChanged" }));
+    const issued = readCapturedFiniteMetadataReservation(reservation);
+    if (issued === null || issued.deploymentId !== selector.deploymentId || issued.sessionId !== selector.sessionId ||
+      issued.attemptFence !== selector.attemptFence || issued.scopeId !== selector.scopeId ||
+      session.sessionId !== selector.sessionId || session.attemptFence !== selector.attemptFence ||
+      snapshotToken.scopeId !== selector.scopeId || issued.storageGenerationFence !== session.storageGenerationFence ||
+      issued.schemaVersionId !== session.schemaVersionId)
+      return yield* Effect.fail(new FiniteAttemptAnchorError({ reason: "invalidInput" }));
+    const anchor = yield* captureFiniteAttemptAnchor({ snapshotToken, reservation });
+    const values = yield* Effect.fromResult(projectCapturedFiniteAttemptAnchor(anchor));
+    if (expected.provisional !== true) {
+      const rows = yield* runDrizzleStatementEffect(correlatedFiniteSessionUpdateStatement(tx, session, values),
+        cause => new FiniteAttemptAnchorError({ reason: "resourceFailure", cause }));
+      if (rows.length !== 1) return yield* Effect.fail(new FiniteAttemptAnchorError({ reason: "storedCorruption" }));
+      if (rows[0]?.matches !== true)
+        return yield* Effect.fail(corruptionError(selector.scopeId, "sessionRecordInvalid"));
+    }
+    const complete = { ...session, ...values };
+    const context = yield* readFiniteAttemptAnchorRow(complete, anchor);
+    finiteEntryAnchorExpectations.set(tx, Object.freeze({ ...expected, session: complete }));
+    return Object.freeze({ anchor, context });
+  },
+);
+
+function sessionAnchorRowsEqual(left: Readonly<TransactionSessionRow>, right: Readonly<TransactionSessionRow>): boolean {
+  return Object.keys(getTableColumns(fxSystemTransactionSessions)).every(key => {
+    const a = Reflect.get(left, key), b = Reflect.get(right, key);
+    return a === b || a instanceof Uint8Array && b instanceof Uint8Array && bytesEqual(a, b) ||
+      a instanceof Date && b instanceof Date && a.getTime() === b.getTime() ||
+      a !== null && b !== null && typeof a === "object" && typeof b === "object" && nullableJsonEqual(a, b);
+  });
+}
+
+export const requireCorrelatedFiniteEntryEffect = Effect.fn("ApplicationMutationSessionActivation.correlateFiniteEntry")(
+  function* (tx: AppRowTransaction, scopeId: ReplacementScopeIdV1) {
+    const capture = finiteEntryAnchorExpectations.get(tx);
+    if (capture === undefined) return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+    const expected = capture.session;
+    // Preparation authenticates an inert issuer, not an absent stored row.
+    // The completion function proves every stored column after the sole INSERT.
+    if (capture.provisional === true) return;
+    const rows = yield* Effect.tryPromise({ try: () => tx.select({ matches: sql<boolean>`(${freshSessionRowCorrelationSql(fxSystemTransactionSessions, expected)})` })
+      .from(fxSystemTransactionSessions).where(and(eq(fxSystemTransactionSessions.scopeUuid, expected.scopeUuid),
+        eq(fxSystemTransactionSessions.sessionId, expected.sessionId))).limit(2), catch: mapActivationTransactionError });
+    if (rows.length !== 1 || rows[0]?.matches !== true) return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+  });
+
 async function createSession(
   tx: AppRowTransaction,
   input: LocatedPointMutationSessionActivationInputV1,
@@ -3024,14 +3330,20 @@ async function createSession(
     | undefined,
   captureProjection?: (projection: FreshSessionEntryProjection) => void,
 ): Promise<PointMutationSessionActivationResultV1> {
+  if (input.prepared.executionProfile !== "durableOperations") {
+    return Promise.reject(activationError({ reason: "invalidPreparedEvidence" }));
+  }
   const evidence = input.prepared.evidence;
   const hardExpiresAt = cloneValidDate(evidence.authorizationGrantExpiresAt);
-  const leaseExpiresAt = deriveInitialLeaseExpiry(
+  const leaseExpiresAt = projectTransactionSessionActivationResult(deriveInitialLeaseExpiry(
     databaseNow,
     hardExpiresAt,
     input.leaseDurationMilliseconds,
-  );
+  ));
   const sessionRow = {
+      executionProfile: "durableOperations" as const, finiteAttemptBytes: null, finiteAttemptSha256: null,
+      finiteSnapshotEpochUuid: null, finiteSnapshotCommitSeq: null, finiteMetadataWatermark: null,
+      finiteLeaseExpiresAt: null, finiteClaimOwner: null, finiteClaimFence: null, finiteClaimedAt: null, finiteClaimExpiresAt: null,
       scopeUuid: clock.scopeUuid,
       sessionId: input.candidateSessionId,
       storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
@@ -3257,9 +3569,20 @@ async function replayExistingSession(
   prepared: PreparedStoredMutationSessionActivationV1,
   clock: LockedPointMutationSessionClockV1,
   session: typeof fxSystemTransactionSessions.$inferSelect,
+  acceptedDatabaseNow?: Date,
 ): Promise<PointMutationSessionActivationResultV1> {
   if (!sessionEvidenceMatches(session, prepared.evidence)) {
     throw activationError({ reason: "requestKeyConflict" });
+  }
+  if (session.executionProfile === "finiteRoot") {
+    if (prepared.executionProfile !== "finiteRoot") {
+      return Promise.reject(activationError({ reason: "requestKeyConflict" }));
+    }
+    const anchor = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(readFiniteAttemptAnchorRow(session).pipe(
+      Effect.mapError(cause => corruptionError(prepared.scopeId, "sessionRecordInvalid", cause)))));
+    const databaseNow = acceptedDatabaseNow ?? await readDatabaseNow(tx, prepared.scopeId);
+    const context = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(finiteEntryAttemptContextFromAnchor(anchor, prepared.deploymentId, clock.record, databaseNow)));
+    return activationResult("busy", context.anchor);
   }
   const loaded = await loadLockedRunningAttempt(
     tx,
@@ -3290,12 +3613,28 @@ async function loadAttemptInTransaction(
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
 ): Promise<PointMutationSessionAttemptLoadResultV1> {
-  const loaded = await lockExactRunningAttemptInTransaction(
-    tx,
-    input,
-    afterLoadLock,
-    "attempt",
-  );
+  const clock = await lockPointMutationSessionClock(tx, input.selector.scopeId);
+  await afterLoadLock?.("clockLocked");
+  projectTransactionSessionActivationResult(requireStableAttemptLoadAuthority(clock, input));
+  const session = await lockExactPointMutationSession(tx, input.selector, clock, attemptLoadExactSessionFailures, afterLoadLock);
+  if (session.executionProfile === "finiteRoot") {
+    const finiteAttempt = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(lockFiniteAttemptAnchorInTransaction(tx, input.selector).pipe(
+      Effect.mapError(cause => corruptionError(input.selector.scopeId, "sessionRecordInvalid", cause)))));
+    if (finiteAttempt.session.lifecycle !== "running") throw attemptLoadFailures.terminal(finiteAttempt.session.lifecycle);
+    const databaseNow = await readDatabaseNow(tx, input.selector.scopeId);
+    const context = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(finiteEntryAttemptContextFromAnchor(finiteAttempt, input.selector.deploymentId, clock.record, databaseNow)));
+    // A recovered finite root has no retained callback graph. This observation
+    // cannot authorize execution; outcome resolution and fencing must come first.
+    return Object.freeze({ status: "loaded", lastMetadataSequence: clock.record.lastMetadataSequence,
+      anchor: captureSessionAnchor(context.anchor), executionPin: context.executionPin, attemptFacet: { kind: "nonPristine" as const } });
+  }
+  const loaded = await loadLockedRunningAttempt(tx, {
+    deploymentId: input.selector.deploymentId,
+    scopeId: input.selector.scopeId,
+    failures: attemptLoadFailures,
+    afterLeaseLock: afterLoadLock,
+    claimRequirement: "live",
+  }, clock, session);
   const attemptFacet = await observePointMutationSessionAttemptFacet(
     tx, loaded.clock, loaded.session, loaded.locked, loaded.journalRoot,
   );
@@ -3318,7 +3657,7 @@ async function lockExactRunningAttemptInTransaction(
     ? await lockPointMutationSessionClockForShare(tx, selector.scopeId)
     : await lockPointMutationSessionClock(tx, selector.scopeId));
   await afterLoadLock?.("clockLocked");
-  requireStableAttemptLoadAuthority(clock, input);
+  projectTransactionSessionActivationResult(requireStableAttemptLoadAuthority(clock, input));
   const session = await lockExactPointMutationSession(
     tx,
     selector,
@@ -3349,59 +3688,46 @@ async function lockExactRunningAttemptInTransaction(
  * confirm the prepared finite entry only after that COMMIT succeeds. */
 export const captureFiniteReplacementAttemptInTransactionEffect = Effect.fn(
   "PointMutationSessionActivation.captureFiniteReplacementAttemptInTransaction",
-)(function* (tx: AppRowTransaction, input: ExactRunningAttemptKernelInputV1) {
+)(function* (tx: AppRowTransaction, input: ExactRunningAttemptKernelInputV1,
+  original?: NonNullable<ReturnType<typeof import("./sessionJournalFiniteEntry").readOriginalFiniteExecutionAuthority>>) {
   yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx));
   if (readFiniteExecutionAuthorityObservation(tx, input.selector.scopeId) !== undefined)
     return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
-  const loaded = yield* Effect.tryPromise({
-    try: () => lockExactRunningAttemptInTransaction(tx, input, undefined, "attempt"),
-    catch: mapAttemptLoadTransactionError,
-  });
-  if (loaded.journalRoot.executionProfile !== "finiteRoot" ||
-    loaded.locked.snapshotCommitSeq !== loaded.clock.record.lastCommitSeq ||
-    loaded.locked.lease.metadataWatermark !== null ||
-    loaded.locked.lease.finiteMetadataReservationBytes !== null ||
-    loaded.locked.lease.finiteMetadataReservationSha256 !== null)
+  const clock = yield* Effect.tryPromise({ try: () => lockPointMutationSessionClock(tx, input.selector.scopeId),
+    catch: mapAttemptLoadTransactionError });
+  yield* Effect.fromResult(requireStableAttemptLoadAuthority(clock, input));
+  const finiteAttempt = yield* lockFiniteAttemptAnchorInTransaction(tx, input.selector, input.executionClaim)
+    .pipe(Effect.mapError(cause => corruptionError(input.selector.scopeId, "sessionRecordInvalid", cause)));
+  const session = finiteAttempt.session;
+  const databaseNow = yield* Effect.tryPromise({ try: () => readDatabaseNow(tx, input.selector.scopeId),
+    catch: mapAttemptLoadTransactionError });
+  yield* Effect.fromResult(requireFiniteAttemptIsLive(finiteAttempt, databaseNow)).pipe(
+    Effect.mapError(cause => corruptionError(input.selector.scopeId, "executionClaimInvalid", cause)));
+  if (finiteAttempt.snapshotToken.epoch !== clock.record.epoch ||
+    finiteAttempt.snapshotToken.commitSeq !== clock.record.lastCommitSeq || finiteAttempt.reservation !== null)
     return yield* Effect.fail(corruptionError(input.selector.scopeId, "snapshotLeaseInvalid"));
-  const facet = yield* Effect.tryPromise({
-    try: () => observePointMutationSessionAttemptFacet(tx, loaded.clock, loaded.session, loaded.locked, loaded.journalRoot),
-    catch: mapAttemptLoadTransactionError,
-  });
-  if (facet.kind !== "pristineOpen")
-    return yield* Effect.fail(corruptionError(input.selector.scopeId, "journalRootInvalid"));
-  const rows = yield* Effect.tryPromise({
-    try: () => tx.select({ session: fxSystemTransactionSessions, lease: fxSystemSnapshotLeases,
-      root: fxSystemTransactionJournals, claim: fxSystemTransactionExecutionClaims })
-      .from(fxSystemTransactionSessions)
-      .innerJoin(fxSystemSnapshotLeases, and(eq(fxSystemSnapshotLeases.scopeUuid, fxSystemTransactionSessions.scopeUuid),
-        eq(fxSystemSnapshotLeases.sessionId, fxSystemTransactionSessions.sessionId),
-        eq(fxSystemSnapshotLeases.attemptFence, fxSystemTransactionSessions.attemptFence)))
-      .innerJoin(fxSystemTransactionJournals, and(eq(fxSystemTransactionJournals.scopeUuid, fxSystemTransactionSessions.scopeUuid),
-        eq(fxSystemTransactionJournals.sessionId, fxSystemTransactionSessions.sessionId),
-        eq(fxSystemTransactionJournals.attemptFence, fxSystemTransactionSessions.attemptFence)))
-      .innerJoin(fxSystemTransactionExecutionClaims, and(eq(fxSystemTransactionExecutionClaims.scopeUuid, fxSystemTransactionSessions.scopeUuid),
-        eq(fxSystemTransactionExecutionClaims.sessionId, fxSystemTransactionSessions.sessionId),
-        eq(fxSystemTransactionExecutionClaims.attemptFence, fxSystemTransactionSessions.attemptFence)))
-      .where(and(eq(fxSystemTransactionSessions.scopeUuid, loaded.clock.scopeUuid),
-        eq(fxSystemTransactionSessions.sessionId, input.selector.sessionId),
-        eq(fxSystemTransactionSessions.attemptFence, input.selector.attemptFence))).limit(2),
-    catch: mapAttemptLoadTransactionError,
-  });
-  const projection = rows[0];
-  if (rows.length !== 1 || projection === undefined)
-    return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
-  yield* requireCorrelatedFreshSessionEntryEffect(tx, projection, input.selector.scopeId);
-  const session = projection.session;
+  finiteEntryAnchorExpectations.set(tx, Object.freeze({ session, snapshotToken: finiteAttempt.snapshotToken }));
+  yield* requireCorrelatedFiniteEntryEffect(tx, input.selector.scopeId);
   if (session.executionAuthorityGeneration !== "application_v1" ||
     session.applicationExecutionAuthorityJson === null ||
     session.applicationExecutionAuthorityCanonicalBytes === null ||
     session.applicationExecutionAuthoritySha256 === null)
     return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
-  const canonical = yield* canonicalizeApplicationMutationExecutionAuthorityV1(
-    session.applicationExecutionAuthorityJson,
-  ).pipe(Effect.mapError(cause => corruptionError(input.selector.scopeId, "sessionRecordInvalid", cause)));
+  if (original !== undefined && (original.context.anchor.deploymentId !== input.selector.deploymentId ||
+    original.context.anchor.scopeId !== input.selector.scopeId || original.context.anchor.sessionId !== input.selector.sessionId ||
+    original.context.anchor.attemptFence >= input.selector.attemptFence ||
+    !bytesEqual(original.context.session.requestSha256, session.requestSha256) ||
+    !bytesEqual(original.context.session.identityAccessPolicySha256, session.identityAccessPolicySha256) ||
+    !bytesEqual(original.context.session.validatedArgsSha256, session.validatedArgsSha256) ||
+    !bytesEqual(original.context.session.authorizationGrantSha256, session.authorizationGrantSha256)))
+    return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
+  const canonical = original === undefined
+    ? yield* canonicalizeApplicationMutationExecutionAuthorityV1(session.applicationExecutionAuthorityJson)
+      .pipe(Effect.mapError(cause => corruptionError(input.selector.scopeId, "sessionRecordInvalid", cause)))
+    : original.canonicalExecutionAuthority;
   const authority = canonical.authority;
-  if (!bytesEqual(canonical.canonicalBytes, session.applicationExecutionAuthorityCanonicalBytes) ||
+  if (!nullableJsonEqual(canonical.authority, session.applicationExecutionAuthorityJson) ||
+    !bytesEqual(canonical.canonicalBytes, session.applicationExecutionAuthorityCanonicalBytes) ||
     !bytesEqual(canonical.sha256, session.applicationExecutionAuthoritySha256) ||
     authority.runtimeTarget.scopeId !== input.selector.scopeId ||
     authority.schemaVersionId !== session.schemaVersionId ||
@@ -3417,27 +3743,11 @@ export const captureFiniteReplacementAttemptInTransactionEffect = Effect.fn(
     applicationExecutionAuthorityFunctionPath: authority.runtimeTarget.function.path,
     applicationExecutionAuthoritySchemaSha256: authority.runtimeTarget.schemaSha256,
   }) satisfies ApplicationGraphSessionSelector;
-  const context = yield* Effect.fromResult(runningAttemptKernelContextResult(loaded, tx).pipe(
-    Result.mapError(cause => {
-      closeFiniteExecutionAuthorityObservation(tx);
-      finiteEntryLeaseExpectations.delete(tx);
-      return cause;
-    }),
-  ));
-  const finiteAuthority = context.finiteAuthority;
-  if (finiteAuthority === undefined) {
-    finiteEntryLeaseExpectations.delete(tx);
-    return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
-  }
-  return Object.freeze({ context, finiteAuthority, applicationSelector, executionAuthority: authority,
+  const context = yield* finiteEntryAttemptContextFromAnchor(finiteAttempt, input.selector.deploymentId, clock.record, databaseNow);
+  return Object.freeze({ context, applicationSelector, executionAuthority: authority, canonicalExecutionAuthority: canonical,
     session: Object.freeze({ ...session }),
-    verifyFinalRows: requireCorrelatedFreshSessionEntryEffect(tx, projection, input.selector.scopeId),
-    close: () => {
-      if (readFiniteExecutionAuthorityObservation(tx, input.selector.scopeId) === finiteAuthority) {
-        closeFiniteExecutionAuthorityObservation(tx);
-        finiteEntryLeaseExpectations.delete(tx);
-      }
-    },
+    verifyFinalRows: requireCorrelatedFiniteEntryEffect(tx, input.selector.scopeId),
+    close: () => { finiteEntryAnchorExpectations.delete(tx); },
   });
 });
 
@@ -4091,7 +4401,7 @@ async function terminalizeAttemptInTransaction(
   // execution under the revoked grant. Serialize lifecycle changes first.
   const clock = await lockPointMutationSessionClockWithMode(tx, selector.scopeId, "terminalCleanup");
   await emitLock("clockLocked");
-  requireStableAttemptTerminalizationAuthority(clock, input);
+  projectTransactionSessionActivationResult(requireStableAttemptTerminalizationAuthority(clock, input));
   const session = await lockExactPointMutationSession(
     tx,
     selector,
@@ -4099,6 +4409,9 @@ async function terminalizeAttemptInTransaction(
     attemptTerminalizationExactSessionFailures,
     emitLock,
   );
+  if (session.executionProfile === "finiteRoot") {
+    return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(terminalizeFiniteAttemptInTransaction(tx, input, clock)));
+  }
   const locked = await lockPointMutationSessionAttemptStructure(
     tx,
     {
@@ -4327,6 +4640,43 @@ async function terminalizeAttemptInTransaction(
   );
 }
 
+const terminalizeFiniteAttemptInTransaction = Effect.fn("PointMutationSessionTerminalization.finite")(
+  function* (tx: AppRowTransaction, input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
+    clock: LockedPointMutationSessionClockV1) {
+    const context = yield* lockFiniteAttemptAnchorInTransaction(tx, input.selector).pipe(Effect.mapError(cause => corruptionError(input.selector.scopeId, "sessionRecordInvalid", cause)));
+    const session = context.session;
+    if (session.lifecycle === "committed" || session.lifecycle === "aborted" || session.lifecycle === "expired")
+      return attemptTerminalizationResult("observed", input.selector, session.lifecycle, session.updatedAt);
+    if (session.lifecycle !== "running") return yield* Effect.fail(attemptTerminalizationError({
+      reason: "attemptNotTerminalizable", lifecycle: session.lifecycle }));
+    if (session.storageGenerationFence !== clock.record.storageGenerationFence || context.snapshotToken.epoch !== clock.record.epoch)
+      return yield* Effect.fail(corruptionError(input.selector.scopeId, "attemptSnapshotChanged"));
+    if (session.authorizationRevocationEpoch > clock.authorizationRevocationEpoch)
+      return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));
+    if (input.operation === "abort" && (input.expectedSnapshotToken.scopeId !== context.snapshotToken.scopeId ||
+      input.expectedSnapshotToken.epoch !== context.snapshotToken.epoch || input.expectedSnapshotToken.commitSeq !== context.snapshotToken.commitSeq))
+      return yield* Effect.fail(corruptionError(input.selector.scopeId, "attemptSnapshotChanged"));
+    const databaseNow = yield* Effect.tryPromise({ try: () => readDatabaseNow(tx, input.selector.scopeId),
+      catch: cause => mapAttemptTerminalizationTransactionError(input.operation, cause) });
+    if (input.operation === "abort" && (context.executionClaim.claimOwner !== input.executionClaim.claimOwner ||
+      context.executionClaim.claimFence !== input.executionClaim.claimFence || Date.parse(context.executionClaim.claimExpiresAt) <= databaseNow.getTime()))
+      return yield* Effect.fail(attemptTerminalizationError({ reason: "executionClaimUnavailable" }));
+    const effectiveExpiry = Math.min(context.leaseExpiresAt.getTime(), session.authorizationGrantExpiresAt.getTime(), session.hardExpiresAt.getTime());
+    const expired = effectiveExpiry <= databaseNow.getTime();
+    if (input.operation === "expire" && !expired) return yield* Effect.fail(attemptTerminalizationError({
+      reason: "attemptStillLive", effectiveExpiresAt: new Date(effectiveExpiry).toISOString() }));
+    const lifecycle = expired ? "expired" as const : "aborted" as const;
+    const rows = yield* Effect.tryPromise({ try: () => tx.update(fxSystemTransactionSessions).set({ lifecycle, updatedAt: databaseNow,
+      validatedArgsJson: null, validatedArgsCanonicalBytes: null, authorizationGrantJson: null,
+      authorizationGrantCanonicalBytes: null, applicationExecutionAuthorityJson: null,
+      applicationExecutionAuthorityCanonicalBytes: null }).where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, session.scopeUuid), eq(fxSystemTransactionSessions.sessionId, session.sessionId),
+      eq(fxSystemTransactionSessions.attemptFence, session.attemptFence), eq(fxSystemTransactionSessions.lifecycle, "running")))
+      .returning({ sessionId: fxSystemTransactionSessions.sessionId }), catch: cause => mapAttemptTerminalizationTransactionError(input.operation, cause) });
+    if (rows.length !== 1) return yield* Effect.fail(corruptionError(input.selector.scopeId, "terminalizationWriteMismatch"));
+    return attemptTerminalizationResult("terminalized", input.selector, lifecycle, databaseNow);
+  });
+
 const activationAttemptFailures = Object.freeze({
   terminal: (lifecycle: Exclude<TransactionSessionLifecycleV1, "running">) =>
     activationError({ reason: "terminalRequest", lifecycle }),
@@ -4483,47 +4833,48 @@ function decodeLockedPointMutationSessionClock(row: ScopeClockRow): LockedPointM
 function requireStableAuthority(
   clock: LockedPointMutationSessionClockV1,
   input: LocatedPointMutationSessionActivationInputV1,
-): void {
+): Result.Result<void, PointMutationSessionActivationV1Error> {
   const preliminary = input.preliminaryAuthority;
   if (
     clock.record.scopeId !== input.prepared.scopeId ||
     preliminary.scopeId !== input.prepared.scopeId
   ) {
-    throw activationError({ reason: "scopeMismatch" });
+    return Result.fail(activationError({ reason: "scopeMismatch" }));
   }
   if (
     clock.record.storageGeneration !== "flarexdb_v1" ||
     preliminary.storageGeneration !== "flarexdb_v1"
   ) {
-    throw activationError({ reason: "unsupportedStorageGeneration" });
+    return Result.fail(activationError({ reason: "unsupportedStorageGeneration" }));
   }
   if (clock.record.storageGeneration !== preliminary.storageGeneration) {
-    throw activationError({ reason: "storageGenerationChanged" });
+    return Result.fail(activationError({ reason: "storageGenerationChanged" }));
   }
   if (
     clock.record.storageGenerationFence !==
     preliminary.storageGenerationFence
   ) {
-    throw activationError({ reason: "storageGenerationFenceChanged" });
+    return Result.fail(activationError({ reason: "storageGenerationFenceChanged" }));
   }
   if (clock.record.epoch !== preliminary.epoch) {
-    throw activationError({ reason: "scopeEpochChanged" });
+    return Result.fail(activationError({ reason: "scopeEpochChanged" }));
   }
   if (
     clock.authorizationRevocationEpoch !==
     input.prepared.evidence.authorizationRevocationEpoch
   ) {
-    throw activationError({
+    return Result.fail(activationError({
       reason: "authorizationRevocationEpochChanged",
-    });
+    }));
   }
+  return Result.succeed(undefined);
 }
 
 function requireStableAttemptLoadAuthority(
   clock: LockedPointMutationSessionClockV1,
   input: LocatedPointMutationSessionAttemptLoadInputV1,
-): void {
-  requireStablePointMutationSessionAttemptAuthority(
+) {
+  return requireStablePointMutationSessionAttemptAuthority(
     clock,
     input,
     attemptLoadStableAuthorityFailures,
@@ -4533,30 +4884,30 @@ function requireStableAttemptLoadAuthority(
 function requireStableAttemptTerminalizationAuthority(
   clock: LockedPointMutationSessionClockV1,
   input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
-): void {
-  requireStablePointMutationSessionAttemptAuthority(
+) {
+  return requireStablePointMutationSessionAttemptAuthority(
     clock,
     input,
     attemptTerminalizationStableAuthorityFailures,
   );
 }
 
-interface PointMutationSessionStableAuthorityFailureFactoryV1 {
-  readonly selectorScopeMismatch: () => Error;
-  readonly unsupportedStorageGeneration: () => Error;
-  readonly storageGenerationChanged: () => Error;
-  readonly storageGenerationFenceChanged: () => Error;
-  readonly scopeEpochChanged: () => Error;
+interface PointMutationSessionStableAuthorityFailureFactoryV1<Failure extends Error = Error> {
+  readonly selectorScopeMismatch: () => Failure;
+  readonly unsupportedStorageGeneration: () => Failure;
+  readonly storageGenerationChanged: () => Failure;
+  readonly storageGenerationFenceChanged: () => Failure;
+  readonly scopeEpochChanged: () => Failure;
 }
 
-function requireStablePointMutationSessionAttemptAuthority(
+function requireStablePointMutationSessionAttemptAuthority<Failure extends Error>(
   clock: LockedPointMutationSessionClockV1,
   input: {
     readonly selector: PointMutationSessionAttemptSelectorV1;
     readonly preliminaryAuthority: TrustedScopeAuthority;
   },
-  failures: PointMutationSessionStableAuthorityFailureFactoryV1,
-): void {
+  failures: PointMutationSessionStableAuthorityFailureFactoryV1<Failure>,
+): Result.Result<void, Failure> {
   const selector = input.selector;
   const preliminary = input.preliminaryAuthority;
   if (
@@ -4564,26 +4915,27 @@ function requireStablePointMutationSessionAttemptAuthority(
     preliminary.scopeId !== selector.scopeId ||
     preliminary.deploymentId !== selector.deploymentId
   ) {
-    throw failures.selectorScopeMismatch();
+    return Result.fail(failures.selectorScopeMismatch());
   }
   if (
     clock.record.storageGeneration !== "flarexdb_v1" ||
     preliminary.storageGeneration !== "flarexdb_v1"
   ) {
-    throw failures.unsupportedStorageGeneration();
+    return Result.fail(failures.unsupportedStorageGeneration());
   }
   if (clock.record.storageGeneration !== preliminary.storageGeneration) {
-    throw failures.storageGenerationChanged();
+    return Result.fail(failures.storageGenerationChanged());
   }
   if (
     clock.record.storageGenerationFence !==
     preliminary.storageGenerationFence
   ) {
-    throw failures.storageGenerationFenceChanged();
+    return Result.fail(failures.storageGenerationFenceChanged());
   }
   if (clock.record.epoch !== preliminary.epoch) {
-    throw failures.scopeEpochChanged();
+    return Result.fail(failures.scopeEpochChanged());
   }
+  return Result.succeed(undefined);
 }
 
 async function readDatabaseNow(
@@ -4625,19 +4977,19 @@ function deriveInitialLeaseExpiry(
   databaseNow: Date,
   hardExpiresAt: Date,
   leaseDurationMilliseconds: number,
-): Date {
+): Result.Result<Date, PointMutationSessionActivationV1Error> {
   const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
   const hardExpiryMilliseconds = finiteDateMilliseconds(hardExpiresAt);
   if (
     databaseNowMilliseconds === undefined ||
     hardExpiryMilliseconds === undefined
   ) {
-    throw activationError({ reason: "authorizationGrantExpired" });
+    return Result.fail(activationError({ reason: "authorizationGrantExpired" }));
   }
   const remainingMilliseconds =
     hardExpiryMilliseconds - databaseNowMilliseconds;
   if (remainingMilliseconds <= 0) {
-    throw activationError({ reason: "authorizationGrantExpired" });
+    return Result.fail(activationError({ reason: "authorizationGrantExpired" }));
   }
   const leaseExpiresAt = new Date(
     databaseNowMilliseconds +
@@ -4648,9 +5000,9 @@ function deriveInitialLeaseExpiry(
     leaseExpiresAtMilliseconds === undefined ||
     leaseExpiresAtMilliseconds <= databaseNowMilliseconds
   ) {
-    throw activationError({ reason: "authorizationGrantExpired" });
+    return Result.fail(activationError({ reason: "authorizationGrantExpired" }));
   }
-  return leaseExpiresAt;
+  return Result.succeed(leaseExpiresAt);
 }
 
 function sessionEvidenceMatches(
@@ -4869,11 +5221,10 @@ const capturePreparedApplicationActivation = Effect.fn(
 const capturePreparedApplicationActivationFromBasis = Effect.fn("ApplicationMutationSessionActivation.captureBasis")(
 function* (input: Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection" | "executionProfile"> &
   Readonly<{ executionProfile?: PointMutationExecutionProfile }>,
-  selectionBasis: ApplicationMutationAdmission["basis"]) {
-  const executionAuthority = yield*
-    canonicalizeApplicationMutationExecutionAuthorityV1(
-      input.evidence.executionAuthority,
-    );
+  selectionBasis: ApplicationMutationActivationBasis, original?: CanonicalApplicationMutationExecutionAuthorityV1) {
+  const executionAuthority = original ?? (yield* canonicalizeApplicationMutationExecutionAuthorityV1(input.evidence.executionAuthority));
+  if (original !== undefined && !nullableJsonEqual(input.evidence.executionAuthority, original.authority))
+    return yield* Effect.fail(activationError({ reason: "invalidPreparedEvidence" }));
   const grant = yield* Effect.try({
     try: () => inspectVerifiedApplicationMutationGrantV1(
       input.evidence.verifiedGrant,

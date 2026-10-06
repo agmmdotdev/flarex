@@ -117,11 +117,6 @@ const EXECUTION_SOURCE = "b".repeat(64);
 const SCHEMA_SOURCE = "c".repeat(64);
 const RUNTIME_HOST_IDENTITY = "flarex.test/application-runtime-host";
 const COMPATIBILITY_DATE = "2026-08-12";
-const LOCATOR = Object.freeze({
-  kind: "database_per_scope",
-  databaseKey: "application_readiness_postgres_target",
-  schemaName: "public",
-}) satisfies SplitScopePhysicalLocator;
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
@@ -141,7 +136,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture);
       await enablePhysicalBuilds(fixture, schemaVersionId);
-      const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+      const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
         scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
       await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
       const publication = (await target.drizzle.select().from(fxSystemApplicationPublicationsV1))[0];
@@ -546,7 +541,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture);
       await enablePhysicalBuilds(fixture, schemaVersionId);
-      const activation = makeApplicationActivationRepository({
+      const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
         deploymentId: fixture.input.deploymentId,
         scopeId: fixture.input.scopeId,
         readiness: fixture.repository,
@@ -635,7 +630,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       const fixture = await readinessFixture(control, target);
       const schemaVersionId = await prepareReadinessAuthorities(fixture);
       await enablePhysicalBuilds(fixture, schemaVersionId);
-      const activation = makeApplicationActivationRepository({
+      const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
         deploymentId: fixture.input.deploymentId,
         scopeId: fixture.input.scopeId,
         readiness: fixture.repository,
@@ -648,7 +643,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       await control.insertScopeMetadata({
         deploymentId: fixture.input.deploymentId,
         scopeId: ScopeIdSchema.make("scope_application_readiness_peer_postgres"),
-        physicalLocator: LOCATOR,
+        physicalLocator: fixture.physicalLocator,
       });
 
       expect(await runEffect(fixture.repository.readReady(fixture.input)))
@@ -694,7 +689,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
         if (progress.lifecycle === "enabled") { enabled = true; break; }
       }
       expect(enabled).toBe(true);
-      const activation = makeApplicationActivationRepository({
+      const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
         deploymentId: fixture.input.deploymentId,
         scopeId: fixture.input.scopeId,
         readiness: fixture.repository,
@@ -704,7 +699,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       await control.insertScopeMetadata({
         deploymentId: fixture.input.deploymentId,
         scopeId: ScopeIdSchema.make("scope_application_unique_peer_postgres"),
-        physicalLocator: LOCATOR,
+        physicalLocator: fixture.physicalLocator,
       });
 
       expect(await runEffect(activation.readActive()))
@@ -804,10 +799,14 @@ async function readinessFixture(
   target: PostgresFlarexPersistence,
 ) {
   const deploymentId = "deployment_application_readiness_postgres";
+  const schemaName = (await target.query<{ name: unknown }>("select current_schema() as name")).rows[0]?.name;
+  if (typeof schemaName !== "string" || schemaName.length === 0) throw new Error("Missing fixture schema");
+  const physicalLocator = Object.freeze({ kind: "database_per_scope", databaseKey: "application_readiness_postgres_target",
+    schemaName }) satisfies SplitScopePhysicalLocator;
   const provisioned = await createPostgresSplitScopeAuthorityProvisioner(
     control,
     {
-      placementPlanner: { plan: () => LOCATOR },
+      placementPlanner: { plan: () => physicalLocator },
       targetResolver: {
         resolve: async locator =>
           createPostgresLocatedSplitScopeClockTarget(target, locator),
@@ -877,7 +876,7 @@ async function readinessFixture(
   }));
   const locatedTarget = createLocatedAppSchemaCandidateValidationTarget(
     target.drizzle,
-    LOCATOR,
+    physicalLocator,
   );
   const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
   const authorityPorts = Object.freeze({
@@ -933,6 +932,7 @@ async function readinessFixture(
   return Object.freeze({
     control,
     target,
+    physicalLocator,
     authority,
     authorityPorts,
     candidateValidation,

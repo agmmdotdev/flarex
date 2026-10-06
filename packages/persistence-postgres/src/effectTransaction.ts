@@ -4,7 +4,7 @@ import { acquireInstallationAdmission, closeInstallationAdmission, lockInstallat
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 
-/** Shared lifecycle bridge for Effect work owned by a Promise transaction. */
+/** Raw-database owner: admission precedes body locks and ends with this callback. */
 export function runEffectTransaction<Value, Failure, SettlementFailure, Tx extends FlarexMetadataTransaction>(
   start: (callback: (tx: Tx) => Promise<Value>) => Promise<Value>,
   rollbackMessage: string,
@@ -12,27 +12,35 @@ export function runEffectTransaction<Value, Failure, SettlementFailure, Tx exten
   settlementFailure: (cause: unknown) => SettlementFailure,
   installation?: Readonly<{ token: PreparedInstallation; database: FlarexMetadataDatabase }>,
 ): Effect.Effect<Value, Failure | SettlementFailure> {
+  return runEffectTransactionSettlement(start, rollbackMessage, tx =>
+    (installation === undefined ? lockInstallationForCurrentTransaction(tx)
+      : acquireInstallationAdmission(installation.token, installation.database, tx)).pipe(
+      Effect.mapError(settlementFailure),
+      Effect.andThen(() => body(tx)),
+      Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))),
+    ), settlementFailure);
+}
+
+/** Shared Exit/Cause bridge. The supplied transaction owner retains admission,
+ * postconditions, COMMIT and cleanup through settlement. */
+export function runEffectTransactionSettlement<Value, Failure, SettlementFailure, Tx extends FlarexMetadataTransaction>(
+  start: (callback: (tx: Tx) => Promise<Value>) => Promise<Value>,
+  rollbackMessage: string,
+  body: (tx: Tx) => Effect.Effect<Value, Failure>,
+  settlementFailure: (cause: unknown) => SettlementFailure,
+): Effect.Effect<Value, Failure | SettlementFailure> {
   return Effect.suspend(() => {
     let callbackCause: Cause.Cause<Failure | SettlementFailure> | undefined;
     const rollback = new Error(rollbackMessage);
     const transaction = start(async tx => {
-      // Admission precedes the body, including its scope/head locks. The
-      // installation owner uses its separate private maintenance connection.
-      const exit = await Effect.runPromiseExit(
-        (installation === undefined ? lockInstallationForCurrentTransaction(tx)
-          : acquireInstallationAdmission(installation.token, installation.database, tx)).pipe(
-          Effect.mapError(settlementFailure),
-          Effect.andThen(() => body(tx)),
-          Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))),
-        ),
-      );
+      const exit = await Effect.runPromiseExit(Effect.suspend(() => body(tx)));
       if (Exit.isFailure(exit)) {
         callbackCause = exit.cause;
         throw rollback;
       }
       return exit.value;
     });
-    return awaitSettlement(
+    return awaitEffectTransactionSettlement(
       transaction,
       cause => callbackCause !== undefined && cause === rollback,
     ).pipe(Effect.catch(cause => {
@@ -47,7 +55,7 @@ export function runEffectTransaction<Value, Failure, SettlementFailure, Tx exten
   });
 }
 
-function awaitSettlement<Value>(
+export function awaitEffectTransactionSettlement<Value>(
   promise: Promise<Value>,
   isExpectedInterruptedRejection: (cause: unknown) => boolean,
 ): Effect.Effect<Value, unknown> {

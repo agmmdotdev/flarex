@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { FINITE_PUBLICATION_FUNCTIONS } from "./finitePublicationInstallation";
+import { APPLICATION_DOMAIN_FUNCTIONS, APPLICATION_DOMAIN_TYPES } from "./applicationDocumentMaterialization/domainInstallation";
+import { INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS, INDEX_MAINTENANCE_BUILD_PERMISSIONS,
+  INDEX_MAINTENANCE_OBLIGATION_TABLES } from "./indexMaintenanceInstallation";
+import { prepareTypedMaintenanceMigration } from "./indexMaintenanceMigration";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { sql } from "drizzle-orm";
@@ -43,6 +48,7 @@ const controlReadRelations: readonly string[] = [
   "fx_system_installation", "fx_system_installation_runtime", "fx_system_prepared_metadata_epoch",
   "fx_control_scope", "fx_control_scope_provisioning", "fx_control_logical_read_source",
   "fx_control_logical_read_table", "fx_control_logical_read_access", "fx_control_index_definition",
+  "fx_control_schema_version", "fx_control_schema_unique_constraint_set",
   "fx_control_schema_version_unique_constraint_binding", "fx_control_unique_constraint_definition",
 ];
 const fail = (reason: InstallationLifecycleError["reason"], cause?: unknown) =>
@@ -285,10 +291,11 @@ const protectNewPhysicalTables = Effect.fn("InstallationMaintenance.protectPhysi
 
 /** Fixed installer operation. No raw database or callback escapes this owner. */
 export const backfillInstallationMetadataBindings = Effect.fn("InstallationMaintenance.backfillMetadataBindings")(
-  (handle: InstallationMaintenance, controlDb: FlarexMetadataDatabase) => command(handle, owner =>
+  (handle: InstallationMaintenance, controlDb?: FlarexMetadataDatabase) => command(handle, owner =>
     Effect.gen(function* () {
-      yield* backfillStandaloneApplicationBindings(owner.database, controlDb);
-      yield* backfillBindingMetadataProjections(owner.database, controlDb);
+      const immutableCatalog = controlDb ?? owner.database;
+      yield* backfillStandaloneApplicationBindings(owner.database, immutableCatalog);
+      yield* backfillBindingMetadataProjections(owner.database, immutableCatalog);
     }).pipe(Effect.mapError(cause => fail("invalidInstallation", cause)))),
 );
 
@@ -322,10 +329,12 @@ export const bootstrapInstallationMigrations = Effect.fn("InstallationMaintenanc
 );
 /** The migrator uses the same dedicated backend as the fence and DML triggers. */
 export const runInstallationMigrations = Effect.fn("InstallationMaintenance.migrate")(
-  (handle: InstallationMaintenance, options: InstallationMigrationOptions) =>
+  (handle: InstallationMaintenance, options: InstallationMigrationOptions, immutableCatalog?: FlarexMetadataDatabase) =>
     command(handle, owner => Effect.gen(function* () {
       yield* driver(() => owner.client.query("select pg_catalog.set_config('flarex.installation_migration_journal', $1, false)",
         [journalName(options)]));
+      yield* prepareTypedMaintenanceMigration(owner.database, immutableCatalog ?? owner.database, owner.schemaName, options).pipe(
+        Effect.mapError(cause => fail("invalidInstallation", cause)));
       yield* driver(() => migrate(owner.database, options));
     })),
 );
@@ -344,13 +353,13 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
     const schema = quoteIdentifier(owner.schemaName), role = quoteIdentifier(login);
     const tables = ["fx_system_installation", "fx_system_installation_runtime", "fx_system_prepared_metadata_epoch",
       "fx_system_application_read_binding", "fx_control_logical_read_source", "fx_control_logical_read_table",
-      "fx_control_logical_read_access"];
+      "fx_control_logical_read_access", ...INDEX_MAINTENANCE_OBLIGATION_TABLES];
     const controlRelations = accessProfile === "controlRead" ? yield* driver(() => owner.client.query<{ table: string }>(
       `select c.relname as table from pg_catalog.pg_class c where c.relnamespace = $1::pg_catalog.regnamespace
         and c.relkind in ('r','p') and not c.relispartition`, [owner.schemaName])) : undefined;
     const selectedTables = controlRelations === undefined ? tables : controlRelations.rows.map(row => row.table);
     const protectedRelations = [...selectedTables.map(table => ({ schemaName: owner.schemaName, table, readable:
-      accessProfile === "dataRuntime" || controlReadRelations.includes(table) })),
+      accessProfile !== "controlRead" || controlReadRelations.includes(table) })),
       { schemaName: journal.migrationsSchema ?? "drizzle", table: journal.migrationsTable ?? "__drizzle_migrations", readable: false }];
     for (const relation of protectedRelations) {
       const qualified = `${quoteIdentifier(relation.schemaName)}.${quoteIdentifier(relation.table)}`;
@@ -363,22 +372,79 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
       yield* driver(() => owner.client.query(`revoke all (${names}) on table ${qualified} from ${role}`));
       if (relation.readable) yield* driver(() => owner.client.query(`grant select on table ${qualified} to ${role}`));
     }
-    if (accessProfile === "dataRuntime") yield* driver(() => owner.client.query(
+    for (const build of INDEX_MAINTENANCE_BUILD_PERMISSIONS) {
+      const qualified = `${schema}.${quoteIdentifier(build.tableName)}`;
+      const columns = yield* driver(() => owner.client.query<{ name: string }>(`select a.attname as name
+        from pg_catalog.pg_attribute a where a.attrelid = $1::pg_catalog.regclass
+        and a.attnum > 0 and not a.attisdropped`, [qualified]));
+      if (!columns.rows.some(column => column.name === build.bindingColumn) ||
+        build.writableColumns.some(name => !columns.rows.some(column => column.name === name)))
+        return yield* Effect.fail(fail("invalidInstallation"));
+      const names = columns.rows.map(column => quoteIdentifier(column.name)).join(",");
+      // Column REVOKE cannot counter a table grant. Remove both forms first.
+      yield* driver(() => owner.client.query(`revoke insert,update on table ${qualified} from ${role}`));
+      yield* driver(() => owner.client.query(`revoke insert (${names}),update (${names}) on table ${qualified} from ${role}`));
+      if (accessProfile !== "controlRead") {
+        const permitted = build.writableColumns.map(quoteIdentifier).join(",");
+        yield* driver(() => owner.client.query(`grant insert (${permitted}),update (${permitted}) on table ${qualified} to ${role}`));
+      }
+    }
+    if (accessProfile !== "controlRead") yield* driver(() => owner.client.query(
       `grant select,insert,update,delete on table ${schema}.fx_system_scope_execution_authority,
         ${schema}.fx_system_metadata_contract_observation to ${role}`));
     yield* driver(() => owner.client.query(`grant usage on schema ${schema} to ${role}`));
     yield* driver(() => owner.client.query(`grant execute on function ${schema}.fx_lock_installation_admission(),
       ${schema}.fx_lock_prepared_metadata_epoch() to ${role}`));
+    yield* driver(() => owner.client.query(accessProfile !== "controlRead"
+      ? `grant execute on function ${schema}.fx_publish_application_read_binding(bytea,bytea) to ${role}`
+      : `revoke all on function ${schema}.fx_publish_application_read_binding(bytea,bytea) from ${role}`));
+    const maintenancePublishers = INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS
+      .map(operation => `${schema}.${operation.name}(${operation.signature})`).join(",");
+    yield* driver(() => owner.client.query(`revoke all on function ${maintenancePublishers} from public`));
+    yield* driver(() => owner.client.query(accessProfile === "activationWriter"
+      ? `grant execute on function ${maintenancePublishers} to ${role}`
+      : `revoke all on function ${maintenancePublishers} from ${role}`));
     yield* driver(() => owner.client.query(accessProfile === "dataRuntime" ?
-      `grant execute on function ${schema}.fx_publish_application_read_binding(bytea,bytea),
-        ${schema}.fx_lock_finite_scope_observation(text),
-        ${schema}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text) to ${role}` :
-      `grant execute on function ${schema}.fx_lock_read_scope_placement(text,text) to ${role}`));
-    yield* driver(() => owner.client.query(accessProfile === "dataRuntime" ?
-      `revoke all on function ${schema}.fx_lock_read_scope_placement(text,text) from ${role}` :
-      `revoke all on function ${schema}.fx_publish_application_read_binding(bytea,bytea),
-        ${schema}.fx_lock_finite_scope_observation(text),
-        ${schema}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text) from ${role}`));
+      `grant execute on function ${schema}.fx_lock_finite_scope_observation(text),
+        ${schema}.fx_observe_finite_entry(text,uuid,text,text),
+        ${schema}.fx_complete_finite_entry(${schema}.fx_finite_entry_expected,boolean),
+        ${schema}.fx_compare_finite_metadata(text,bigint,jsonb),
+        ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer),
+        ${schema}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean),
+        ${schema}.fx_read_historical_row_identity(uuid,integer,bytea),
+        ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer),
+        ${schema}.fx_read_application_ownership_unique_closure(text,text,integer,integer) to ${role}` :
+      `revoke all on function ${schema}.fx_lock_finite_scope_observation(text),
+        ${schema}.fx_observe_finite_entry(text,uuid,text,text),
+        ${schema}.fx_complete_finite_entry(${schema}.fx_finite_entry_expected,boolean),
+        ${schema}.fx_compare_finite_metadata(text,bigint,jsonb),
+        ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer),
+        ${schema}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean),
+        ${schema}.fx_read_historical_row_identity(uuid,integer,bytea),
+        ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer) from ${role}`));
+    // Activation validates retained ownership in its original target transaction.
+    // These bounded invoker reads expose no publication or finite-body capability.
+    const ownershipReads = `${schema}.fx_read_application_write_ownership_snapshot(text,integer,integer),
+      ${schema}.fx_read_application_ownership_manifest(text,text,integer,integer)`;
+    yield* driver(() => owner.client.query(`revoke all on function ${ownershipReads} from public`));
+    yield* driver(() => owner.client.query(accessProfile !== "controlRead"
+      ? `grant execute on function ${ownershipReads} to ${role}`
+      : `revoke all on function ${ownershipReads} from ${role}`));
+    yield* driver(() => owner.client.query(accessProfile === "controlRead"
+      ? `grant execute on function ${schema}.fx_lock_read_scope_placement(text,text),
+        ${schema}.fx_read_application_ownership_unique_closure(text,text,integer,integer) to ${role}`
+      : `revoke all on function ${schema}.fx_lock_read_scope_placement(text,text) from ${role}`));
+    if (accessProfile === "activationWriter") yield* driver(() => owner.client.query(
+      `revoke all on function ${schema}.fx_read_application_ownership_unique_closure(text,text,integer,integer) from ${role}`));
+    const publicationFunctions = [...FINITE_PUBLICATION_FUNCTIONS, ...APPLICATION_DOMAIN_FUNCTIONS]
+      .map(operation => `${schema}.${operation.name}(${operation.signature.replaceAll("fx_app_", `${schema}.fx_app_`)})`).join(",");
+    const publicationTypes = APPLICATION_DOMAIN_TYPES.map(type => `${schema}.${quoteIdentifier(type.name)}`).join(",");
+    yield* driver(() => owner.client.query(accessProfile === "dataRuntime"
+      ? `grant execute on function ${publicationFunctions} to ${role}`
+      : `revoke all on function ${publicationFunctions} from ${role}`));
+    yield* driver(() => owner.client.query(accessProfile === "dataRuntime"
+      ? `grant usage on type ${publicationTypes} to ${role}`
+      : `revoke all on type ${publicationTypes} from ${role}`));
     yield* driver(() => owner.client.query(`revoke all on function ${schema}.fx_require_active_installation(),
       ${schema}.fx_invalidate_prepared_metadata(), ${schema}.fx_check_scope_execution_authority() from ${role}`));
   },
@@ -429,7 +495,7 @@ const verifyAndPublish = Effect.fn("InstallationMaintenance.verifyAndPublish")(
         Effect.mapError(cause => fail("invalidInstallation", cause)));
       const [runtime] = yield* decodeRuntime(runtimeRows.rows).pipe(Effect.mapError(cause => fail("invalidInstallation", cause)));
       if (!runtime.sameLogin || runtime.databaseName !== gate.databaseName ||
-        (accessProfile === "dataRuntime" && runtime.schemaName !== owner.schemaName))
+        (accessProfile !== "controlRead" && runtime.schemaName !== owner.schemaName))
         return yield* Effect.fail(fail("changed"));
       yield* configureRuntimePermissions(owner, runtime.login, journal, accessProfile);
       // One finite read-only transaction observes the actual login under the

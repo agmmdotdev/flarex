@@ -37,11 +37,69 @@ attributable evidence. The selected successor is the
 the delivered [finite read/metadata contract](./23-finite-execution-contract-preflight.md),
 then the [whole mutation replacement](./24-whole-mutation-redesign-preflight.md)
 and connected whole-request acceptance. The owner requests total replacement
-with necessary breaking changes accepted. Its recommended contract covers compact
+with necessary breaking changes accepted. Its selected contract covers compact
 durable entry, one Application/native pending owner, one frozen contribution,
 complete current write maintenance once per touched table and one final transaction.
-The explicit precommit replay versus durable-seal recovery choice remains pending;
-no dependent runtime change or new workflow capability is claimed.
+The owner selects safe whole-root replay after proven precommit nonacceptance and
+one final settlement. Unknown COMMIT requires resolution before replay. Connected
+implementation is delivered, but measured acceptance still fails. Capability/
+readiness separation, target lending, candidate preparation, post-wait serving
+observations, dependency batches and entry reservation ownership are implemented.
+Owned finite start and logical metadata/receipt capture are implemented. Complete
+Product numerical acceptance still fails. Named bounded captures and
+protocol parsing reuse are implemented under preflight 24, retaining exact
+original-snapshot evidence, fresh installed authority and existing historical
+storage decoders. Existing finite Application/framework consumers are migrated
+and displaced finite storage callbacks are removed. Workflow and Product/Payload
+meet their mixed latency gates; Product's median remains unmet.
+Fixed capture mapping, complete-row entry acknowledgement and authentic original
+predecessor lending are implemented with bounded implicit transport. They preserve
+correctness but do not close those targets. Complete finite entry construction
+and compact metadata acceptance are implemented under preflight 24:
+an inert transaction-confined provisional context, one complete anchor insertion
+after preparation, and actual SQL comparisons that retain complete metadata and
+write-closure semantics without returning their full graphs repeatedly.
+The healthy entry now uses six client commands. Complete Product median acceptance
+still fails; matched native unique misses meet their added-cost gates, while hits
+meet P95 and miss median. The implemented connected replacement combines historical unique
+membership with its required original row, fixes post-wait historical-ID visibility,
+and replaces finite publication observation, materialization and terminal submission
+topology at their actual owners. Fixed bounded database submissions preserve genuine
+acceptance/OCC, canonical decoding, write/trigger proofs and final reference checks.
+The [publication-domain evidence](../../packages/executor/benchmarks/core-performance/whole-mutation-cutover/publication-domain/README.md)
+retains the actual samples and open gates, including the unresolved complete
+miss-request tail regression. Immutable preparation, pure prepared-database
+reuse and the ordered shared materialization cutover are implemented under
+preflight 24. Rows, indexes, unique admission, coverage and search use the fixed
+accepting compositor, retaining callback barriers, deferred maintenance and
+complete stored proofs. Connected correctness is verified for the selected
+private framework profiles; complete matched native performance acceptance
+remains open. Proposed publication command budgets are not latency acceptance.
+Frozen settlement preparation and domain-owned current acceptance are implemented
+under preflight 24. Authentic original rows produce canonical obligations once;
+installed index and unique owners prove current state and select actual actions.
+Source validation keeps its original issuer and ordered current-closure boundary.
+Ordinary and finite materializers require the same canonical unique pairs;
+actions-only reconstruction and unused projection fields are removed.
+Canonical candidate, maintenance and completed-prefix reference proof boundaries
+retain their actual owners. Connected correctness is verified for the selected
+frozen settlement and framework consumers. The
+[frozen settlement evidence](../../packages/executor/benchmarks/core-performance/whole-mutation-cutover/frozen-settlement/README.md)
+still fails to establish complete native-relative acceptance; complete matched
+pairs, stable tails and numerical scaling remain open. Coverage eligibility still
+returns typed obligations and build state for JavaScript selection and remains
+a recorded replacement boundary.
+The selected [typed maintenance cutover](./24-whole-mutation-redesign-preflight.md#typed-activation-bound-maintenance-obligations)
+replaces private certificates with activation-bound opening obligations,
+protected build references and exact installation attestation across the real
+writers and consumers. The connected cutover is implemented with actual
+activation-role exclusion, strict retained-data conversion, public installers
+and connected consumers verified. Its
+[retained measurement](../../packages/executor/benchmarks/core-performance/whole-mutation-cutover/typed-maintenance/README.md)
+establishes no performance improvement and leaves the complete request command
+count unchanged. Coverage eligibility replacement and complete native latency
+acceptance remain open.
+New workflow capability and named-environment activation remain separately gated.
 The earlier transaction-local common-observation candidate from slice 20 is
 superseded; its measurements and failed fixed gates remain evidence. The selected
 [finite execution contract](./23-finite-execution-contract-preflight.md) replaces that choreography with

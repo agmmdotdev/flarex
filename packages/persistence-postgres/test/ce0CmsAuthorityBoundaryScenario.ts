@@ -346,8 +346,6 @@ export async function ce0CmsAuthorityBoundaryScenario(
           .update(fxSystemIndexBuildStates)
           .set({
             lifecycle: "retiring",
-            maintenanceBytes: null,
-            maintenanceSha256: null,
             maintenanceActivationSequence: null,
           })
           .where(selected),
@@ -356,8 +354,6 @@ export async function ce0CmsAuthorityBoundaryScenario(
           .update(fxSystemIndexBuildStates)
           .set({
             lifecycle: build.lifecycle,
-            maintenanceBytes: build.maintenanceBytes,
-            maintenanceSha256: build.maintenanceSha256,
             maintenanceActivationSequence: build.maintenanceActivationSequence,
           })
           .where(selected),
@@ -378,8 +374,6 @@ export async function ce0CmsAuthorityBoundaryScenario(
         persistence.drizzle
           .update(fxSystemUniqueConstraintBuilds)
           .set({
-            maintenanceBytes: null,
-            maintenanceSha256: null,
             maintenanceActivationSequence: null,
           })
           .where(selected),
@@ -387,8 +381,6 @@ export async function ce0CmsAuthorityBoundaryScenario(
         persistence.drizzle
           .update(fxSystemUniqueConstraintBuilds)
           .set({
-            maintenanceBytes: build.maintenanceBytes,
-            maintenanceSha256: build.maintenanceSha256,
             maintenanceActivationSequence: build.maintenanceActivationSequence,
           })
           .where(selected),

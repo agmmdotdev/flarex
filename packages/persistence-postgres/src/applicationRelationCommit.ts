@@ -39,4 +39,5 @@ export {
   prepareApplicationRelationDefinitionBuildResult,
   prepareApplicationRelationReadOverlayResult,
   prepareApplicationRelationCommitResult,
+  prepareApplicationRelationDefinitionsFromLocatedBindingResult,
 } from "./applicationRelationCommit/Repository";

@@ -86,7 +86,7 @@ export async function snapshotHydrationBatchScenario(tx: AppRowTransaction,
     observation => { windows.push(observation.sql); }));
   expect(consumed).toEqual([...largeIds, missing, tombstone]);
   expect(windows).toHaveLength(4);
-  expect(windows.every(statement => /case when/i.test(statement) && /rows between unbounded preceding/i.test(statement))).toBe(true);
+  expect(windows.every(statement => /fx_read_snapshot_rows/i.test(statement))).toBe(true);
   let settlementMissing = 0;
   await runEffect(consumeAppRowSnapshotRevisionsInTransactionEffect(tx,
     { ...selected, rowIds: boundedMissing.slice(0, 32) }, cause => cause,

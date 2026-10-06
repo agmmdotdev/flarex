@@ -890,6 +890,76 @@
       "when": 1790946800000,
       "tag": "0126_finite_execution_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1790946900000,
+      "tag": "0127_whole_mutation",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1790947000000,
+      "tag": "0128_finite_storage_frontier",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1790947100000,
+      "tag": "0129_finite_storage_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1790947200000,
+      "tag": "0130_finite_storage_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1790947300000,
+      "tag": "0131_finite_entry",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1790947400000,
+      "tag": "0132_finite_historical_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1790947500000,
+      "tag": "0133_publication_domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1790947600000,
+      "tag": "0134_materialization_composition",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1790947700000,
+      "tag": "0135_frozen_settlement_acceptance",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1790947800000,
+      "tag": "0136_typed_maintenance_obligations",
+      "breakpoints": true
     }
   ]
 }

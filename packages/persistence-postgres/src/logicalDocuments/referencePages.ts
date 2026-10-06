@@ -19,7 +19,7 @@ import { lockScopeClockForOrdinaryWriteInTransactionEffect, ScopeClockNotFoundEr
 import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect, readRequiredEnabledIndexBuildsInTransactionEffect,
   IndexBuildStatePersistenceError } from "../indexBuildStates";
-import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import { IndexMaintenanceError } from "../indexMaintenanceModel";
 import type { AppIndexDefinitionRecord } from "../appIndexDefinitions";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -106,7 +106,7 @@ const requireSourceBoundIndexCoverage = Effect.fn("LogicalReferences.requireInde
   const row = build.rows[0];
   if (row === undefined) return yield* Effect.fail(error("storedCorruption"));
   const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId,
-    definition.indexDefinitionId)).pipe(Effect.mapError(cause => error("storedCorruption", cause)));
+    definition.indexDefinitionId, row.maintenanceObligation)).pipe(Effect.mapError(cause => error("storedCorruption", cause)));
   if (state.maintenance !== null) return yield* Effect.fail(error("invalidAuthority"));
   const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock).pipe(
     Effect.mapError(cause => error(cause.reason === "resourceFailure" ? "statementFailure" : "storedCorruption", cause)));

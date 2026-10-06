@@ -1,11 +1,129 @@
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createPGlitePersistence } from "../src/pglite";
 import { closeInstallationAdmission, initializeFullProofInstallation, loadManagedInstallation,
   lockInstallationForCurrentTransaction, verifyInstallationWriterProtection } from "../src/installationLifecycle";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 
 describe("installation full-proof compatibility", () => {
+  it("refuses overlapping complete maintenance commands across wrappers of the actual backend", async () => {
+    const db = newTestPGlite();
+    const first = await createPGlitePersistence({ db });
+    const second = await createPGlitePersistence({ db });
+    await first.migrate();
+    const query = db.query.bind(db);
+    let signalDrained!: () => void;
+    let resume!: () => void;
+    const drained = new Promise<void>(resolve => { signalDrained = resolve; });
+    const held = new Promise<void>(resolve => { resume = resolve; });
+    const observe = vi.spyOn(db, "query").mockImplementation(async (...args) => {
+      const result = await query(...args);
+      if (args[0].includes("returning maintenance_owner::text as owner")) {
+        signalDrained();
+        await held;
+      }
+      return result;
+    });
+    const running = first.migrate();
+    try {
+      await drained;
+      const beforeOverlap = await query("select state,maintenance_owner,incarnation,structural_generation from fx_system_installation");
+      expect(beforeOverlap.rows).toMatchObject([{ state: "draining", maintenance_owner: expect.any(String) }]);
+      const calls = observe.mock.calls.length;
+      await expect(second.migrate()).rejects.toMatchObject({ reason: "busy" });
+      await expect(first.migrate()).rejects.toMatchObject({ reason: "busy" });
+      expect(observe.mock.calls).toHaveLength(calls);
+      expect((await query("select state,maintenance_owner,incarnation,structural_generation from fx_system_installation")).rows)
+        .toEqual(beforeOverlap.rows);
+      resume();
+      await running;
+      expect((await query("select state,maintenance_owner from fx_system_installation")).rows)
+        .toEqual([{ state: "active", maintenance_owner: null }]);
+      observe.mockRestore();
+      await second.migrate();
+    } finally {
+      resume();
+      await running.catch(() => undefined);
+      observe.mockRestore();
+      await db.close();
+    }
+  }, 180_000);
+
+  it.each([
+    "maintenance_owner=gen_random_uuid()",
+    "incarnation=gen_random_uuid()",
+    "structural_generation=structural_generation+1",
+  ])("keeps maintenance draining when its exact reopen identity changes: %s", async change => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    await persistence.migrate();
+    const query = db.query.bind(db);
+    let tampered = false;
+    const observe = vi.spyOn(db, "query").mockImplementation(async (...args) => {
+      if (args[0].includes("returning 1 as reopened")) {
+        await query(`update fx_system_installation set ${change}`);
+        tampered = true;
+      }
+      return query(...args);
+    });
+    try {
+      await expect(persistence.migrate()).rejects.toMatchObject({ reason: "changed" });
+      expect(tampered).toBe(true);
+      expect((await query("select state,maintenance_owner from fx_system_installation")).rows)
+        .toMatchObject([{ state: "draining", maintenance_owner: expect.any(String) }]);
+      expect((await query("select count(*)::integer as locks from pg_locks where locktype='advisory' and pid=pg_backend_pid()")).rows)
+        .toEqual([{ locks: 0 }]);
+      observe.mockRestore();
+      await persistence.migrate();
+      expect((await query("select state from fx_system_installation")).rows).toEqual([{ state: "active" }]);
+    } finally {
+      observe.mockRestore();
+      await db.close();
+    }
+  }, 180_000);
+
+  it("rejects truncated and malformed actual maintenance gate results before draining", async () => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    await persistence.migrate();
+    const query = db.query.bind(db);
+    try {
+      for (const malformed of ["missingPresence", "missingGate", "schemaAbsent", "oidOverflow", "missingLocks"] as const) {
+        const before = (await query("select state,maintenance_owner,incarnation,structural_generation from fx_system_installation")).rows;
+        let injected = false;
+        const observe = vi.spyOn(db, "query").mockImplementation(async (...args) => {
+          const result = await query(...args);
+          if (malformed === "missingPresence" && args[0].includes("as installation_presence")) {
+            result.rows = [];
+            injected = true;
+          } else if (malformed === "missingLocks" && args[0].includes("as compatibility_maintenance")) {
+            result.rows = [];
+            injected = true;
+          } else if (malformed !== "missingPresence" && malformed !== "missingLocks" && args[0].includes("join pg_catalog.pg_class c")) {
+            if (malformed === "missingGate") result.rows = [];
+            else {
+              const row: unknown = result.rows[0];
+              if (!Array.isArray(row)) throw new Error("Expected actual PGlite array-mode gate row");
+              const changed: unknown[] = [...row];
+              changed[malformed === "schemaAbsent" ? 1 : 4] = malformed === "schemaAbsent" ? null : "4294967296";
+              result.rows = [changed];
+            }
+            injected = true;
+          }
+          return result;
+        });
+        try {
+          await expect(persistence.migrate()).rejects.toMatchObject({ reason: malformed === "missingPresence" ? "invalidInstallation" : "invalidCapability" });
+          expect(injected).toBe(true);
+          expect((await query("select state,maintenance_owner,incarnation,structural_generation from fx_system_installation")).rows).toEqual(before);
+          expect((await query("select count(*)::integer as locks from pg_locks where locktype='advisory' and pid=pg_backend_pid()")).rows)
+            .toEqual([{ locks: 0 }]);
+        } finally { observe.mockRestore(); }
+      }
+      await persistence.migrate();
+    } finally { await db.close(); }
+  }, 180_000);
+
   it("joins the active gate, refuses inactive serving and detects removed writer protection", async () => {
     const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });

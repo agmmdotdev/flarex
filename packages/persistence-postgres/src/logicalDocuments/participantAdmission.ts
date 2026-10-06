@@ -11,20 +11,26 @@ import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstra
 import type { DataBindingHeadToken } from "../frameworkSchema/binding/model";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { withSharedLogicalSourceBindingChecks, type FiniteAttemptMetadata, type FiniteMetadataEntry } from "./sourceAdmission";
-import { readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation,
-  type FiniteExecutionAuthorityObservation, type ScopeClockRecord } from "../scopeClock";
+import { type ScopeClockRecord } from "../scopeClock";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import type { PointMutationExecutionProfile } from "../transactionSessionActivation";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import type { LogicalStorageReadDemand } from "./model";
-import type { PreparedFiniteMetadataProjection } from "../finiteMetadataDependencies";
+import type { PreparedFiniteMetadataProjection, FiniteMetadataComparisonExpected, FiniteMetadataError } from "../finiteMetadataDependencies";
+import type { FiniteStorageCaptureError } from "../finiteStorageCapture";
 
 export class LogicalParticipantAdmissionError extends Data.TaggedError("LogicalParticipantAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" |
     "unsupportedProfile" | "resourceFailure" | "storedCorruption" | "documentInvalid";
   readonly cause?: unknown;
 }> {}
+
+export function projectFiniteStorageCaptureFailure(cause: FiniteStorageCaptureError): LogicalParticipantAdmissionError {
+  const reason = cause.reason === "notReady" || cause.reason === "storedCorruption" ||
+    cause.reason === "resourceFailure" || cause.reason === "invalidInput" ? cause.reason : "invalidAuthority";
+  return new LogicalParticipantAdmissionError({ reason, cause });
+}
 
 /** The framework adapter classifies only its known native failures. Defects
  * and interruption remain in the Effect Cause, outside this typed channel. */
@@ -44,8 +50,14 @@ export interface LogicalParticipantAttemptRoot {
 }
 export type LogicalParticipantAttemptReadTransaction = <Value, Failure>(
   work: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-    observation: ScopeClockRecord | FiniteExecutionAuthorityObservation) => Effect.Effect<Value, Failure>,
+    observation: ScopeClockRecord) => Effect.Effect<Value, Failure>,
 ) => Effect.Effect<Value, Failure | LogicalParticipantAdmissionError>;
+export interface FiniteParticipantStorageDemand {
+  readonly admission: LogicalParticipantAttemptAdmission;
+  readonly attempt: SessionJournalAttempt;
+  readonly method: string;
+  readonly demand: LogicalStorageReadDemand;
+}
 export interface LogicalParticipantSelection {
   readonly bindAttemptEffect: (application: ApplicationBindingInput, attempt: SessionJournalAttempt,
     root: LogicalParticipantAttemptRoot, readTransaction: LogicalParticipantAttemptReadTransaction,
@@ -68,14 +80,8 @@ interface AttemptState {
   readonly methods: ReadonlySet<string>;
   readonly readTransaction: LogicalParticipantAttemptReadTransaction;
   readonly metadata?: FiniteAttemptMetadata;
-  readonly verifyFiniteBinding?: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-    observation: FiniteExecutionAuthorityObservation) => Effect.Effect<void, LogicalParticipantAdmissionError>;
   readonly verifyBinding: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
     clock: ScopeClockRecord) => Effect.Effect<void, LogicalParticipantAdmissionError>;
-  readonly verifyReadBinding: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-    observation: FiniteExecutionAuthorityObservation, demand?: LogicalStorageReadDemand) => Effect.Effect<void, LogicalParticipantAdmissionError>;
-  readonly verifyDemand: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-    observation: FiniteExecutionAuthorityObservation, demand: LogicalStorageReadDemand) => Effect.Effect<void, LogicalParticipantAdmissionError>;
   readonly sourceKey: string;
   readonly sourceSha256: string;
   readonly head: DataBindingHeadToken;
@@ -84,6 +90,27 @@ interface AttemptState {
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
 }
 const attempts = new WeakMap<object, AttemptState>();
+/** The existing source issuer authenticates the exact demand before the kernel
+ * acquires its requested build lock. This lends no transaction or live verdict. */
+export function inspectFiniteParticipantStorageDemand(input: FiniteParticipantStorageDemand) {
+  const state = attempts.get(input.admission);
+  const demand = input.demand;
+  if (state === undefined || state.root.executionProfile !== "finiteRoot" || state.attempt !== input.attempt ||
+    !state.methods.has(input.method) || (demand.kind !== "clock" && !state.tableIds.has(demand.tableId)))
+    return Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+  if (demand.kind === "search") return Result.fail(new LogicalParticipantAdmissionError({ reason: "unsupportedProfile",
+    cause: "finiteHistoricalSearchUnsupported" }));
+  const definition = demand.kind === "index" ? state.indexes.find(member =>
+    member.indexDefinitionId === demand.indexDefinitionId && member.access.tableId === demand.tableId) : undefined;
+  if (demand.kind === "index" && definition === undefined)
+    return Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+  const uniqueDefinition = demand.kind === "unique" ? state.unique.find(member =>
+    member.uniqueConstraintDefinitionId === demand.uniqueConstraintDefinitionId && member.tableId === demand.tableId) : undefined;
+  if (demand.kind === "unique" && uniqueDefinition === undefined)
+    return Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+  return Result.succeed(Object.freeze({ root: state.root, demand, definition, uniqueDefinition,
+    metadata: state.metadata }));
+}
 const tableMembershipView = (input: ReadonlySet<CatalogTableId>): ReadonlySet<CatalogTableId> => {
   const members = new Set(input);
   const view: ReadonlySet<CatalogTableId> = Object.freeze({ size: members.size,
@@ -95,41 +122,6 @@ const tableMembershipView = (input: ReadonlySet<CatalogTableId>): ReadonlySet<Ca
   });
   return view;
 };
-const checkedReads = new WeakMap<FlarexMetadataTransaction, Readonly<{
-  states: readonly AttemptState[]; authority: TrustedScopeAuthority; observation: FiniteExecutionAuthorityObservation
-}>>();
-const issuedSourceOwnsDemand = (admission: LogicalParticipantAttemptAdmission, demand: LogicalStorageReadDemand) =>
-  demand.kind === "clock" || attempts.get(admission)?.tableIds.has(demand.tableId) === true;
-
-/** Only the captured working set inside the exact checked callback may select another path. */
-export const requireLogicalParticipantReadDemandInTransactionEffect = Effect.fn("LogicalParticipantAdmission.requireDemand")(
-  function* (admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, method: string,
-    tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) {
-    const state = attempts.get(admission), checked = checkedReads.get(tx);
-    if (state === undefined || state.attempt !== attempt || !state.methods.has(method) ||
-      checked === undefined || !checked.states.includes(state))
-      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    if (demand.kind === "clock") return;
-    const owner = checked.states.find(member => member.tableIds.has(demand.tableId));
-    if (owner === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    yield* owner.verifyDemand(tx, checked.authority, checked.observation, demand);
-  });
-
-const withCheckedReadDemand = Effect.fn("LogicalParticipantAdmission.withCheckedDemand")(function* <A, E>(tx: FlarexMetadataTransaction, states: readonly AttemptState[],
-  authority: TrustedScopeAuthority, observation: FiniteExecutionAuthorityObservation, demand: LogicalStorageReadDemand | undefined,
-  work: () => Effect.Effect<A, E>) {
-    if (demand === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    checkedReads.set(tx, { states, authority, observation });
-    return yield* Effect.gen(function* () {
-      if (demand.kind !== "clock") {
-        const owner = states.find(member => member.tableIds.has(demand.tableId));
-        if (owner === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-        yield* owner.verifyDemand(tx, authority, observation, demand);
-      }
-      return yield* work();
-    }).pipe(Effect.ensuring(Effect.sync(() => checkedReads.delete(tx))));
-  });
-
 export const issueLogicalParticipantAttemptAdmission = (state: AttemptState): LogicalParticipantAttemptAdmission => {
   // SAFETY: this inert token carries no authority itself; only membership in
   // the private WeakMap grants access to the checked source and exact attempt.
@@ -247,30 +239,24 @@ export const withLogicalParticipantAdmissionBundleEffect = Effect.fn("LogicalPar
     const first = attempts.get(state.admissions[0]!);
     if (first === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     const shareChecks = withSharedLogicalSourceBindingChecks;
-    const readTransaction = <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
-      first.readTransaction((tx, authority, clock) => shareChecks(tx, () => Effect.gen(function* () {
-        for (const [ordinal, admission] of state.admissions.entries()) {
-          yield* requireLogicalParticipantAttemptReadAdmissionInTransactionEffect(
-            admission, attempt, state.sourceMethods[ordinal]![0]!, tx, authority, clock,
-            demand?.kind === "clock" || (demand !== undefined && issuedSourceOwnsDemand(admission, demand)) ? demand : { kind: "clock" });
-        }
-        if (first.root.executionProfile !== "finiteRoot") return yield* read(tx);
-        if ("lastCommitSeq" in clock) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-        return yield* withCheckedReadDemand(tx, state.admissions.map(admission => attempts.get(admission)!), authority, clock, demand, () => read(tx));
+    const readTransaction = <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) => {
+      if (first.root.executionProfile === "finiteRoot") return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      return first.readTransaction((tx, authority, clock) => shareChecks(tx, () => Effect.gen(function* () {
+        for (const [ordinal, admission] of state.admissions.entries()) yield* requireLogicalParticipantAttemptReadAdmissionInTransactionEffect(
+          admission, attempt, state.sourceMethods[ordinal]![0]!, tx, authority, clock, demand);
+        return yield* read(tx);
       })));
+    };
     if (first.root.executionProfile !== "finiteRoot") yield* readTransaction(() => Effect.void);
     return yield* work(Object.freeze({ admissions: state.admissions, readTransaction }));
   });
 
 const requireAttemptState = (admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, method: string,
-    authority: TrustedScopeAuthority, clock: ScopeClockRecord | FiniteExecutionAuthorityObservation): Result.Result<AttemptState, LogicalParticipantAdmissionError> => {
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord): Result.Result<AttemptState, LogicalParticipantAdmissionError> => {
     const state = typeof admission === "object" && admission !== null ? attempts.get(admission) : undefined;
     if (state === undefined || state.attempt !== attempt || !state.methods.has(method) ||
       state.root.scopeId !== authority.scopeId || state.root.scopeId !== clock.scopeId ||
-      ("lastCommitSeq" in clock ? state.root.snapshotCommitSeq > clock.lastCommitSeq :
-        state.root.executionProfile !== "finiteRoot" || state.metadata === undefined ||
-        state.root.sessionId !== clock.sessionId || state.root.attemptFence !== clock.attemptFence ||
-        state.root.snapshotCommitSeq !== clock.snapshotToken.commitSeq || state.root.snapshotCommitSeq < clock.oldestAvailableCommitSeq) ||
+      state.root.snapshotCommitSeq > clock.lastCommitSeq ||
       authority.epoch !== clock.epoch || authority.storageGeneration !== clock.storageGeneration ||
       authority.storageGenerationFence !== clock.storageGenerationFence)
       return Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
@@ -287,32 +273,14 @@ export const requireLogicalParticipantAttemptAdmissionInTransactionEffect = Effe
     return Object.freeze({ ...state, methods: new Set(state.methods), tableIds: new Set(state.tableIds) });
   });
 
-/** Finite seal verifies the exact retained pin under a genuine live authority observation. */
-export const requireLogicalParticipantFiniteAttemptAdmissionInTransactionEffect = Effect.fn("LogicalParticipantAttemptAdmission.requireFinite")(
-  function* (admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, method: string,
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, observation: FiniteExecutionAuthorityObservation) {
-    yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, observation)).pipe(
-      Effect.mapError(cause => new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause })));
-    const state = yield* Effect.fromResult(requireAttemptState(admission, attempt, method, authority, observation));
-    if (state.metadata === undefined || state.verifyFiniteBinding === undefined)
-      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    yield* state.verifyFiniteBinding(tx, authority, observation);
-    return Object.freeze({ ...state, methods: new Set(state.methods), tableIds: new Set(state.tableIds) });
-  });
-
-/** The issued finite profile checks fresh source pins and query-required readiness for tentative reads. */
+/** Ordinary and durable reads keep their complete source admission. */
 const requireLogicalParticipantAttemptReadAdmissionInTransactionEffect = Effect.fn("LogicalParticipantAttemptAdmission.requireRead")(
   function* (admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, method: string,
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord | FiniteExecutionAuthorityObservation, demand?: LogicalStorageReadDemand) {
+    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord, _demand?: LogicalStorageReadDemand) {
     const state = yield* Effect.fromResult(requireAttemptState(admission, attempt, method, authority, clock));
-    if (state.root.executionProfile === "finiteRoot") {
-      if ("lastCommitSeq" in clock || readFiniteExecutionAuthorityObservation(tx, clock.scopeId) !== clock)
-        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-      yield* state.verifyReadBinding(tx, authority, clock, demand);
-    } else {
-      if (!("lastCommitSeq" in clock)) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-      yield* state.verifyBinding(tx, authority, clock);
-    }
+    if (state.root.executionProfile === "finiteRoot")
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    yield* state.verifyBinding(tx, authority, clock);
   });
 
 /** Every evaluator read borrows another checked short transaction. */
@@ -330,14 +298,9 @@ export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalPa
     if (state === undefined || state.attempt !== attempt || !state.methods.has(method))
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     const checkedRead = <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
-      state.readTransaction((tx, authority, clock) => {
-        const checkAndRead = () => requireLogicalParticipantAttemptReadAdmissionInTransactionEffect(admission, attempt, method, tx, authority, clock, demand)
-          .pipe(Effect.flatMap(() => state.root.executionProfile !== "finiteRoot" ? read(tx)
-            : "lastCommitSeq" in clock ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }))
-            : withCheckedReadDemand(tx, [state], authority, clock, demand, () => read(tx))));
-        return state.root.executionProfile === "finiteRoot"
-          ? withSharedLogicalSourceBindingChecks(tx, checkAndRead) : checkAndRead();
-      });
+      state.root.executionProfile === "finiteRoot" ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })) :
+        state.readTransaction((tx, authority, clock) => requireLogicalParticipantAttemptReadAdmissionInTransactionEffect(
+          admission, attempt, method, tx, authority, clock, demand).pipe(Effect.flatMap(() => read(tx))));
     const publicState = Object.freeze({ root: state.root, tableIds: state.tableIds });
     const prepared = yield* (state.root.executionProfile === "finiteRoot"
       ? prepare(publicState, undefined, checkedRead)
@@ -359,6 +322,13 @@ interface CommitState {
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
   readonly search: readonly LogicalSearchDefinition[];
   readonly validateDocument: LogicalParticipantDocumentValidator;
+  readonly prepareFiniteTables?: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    tableIds: readonly CatalogTableId[]) => Result.Result<Readonly<{
+      pages: readonly (readonly FiniteMetadataComparisonExpected[])[];
+      accept: (observation: unknown) => Effect.Effect<Readonly<{
+        indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+      }>, LogicalParticipantAdmissionError>;
+    }>, FiniteMetadataError>;
   readonly verifyFinite?: (operation: AdmittedParticipantOperation, contribution: SourceContribution,
     tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
     Effect.Effect<Readonly<{ indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>, LogicalParticipantAdmissionError>;
@@ -367,6 +337,45 @@ interface CommitState {
     authority: TrustedScopeAuthority, clock: ScopeClockRecord) => Effect.Effect<void, LogicalParticipantAdmissionError>;
 }
 const commits = new WeakMap<object, CommitState>();
+
+export function prepareFiniteOperationCommitObservation(token: LogicalParticipantCommitAuthority,
+  admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, participant: string, methods: readonly string[],
+  tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord, touchedTables: readonly CatalogTableId[]) {
+  const state = commits.get(token);
+  return Result.gen(function* () {
+    if (state?.prepareFiniteTables === undefined) return yield* Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    const prepared = yield* state.prepareFiniteTables(tx, authority, clock, touchedTables);
+    return Object.freeze({ pages: prepared.pages, accept: (observation: unknown) => Effect.gen(function* () {
+      const selected = inspectFiniteOperationCommitAuthority(token, admission, attempt, participant, methods);
+      if (selected === null || touchedTables.some(tableId => !selected.tableIds.has(tableId)))
+        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      // Current closure agreement authenticates the original issuer's selected
+      // validator and definitions. It does not reconstruct publication inputs.
+      yield* prepared.accept(observation);
+    }) });
+  });
+}
+
+/** Match the operation's genuine borrowed source view to publisher composition.
+ * The frozen graph supplies effects once; no exported per-child global graph or
+ * canonical contribution is required to authenticate its source authority. */
+export const inspectFiniteOperationCommitAuthority = (
+  token: LogicalParticipantCommitAuthority, admission: LogicalParticipantAttemptAdmission,
+  attempt: SessionJournalAttempt, participant: string, methods: readonly string[],
+) => {
+  const state = commits.get(token), issued = attempts.get(admission);
+  return state === undefined || issued === undefined || issued.attempt !== attempt || issued.root.executionProfile !== "finiteRoot" ||
+    state.participant !== participant || state.sourceKey !== issued.sourceKey || state.sourceSha256 !== issued.sourceSha256 ||
+    methods.length === 0 ||
+    methods.some(method => !state.methods.has(method) || !issued.methods.has(method)) ||
+    state.tableIds.size !== issued.tableIds.size || [...state.tableIds].some(tableId => !issued.tableIds.has(tableId)) ||
+    state.metadataProjection === undefined || state.prepareFiniteTables === undefined ? null : Object.freeze({
+      tableIds: new Set(state.tableIds), schemaVersionId: state.schemaVersionId,
+      indexes: state.indexes, unique: state.unique, search: state.search,
+      metadataProjection: state.metadataProjection, validateDocument: state.validateDocument,
+      root: issued.root, sourceKey: state.sourceKey, sourceSha256: state.sourceSha256, head: issued.head,
+    });
+};
 
 export const inspectLogicalParticipantCommitMetadataProjection = (token: LogicalParticipantCommitAuthority,
   operation: AdmittedParticipantOperation, contribution: SourceContribution): PreparedFiniteMetadataProjection | null => {

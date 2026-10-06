@@ -1,3 +1,4 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { Effect } from "effect";
 import { eq } from "drizzle-orm";
 import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
@@ -57,6 +58,7 @@ import {
   fxSystemScopeExecutionAuthorities,
 } from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { verifyLogicalDependencyValidation } from "./logicalDependencyValidationScenario";
 
 /** Real storage and issued definitions in both driver lanes; spies observe SQL
  * construction without replacing its execution or results. */
@@ -144,47 +146,50 @@ export async function verifyMembershipReadPreparation(
     rowId,
   };
   await db.transaction(async (tx) => {
-    await runEffect(
-      appendPreparedAppRowRevisionsInTransactionEffect(tx, [
-        {
-          kind: "live",
-          scopeId,
-          writeEpoch: epoch,
-          tableId,
-          rowId,
-          creationTime,
-          schemaVersionId: decodeCatalogSchemaVersionId(
-            "membership_read_preparation",
-          ),
-          commitSeq: CommitSeqSchema.make(1n),
-          prevCommitSeq: null,
-          document,
-        },
-      ]),
-    );
-    await runEffect(
-      appendAppIndexEntryRevisionsInTransactionEffect(
-        tx,
-        [livePosition, tombstonePosition].map((position) => ({
-          ...position,
-          kind: "live",
-          scopeId,
-          writeEpoch: epoch,
-          commitSeq: CommitSeqSchema.make(1n),
-        })),
-      ),
-    );
-    await runEffect(
-      appendAppIndexEntryRevisionsInTransactionEffect(tx, [
-        {
-          ...tombstonePosition,
-          kind: "tombstone",
-          scopeId,
-          writeEpoch: epoch,
-          commitSeq: CommitSeqSchema.make(2n),
-        },
-      ]),
-    );
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(
+        appendPreparedAppRowRevisionsInTransactionEffect(tx, [
+          {
+            kind: "live",
+            scopeId,
+            writeEpoch: epoch,
+            tableId,
+            rowId,
+            creationTime,
+            schemaVersionId: decodeCatalogSchemaVersionId(
+              "membership_read_preparation",
+            ),
+            commitSeq: CommitSeqSchema.make(1n),
+            prevCommitSeq: null,
+            document,
+          },
+        ]),
+      );
+      await runEffect(
+        appendAppIndexEntryRevisionsInTransactionEffect(
+          tx,
+          [livePosition, tombstonePosition].map((position) => ({
+            ...position,
+            kind: "live",
+            scopeId,
+            writeEpoch: epoch,
+            commitSeq: CommitSeqSchema.make(1n),
+          })),
+        ),
+      );
+      await runEffect(
+        appendAppIndexEntryRevisionsInTransactionEffect(tx, [
+          {
+            ...tombstonePosition,
+            kind: "tombstone",
+            scopeId,
+            writeEpoch: epoch,
+            commitSeq: CommitSeqSchema.make(2n),
+          },
+        ]),
+      );
+    } finally { closeInstallationAdmission(tx); }
   });
   const group = [
     livePosition,
@@ -192,76 +197,95 @@ export async function verifyMembershipReadPreparation(
     { ...livePosition, definition: intrinsicAgain, rowId: missingRowId },
     { ...tombstonePosition, rowId: missingRowId },
   ];
+  await verifyLogicalDependencyValidation(db, scopeId, epoch, developer);
   const positions = Array.from({ length: 9 }, () => group).flat();
   const rollbackProof = new Error("membership proof rollback");
-  await expect(db.transaction(async tx => {
-    await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+  await expect(db.transaction(async (tx) => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
     try {
-      const captured = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx, { scopeId, positions: [livePosition] }));
-      const action = { ...livePosition, kind: "tombstone" as const, scopeId, writeEpoch: epoch,
-        commitSeq: CommitSeqSchema.make(3n), membershipHeadEvidence: captured.evidence };
-      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
-        [{ ...action, membershipHeadEvidence: { ...captured.evidence } }])))
-        .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
       await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
-      const exactPositionProof = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
-        { scopeId, positions: [livePosition] }));
-      // A genuine issuer does not grant an unobserved position.
-      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
-        [{ ...action, rowId: missingRowId, membershipHeadEvidence: exactPositionProof.evidence }])))
-        .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
-      await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
-      const writeProof = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
-        { scopeId, positions: [livePosition] }));
-      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx,
-        [{ ...action, membershipHeadEvidence: writeProof.evidence }]));
-      // The first mutation consumes the captured transition generation.
-      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
-        [{ ...action, commitSeq: CommitSeqSchema.make(4n) }]))).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
-      closeExactAttemptScopeClockObservation(tx);
-      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
-        [{ ...action, commitSeq: CommitSeqSchema.make(4n) }]))).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
-      throw rollbackProof;
-    } finally { closeExactAttemptScopeClockObservation(tx); }
+      try {
+        const captured = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx, { scopeId, positions: [livePosition] }));
+        const action = {
+          ...livePosition, kind: "tombstone" as const, scopeId, writeEpoch: epoch,
+          commitSeq: CommitSeqSchema.make(3n), membershipHeadEvidence: captured.evidence
+        };
+        expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+          [{ ...action, membershipHeadEvidence: { ...captured.evidence } }])))
+          .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+        await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+        const exactPositionProof = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+          { scopeId, positions: [livePosition] }));
+        // A genuine issuer does not grant an unobserved position.
+        expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+          [{ ...action, rowId: missingRowId, membershipHeadEvidence: exactPositionProof.evidence }])))
+          .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+        await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+        const writeProof = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+          { scopeId, positions: [livePosition] }));
+        await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+          [{ ...action, membershipHeadEvidence: writeProof.evidence }]));
+        // The first mutation consumes the captured transition generation.
+        expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+          [{ ...action, commitSeq: CommitSeqSchema.make(4n) }]))).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+        closeExactAttemptScopeClockObservation(tx);
+        expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+          [{ ...action, commitSeq: CommitSeqSchema.make(4n) }]))).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+        throw rollbackProof;
+      } finally { closeExactAttemptScopeClockObservation(tx); }
+    } finally { closeInstallationAdmission(tx); }
   })).rejects.toBe(rollbackProof);
-  const detached = await db.transaction(tx => runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
-    { scopeId, positions: [livePosition] })));
-  await db.transaction(async tx => {
-    await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+  const detached = await db.transaction(async (tx) => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
     try {
-      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
-        [{ ...livePosition, kind: "tombstone", scopeId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(3n),
-          membershipHeadEvidence: detached.evidence }])))
-        .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
-    } finally { closeExactAttemptScopeClockObservation(tx); }
+      return await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+        { scopeId, positions: [livePosition] }));
+    } finally { closeInstallationAdmission(tx); }
   });
   await db.transaction(async (tx) => {
-    const select = vi.spyOn(tx, "select");
-    const execute = vi.spyOn(tx, "execute");
+    await runEffect(lockInstallationForCurrentTransaction(tx));
     try {
-      for (let call = 1; call <= 2; call += 1) {
-        expect(
-          await runEffect(
-            readAppIndexMembershipHeadsInTransactionEffect(tx, {
-              scopeId,
-              positions,
-            }).pipe(Effect.map(selection => selection.heads)),
-          ),
-        ).toEqual(
-          Array.from({ length: 9 }, () => [
-            { commitSeq: 1n, isTombstone: false },
-            { commitSeq: 2n, isTombstone: true },
-            null,
-            null,
-          ]).flat(),
-        );
-        expect(select).toHaveBeenCalledTimes(call);
-        expect(execute).toHaveBeenCalledTimes(call * 2);
+      await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+      try {
+        expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+          [{
+            ...livePosition, kind: "tombstone", scopeId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(3n),
+            membershipHeadEvidence: detached.evidence
+          }])))
+          .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+      } finally { closeExactAttemptScopeClockObservation(tx); }
+    } finally { closeInstallationAdmission(tx); }
+  });
+  await db.transaction(async (tx) => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      const select = vi.spyOn(tx, "select");
+      const execute = vi.spyOn(tx, "execute");
+      try {
+        for (let call = 1; call <= 2; call += 1) {
+          expect(
+            await runEffect(
+              readAppIndexMembershipHeadsInTransactionEffect(tx, {
+                scopeId,
+                positions,
+              }).pipe(Effect.map(selection => selection.heads)),
+            ),
+          ).toEqual(
+            Array.from({ length: 9 }, () => [
+              { commitSeq: 1n, isTombstone: false },
+              { commitSeq: 2n, isTombstone: true },
+              null,
+              null,
+            ]).flat(),
+          );
+          expect(select).toHaveBeenCalledTimes(call);
+          expect(execute).toHaveBeenCalledTimes(call * 2);
+        }
+      } finally {
+        select.mockRestore();
+        execute.mockRestore();
       }
-    } finally {
-      select.mockRestore();
-      execute.mockRestore();
-    }
+    } finally { closeInstallationAdmission(tx); }
   });
 
   const otherScope = ScopeIdSchema.make(
@@ -315,44 +339,47 @@ export async function verifyMembershipReadPreparation(
   await insertCurrentScopeClockFixture(db, { scopeId: otherScope, epoch });
   for (const mutation of ["scope", "position"] as const) {
     await db.transaction(async (tx) => {
-      const position = { ...livePosition };
-      const input = {
-        scopeId,
-        positions:
-          mutation === "scope"
-            ? [position, { ...livePosition, definition: otherDefinition }]
-            : [position],
-      };
-      const originalSelect = tx.select.bind(tx);
-      const select = vi.spyOn(tx, "select").mockImplementation((...args) => {
-        // Mutate caller input at the scope-query construction boundary.
-        if (mutation === "scope") input.scopeId = otherScope;
-        else {
-          position.definition = otherDefinition;
-          position.encodedKey = developerKey;
-          position.rowId = missingRowId;
-        }
-        return originalSelect(...args);
-      });
-      const execute = vi.spyOn(tx, "execute");
+      await runEffect(lockInstallationForCurrentTransaction(tx));
       try {
-        const read = readAppIndexMembershipHeadsInTransactionEffect(tx, input).pipe(Effect.map(selection => selection.heads));
-        if (mutation === "scope") {
-          expect(await runEffectFailure(read)).toMatchObject({
-            issue: "invalidLocatedDefinition",
-          });
-          expect(execute).not.toHaveBeenCalled();
-        } else {
-          expect(await runEffect(read)).toEqual([
-            { commitSeq: 1n, isTombstone: false },
-          ]);
-          expect(execute).toHaveBeenCalledOnce();
+        const position = { ...livePosition };
+        const input = {
+          scopeId,
+          positions:
+            mutation === "scope"
+              ? [position, { ...livePosition, definition: otherDefinition }]
+              : [position],
+        };
+        const originalSelect = tx.select.bind(tx);
+        const select = vi.spyOn(tx, "select").mockImplementation((...args) => {
+          // Mutate caller input at the scope-query construction boundary.
+          if (mutation === "scope") input.scopeId = otherScope;
+          else {
+            position.definition = otherDefinition;
+            position.encodedKey = developerKey;
+            position.rowId = missingRowId;
+          }
+          return originalSelect(...args);
+        });
+        const execute = vi.spyOn(tx, "execute");
+        try {
+          const read = readAppIndexMembershipHeadsInTransactionEffect(tx, input).pipe(Effect.map(selection => selection.heads));
+          if (mutation === "scope") {
+            expect(await runEffectFailure(read)).toMatchObject({
+              issue: "invalidLocatedDefinition",
+            });
+            expect(execute).not.toHaveBeenCalled();
+          } else {
+            expect(await runEffect(read)).toEqual([
+              { commitSeq: 1n, isTombstone: false },
+            ]);
+            expect(execute).toHaveBeenCalledOnce();
+          }
+          expect(select).toHaveBeenCalledOnce();
+        } finally {
+          select.mockRestore();
+          execute.mockRestore();
         }
-        expect(select).toHaveBeenCalledOnce();
-      } finally {
-        select.mockRestore();
-        execute.mockRestore();
-      }
+      } finally { closeInstallationAdmission(tx); }
     });
   }
   const otherInput = {
@@ -360,21 +387,24 @@ export async function verifyMembershipReadPreparation(
     positions: [{ ...livePosition, definition: otherDefinition }],
   };
   await db.transaction(async (tx) => {
-    expect(
-      await runEffect(
-        readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput).pipe(Effect.map(selection => selection.heads)),
-      ),
-    ).toEqual([null]);
-    await tx.delete(fxSystemScopeExecutionAuthorities)
-      .where(eq(fxSystemScopeExecutionAuthorities.scopeId, otherScope));
-    await tx
-      .delete(fxSystemScopeClocks)
-      .where(eq(fxSystemScopeClocks.scopeId, otherScope));
-    expect(
-      await runEffectFailure(
-        readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput).pipe(Effect.map(selection => selection.heads)),
-      ),
-    ).toBeInstanceOf(AppIndexEntryScopeAuthorityUnavailableError);
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      expect(
+        await runEffect(
+          readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput).pipe(Effect.map(selection => selection.heads)),
+        ),
+      ).toEqual([null]);
+      await tx.delete(fxSystemScopeExecutionAuthorities)
+        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, otherScope));
+      await tx
+        .delete(fxSystemScopeClocks)
+        .where(eq(fxSystemScopeClocks.scopeId, otherScope));
+      expect(
+        await runEffectFailure(
+          readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput).pipe(Effect.map(selection => selection.heads)),
+        ),
+      ).toBeInstanceOf(AppIndexEntryScopeAuthorityUnavailableError);
+    } finally { closeInstallationAdmission(tx); }
   });
 
   // Deliberately forged private inputs exercise fail-closed runtime validation.
@@ -422,65 +452,68 @@ export async function verifyMembershipReadPreparation(
     },
   ];
   await db.transaction(async (tx) => {
-    const select = vi.spyOn(tx, "select");
-    const execute = vi.spyOn(tx, "execute");
+    await runEffect(lockInstallationForCurrentTransaction(tx));
     try {
-      expect(
-        await runEffect(
-          readAppIndexMembershipHeadsInTransactionEffect(tx, {
-            scopeId: "invalid" as ScopeId,
-            positions: [],
-          }).pipe(Effect.map(selection => selection.heads)),
-        ),
-      ).toEqual([]);
-      expect(select).not.toHaveBeenCalled();
-      for (const sample of cases) {
-        select.mockClear();
-        const failure = await runEffectFailure(
-          readAppIndexMembershipHeadsInTransactionEffect(tx, {
-            scopeId,
-            positions: sample.positions,
-          }).pipe(Effect.map(selection => selection.heads)),
-        );
-        expect(failure).toBeInstanceOf(InvalidAppIndexEntryInputError);
-        expect(failure).toMatchObject({ issue: sample.issue });
-        expect(select).toHaveBeenCalledTimes(sample.scopeReads);
-      }
-      expect(execute).not.toHaveBeenCalled();
-      select.mockClear();
-      for (const sample of [
-        {
-          definition: forged,
-          bounds: null as unknown as OrderedIndexBoundsV1,
-          limit: 0,
-          issue: "invalidBounds",
-        },
-        {
-          definition: forged,
-          bounds: {},
-          limit: 0,
-          issue: "invalidLocatedDefinition",
-        },
-        {
-          definition: intrinsic,
-          bounds: {},
-          after: { encodedKey: developerKey, rowId },
-          limit: 0,
-          issue: "invalidCursor",
-        },
-        { definition: intrinsic, bounds: {}, limit: 0, issue: "invalidLimit" },
-      ]) {
+      const select = vi.spyOn(tx, "select");
+      const execute = vi.spyOn(tx, "execute");
+      try {
         expect(
-          await runEffectFailure(
-            scanCurrentAppIndexInTransactionEffect(tx, { scopeId, ...sample }),
+          await runEffect(
+            readAppIndexMembershipHeadsInTransactionEffect(tx, {
+              scopeId: "invalid" as ScopeId,
+              positions: [],
+            }).pipe(Effect.map(selection => selection.heads)),
           ),
-        ).toMatchObject({ issue: sample.issue });
+        ).toEqual([]);
+        expect(select).not.toHaveBeenCalled();
+        for (const sample of cases) {
+          select.mockClear();
+          const failure = await runEffectFailure(
+            readAppIndexMembershipHeadsInTransactionEffect(tx, {
+              scopeId,
+              positions: sample.positions,
+            }).pipe(Effect.map(selection => selection.heads)),
+          );
+          expect(failure).toBeInstanceOf(InvalidAppIndexEntryInputError);
+          expect(failure).toMatchObject({ issue: sample.issue });
+          expect(select).toHaveBeenCalledTimes(sample.scopeReads);
+        }
+        expect(execute).not.toHaveBeenCalled();
+        select.mockClear();
+        for (const sample of [
+          {
+            definition: forged,
+            bounds: null as unknown as OrderedIndexBoundsV1,
+            limit: 0,
+            issue: "invalidBounds",
+          },
+          {
+            definition: forged,
+            bounds: {},
+            limit: 0,
+            issue: "invalidLocatedDefinition",
+          },
+          {
+            definition: intrinsic,
+            bounds: {},
+            after: { encodedKey: developerKey, rowId },
+            limit: 0,
+            issue: "invalidCursor",
+          },
+          { definition: intrinsic, bounds: {}, limit: 0, issue: "invalidLimit" },
+        ]) {
+          expect(
+            await runEffectFailure(
+              scanCurrentAppIndexInTransactionEffect(tx, { scopeId, ...sample }),
+            ),
+          ).toMatchObject({ issue: sample.issue });
+        }
+        expect(select).not.toHaveBeenCalled();
+        expect(execute).not.toHaveBeenCalled();
+      } finally {
+        select.mockRestore();
+        execute.mockRestore();
       }
-      expect(select).not.toHaveBeenCalled();
-      expect(execute).not.toHaveBeenCalled();
-    } finally {
-      select.mockRestore();
-      execute.mockRestore();
-    }
+    } finally { closeInstallationAdmission(tx); }
   });
 }

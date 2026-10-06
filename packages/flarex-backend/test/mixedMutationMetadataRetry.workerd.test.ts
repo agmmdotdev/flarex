@@ -1,22 +1,24 @@
 import { and, eq } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
-import { produceStandardApplicationSource } from "@flarex/standard-application-definition/application-source";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { APPLICATION_EXECUTION_METADATA_OWNER } from "../../persistence-postgres/src/finiteMetadataDependencies";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitErrors";
-import { readStoredFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
+import { PointMutationAttemptReplacementFiniteEntryError } from "../../persistence-postgres/src/pointCommitTransaction";
+import { PointMutationExecutionClaimAcquisitionStaleV1Error } from "../../persistence-postgres/src/transactionSessionActivation";
+import type { FiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemMetadataContractObservations,
-  fxSystemScopeExecutionAuthorities, fxSystemSnapshotLeases, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
+  fxSystemScopeExecutionAuthorities, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { admittedCommerceEventGroup } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { MiniflareApplicationAnalysisWorkerLoader, makeStandardApplicationCurrentAnalysisV1,
-  sourceBundleFromProduced } from "../../system-test/support/standardApplicationCurrentAnalysisHarness";
+import { MiniflareApplicationAnalysisWorkerLoader, makeStandardApplicationCurrentAnalysisV1 } from "../../system-test/support/standardApplicationCurrentAnalysisHarness";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
+import { changedMixedMutationExecutableSource } from "./support/mixedMutationApplicationSource";
 import { rebindMixedMutationApplication } from "./support/mixedMutationApplicationRebinding";
 
 const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),
@@ -24,58 +26,26 @@ const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),
 const ReturnedIds = Schema.Struct({ id: Schema.String, created: Schema.Struct({ id: Schema.String }) });
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
-
-/** A genuine analyzer-owned program with the original global schema and function
- * contracts. Only executable source changes; exact original publication is restored. */
-async function changedExecutableSource(fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>) {
-  const manifest = fixture.active.basis.manifest;
-  const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
-    programBudgetInput: { maximumModules: 1, maximumFunctions: 8, maximumIdentifierUtf8Bytes: 1024,
-      maximumValidatorNodes: 128, maximumValidatorDepth: 16, maximumValidatorStringUtf8Bytes: 1024 },
-    programInput: { format: "flarex.declarative-program/v1", version: 1,
-      schema: { tables: manifest.schema.tables.map(table => {
-        if (table.validator.type !== "object") throw new Error("Metadata ABA fixture requires genuine object table validators");
-        return { logicalName: table.name,
-          definition: { kind: "appDocument", definitionVersion: 1, documentType: table.validator } };
-      }), indexes: manifest.schema.indexes.map(index => {
-        const table = manifest.schema.tables.find(member => member.tableId === index.tableId);
-        if (table === undefined) throw new Error("Metadata ABA fixture index has no genuine table declaration");
-        return { tableLogicalName: table.name, descriptor: index.name, fields: index.fields,
-          ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }) };
-      }) },
-      modules: [{ modulePath: "users", functions: manifest.functions.map(fn => ({ exportName: fn.exportName,
-        kind: fn.kind, visibility: fn.visibility, argsValidator: fn.args, returnsValidator: fn.returns })) }] },
-    materializationBudgetInput: { maximumModules: 1, maximumEntryBindings: 8, maximumSourceBytes: 8192,
-      maximumSourceMapBytes: 0, maximumBytesMaterialized: 65536, maximumSemanticRecords: 64,
-      maximumSemanticRecordBytes: 8192, maximumSemanticStreamBytes: 65536 },
-    graphInput: { modules: [{ path: "functions/users.js", roles: ["function", "execution"],
-      sourceBytes: new TextEncoder().encode(["// genuinely changed executable for metadata ABA",
-        ...manifest.functions.map(fn => `export async function ${fn.exportName}(_ctx, args) { return args; }`)].join("\n")),
-      sourceMapBytes: null }], functionEntries: [{ logicalModulePath: "users", artifactModulePath: "functions/users.js" }],
-      executionPath: "functions/users.js", schemaPath: null, authPath: null },
-  }));
-  const produced = Result.getOrThrow(produceStandardApplicationSource(prepared));
-  // Author the fixture's original global placement using the real schema API.
-  // The existing bundle owner hashes these actual bytes before the real analyzer.
-  return sourceBundleFromProduced({ ...produced, modules: produced.modules.map(module => {
-    if (module.path !== produced.schemaPath) return module;
-    const schemaSource = new TextDecoder("utf-8", { fatal: true }).decode(module.sourceBytes);
-    return { ...module, sourceBytes: new TextEncoder().encode(schemaSource.replaceAll("definePartitionTable", "defineGlobalTable")) };
-  }) });
-}
+const signedExecutionFields = { authority: fxSystemTransactionSessions.applicationExecutionAuthorityJson,
+  canonicalBytes: fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes,
+  sha256: fxSystemTransactionSessions.applicationExecutionAuthoritySha256 };
 
 describe.each(drivers)("whole Worker metadata ABA retry on %s", driver => {
   it("reruns the root once at the same data snapshot after restoring the exact signed pins", async () => {
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
-    let freshReservation: Effect.Success<ReturnType<typeof readStoredFiniteMetadataReservation>> | undefined;
+    let freshReservation: FiniteMetadataReservation | undefined;
+    let freshSession: typeof fxSystemTransactionSessions.$inferSelect | undefined;
     fixture = await createMixedMutationProductFixture({ driver,
       suffix: `metadata-aba-retry-${driver}`, payloadProfile: "success", hooks: {
         afterProductBorrow: method => method !== "update" || fixture.retryContexts.length === 0 ? Effect.void : Effect.tryPromise({
           try: async () => {
-            const [lease] = await fixture.currency.persistence.drizzle.select().from(fxSystemSnapshotLeases)
-              .where(eq(fxSystemSnapshotLeases.sessionId, fixture.activation.anchor.sessionId));
-            if (lease === undefined) throw new Error("Missing fresh real entry reservation");
-            freshReservation = await Effect.runPromise(readStoredFiniteMetadataReservation(lease));
+            const [session] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+              .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+            if (session === undefined) throw new Error("Missing fresh compact attempt anchor");
+            const anchor = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+            if (anchor.reservation === null) throw new Error("Missing fresh real entry reservation");
+            freshReservation = anchor.reservation;
+            freshSession = session;
           }, catch: cause => commerceError("resourceFailure", cause),
         }),
       } });
@@ -95,21 +65,30 @@ describe.each(drivers)("whole Worker metadata ABA retry on %s", driver => {
       const pinnedFields = { schemaVersionId: fxSystemTransactionSessions.schemaVersionId,
         functionPath: fxSystemTransactionSessions.functionPath, functionKind: fxSystemTransactionSessions.functionKind,
         executionModule: fxSystemTransactionSessions.executionModule, sourcePackageHash: fxSystemTransactionSessions.sourcePackageHash,
-        grantSha256: fxSystemTransactionSessions.authorizationGrantSha256, requestSha256: fxSystemTransactionSessions.requestSha256 };
+        grantSha256: fxSystemTransactionSessions.authorizationGrantSha256, requestSha256: fxSystemTransactionSessions.requestSha256,
+        executionAuthoritySha256: fxSystemTransactionSessions.applicationExecutionAuthoritySha256 };
       const pinsBefore = await currency.persistence.drizzle.select(pinnedFields).from(fxSystemTransactionSessions)
         .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+      const [signedBefore] = await currency.persistence.drizzle.select(signedExecutionFields).from(fxSystemTransactionSessions)
+        .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+      if (signedBefore === undefined || signedBefore.authority === null || signedBefore.canonicalBytes === null || signedBefore.sha256 === null)
+        throw new Error("Missing original signed execution authority");
+      expect(signedBefore.authority.activationSequence).toBe(originalActive.basis.activationSequence.toString());
+      expect(signedBefore.authority.activeHeadSha256).toBe(encodeBytesToLowercaseHex(originalActive.basis.headSha256));
       const headersBefore = await currency.persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, scopeUuid));
       const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
       const originalValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(success.result.result))).value;
       const originalIds = Schema.decodeUnknownSync(ReturnedIds)(originalValue);
       const publication = await fixture.prepareOccPublication(originalValue);
-      const [originalLease] = await currency.persistence.drizzle.select().from(fxSystemSnapshotLeases)
-        .where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
-      if (originalLease?.metadataWatermark == null) throw new Error("Missing original authenticated metadata reservation");
-      const initialMetadataWatermark = originalLease.metadataWatermark;
+      const [originalSession] = await currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+        .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
+      if (originalSession === undefined) throw new Error("Missing original compact attempt anchor");
+      const originalAnchor = await Effect.runPromise(readFiniteAttemptAnchorRow(originalSession));
+      if (originalAnchor.reservation === null) throw new Error("Missing original authenticated metadata reservation");
+      const initialMetadataWatermark = originalAnchor.reservation.metadataWatermark;
       expect(fixture.payload?.runtimeHistory.map(runtime => runtime.observations.hookRuns())).toEqual([1]);
 
-      const changedSource = await changedExecutableSource(fixture);
+      const changedSource = await changedMixedMutationExecutableSource(fixture);
       const changed = await application.registerRevision({ requestKey: `metadata-aba-changed-${driver}`,
         analysis: makeStandardApplicationCurrentAnalysisV1(changedSource, loader, `metadata-aba-${driver}`) });
       expect(changed.manifest.schema.tables.map(table => ({ name: table.name, validator: table.validator })))
@@ -134,6 +113,10 @@ describe.each(drivers)("whole Worker metadata ABA retry on %s", driver => {
       expect(restored.basis.revisionId).toBe(originalActive.basis.revisionId);
       expect(restored.basis.schemaVersionId).toBe(originalActive.basis.schemaVersionId);
       expect(restored.basis.manifest.sourceArtifact.rootSha256).toBe(originalActive.basis.manifest.sourceArtifact.rootSha256);
+      expect(restored.basis.activationSequence).toBeGreaterThan(originalActive.basis.activationSequence);
+      expect(restored.basis.headSha256).not.toEqual(originalActive.basis.headSha256);
+      expect(await currency.persistence.drizzle.select(signedExecutionFields).from(fxSystemTransactionSessions)
+        .where(eq(fxSystemTransactionSessions.sessionId, sessionId))).toEqual([signedBefore]);
       const rebound = await rebindMixedMutationApplication(fixture, `metadata-aba-rebind-${driver}`);
       const afterMetadataClock = await currency.persistence.getScopeClock(scopeId);
       if (afterMetadataClock === null) throw new Error("Missing restored real scope clock");
@@ -185,9 +168,104 @@ describe.each(drivers)("whole Worker metadata ABA retry on %s", driver => {
       expect(freshReservation.metadataWatermark).toBeGreaterThanOrEqual(conflict.conflict.lastChangedMetadataSequence);
       expect(freshReservation.attemptFence).toBe(fresh.attemptFence);
       expect(freshReservation.schemaVersionId).toBe(originalActive.basis.schemaVersionId);
+      expect(freshReservation.application.activationSequence).toBe(restored.basis.activationSequence.toString());
+      expect(freshReservation.application.headSha256).toBe(encodeBytesToLowercaseHex(restored.basis.headSha256));
+      if (freshSession === undefined) throw new Error("Fresh Worker did not observe its original signed authority");
+      expect({ authority: freshSession.applicationExecutionAuthorityJson,
+        canonicalBytes: freshSession.applicationExecutionAuthorityCanonicalBytes,
+        sha256: freshSession.applicationExecutionAuthoritySha256 }).toEqual(signedBefore);
       expect(await currency.persistence.drizzle.select(pinnedFields).from(fxSystemTransactionSessions)
         .where(eq(fxSystemTransactionSessions.sessionId, sessionId))).toEqual(pinsBefore);
       expect(await rebound.readCurrentProduct()).toMatchObject({ id: fixture.seed.productId, title: fixture.seed.newTitle });
+      expect(fixture.getOpenTransactionDepth()).toBe(0);
+    } finally { try { await loader.dispose(); } finally { await fixture.close(); } }
+  }, 240_000);
+
+  it("durably aborts an incompatible executable retry and refuses cold redispatch after restoring the original program", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver,
+      suffix: `metadata-incompatible-retry-${driver}`, payloadProfile: "success" });
+    const loader = new MiniflareApplicationAnalysisWorkerLoader();
+    try {
+      const { application, currency } = fixture;
+      const scopeId = fixture.activation.anchor.scopeId;
+      const sessionId = fixture.activation.anchor.sessionId;
+      const scopeUuid = projectScopeIdUuidV1(scopeId).scopeUuid;
+      const originalActive = await Effect.runPromise(application.activation.readActive());
+      const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runExecution());
+      const value = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(success.result.result))).value;
+      const publication = await fixture.prepareOccPublication(value);
+      const changedSource = await changedMixedMutationExecutableSource(fixture);
+      const changed = await application.registerRevision({ requestKey: `metadata-incompatible-${driver}`,
+        analysis: makeStandardApplicationCurrentAnalysisV1(changedSource, loader, `metadata-incompatible-${driver}`) });
+      expect(changed.manifest.schema).toEqual(originalActive.basis.manifest.schema);
+      expect((await application.preparePublishedSchema(changed.manifest)).schemaVersionId).toBe(originalActive.basis.schemaVersionId);
+      expect(await Effect.runPromise(application.readiness.settle({ deploymentId: currency.deploymentId,
+        scopeId, revisionId: changed.publication.revisionId }))).toMatchObject({ status: "ready" });
+      expect(await Effect.runPromise(application.activation.activate({ revisionId: changed.publication.revisionId,
+        expectedActiveHead: originalActive.expectedActiveHead }))).toMatchObject({ status: "activated", disposition: "inserted" });
+      const current = await Effect.runPromise(application.activation.readActive());
+      expect(current.basis.manifest.sourceArtifact.rootSha256).not.toBe(originalActive.basis.manifest.sourceArtifact.rootSha256);
+      const conflict = await Effect.runPromise(publication).then(() => null, cause => cause);
+      expect(conflict).toBeInstanceOf(PointCommitConflictV1Error);
+      if (!(conflict instanceof PointCommitConflictV1Error) || conflict.conflict.kind !== "metadata")
+        throw new Error("Expected real incompatible-executable metadata conflict", { cause: conflict });
+      const inspect = async () => ({
+        sessions: await currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+          .where(eq(fxSystemTransactionSessions.sessionId, sessionId)),
+        rows: await currency.persistence.drizzle.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, scopeUuid)),
+        commits: await currency.persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, scopeUuid)),
+        events: await currency.persistence.drizzle.select().from(fxSystemCommitEvents).where(eq(fxSystemCommitEvents.scopeUuid, scopeUuid)),
+      });
+      const before = await inspect();
+      expect(before.sessions).toHaveLength(1);
+      const originalSession = before.sessions[0];
+      if (originalSession === undefined) throw new Error("Missing original incompatible-executable attempt");
+      expect(originalSession).toMatchObject({ lifecycle: "retrying", attemptFence: fixture.activation.anchor.attemptFence,
+        finiteClaimFence: fixture.activation.executionClaim.claimFence + 1n });
+      for (const value of [originalSession.validatedArgsJson, originalSession.authorizationGrantJson,
+        originalSession.applicationExecutionAuthorityJson]) expect(value).not.toBeNull();
+      expect(originalSession.applicationExecutionAuthoritySha256).not.toBeNull();
+      for (const bytes of [originalSession.validatedArgsCanonicalBytes, originalSession.authorizationGrantCanonicalBytes,
+        originalSession.applicationExecutionAuthorityCanonicalBytes]) {
+        if (bytes === null) throw new Error("Missing original canonical evidence to scrub");
+        expect(bytes.byteLength).toBeGreaterThan(0);
+      }
+      const callsBefore = Object.fromEntries(fixture.nativeInvokeCount);
+      const retryFailure = await fixture.retryWholeAttempt(conflict).then(() => null, cause => cause);
+      expect(retryFailure).toBeInstanceOf(PointMutationAttemptReplacementFiniteEntryError);
+      expect(retryFailure).toMatchObject({ cause: { _tag: "ApplicationMutationAdmissionError",
+        reason: "invalidExecutionAuthority", retryable: false } });
+      const closed = await inspect();
+      expect(closed).toEqual({ ...before, sessions: [{ ...originalSession, lifecycle: "aborted",
+        finiteClaimFence: fixture.activation.executionClaim.claimFence + 2n,
+        validatedArgsJson: null, validatedArgsCanonicalBytes: null,
+        authorizationGrantJson: null, authorizationGrantCanonicalBytes: null,
+        applicationExecutionAuthorityJson: null, applicationExecutionAuthorityCanonicalBytes: null }] });
+      expect(fixture.retryContexts).toHaveLength(0);
+      expect(fixture.retryReturnedValues).toHaveLength(0);
+      expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual(callsBefore);
+      expect(fixture.payload?.runtimeHistory.map(runtime => runtime.observations.hookRuns())).toEqual([1]);
+
+      expect(await Effect.runPromise(application.activation.activate({ revisionId: originalActive.basis.revisionId,
+        expectedActiveHead: current.expectedActiveHead }))).toMatchObject({ status: "activated", disposition: "inserted" });
+      const restored = await Effect.runPromise(application.activation.readActive());
+      expect(restored.basis.revisionId).toBe(originalActive.basis.revisionId);
+      expect(restored.basis.manifest.sourceArtifact.rootSha256).toBe(originalActive.basis.manifest.sourceArtifact.rootSha256);
+      expect(restored.basis.activationSequence).toBeGreaterThan(current.basis.activationSequence);
+      const closedSession = closed.sessions[0];
+      if (closedSession === undefined) throw new Error("Missing durably aborted attempt for cold redispatch");
+      const coldFailure = await Effect.runPromise(fixture.makeFiniteDispatcher().redispatchExactPointMutationAttempt({
+        deploymentId: fixture.activation.anchor.deploymentId, scopeId, sessionId,
+        attemptFence: closedSession.attemptFence.toString(),
+      }))
+        .then(() => null, cause => cause);
+      expect(coldFailure).toBeInstanceOf(PointMutationExecutionClaimAcquisitionStaleV1Error);
+      expect(coldFailure).toMatchObject({ reason: "lifecycle" });
+      expect(await inspect()).toEqual(closed);
+      expect(fixture.retryContexts).toHaveLength(0);
+      expect(fixture.retryReturnedValues).toHaveLength(0);
+      expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual(callsBefore);
+      expect(fixture.payload?.runtimeHistory.map(runtime => runtime.observations.hookRuns())).toEqual([1]);
       expect(fixture.getOpenTransactionDepth()).toBe(0);
     } finally { try { await loader.dispose(); } finally { await fixture.close(); } }
   }, 240_000);

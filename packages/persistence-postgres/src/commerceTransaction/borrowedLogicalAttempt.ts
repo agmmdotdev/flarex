@@ -9,7 +9,7 @@ import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
 import { withLogicalRelationalAttemptAdmissionEffect } from "../logicalDocuments/relationalAdmission";
-import { requireLogicalParticipantReadDemandInTransactionEffect, type LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
+import { projectFiniteStorageCaptureFailure, type LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
 import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError } from "./model";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits } from "./resources";
@@ -58,9 +58,8 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
         const working = yield* makeLogicalDocumentWorkingSet({
           readTransaction: (work, demand) => checkedRead(work, demand).pipe(Effect.mapError(projectCommerceRequestFailure)),
           ...(input.rootEvaluator === undefined ? {} : { readReadiness: { kind: "finiteQueryRequired" as const,
-            mechanics: state.writeMechanics, requireDemand: (tx: FlarexMetadataTransaction, demand: Parameters<typeof requireLogicalParticipantReadDemandInTransactionEffect>[4]) =>
-              requireLogicalParticipantReadDemandInTransactionEffect(input.admission, input.attempt, input.method, tx, demand)
-                .pipe(Effect.mapError(projectCommerceRequestFailure)) } }),
+            mechanics: state.writeMechanics,
+            captureStorage: (operation, demand) => input.captureStorage(operation, demand).pipe(Effect.mapError(projectFiniteStorageCaptureFailure), Effect.mapError(projectCommerceRequestFailure)) } }),
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
           ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,

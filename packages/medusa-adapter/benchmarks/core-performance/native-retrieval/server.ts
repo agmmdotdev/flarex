@@ -63,7 +63,7 @@ export function requireRetrievalServerObservedCalls(database: RetrievalDatabaseI
   if (statements === undefined || !statements.some(entry => entry.dbid === database.dbid && entry.calls > 0))
     throw new Error(`No observed server calls for successful retrieval in ${database.database}`);
 }
-const settingNames = ["server_version", "search_path", "fsync", "synchronous_commit", "full_page_writes", "shared_preload_libraries",
+const settingNames = ["server_version", "search_path", "statement_timeout", "lock_timeout", "fsync", "synchronous_commit", "full_page_writes", "shared_preload_libraries",
   "pg_stat_statements.track", "pg_stat_statements.track_planning", "track_functions",
   "auto_explain.log_min_duration", "auto_explain.log_nested_statements", "auto_explain.log_analyze"];
 

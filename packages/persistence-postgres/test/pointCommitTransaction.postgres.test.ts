@@ -86,6 +86,8 @@ import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it, vi } from "vitest";
 
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
+import { runEffectTransaction } from "../src/effectTransaction";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
 import {
   createAppSchemaCandidateValidationPortForPointCommitAuthority,
   createAppSchemaCandidateWriteGuardPort,
@@ -830,9 +832,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         const scope = await createScope(persistence, randomUuid, `ce1_unique_${rowCount}`);
         const unique = await prepareUniqueConstraintForPostgres(persistence, scope);
         const inserted = await createAttempt(persistence, randomUuid, scope, "ce1_unique_insert", rowCount);
+        const events: PointCommitPublicationEvent[] = [];
+        const observation = new PointCommitPublicationObservation({ detail: true, record: event => events.push(event) });
         const measured = await withPostgresExecutionObservation(persistence.pool, async markPhase =>
           runEffect(createPublisher(persistence, {
             ...unique,
+            publicationObservation: observation,
             afterTransactionStep: async event => {
               if (event.step === "uniqueKeyBatchWriting" || event.step === "uniqueKeyBatchWritten")
                 markPhase(event.step);
@@ -840,7 +845,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           }).publish(inserted.publicationCommand)),
         );
         expect(measured.value).toMatchObject({ kind: "published" });
-        expect(measured.observation.phases.uniqueKeyBatchWriting?.queryCalls).toBe(1 + 3 * Math.ceil(rowCount / 32));
+        // One native canonical-owner write proves the full selected claim set.
+        expect(measured.observation.phases.uniqueKeyBatchWriting?.queryCalls).toBe(1);
+        expect(events.filter(event => event.kind === "batch" && event.owner === "uniqueClaims")
+          .reduce((count, event) => count + (event.kind === "batch" ? event.counts.rows ?? 0 : 0), 0)).toBe(rowCount);
+        expect(events.filter(event => event.kind === "batch" && event.owner === "uniqueReleases")).toEqual([]);
+        observation.assertHealthy();
         const claims = await persistence.query("select row_id from fx_app_unique_key where scope_uuid = $1", [inserted.command.sealIdentity.scopeUuid]);
         expect(claims.rows).toHaveLength(rowCount);
         if (rowCount === 128) {
@@ -913,12 +923,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           "ce1_insert",
           rowCount,
         );
+        const events: PointCommitPublicationEvent[] = [];
+        const observation = new PointCommitPublicationObservation({ detail: true, record: event => events.push(event) });
         const measured = await withPostgresExecutionObservation(
           persistence.pool,
           async (markPhase) => {
             return runEffect(
               createPublisher(persistence, {
                 ...intrinsic,
+                publicationObservation: observation,
                 afterTransactionStep: async (event) => {
                   if (
                     event.step === "indexBatchWriting" ||
@@ -937,9 +950,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(measured.value).toMatchObject({ kind: "published" });
         expect(
           measured.observation.phases.intrinsicMembershipPreparing?.queryCalls,
-        ).toBe(1 + Math.ceil(rowCount / 32));
-        expect(measured.observation.phases.indexBatchWriting?.queryCalls).toBe(1 + 4 * Math.ceil(rowCount / 32));
-        expect(measured.observation.phases.rowBatchWriting?.queryCalls).toBe(1 + 2 * Math.ceil(rowCount / 32));
+        ).toBe(1);
+        expect(measured.observation.phases.indexBatchWriting?.queryCalls).toBe(1);
+        expect(measured.observation.phases.rowBatchWriting?.queryCalls).toBe(1);
+        expect(events.filter(event => event.kind === "phase" && event.phase === "intrinsicMembership"))
+          .toEqual([{ kind: "phase", phase: "intrinsicMembership", edge: "begin" },
+            { kind: "phase", phase: "intrinsicMembership", edge: "end" }]);
+        for (const owner of ["rowRevisions", "indexRevisions"] as const)
+          expect(events.filter(event => event.kind === "batch" && event.owner === owner)
+            .reduce((count, event) => count + (event.kind === "batch" ? event.counts.rows ?? 0 : 0), 0)).toBe(rowCount);
+        observation.assertHealthy();
         expect(
           (
             await intrinsicIndexState(
@@ -1001,6 +1021,14 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         const options = indexed
           ? await enableIntrinsicIndexForPostgres(persistence, scope)
           : {};
+        const buildState = () => persistence.drizzle.select({ indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
+          lifecycle: fxSystemIndexBuildStates.lifecycle, coveredThroughCommitSeq: fxSystemIndexBuildStates.coveredThroughCommitSeq })
+          .from(fxSystemIndexBuildStates).where(eq(fxSystemIndexBuildStates.scopeId, scope.scopeId))
+          .orderBy(fxSystemIndexBuildStates.indexDefinitionId);
+        expect(await buildState()).toEqual(indexed ? [
+          { indexDefinitionId: decodeCatalogIndexDefinitionId(1), lifecycle: "enabled", coveredThroughCommitSeq: 0n },
+          { indexDefinitionId: decodeCatalogIndexDefinitionId(2), lifecycle: "declared", coveredThroughCommitSeq: null },
+        ] : []);
         const attempt = await createAttempt(
           persistence,
           randomUuid,
@@ -1011,12 +1039,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
             tables: ["users", "tasks", "users", "tasks"],
           },
         );
+        const events: PointCommitPublicationEvent[] = [];
+        const observation = new PointCommitPublicationObservation({ detail: true, record: event => events.push(event) });
         const measured = await withPostgresExecutionObservation(
           persistence.pool,
           async (markPhase) =>
             runEffect(
               createPublisher(persistence, {
                 ...options,
+                publicationObservation: observation,
                 afterTransactionStep: async (event) => {
                   if (
                     event.step === "indexBatchWriting" ||
@@ -1053,7 +1084,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(
           measured.observation.phases.intrinsicMembershipPreparing?.queryCalls ??
             0,
-        ).toBe(indexed ? 2 : 0);
+        ).toBe(indexed ? 1 : 0);
+        for (const [owner, expected] of [["rowRevisions", 4], ["indexRevisions", indexed ? 4 : 0],
+          ["indexCoverage", indexed ? 1 : 0]] as const)
+          expect(events.filter(event => event.kind === "batch" && event.owner === owner)
+            .reduce((count, event) => count + (event.kind === "batch" ? event.counts.rows ?? 0 : 0), 0)).toBe(expected);
+        observation.assertHealthy();
+        expect(await buildState()).toEqual(indexed ? [
+          { indexDefinitionId: decodeCatalogIndexDefinitionId(1), lifecycle: "enabled", coveredThroughCommitSeq: 1n },
+          { indexDefinitionId: decodeCatalogIndexDefinitionId(2), lifecycle: "declared", coveredThroughCommitSeq: null },
+        ] : []);
       }
     });
   }, 120_000);
@@ -5138,14 +5178,14 @@ async function commitCompetingIndexedUser(
     creationTime,
     fields: { name: "phantom" },
   });
-  const clock = await persistence.getScopeClock(scope.scopeId);
-  if (clock === null) throw new Error("Missing PostgreSQL O10 conflict clock.");
-  const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
   const encodedKey = Result.getOrThrow(
     lowerAppDeveloperIndexKeyV1(attempt.definition, document, creationTime),
   );
     if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
-  await persistence.drizzle.transaction(async (tx) => {
+  await runEffect(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
+    "Competing indexed row fixture rollback", tx => Effect.tryPromise({ try: async () => {
+    const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scope.scopeId));
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
       scopeId: scope.scopeId,
@@ -5190,7 +5230,7 @@ async function commitCompetingIndexedUser(
       .update(fxSystemScopeClocks)
       .set({ lastCommitSeq: commitSeq })
       .where(eq(fxSystemScopeClocks.scopeId, scope.scopeId));
-  });
+  }, catch: cause => cause }), cause => cause));
   return Object.freeze({ encodedKey, rowId });
 }
 
@@ -5202,8 +5242,6 @@ async function seedCommittedUser(
   const rowId = decodeAppRowIdHexV1("11".repeat(16));
   const creationTime = decodeAppCreationTimeV1(1);
   const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
-  const clock = await persistence.getScopeClock(scope.scopeId);
-  if (clock === null) throw new Error("Missing PostgreSQL O09-A scope clock.");
   const document = await canonicalizeFlarexValueV1(
     {
       _id: documentId,
@@ -5212,14 +5250,17 @@ async function seedCommittedUser(
     },
     "appDocument",
   );
-  await persistence.drizzle.transaction(async (tx) => {
+  await runEffect(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
+    "Committed user fixture rollback", tx => Effect.tryPromise({ try: async () => {
+    const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scope.scopeId));
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
       scopeId: scope.scopeId,
       tableId,
       rowId,
       writeEpoch: clock.epoch,
-      commitSeq: CommitSeqSchema.make(1n),
+      commitSeq,
       prevCommitSeq: null,
       schemaVersionId: scope.schemaVersionId,
       creationTime,
@@ -5233,10 +5274,10 @@ async function seedCommittedUser(
     await tx
       .update(fxSystemScopeClocks)
       .set({
-        lastCommitSeq: CommitSeqSchema.make(1n),
+        lastCommitSeq: commitSeq,
       })
       .where(eq(fxSystemScopeClocks.scopeId, scope.scopeId));
-  });
+  }, catch: cause => cause }), cause => cause));
   return documentId;
 }
 
@@ -5812,18 +5853,12 @@ async function commitCompetingPointRow(
   if (intent?.kind !== "live") {
     throw new Error("O06 competing writer requires a live intent.");
   }
-  const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
-  if (clock === null) throw new Error("Missing competing-writer scope clock.");
-  const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
-  const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
   const document = await canonicalizeFlarexValueV1(intent.value, "appDocument");
-  await persistence.drizzle.transaction(async (tx) => {
-    await tx
-      .select({ scopeUuid: fxSystemScopeClocks.scopeUuid })
-      .from(fxSystemScopeClocks)
-      .where(eq(fxSystemScopeClocks.scopeUuid, command.sealIdentity.scopeUuid))
-      .limit(1)
-      .for("update");
+  await runEffect(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
+    "Competing point row fixture rollback", tx => Effect.tryPromise({ try: async () => {
+    const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, command.authorityPins.scopeId));
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
     locked.resolve();
     await release.promise;
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
@@ -5861,7 +5896,7 @@ async function commitCompetingPointRow(
       .update(fxSystemScopeClocks)
       .set({ lastCommitSeq: commitSeq })
       .where(eq(fxSystemScopeClocks.scopeUuid, command.sealIdentity.scopeUuid));
-  });
+  }, catch: cause => cause }), cause => cause));
 }
 
 async function durableState(

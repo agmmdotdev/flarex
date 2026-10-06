@@ -21,10 +21,12 @@ import {
   withHistoricalApplicationAnalysisMigrations,
 } from "../src/systemTestHistoricalApplicationAnalysisMigrations";
 import { prepareProtectedMetadata, type ProtectedMetadataPreparation } from "../src/preparedMetadataEpoch";
-import { loadManagedInstallation, loadCoLocatedReadInstallation,
-  type PreparedInstallation, type PreparedCoLocatedReadInstallation } from "../src/installationLifecycle";
+import { loadManagedInstallation, loadCoLocatedReadInstallation, loadActivationServingInstallation,
+  type InstallationAccessProfile, type PreparedActivationServingInstallation, type PreparedInstallation,
+  type PreparedCoLocatedReadInstallation } from "../src/installationLifecycle";
+import type { FlarexMetadataDatabase } from "../src/deployments";
 import { configureInstallationRuntimePermissions, withInstallationMaintenance,
-  publishVerifiedInstallation, publishFullProofInstallation } from "../src/postgresInstallationMaintenance";
+  publishVerifiedInstallation, publishFullProofInstallation, type InstallationMigrationJournal } from "../src/postgresInstallationMaintenance";
 
 export const postgresUrl = trimToNonBlankOrNull(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
@@ -211,6 +213,7 @@ export async function withTemporaryPostgresPersistence(
   fn: (persistence: PostgresFlarexPersistence) => Promise<void>,
   options: Readonly<{
     readonly historicalApplicationAnalysis?: boolean;
+    readonly transport?: "ordinary" | "finiteCapture";
   }> = {},
 ): Promise<void> {
   const connectionString = requiredPostgresUrl();
@@ -230,6 +233,7 @@ export async function withTemporaryPostgresPersistence(
         ...(migrationsFolder === undefined ? {} : { migrationsFolder }),
         poolConfig: {
           options: `-c search_path=${schemaName}`,
+          ...(options.transport === "finiteCapture" ? { statement_timeout: 30_000 } : {}),
         },
       });
       await current.migrate();
@@ -528,6 +532,7 @@ interface FileScopedPostgresFixture {
 export async function createFileScopedPostgresFixture(
   journal: Readonly<{ sameSchema?: boolean; tableName?: string }> = {},
   maintenanceSession: Readonly<{ standardConformingStrings?: "off" }> = {},
+  transport: "ordinary" | "finiteCapture" = "ordinary",
 ): Promise<FileScopedPostgresFixture> {
   const connectionString = requiredPostgresUrl();
   const schemaName = temporaryIdentifier("flarex_file_test");
@@ -547,6 +552,7 @@ export async function createFileScopedPostgresFixture(
       poolConfig: {
         options: `-c search_path=${schemaName}`,
         application_name: schemaName,
+        ...(transport === "finiteCapture" ? { statement_timeout: 30_000 } : {}),
       },
     });
     const migrationStarted = performance.now();
@@ -671,6 +677,7 @@ export async function createProtectedFileScopedPostgresFixture(
   profile: "fullProof" | "managed" = "fullProof",
   existingOwner?: Pick<FileScopedPostgresFixture, "persistence" | "schemaName" | "migrationsSchema" | "installationTiming"> &
     Partial<Pick<FileScopedPostgresFixture, "migrationsTable">>,
+  transport: "ordinary" | "finiteCapture" = "ordinary",
 ): Promise<Readonly<{
   persistence: PostgresFlarexPersistence;
   protectedMetadata: ProtectedMetadataPreparation;
@@ -715,7 +722,8 @@ export async function createProtectedFileScopedPostgresFixture(
       migrationsSchema: owner.migrationsSchema,
       migrationsTable: owner.migrationsTable ?? "__drizzle_migrations",
       migrationPool: owner.persistence.pool,
-      poolConfig: { options: `-c search_path=${owner.schemaName}`, application_name: `${roleName}_test` },
+      poolConfig: { options: `-c search_path=${owner.schemaName}`, application_name: `${roleName}_test`,
+        ...(transport === "finiteCapture" ? { statement_timeout: 30_000 } : {}) },
     });
     const activeRuntime = runtime;
     const endpointPolicy = "protected-postgres-fixture";
@@ -799,6 +807,158 @@ export async function createCoLocatedReadInstallationFixture(input: Readonly<{
     targetInstallation: input.target.installation, control: { database: input.control.persistence.drizzle,
       installation: controlInstallation }, controlEndpointPolicy }));
   return Object.freeze({ installation, installationTiming: Object.freeze({ coLocatedSetupMs: performance.now() - started }) });
+}
+
+type ActivationServingFixtureOwner = Pick<FileScopedPostgresFixture,
+  "persistence" | "schemaName" | "migrationsSchema" | "migrationsTable" | "installationTiming">;
+interface ActivationInstallationFixtureMember {
+  readonly persistence: PostgresFlarexPersistence;
+  readonly login: string;
+  readonly installation: PreparedInstallation;
+}
+interface PreparedActivationInstallationFixtureMember extends ActivationInstallationFixtureMember {
+  readonly protectedMetadata: ProtectedMetadataPreparation;
+  readonly schemaName: string;
+  readonly migrationsSchema: string;
+  readonly migrationsTable: string;
+  readonly installationTiming: Readonly<{ baseMigration: Readonly<{ migrationMs: number }>; managedSetupMs: number }>;
+}
+interface RawActivationServingFixturePreparations {
+  readonly serving: ActivationInstallationFixtureMember & Readonly<{ protectedMetadata: ProtectedMetadataPreparation }>;
+  readonly activation: ActivationInstallationFixtureMember & Readonly<{ protectedMetadata: ProtectedMetadataPreparation }>;
+  readonly controlRead: ActivationInstallationFixtureMember;
+  readonly pair: PreparedActivationServingInstallation;
+}
+export interface ActivationServingFixturePreparations {
+  readonly serving: PreparedActivationInstallationFixtureMember;
+  readonly activation: PreparedActivationInstallationFixtureMember;
+  readonly controlRead: ActivationInstallationFixtureMember;
+  readonly pair: PreparedActivationServingInstallation;
+}
+export interface ActivationServingFileScopedPostgresFixture extends ActivationServingFixturePreparations {
+  readonly owner: ActivationServingFixtureOwner;
+  readonly schemaName: string;
+  readonly journal: InstallationMigrationJournal;
+  readonly runtimePolicies: ReadonlyArray<Readonly<{ database: FlarexMetadataDatabase;
+    endpointPolicy: string; accessProfile: InstallationAccessProfile }>>;
+  readonly installationTiming: PreparedActivationInstallationFixtureMember["installationTiming"];
+  readonly reload: () => Promise<ActivationServingFixturePreparations>;
+  readonly setIncomingActivationMembership: (enabled: boolean) => Promise<void>;
+  readonly dispose: () => Promise<void>;
+}
+
+/** All actual logins exist before one installation publication. No preparation
+ * from an earlier maintenance generation is copied into the issued pair. */
+export async function createActivationServingFileScopedPostgresFixture(
+  existingOwner?: ActivationServingFixtureOwner,
+  transport: "ordinary" | "finiteCapture" = "ordinary",
+): Promise<ActivationServingFileScopedPostgresFixture> {
+  const provisioningUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL);
+  if (provisioningUrl === null) throw new Error("FLAREX_POSTGRES_PROVISIONING_DATABASE_URL is required.");
+  const ownedOwner = existingOwner === undefined ? await createFileScopedPostgresFixture({}, {}, transport) : undefined;
+  const owner = existingOwner ?? ownedOwner;
+  if (owner === undefined) throw new Error("Missing activation installation fixture owner");
+  const managedStarted = performance.now();
+  const provisioning = new Pool({ connectionString: provisioningUrl });
+  const roles: string[] = [];
+  const members = new Map<InstallationAccessProfile, Readonly<{ persistence: PostgresFlarexPersistence; login: string }>>();
+  const journal = { migrationsSchema: owner.migrationsSchema, migrationsTable: owner.migrationsTable };
+  let disposed = false;
+  const cleanup = async (): Promise<unknown[]> => {
+    if (disposed) return [];
+    disposed = true;
+    const errors: unknown[] = [];
+    for (const member of members.values()) {
+      await recordCleanupError(errors, () => closePreparedHostTestRuntime(member.persistence.drizzle));
+      await recordCleanupError(errors, () => member.persistence.close());
+    }
+    if (ownedOwner !== undefined) await recordCleanupError(errors, () => ownedOwner.dispose());
+    for (const login of roles) {
+      await recordCleanupError(errors, () => provisioning.query(`drop owned by ${quoteIdentifier(login)}`));
+      await recordCleanupError(errors, () => provisioning.query(`drop role ${quoteIdentifier(login)}`));
+    }
+    await recordCleanupError(errors, () => provisioning.end());
+    return errors;
+  };
+  try {
+    for (const profile of ["dataRuntime", "activationWriter", "controlRead"] as const) {
+      const login = temporaryIdentifier(`flarex_${profile.toLowerCase()}`);
+      const password = randomBytes(24).toString("base64url");
+      await provisioning.query(`create role ${quoteIdentifier(login)} login password ${quoteLiteral(password)}
+        nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls`);
+      roles.push(login);
+      await owner.persistence.query(`grant usage on schema ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(login)}`);
+      await owner.persistence.query(`grant select,insert,update,delete on all tables in schema
+        ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(login)}`);
+      await owner.persistence.query(`grant usage,select on all sequences in schema
+        ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(login)}`);
+      const runtimeUrl = new URL(requiredPostgresUrl());
+      runtimeUrl.username = login;
+      runtimeUrl.password = password;
+      const persistence = await createPostgresPersistence({ connectionString: runtimeUrl.toString(),
+        migrationPool: owner.persistence.pool, ...journal,
+        poolConfig: { options: `-c search_path=${owner.schemaName}`, application_name: `${login}_test`,
+          ...(transport === "finiteCapture" ? { statement_timeout: 30_000 } : {}) } });
+      members.set(profile, Object.freeze({ persistence, login }));
+    }
+    const serving = members.get("dataRuntime"), activation = members.get("activationWriter"), controlRead = members.get("controlRead");
+    if (serving === undefined || activation === undefined || controlRead === undefined)
+      throw new Error("Missing actual installation profile pool");
+    const endpointPolicy = "activation-serving-fixture";
+    const runtimePolicies = Object.freeze([
+      Object.freeze({ database: serving.persistence.drizzle, endpointPolicy, accessProfile: "dataRuntime" as const }),
+      Object.freeze({ database: activation.persistence.drizzle, endpointPolicy, accessProfile: "activationWriter" as const }),
+      Object.freeze({ database: controlRead.persistence.drizzle, endpointPolicy, accessProfile: "controlRead" as const }),
+    ]);
+    await Effect.runPromise(withInstallationMaintenance(owner.persistence.pool.options, owner.schemaName, handle =>
+      publishVerifiedInstallation(handle, runtimePolicies, journal)));
+    for (const member of [serving, activation]) await openPreparedHostTestRuntime(member.persistence.drizzle);
+    const prepare = async (): Promise<RawActivationServingFixturePreparations> => Effect.runPromise(Effect.gen(function* () {
+      const servingInstallation = yield* loadManagedInstallation(serving.persistence.drizzle, endpointPolicy, owner.schemaName, "dataRuntime");
+      const activationInstallation = yield* loadManagedInstallation(activation.persistence.drizzle, endpointPolicy, owner.schemaName, "activationWriter");
+      const controlInstallation = yield* loadManagedInstallation(controlRead.persistence.drizzle, endpointPolicy, owner.schemaName, "controlRead");
+      const pair = yield* loadActivationServingInstallation({
+        serving: { database: serving.persistence.drizzle, installation: servingInstallation },
+        activation: { database: activation.persistence.drizzle, installation: activationInstallation },
+      });
+      const servingProtectedMetadata = yield* prepareProtectedMetadata(serving.persistence.drizzle, servingInstallation);
+      const activationProtectedMetadata = yield* prepareProtectedMetadata(activation.persistence.drizzle, activationInstallation);
+      return Object.freeze({
+        serving: Object.freeze({ ...serving, installation: servingInstallation, protectedMetadata: servingProtectedMetadata }),
+        activation: Object.freeze({ ...activation, installation: activationInstallation, protectedMetadata: activationProtectedMetadata }),
+        controlRead: Object.freeze({ ...controlRead, installation: controlInstallation }), pair,
+      });
+    }));
+    const initialRaw = await prepare();
+    const installationTiming = Object.freeze({ baseMigration: owner.installationTiming.baseMigration,
+      managedSetupMs: performance.now() - managedStarted });
+    const present = (prepared: RawActivationServingFixturePreparations): ActivationServingFixturePreparations => {
+      const shared = { schemaName: owner.schemaName, ...journal, installationTiming };
+      return Object.freeze({ ...prepared, serving: Object.freeze({ ...prepared.serving, ...shared }),
+        activation: Object.freeze({ ...prepared.activation, ...shared }) });
+    };
+    const initial = present(initialRaw);
+    const reload = async (): Promise<ActivationServingFixturePreparations> => present(await prepare());
+    for (const member of [serving, activation, controlRead]) registerFrameworkMaintenanceFixture(member.persistence, {
+      config: owner.persistence.pool.options, schemaName: owner.schemaName, journal, runtimePolicies,
+      runtimeDatabases: [serving.persistence.drizzle, activation.persistence.drizzle, controlRead.persistence.drizzle],
+    });
+    return Object.freeze({ ...initial, owner, schemaName: owner.schemaName, journal, runtimePolicies, installationTiming, reload,
+      async setIncomingActivationMembership(enabled: boolean): Promise<void> {
+        await provisioning.query(enabled
+          ? `grant ${quoteIdentifier(activation.login)} to ${quoteIdentifier(serving.login)}`
+          : `revoke ${quoteIdentifier(activation.login)} from ${quoteIdentifier(serving.login)}`);
+      },
+      async dispose(): Promise<void> {
+        const errors = await cleanup();
+        if (errors.length > 0) throw new AggregateError(errors, "Activation installation fixture cleanup failed");
+      },
+    });
+  } catch (cause) {
+    const errors = await cleanup();
+    if (errors.length > 0) throw new AggregateError([cause, ...errors], "Activation installation fixture setup and cleanup failed");
+    throw cause;
+  }
 }
 
 function requiredPostgresUrl(): string {

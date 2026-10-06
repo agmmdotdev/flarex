@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
 import type {
   ExactRunningAttemptEffectWorkV1,
-  FiniteRunningAttemptEffectWork,
   ExactRunningAttemptKernelInputV1,
   ExactRunningAttemptTransactionV1Error,
 } from "./transactionSessionAttemptKernel";
@@ -37,17 +36,4 @@ export function isLocatedExactRunningAttemptReadSyscallKernelV1(
     target,
     RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
   ) === "function";
-}
-
-/** Explicit finite-only entry. Retained full/durable callbacks keep their existing lock profile. */
-export const RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT: unique symbol =
-  Symbol("FlarexDB/runFiniteRunningPointMutationReadSyscallEffect");
-export interface LocatedFiniteRunningAttemptReadSyscallKernel extends LocatedScopeClockReader {
-  readonly [RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT]: <Result, Failure>(
-    input: ExactRunningAttemptKernelInputV1, work: FiniteRunningAttemptEffectWork<Result, Failure>,
-  ) => Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error>;
-}
-export function isLocatedFiniteRunningAttemptReadSyscallKernel(target: LocatedScopeClockReader):
-  target is LocatedFiniteRunningAttemptReadSyscallKernel {
-  return typeof Reflect.get(target, RUN_FINITE_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT) === "function";
 }

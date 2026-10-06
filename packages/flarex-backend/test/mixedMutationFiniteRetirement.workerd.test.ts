@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { prepareLogicalSchemaCandidate } from "@flarex/analysis/internal/logical-schema-candidate";
 import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -16,8 +16,8 @@ import { buildAppDeveloperOrderedIndexV1Effect, buildIntrinsicCreationTimeIndexV
 import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect } from "../../persistence-postgres/src/appUniqueConstraintSetBuildV1";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
 import { readBindingSelectedEvidence } from "../../persistence-postgres/src/frameworkSchema/binding/repository";
-import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
-import { FiniteMetadataReservationSchema, MAX_FINITE_METADATA_RESERVATION_BYTES, readStoredFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
+import { captureFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
+import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
 import { createPhysicalDefinitionLifecyclePort, preparePhysicalDefinitionLifecycleSubjectEffect,
   beginPhysicalDefinitionDrainingEffect, finalizePhysicalDefinitionRetirementEffect, inspectPhysicalDefinitionLifecycleEffect } from "../../persistence-postgres/src/physicalDefinitionLifecycle";
 import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../persistence-postgres/src/transactionSessionActivation";
@@ -29,7 +29,6 @@ import { createMixedMutationProductFixture } from "./support/mixedMutationWorker
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
-const failure = (cause: unknown) => new Error("Retirement proof setup failed", { cause });
 
 describe.each(drivers)("finite bound definition retirement on %s", driver => {
   it("retains actual index and unique definitions across a binding head move until the real root aborts", async () => {
@@ -42,10 +41,12 @@ describe.each(drivers)("finite bound definition retirement on %s", driver => {
       const [session] = await currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
         .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
       expect(session?.executionAuthorityGeneration).toBe("application_v1");
-      const [lease] = await currency.persistence.drizzle.select().from(fxSystemSnapshotLeases)
-        .where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
-      if (lease === undefined) throw new Error("Missing authentic finite entry lease");
-      const reservation = await Effect.runPromise(readStoredFiniteMetadataReservation(lease));
+      if (session === undefined) throw new Error("Missing authentic finite entry anchor");
+      const anchor = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+      const reservation = anchor.reservation;
+      if (reservation === null) throw new Error("Missing authentic finite entry reservation");
+      expect(await currency.persistence.drizzle.select().from(fxSystemSnapshotLeases)
+        .where(eq(fxSystemSnapshotLeases.sessionId, sessionId))).toHaveLength(0);
       const capturedBinding = reservation.binding;
       if (capturedBinding === null) throw new Error("Missing authentic bound finite selector");
       const originalCatalog = await currency.control.drizzle.transaction(tx => Effect.runPromise(
@@ -158,40 +159,43 @@ describe.each(drivers)("finite bound definition retirement on %s", driver => {
         .rejects.toMatchObject({ _tag: "PhysicalDefinitionLifecyclePinnedError", pin: { owner: "mutation_session", schemaVersionId: fixture.logicalSchemaVersionId } });
 
       // Forensic negative fixtures replace only the selector commitment in the
-      // mutable lease. They never issue an entry or become positive authority.
+      // compact anchor. They never issue an entry or become positive authority.
       for (const binding of [
         { ...capturedBinding, sha256: "e".repeat(64) },
         { ...capturedBinding, activationSha256: "f".repeat(64) },
         { ...capturedBinding, sequence: "9223372036854775807" },
         { ...capturedBinding, candidateSha256: next.sha256 },
       ]) {
-        const corrupt = await Effect.runPromise(capturePrivateCanonicalValue(Schema.encodeSync(FiniteMetadataReservationSchema)({ ...reservation, binding }),
-          MAX_FINITE_METADATA_RESERVATION_BYTES, { invalidInput: () => failure("Invalid negative reservation fixture"), hashFailure: failure }));
+        const corruptReservation = await Effect.runPromise(captureFiniteMetadataReservation({ ...reservation, binding }));
+        const corruptAnchor = await Effect.runPromise(captureFiniteAttemptAnchor({ snapshotToken: anchor.snapshotToken,
+          reservation: corruptReservation }));
+        const corrupt = Result.getOrThrow(projectCapturedFiniteAttemptAnchor(corruptAnchor));
         try {
-          await currency.persistence.drizzle.update(fxSystemSnapshotLeases).set({ finiteMetadataReservationBytes: corrupt.copyCanonicalBytes(),
-            finiteMetadataReservationSha256: corrupt.copySha256Bytes() }).where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
+          await currency.persistence.drizzle.update(fxSystemTransactionSessions).set(corrupt)
+            .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
           await expect(Effect.runPromise(finalizePhysicalDefinitionRetirementEffect(orderedSubject, { expectedTransitionFence: 1n })))
             .rejects.toMatchObject({ _tag: "PhysicalDefinitionRetirementPinCorruptionError", owner: "mutation_session" });
         } finally {
-          await currency.persistence.drizzle.update(fxSystemSnapshotLeases).set({ finiteMetadataReservationBytes: lease.finiteMetadataReservationBytes,
-            finiteMetadataReservationSha256: lease.finiteMetadataReservationSha256 }).where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
+          await currency.persistence.drizzle.update(fxSystemTransactionSessions).set({ finiteAttemptBytes: session.finiteAttemptBytes,
+            finiteAttemptSha256: session.finiteAttemptSha256 }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
         }
       }
       // Coherently stripping every optional reservation field must not turn this
       // genuine persisted Application finite root into an unreserved profile.
       try {
-        await currency.persistence.drizzle.update(fxSystemSnapshotLeases).set({
-          metadataWatermark: null, finiteMetadataReservationBytes: null, finiteMetadataReservationSha256: null,
-        }).where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
+        const cleared = Result.getOrThrow(projectCapturedFiniteAttemptAnchor(await Effect.runPromise(
+          captureFiniteAttemptAnchor({ snapshotToken: anchor.snapshotToken }))));
+        await currency.persistence.drizzle.update(fxSystemTransactionSessions).set(cleared)
+          .where(eq(fxSystemTransactionSessions.sessionId, sessionId));
         for (const subject of subjects) {
           await expect(Effect.runPromise(finalizePhysicalDefinitionRetirementEffect(subject, { expectedTransitionFence: 1n })))
             .rejects.toMatchObject({ _tag: "PhysicalDefinitionRetirementPinCorruptionError", owner: "mutation_session" });
         }
       } finally {
-        await currency.persistence.drizzle.update(fxSystemSnapshotLeases).set({
-          metadataWatermark: lease.metadataWatermark, finiteMetadataReservationBytes: lease.finiteMetadataReservationBytes,
-          finiteMetadataReservationSha256: lease.finiteMetadataReservationSha256,
-        }).where(eq(fxSystemSnapshotLeases.sessionId, sessionId));
+        await currency.persistence.drizzle.update(fxSystemTransactionSessions).set({
+          finiteMetadataWatermark: session.finiteMetadataWatermark, finiteAttemptBytes: session.finiteAttemptBytes,
+          finiteAttemptSha256: session.finiteAttemptSha256,
+        }).where(eq(fxSystemTransactionSessions.sessionId, sessionId));
       }
       // The new binding admits its remaining owners at the accepted live epoch;
       // the old Product root retains its original epoch and cannot execute reads.

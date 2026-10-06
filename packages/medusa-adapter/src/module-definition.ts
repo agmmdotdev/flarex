@@ -136,6 +136,9 @@ export function defineCommerceModule<
     const internalServices = models.filter(entry => !replacements.has(entry.service)).map(entry => ({
       ...entry, bindService: prepareCommerceInternalService(entry.model),
     }));
+    const preparedModule = yield* prepareCommerceModule({ name, models: models.map(entry => entry.model) }).pipe(
+      Result.mapError(() => new CommerceModuleDefinitionError({ module: name, reason: "duplicateModel", detail: "Invalid native model layout" })),
+    );
     const bind = definition.profile.bind.bind(definition.profile);
     const createService = definition.service.bind(definition);
     const description = Object.freeze({
@@ -150,10 +153,7 @@ export function defineCommerceModule<
         // and repository construction, rather than silently accepting new names.
         if (models.some(entry => entry.model.name !== entry.name)) return owner.reject(commerceError("unsupportedProfile"));
         const binding = bind(ctx, owner);
-        const module = prepareCommerceModule(owner, { name, baseRepository: binding.baseRepository,
-          ...(binding.events === undefined ? {} : { events: binding.events }),
-          models: models.map(entry => ({ model: entry.model, repository: binding.repository(entry.model) })),
-        });
+        const module = preparedModule.bind(owner, binding);
         const entries: [string, object][] = internalServices.map(entry => [entry.service,
           entry.bindService(new (module.persistence.createRepository(entry.model))(), module.persistence)]);
         for (const extension of extensions) entries.push([extension.key, extension.create({ binding, persistence: module.persistence, owner })]);

@@ -55,6 +55,7 @@ import { createPostgresLocatedReadCommittedTransactionRunnerV1 } from
 import { LocatedReadCommittedTransactionFailureV1 } from
   "../src/transactionSessionAttemptKernel";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   postgresUrl,
@@ -827,7 +828,9 @@ async function appendLiveRow(
     fields: { email, ...fields },
   });
   await fixture.persistence.drizzle.transaction(async (tx) => {
-    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           tableId: fixture.tableId,
@@ -839,6 +842,7 @@ async function appendLiveRow(
           creationTime,
           document,
         }]));
+    } finally { closeInstallationAdmission(tx); }
   });
 }
 

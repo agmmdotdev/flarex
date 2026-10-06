@@ -16,7 +16,9 @@ import {
 } from "flarex-protocol/internal/admitted-framework-operation-v1";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
-  fxSystemTransactionJournals, fxSystemCommits } from "../../persistence-postgres/src/schema";
+  fxSystemTransactionJournals, fxSystemTransactionSessions, fxSystemCommits } from "../../persistence-postgres/src/schema";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
@@ -75,8 +77,12 @@ async function assertPoisonedFiniteRoot(fixture: MixedFixture): Promise<void> {
   const roots = await fixture.currency.persistence.drizzle.select()
     .from(fxSystemTransactionJournals)
     .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-  expect(roots).toMatchObject([{ state: "open", lastSyscallSequence: 0n,
-    executionProfile: "finiteRoot" }]);
+  expect(roots).toEqual([]);
+  const [session] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+    .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+  if (session === undefined) throw new Error("Missing genuine finite anchor");
+  expect(session).toMatchObject({ lifecycle: "running", executionProfile: "finiteRoot" });
+  expect((await Effect.runPromise(readFiniteAttemptAnchorRow(session))).reservation).not.toBeNull();
   const receipts = await fixture.currency.persistence.drizzle.select()
     .from(fxSystemTransactionJournalReceipts)
     .where(eq(fxSystemTransactionJournalReceipts.sessionId,
@@ -85,12 +91,12 @@ async function assertPoisonedFiniteRoot(fixture: MixedFixture): Promise<void> {
   const accepted = fixture.getUpdateRequest();
   if (accepted === undefined) throw new Error("Missing accepted Product operation");
   await expect(Effect.runPromise(fixture.runAdmitted(accepted))).rejects.toBeDefined();
-  await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
-    fixture.attempt, null))).rejects.toBeDefined();
+  await expect(Effect.runPromise(fixture.freeze(null)))
+    .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
 }
 
 describe.each(drivers)("mixed native Payload recovery on %s", driver => {
-  it("replays a tentative Payload create result and seals the mixed root without another hook", async () => {
+  it("replays a tentative Payload create result and freezes the mixed root without another hook", async () => {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-receipt-${driver}`, payloadProfile: "success" });
     try {
@@ -114,16 +120,22 @@ describe.each(drivers)("mixed native Payload recovery on %s", driver => {
           fixture.activation.anchor.sessionId));
       expect(receipts.filter(row => row.outcomeKind === "admittedLogicalResult")).toHaveLength(0);
 
-      const publication = await fixture.preparePublication(returnedValue);
+      const frozen = await Effect.runPromise(fixture.freeze(returnedValue));
+      const captured = readFrozenFiniteAttempt(frozen);
+      if (captured === undefined) throw new Error("Missing issued frozen graph");
+      expect(captured.operations.filter(operation => operation.kind === "participant")).toHaveLength(7);
+      expect(captured.operations.filter(operation => operation.kind === "participant" &&
+        operation.participant === payload.profile.participant && operation.method === "payload-create")).toHaveLength(1);
+      const publication = await fixture.prepareFrozenPublication(frozen);
       const roots = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-      expect(roots[0]?.state).toBe("sealed");
-      const sealedReceipts = await fixture.currency.persistence.drizzle.select()
+      expect(roots).toEqual([]);
+      const persistedReceipts = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(sealedReceipts.filter(row => row.outcomeKind === "admittedLogicalResult")).toHaveLength(7);
+      expect(persistedReceipts.filter(row => row.outcomeKind === "admittedLogicalResult")).toHaveLength(0);
       expect(await Effect.runPromise(publication)).toMatchObject({ kind: "published" });
       expect(await fixture.replayPublication()).toMatchObject({ kind: "replayed" });
       expect(runtime.observations.hookRuns()).toBe(1);

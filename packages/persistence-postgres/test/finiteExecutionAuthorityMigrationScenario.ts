@@ -11,6 +11,7 @@ export async function finiteExecutionAuthorityMigrationScenario(
   persistence: Pick<FlarexSqlClient, "query" | "execute">,
   fixture: DrizzleCopyFixture,
   migrate: () => Promise<void>,
+  migrateCurrent: () => Promise<void>,
 ): Promise<void> {
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 125);
   await migrate();
@@ -95,6 +96,21 @@ export async function finiteExecutionAuthorityMigrationScenario(
     where scope_id = $1`, [`scope_${SESSION_TEST_SCOPE_UUID}`])).rejects.toThrow();
   expect((await persistence.query(`select count(*)::int as roots from fx_system_scope_clock`)).rows)
     .toEqual([{ roots: 2 }]);
+  // The exact 125->126 drain/inventory proof above belongs to that historical
+  // layout. Today's verifier owns the complete current installation, so reach
+  // it through the real maintenance/bootstrap owner before attestation.
+  await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, Number.MAX_SAFE_INTEGER);
+  await migrateCurrent();
+  await migrateCurrent();
+  const current = await inventory();
+  expect(current.rows).toHaveLength(after.rows.length);
+  for (const [ordinal, retained] of after.rows.entries()) {
+    const observed = current.rows[ordinal];
+    if (observed === undefined) throw new Error("Current migration lost a retained historical owner");
+    for (const kind of ["session", "journal", "lease"] as const)
+      expect(Object.fromEntries(Object.keys(retained[kind]).map(key => [key, observed[kind][key]])))
+        .toEqual(retained[kind]);
+  }
   const attestation = async () => (await persistence.execute<{ valid: boolean }>(
     sql`select ${scopeExecutionAuthorityInstallationSql(sql`current_schema()`)} as valid`)).rows;
   expect(await attestation()).toEqual([{ valid: true }]);

@@ -24,16 +24,49 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/flarex-backend/test/support/mixedMutationWorkerdFixture.ts",
   "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts",
   "packages/executor/test/performance/support/mixedMutationProductFixture.ts",
+  "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  "packages/persistence-postgres/test/postgresHelpers.ts",
   "packages/executor/test/performance/support/mixedMutationInProcessRuntime.ts",
   "packages/executor/test/performance/support/nativeProductOperationDiagnostics.ts",
+  "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
   "packages/persistence-postgres/src/preparedHostRuntime.ts",
   "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts",
   "packages/persistence-postgres/test/logicalReadMetadataScalingTestSupport.ts",
   "packages/persistence-postgres/src/scopeAuthorityControlRead.ts",
   "packages/persistence-postgres/src/scopeClock.ts",
-  "packages/persistence-postgres/src/finiteRunningAttempt.ts",
+  "packages/persistence-postgres/src/finiteAttemptAnchor.ts",
   "packages/persistence-postgres/src/scopeExecutionAuthorityInstallation.ts",
   "packages/persistence-postgres/drizzle/0126_finite_execution_authority.sql",
+  "packages/persistence-postgres/drizzle/0128_finite_storage_frontier.sql",
+  "packages/persistence-postgres/drizzle/0129_finite_storage_reads.sql",
+  "packages/persistence-postgres/drizzle/0130_finite_storage_capture.sql",
+  "packages/persistence-postgres/drizzle/0131_finite_entry.sql",
+  "packages/persistence-postgres/drizzle/0132_finite_historical_identity.sql",
+  "packages/persistence-postgres/drizzle/0133_publication_domain.sql",
+  "packages/persistence-postgres/src/finiteStorageCapture.ts",
+  "packages/persistence-postgres/src/finitePublicationInstallation.ts",
+  "packages/persistence-postgres/src/finitePublicationObservation.ts",
+  "packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts",
+  "packages/persistence-postgres/src/applicationDocumentMaterialization/domainApplication.ts",
+  "packages/persistence-postgres/src/applicationDocumentMaterialization/domainInstallation.ts",
+  "packages/persistence-postgres/src/applicationDocumentMaterialization/domainCoverage.ts",
+  "packages/persistence-postgres/src/appUniqueKeys.ts",
+  "packages/persistence-postgres/src/logicalDocuments/searchEntries.ts",
+  "packages/persistence-postgres/src/commitPublication/publication.ts",
+  "packages/persistence-postgres/src/commitPublication/installation.ts",
+  "packages/persistence-postgres/src/commitPublication/prefixInstallation.ts",
+  "packages/persistence-postgres/src/commitPublication/prefixProjection.ts",
+  "packages/persistence-postgres/src/commitPublication/prefixWriter.ts",
+  "packages/persistence-postgres/src/commitPublication/scopePublicationModel.ts",
+  "packages/persistence-postgres/src/finiteEntryObservation.ts",
+  "packages/persistence-postgres/src/finiteEntryCompletionInstallation.ts",
+  "packages/persistence-postgres/src/finiteMetadataComparison.ts",
+  "packages/persistence-postgres/src/physicalSession/postgres.ts",
+  "packages/persistence-postgres/src/physicalSession/deadline.ts",
+  "packages/persistence-postgres/src/physicalSession/drizzle.ts",
+  "packages/persistence-postgres/src/postgres.ts",
+  "packages/persistence-postgres/src/pglite.ts",
+  "packages/persistence-postgres/src/indexBuildStates.ts",
   "packages/persistence-postgres/src/finiteMetadataDependencies.ts",
   "packages/persistence-postgres/src/finiteMetadataReservation.ts",
   "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
@@ -60,6 +93,13 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/persistence-postgres/src/applicationBindingProjection.ts",
   "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
   "packages/persistence-postgres/src/applicationReadiness.ts",
+  "packages/persistence-postgres/src/applicationWriteOwnership/Capture.ts",
+  "packages/persistence-postgres/src/applicationWriteOwnership/Commit.ts",
+  "packages/persistence-postgres/src/applicationWriteOwnership/Repository.ts",
+  "packages/persistence-postgres/src/applicationWriteOwnership/Successor.ts",
+  "packages/persistence-postgres/src/applicationWriteOwnership/UniqueEvidence.ts",
+  "packages/persistence-postgres/src/applicationWriteOwnership/Policy.ts",
+  "packages/persistence-postgres/src/applicationWriteOwnership/Preparation.ts",
   "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
   "packages/persistence-postgres/src/applicationStandaloneBinding.ts",
   "packages/persistence-postgres/src/schemaVersionArtifacts.ts",
@@ -69,15 +109,19 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/persistence-postgres/src/appUniqueConstraintDefinitions.ts",
   "packages/persistence-postgres/src/appUniqueConstraintCommitV1.ts",
   "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts",
-  "packages/persistence-postgres/src/indexBuildStates.ts",
+  "packages/persistence-postgres/src/appUniqueConstraintSetClosureV1.ts",
   "packages/persistence-postgres/src/indexBuildReconciliation.ts",
   "packages/persistence-postgres/src/indexMaintenance.ts",
   "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+  "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+  "packages/persistence-postgres/src/logicalDocuments/model.ts",
   "packages/persistence-postgres/src/logicalStorageDefinitions.ts",
   "packages/persistence-postgres/src/logicalStorageReadiness.ts",
   "packages/persistence-postgres/src/logicalSearchBuild.ts",
   "packages/persistence-postgres/src/sessionJournalStore.ts",
   "packages/persistence-postgres/src/sessionJournalFiniteEntry.ts",
+  "packages/persistence-postgres/src/sessionJournalFiniteFreeze.ts",
+  "packages/persistence-postgres/src/storedCommitAuthority/materialization.ts",
   "packages/persistence-postgres/src/applicationMutationAdmission.ts",
   "packages/persistence-postgres/src/effectTransaction.ts",
   "packages/persistence-postgres/src/pointCommitTransaction.ts",
@@ -86,6 +130,11 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/executor/src/storedAttemptAuthentication/occRerunExecutionOperations.ts",
   "packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts",
   "packages/executor/src/pointMutationJournal.ts",
+  "packages/executor/src/finitePointMutationExecution.ts",
+  "packages/executor/src/finitePointMutationRecovery.ts",
+  "packages/executor/src/pointMutationSessionActivation.ts",
+  "packages/executor/src/pointMutationExecutionClaimLiveness.ts",
+  "packages/executor/src/pointMutationExecutionClaimSupervision.ts",
   "packages/executor/src/pointMutationSessionAttemptState.ts",
   "packages/flarex-protocol/src/commit-protocol.ts",
   "packages/persistence-postgres/src/transactionSessionActivation.ts",
@@ -93,6 +142,7 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/persistence-postgres/src/logicalReadMetadata.ts",
   "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
   "packages/persistence-postgres/src/installationLifecycle.ts",
+  "packages/persistence-postgres/src/postgresInstallationMaintenance.ts",
   "packages/medusa-adapter/src/product-attempt.ts"] as const;
 const sourceHashes = async () => Object.fromEntries(await Promise.all(sources.map(async path =>
   [path, createHash("sha256").update(await readFile(join(root, path))).digest("hex")] as const)));
@@ -157,8 +207,8 @@ function distribution(values: readonly number[]) {
     p95Ms: sorted[Math.max(0, Math.ceil(sorted.length * .95) - 1)], minMs: sorted[0], maxMs: sorted.at(-1) };
 }
 
-const authorityStatement = /fx_system_(?:scope_clock|scope_execution_authority|data_binding_head|application_active_head|index_build_state|prepared_metadata_epoch|installation(?:_runtime)?|tx_session|snapshot_lease|tx_journal|tx_execution_claim)\b|fx_lock_(?:installation_admission|read_scope_placement|prepared_metadata_epoch|running_attempt_tail|finite_scope_observation|finite_running_attempt)\b|fx_control_scope(?:_provisioning)?\b/;
-const businessStatement = /fx_app_(?:row|index|unique|search|relation)/;
+const authorityStatement = /fx_system_(?:scope_clock|scope_execution_authority|data_binding_head|application_active_head|index_build_state|prepared_metadata_epoch|installation(?:_runtime)?|tx_session|snapshot_lease|tx_journal|tx_execution_claim)\b|fx_lock_(?:installation_admission|read_scope_placement|prepared_metadata_epoch|running_attempt_tail|finite_scope_observation|finite_running_attempt)\b|fx_accept_finite_storage_capture\b|fx_control_scope(?:_provisioning)?\b/;
+const businessStatement = /fx_app_(?:row|index|unique|search|relation)|fx_read_snapshot_(?:rows|index_page)\b/;
 function decodedResults(dispatches: readonly TraceDispatchRecord[]): DecodedResults {
   return { dispatches: dispatches.length,
     returnedRowCount: dispatches.reduce((sum, dispatch) => sum + (dispatch.returnedRowCount ?? 0), 0),
@@ -175,35 +225,55 @@ function requireProtectedServerWork(statements: ReturnType<typeof retrievalServe
     ["placement receipt", "fx_control_scope_provisioning"],
     ["execution authority", "fx_system_scope_execution_authority"],
     ["publication sequencer", "fx_system_scope_clock"],
-    ["session", "fx_system_tx_session"],
-    ["snapshot lease", "fx_system_snapshot_lease"],
-    ["journal tail", "fx_system_tx_journal"],
-    ["execution claim tail", "fx_system_tx_execution_claim"],
   ] as const) {
     const pattern = new RegExp(String.raw`\bselect\b[\s\S]*?\b(?:from|join)\s+(?:${qualifier})?"?${table}"?\b`, "i");
     if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && pattern.test(statement.query)))
       throw new Error(`Missing observed nested finite ${owner} server work`);
   }
-  const targetEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+as\s+target_epoch\b`, "i");
-  const controlEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+as\s+control_epoch\b`, "i");
+  const targetEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+(?:as\s+)?target_epoch\b`, "i");
+  const controlEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+(?:as\s+)?control_epoch\b`, "i");
   const installedCalls = /\bfx_lock_installation_admission\s*\(/i;
   const placementCalls = /\bfx_lock_read_scope_placement\s*\(/i;
-  const finiteScopeCalls = /\bfx_lock_finite_scope_observation\s*\(/i;
-  const finiteAttemptCalls = /\bfx_lock_finite_running_attempt\s*\(/i;
+  const finiteCaptureCalls = /\bfx_accept_finite_storage_capture\s*\(/i;
   const selectStatement = /^\s*(?:select|with)\b/i;
-  // Installation identities and both epoch projections are accepted before
-  // the separate compact statement may acquire session/lease/root/claim locks.
+  // Genuine installed acceptance and the named capture share one outer
+  // statement. The capture locks the original session and selected builds,
+  // then starts separate fresh time and sequencer commands after their waits.
   if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
     selectStatement.test(statement.query) &&
     targetEpoch.test(statement.query) && controlEpoch.test(statement.query) &&
     installedCalls.test(statement.query) && placementCalls.test(statement.query) &&
-    finiteScopeCalls.test(statement.query) && !finiteAttemptCalls.test(statement.query)))
+    finiteCaptureCalls.test(statement.query)))
     throw new Error("Missing observed top-level finite installed acceptance with both epoch projections");
-  if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
+  const authorityRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_scope_execution_authority"?\b`, "i");
+  const authorityScope = /\bwhere\s+a\.scope_id\s*=\s*p_scope_id\b/i;
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
     selectStatement.test(statement.query) &&
-    finiteAttemptCalls.test(statement.query) && !installedCalls.test(statement.query) &&
-    !placementCalls.test(statement.query) && !finiteScopeCalls.test(statement.query)))
-    throw new Error("Missing observed separate top-level finite compact attempt acceptance");
+    authorityRead.test(statement.query) && authorityScope.test(statement.query) && /\bfor\s+share\b/i.test(statement.query)))
+    throw new Error("Missing observed nested finite installed execution authority FOR SHARE query");
+  const anchorRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_tx_session"?\b`, "i");
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) && anchorRead.test(statement.query) && /\bfor\s+share\b/i.test(statement.query) &&
+    /\ba\.scope_uuid\s*=\s*\(\s*substring\s*\(\s*p_scope_id\s+from\s+\$\d+\s*\)\s*\)::uuid/i.test(statement.query) &&
+    /\ba\.session_id\s*=\s*\(p_expected\)\.session_id\b/i.test(statement.query)))
+    throw new Error("Missing observed nested original finite session anchor FOR SHARE query");
+  const sequenceRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_scope_clock"?\b`, "i");
+  if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) && /\bfx_accept_finite_storage_capture\s*\(/i.test(statement.query)))
+    throw new Error("Missing observed top-level named finite storage capture");
+  const servingScope = /\bwhere\s+c\.scope_id\s*=\s*p_scope_id\b/i;
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) && sequenceRead.test(statement.query) && servingScope.test(statement.query) &&
+    /\bc\.last_commit_seq\b/i.test(statement.query)))
+    throw new Error("Missing observed nested finite post-wait serving sequence command");
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) && /\bfloor\s*\(\s*extract\s*\(\s*(?:epoch|\$\d+)\s+from\s+clock_timestamp\s*\(/i.test(statement.query)))
+    throw new Error("Missing observed nested finite post-wait database time command");
+  const buildRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_index_build_state"?\b`, "i");
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) && buildRead.test(statement.query) &&
+    /\bb\.index_definition_id\s*=\s*p_index_definition_id\b/i.test(statement.query) && /\bfor\s+key\s+share\b/i.test(statement.query)))
+    throw new Error("Missing observed nested finite selected index build FOR KEY SHARE command");
 }
 
 export async function runMixedNativeReadPerformanceScenario(native: Pick<IProductModuleService,
@@ -471,7 +541,7 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
       "Actual generated created_at/updated_at differ between authoritative stores; every field and timestamp is retained and validated, all other values/structure compared exactly.",
       "Every finite hit is the first Product demand in a fresh attempt; no pending-only or repeated-row observation is presented as a storage hit.",
       "Missing Product failures poison their own attempt and keep the native Commerce adapter cause; no failure recovery or publication is introduced.",
-      "Finite operation covers actual private native operation, close and receipt validation; complete request includes admission, fresh Worker, execution, seal, publication and fixture disposal.",
+      "Finite operation covers actual private native operation, close and receipt validation; complete request includes admission, fresh Worker, execution, local freeze, publication and fixture disposal.",
       "Schema/module/seeding costs are separately charged per actual series lifetime; measured native schema/module bootstrap remains runner-owned and outside per-operation samples.",
       "Each finite disjoint data graph is prepared before its alternating pair; per-sample preparation is recorded and included in setup additionalSeedingMs outside request and operation intervals.",
       "Quiet and trace are separate runs; trace observations are client SQL dispatches, never network round trips or server execution time."],

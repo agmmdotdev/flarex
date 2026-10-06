@@ -12,7 +12,8 @@ describe("finite execution authority forward migration (PGlite)", () => {
     const persistence = await createPGlitePersistence({ db, migrationsFolder: fixture.migrationsFolder });
     try {
       await finiteExecutionAuthorityMigrationScenario(persistence, fixture,
-        () => migrate(persistence.drizzle, { migrationsFolder: fixture.migrationsFolder }));
+        () => migrate(persistence.drizzle, { migrationsFolder: fixture.migrationsFolder }),
+        () => persistence.migrate());
     } finally { await db.close(); await fixture.cleanup(); }
   }, 120_000);
 });

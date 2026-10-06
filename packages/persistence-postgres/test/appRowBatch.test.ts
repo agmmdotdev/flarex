@@ -3,7 +3,7 @@ import { newTestPGlite } from "./pgliteSearchExtensions";
 import { createPGlitePersistence } from "../src/pglite";
 import { verifyAppRowBatches, verifyAppRowBatchBindings } from "./appRowBatchScenario";
 import {
-  appendPreparedAppRowRevisionsInTransactionEffect,
+  readCurrentAppRowInTransactionEffect,
   AppRowStorageCorruptionError,
   type AppRowTransaction,
 } from "../src/appRows";
@@ -30,7 +30,7 @@ it("applies bounded prepared row batches with exact identities and atomic rollba
   }
 }, 120_000);
 
-it("classifies malformed stored batch columns as corruption before writes", async () => {
+it("classifies malformed stored row columns as corruption without a write capability", async () => {
   const scopeUuid = "50192000-0000-0000-0000-000000000001";
   const input = {
     kind: "tombstone",
@@ -50,11 +50,18 @@ it("classifies malformed stored batch columns as corruption before writes", asyn
     tableId: 1,
     rowId: new Uint8Array(16),
     commitSeq: 1n,
+    prevCommitSeq: null,
+    writeEpochUuid: input.writeEpoch.slice("epoch_".length),
+    schemaVersionId: input.schemaVersionId,
     creationTime: 42,
+    valueCodecVersion: 1,
+    isTombstone: true,
+    valueBytes: null,
+    valueSha256: null,
   };
   const cases = [
     [{ ...valid, scopeUuid: "invalid" }],
-    [{ ...valid, tableId: 0 }],
+    [{ ...valid, writeEpochUuid: "invalid" }],
     [{ ...valid, rowId: new Uint8Array(2) }],
     [{ ...valid, commitSeq: 0n }],
     [{ ...valid, creationTime: Infinity }],
@@ -70,24 +77,25 @@ it("classifies malformed stored batch columns as corruption before writes", asyn
           selects++ === 0
             ? [{ scopeUuid }]
             : selects === 2
-              ? predecessors
-              : [{ commitSeq: 0n }];
+              ? [{ commitSeq: 1n }]
+              : predecessors;
         return {
           from() {
-            return {
+            const selected = {
               where() {
                 return Object.assign(Promise.resolve(rows), {
                   limit: () => Promise.resolve(rows),
                 });
               },
             };
+            return { ...selected, innerJoin() { return selected; } };
           },
         };
       },
     } as unknown as AppRowTransaction;
     expect(
       await runEffectFailure(
-        appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]),
+        readCurrentAppRowInTransactionEffect(tx, input),
       ),
     ).toBeInstanceOf(AppRowStorageCorruptionError);
   }

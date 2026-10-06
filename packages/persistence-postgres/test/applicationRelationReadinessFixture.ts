@@ -1,3 +1,4 @@
+import type { ApplicationActivationTargetProfile } from "../src/applicationReadiness";
 import { canonicalizeApplicationManifestV1, canonicalizeApplicationManifestV2, verifyApplicationManifestWithRelations, type ApplicationManifestV1, type ApplicationManifestV2 } from "@flarex/analysis/application-analysis";
 import { produceApplicationTaskBindingsV1 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { hashCanonicalTaskCatalogV1, makeStandardApplicationTaskSha256V1 } from "@flarex/standard-application-definition/internal/task-definition-v1";
@@ -47,9 +48,9 @@ import { isLocatedReadCommittedAttemptTargetV1 } from "../src/transactionSession
 import { makeInstallationProtectedScopeAuthorityControlReader } from "../src/scopeAuthorityControlRead";
 import type { SplitScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
-import { fxSystemScopeClocks } from "../src/schema";
+import { deployments, fxSystemScopeClocks } from "../src/schema";
 import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
-import { createPointMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
+import { createPointMutationSessionActivationPersistenceV1, type LocatedPointMutationSessionActivationTargetOptionsV1 } from "../src/transactionSessionActivation";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 import { ensureRelationBuildTestWebCrypto, relationBuildRowId, relationBuildPublicationInput } from "./applicationRelationBuildTestSupport";
@@ -316,9 +317,12 @@ export async function setExactRelationAdjacencyVersion(
 }
 
 export interface RelationReadinessFixtureOptions {
+  readonly activationProfile?: ApplicationActivationTargetProfile;
   readonly physicalLocator?: SplitScopePhysicalLocator;
+  readonly sessionTargetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly controlPersistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
+  readonly fixtureIdentity?: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
   readonly writePolicy?: boolean;
   readonly cmsIndexes?: boolean;
   readonly cmsFields?: Parameters<typeof policyManifestFixture>[2];
@@ -334,6 +338,7 @@ export async function relationReadinessFixture(
 ) {
   ensureRelationBuildTestWebCrypto();
   fixtureOrdinal += 1;
+  const fixtureUuidSequence = (...values: number[]) => uuidSequence(...values.map(value => value + (options.fixtureIdentity?.uuidOffset ?? 0)));
   const resource = options.persistence ?? await createMigratedPGlitePersistence();
   const fixtureLocator = options.physicalLocator ?? await (async () => {
     // File-scoped Postgres migrations live in the connection's selected schema.
@@ -345,7 +350,7 @@ export async function relationReadinessFixture(
   const controlResource = options.controlPersistence ?? (options.writePolicy === true && !("pool" in resource) ? await createMigratedPGlitePersistence() : resource);
   const control: ApplicationNativeMutationPersistence = controlResource;
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
-    `deployment_application_relation_fold_${fixtureOrdinal}`,
+    options.fixtureIdentity?.deploymentId ?? `deployment_application_relation_fold_${fixtureOrdinal}`,
   );
   const provisionOptions =
     {
@@ -354,13 +359,13 @@ export async function relationReadinessFixture(
         resolve: async (locator: SplitScopePhysicalLocator) =>
           "pool" in resource ? createPostgresLocatedSplitScopeClockTarget(resource, locator) : createPGliteLocatedSplitScopeClockTarget(resource, locator),
       },
-      randomUuid: uuidSequence(1, 2),
+      randomUuid: fixtureUuidSequence(1, 2),
     };
   const provisioned = await ("pool" in controlResource
     ? createPostgresSplitScopeAuthorityProvisioner(controlResource, provisionOptions)
     : createPGliteSplitScopeAuthorityProvisioner(controlResource, provisionOptions)).ensure({
     deploymentId,
-    projectId: `project_application_relation_fold_${fixtureOrdinal}`,
+    projectId: options.fixtureIdentity?.projectId ?? `project_application_relation_fold_${fixtureOrdinal}`,
   });
   await persistence.query(
     `update fx_system_scope_execution_authority
@@ -379,8 +384,8 @@ export async function relationReadinessFixture(
     epoch: clock.epoch,
   });
   const pointTarget = "pool" in resource
-    ? createPostgresLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator)
-    : createPGliteLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator);
+    ? createPostgresLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator, options.sessionTargetOptions)
+    : createPGliteLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator, options.sessionTargetOptions);
   const locatedTarget = (() => {
     if (options.bindingAdmission === true) {
       if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) {
@@ -479,13 +484,19 @@ export async function relationReadinessFixture(
   const canonicalManifest = await runEffect(verifyApplicationManifestWithRelations(relationInput.manifest));
   if (control !== persistence) {
     // Exercise the existing publication owner for the located runtime catalog.
-    await persistence.insertDeploymentMetadata({ deploymentId, projectId: `project_application_relation_fold_${fixtureOrdinal}` });
+    if (options.fixtureIdentity === undefined) {
+      await persistence.insertDeploymentMetadata({ deploymentId, projectId: `project_application_relation_fold_${fixtureOrdinal}` });
+    } else {
+      const existingDeployment = await persistence.drizzle.select().from(deployments)
+        .where(eq(deployments.deploymentId, deploymentId));
+      expect(existingDeployment).toMatchObject([{ projectId: options.fixtureIdentity.projectId }]);
+    }
     const distributed = await runEffect(publishApplicationRelationBindingEffect(relationBindingRepository(persistence.drizzle), relationInput));
     expect(distributed.binding).toEqual(relation.binding);
     expect(distributed.boundPublicationSha256).toBe(relation.boundPublicationSha256);
   }
   const analyses = makeApplicationAnalysisRepository(persistence.drizzle, {
-    randomUuid: uuidSequence(11, 12, 13),
+    randomUuid: fixtureUuidSequence(11, 12, 13),
   });
   const pending = await runEffect(analyses.begin({
     authority,
@@ -629,7 +640,11 @@ export async function relationReadinessFixture(
       },
     },
   });
+  if (options.sessionTargetOptions?.managedInstallation !== undefined && options.activationProfile === undefined)
+    throw new Error("A managed relation fixture requires its genuine activation target profile");
+  const activationProfile: ApplicationActivationTargetProfile = options.activationProfile ?? { kind: "fullProof" };
   const relationActivation = makeApplicationActivationRepository({
+    activation: activationProfile,
     deploymentId,
     scopeId: authority.scopeId,
     readiness: legacyReadiness,
@@ -662,7 +677,9 @@ export async function relationReadinessFixture(
     fold,
     legacyReadiness,
     relationActivation,
+    activationProfile,
     legacyActivation: makeApplicationActivationRepository({
+      activation: activationProfile,
       deploymentId,
       scopeId: authority.scopeId,
       readiness: legacyReadiness,

@@ -1,3 +1,4 @@
+import { fxSystemIndexMaintenanceObligations } from "./schema";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import { runEffectTransaction } from "./effectTransaction";
 import { AppIndexDefinitionReadPersistenceError } from "./appIndexDefinitions";
@@ -76,7 +77,7 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
-  decodeIndexBuildStateRowResult,
+  decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate,
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
   validateIndexBuildStateFrontierResult,
@@ -774,8 +775,9 @@ const buildInTransaction = Effect.fn("AppOrderedIndexBuild.buildInTransaction")(
     );
     const rows = yield* queryEffect(
       tx
-        .select()
+        .select(indexBuildStateSelection())
         .from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
         .where(
           and(
             eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
@@ -786,7 +788,7 @@ const buildInTransaction = Effect.fn("AppOrderedIndexBuild.buildInTransaction")(
           ),
         )
         .limit(1)
-        .for("update"),
+        .for("update", { of: fxSystemIndexBuildStates }),
     );
     const row = rows[0];
     if (row === undefined) {
@@ -802,7 +804,7 @@ const buildInTransaction = Effect.fn("AppOrderedIndexBuild.buildInTransaction")(
       decodeIndexBuildStateRowResult(
         row,
         authority.scopeId,
-        definition.indexDefinitionId,
+        definition.indexDefinitionId, row.maintenanceObligation,
       ),
     );
     yield* Effect.fromResult(requireBuildAuthorityResult(state, authority));

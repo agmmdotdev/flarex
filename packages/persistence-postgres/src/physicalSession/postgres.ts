@@ -105,6 +105,13 @@ const connectionIdentities = new WeakMap<
   PhysicalConnectionIdentity
 >();
 
+/** Source-private transport construction. The installed capture composition
+ * supplies its single fixed statement; consumers receive only named captures.
+ * Both reads retain the same checkout, deadline, work fence and quarantine. */
+export interface PostgresPhysicalSessionDriver<ResourceIssue> extends SessionDriver<ResourceIssue> {
+  readonly runImplicitReadEffect: SessionDriver<ResourceIssue>["runReadEffect"];
+}
+
 /** Multiple pool/schema instances coexist; the caller owns the pool, each operation owns its checkout. */
 export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
   ownedPool: PhysicalPostgresPool,
@@ -116,8 +123,8 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     readonly errors: PhysicalSessionErrors<ResourceIssue, DeadlineIssue>;
   },
   optionInput: PostgresPhysicalSessionOptions = {},
-): SessionDriver<ResourceIssue> {
-  type PhysicalSessionDriver = SessionDriver<ResourceIssue>;
+): PostgresPhysicalSessionDriver<ResourceIssue> {
+  type PhysicalSessionDriver = PostgresPhysicalSessionDriver<ResourceIssue>;
   type PhysicalInitialSettlement<Value, Failure> = InitialSettlement<
     Value,
     Failure,
@@ -141,8 +148,8 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
    */
   function buildDriver(): PhysicalSessionDriver {
     const options = normalizePostgresPhysicalSessionOptions(optionInput);
-    const runReadEffect: PhysicalSessionDriver["runReadEffect"] = Effect.fn(
-      "PostgresPhysicalSession.read",
+    const makeReadOperation = (profile: "sessionBudget" | "implicitStatement"): PhysicalSessionDriver["runReadEffect"] => Effect.fn(
+      profile === "sessionBudget" ? "PostgresPhysicalSession.read" : "PostgresPhysicalSession.implicitRead",
     )(
       <Value, Failure>(
         input: {
@@ -162,70 +169,86 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
             }
             const connection = acquisition.value;
 
-            const snapshot = yield* Effect.exit(
-              restore(
-                runRawQueryEffect<{
-                  readonly statement_timeout: string;
-                }>(
-                  connection,
-                  input.deadline,
-                  "configureReadBudget",
-                  "show statement_timeout",
-                ),
-              ),
-            );
-            if (Exit.isFailure(snapshot)) {
-              return yield* failAfterQuarantine(
-                connection,
-                snapshot.cause,
-                options,
-              );
-            }
-            const priorStatementTimeout =
-              snapshot.value.rows[0]?.statement_timeout;
-            if (typeof priorStatementTimeout !== "string") {
-              return yield* failAfterQuarantine(
-                connection,
-                Cause.fail(
-                  resourceIssue(
-                    "configureReadBudget",
-                    new Error(
-                      "PostgreSQL returned no statement_timeout setting.",
-                    ),
-                  ),
-                ),
-                options,
-              );
+            if (profile === "implicitStatement") {
+              const admission = yield* Effect.exit(Effect.try({
+                try: () => implicitReadTransportRefusal(connection),
+                catch: (cause) => resourceIssue("acquire", cause),
+              }));
+              if (Exit.isFailure(admission)) {
+                return yield* failAfterQuarantine(connection, admission.cause, options);
+              }
+              if (admission.value !== undefined) {
+                return yield* failAfterQuarantine(connection,
+                  Cause.fail(resourceIssue("acquire", new Error(admission.value))), options);
+              }
             }
 
-            const remaining = yield* remainingResourceMilliseconds(
-              input.deadline,
-              "configureReadBudget",
-            ).pipe(Effect.exit);
-            if (Exit.isFailure(remaining)) {
-              return yield* failAfterQuarantine(
-                connection,
-                remaining.cause,
-                options,
-              );
-            }
-            const configure = yield* Effect.exit(
-              restore(
-                runRawQueryEffect(
-                  connection,
-                  input.deadline,
-                  "configureReadBudget",
-                  "select set_config('statement_timeout', $1, false)",
-                  [`${remaining.value}ms`],
+            let priorStatementTimeout: string | undefined;
+            if (profile === "sessionBudget") {
+              const snapshot = yield* Effect.exit(
+                restore(
+                  runRawQueryEffect<{
+                    readonly statement_timeout: string;
+                  }>(
+                    connection,
+                    input.deadline,
+                    "configureReadBudget",
+                    "show statement_timeout",
+                  ),
                 ),
-              ),
-            );
-            if (Exit.isFailure(configure)) {
-              return yield* failAfterQuarantine(
-                connection,
-                configure.cause,
-                options,
               );
+              if (Exit.isFailure(snapshot)) {
+                return yield* failAfterQuarantine(
+                  connection,
+                  snapshot.cause,
+                  options,
+                );
+              }
+              priorStatementTimeout = snapshot.value.rows[0]?.statement_timeout;
+              if (typeof priorStatementTimeout !== "string") {
+                return yield* failAfterQuarantine(
+                  connection,
+                  Cause.fail(
+                    resourceIssue(
+                      "configureReadBudget",
+                      new Error(
+                        "PostgreSQL returned no statement_timeout setting.",
+                      ),
+                    ),
+                  ),
+                  options,
+                );
+              }
+
+              const remaining = yield* remainingResourceMilliseconds(
+                input.deadline,
+                "configureReadBudget",
+              ).pipe(Effect.exit);
+              if (Exit.isFailure(remaining)) {
+                return yield* failAfterQuarantine(
+                  connection,
+                  remaining.cause,
+                  options,
+                );
+              }
+              const configure = yield* Effect.exit(
+                restore(
+                  runRawQueryEffect(
+                    connection,
+                    input.deadline,
+                    "configureReadBudget",
+                    "select set_config('statement_timeout', $1, false)",
+                    [`${remaining.value}ms`],
+                  ),
+                ),
+              );
+              if (Exit.isFailure(configure)) {
+                return yield* failAfterQuarantine(
+                  connection,
+                  configure.cause,
+                  options,
+                );
+              }
             }
 
             let callbackSettlement: Exit.Exit<Value, Failure> | undefined;
@@ -308,27 +331,29 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
                 : Cause.combine(callback.value.cause, trackedWorkCause)
               : undefined;
 
-            const reset = yield* Effect.exit(
-              runRawQueryEffect(
-                connection,
-                input.deadline,
-                "resetReadBudget",
-                "select set_config('statement_timeout', $1, false)",
-                [priorStatementTimeout],
-              ),
-            );
-            if (Exit.isFailure(reset)) {
-              const primary =
-                callbackCause === undefined
-                  ? reset.cause
-                  : Cause.combine(callbackCause, reset.cause);
-              return yield* failAfterQuarantine(connection, primary, options);
+            if (priorStatementTimeout !== undefined) {
+              const reset = yield* Effect.exit(
+                runRawQueryEffect(
+                  connection,
+                  input.deadline,
+                  "resetReadBudget",
+                  "select set_config('statement_timeout', $1, false)",
+                  [priorStatementTimeout],
+                ),
+              );
+              if (Exit.isFailure(reset)) {
+                const primary =
+                  callbackCause === undefined
+                    ? reset.cause
+                    : Cause.combine(callbackCause, reset.cause);
+                return yield* failAfterQuarantine(connection, primary, options);
+              }
             }
 
             const observedConnectionError = connection.connectionError();
             if (observedConnectionError !== undefined) {
               const primary = Cause.fail(
-                resourceIssue("resetReadBudget", observedConnectionError),
+                resourceIssue(profile === "sessionBudget" ? "resetReadBudget" : "read", observedConnectionError),
               );
               return yield* failAfterQuarantine(
                 connection,
@@ -363,6 +388,8 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
           }),
         ),
     );
+    const runReadEffect = makeReadOperation("sessionBudget");
+    const runImplicitReadEffect = makeReadOperation("implicitStatement");
 
     const runInitialTransactionEffect: PhysicalSessionDriver["runInitialTransactionEffect"] =
       Effect.fn("PostgresPhysicalSession.initialTransaction")(function* <
@@ -900,6 +927,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
 
     return Object.freeze({
       runReadEffect,
+      runImplicitReadEffect,
       runInitialTransactionEffect,
       runRecoveryTransactionEffect,
     } satisfies PhysicalSessionDriver);
@@ -1980,6 +2008,35 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
   }
 
   return buildDriver();
+}
+
+function implicitReadTransportRefusal(connection: CheckedOutConnection): string | undefined {
+  if (!connection.hasNodePostgresTransport || connection.backendKeyData === undefined) {
+    return "PostgreSQL implicit reads require the acquired connection's authenticated cancellation identity.";
+  }
+  if (connection.cancellationClientConfig === undefined) {
+    return "PostgreSQL implicit reads require the exact cancellation connection configuration.";
+  }
+  const cancellationClient = new Client(connection.cancellationClientConfig);
+  if (Reflect.get(connection.client, "ssl") !== false || cancellationClient.ssl !== false) {
+    return "PostgreSQL implicit reads do not support TLS cancellation.";
+  }
+  if (typeof Reflect.get(cancellationClient.connection, "connect") !== "function" ||
+      typeof Reflect.get(cancellationClient.connection, "cancel") !== "function") {
+    return "Installed node-postgres connection has no cancellation protocol capability.";
+  }
+  const startup: unknown = Reflect.get(connection.client, "connectionParameters");
+  if (typeof startup !== "object" || startup === null) {
+    return "PostgreSQL implicit reads require accepted bounded startup statement_timeout.";
+  }
+  const timeout: unknown = Reflect.get(startup, "statement_timeout");
+  const startupOptions: unknown = Reflect.get(startup, "options");
+  if (typeof timeout !== "number" || !Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 30_000 ||
+      (startupOptions !== undefined && startupOptions !== "" &&
+        (typeof startupOptions !== "string" || !/^-c search_path=[a-z_][a-z0-9_]*$/.test(startupOptions)))) {
+    return "PostgreSQL implicit reads require accepted bounded startup statement_timeout and unambiguous startup options.";
+  }
+  return undefined;
 }
 
 function readNodePostgresBackendKeyData(

@@ -1,7 +1,9 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission, requireAdmittedTargetInstallationSchema } from "../src/installationLifecycle";
 import { randomUUID } from "node:crypto";
-import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
-import { eq } from "drizzle-orm";
-import { Effect, Result } from "effect";
+import { insertCurrentScopeClockFixtureInTransaction } from "./scopeClockFixture";
+import { eq, getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { Effect, Result, Schema } from "effect";
 import {
   writeCe0PublicationReference,
   advanceCe0PublicationReference,
@@ -58,15 +60,20 @@ import {
   fxSystemCommits,
   fxSystemIdempotency,
   fxSystemCommitWakes,
+  fxSystemScopeClocks,
+  fxSystemScopeExecutionAuthorities,
 } from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
+import { projectScopePublicationRows } from "../src/commitPublication/prefixProjection";
 
 export type PublicationCandidate = "core" | "reference";
 const publicationTime = new Date(1_725_000_000_000);
 
-/** Tests both private publication persistence candidates, not participant admission. */
+/** Shares publication inputs with the retained CE0 numerical reference. Core
+ * corruption and rollback invariants are verified separately below. */
 export async function scopePublicationBatchScenario(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  observeCaughtRollback: (run: () => Promise<void>) => Promise<void> = run => run(),
 ) {
   for (const count of [0, 1, 499, 500, 501, 1000, 1001]) {
     let expectedState: string | undefined;
@@ -125,7 +132,9 @@ export async function scopePublicationBatchScenario(
       expect(published.parameters).toEqual(
         Array.from(
           { length: Math.ceil(count / 500) },
-          (_, index) => Math.min(500, count - index * 500) * 6,
+          // Genuine callback boundaries use one current-page packet and one
+          // verification packet; the final page proves the whole append input.
+          (_, index) => candidate === "core" ? 2 : Math.min(500, count - index * 500) * 6,
         ),
       );
       expect(published.steps()).toBe(Math.ceil(count / 500));
@@ -140,6 +149,51 @@ export async function scopePublicationBatchScenario(
       expect(await readState()).toEqual(after);
     }
   }
+  await scopePublicationTamperScenario(persistence, observeCaughtRollback);
+}
+
+/** Core invariants are distinct from the retained CE0 numerical reference. */
+async function scopePublicationTamperScenario(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  observeCaughtRollback: (run: () => Promise<void>) => Promise<void>,
+) {
+  const fixtureCommand = (statement: string) => Effect.tryPromise({
+    try: () => persistence.exec(statement), catch: cause => new Error("Publication tamper fixture SQL", { cause }),
+  });
+  for (const family of ["prefix", "clock"] as const) {
+    const fixture = await createScopePublicationFixture(persistence, 33);
+    const dialect = new PgDialect();
+    const clocks = dialect.sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxSystemScopeClocks))}`).sql;
+    const commits = dialect.sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxSystemCommits))}`).sql;
+    const wakes = dialect.sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxSystemCommitWakes))}`).sql;
+    const before = await fixture.readState();
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const functionName = `fx_test_${family}_after_tamper`;
+      const qualifiedFunction = dialect.sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(functionName)}`).sql;
+      const table = family === "prefix" ? wakes : clocks;
+      const body = family === "prefix"
+        ? `if NEW.scope_uuid = '${fixture.scopeUuid}'::uuid then
+            update ${commits} set "${fxSystemCommits.committedAt.name}" = "${fxSystemCommits.committedAt.name}" + interval '1 second'
+              where "${fxSystemCommits.scopeUuid.name}" = NEW."${fxSystemCommitWakes.scopeUuid.name}"
+                and "${fxSystemCommits.commitSeq.name}" = NEW."${fxSystemCommitWakes.commitSeq.name}";
+          end if;`
+        : `if NEW.scope_id = '${fixture.scopeId}' and NEW.last_commit_seq = 1 and pg_trigger_depth() = 1 then
+            update ${clocks} set "${fxSystemScopeClocks.updatedAt.name}" = NEW."${fxSystemScopeClocks.updatedAt.name}" + interval '1 second'
+              where "${fxSystemScopeClocks.scopeId.name}" = NEW."${fxSystemScopeClocks.scopeId.name}";
+          end if;`;
+      yield* Effect.acquireRelease(fixtureCommand(`create function ${qualifiedFunction}() returns trigger language plpgsql as $$ begin ${body} return NEW; end $$`),
+        () => fixtureCommand(`drop function ${qualifiedFunction}()`).pipe(Effect.orDie));
+      yield* Effect.acquireRelease(fixtureCommand(`create trigger ${functionName} after ${family === "prefix" ? "insert" : "update"} on ${table} for each row execute function ${qualifiedFunction}()`),
+        () => fixtureCommand(`drop trigger ${functionName} on ${table}`).pipe(Effect.orDie));
+      yield* Effect.tryPromise({ try: async () => {
+        await observeCaughtRollback(() => fixture.publish("core", {
+          completePrefix: true,
+          catchCorruption: family === "prefix" ? "publicationInvariantInvalid" : "scopeClockInvalid",
+        }).work);
+        expect(await fixture.readState()).toEqual(before);
+      }, catch: cause => new Error(`Publication ${family} AFTER witness`, { cause }) }).pipe(Effect.uninterruptible);
+    })));
+  }
 }
 
 export async function createScopePublicationFixture(
@@ -149,7 +203,20 @@ export async function createScopePublicationFixture(
   const scopeUuid = ScopeUuidV1Schema.make(randomUUID());
   const epochUuid = ScopeEpochUuidV1Schema.make(randomUUID());
   const scopeId = decodeReplacementScopeIdV1(`scope_${scopeUuid}`);
-  await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: `epoch_${epochUuid}` });
+  const schemaName = await persistence.drizzle.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await insertCurrentScopeClockFixtureInTransaction(tx, { scopeId, epoch: `epoch_${epochUuid}` });
+      // The combined clock view reports the greatest of its two owner times.
+      // Keep both initial fixtures before the fixed publication time, so the
+      // exact timestamp assertions measure the actual publication clock write.
+      const initialTime = new Date(publicationTime.getTime() - 1000);
+      await tx.update(fxSystemScopeClocks).set({ updatedAt: initialTime }).where(eq(fxSystemScopeClocks.scopeId, scopeId));
+      await tx.update(fxSystemScopeExecutionAuthorities).set({ updatedAt: initialTime })
+        .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId));
+      return await runEffect(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx)));
+    } finally { closeInstallationAdmission(tx); }
+  });
   const commitSeq = CommitSeqSchema.make(1n);
   const tableId = CatalogTableIdSchema.make(1);
   const rowIntents = Array.from({ length: count }, (_, index) => ({
@@ -206,95 +273,131 @@ export async function createScopePublicationFixture(
       beforePublication?: () => void;
       afterPublication?: () => void;
       observeParameters?: boolean;
+      completePrefix?: boolean;
+      catchCorruption?: ScopePublicationCorruptionError["reason"];
     } = {},
   ) => {
     const parameters: number[] = [];
     let steps = 0;
     const work = persistence.drizzle.transaction(async (tx) => {
-      const record = await runEffect(
-        lockScopeClockForUpdateInTransactionEffect(tx, scopeId),
-      );
-      const commitSeq = CommitSeqSchema.make(controls.nextCommit ? 2n : 1n);
-      const kernel = {
-        clock: {
-          record: controls.staleClock
-            ? { ...record, lastCommitSeq: CommitSeqSchema.make(1n) }
-            : record,
-          scopeUuid,
-          epochUuid,
-        },
-        commitSeq,
-        publicationTimeMilliseconds: publicationTime.getTime(),
-        relationAdjacencyChanges: [],
-      } satisfies ScopePublicationKernel;
-      // Pre-existing row owner output is a fixture input to this publication-only proof.
-      if (rowIntents.length > 0)
-        await tx.insert(fxAppRowRevisions).values(
-          rowIntents.map((row) => ({
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try {
+        const record = await runEffect(
+          lockScopeClockForUpdateInTransactionEffect(tx, scopeId),
+        );
+        const commitSeq = CommitSeqSchema.make(controls.nextCommit ? 2n : 1n);
+        const kernel = {
+          clock: {
+            record: controls.staleClock
+              ? { ...record, lastCommitSeq: CommitSeqSchema.make(1n) }
+              : record,
             scopeUuid,
-            tableId,
-            rowId: appRowIdHexV1ToBytes(row.rowId),
-            commitSeq,
-            prevCommitSeq: controls.nextCommit
-              ? CommitSeqSchema.make(1n)
-              : null,
-            writeEpochUuid: epochUuid,
-            schemaVersionId: CatalogSchemaVersionIdSchema.make("batch_fixture"),
-            creationTime: AppCreationTimeV1Schema.make(1),
-            valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-            isTombstone: true,
-          })),
-        );
-      const options = {
-        observeQuery: (query: {
-          readonly name: string;
-          readonly params: readonly unknown[];
-        }) => {
-          if (
-            controls.observeParameters !== false &&
-            query.name === "writeCommitChange"
-          )
-            parameters.push(query.params.length);
-        },
-        afterTransactionStep: async (event: { readonly step: string }) => {
-          if (
-            event.step === "commitChangeWritten" &&
-            ++steps === controls.failAtBatch
-          )
-            throw new Error("Deliberate batch rollback");
-        },
-      };
-      const selectedOptions: ScopePublicationOptions =
-        controls.observeParameters === false
-          ? { afterTransactionStep: options.afterTransactionStep }
-          : options;
-      controls.beforePublication?.();
-      if (candidate === "core") {
-        await writeScopePublicationPrefix(tx, command, kernel, selectedOptions);
-        openExactAttemptScopeClockObservation(tx, record, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
-        try {
-          await advanceScopePublicationClock(tx, command, kernel, selectedOptions);
-          const refreshed = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
-          expect(refreshed.lastCommitSeq).toBe(commitSeq);
-          expect(refreshed.updatedAt).toEqual(publicationTime);
-        } finally { closeExactAttemptScopeClockObservation(tx); }
-      } else {
-        await writeCe0PublicationReference(
-          tx,
-          command,
-          kernel,
-          selectedOptions,
-        );
-        await advanceCe0PublicationReference(
-          tx,
-          command,
-          kernel,
-          selectedOptions,
-        );
-      }
-      controls.afterPublication?.();
-      if (controls.failBeforeCommit)
-        throw new Error("Deliberate publication rollback");
+            epochUuid,
+          },
+          commitSeq,
+          publicationTimeMilliseconds: publicationTime.getTime(),
+          relationAdjacencyChanges: [],
+        } satisfies ScopePublicationKernel;
+        // Pre-existing row owner output is a fixture input to this publication-only proof.
+        if (rowIntents.length > 0)
+          await tx.insert(fxAppRowRevisions).values(
+            rowIntents.map((row) => ({
+              scopeUuid,
+              tableId,
+              rowId: appRowIdHexV1ToBytes(row.rowId),
+              commitSeq,
+              prevCommitSeq: controls.nextCommit
+                ? CommitSeqSchema.make(1n)
+                : null,
+              writeEpochUuid: epochUuid,
+              schemaVersionId: CatalogSchemaVersionIdSchema.make("batch_fixture"),
+              creationTime: AppCreationTimeV1Schema.make(1),
+              valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+              isTombstone: true,
+            })),
+          );
+        const options = {
+          observeQuery: (query: {
+            readonly name: string;
+            readonly sql: string;
+            readonly params: readonly unknown[];
+          }) => {
+            if (
+              controls.observeParameters !== false &&
+              query.name === "writeCommitChange"
+            ) {
+              if (candidate === "core") {
+                const expected = projectScopePublicationRows(kernel, command.rowIntents, 0);
+                const offset = parameters.length * 500;
+                const page = expected.slice(offset, offset + 500);
+                const procedure = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier("fx_write_scope_publication_rows")}`).sql;
+                expect(query.sql).toContain(`${procedure}(`);
+                expect(query.params).toHaveLength(2);
+                const decodePacket = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.Unknown)));
+                expect(decodePacket(query.params[0])).toEqual(page);
+                expect(decodePacket(query.params[1])).toEqual(offset + page.length === expected.length ? expected : []);
+                expect(page.length).toBeGreaterThan(0);
+                expect(page.length).toBeLessThanOrEqual(500);
+              }
+              parameters.push(query.params.length);
+            }
+          },
+          afterTransactionStep: async (event: { readonly step: string }) => {
+            if (
+              event.step === "commitChangeWritten" &&
+              ++steps === controls.failAtBatch
+            )
+              throw new Error("Deliberate batch rollback");
+          },
+        };
+        const selectedOptions: ScopePublicationOptions =
+          controls.completePrefix === true
+            ? controls.observeParameters === false ? {} : { observeQuery: options.observeQuery }
+            : controls.observeParameters === false
+              ? { afterTransactionStep: options.afterTransactionStep }
+              : options;
+        controls.beforePublication?.();
+        if (candidate === "core") {
+          try {
+            await writeScopePublicationPrefix(tx, command, kernel, selectedOptions);
+            openExactAttemptScopeClockObservation(tx, record, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
+            try {
+              await advanceScopePublicationClock(tx, command, kernel, selectedOptions);
+              const refreshed = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+              expect(refreshed.lastCommitSeq).toBe(commitSeq);
+              expect(refreshed.updatedAt).toEqual(publicationTime);
+            } finally { closeExactAttemptScopeClockObservation(tx); }
+          } catch (cause) {
+            if (controls.catchCorruption === undefined || !(cause instanceof ScopePublicationCorruptionError)) throw cause;
+            expect(cause.reason).toBe(controls.catchCorruption);
+            expect(cause.cause).toMatchObject({
+              cause: {
+                code: "FX001", detail: controls.catchCorruption === "scopeClockInvalid"
+                  ? "publicationClockStoredCorruption" : "publicationStoredCorruption"
+              }
+            });
+            await expect(tx.execute(sql`select 1`)).rejects.toMatchObject({ cause: { code: "25P02" } });
+            return;
+          }
+          if (controls.catchCorruption !== undefined) throw new Error("Core publication accepted tampered stored output");
+        } else {
+          await writeCe0PublicationReference(
+            tx,
+            command,
+            kernel,
+            selectedOptions,
+          );
+          await advanceCe0PublicationReference(
+            tx,
+            command,
+            kernel,
+            selectedOptions,
+          );
+        }
+        controls.afterPublication?.();
+        if (controls.failBeforeCommit)
+          throw new Error("Deliberate publication rollback");
+      } finally { closeInstallationAdmission(tx); }
     });
     return { work, parameters, steps: () => steps };
   };
@@ -418,5 +521,5 @@ export async function createScopePublicationFixture(
       );
     expect(await readState()).toEqual(after);
   };
-  return { publish, readState, normalize, verify };
+  return { publish, readState, normalize, verify, scopeId, scopeUuid, schemaName };
 }

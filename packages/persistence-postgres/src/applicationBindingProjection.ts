@@ -147,6 +147,8 @@ const projectApplicationBindingInTransaction = Effect.fn("ApplicationBindingProj
   function* (validated: Effect.Success<ReturnType<typeof validateApplicationBindingBasisInTransaction>>,
     tx: AppRowTransaction, clock: ScopeClockRecord) {
   const basis = validated.basis;
+  // The scope-clock owner lends the authentic command-one observation for a
+  // finite entry. Ordinary readers retain its live revocation-lock path.
   const authorizationRevocationEpoch =
     yield* requireScopeAuthorizationRevocationEpochInTransactionEffect(
       tx,

@@ -2,9 +2,9 @@ import { Effect } from "effect";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import type { OrderedIndexBoundsV1 } from "flarex-protocol/ordered-index";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
-import { scanAppIndexAtSnapshotInTransactionEffect, scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
+import { consumeCurrentAppIndexPagesInTransactionEffect, scanAppIndexAtSnapshotInTransactionEffect, scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeEntryV1, type AppIndexEntryTransaction,
-  type AppIndexRangeCursorV1 } from "../appIndexEntries";
+  type AppIndexRangeCursorV1, type AppIndexRangePageV1 } from "../appIndexEntries";
 import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
 
 export const logicalIndexReadFailureReason = (cause: unknown): LogicalDocumentFailureReason =>
@@ -56,6 +56,47 @@ export const readLogicalIndexRange = Effect.fn("LogicalDocuments.readIndexRange"
     if (page.continueCursor === null) return yield* Effect.fail(error("storedCorruption"));
     after = page.continueCursor;
   }
+});
+
+/** Initial small predicates share the existing bounded page command. Complete
+ * each ordinal, including its overflow/corruption verdict, before comparison. */
+export const consumeLogicalIndexRanges = Effect.fn("LogicalDocuments.consumeIndexRanges")(function* <Failure, Requirements>(
+  tx: AppIndexEntryTransaction, scopeId: ScopeId, reads: readonly LogicalIndexRead[],
+  maximumEntries: number, error: LogicalDocumentFailure<Failure>,
+  consume: (ordinal: number, entries: readonly AppIndexRangeEntryV1[]) => Effect.Effect<void, Failure, Requirements>,
+) {
+  if (reads.length === 0) return;
+  if (!Number.isSafeInteger(maximumEntries) || maximumEntries < 1) return yield* Effect.fail(error("invalidInput"));
+  yield* consumeCurrentAppIndexPagesInTransactionEffect(tx, reads.map(read => ({ scopeId,
+    definition: read.definition, bounds: read.bounds,
+    limit: Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, maximumEntries, Math.max(1, read.entries.length + 1)),
+  })), cause => error(logicalIndexReadFailureReason(cause), cause), (ordinal, first) => Effect.gen(function* () {
+    const read = reads[ordinal];
+    if (read === undefined) return yield* Effect.die(new Error("Logical range batch lost an ordinal"));
+    const entries = [...first.entries];
+    let page = first;
+    while (!page.isDone) {
+      if (entries.length >= maximumEntries) return yield* Effect.fail(error("limitExceeded"));
+      if (page.continueCursor === null) return yield* Effect.fail(error("storedCorruption"));
+      page = yield* readLogicalIndexPage(tx, scopeId,
+        { definition: read.definition, bounds: read.bounds, after: page.continueCursor },
+        Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, maximumEntries - entries.length), error);
+      entries.push(...page.entries);
+    }
+    yield* consume(ordinal, Object.freeze(entries));
+  }));
+});
+
+/** Page observations retain their examined keyset cursor and EOF obligation. */
+export const consumeLogicalIndexPages = Effect.fn("LogicalDocuments.consumeIndexPages")(function* <Failure, Requirements>(
+  tx: AppIndexEntryTransaction, scopeId: ScopeId, reads: readonly LogicalIndexPageRead[],
+  error: LogicalDocumentFailure<Failure>,
+  consume: (ordinal: number, page: AppIndexRangePageV1) => Effect.Effect<void, Failure, Requirements>,
+) {
+  yield* consumeCurrentAppIndexPagesInTransactionEffect(tx, reads.map(read => ({ scopeId,
+    definition: read.definition, bounds: read.bounds, limit: Math.max(1, read.entries.length),
+    ...(read.after === undefined ? {} : { after: read.after }),
+  })), cause => error(logicalIndexReadFailureReason(cause), cause), consume);
 });
 
 export const sameLogicalIndexMembership = (left: readonly AppIndexRangeEntryV1[], right: readonly AppIndexRangeEntryV1[]): boolean =>

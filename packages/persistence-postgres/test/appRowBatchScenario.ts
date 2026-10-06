@@ -1,8 +1,11 @@
-import { sql } from "drizzle-orm";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission, requireAdmittedTargetInstallationSchema } from "../src/installationLifecycle";
+import { eq, getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
-import { Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
+import { MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 } from "flarex-protocol/commit-protocol";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -14,6 +17,7 @@ import {
   CommitSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
+  projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import type { FlarexPersistence } from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
@@ -28,6 +32,8 @@ import {
   type AppendPreparedAppRowRevisionV1Input,
 } from "../src/appRows";
 import { runEffect } from "./effectTestRuntime";
+import { fxAppRowCurrent, fxAppRowRevisions } from "../src/schema";
+import { applicationDomainFailureDetail } from "../src/applicationDocumentMaterialization/domainApplication";
 
 const decodePreparedStatements = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -41,7 +47,17 @@ const decodePreparedStatements = Schema.decodeUnknownSync(
 export async function verifyAppRowBatches(
   persistence: Pick<FlarexPersistence, "query">,
   db: FlarexMetadataDatabase,
+  observeCaughtRollback: (run: () => Promise<void>) => Promise<void> = run => run(),
+  observeNoRowBatch: (run: () => Promise<void>) => Promise<void> = run => run(),
 ) {
+  const fixtureCommand = (statement: string) => Effect.tryPromise({ try: () => persistence.query(statement),
+    catch: cause => new Error("Row batch fixture SQL", { cause }) });
+  const schemaName = await db.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try { return await runEffect(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
+    finally { closeInstallationAdmission(tx); }
+  });
+  const rowTableName = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(getTableName(fxAppRowRevisions))}`).sql;
   const scopeId = ScopeIdSchema.make(
     "scope_50190000-0000-0000-0000-000000000001",
   );
@@ -78,25 +94,87 @@ export async function verifyAppRowBatches(
     });
   }
   const append = (values: ReadonlyArray<AppendPreparedAppRowRevisionV1Input>) =>
-    db.transaction((tx) =>
-      runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, values)),
+    db.transaction(async (tx) => {
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try {
+        return await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, values));
+      } finally { closeInstallationAdmission(tx); }
+    },
     );
-  const state = async () =>
-    (
-      await persistence.query(
-        "select table_id::text, encode(row_id, 'hex') as row_id, commit_seq::text, prev_commit_seq::text, is_tombstone from fx_app_row_rev order by table_id,row_id,commit_seq",
-      )
-    ).rows;
+  const scopeUuid = projectScopeIdUuidV1(scopeId).scopeUuid;
+  const state = async () => ({
+    history: await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, scopeUuid))
+      .orderBy(fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
+    pointers: await db.select().from(fxAppRowCurrent).where(eq(fxAppRowCurrent.scopeUuid, scopeUuid))
+      .orderBy(fxAppRowCurrent.tableId, fxAppRowCurrent.rowId),
+  });
+  const caught = (values: readonly AppendPreparedAppRowRevisionV1Input[], inspect?: (failure: AppRowStorageCorruptionError) => void) => observeCaughtRollback(() => db.transaction(async (tx) => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      const refusal = await runEffect(Effect.result(appendPreparedAppRowRevisionsInTransactionEffect(tx, values)));
+      expect(Result.isFailure(refusal)).toBe(true);
+      if (Result.isSuccess(refusal)) throw new Error("Corrupt row batch was accepted");
+      if (!(refusal.failure instanceof AppRowStorageCorruptionError)) throw refusal.failure;
+      expect(refusal.failure).toBeInstanceOf(AppRowStorageCorruptionError);
+      inspect?.(refusal.failure);
+      // Catching the typed owner refusal cannot restore this real transaction.
+      await expect(tx.execute(sql`select 1`)).rejects.toMatchObject({ cause: { code: "25P02" } });
+    } finally { closeInstallationAdmission(tx); }
+  }));
   expect(await append([])).toEqual([]);
   expect(await append(rows)).toHaveLength(33);
   const before = await state();
+  await runEffect(Effect.scoped(Effect.gen(function* () {
+    // The real codec's semantic ceiling is 1 MiB. Retain only 65 canonical
+    // documents and one shared source string until this one invocation settles.
+    const input = yield* Effect.acquireRelease(Effect.sync(() => {
+      const rows: AppendPreparedAppRowRevisionV1Input[] = [];
+      return { rows, body: "x".repeat(1024 * 1024 - 1024) };
+    }), owned => Effect.sync(() => { owned.rows.length = 0; owned.body = ""; }));
+    let bytes = 0;
+    for (let i = 0; i < 65; i += 1) {
+      const tableId = decodeCatalogTableId(1);
+      const rowId = decodeAppRowIdHexV1((256 + i).toString(16).padStart(32, "0"));
+      const creationTime = decodeAppCreationTimeV1(42);
+      const document = yield* Effect.tryPromise({
+        try: () => canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { body: input.body, ordinal: i } }),
+        catch: cause => new Error("Canonical row-input ceiling fixture", { cause }),
+      }).pipe(Effect.uninterruptible);
+      expect(document.canonicalBytes.byteLength).toBeLessThanOrEqual(8 * 1024 * 1024);
+      bytes += document.canonicalBytes.byteLength;
+      if (i === 63) expect(bytes).toBeLessThanOrEqual(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1);
+      input.rows.push({ kind: "live", scopeId, writeEpoch, tableId, rowId, creationTime,
+        commitSeq: CommitSeqSchema.make(1n), prevCommitSeq: null,
+        schemaVersionId: decodeCatalogSchemaVersionId("ce1_input_bytes"), document });
+    }
+    expect(bytes).toBeGreaterThan(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1);
+    yield* Effect.tryPromise({ try: () => observeNoRowBatch(() => db.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        const execute = vi.spyOn(tx, "execute");
+        try {
+          const refusal = await runEffect(Effect.result(appendPreparedAppRowRevisionsInTransactionEffect(tx, input.rows)));
+          expect(Result.isFailure(refusal)).toBe(true);
+          if (Result.isSuccess(refusal)) throw new Error("Canonical row-input ceiling was accepted");
+          if (!(refusal.failure instanceof InvalidAppRowBatchInputError)) throw refusal.failure;
+          expect(refusal.failure).toBeInstanceOf(InvalidAppRowBatchInputError);
+          expect(refusal.failure.reason).toBe("byteCountExceeded");
+          // The real execute method is observed, never replaced: even the first
+          // fixed row page must remain unsubmitted on both database drivers.
+          expect(execute).not.toHaveBeenCalled();
+        } finally { execute.mockRestore(); closeInstallationAdmission(tx); }
+      })), catch: cause => new Error("Canonical row-input ceiling transaction", { cause }) }).pipe(Effect.uninterruptible);
+    const unchanged = yield* Effect.tryPromise({ try: state,
+      catch: cause => new Error("Canonical row-input ceiling state", { cause }) }).pipe(Effect.uninterruptible);
+    expect(unchanged).toEqual(before);
+  })));
   const changed = rows.map((row) => ({
     ...row,
     commitSeq: CommitSeqSchema.make(2n),
     prevCommitSeq: CommitSeqSchema.make(1n),
   }));
   const last = changed.at(-1);
-  if (last === undefined) throw new Error("Missing final row batch witness.");
+  const first = changed[0];
+  if (first === undefined || last === undefined) throw new Error("Missing row batch witnesses.");
   await expect(
     append([
       ...changed.slice(0, -1),
@@ -122,34 +200,79 @@ export async function verifyAppRowBatches(
 
   // A real SQL trigger changes the returned identity while preserving row count.
   // The first 32 rows have already been applied when the last row is corrupted.
-  await persistence.query(`create function ce1_corrupt_row_identity() returns trigger language plpgsql as $$
-    begin
-      if NEW.commit_seq = 2 and NEW.table_id = 1 and NEW.row_id = decode('00000000000000000000000000000010','hex') then
-        NEW.row_id := decode(repeat('ff',16),'hex');
-      end if;
-      return NEW;
-    end $$`);
-  await persistence.query(
-    "create trigger ce1_corrupt_row_identity before insert on fx_app_row_rev for each row execute function ce1_corrupt_row_identity()",
-  );
-  try {
-    await expect(append(changed)).rejects.toBeInstanceOf(
-      AppRowStorageCorruptionError,
-    );
-    expect(await state()).toEqual(before);
-  } finally {
-    await persistence.query(
-      "drop trigger ce1_corrupt_row_identity on fx_app_row_rev",
-    );
-    await persistence.query("drop function ce1_corrupt_row_identity()");
-  }
+  await runEffect(Effect.scoped(Effect.gen(function* () {
+    yield* Effect.acquireRelease(fixtureCommand(`create function ce1_corrupt_row_identity() returns trigger language plpgsql as $$
+      begin
+        if NEW.commit_seq = 2 and NEW.table_id = 1 and NEW.row_id = decode('00000000000000000000000000000010','hex') then
+          NEW.row_id := decode(repeat('ff',16),'hex');
+        end if;
+        return NEW;
+      end $$`), () => fixtureCommand("drop function ce1_corrupt_row_identity()").pipe(Effect.orDie));
+    yield* Effect.acquireRelease(fixtureCommand(
+      "create trigger ce1_corrupt_row_identity before insert on fx_app_row_rev for each row execute function ce1_corrupt_row_identity()",
+    ), () => fixtureCommand("drop trigger ce1_corrupt_row_identity on fx_app_row_rev").pipe(Effect.orDie));
+    yield* Effect.tryPromise({ try: async () => {
+      await expect(append(changed)).rejects.toBeInstanceOf(AppRowStorageCorruptionError);
+      await caught(changed);
+      expect(await state()).toEqual(before);
+    }, catch: cause => new Error("Row batch BEFORE witness", { cause }) }).pipe(Effect.uninterruptible);
+  })));
+
+  await runEffect(Effect.scoped(Effect.gen(function* () {
+    yield* Effect.acquireRelease(fixtureCommand(`create function ce1_corrupt_row_after() returns trigger language plpgsql as $$
+      begin
+        if NEW.commit_seq = 2 and NEW.table_id = 1 and NEW.row_id = decode('00000000000000000000000000000010','hex') then
+          update ${rowTableName} set "${fxAppRowRevisions.creationTime.name}" = "${fxAppRowRevisions.creationTime.name}" + 1
+            where "${fxAppRowRevisions.scopeUuid.name}" = NEW."${fxAppRowRevisions.scopeUuid.name}"
+              and "${fxAppRowRevisions.tableId.name}" = NEW."${fxAppRowRevisions.tableId.name}"
+              and "${fxAppRowRevisions.rowId.name}" = NEW."${fxAppRowRevisions.rowId.name}"
+              and "${fxAppRowRevisions.commitSeq.name}" = NEW."${fxAppRowRevisions.commitSeq.name}";
+        end if;
+        return NEW;
+      end $$`), () => fixtureCommand("drop function ce1_corrupt_row_after()").pipe(Effect.orDie));
+    yield* Effect.acquireRelease(fixtureCommand("create trigger ce1_corrupt_row_after after insert on fx_app_row_rev for each row execute function ce1_corrupt_row_after()"),
+      () => fixtureCommand("drop trigger ce1_corrupt_row_after on fx_app_row_rev").pipe(Effect.orDie));
+    yield* Effect.tryPromise({ try: async () => {
+      await caught(changed);
+      expect(await state()).toEqual(before);
+    }, catch: cause => new Error("Row batch AFTER witness", { cause }) }).pipe(Effect.uninterruptible);
+  })));
+
+  // The last page leaves its own tuple intact while corrupting a prior page.
+  // Only the final invocation-wide proof can detect this earlier identity.
+  await runEffect(Effect.scoped(Effect.gen(function* () {
+    yield* Effect.acquireRelease(fixtureCommand(`create function ce1_corrupt_earlier_row_after() returns trigger language plpgsql as $$
+      begin
+        if NEW.commit_seq = 2 and NEW.table_id = 1 and NEW.row_id = decode('00000000000000000000000000000010','hex') then
+          update ${rowTableName} set "${fxAppRowRevisions.creationTime.name}" = "${fxAppRowRevisions.creationTime.name}" + 1
+            where "${fxAppRowRevisions.scopeUuid.name}" = NEW."${fxAppRowRevisions.scopeUuid.name}"
+              and "${fxAppRowRevisions.tableId.name}" = 1
+              and "${fxAppRowRevisions.rowId.name}" = decode('00000000000000000000000000000000','hex')
+              and "${fxAppRowRevisions.commitSeq.name}" = NEW."${fxAppRowRevisions.commitSeq.name}";
+        end if;
+        return NEW;
+      end $$`), () => fixtureCommand("drop function ce1_corrupt_earlier_row_after()").pipe(Effect.orDie));
+    yield* Effect.acquireRelease(fixtureCommand("create trigger ce1_corrupt_earlier_row_after after insert on fx_app_row_rev for each row execute function ce1_corrupt_earlier_row_after()"),
+      () => fixtureCommand("drop trigger ce1_corrupt_earlier_row_after on fx_app_row_rev").pipe(Effect.orDie));
+    yield* Effect.tryPromise({ try: async () => {
+      await caught(changed, failure => {
+        expect(failure.identity).toEqual({ scopeId, tableId: first.tableId, rowId: first.rowId });
+        expect(Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({
+          reason: Schema.Literal("storedCorruption"), phase: Schema.Literal("verify"), ordinal: Schema.Literal(0),
+        })))(applicationDomainFailureDetail(failure.cause, "fx_apply_app_row_batch"))).toEqual({
+          reason: "storedCorruption", phase: "verify", ordinal: 0,
+        });
+      });
+      expect(await state()).toEqual(before);
+    }, catch: cause => new Error("Row batch earlier-page AFTER witness", { cause }) }).pipe(Effect.uninterruptible);
+  })));
 
   const mixed = changed.map((row, i): AppendPreparedAppRowRevisionV1Input =>
     i % 3 === 0 ? { ...row, kind: "tombstone" } : row,
   );
   expect(await append(mixed)).toHaveLength(33);
   const after = await state();
-  expect(after).toHaveLength(66);
+  expect(after.history).toHaveLength(66);
   // Existing predecessor 1 is insufficient: current pointer already points to 2.
   await expect(
     append(
@@ -171,13 +294,17 @@ export async function verifyAppRowBatches(
     const row = rows[index];
     if (row === undefined) throw new Error("Missing history witness.");
     for (const seq of [1n, 2n]) {
-      const stored = await db.transaction((tx) =>
-        runEffect(
-          readAppRowAtSnapshotInTransactionEffect(tx, {
-            ...row,
-            snapshotCommitSeq: CommitSeqSchema.make(seq),
-          }),
-        ),
+      const stored = await db.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+          return await runEffect(
+            readAppRowAtSnapshotInTransactionEffect(tx, {
+              ...row,
+              snapshotCommitSeq: CommitSeqSchema.make(seq),
+            }),
+          );
+        } finally { closeInstallationAdmission(tx); }
+      },
       );
       expect(stored).toMatchObject({
         commitSeq: seq,
@@ -257,22 +384,26 @@ export async function verifyAppRowBatchBindings(
     }
     const append = (values: readonly AppendPreparedAppRowRevisionV1Input[]) =>
       db.transaction(async (tx) => {
-        const before = decodePreparedStatements(
-          await tx.execute(
-            sql`select name, statement from pg_prepared_statements order by name`,
-          ),
-        ).rows;
-        const result = await runEffect(
-          appendPreparedAppRowRevisionsInTransactionEffect(tx, values),
-        );
-        expect(
-          decodePreparedStatements(
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+
+          const before = decodePreparedStatements(
             await tx.execute(
               sql`select name, statement from pg_prepared_statements order by name`,
             ),
-          ).rows,
-        ).toEqual(before);
-        return result;
+          ).rows;
+          const result = await runEffect(
+            appendPreparedAppRowRevisionsInTransactionEffect(tx, values),
+          );
+          expect(
+            decodePreparedStatements(
+              await tx.execute(
+                sql`select name, statement from pg_prepared_statements order by name`,
+              ),
+            ).rows,
+          ).toEqual(before);
+          return await result;
+        } finally { closeInstallationAdmission(tx); }
       });
     await append(rows);
     const changed = rows.map((row, i): AppendPreparedAppRowRevisionV1Input =>

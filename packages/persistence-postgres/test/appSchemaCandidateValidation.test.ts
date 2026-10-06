@@ -26,7 +26,9 @@ import {
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { retainPreparedHost } from "../src/preparedHostRuntime";
+import { openPreparedHostTestRuntime, closePreparedHostTestRuntime, preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 
 import {
   advanceAppSchemaCandidateValidationEffect,
@@ -45,6 +47,8 @@ import {
   prepareAppSchemaCandidateWriteGuardEffect,
   captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
   prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
+  prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
+  prepareFiniteAppSchemaCandidateWriteGuardPortEffect,
   validateAppSchemaCandidateReadinessInTransactionEffect,
 } from "../src/appSchemaCandidateValidation";
 import {
@@ -75,7 +79,16 @@ describe("M03-A app-schema candidate validation", () => {
     const pointCommitAuthority = { scopeMetadata: dependencies.authority.scopeMetadata,
       provisioningReceipts: dependencies.authority.provisioningReceipts,
       scopeSessionTargets: dependencies.authority.scopeClockTargets };
-    const guard = createAppSchemaCandidateWriteGuardPort({ candidateValidation, pointCommitAuthority });
+    expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardPortEffect({ candidateValidation, pointCommitAuthority },
+      { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })))
+      .toMatchObject({ reason: "compositionMismatch" });
+    await openPreparedHostTestRuntime(fixture.persistence.drizzle);
+    onTestFinished(() => closePreparedHostTestRuntime(fixture.persistence.drizzle));
+    const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(fixture.persistence.drizzle),
+      prepareFiniteAppSchemaCandidateWriteGuardPortEffect({ candidateValidation, pointCommitAuthority },
+        { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })));
+    const guard = await runEffect(retained.use(Effect.succeed));
+    expect((await runEffect(Effect.fromResult(retained.readUsage()))).chargedBytes).toBeGreaterThan(0);
     const clock = await fixture.target.getCurrentClock(fixture.scopeId);
     if (clock === null) throw new Error("Missing capture clock.");
     const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
@@ -97,12 +110,26 @@ describe("M03-A app-schema candidate validation", () => {
     expect(await runEffectFailure(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, foreignScope)))
       .toMatchObject({ reason: "compositionMismatch" });
     const prepared = await runEffect(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, capture));
+    const finiteInput = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId };
+    expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(foreignGuard, capture, finiteInput)))
+      .toMatchObject({ reason: "compositionMismatch" });
+    expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, { ...capture }, finiteInput)))
+      .toMatchObject({ reason: "notIssued" });
+    expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, capture,
+      { ...finiteInput, scopeId: ScopeIdSchema.make("scope_captured_head_foreign") })))
+      .toMatchObject({ reason: "compositionMismatch" });
+    const finitePrepared = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, capture, finiteInput));
     await runEffect(installAppSchemaCandidateValidationEffect(candidateValidation, input(fixture, fixture.schemaVersionId)));
     await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
       const freshClock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
       expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx, guard, prepared,
         authority, freshClock, CommitSeqSchema.make(1n), []))).toMatchObject({ reason: "concurrentStateChange" });
+      expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx, guard, finitePrepared,
+        authority, freshClock, CommitSeqSchema.make(1n), []))).toMatchObject({ reason: "concurrentStateChange" });
     })));
+    await runEffect(retained.close);
+    expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, capture, finiteInput)))
+      .toMatchObject({ reason: "compositionMismatch" });
   });
 
   it("advances the selected shop when another scope shares its deployment", async () => {

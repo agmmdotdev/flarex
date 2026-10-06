@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { copyBytesToArrayBuffer, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1, prepareApplicationMutationGrantV1,
   assembleApplicationMutationGrantJwsV1, createApplicationMutationGrantVerifierNamespaceV1, verifyApplicationMutationGrantV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
 import type { ApplicationMutationGrantVerificationKeyV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
@@ -27,6 +28,7 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   requestKey: string;
   grantId: string;
   validatedArgsJson?: Readonly<{ body: string }>;
+  grantLifetimeMilliseconds?: number;
 }>): Promise<PreparedApplicationMutationSessionActivationV1 & Readonly<{
   verificationKey: ApplicationMutationGrantVerificationKeyV1;
 }>> {
@@ -40,10 +42,14 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
   requestKey: string;
   grantId: string;
   validatedArgsJson?: Readonly<{ body: string }>;
+  grantLifetimeMilliseconds?: number;
 }>): Promise<Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection"> & Readonly<{
   verificationKey: ApplicationMutationGrantVerificationKeyV1;
 }>> {
   const now = Date.now();
+  const grantLifetimeMilliseconds = input.grantLifetimeMilliseconds ?? 5 * 60_000;
+  if (!isPositiveSafeInteger(grantLifetimeMilliseconds) || grantLifetimeMilliseconds > 5 * 60_000)
+    throw new RangeError("Grant fixture lifetime must be between one millisecond and five minutes");
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(input.deploymentId);
   const policyVersion = TransactionPolicyVersionV1Schema.make("policy_point_mutation_v1");
   const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({ policyVersion, auth: { kind: "anonymous" },
@@ -62,7 +68,7 @@ export async function applicationMutationActivationEvidenceFixture(input: Readon
     policyVersion, identityAccessPolicy: policy, validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     validatedArgsSha256: encodeBytesToLowercaseHex(validatedArgsSha256), requestKey, requestSha256: encodeBytesToLowercaseHex(requestSha256),
     issuedAt: TransactionGrantTimestampV1Schema.make(new Date(now - 60_000).toISOString()),
-    expiresAt: TransactionGrantTimestampV1Schema.make(new Date(now + 5 * 60_000).toISOString()),
+    expiresAt: TransactionGrantTimestampV1Schema.make(new Date(now + grantLifetimeMilliseconds).toISOString()),
     authorizationRevocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(0n) }));
   const keys = await globalThis.crypto.subtle.generateKey("Ed25519", false, ["sign", "verify"]);
   if (!("privateKey" in keys) || !("publicKey" in keys)) throw new Error("Expected Ed25519 key pair");

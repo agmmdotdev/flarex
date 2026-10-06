@@ -1,3 +1,4 @@
+import { fxSystemIndexMaintenanceObligations } from "../src/schema";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -15,9 +16,10 @@ import type { FlarexPersistence } from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { advanceUnboundUniqueCoverageInTransactionEffect } from "../src/appUniqueConstraintSetBuildV1";
 import { locateAppIndexDefinitionByIdEffect } from "../src/appIndexDefinitions";
-import { decodeIndexBuildStateRowResult } from "../src/indexBuildStates";
+import { decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate } from "../src/indexBuildStates";
 import { materializeApplicationDocumentRows } from "../src/applicationDocumentMaterialization/materialization";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { fxControlIndexDefinitions, fxControlTables, fxSystemIndexBuildStates,
   fxSystemScopeClocks, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
@@ -50,8 +52,12 @@ async function proveFencedUniqueCoverageBatch(persistence: TestPersistence) {
     .orderBy(asc(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId));
 
   const initial = await selected();
-  await persistence.drizzle.transaction(tx => Effect.runPromise(
-    advanceUnboundUniqueCoverageInTransactionEffect(tx, initial, CommitSeqSchema.make(1n))));
+  await persistence.drizzle.transaction(async tx => {
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      return await Effect.runPromise(advanceUnboundUniqueCoverageInTransactionEffect(tx, initial, CommitSeqSchema.make(1n)));
+    } finally { closeInstallationAdmission(tx); }
+  });
   expect((await coverage()).map(row => row.coveredThroughCommitSeq)).toEqual(ids.map(() => 1n));
 
   await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ coveredThroughCommitSeq: CommitSeqSchema.make(0n) })
@@ -61,8 +67,12 @@ async function proveFencedUniqueCoverageBatch(persistence: TestPersistence) {
   await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(2n) })
     .where(and(eq(fxSystemUniqueConstraintBuilds.scopeId, scopeId),
       eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, lastId)));
-  await expect(persistence.drizzle.transaction(tx => Effect.runPromise(
-    advanceUnboundUniqueCoverageInTransactionEffect(tx, stale, CommitSeqSchema.make(1n)))))
+  await expect(persistence.drizzle.transaction(async tx => {
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      return await Effect.runPromise(advanceUnboundUniqueCoverageInTransactionEffect(tx, stale, CommitSeqSchema.make(1n)));
+    } finally { closeInstallationAdmission(tx); }
+  }))
     .rejects.toMatchObject({ reason: "concurrentStateChange" });
   expect((await coverage()).map(row => row.coveredThroughCommitSeq)).toEqual(ids.map(() => 0n));
 
@@ -70,8 +80,12 @@ async function proveFencedUniqueCoverageBatch(persistence: TestPersistence) {
   await persistence.drizzle.delete(fxSystemUniqueConstraintBuilds).where(and(
     eq(fxSystemUniqueConstraintBuilds.scopeId, scopeId),
     eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, lastId)));
-  await expect(persistence.drizzle.transaction(tx => Effect.runPromise(
-    advanceUnboundUniqueCoverageInTransactionEffect(tx, missing, CommitSeqSchema.make(1n)))))
+  await expect(persistence.drizzle.transaction(async tx => {
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      return await Effect.runPromise(advanceUnboundUniqueCoverageInTransactionEffect(tx, missing, CommitSeqSchema.make(1n)));
+    } finally { closeInstallationAdmission(tx); }
+  }))
     .rejects.toMatchObject({ reason: "concurrentStateChange" });
   expect((await coverage()).map(row => row.coveredThroughCommitSeq)).toEqual(ids.slice(0, 32).map(() => 0n));
 }
@@ -106,38 +120,48 @@ async function proveFencedIndexCoverageBatch(persistence: TestPersistence) {
   await persistence.drizzle.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
     .where(eq(fxSystemScopeClocks.scopeId, scopeId));
   const selected = async () => {
-    const builds = await persistence.drizzle.select().from(fxSystemIndexBuildStates)
+    const builds = await persistence.drizzle.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
       .where(eq(fxSystemIndexBuildStates.scopeId, scopeId)).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId));
     const members = [];
     for (const row of builds) {
       const definition = await Effect.runPromise(locateAppIndexDefinitionByIdEffect(
         persistence.drizzle, scopeId, row.indexDefinitionId));
       if (definition === null) throw new Error("Missing selected index definition");
-      const build = await Effect.runPromise(Effect.fromResult(decodeIndexBuildStateRowResult(row, scopeId, row.indexDefinitionId)));
+      const build = await Effect.runPromise(Effect.fromResult(decodeIndexBuildStateRowResult(row, scopeId, row.indexDefinitionId, row.maintenanceObligation)));
       members.push({ definition, build });
     }
     return members;
   };
-  const coverage = async () => (await persistence.drizzle.select().from(fxSystemIndexBuildStates)
+  const coverage = async () => (await persistence.drizzle.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
     .where(eq(fxSystemIndexBuildStates.scopeId, scopeId)).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)))
     .map(row => row.coveredThroughCommitSeq);
   const lastId = ids[64]!;
   const advance = (members: Awaited<ReturnType<typeof selected>>, damage?: "fence" | "missing") => persistence.drizzle.transaction(async tx => {
-    const clock = await Effect.runPromise(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId));
-    const complete = await materializeApplicationDocumentRows(tx, {
-      authorityPins: { deploymentId, scopeId, schemaVersionId,
-        snapshotToken: SnapshotTokenSchema.make({ scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }) }, rowIntents: [], dependencies: [],
-    }, CommitSeqSchema.make(2n), clock, [], members, [], [], [], [], "sourceBound", {}, true);
-    if (complete === undefined) throw new Error("Expected deferred coverage completion");
-    expect((await tx.select().from(fxSystemIndexBuildStates)).map(row => row.coveredThroughCommitSeq))
-      .toEqual(ids.map(() => 1n));
-    // Damage only after the real materializer has checked and lowered the
-    // baseline, so the final member refuses inside coverage completion.
-    const last = and(eq(fxSystemIndexBuildStates.scopeId, scopeId), eq(fxSystemIndexBuildStates.indexDefinitionId, lastId));
-    if (damage === "fence") await tx.update(fxSystemIndexBuildStates)
-      .set({ attemptFence: IndexBuildAttemptFenceSchema.make(2n) }).where(last);
-    if (damage === "missing") await tx.delete(fxSystemIndexBuildStates).where(last);
-    await complete();
+    await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+    try {
+      const clock = await Effect.runPromise(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId));
+      const complete = await materializeApplicationDocumentRows(tx, {
+        command: {
+          authorityPins: { deploymentId, scopeId, schemaVersionId,
+            snapshotToken: SnapshotTokenSchema.make({ scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }) }, rowIntents: [], dependencies: [],
+        },
+        commitSeq: CommitSeqSchema.make(2n), clock, loadedHeads: [], intrinsicBuilds: members,
+        developerIndexActions: [], developerBuilds: [], uniqueKeyActions: [], uniqueDefinitions: [],
+        canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {}, deferCoverage: true,
+      });
+      if (complete === undefined) throw new Error("Expected deferred coverage completion");
+      expect((await tx.select().from(fxSystemIndexBuildStates)).map(row => row.coveredThroughCommitSeq))
+        .toEqual(ids.map(() => 1n));
+      // Damage only after the real materializer has checked and lowered the
+      // baseline, so the final member refuses inside coverage completion.
+      const last = and(eq(fxSystemIndexBuildStates.scopeId, scopeId), eq(fxSystemIndexBuildStates.indexDefinitionId, lastId));
+      if (damage === "fence") await tx.update(fxSystemIndexBuildStates)
+        .set({ attemptFence: IndexBuildAttemptFenceSchema.make(2n) }).where(last);
+      if (damage === "missing") await tx.delete(fxSystemIndexBuildStates).where(last);
+      await complete();
+    } finally { closeInstallationAdmission(tx); }
   });
   await advance(await selected());
   expect(await coverage()).toEqual(ids.map(() => 2n));

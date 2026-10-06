@@ -125,7 +125,7 @@ export interface PublicationPerformanceSample {
   readonly observationFailures: number;
   readonly cleanupFailures: readonly Readonly<{ name: string; code: string | null; reason: string | null }>[];
   readonly unmatchedEdges: number;
-  readonly sealedJournalBytes: number | null;
+  readonly canonicalResultBytes: number | null;
   readonly workerConstructionMs: number | null;
   readonly intervals: readonly PublicationInterval[];
   readonly phases: ReturnType<typeof publicationPhaseSummary>;
@@ -252,6 +252,6 @@ export function renderPublicationPerformanceReport(report: PublicationPerformanc
   }
   lines.push("", "Per-sample raw owner intervals retain overlap and SQL intersections. Phase unions are computed within each sample; percentiles are never added or subtracted.", "",
     "Original demands and actual batch observations are distinct from net committed effects. Counts and batch events describe separate levels; do not sum them. Writes are provisional until real COMMIT. Server diagnostics, when present, remain a separate charged lane with partial nested coverage; CPU and lock costs remain unavailable.", "",
-    "Failed samples remain in original order. Complete-attempt timings include request admission, Worker execution, seal/finishing/publication and fixture cleanup; setup is separate.", "");
+    "Failed samples remain in original order. Complete-attempt timings include request admission, Worker execution, local freeze, final publication and fixture cleanup; setup is separate.", "");
   return lines.join("\n");
 }

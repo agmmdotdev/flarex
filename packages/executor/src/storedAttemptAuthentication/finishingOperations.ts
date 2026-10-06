@@ -96,6 +96,13 @@ export class PointCommitKnownSettledSqlRetryExhaustedV1Error
     ];
   }> {}
 
+const exhaustedSqlRefusals = new WeakMap<PointCommitKnownSettledSqlRetryExhaustedV1Error,
+  PointCommitConfirmedPreDecisionRollbackV1Error>();
+
+/** Retains the actual publisher-issued final rollback, never reconstructed proof. */
+export const readPointCommitSqlRetryTerminalRefusal = (failure: PointCommitKnownSettledSqlRetryExhaustedV1Error) =>
+  exhaustedSqlRefusals.get(failure);
+
 /** Private O08-D terminal evidence. It carries no command or rerun authority. */
 export class PointCommitUncertainOutcomeUnresolvedV1Error
   extends Data.TaggedError(
@@ -122,7 +129,7 @@ type PointCommitOutcomeLookupSqlFailureV1 = Extract<
   | { readonly _tag: "CommittedPointOutcomeSqlErrorV1" }
 >;
 
-type PointCommitKnownSettledSqlPublicationV1Error =
+export type PointCommitKnownSettledSqlPublicationV1Error =
   | Exclude<
       PointCommitPublicationV1Error,
       PointCommitConfirmedPreDecisionRollbackV1Error
@@ -159,13 +166,12 @@ export interface StoredPointCommitKnownSettledPublicationOperationsV1 {
     PublishCapturedFinishingPointCommitV1;
 }
 
-export function makeStoredPointCommitKnownSettledPublicationOperationsV1(
-  dependencies: StoredPointCommitKnownSettledPublicationDependenciesV1,
-): StoredPointCommitKnownSettledPublicationOperationsV1 {
-  const { pointCommit, captureOccConflictTicket } = dependencies;
-
+/** Confirmed transient SQL rollback retries the same captured publication,
+ * without replaying execution callbacks or weakening decision uncertainty. */
+export function publishPointCommitWithKnownSettledSqlRetry(
+  publication: Effect.Effect<PointCommitPublicationResultV1, PointCommitPublicationV1Error>,
+): Effect.Effect<PointCommitPublicationResultV1, PointCommitKnownSettledSqlPublicationV1Error> {
   type PublishKnownSettledPointCommitV1 = (
-    command: PointCommitPublicationCommandV1,
     state: PointCommitKnownSettledSqlRetryStateV1,
   ) => Effect.Effect<
     PointCommitPublicationResultV1,
@@ -176,8 +182,8 @@ export function makeStoredPointCommitKnownSettledPublicationOperationsV1(
   const publishKnownSettledPointCommit: PublishKnownSettledPointCommitV1 =
     Effect.fn(
       "StoredAttemptAuthentication.publishKnownSettledPointCommit",
-    )(function (command, state) {
-      return pointCommit.publish(command).pipe(
+    )(function (state) {
+      return publication.pipe(
         Effect.catchTag(
           "PointCommitConfirmedPreDecisionRollbackV1Error",
           (failure) => {
@@ -199,14 +205,13 @@ export function makeStoredPointCommitKnownSettledPublicationOperationsV1(
                 state.failures[1],
                 capturedFailure,
               ]);
-              return Effect.fail(
-                new PointCommitKnownSettledSqlRetryExhaustedV1Error({
-                  attempts: POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1,
-                  maximumAttempts:
-                    POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1,
-                  failures,
-                }),
-              );
+              const exhausted = new PointCommitKnownSettledSqlRetryExhaustedV1Error({
+                attempts: POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1,
+                maximumAttempts: POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1,
+                failures,
+              });
+              exhaustedSqlRefusals.set(exhausted, failure);
+              return Effect.fail(exhausted);
             }
             let nextState: PointCommitKnownSettledSqlRetryStateV1;
             if (state.attempt === 1) {
@@ -235,25 +240,26 @@ export function makeStoredPointCommitKnownSettledPublicationOperationsV1(
               yield* Effect.sleep(
                 Duration.millis(random * backoffUpperBoundMilliseconds),
               );
-              return yield* publishKnownSettledPointCommit(command, nextState);
+              return yield* publishKnownSettledPointCommit(nextState);
             });
           },
         ),
       );
     });
 
+  return publishKnownSettledPointCommit({ attempt: 1, failures: [] });
+}
+
+export function makeStoredPointCommitKnownSettledPublicationOperationsV1(
+  dependencies: StoredPointCommitKnownSettledPublicationDependenciesV1,
+): StoredPointCommitKnownSettledPublicationOperationsV1 {
+  const { pointCommit, captureOccConflictTicket } = dependencies;
+
   const publishCapturedFinishingPointCommit:
     PublishCapturedFinishingPointCommitV1 = Effect.fn(
       "StoredAttemptAuthentication.publishCapturedFinishingPointCommit",
     )(function* (finishing, prepared, command) {
-      const failures: readonly [] = [];
-      return yield* publishKnownSettledPointCommit(
-        command,
-        Object.freeze({
-          attempt: 1,
-          failures: Object.freeze(failures),
-        }),
-      ).pipe(
+      return yield* publishPointCommitWithKnownSettledSqlRetry(pointCommit.publish(command)).pipe(
         Effect.tapErrorTag(
           "PointCommitConflictV1Error",
           (error) => Effect.sync(() => {

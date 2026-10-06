@@ -115,8 +115,8 @@ export const captureHostPreparationLifetime = Effect.fn("PreparedHostRuntime.cap
     checkOpen: allocation.value.checkOpen }) : undefined;
 });
 
-/** Source-private resource owner. Public methods must delegate through use and
- * must never capture the implementation returned by construction themselves. */
+/** Source-private resource owner. Public methods delegate through use; explicit
+ * metadata reconstruction borrows the same retained construction allocation. */
 export const retainPreparedHost = Effect.fn("PreparedHostRuntime.retain")(
   function* <Value extends object, Failure, Requirements>(
     runtime: PreparedHostRuntime,
@@ -207,6 +207,7 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
       Effect.suspend(() => {
         if (owner.closed || closing || value === undefined)
           return Effect.fail(error("closed"));
+        if (rejected !== undefined) return Effect.fail(rejected);
         active++;
         return Effect.succeed(value);
       }),
@@ -217,7 +218,16 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
           return finish;
         }),
     );
-  return { charge, chargeResult, checkOpen, abandon, install, access: Object.freeze({ use, close, readUsage }) };
+  const reconstruct = <A, E, R>(
+    work: (host: Value) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | PreparedHostRuntimeError, R> =>
+    use(host => Effect.suspend(() => work(host)).pipe(
+      Effect.provideService(PreparationCharge, { charge, chargeResult, checkOpen }),
+      // A callback may catch a charge refusal, or close may start during its
+      // work. Neither permits a newly constructed capability to escape.
+      Effect.tap(() => Effect.fromResult(checkOpen())),
+    ));
+  return { charge, chargeResult, checkOpen, abandon, install, access: Object.freeze({ use, reconstruct, close, readUsage }) };
 });
 
 /** Bounded structural payload accounting. Repeated references are deliberately

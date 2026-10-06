@@ -1,6 +1,6 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { Data, Effect, Exit, Result } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import type {
   StoredOccExecutionEvidenceAuthorityV1,
@@ -55,10 +55,6 @@ import {
   type VerifyCommitAuthorityEvidenceForOccExecutionV1,
   requireOccExecutionEvidenceEffect,
 } from "./occRerunExecutionOperations";
-import type { AuthenticatedFiniteInitialEntry, PrepareFiniteInitialEntry } from "./exactPointMutationExecutionOperations";
-import { InvalidStoredAttemptAuthorityV1Error } from "./authenticationErrors";
-import { InvalidPointMutationJournalCapabilityV1Error } from "../pointMutationJournal";
-import { InvalidPreparedPointCommitV1Error } from "./planningOperations";
 
 export class PointMutationInitialExecutionAuthorityV1Error
   extends Data.TaggedError("PointMutationInitialExecutionAuthorityV1Error")<{
@@ -93,13 +89,11 @@ export interface InitialPointMutationExecutionOperationDependenciesV1<
     VerifyCommitAuthorityEvidenceForOccExecutionV1<VerificationError>;
   readonly executeExactPointMutationAttempt:
     ExecuteExactPointMutationAttemptKernelV1<KernelError>;
-  readonly prepareFiniteInitialEntry: PrepareFiniteInitialEntry;
   readonly publicationResultFromCommittedOutcome:
     PublicationResultFromCommittedOutcomeV1;
 }
 
 interface CreatedActivatedPointMutationSessionStateV1 {
-  readonly finiteEntry?: ActivatedPointMutationSessionStateV1["finiteEntry"];
   readonly inspection: Extract<
     ActivatedPointMutationSessionStateV1["inspection"],
     { readonly status: "created" }
@@ -110,26 +104,11 @@ interface CreatedActivatedPointMutationSessionStateV1 {
   >;
 }
 
-export function makeInitialPointMutationExecutionOperationsV1<
-  VerificationError extends PointMutationInitialExecutionV1Error,
-  KernelError extends PointMutationInitialExecutionV1Error,
->(
-  dependencies: InitialPointMutationExecutionOperationDependenciesV1<
-    VerificationError,
-    KernelError
-  >,
-): Pick<PointMutationInitialExecutionV1, "executeInitialPointMutationAttempt" | "runAuthenticatedFiniteInitialEntry"> {
-  const {
-    rerun,
-    executionClaimAdmission,
-    executionLiveness,
-    executionEvidence,
-    verifyCommitAuthorityEvidence,
-    executeExactPointMutationAttempt,
-    prepareFiniteInitialEntry,
-    publicationResultFromCommittedOutcome,
-  } = dependencies;
-
+export function makeAuthenticatedInitialEntryRunner<VerificationError extends PointMutationInitialExecutionV1Error>(
+  dependencies: Pick<InitialPointMutationExecutionOperationDependenciesV1<VerificationError, never>,
+    "executionClaimAdmission" | "executionLiveness" | "executionEvidence" | "verifyCommitAuthorityEvidence">,
+) {
+  const { executionClaimAdmission, executionLiveness, executionEvidence, verifyCommitAuthorityEvidence } = dependencies;
   const runAuthenticatedInitialEntry = Effect.fn("StoredAttemptAuthentication.runAuthenticatedInitialEntry")(
     function* <A, E, R>(activated: ActivatedPointMutationSessionV1,
       work: (input: ExecuteExactPointMutationAttemptInputV1<PointMutationOccExecutionAuthorityCorruptionV1Error,
@@ -140,6 +119,8 @@ export function makeInitialPointMutationExecutionOperationsV1<
         const activatedState = yield* Effect.fromResult(
           inspectActivatedInitialState(activated),
         );
+        if (activatedState.inspection.anchor.executionProfile !== "durableOperations")
+          return yield* Effect.fail(new InvalidActivatedPointMutationSessionV1Error());
         const executionScope = yield* Effect.fromResult(
           executionClaimAdmission.admit(
             activatedState.executionClaim,
@@ -164,7 +145,7 @@ export function makeInitialPointMutationExecutionOperationsV1<
                 claim.observation,
               );
               const loadResult = yield* executionEvidence
-                .loadEffect(executionAuthority, activatedState.finiteEntry?.capture)
+                .loadEffect(executionAuthority)
                 .pipe(
                   Effect.mapError(
                     (
@@ -192,7 +173,6 @@ export function makeInitialPointMutationExecutionOperationsV1<
                 loadedExecutionEvidence,
               );
               return yield* work({
-                ...(activatedState.finiteEntry === undefined ? {} : { confirmedInitialActivation: activated }),
                 selector: Object.freeze({
                   deploymentId: anchor.deploymentId,
                   scopeId: anchor.scopeId,
@@ -221,6 +201,26 @@ export function makeInitialPointMutationExecutionOperationsV1<
 
     });
 
+  return runAuthenticatedInitialEntry;
+}
+
+export function makeInitialPointMutationExecutionOperationsV1<
+  VerificationError extends PointMutationInitialExecutionV1Error,
+  KernelError extends PointMutationInitialExecutionV1Error,
+>(
+  dependencies: InitialPointMutationExecutionOperationDependenciesV1<
+    VerificationError,
+    KernelError
+  >,
+): Pick<PointMutationInitialExecutionV1, "executeInitialPointMutationAttempt"> {
+  const {
+    rerun,
+    executeExactPointMutationAttempt,
+    publicationResultFromCommittedOutcome,
+  } = dependencies;
+
+  const runAuthenticatedInitialEntry = makeAuthenticatedInitialEntryRunner(dependencies);
+
   const executeInitialPointMutationAttempt:
     PointMutationInitialExecutionV1["executeInitialPointMutationAttempt"] =
       Effect.fn(
@@ -245,31 +245,10 @@ export function makeInitialPointMutationExecutionOperationsV1<
         }
       });
 
-  const runAuthenticatedFiniteInitialEntry: PointMutationInitialExecutionV1["runAuthenticatedFiniteInitialEntry"] =
-    Effect.fn("StoredAttemptAuthentication.runAuthenticatedFiniteInitialEntry")(function* (activated, work) {
-      const state = getActivatedPointMutationSessionStateV1(activated);
-      if (state?.finiteEntry === undefined || state.finiteEntry.executionClaim !== state.executionClaim)
-        return yield* Effect.fail(new InvalidActivatedPointMutationSessionV1Error());
-      return yield* runAuthenticatedInitialEntry(activated, input => Effect.gen(function* () {
-        const prepared = yield* prepareFiniteInitialEntry(input);
-        let open = true;
-        return yield* Effect.suspend(() => work(Object.freeze({ runnerInput: prepared.runnerInput, journalAttempt: prepared.journalAttempt,
-          deriveStoredAuthority: Effect.suspend(() => open ? prepared.deriveStoredAuthority
-            : Effect.fail(new InvalidStoredAttemptAuthorityV1Error({ reason: "notProcessLocal" }))),
-          reopenJournalAttempt: Effect.suspend(() => open ? prepared.reopenJournalAttempt
-            : Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }))),
-          enterFinishing: (plan: Parameters<AuthenticatedFiniteInitialEntry["enterFinishing"]>[0]) => Effect.suspend(() => open ? prepared.enterFinishing(plan)
-            : Effect.fail(new InvalidPreparedPointCommitV1Error({ reason: "notRunning" }))),
-        }))).pipe(
-          Effect.onExit(exit => Exit.isSuccess(exit) ? Effect.void : Effect.uninterruptible(prepared.cleanupOnFailure)),
-          Effect.ensuring(Effect.sync(() => { open = false; })),
-        );
-      }));
-    });
-  return Object.freeze({ executeInitialPointMutationAttempt, runAuthenticatedFiniteInitialEntry });
+  return Object.freeze({ executeInitialPointMutationAttempt });
 }
 
-function inspectActivatedInitialState(
+export function inspectActivatedInitialState(
   value: ActivatedPointMutationSessionV1,
 ): Result.Result<
   CreatedActivatedPointMutationSessionStateV1,
@@ -292,7 +271,6 @@ function inspectActivatedInitialState(
     inspection: state.inspection,
     prepared: state.prepared,
     executionClaim: state.executionClaim,
-    ...(state.finiteEntry === undefined ? {} : { finiteEntry: state.finiteEntry }),
   }));
 }
 
@@ -338,7 +316,7 @@ function captureInitialExecutionAuthority(
   });
 }
 
-function captureInitialVerificationState(
+export function captureInitialVerificationState(
   state: CreatedActivatedPointMutationSessionStateV1,
 ): Result.Result<
   CommitAuthorityVerificationStateV1,
@@ -364,7 +342,7 @@ function captureInitialVerificationState(
   );
 }
 
-function captureInitialSessionScalars(
+export function captureInitialSessionScalars(
   anchor: PointMutationSessionAnchorV1,
   evidence: ActivatedPointMutationSessionStateV1["prepared"]["evidence"],
 ): Result.Result<

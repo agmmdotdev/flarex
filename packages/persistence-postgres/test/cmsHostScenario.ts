@@ -1,4 +1,5 @@
 import { selectScopeClockRows } from "../src/scopeClock";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../src/installationLifecycle";
 import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
@@ -164,22 +165,21 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   const initial = await inventory();
   const enabledBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
   expect(enabledBuilds.length).toBeGreaterThan(0);
-  expect(enabledBuilds.every(build => build.maintenanceBytes !== null)).toBe(true);
+  expect(enabledBuilds.every(build => build.maintenanceActivationSequence !== null)).toBe(true);
   const uniqueBuilds = await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId);
   expect(uniqueBuilds.length).toBeGreaterThan(0);
-  expect(uniqueBuilds.every(build => build.maintenanceBytes !== null)).toBe(true);
+  expect(uniqueBuilds.every(build => build.maintenanceActivationSequence !== null)).toBe(true);
   const uniqueBuild = uniqueBuilds[0];
   if (uniqueBuild === undefined) throw new Error("Expected unique build");
   const uniqueIdentity = and(eq(fxSystemUniqueConstraintBuilds.scopeId, uniqueBuild.scopeId),
     eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, uniqueBuild.uniqueConstraintDefinitionId));
-  await expect(persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: null }).where(uniqueIdentity)).rejects.toBeDefined();
-  await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: null, maintenanceSha256: null, maintenanceActivationSequence: null }).where(uniqueIdentity);
+  await expect(persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: (uniqueBuild.maintenanceActivationSequence ?? 0n) + 1n }).where(uniqueIdentity)).rejects.toBeDefined();
+  await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: null }).where(uniqueIdentity);
   try {
     expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), create, { title: "uncertified" }))))).toBe(true);
     expect(await inventory()).toEqual(initial);
   } finally {
-    await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: uniqueBuild.maintenanceBytes,
-      maintenanceSha256: uniqueBuild.maintenanceSha256, maintenanceActivationSequence: uniqueBuild.maintenanceActivationSequence }).where(uniqueIdentity);
+    await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceActivationSequence: uniqueBuild.maintenanceActivationSequence }).where(uniqueIdentity);
     callbacks = 0;
   }
   await assertCmsParticipantAdmission(input);
@@ -299,23 +299,28 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   const beforeBounds = await inventory();
   const rollbackProbe = new Error("Rollback bounded-read fixture");
   await expect(persistence.drizzle.transaction(async tx => {
-    const locked = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId));
-    const snapshotCommitSeq = locked.lastCommitSeq;
-    const bounds = { scopeId: fixture.authority.scopeId, tableId: posts.tableId, minimumCommitSeq: snapshotCommitSeq,
-      maximumIdentities: 256, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576 };
-    const seed = async (ordinal: number) => {
-      const rowId = decodeAppRowIdHexV1(ordinal.toString(16).padStart(32, "0"));
-      const creationTime = decodeAppCreationTimeV1(ordinal);
-      const document = await canonicalizeAppDocumentV1({ tableId: posts.tableId, rowId, creationTime, fields: { title: `bounded-${ordinal}` } });
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, { kind: "live", scopeId: fixture.authority.scopeId,
-        tableId: posts.tableId, rowId, writeEpoch: fixture.authority.epoch, commitSeq: snapshotCommitSeq, prevCommitSeq: null,
-        schemaVersionId: fixture.relation.binding.schemaVersionId, creationTime, value: document });
-    };
-    for (let count = beforeBounds.rows.length; count < 256; count += 1) await seed(100_000 + count);
-    expect((await runEffect(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).rows).toHaveLength(256);
-    await seed(200_000);
-    expect(await runEffectFailure(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
-    throw rollbackProbe;
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      const locked = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId));
+      const snapshotCommitSeq = locked.lastCommitSeq;
+      const bounds = { scopeId: fixture.authority.scopeId, tableId: posts.tableId, minimumCommitSeq: snapshotCommitSeq,
+        maximumIdentities: 256, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576 };
+      const seed = async (ordinal: number) => {
+        const rowId = decodeAppRowIdHexV1(ordinal.toString(16).padStart(32, "0"));
+        const creationTime = decodeAppCreationTimeV1(ordinal);
+        const document = await canonicalizeAppDocumentV1({ tableId: posts.tableId, rowId, creationTime, fields: { title: `bounded-${ordinal}` } });
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, { kind: "live", scopeId: fixture.authority.scopeId,
+          tableId: posts.tableId, rowId, writeEpoch: fixture.authority.epoch, commitSeq: snapshotCommitSeq, prevCommitSeq: null,
+          schemaVersionId: fixture.relation.binding.schemaVersionId, creationTime, value: document });
+      };
+      for (let count = beforeBounds.rows.length; count < 256; count += 1) await seed(100_000 + count);
+      expect((await runEffect(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).rows).toHaveLength(256);
+      await seed(200_000);
+      expect(await runEffectFailure(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
+      throw rollbackProbe;
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   })).rejects.toBe(rollbackProbe);
   for (const aggregate of [false, true]) {
     await expect(persistence.drizzle.transaction(async tx => {

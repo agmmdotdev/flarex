@@ -167,8 +167,8 @@ native("protected target first-fill rollback integrity", () => {
         const early = timing === "after-capture"
           ? await Effect.runPromise(prepareApplicationBindingSelection(fixture.application.activation)) : undefined;
         try {
-          await target.update(fxSystemIndexBuildStates).set({ lifecycle: "validating",
-            maintenanceActivationSequence: null, maintenanceBytes: null, maintenanceSha256: null }).where(subject);
+          await fixture.testOwner.drizzle.update(fxSystemIndexBuildStates).set({ lifecycle: "validating",
+            maintenanceActivationSequence: null, }).where(subject);
           const request = early ?? await Effect.runPromise(prepareApplicationBindingSelection(fixture.application.activation));
           const lineage = Result.getOrThrow(readApplicationBindingTargetProtection(request));
           expect(lineage.protection).toBeDefined();
@@ -185,7 +185,7 @@ native("protected target first-fill rollback integrity", () => {
             } finally { closeProtectedMetadataFinalGuardScope(tx); }
           })).rejects.toMatchObject({ _tag: "ApplicationReadinessError", operation: "settle", reason: "authorityChanged" });
           expect(entered).toBe(0);
-        } finally { await target.update(fxSystemIndexBuildStates).set(original).where(subject); }
+        } finally { await fixture.testOwner.drizzle.update(fxSystemIndexBuildStates).set(original).where(subject); }
       }
     } finally { for (const close of cleanup.reverse()) await close(); }
   }, 180_000);

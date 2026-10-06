@@ -769,35 +769,23 @@ describe("O03-B1 point-mutation session activation", () => {
     });
   });
 
-  it("pins finite roots durably and forbids same-fence execution after claim loss", async () => {
-    const context = await provisionContext("finite_root_claim_takeover");
+  it("refuses bare finite activation without allocating a session or legacy children", async () => {
+    const context = await provisionContext("finite_root_bare_activation");
     const input = pointMutationSessionActivationFixture(context.deploymentId, context.scopeId,
       { executionProfile: "finiteRoot" });
     const activation = activationPersistence();
-    const current = await activatePointMutationSession(activation, input);
-    expect(current.status).toBe("created");
-    if (current.status !== "created") throw new Error("Expected a finite root activation");
-    expect(current.anchor.executionProfile).toBe("finiteRoot");
-    const stored = await persistence.query<{ execution_profile: string }>(
-      "select execution_profile from fx_system_tx_journal where session_id = $1",
-      [current.anchor.sessionId]);
-    expect(stored.rows).toEqual([{ execution_profile: "finiteRoot" }]);
-    await expect(persistence.query(
-      "update fx_system_tx_journal set execution_profile = 'durableOperations' where session_id = $1",
-      [current.anchor.sessionId])).rejects.toThrow();
-    await expect(activatePointMutationSession(activation,
-      { ...input, executionProfile: "durableOperations" })).rejects.toMatchObject({
-        issue: { reason: "requestKeyConflict" },
-      });
-
-    await expireExecutionClaim(current.anchor.sessionId);
-    const acquired = await runEffect(
-      executionClaimAcquisition("42000000-0000-4000-8000-000000008004")
-        .acquireEffect(selectorFromAnchor(current.anchor)));
-    expect(acquired).toMatchObject({
-      kind: "acquired", mode: "abortOnly", reason: "dirtyOpen",
-      observation: { claimFence: 2n },
+    const before = await rowCounts(persistence, context.scopeId);
+    // Finite admission needs the genuine prepared Application entry issuer.
+    // The primitive ordinary activation port cannot manufacture that lifetime.
+    expect(await runFailure(activation.activateEffect(input))).toMatchObject({
+      _tag: "PointMutationSessionActivationV1Error",
+      issue: { reason: "invalidPreparedEvidence" },
     });
+    expect(await rowCounts(persistence, context.scopeId)).toEqual(before);
+    const current = await activatePointMutationSession(activation,
+      { ...input, executionProfile: "durableOperations" });
+    expect(current.status).toBe("created");
+    expect(current.anchor.executionProfile).toBe("durableOperations");
   });
 
   it("keeps acquisition configuration and authority-resolution failures in their owning channels", async () => {

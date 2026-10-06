@@ -1,5 +1,6 @@
 import type { AppIndexMembershipHeadEvidence } from "../appIndexEntries";
 import type { PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
+import type { LogicalSearchDefinition, LogicalSearchChange } from "../logicalDocuments/searchEntries";
 import {
   PointCommitCorruptionV1Error,
   PointCommitSqlFailureMarkerV1,
@@ -11,8 +12,6 @@ import {
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
-  type CatalogIndexDefinitionId,
-  type CatalogUniqueConstraintDefinitionId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import { type LogicalReadDependencyV1 } from "flarex-protocol/commit-protocol";
@@ -37,7 +36,6 @@ import { type AppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraint
 import { type LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 
 import {
-  type AppUniqueKeyProjectionV1,
   type CanonicalAppUniqueKeyV1,
 } from "../appUniqueKeyContract";
 
@@ -117,6 +115,11 @@ export interface ApplicationDocumentMaterializationOptions {
       readonly params: ReadonlyArray<unknown>;
     }>,
   ) => void;
+}
+
+export interface ApplicationDocumentSearchContribution {
+  readonly definitions: readonly LogicalSearchDefinition[];
+  readonly changes: readonly LogicalSearchChange[];
 }
 
 /** Trusted command observations can originate in distinct statement snapshots. */
@@ -207,6 +210,12 @@ export interface LoadedPointCommitHeadV1 {
   readonly creationTime: AppCreationTimeV1 | null;
 }
 
+/** Driver evidence stays deferred until normal finite OCC and liveness finish. */
+export interface FinitePointCommitHeads {
+  readonly heads: readonly LoadedPointCommitHeadV1[];
+  readonly predecessorRows: readonly unknown[];
+}
+
 export type PreparedPointCommitApplicationRelationPlan = Readonly<{
   readonly port: ApplicationRelationCommitPort;
   readonly prepared: PreparedApplicationRelationCommit;
@@ -221,11 +230,6 @@ export type PointCommitApplicationRelationMaintenanceError =
 export interface LockedPointCommitDeveloperIndexV1 {
   readonly definition: LocatedAppIndexDefinitionV1;
   readonly build: IndexBuildStateRecord;
-}
-
-export interface PointCommitDeveloperIndexEntryHeadV1 {
-  readonly commitSeq: CommitSeq | null;
-  readonly isTombstone: boolean | null;
 }
 
 export interface PointCommitDeveloperIndexEntryActionV1 {
@@ -257,36 +261,15 @@ export interface PointCommitUniqueKeyPlanV1 {
   readonly definition: LocatedAppUniqueConstraintDefinitionV1;
   readonly rowId: AppRowIdHexV1;
   readonly rowPrevCommitSeq: CommitSeq | null;
-  readonly previousProjection: AppUniqueKeyProjectionV1 | null;
   readonly previousCanonical: CanonicalAppUniqueKeyV1 | null;
-  readonly nextProjection: AppUniqueKeyProjectionV1 | null;
   readonly nextCanonical: CanonicalAppUniqueKeyV1 | null;
-}
-
-export interface PointCommitUniqueKeyOwnerV1 {
-  readonly encodedKey: OrderedIndexKeyHexV1;
-}
-
-export interface PointCommitUniqueKeyOwnerPositionV1 {
-  readonly definitionId: CatalogUniqueConstraintDefinitionId;
-  readonly tableId: CatalogTableId;
-  readonly rowId: AppRowIdHexV1;
 }
 
 export interface PointCommitUniqueKeyActionV1 {
   readonly phase: "release" | "claim";
   readonly definition: LocatedAppUniqueConstraintDefinitionV1;
   readonly rowId: AppRowIdHexV1;
-  readonly previous: AppUniqueKeyProjectionV1 | null;
-  readonly next: AppUniqueKeyProjectionV1 | null;
   readonly sortKey: OrderedIndexKeyHexV1;
-}
-
-export interface PointCommitDeveloperIndexPositionV1 {
-  readonly definition: LocatedAppIndexDefinitionV1;
-  readonly definitionId: CatalogIndexDefinitionId;
-  readonly encodedKey: OrderedIndexKeyHexV1;
-  readonly rowId: OrderedIndexRowIdHexV1;
 }
 
 export interface LockedPointCommitIntrinsicIndexV1 {

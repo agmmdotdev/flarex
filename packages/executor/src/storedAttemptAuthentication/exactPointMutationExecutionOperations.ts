@@ -59,7 +59,6 @@ import type {
 import {
   getLoadedPointMutationSessionAttemptOccRerunInspectionV1,
 } from "../pointMutationSessionAttemptState";
-import { getActivatedPointMutationSessionStateV1 } from "../pointMutationSessionActivationState";
 import type {
   ApplicationPointMutationRunnerHostV1Error,
   CommitInputVerificationV1Error,
@@ -119,6 +118,7 @@ export class PointMutationOccUserCodeV1Error extends Data.TaggedError(
 )<{
   readonly cause: unknown;
 }> {}
+
 
 export class PointMutationOccApplicationErrorV1 extends Data.TaggedError(
   "PointMutationOccApplicationErrorV1",
@@ -201,28 +201,11 @@ export interface ExactPointMutationExecutionOperationDependenciesV1 {
 }
 
 export interface ExactPointMutationExecutionOperationsV1 {
-  readonly prepareFiniteInitialEntry: PrepareFiniteInitialEntry;
   readonly executeExactPointMutationAttempt:
     ExecuteExactPointMutationAttemptKernelV1<
       PointMutationAuthenticatedAttemptExecutionV1Error
     >;
 }
-
-export interface AuthenticatedFiniteInitialEntry {
-  readonly runnerInput: PointMutationOccRuntimeNeutralRunnerInputV1;
-  readonly journalAttempt: PointMutationJournalAttemptV1;
-  readonly deriveStoredAuthority: ReturnType<StoredAttemptAuthenticationV1["deriveAuthority"]>;
-  readonly reopenJournalAttempt: Effect.Effect<PointMutationJournalAttemptV1,
-    PointMutationSessionAttemptLoadingExecutionV1Error | PointMutationJournalBoundaryV1Error>;
-  readonly enterFinishing: StoredPointCommitFinishingTransitionV1["enterPointCommitFinishing"];
-}
-interface PreparedFiniteInitialEntry extends AuthenticatedFiniteInitialEntry {
-  readonly cleanupOnFailure: Effect.Effect<unknown, PointMutationAuthenticatedAttemptExecutionV1Error>;
-}
-export type PrepareFiniteInitialEntry = <InspectionUnavailableError, CurrentValidationError>(
-  input: Readonly<ExecuteExactPointMutationAttemptInputV1<InspectionUnavailableError, CurrentValidationError>>,
-) => Effect.Effect<PreparedFiniteInitialEntry,
-  PointMutationAuthenticatedAttemptExecutionV1Error | InspectionUnavailableError | CurrentValidationError>;
 
 export function makeExactPointMutationExecutionOperationsV1(
   dependencies: ExactPointMutationExecutionOperationDependenciesV1,
@@ -348,30 +331,10 @@ export function makeExactPointMutationExecutionOperationsV1(
         sessionId: input.selector.sessionId,
         attemptFence: input.selector.attemptFence.toString(),
       });
-      const confirmedActivation = input.confirmedInitialActivation;
-      const finiteState = confirmedActivation === undefined ? undefined : getActivatedPointMutationSessionStateV1(confirmedActivation);
-      const finiteEntry = finiteState?.finiteEntry;
-      if (confirmedActivation !== undefined && (finiteEntry === undefined || finiteEntry.journal !== journal ||
-        finiteEntry.executionClaim !== finiteState?.executionClaim || journal.inspectConfirmedFiniteEntry === undefined ||
-        journal.openConfirmedFiniteEntry === undefined)) return yield* Effect.fail(input.currentInspectionUnavailable());
-      const replacementEntry = input.confirmedReplacementEntry;
-      if (replacementEntry !== undefined) {
-        if (confirmedActivation !== undefined || journal.inspectConfirmedFiniteEntry === undefined ||
-          journal.openConfirmedFiniteEntry === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
-        const confirmedInspection = yield* Effect.fromResult(journal.inspectConfirmedFiniteEntry(
-          replacementEntry.capture, replacementEntry.preparation));
-        yield* input.validateCurrent(confirmedInspection);
-      }
-      const currentAttempt = confirmedActivation === undefined ? yield* loadCurrentAttempt : undefined;
-      const currentAuthority = currentAttempt ?? confirmedActivation;
-      if (currentAuthority === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
-      const currentInspection = currentAttempt === undefined
-        ? finiteEntry === undefined || journal.inspectConfirmedFiniteEntry === undefined ? undefined
-          : yield* Effect.fromResult(journal.inspectConfirmedFiniteEntry(finiteEntry.capture, finiteEntry.preparation))
-        : getLoadedPointMutationSessionAttemptOccRerunInspectionV1(currentAttempt);
-      if (currentInspection === undefined) {
-        return yield* Effect.fail(input.currentInspectionUnavailable());
-      }
+      const currentAttempt = yield* loadCurrentAttempt;
+      const currentAuthority = currentAttempt;
+      const currentInspection = getLoadedPointMutationSessionAttemptOccRerunInspectionV1(currentAttempt);
+      if (currentInspection === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
       yield* input.validateCurrent(currentInspection);
 
       return { currentAuthority, currentAttempt, runnerEvidence, entropy, loadCurrentAttempt };
@@ -383,46 +346,9 @@ export function makeExactPointMutationExecutionOperationsV1(
       prepared: Effect.Success<ReturnType<typeof prepareExecution>>) {
       const context = yield* Effect.fromResult(capturePointMutationOccExecutionContext(
         prepared.entropy, input.executionEvidence.creationTimeSeed, input.attemptFence, input.snapshotToken));
-      const finiteEntry = input.confirmedReplacementEntry ?? (input.confirmedInitialActivation === undefined ? undefined
-        : getActivatedPointMutationSessionStateV1(input.confirmedInitialActivation)?.finiteEntry);
-      const journalAttempt = finiteEntry !== undefined && journal.openConfirmedFiniteEntry !== undefined
-        ? yield* journal.openConfirmedFiniteEntry(finiteEntry.capture, finiteEntry.preparation, input.executionScope, finiteEntry.executionClaim)
-        : prepared.currentAttempt !== undefined ? yield* journal.openAttempt(prepared.currentAttempt, input.executionScope)
-        : yield* Effect.fail(input.currentInspectionUnavailable());
+      const journalAttempt = yield* journal.openAttempt(prepared.currentAttempt, input.executionScope);
       return Object.freeze({ journalAttempt, runnerInput: capturePointMutationOccRunnerInput(prepared.runnerEvidence,
         context, bindPointMutationOccJournal(journal, journalAttempt)) });
-    });
-
-  const prepareFiniteInitialEntry: PrepareFiniteInitialEntry = Effect.fn("StoredAttemptAuthentication.prepareFiniteInitialEntry")(
-    function* (input) {
-      if (input.confirmedInitialActivation === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
-      const prepared = yield* prepareExecution(input);
-      const abort = Effect.flatMap(prepared.loadCurrentAttempt,
-        attempt => terminalization.abort(attempt, input.executionScope));
-      const body = yield* abortOnPreFinishingFailure(prepareBody(input, prepared), abort);
-      let finishing = false;
-      let finishingRequested = false;
-      return Object.freeze({ ...body,
-        deriveStoredAuthority: deriveAuthority(prepared.currentAuthority, input.executionScope),
-        reopenJournalAttempt: attemptLoading.load({ deploymentId: input.selector.deploymentId, scopeId: input.selector.scopeId,
-          sessionId: input.selector.sessionId, attemptFence: String(input.selector.attemptFence) }).pipe(
-          Effect.flatMap(attempt => journal.openAttempt(attempt, input.executionScope))),
-        enterFinishing: (plan: Parameters<StoredPointCommitFinishingTransitionV1["enterPointCommitFinishing"]>[0]) =>
-          Effect.suspend(() => {
-            finishingRequested = true;
-            return input.liveness.enterFinishing(enterPointCommitFinishing(plan)).pipe(
-              Effect.tap(() => Effect.sync(() => { finishing = true; })),
-            );
-          }),
-        cleanupOnFailure: Effect.suspend(() => Effect.andThen(
-          journal.discardTentativeRoot(body.journalAttempt), finishing ? Effect.void : finishingRequested
-            // A refused transition can leave the attempt running. Resolve the
-            // durable state before deciding; a confirmed non-running observation
-            // belongs to finishing/recovery and must never be aborted here.
-            ? abort.pipe(Effect.catchTag("PointMutationSessionAttemptLoadV1Error", error =>
-              error.issue.reason === "attemptNotRunning" ? Effect.void : Effect.fail(error)))
-            : abort)),
-      });
     });
 
   const executeExactPointMutationAttempt:
@@ -511,7 +437,6 @@ export function makeExactPointMutationExecutionOperationsV1(
         const storedAttempt = yield* authenticate(
           storedAuthority,
           encodedEnvelope,
-          journal.confirmedSealCapture?.(journalAttempt),
         );
         const authenticatedAuthority = yield* authenticateCommitAuthority(
           storedAttempt,
@@ -552,24 +477,15 @@ export function makeExactPointMutationExecutionOperationsV1(
     });
 
   return Object.freeze({
-    prepareFiniteInitialEntry,
     executeExactPointMutationAttempt,
   } satisfies ExactPointMutationExecutionOperationsV1);
 }
 
-function capturePointMutationOccExecutionContext(
-  entropy: Readonly<{
-    readonly executionId: unknown;
-    readonly logScopeId: unknown;
-    readonly randomSeed: unknown;
-  }>,
-  creationTimeSeed: AppCreationTimeV1,
-  attemptFence: TransactionAttemptFence,
-  snapshotToken: SnapshotToken,
-): Result.Result<
-  PointMutationOccExecutionContextV1,
-  PointMutationOccExecutionContextV1Error
-> {
+export type PointMutationOccBaseExecutionContext = Pick<PointMutationOccExecutionContextV1, "executionId" | "logScopeId" | "randomSeed">;
+
+export function capturePointMutationOccBaseExecutionContext(entropy: Readonly<{
+  executionId: unknown; logScopeId: unknown; randomSeed: unknown;
+}>): Result.Result<PointMutationOccBaseExecutionContext, PointMutationOccExecutionContextV1Error> {
   if (!isNonBlankString(entropy.executionId)) {
     return Result.fail(
       new PointMutationOccExecutionContextV1Error({
@@ -591,17 +507,23 @@ function capturePointMutationOccExecutionContext(
       }),
     );
   }
-  return Result.succeed(
-    Object.freeze({
-      executionId: entropy.executionId,
-      logScopeId: entropy.logScopeId,
-      randomSeed: copyBytes(entropy.randomSeed),
-      executionTime: creationTimeSeed,
-      initialCreationTimeCursor: creationTimeSeed,
-      attemptFence,
-      snapshotToken: Object.freeze({ ...snapshotToken }),
-    }),
-  );
+  return Result.succeed(Object.freeze({ executionId: entropy.executionId, logScopeId: entropy.logScopeId,
+    randomSeed: copyBytes(entropy.randomSeed) }));
+}
+
+export function bindPointMutationOccExecutionContext(base: PointMutationOccBaseExecutionContext,
+  creationTimeSeed: AppCreationTimeV1, attemptFence: TransactionAttemptFence,
+  snapshotToken: SnapshotToken): PointMutationOccExecutionContextV1 {
+  return Object.freeze({ ...base, randomSeed: copyBytes(base.randomSeed), executionTime: creationTimeSeed,
+    initialCreationTimeCursor: creationTimeSeed, attemptFence, snapshotToken: Object.freeze({ ...snapshotToken }) });
+}
+
+export function capturePointMutationOccExecutionContext(entropy: Readonly<{
+  executionId: unknown; logScopeId: unknown; randomSeed: unknown;
+}>, creationTimeSeed: AppCreationTimeV1, attemptFence: TransactionAttemptFence,
+  snapshotToken: SnapshotToken): Result.Result<PointMutationOccExecutionContextV1, PointMutationOccExecutionContextV1Error> {
+  return capturePointMutationOccBaseExecutionContext(entropy).pipe(Result.map(base =>
+    bindPointMutationOccExecutionContext(base, creationTimeSeed, attemptFence, snapshotToken)));
 }
 
 export function bindPointMutationOccJournal(

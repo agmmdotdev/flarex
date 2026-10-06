@@ -24,7 +24,7 @@ import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactio
   IndexBuildStatePersistenceError, type IndexBuildStateRecord } from "../indexBuildStates";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
-import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import { IndexMaintenanceError } from "../indexMaintenanceModel";
 import { fxSystemIndexBuildStates } from "../schema";
 import { ScopePublicationCorruptionError, ScopePublicationReferenceCapacityError,
   ScopePublicationReferenceConstraintError, ScopePublicationSqlFailure } from "./scopePublicationModel";
@@ -195,7 +195,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       if (build.status !== "ready" || build.rows.length !== 1) return yield* Effect.fail(corruption("reference index is not enabled"));
       const buildRow = build.rows[0];
       if (buildRow === undefined) return yield* Effect.fail(corruption("reference index build row is missing"));
-      const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(buildRow, clock.scopeId, indexId))
+      const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(buildRow, clock.scopeId, indexId, buildRow.maintenanceObligation))
         .pipe(Effect.mapError(cause => corruption(cause)));
       const digest = yield* Effect.fromResult(decodeDigest(reference.reverseIndex.physicalSpecSha256Hex))
         .pipe(Effect.mapError(cause => corruption(cause)));

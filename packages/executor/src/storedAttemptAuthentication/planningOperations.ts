@@ -92,6 +92,7 @@ export class InvalidPreparedPointCommitV1Error extends Data.TaggedError(
     | "notFinishing"
     | "notRunning"
     | "executionClaimUnavailable"
+    | "unsupportedConflict"
     | "notSameFactory";
 }> {}
 
@@ -170,7 +171,6 @@ export function makeStoredPointCommitPlanningOperationsV1(
     }
     const loadResult = yield* configuration.evidenceLoader.loadEffect(
         captureCommitAuthorityPort(storedAttempt),
-        storedAttempt.terminalCapture,
       ).pipe(Effect.mapError((error) =>
         new StoredCommitAuthorityPersistenceV1Error({ cause: error.cause })
       ));

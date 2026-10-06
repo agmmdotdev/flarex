@@ -33,6 +33,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../src/appRows";
+import { runEffectTransaction } from "../src/effectTransaction";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
+import { fxSystemScopeClocks } from "../src/schema";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
@@ -758,20 +761,21 @@ describe("O08-A exact-attempt replacement", () => {
     if (intent?.kind !== "live") {
       throw new Error("O08-A conflict fixture requires one live intent.");
     }
-    const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
-    if (clock === null) throw new Error("Missing O08-A scope clock.");
     const document = await canonicalizeFlarexValueV1(
       intent.value,
       "appDocument",
     );
-    await persistence.drizzle.transaction((tx) =>
-      appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+    await runEffect(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
+      "Competing row fixture rollback", tx => Effect.gen(function* () {
+      const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, command.authorityPins.scopeId);
+      const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+      yield* Effect.tryPromise({ try: () => appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
         kind: "live",
         scopeId: command.authorityPins.scopeId,
         tableId: intent.tableId,
         rowId: intent.rowId,
         writeEpoch: clock.epoch,
-        commitSeq: CommitSeqSchema.make(1n),
+        commitSeq,
         prevCommitSeq: null,
         schemaVersionId: command.authorityPins.schemaVersionId,
         creationTime: intent.creationTime,
@@ -781,13 +785,10 @@ describe("O08-A exact-attempt replacement", () => {
           canonicalBytes: document.canonicalBytes,
           sha256: document.sha256,
         },
-      })
-    );
-    await persistence.query(
-      `update fx_system_scope_clock set last_commit_seq = 1
-       where scope_uuid = $1`,
-      [command.sealIdentity.scopeUuid],
-    );
+      }), catch: cause => cause });
+      yield* Effect.tryPromise({ try: () => tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, command.authorityPins.scopeId)), catch: cause => cause });
+    }), cause => cause));
   }
 
   async function durableAttemptState(current: PreparedReplacementAttemptV1) {

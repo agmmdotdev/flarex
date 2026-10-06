@@ -1,6 +1,7 @@
 import { validateCmsDocumentContribution } from "./contribution";
 import { prepareApplicationDocumentParticipant, enterApplicationDocumentParticipant } from "../applicationDocumentMaterialization/participant";
-import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock } from "../commitPublication/pointCommitProjection";
+import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock,
+  reproveScopePublicationPrefix } from "../commitPublication/pointCommitProjection";
 import type { ApplicationDocumentMaterializationOptions } from "../applicationDocumentMaterialization/model";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
 import type { CmsMaterializationTestHooks } from "./testSupport";
@@ -118,7 +119,7 @@ const publishCmsOutcome = Effect.fn("CmsCommit.publishOutcome")(function* (input
     payloadPreferenceDeletionCount: preferenceFacts.length,
   };
   const kernel: ScopePublicationKernel = { clock, ...allocation, relationAdjacencyChanges: adjacency };
-  yield* cmsKernel(() => writeScopePublicationPrefix(tx, contribution, kernel, options));
+  const prefix = yield* cmsKernel(() => writeScopePublicationPrefix(tx, contribution, kernel, options));
   if (preferenceFacts.length > 0) {
     const written = yield* runDrizzleStatementEffect(tx.insert(fxSystemCommitPayloadPreferenceDeletions)
       .values(preferenceFacts.map((fact, changeOrdinal) => ({ ...fact, changeOrdinal, commitSeq: allocation.commitSeq })))
@@ -129,6 +130,8 @@ const publishCmsOutcome = Effect.fn("CmsCommit.publishOutcome")(function* (input
       return yield* Effect.fail(cmsError("storedCorruption"));
   }
   if (hooks?.afterPreferenceFacts !== undefined) yield* hooks.afterPreferenceFacts();
+  if (preferenceFacts.length > 0 || hooks?.afterPreferenceFacts !== undefined)
+    yield* cmsKernel(() => reproveScopePublicationPrefix(prefix));
   yield* cmsKernel(() => advanceScopePublicationClock(tx, contribution, kernel, options));
   return allocation.commitSeq;
 });

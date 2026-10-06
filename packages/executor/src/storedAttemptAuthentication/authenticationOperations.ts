@@ -1,5 +1,4 @@
 import { Effect, Result } from "effect";
-import type { ConfirmedFiniteRootSealCapture } from "@flarex/persistence-postgres/session-journal-store";
 
 import {
   decodeCommitEnvelopeV1Effect,
@@ -9,7 +8,6 @@ import {
 import {
   inspectLoadedPointMutationSessionAttemptV1,
 } from "../pointMutationSessionActivation";
-import { getActivatedPointMutationSessionStateV1 } from "../pointMutationSessionActivationState";
 import type {
   PointMutationExecutionClaimVaultV1,
   PointMutationExecutionScopeV1,
@@ -86,7 +84,6 @@ export interface StoredAttemptAuthenticationOperationsV1 {
   ) => StoredAttemptAuthorityCapabilityStateV1 | undefined;
   readonly loadAndVerifyStoredEvidence: (
     authorityCapability: StoredAttemptAuthorityCapabilityStateV1,
-    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     Readonly<{
       readonly evidence: StoredAttemptEvidencePortV1;
@@ -170,22 +167,14 @@ export function makeStoredAttemptAuthenticationOperationsV1(
   const deriveAuthority: StoredAttemptAuthenticationV1["deriveAuthority"] =
     Effect.fn("StoredAttemptAuthentication.deriveAuthority")(
       function* (attempt, executionClaim) {
-        const activated = typeof attempt === "object" && attempt !== null ? getActivatedPointMutationSessionStateV1(attempt) : undefined;
-        const finite = activated?.finiteEntry;
-        if (activated !== undefined && (finite === undefined || finite.executionClaim !== activated.executionClaim ||
-          finite.journal.inspectConfirmedFiniteEntry === undefined)) return yield* Effect.fail(new InvalidStoredAttemptAuthorityV1Error({ reason: "invalidLoadedAttempt" }));
-        const inspection = finite !== undefined && finite.journal.inspectConfirmedFiniteEntry !== undefined
-          ? yield* Effect.fromResult(finite.journal.inspectConfirmedFiniteEntry(finite.capture, finite.preparation)).pipe(
-            Effect.mapError(() => new InvalidStoredAttemptAuthorityV1Error({ reason: "invalidLoadedAttempt" })))
-          : yield* Effect.try({
+        const inspection = yield* Effect.try({
           try: () => inspectLoadedPointMutationSessionAttemptV1(attempt),
           catch: () => new InvalidStoredAttemptAuthorityV1Error({
             reason: "invalidLoadedAttempt",
           }),
         });
         const claim = yield* Effect.fromResult(
-          (finite === undefined ? executionClaims.admission.inspectStoredAttempt(executionClaim)
-            : executionClaims.admission.inspectOriginalStoredAttempt(executionClaim, finite.executionClaim)).pipe(
+          executionClaims.admission.inspectStoredAttempt(executionClaim).pipe(
             Result.mapError(() => new InvalidStoredAttemptAuthorityV1Error({
               reason: "invalidExecutionClaim",
             })),
@@ -230,11 +219,9 @@ export function makeStoredAttemptAuthenticationOperationsV1(
 
   const loadAndVerifyStoredEvidence = Effect.fn(
     "StoredAttemptAuthentication.loadAndVerifyStoredEvidence",
-  )(function* (authorityCapability: StoredAttemptAuthorityCapabilityStateV1,
-    capture?: ConfirmedFiniteRootSealCapture) {
+  )(function* (authorityCapability: StoredAttemptAuthorityCapabilityStateV1) {
     const result = yield* loader.loadEffect(
       captureAuthorityPort(authorityCapability.authority),
-      capture,
     ).pipe(Effect.mapError((error) =>
       new StoredAttemptPersistenceV1Error({ cause: error.cause })
     ));
@@ -249,7 +236,7 @@ export function makeStoredAttemptAuthenticationOperationsV1(
 
   const authenticate: StoredAttemptAuthenticationV1["authenticate"] =
     Effect.fn("StoredAttemptAuthentication.authenticate")(
-      function* (authority, input, capture) {
+      function* (authority, input) {
         const decodedEnvelope = yield* decodeCommitEnvelopeV1Effect(input);
         const envelope = yield*
           requireStoredForSessionAttemptCommitEnvelopeV1Effect(
@@ -264,7 +251,7 @@ export function makeStoredAttemptAuthenticationOperationsV1(
           );
         }
         const { evidence, verified } = yield* loadAndVerifyStoredEvidence(
-          authorityCapability, capture,
+          authorityCapability,
         );
         const envelopeMismatch = yield*
           compareCallerEnvelopeWithVerifiedState(
@@ -275,8 +262,7 @@ export function makeStoredAttemptAuthenticationOperationsV1(
         if (envelopeMismatch !== undefined) {
           return yield* Effect.fail(envelopeMismatch);
         }
-        return mintAuthenticatedStoredAttempt(Object.freeze({ ...verified,
-          ...(capture === undefined ? {} : { terminalCapture: capture }) }));
+        return mintAuthenticatedStoredAttempt(verified);
       },
     );
 

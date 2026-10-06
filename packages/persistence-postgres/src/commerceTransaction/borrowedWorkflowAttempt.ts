@@ -9,7 +9,7 @@ import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { makeLogicalDocumentWorkingSet, combineLogicalWriteMechanics } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import type { LogicalDocumentBorrowView, LogicalStorageReadDemand } from "../logicalDocuments/model";
-import { hasLogicalParticipantAttemptAdmission, withLogicalParticipantAdmissionBundleEffect, requireLogicalParticipantReadDemandInTransactionEffect,
+import { projectFiniteStorageCaptureFailure, hasLogicalParticipantAttemptAdmission, withLogicalParticipantAdmissionBundleEffect,
   type LogicalParticipantAdmissionBundle, type LogicalParticipantAttemptAdmission } from
   "../logicalDocuments/participantAdmission";
 import { withLogicalRelationalAttemptAdmissionEffect,
@@ -104,10 +104,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           const constructWorking = (constructionTx: FlarexMetadataTransaction | undefined) => makeLogicalDocumentWorkingSet({
             readTransaction: checkedRead, requireAdmission,
             ...(input.rootEvaluator === undefined ? {} : { readReadiness: { kind: "finiteQueryRequired" as const, mechanics,
-              requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) =>
-                requireLogicalParticipantReadDemandInTransactionEffect(admissions[0]!, input.attempt,
-                  sourceCommandNames[0]!, tx, demand)
-                  .pipe(Effect.mapError(projectCommerceRequestFailure)) } }),
+            captureStorage: (operation, demand) => input.captureStorage(operation, demand).pipe(Effect.mapError(projectFiniteStorageCaptureFailure), Effect.mapError(projectCommerceRequestFailure)) } }),
             scopeId: root.scopeId, clock: states[0]!.clock, snapshotCommitSeq: root.snapshotCommitSeq,
             ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
               { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,

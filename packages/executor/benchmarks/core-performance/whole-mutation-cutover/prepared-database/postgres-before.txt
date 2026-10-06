@@ -1,0 +1,1 @@
+flarex_read_redesign_logical|f|f|f|f|on|on|on|none|off|off

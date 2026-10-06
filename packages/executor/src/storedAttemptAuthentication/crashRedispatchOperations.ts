@@ -695,6 +695,8 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
       }
       const acquired = acquisitionOrClosed.acquisition;
       switch (acquired.kind) {
+        case "finiteRecovery":
+          return yield* Effect.fail(new PointMutationOccExecutionAuthorityCorruptionV1Error({ reason: "requestEvidenceInvalid" }));
         case "replayed":
           return publicationResultFromCommittedOutcome(acquired.outcome);
         case "busy":

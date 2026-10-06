@@ -1,3 +1,4 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -33,6 +34,7 @@ import {
 } from "./postgresHelpers";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { verifyUniqueBatches } from "./uniqueBatchScenario";
+import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const scopeId = ScopeIdSchema.make(
@@ -62,7 +64,14 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
   it("applies bounded unique sets and rolls back later-batch failures", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       await insertClocks(persistence);
-      await verifyUniqueBatches(persistence, persistence.drizzle, scopeId, epoch);
+      await verifyUniqueBatches(persistence, persistence.drizzle, scopeId, epoch, async run => {
+        const measured = await withPostgresExecutionObservation(persistence.pool, run, { returnedCommands: true });
+        expect(measured.observation.checkouts).toBe(1);
+        expect(measured.observation.releases).toBe(1);
+        expect(measured.observation.returnedCommands.filter(command => command.submittedCommand === "begin" || command.submittedCommand === "commit"))
+          .toEqual([{ checkout: 1, submittedCommand: "begin", returnedCommand: "BEGIN" },
+            { checkout: 1, submittedCommand: "commit", returnedCommand: "ROLLBACK" }]);
+      });
     });
   }, 60_000);
   it("preserves exact ownership, rejects overwrite, and permits another scope", async () => {
@@ -79,8 +88,10 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
       expect(claimed.status).toBe("claimed");
 
       expect(claimed.claim).toMatchObject({scopeId, constraintId, tableId, rowId: rowA});
-      const repeatedClaim = await persistence.drizzle.transaction((tx) =>
-        runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
+      const repeatedClaim = await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
           scopeId,
           constraintId,
           tableId,
@@ -88,7 +99,9 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
           writeEpoch: epoch,
           previous: null,
           next: key,
-        }]))
+        }]));
+        } finally { closeInstallationAdmission(tx); }
+      }
       );
       expect(repeatedClaim).toBeInstanceOf(AppUniqueKeyConflictError);
 
@@ -99,8 +112,10 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
         2n,
         "conflict",
       ));
-      const conflict = await persistence.drizzle.transaction((tx) =>
-        runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
+      const conflict = await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
           scopeId,
           constraintId,
           tableId,
@@ -108,7 +123,9 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
           writeEpoch: epoch,
           previous: null,
           next: key,
-        }]))
+        }]));
+        } finally { closeInstallationAdmission(tx); }
+      }
       );
       expect(conflict).toBeInstanceOf(AppUniqueKeyConflictError);
 
@@ -161,8 +178,13 @@ async function appendRow(
   input: AppendPreparedAppRowRevisionV1Input,
 ): Promise<void> {
   await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+
     await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]));
-  });
+  
+        } finally { closeInstallationAdmission(tx); }
+      });
 }
 
 async function apply(
@@ -172,8 +194,10 @@ async function apply(
   rowId: typeof rowA,
   commitSeq: bigint,
 ) {
-  const results = await persistence.drizzle.transaction((tx) =>
-    runEffect(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
+  const results = await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffect(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
       scopeId: owningScopeId,
       constraintId,
       tableId,
@@ -181,7 +205,9 @@ async function apply(
       writeEpoch,
       previous: null,
       next: key,
-    }]))
+    }]));
+        } finally { closeInstallationAdmission(tx); }
+      }
   );
   expect(results).toHaveLength(1);
   const result = results[0];

@@ -14,9 +14,9 @@ import type {
   SessionJournalAttempt,
   SessionJournalPointOperationV1,
   SessionJournalStorePersistence,
-  ConfirmedFiniteRootSealCapture,
   ConfirmedFiniteRootEntryCapture,
   PreparedFiniteSessionJournalEntry,
+  FrozenFiniteAttempt,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
   InvalidSessionJournalCapabilityV1Error,
@@ -37,7 +37,6 @@ import type {
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationExecutionProfile } from
   "@flarex/persistence-postgres/transaction-session-activation";
-import type { LoadedPointMutationSessionAttemptOccRerunInspectionV1 } from "./pointMutationSessionAttemptState";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
   ApplicationRevisionSyscallValidatorCorruptionV1Error,
@@ -238,14 +237,15 @@ export type PointMutationJournalBoundaryV1Error =
   | ApplicationTableWriteDeniedError;
 
 export interface PointMutationJournalV1 {
-  readonly inspectConfirmedFiniteEntry?: (capture: ConfirmedFiniteRootEntryCapture,
-    preparation: PreparedFiniteSessionJournalEntry) => Result.Result<LoadedPointMutationSessionAttemptOccRerunInspectionV1, PointMutationJournalBoundaryV1Error>;
+  readonly inspectFiniteExecutionEntry?: (capture: ConfirmedFiniteRootEntryCapture, preparation: PreparedFiniteSessionJournalEntry) =>
+    Result.Result<Result.Result.Success<ReturnType<SessionJournalStorePersistence["confirmedFiniteEntryAttempt"]>>, PointMutationJournalBoundaryV1Error>;
+  readonly freezeFiniteAttempt?: (attempt: PointMutationJournalAttemptV1, successfulResult: unknown) =>
+    Effect.Effect<FrozenFiniteAttempt, PointMutationJournalBoundaryV1Error>;
   readonly prepareFiniteEntry?: () => Effect.Effect<PreparedFiniteSessionJournalEntry, PointMutationJournalBoundaryV1Error, Scope.Scope>;
   readonly openConfirmedFiniteEntry?: (capture: ConfirmedFiniteRootEntryCapture,
     preparation: PreparedFiniteSessionJournalEntry, executionClaim: PointMutationExecutionScopeV1, originalClaim: PointMutationExecutionClaimV1) =>
     Effect.Effect<PointMutationJournalAttemptV1, PointMutationJournalBoundaryV1Error>;
   /** Present only after this finite root's seal confirms database COMMIT. */
-  readonly confirmedSealCapture?: (attempt: PointMutationJournalAttemptV1) => ConfirmedFiniteRootSealCapture | undefined;
   readonly openAttempt: (
     attempt: LoadedPointMutationSessionAttemptV1,
     executionClaim: PointMutationExecutionScopeV1,
@@ -379,12 +379,6 @@ const decodeOrderedIndexBoundResult = Schema.decodeUnknownResult(
   OrderedIndexBoundHexV1Schema,
 );
 
-function confirmedFiniteSessionKey(
-  selector: Pick<LoadedPointMutationSessionAttemptInspectionV1["selector"], "deploymentId" | "scopeId" | "sessionId">,
-): string {
-  return JSON.stringify([selector.deploymentId, selector.scopeId, selector.sessionId]);
-}
-
 export function createPointMutationJournalV1(
   persistence: SessionJournalStorePersistence,
   executionClaims: PointMutationExecutionClaimAdmissionV1,
@@ -429,16 +423,6 @@ export function createPointMutationJournalV1(
   }
   const attemptStates = new WeakMap<object, JournalAttemptStateV1>();
   const finitePreparations = new WeakSet<PreparedFiniteSessionJournalEntry>();
-  type ConfirmedApplicationSelection = NonNullable<PointMutationJournalAdmittedParticipantV1["admission"]["sources"][number]["application"]>;
-  const applicationsByConfirmedSession = new Map<string, Readonly<{
-    schemaVersionId: LoadedPointMutationSessionAttemptInspectionV1["schemaVersionId"];
-    reference: WeakRef<ConfirmedApplicationSelection>;
-  }>>();
-  const applicationFinalizer = new FinalizationRegistry<Readonly<{ key: string; reference: WeakRef<ConfirmedApplicationSelection> }>>(
-    ({ key, reference }) => {
-      if (applicationsByConfirmedSession.get(key)?.reference === reference) applicationsByConfirmedSession.delete(key);
-    });
-  const confirmedSeals = new WeakMap<object, ConfirmedFiniteRootSealCapture>();
   const tableStates = new WeakMap<object, JournalTableStateV1>();
   const indexStates = new WeakMap<object, JournalIndexStateV1>();
   const relationStates = new WeakMap<object, JournalRelationState>();
@@ -486,6 +470,7 @@ export function createPointMutationJournalV1(
   const openAttempt: PointMutationJournalV1["openAttempt"] = Effect.fn(
     "PointMutationJournal.openAttempt",
   )(function* (loadedAttempt, executionClaim) {
+    if (executionProfile !== "durableOperations") return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
     if (participantSetError !== undefined) return yield* Effect.fail(participantSetError);
     const claimState = yield* Effect.fromResult(
       executionClaims.inspect(executionClaim, "execute"),
@@ -501,22 +486,17 @@ export function createPointMutationJournalV1(
         reason: "immutablePinsMismatch",
       }));
     }
-    const confirmedApplication = applicationsByConfirmedSession.get(confirmedFiniteSessionKey(inspection.selector));
-    const applicationForConfirmedSession = executionProfile === "finiteRoot" && confirmedApplication?.schemaVersionId === inspection.schemaVersionId
-      ? confirmedApplication.reference.deref() : undefined;
     const durableSelections = [];
     for (const participant of selectedParticipants.values()) {
       const sources = [];
       for (const source of participant.admission.sources) {
-        const application = source.application ?? applicationForConfirmedSession;
+        const application = source.application;
         if (application === undefined) return yield* Effect.fail(new PointMutationJournalParticipantSelectionV1Error({ participant: participant.participant }));
         sources.push(Object.freeze({ ...source, application }));
       }
       durableSelections.push(Object.freeze({ ...participant.admission, sources }));
     }
-    // A finite root's cached handle cannot bypass its local poison/tombstone
-    // or the authoritative exact-running check on same-claim redelivery.
-    if (existing !== undefined && executionProfile !== "finiteRoot") return existing;
+    if (existing !== undefined) return existing;
     const existingReference = coordinatorsByExactAttempt.get(identityKey);
     const existingCoordinator = existingReference?.deref();
     if (existingReference !== undefined && existingCoordinator === undefined) {
@@ -548,19 +528,7 @@ export function createPointMutationJournalV1(
       schemaVersionId: inspection.schemaVersionId,
       executionClaim: claimState.observation,
       executionProfile,
-      ...(executionProfile === "finiteRoot" ? {
-        logicalParticipants: durableSelections,
-      } : {}),
     }).pipe(Effect.mapError(mapAdmittedFailure));
-    if (existing !== undefined) {
-      const prior = attemptStates.get(existing);
-      if (prior?.persistenceAttempt !== persistenceAttempt) {
-        return yield* Effect.fail(new PointMutationJournalAttemptPinsV1Error({
-          reason: "immutablePinsMismatch",
-        }));
-      }
-      return existing;
-    }
     const participantAdmissions = new Map<string, Effect.Success<ReturnType<
       SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>>>();
     for (const participant of durableSelections) {
@@ -603,13 +571,6 @@ export function createPointMutationJournalV1(
       if (!attemptSelectorEquals(context.anchor, claimState.selector) || context.executionClaim.claimOwner !== claimState.observation.claimOwner ||
         context.executionClaim.claimFence !== claimState.observation.claimFence)
         return yield* Effect.fail(new PointMutationJournalAttemptPinsV1Error({ reason: "immutablePinsMismatch" }));
-      // Retain the exact accepted Application descriptor for this session's
-      // genuine durable reopen/rerun path. That path still performs its complete
-      // fresh kernel and ordered source validation; no entry rows replace it.
-      const key = confirmedFiniteSessionKey(context.anchor);
-      const reference = new WeakRef(confirmed.applicationSelection);
-      applicationsByConfirmedSession.set(key, Object.freeze({ schemaVersionId: context.executionPin.schemaVersionId, reference }));
-      applicationFinalizer.register(confirmed.applicationSelection, Object.freeze({ key, reference }));
       const existing = openedByExecutionClaim.get(executionClaim);
       if (existing !== undefined) return existing;
       const inspection: LoadedPointMutationSessionAttemptInspectionV1 = Object.freeze({
@@ -625,15 +586,10 @@ export function createPointMutationJournalV1(
       openedByExecutionClaim.set(executionClaim, handle);
       return handle;
     });
-  const inspectConfirmedFiniteEntry: NonNullable<PointMutationJournalV1["inspectConfirmedFiniteEntry"]> = (capture, preparation) => {
+  const inspectFiniteExecutionEntry: NonNullable<PointMutationJournalV1["inspectFiniteExecutionEntry"]> = (capture, preparation) => {
     if (executionProfile !== "finiteRoot" || !finitePreparations.has(preparation))
       return Result.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
-    return persistence.confirmedFiniteEntryAttempt(capture, preparation).pipe(Result.mapError(mapAdmittedFailure),
-      Result.map(({ context }) => Object.freeze({ selector: context.anchor, storageGeneration: context.anchor.storageGeneration,
-        storageGenerationFence: context.anchor.storageGenerationFence, snapshotToken: context.anchor.snapshotToken,
-        schemaVersionId: context.executionPin.schemaVersionId, requestKey: context.anchor.requestKey,
-        lastMetadataSequence: context.scopeClock.lastMetadataSequence,
-        attemptFacet: Object.freeze({ kind: "pristineOpen" as const }) })));
+    return persistence.confirmedFiniteEntryAttempt(capture, preparation).pipe(Result.mapError(mapAdmittedFailure));
   };
 
   const runAdmittedOperation: NonNullable<PointMutationJournalV1["runAdmittedOperation"]> =
@@ -899,18 +855,7 @@ export function createPointMutationJournalV1(
         });
         return yield* state.coordinator.semaphore.withPermit(
           Effect.gen(function* () {
-            if (executionProfile === "finiteRoot") {
-              const result = yield*
-                canonicalizeSuccessfulResultV1Effect(successfulResult);
-              return yield* Effect.uninterruptible(
-                persistence.sealFiniteRootEffect(state.persistenceAttempt,
-                  result).pipe(Effect.mapError(mapPersistenceFailure),
-                    Effect.map(sealed => {
-                      confirmedSeals.set(attempt, sealed.capture);
-                      return sealed.envelope;
-                    })),
-              );
-            }
+            if (executionProfile === "finiteRoot") return yield* Effect.fail(new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
             const prepared = yield* Effect.uninterruptible(
               persistence
                 .prepareSealEffect(state.persistenceAttempt)
@@ -944,9 +889,21 @@ export function createPointMutationJournalV1(
       );
     });
 
+  const freezeFiniteAttempt: NonNullable<PointMutationJournalV1["freezeFiniteAttempt"]> =
+    Effect.fn("PointMutationJournal.freezeFiniteAttempt")(function* (attempt, successfulResult) {
+      if (executionProfile !== "finiteRoot") return yield* Effect.fail(
+        new InvalidPointMutationJournalCapabilityV1Error({ capability: "attempt" }));
+      const state = yield* Effect.try({ try: () => requireAttempt(attempt), catch: mapPersistenceFailure });
+      return yield* state.coordinator.semaphore.withPermit(Effect.gen(function* () {
+        const result = yield* canonicalizeSuccessfulResultV1Effect(successfulResult === undefined ? null : successfulResult).pipe(Effect.mapError(mapPersistenceFailure));
+        return yield* persistence.freezeFiniteRootEffect(state.persistenceAttempt, result).pipe(
+          Effect.mapError(mapPersistenceFailure));
+      }));
+    });
+
   const journal = Object.freeze({
     openAttempt,
-    ...(executionProfile === "finiteRoot" ? { prepareFiniteEntry, openConfirmedFiniteEntry, inspectConfirmedFiniteEntry } : {}),
+    ...(executionProfile === "finiteRoot" ? { prepareFiniteEntry, openConfirmedFiniteEntry, inspectFiniteExecutionEntry, freezeFiniteAttempt } : {}),
     ...(selectedParticipants.size === 0 ? {} : { runAdmittedOperation }),
     resolvePointTable,
     runPointOperation,
@@ -957,7 +914,6 @@ export function createPointMutationJournalV1(
     captureRecoveredRelationConflict,
     claimPersistedRelationConflictForRetry,
     sealSuccessfulResult,
-    confirmedSealCapture: (attempt: PointMutationJournalAttemptV1) => confirmedSeals.get(attempt),
     discardTentativeRoot,
   });
   return journal;

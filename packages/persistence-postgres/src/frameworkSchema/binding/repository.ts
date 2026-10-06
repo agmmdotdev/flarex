@@ -8,7 +8,7 @@ import { applyFiniteMetadataActivationProjection, initializeCurrentFiniteMetadat
 import { advanceScopeAuthorizationRevocationEpochInTransactionEffect, requireScopeAuthorizationRevocationEpochInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect } from "../../scopeClock";
 import type { FlarexMetadataDatabase } from "../../deployments";
-import { runEffectTransaction } from "../../effectTransaction";
+import { runEffectTransaction, runEffectTransactionSettlement } from "../../effectTransaction";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../indexBuildReconciliation";
 import { readUniqueMaintenanceRequirements } from "../../appUniqueConstraintSetBuildV1";
 import { prepareLogicalStorageMetadataProjection } from "../../logicalStorageReadiness";
@@ -18,6 +18,7 @@ import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { Schema } from "effect";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../../databaseTimestamp";
+import { readFiniteEntryBindingObservation, type FiniteEntryObservation } from "../../finiteEntryObservation";
 import { readStandaloneReadSnapshot } from "../../standaloneReadSnapshot";
 import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
   authenticateProtectedTargetMetadataSnapshot,
@@ -74,7 +75,7 @@ export const backfillBindingMetadataProjections = Effect.fn("DataBindingReposito
         .where(cursor === undefined ? undefined : gt(heads.scopeId, cursor)).orderBy(asc(heads.scopeId)).limit(64));
       if (page.length === 0) return;
       for (const selected of page) {
-        cursor = yield* Effect.uninterruptible(runEffectTransaction<string, DataBindingError, DataBindingError, FlarexMetadataTransaction>(
+        cursor = yield* Effect.uninterruptible(runEffectTransactionSettlement<string, DataBindingError, DataBindingError, FlarexMetadataTransaction>(
           callback => database.transaction(callback), "Binding metadata backfill rolled back", tx => Effect.gen(function* () {
             const scopeId = yield* decodeScopeIdEffect(selected.scopeId)
               .pipe(Effect.mapError(cause => bindingError("storedCorruption", cause)));
@@ -512,16 +513,25 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
  * The second statement begins after any head-lock wait, so READ COMMITTED sees
  * the activation inserted by the writer that supplied the newly locked head. */
 export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.readSelectedEvidence")(
-  function* (tx: FlarexMetadataTransaction, location: BindingLocation, prepared?: PreparedBindingSelectedStructure) {
-    const { selectedHead, preparation } = yield* readSelectedBindingHead(tx, location, prepared);
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation, prepared?: PreparedBindingSelectedStructure, finiteEntry?: FiniteEntryObservation) {
+    const observedPreparation = finiteEntry === undefined ? undefined : yield* requireSelectedBindingPreparation(tx, location, prepared);
+    const observed = finiteEntry === undefined ? undefined : yield* Effect.fromResult(readFiniteEntryBindingObservation(
+      finiteEntry, tx, yield* decodeScopeIdEffect(location.scopeId).pipe(Effect.mapError(cause =>
+        bindingError("storedCorruption", cause))), location.storageGeneration)).pipe(
+        Effect.mapError(cause => bindingError("storedCorruption", cause)));
+    const { selectedHead, preparation } = observed === undefined ? yield* readSelectedBindingHead(tx, location, prepared) : {
+      preparation: observedPreparation,
+      selectedHead: observed.bindingHead === null ? Option.none() :
+        Option.some(yield* restoreBindingHeadRecord(observed.bindingHead, location)),
+    };
     if (Option.isNone(selectedHead)) return Option.none();
     const head = selectedHead.value;
     const retained = preparation?.structure;
-    if (retained !== undefined && retainedStructureMatchesHead(retained, head)) {
+    if (observed === undefined && retained !== undefined && retainedStructureMatchesHead(retained, head)) {
       yield* decodeActiveReferenceProjection(retained.activation, head);
       return Option.some(Object.freeze({ head, candidate: structuredClone(retained.candidate), activation: structuredClone(retained.activation) }));
     }
-    const rows = yield* bindingStatement(tx.select({
+    const rows = observed === undefined ? yield* bindingStatement(tx.select({
       activation: {
         ...getTableColumns(activations),
         canonicalBytes: singleCanonicalBytes(activations.canonicalBytes),
@@ -543,16 +553,16 @@ export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.read
       eq(activations.scopeId, location.scopeId),
       eq(activations.storageGeneration, location.storageGeneration),
       eq(activations.sequence, BigInt(head.frame.sequence)),
-    )).limit(MAX_COMMERCE_BINDINGS + 2));
-    const record = (rows.find(value => value.activation.canonicalBytes !== null) ?? rows[0])
-      ?.activation;
-    if (record === undefined) return yield* Effect.fail(bindingError("storedCorruption"));
+    )).limit(MAX_COMMERCE_BINDINGS + 2)) : undefined;
+    const record = observed === undefined ? (rows?.find(value => value.activation.canonicalBytes !== null) ?? rows?.[0])?.activation :
+      observed.bindingActivation;
+    if (record === undefined || record === null) return yield* Effect.fail(bindingError("storedCorruption"));
     const activation = yield* decodeActivationRow(record);
     yield* decodeActiveReferenceProjection(activation, head);
-    const candidate = (rows.find(value => value.candidate !== null && value.candidate.canonicalBytes !== null) ?? rows[0])
-      ?.candidate;
+    const candidate = observed === undefined ? (rows?.find(value => value.candidate !== null && value.candidate.canonicalBytes !== null) ?? rows?.[0])?.candidate :
+      observed.bindingCandidate;
     if (candidate === undefined || candidate === null) return Option.none();
-    const storedLanes = rows.flatMap(value => value.lane === null ? [] : [value.lane]);
+    const storedLanes = observed?.lanes ?? rows?.flatMap(value => value.lane === null ? [] : [value.lane]) ?? [];
     const restored = yield* decodeCandidateWithLanes(candidate, storedLanes, location);
     if (preparation !== undefined && preparation.structure === undefined) {
       yield* authenticateProtectedTargetMetadataSnapshot(preparation.protection, tx).pipe(

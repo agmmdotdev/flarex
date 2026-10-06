@@ -1,9 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ApplicationWriteOwnershipCatalog } from "./Catalog";
-import { readAppUniqueConstraintSetClosureV1Effect, type ReadAppUniqueConstraintSetClosureV1Error } from "../appUniqueConstraintSetClosureV1";
-import { fxControlSchemaVersionUniqueConstraintBindings as bindings, fxControlUniqueConstraintDefinitions as definitions } from "../schema";
+import { buildApplicationOwnershipUniqueClosureReadStatement, decodeCapturedAppUniqueConstraintSetClosureEffect, type ReadAppUniqueConstraintSetClosureV1Error } from "../appUniqueConstraintSetClosureV1";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { ApplicationWriteOwnershipError } from "./Model";
 import type { ApplicationWriteOwnershipHistoryBudget } from "./Policy";
@@ -18,17 +18,33 @@ const projectFailure = (cause: ReadAppUniqueConstraintSetClosureV1Error) => new 
 export const readOwnershipUniqueClosure = Effect.fn("ApplicationWriteOwnership.readUniqueClosure")(function* (
   catalog: ApplicationWriteOwnershipCatalog, deploymentId: string, schemaVersionId: CatalogSchemaVersionId, budget: ApplicationWriteOwnershipHistoryBudget,
 ) {
-  const db = catalog.transaction;
-  const sizes = yield* runDrizzleStatementEffect(db.select({
-    length: sql<number>`octet_length(${definitions.physicalSpecBytes}) + octet_length(${definitions.physicalSpecJson}::text)`,
-  }).from(bindings).innerJoin(definitions, and(eq(definitions.deploymentId, bindings.deploymentId),
-    eq(definitions.uniqueConstraintDefinitionId, bindings.uniqueConstraintDefinitionId),
-    eq(definitions.logicalUniqueConstraintId, bindings.logicalUniqueConstraintId)))
-    .where(and(eq(bindings.deploymentId, deploymentId), eq(bindings.schemaVersionId, schemaVersionId))).limit(65),
-  cause => new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause }));
-  // One closure, plus the definition and binding per member; fixed fields have a conservative byte allowance.
-  yield* Effect.fromResult(budget.consume(1 + sizes.length * 2, 512 + sizes.reduce((bytes, row) => bytes + row.length + 512, 0)));
-  const closure = yield* readAppUniqueConstraintSetClosureV1Effect(catalog.database, deploymentId, schemaVersionId, sizes.length, db).pipe(Effect.mapError(projectFailure));
+  const result = yield* Effect.uninterruptible(runDrizzleStatementEffect(catalog.transaction.execute(
+    buildApplicationOwnershipUniqueClosureReadStatement(deploymentId, schemaVersionId, budget.remaining())),
+    cause => new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause })));
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - a resolved SQL catalog read must expose the driver rows wrapper.
+    throw new Error("Ownership unique closure driver result has no rows");
+  });
+  return yield* decodeCapturedOwnershipUniqueClosure(deploymentId, schemaVersionId, rows, budget);
+});
+
+const CapturedUniqueSizeSchema = Schema.Struct({ ordinal: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  evidenceLength: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)) });
+const decodeCapturedUniqueSizeResult = Schema.decodeUnknownResult(CapturedUniqueSizeSchema);
+
+export const decodeCapturedOwnershipUniqueClosure = Effect.fn("ApplicationWriteOwnership.decodeCapturedUniqueClosure")(function* (
+  deploymentId: string, schemaVersionId: CatalogSchemaVersionId, rawRows: readonly unknown[], budget: ApplicationWriteOwnershipHistoryBudget,
+) {
+  const definitions = rawRows.filter(row => isNonArrayRecord(row) && row.kind === "definition");
+  const sizes = [];
+  for (const [ordinal, row] of definitions.entries()) {
+    const size = yield* Effect.fromResult(decodeCapturedUniqueSizeResult(row)).pipe(Effect.mapError(cause =>
+      new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })));
+    if (size.ordinal !== ordinal) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
+    sizes.push(size.evidenceLength);
+  }
+  yield* Effect.fromResult(budget.consume(1 + sizes.length * 2, 512 + sizes.reduce((bytes, length) => bytes + length + 512, 0)));
+  const closure = yield* decodeCapturedAppUniqueConstraintSetClosureEffect(deploymentId, schemaVersionId, sizes.length, rawRows).pipe(Effect.mapError(projectFailure));
   if (closure === null || closure.members.length !== sizes.length) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
   return closure;
 });

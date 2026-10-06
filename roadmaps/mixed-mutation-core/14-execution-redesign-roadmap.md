@@ -33,14 +33,18 @@ runtime contracts retain their obligations except for the explicit finite
 intermediate-read replacement in slice 20 and the accepted database design.
 The package's performance gates remain open: its matched
 native added-latency budget fails and complete request latency regresses. The
-checkpoint does not select package 2 or change its terminal durability gate.
+predecessor checkpoint did not select package 2 or change its terminal durability
+gate; the successor below now owns the selected replacement.
 
 The owner now requests a complete remaining mutation replacement, with necessary
 breaking changes accepted. The [whole mutation preflight](./24-whole-mutation-redesign-preflight.md)
-records the recommended compact entry anchor, one pending-state owner, one-freeze
+records the selected compact entry anchor, one pending-state owner, one-freeze
 contribution, distinct-table current maintenance and one final transaction.
-Its explicit precommit replay versus durable-seal recovery choice is pending;
-existing runtime recovery remains until that contract is selected and delivered.
+The owner selects replay-safe whole-root execution after proven precommit
+nonacceptance, with unknown-COMMIT resolution before replay. Implementation and
+numeric acceptance remain open. The compact-anchor runtime replacement is
+implemented and under final validation; ordinary durable recovery keeps its
+actual profile obligations.
 This successor includes entry and Application/native pending ownership rather
 than treating package 2 as only a terminal SQL reduction.
 
@@ -59,7 +63,8 @@ principles while preserving Flarex's Postgres authority and native framework
 profiles. Admission, readiness and publication keep separate purposes and
 freshness boundaries. Reducing their overhead does not require moving all hooks
 after commit, making resource locks into OCC, broadening automatic retries or
-removing durable seal. Those semantic changes need their own explicit decisions.
+removing durable seal. The finite seal replacement is explicitly selected in
+slice 24; framework retry/lock expansion retains its separate admission gates.
 
 ### Architecture First, Small Optimizations Afterward
 
@@ -138,7 +143,7 @@ mixed performance or complete installation correctness.
 | Order | Coherent outcome | Start and completion gate |
 | --- | --- | --- |
 | 1. [Finite read/metadata contract](./23-finite-execution-contract-preflight.md), architectural cutover delivered | Attempt-fixed authenticated metadata, demanded original-snapshot serving, consumed semantic metadata OCC, separate live authority and commit sequencing. | Existing private consumer migration and architectural proofs are delivered. Fixed native, complete-request and mixed numerical gates remain open; no terminal durability change is claimed. |
-| 2. [Whole finite mutation replacement](./24-whole-mutation-redesign-preflight.md), recommended contract | Replace repeated entry correlation and Application/native pending representations; freeze once; resolve complete current write maintenance once per distinct touched table; connect one final acceptance and recovery. | Select the explicit terminal durability choice. Migrate entry, evaluator/views, executor, persistence, retention and actual consumers together; inventory/drain old durable obligations, prove both database lanes, review, remove displaced finite paths and commit one complete slice. |
+| 2. [Whole finite mutation replacement](./24-whole-mutation-redesign-preflight.md), selected for implementation | Replace repeated entry correlation and Application/native pending representations; freeze once; resolve complete current write maintenance once per distinct touched table; connect one final acceptance and recovery. | Recovery semantics are selected. Migrate entry, evaluator/views, executor, persistence, retention and actual consumers together; inventory/drain old durable obligations, prove both database lanes, review, remove displaced finite paths and commit one complete slice. |
 | 3. Integrated acceptance and retirement | Prove complete mixed latency and actual native demand at the final graph, including concurrency/retry cost and retained direct/durable profiles. | Meet the declared package and whole-request gates, audit displaced APIs/formats/readers and their real remaining obligations, and reconcile capability status. This is final acceptance, not permission to defer package cleanup. |
 
 Each package includes its implementation choices, measurements and tests. A helper,
@@ -148,15 +153,16 @@ ordinary local edits retain focused checks.
 
 ### Terminal Decision For Package 2
 
-The recommended candidate is one final finite SQL transaction after local freeze
+The selected contract is one final finite SQL transaction after local freeze
 and outside-SQL verification/planning. It moves callback-free recovery from
 confirmed seal to final COMMIT: a proven precommit abort may require replay-safe
 finite callbacks to run again. The alternative retains durable seal and finish-only
 recovery while simplifying contribution and proof construction.
 
-The owner has requested the total replacement, but the explicit recovery question
+The owner approves the total replacement and selects the recovery contract
 in the [whole mutation preflight](./24-whole-mutation-redesign-preflight.md#recovery-decision-and-workflow-profiles)
-remains pending. Keep that exact decision visible before dependent runtime changes.
+for implementation. Confirmed precommit nonacceptance permits replay-safe finite
+re-execution; unknown COMMIT remains fenced pending exact authoritative resolution.
 Preflight 24 owns the current decision and recovery contract. The earlier
 [terminal decision and recovery matrix](../core-performance/orchestration-target-design.md#deferred-finite-decisions-required-before-runtime-selection)
 remains supporting proposal/history. Missing COMMIT acknowledgement or an unsuccessful
@@ -185,7 +191,31 @@ evidence. Further standalone tuning follows this architectural cutover.
 Do not absorb unrelated dirty work or resume the archived
 failed publication experiment. Remaining organization, composed-query and storage
 backlog stays with its owner; whole-goal completion is not required for a bounded
-handoff. Package 2's terminal durability decision remains separately gated.
+handoff. Package 2's terminal durability decision is selected under preflight 24;
+its connected accepting-boundary and dependency-validation replacements are
+implemented, along with owned finite start and logical metadata/receipt capture.
+Named bounded captures, fixed mapping and original predecessor lending are
+implemented through genuine installed preparation, exact original anchors,
+fresh authority and existing historical storage owners. Complete finite entry
+constructs through an inert
+transaction-confined context and one complete anchor insertion, and accepts
+metadata through compact actual SQL comparisons with full canonical semantics.
+The connected historical-row capture and publication-domain replacement is also
+implemented. Its complete comparison met former Product/Payload and workflow
+milestones; those absolute thresholds no longer define completion. The
+[complete native reference](./26-native-business-baseline-preflight.md) now owns
+the once-per-root 5/10 ms median/P95 paired-excess target, stable tails and matched
+final-source comparison. The immutable native preparation and owned-evidence
+correction is implemented but has not established an accepted improvement.
+The owner selects a deeper connected replacement of prepared database
+construction, logical-attempt execution and authoritative settlement under
+preflight 24. Keep genuine immediate live-frontier acceptance and framework
+lifecycle semantics; remove displaced topology rather than accumulate wrappers.
+Final metadata scaling and complete-root acceptance remain open. Source
+repetition and sampled stacks do not establish exclusive latency attribution.
+Application, Product, Payload and finite workflow consumers migrate together;
+ordinary and durable transactions retain their explicit profile. Preflight 24
+owns this replacement and its cleanup, failure-order and integrated gates.
 
 ## Outcome and current evidence
 

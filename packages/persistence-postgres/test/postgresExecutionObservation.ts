@@ -18,17 +18,21 @@ import {
 } from "../src/schema";
 
 const hasQueryText = Schema.is(Schema.Struct({ text: Schema.String }));
+const hasReturnedCommand = Schema.is(Schema.Struct({ command: Schema.String }));
 const observedPools = new WeakSet<Pool>();
 const families = [
-  fxAppRowRevisions,
-  fxAppRowCurrent,
-  fxAppIndexEntryRevisions,
-  fxAppIndexEntryCurrent,
-  fxSystemIndexBuildStates,
-  fxSystemScopeClocks,
-  fxSystemUniqueConstraintBuilds,
-  fxAppUniqueKeys,
-].map(getTableName);
+  ...[
+    fxAppRowRevisions,
+    fxAppRowCurrent,
+    fxAppIndexEntryRevisions,
+    fxAppIndexEntryCurrent,
+    fxSystemIndexBuildStates,
+    fxSystemScopeClocks,
+    fxSystemUniqueConstraintBuilds,
+    fxAppUniqueKeys,
+  ].map(getTableName),
+  "fx_apply_app_row_batch", "fx_apply_app_index_batch", "fx_apply_app_unique_batch",
+];
 
 export type PostgresExecutionPhase =
   | "resolveAndLock"
@@ -70,7 +74,7 @@ interface BorrowedClient {
 export async function withPostgresExecutionObservation<Value>(
   pool: Pool,
   run: (markStep: (step: PostgresExecutionPhase) => void) => Promise<Value>,
-  options?: { readonly attributeStatements: boolean },
+  options?: { readonly attributeStatements?: boolean; readonly returnedCommands?: boolean },
 ) {
   if (
     observedPools.has(pool) ||
@@ -84,6 +88,8 @@ export async function withPostgresExecutionObservation<Value>(
   const clients = new Map<PoolClient, BorrowedClient>();
   const phases = new Map<PostgresExecutionPhase, Counters>();
   const commands = new Map<string, number>();
+  const returnedCommands: { readonly checkout: number; readonly submittedCommand: string; readonly returnedCommand: string }[] = [];
+  const commandObservations: Promise<void>[] = [];
   const familyQueries = new Map<string, number>();
   const familyCommands = new Map<string, Map<string, number>>();
   const knownFamilies =
@@ -129,6 +135,7 @@ export async function withPostgresExecutionObservation<Value>(
   };
   const acquire = (client: PoolClient) => {
     checkouts += 1;
+    const checkout = checkouts;
     // Native instance checks guard the deliberately driver-specific telemetry.
     // Never throw from a pool event: an unsupported transport invalidates the
     // observation after the real operation has settled.
@@ -202,7 +209,20 @@ export async function withPostgresExecutionObservation<Value>(
             }
           }
         }
-        return Reflect.apply(target, receiver, args);
+        const result: unknown = Reflect.apply(target, receiver, args);
+        if (options?.returnedCommands === true) {
+          if (!(result instanceof Promise) || args.some(arg => typeof arg === "function") || text === undefined) unsupported = true;
+          else {
+            const submittedCommand = text.trimStart().split(/\s/, 1)[0]?.toLowerCase() ?? "";
+            // Preserve the native query Promise. This observer retains only its
+            // command tag; the original rejection remains the caller's outcome.
+            commandObservations.push(result.then(value => {
+              if (hasReturnedCommand(value)) returnedCommands.push({ checkout, submittedCommand, returnedCommand: value.command });
+              else unsupported = true;
+            }, () => undefined));
+          }
+        }
+        return result;
       },
     });
     clients.set(client, {
@@ -242,6 +262,7 @@ export async function withPostgresExecutionObservation<Value>(
       finishPhase();
       phase = step;
     });
+    await Promise.all(commandObservations);
     const elapsedMilliseconds = finishPhase() - started;
     if (unsupported || clients.size !== 0 || checkouts !== releases) {
       throw new Error(
@@ -263,6 +284,7 @@ export async function withPostgresExecutionObservation<Value>(
           0,
         ),
         commands: Object.fromEntries(commands),
+        returnedCommands,
         statementShapes:
           knownFamilies === null ? null : [...statementShapes.values()],
         familyQueries: Object.fromEntries(familyQueries),
@@ -278,6 +300,7 @@ export async function withPostgresExecutionObservation<Value>(
       },
     };
   } finally {
+    await Promise.all(commandObservations);
     pool.off("acquire", acquire);
     pool.off("release", release);
     for (const [client, borrowed] of clients) {

@@ -85,7 +85,7 @@ async function captureReadinessRow(targetDb: FlarexMetadataDatabase, scopeId: Sc
     indexDefinitionId,
     retire: async () => {
       const changed = await targetDb.update(fxSystemIndexBuildStates).set({ lifecycle: "retiring",
-        maintenanceActivationSequence: null, maintenanceBytes: null, maintenanceSha256: null }).where(predicate).returning();
+        maintenanceActivationSequence: null, }).where(predicate).returning();
       expect(changed).toHaveLength(1);
       expect(changed[0]?.lifecycle).toBe("retiring");
     },

@@ -1,10 +1,11 @@
 import { and, eq } from "drizzle-orm";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
-import { CommitSyscallSequenceV1Schema, decodeCanonicalSessionJournalEffect } from "flarex-protocol/commit-protocol";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
+import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from
+  "../../persistence-postgres/src/finiteAttemptAnchor";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
@@ -13,9 +14,9 @@ import { fxAppRowRevisions, fxSystemCommits, fxSystemSnapshotLeases, fxSystemTra
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { PointCommitConflictV1Error } from
   "../../persistence-postgres/src/pointCommitTransaction";
-import { PointMutationAttemptReplacementCorruptionV1Error,
-  PointMutationAttemptReplacementFiniteEntryError } from "../../persistence-postgres/src/pointCommitTransaction";
-import { PointMutationJournalAttemptUnavailableV1Error } from
+import { PointMutationAttemptReplacementFiniteEntryError } from "../../persistence-postgres/src/pointCommitTransaction";
+import { ApplicationMutationAdmissionError } from "../../persistence-postgres/src/applicationMutationAdmission";
+import { PointMutationJournalAdmittedOperationRejectedV1Error } from
   "../../executor/src/pointMutationJournal";
 import { admittedCommerceEventGroup } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -25,7 +26,7 @@ const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 
 describe.each(drivers)("mixed Product whole-root OCC retry on %s", driver => {
-  it("refuses a cleared reserved lease before replacing a genuinely sealed data-conflicted attempt", async () => {
+  it("refuses a cleared canonical reservation before replacing a frozen data-conflicted attempt", async () => {
     let replacementReachedCommit = false;
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `product-reservation-null-retry-${driver}`, hooks: {
@@ -58,46 +59,48 @@ describe.each(drivers)("mixed Product whole-root OCC retry on %s", driver => {
         events: await db.select().from(fxSystemCommitEvents).where(eq(fxSystemCommitEvents.scopeUuid, scopeUuid)),
       });
       const before = await inspect();
-      const lease = before.leases[0];
-      const root = before.journals[0];
-      if (lease === undefined || lease.metadataWatermark === null || lease.finiteMetadataReservationBytes === null ||
-        lease.finiteMetadataReservationSha256 === null || root === undefined || root.sealedJournalBytes === null ||
-        root.sealedJournalSha256 === null) throw new Error("Missing genuine sealed reserved attempt");
-      const sealed = await Effect.runPromise(decodeCanonicalSessionJournalEffect({ canonicalBytes: root.sealedJournalBytes,
-        expectedSha256Hex: encodeBytesToLowercaseHex(root.sealedJournalSha256) }));
-      expect(sealed.journal.finiteMetadataReservationSha256Hex).toBe(encodeBytesToLowercaseHex(lease.finiteMetadataReservationSha256));
-      expect(before.sessions[0]).toMatchObject({ lifecycle: "finishing", executionAuthorityGeneration: "application_v1" });
-      expect(root).toMatchObject({ state: "sealed", executionProfile: "finiteRoot" });
-      const leaseSelection = and(eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
-        eq(fxSystemSnapshotLeases.sessionId, sessionId), eq(fxSystemSnapshotLeases.attemptFence, lease.attemptFence));
+      const session = before.sessions[0];
+      if (session === undefined) throw new Error("Missing original compact anchor");
+      const original = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+      expect(original.reservation).not.toBeNull();
+      expect(session).toMatchObject({ lifecycle: "retrying", executionProfile: "finiteRoot", executionAuthorityGeneration: "application_v1",
+        attemptFence: fixture.activation.anchor.attemptFence,
+        finiteClaimFence: fixture.activation.executionClaim.claimFence + 1n });
+      expect(before.leases).toEqual([]);
+      expect(before.journals).toEqual([]);
+      expect(before.claims).toEqual([]);
+      const selection = and(eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
+        eq(fxSystemTransactionSessions.sessionId, sessionId), eq(fxSystemTransactionSessions.attemptFence, session.attemptFence));
+      const cleared = Result.getOrThrow(projectCapturedFiniteAttemptAnchor(
+        await Effect.runPromise(captureFiniteAttemptAnchor({ snapshotToken: original.snapshotToken }))));
       const calls = Object.fromEntries(fixture.nativeInvokeCount);
       try {
-        // Negative forensic corruption only. The authentic sealed journal and
-        // signed session still require the original reserved contract.
-        expect(await db.update(fxSystemSnapshotLeases).set({ metadataWatermark: null,
-          finiteMetadataReservationBytes: null, finiteMetadataReservationSha256: null })
-          .where(leaseSelection).returning()).toHaveLength(1);
+        // Canonical storage corruption preserves physical consistency and the
+        // signed program. Confirmed entry still requires its reservation.
+        expect(await db.update(fxSystemTransactionSessions).set(cleared)
+          .where(selection).returning()).toHaveLength(1);
         const corrupted = await inspect();
         await expect(fixture.retryWholeAttempt(conflict)).rejects.toMatchObject({
-          _tag: "PointMutationAttemptReplacementCorruptionV1Error", reason: "leaseInvalid",
-        } satisfies Pick<PointMutationAttemptReplacementCorruptionV1Error, "_tag" | "reason">);
+          _tag: "PointMutationAttemptReplacementCorruptionV1Error", reason: "occEvidenceInvalid",
+        });
         expect(await inspect()).toEqual(corrupted);
         expect(replacementReachedCommit).toBe(false);
         expect(fixture.retryContexts).toHaveLength(0);
         expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual(calls);
         expect(fixture.getOpenTransactionDepth()).toBe(0);
       } finally {
-        expect(await db.update(fxSystemSnapshotLeases).set({ metadataWatermark: lease.metadataWatermark,
-          finiteMetadataReservationBytes: lease.finiteMetadataReservationBytes,
-          finiteMetadataReservationSha256: lease.finiteMetadataReservationSha256 })
-          .where(leaseSelection).returning()).toHaveLength(1);
+        expect(await db.update(fxSystemTransactionSessions).set({ finiteAttemptBytes: session.finiteAttemptBytes,
+          finiteAttemptSha256: session.finiteAttemptSha256, finiteMetadataWatermark: session.finiteMetadataWatermark })
+          .where(selection).returning()).toHaveLength(1);
       }
       expect(await inspect()).toEqual(before);
     } finally { await fixture.close(); }
   }, 180_000);
 
-  it("rolls back a captured replacement entry when its accepting callback fails", async () => {
-    const failure = new PointMutationAttemptReplacementFiniteEntryError({ cause: new Error("replacement callback refused") });
+  it("rolls back a replacement callback's forged admission refusal without aborting the original attempt", async () => {
+    const failure = new PointMutationAttemptReplacementFiniteEntryError({
+      cause: new ApplicationMutationAdmissionError({ reason: "invalidExecutionAuthority", retryable: false }),
+    });
     let entered = false;
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `product-replacement-rollback-${driver}`, hooks: {
@@ -128,15 +131,21 @@ describe.each(drivers)("mixed Product whole-root OCC retry on %s", driver => {
         events: await db.select().from(fxSystemCommitEvents).where(eq(fxSystemCommitEvents.scopeUuid, scopeUuid)),
       });
       const before = await inspect();
-      const lease = before.lease[0];
-      if (lease?.finiteMetadataReservationBytes === null || lease?.finiteMetadataReservationBytes === undefined ||
-        lease.finiteMetadataReservationSha256 === null || lease.metadataWatermark === null)
-        throw new Error("Missing genuine original finite reservation");
-      expect(lease.finiteMetadataReservationBytes.byteLength).toBeGreaterThan(0);
-      expect(before.session[0]?.lifecycle).toBe("finishing");
+      const session = before.session[0];
+      if (session === undefined || session.finiteAttemptBytes === null) throw new Error("Missing original compact anchor");
+      expect((await Effect.runPromise(readFiniteAttemptAnchorRow(session))).reservation).not.toBeNull();
+      expect(session.finiteAttemptBytes.byteLength).toBeGreaterThan(0);
+      expect(session).toMatchObject({ lifecycle: "retrying", attemptFence: fixture.activation.anchor.attemptFence,
+        finiteClaimFence: fixture.activation.executionClaim.claimFence + 1n });
+      expect(before.lease).toEqual([]);
+      expect(before.root).toEqual([]);
+      expect(before.claim).toEqual([]);
       const calls = Object.fromEntries(fixture.nativeInvokeCount);
       await expect(fixture.retryWholeAttempt(conflict)).rejects.toBe(failure);
       expect(entered).toBe(true);
+      // Nonacceptance fencing committed before the replacement transaction.
+      // Its callback failure rolls back the entire new entry, preserving the
+      // original program, snapshot and reservation under that committed fence.
       expect(await inspect()).toEqual(before);
       expect(fixture.retryContexts).toHaveLength(0);
       expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual(calls);
@@ -144,7 +153,7 @@ describe.each(drivers)("mixed Product whole-root OCC retry on %s", driver => {
     } finally { await fixture.close(); }
   }, 180_000);
 
-  it("reexecutes the native Product on a fresh journal manager after a standalone conflict", async () => {
+  it("reexecutes native Product on a fresh finite entry after a standalone conflict", async () => {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `product-retry-${driver}` });
     try {
@@ -210,7 +219,10 @@ describe.each(drivers)("mixed Product whole-root OCC retry on %s", driver => {
       const nativeCallsBeforeStale = Object.fromEntries(fixture.nativeInvokeCount);
       const staleFailure = await Effect.runPromise(fixture.runAdmitted({ ...originalUpdate,
         syscallSequence: CommitSyscallSequenceV1Schema.make(6n) })).then(() => null, cause => cause);
-      expect(staleFailure).toBeInstanceOf(PointMutationJournalAttemptUnavailableV1Error);
+      expect(staleFailure).toBeInstanceOf(PointMutationJournalAdmittedOperationRejectedV1Error);
+      if (!(staleFailure instanceof PointMutationJournalAdmittedOperationRejectedV1Error))
+        throw new Error("Missing exact closed-root Product refusal", { cause: staleFailure });
+      expect(staleFailure.result).toEqual({ kind: "stateRejected", issue: { reason: "journalFailed" } });
       expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual(nativeCallsBeforeStale);
       const eventsAfterStale = await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)
         .where(eq(fxSystemCommitEvents.scopeUuid, scopeUuid));

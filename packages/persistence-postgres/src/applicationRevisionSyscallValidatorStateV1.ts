@@ -41,8 +41,17 @@ export interface SetupSeededProofValidatorStateV1 {
   readonly idPolicy: ValidatorIdPolicyV1 | null;
 }
 
+export interface SessionPinnedValidatorState {
+  readonly kind: "sessionPinned";
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly tablesByName: ReadonlyMap<string, ValidatorTableV1>;
+  readonly idPolicy: ValidatorIdPolicyV1;
+}
+
 export type SyscallValidatorStateV1 =
   | ActivationFencedValidatorStateV1
+  | SessionPinnedValidatorState
   | SetupSeededProofValidatorStateV1;
 
 const states = new WeakMap<
@@ -111,6 +120,17 @@ export function setupSeededSyscallValidatorStateV1(input: Readonly<{
     tablesByName: tables,
     idPolicy: tables === null ? null : tableAwareIdPolicy(tables),
   });
+}
+
+export function sessionPinnedSyscallValidatorState(input: Readonly<{
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly schemaManifest: SchemaManifestAppSchemaV1;
+}>): SessionPinnedValidatorState {
+  const tables = captureTables(input.schemaManifest);
+  return Object.freeze({ kind: "sessionPinned", scopeId: input.scopeId,
+    schemaVersionId: input.schemaVersionId, tablesByName: tables,
+    idPolicy: tableAwareIdPolicy(tables) });
 }
 
 function captureTables(

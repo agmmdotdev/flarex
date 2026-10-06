@@ -1,5 +1,4 @@
 import { Data, Effect } from "effect";
-import type { ConfirmedFiniteRootSealCapture } from "@flarex/persistence-postgres/session-journal-store";
 
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { JsonObject } from "flarex-protocol/json";
@@ -215,7 +214,6 @@ export interface StoredCommitAuthorityEvidencePersistencePortErrorV1 {
 export interface StoredCommitAuthorityEvidenceLoaderPortV1 {
   readonly loadEffect: (
     authority: StoredCommitAuthorityEvidenceAuthorityPortV1,
-    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     StoredCommitAuthorityEvidenceLoadResultPortV1,
     StoredCommitAuthorityEvidencePersistencePortErrorV1

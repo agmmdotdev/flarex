@@ -2,10 +2,12 @@ import { scopeClockSelection } from "../scopeClock";
 import { fxSystemScopeExecutionAuthorities } from "../schema";
 import { isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
-import { readPreparedFiniteApplicationOriginalControl, type PreparedFiniteActiveApplication } from "../applicationActivation";
-import { readConfirmedFiniteRootSealCapture, type ConfirmedFiniteRootSealCapture } from "../sessionJournalStore";
+import { readPreparedFiniteApplicationTerminalProjection,
+  type PreparedFiniteActiveApplication } from "../applicationActivation";
+import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
+import type { OriginalApplicationControlRead } from "../applicationReadiness";
 
 import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
@@ -17,6 +19,7 @@ import type {
   ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type {
   TransactionAttemptFence,
   TransactionSessionIdV1,
@@ -68,6 +71,7 @@ import {
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
 import {
   materializeEffect,
+  materializeFiniteExecutionSchema,
   parseLength,
   type AttemptChildExistenceRow,
   type ApplicationGraphPayloadRow,
@@ -131,18 +135,11 @@ export function createStoredCommitAuthorityEvidenceLoaderV1(
 ): StoredCommitAuthorityEvidenceLoaderV1 {
   const loadEffect = Effect.fn("StoredCommitAuthority.load")(function* (
     input: StoredCommitAuthorityEvidenceAuthorityV1,
-    capture?: ConfirmedFiniteRootSealCapture,
   ): Effect.fn.Return<
     StoredCommitAuthorityEvidenceLoadResultV1,
     StoredCommitAuthorityEvidencePersistenceV1Error
   > {
     const authority = captureAuthority(input);
-    if (capture !== undefined) {
-      const captured = readConfirmedFiniteRootSealCapture(capture, ports);
-      if (captured === undefined) return Object.freeze({ kind: "corrupt", reason: "authorityProjectionInvalid" });
-      return yield* materializeEffect(authority, captured.preliminaryAuthority,
-        captured.authorityRows, options);
-    }
     const capturedResult = yield* captureStoredCommitAuthorityRowsEffect(
       ports,
       authority,
@@ -183,20 +180,43 @@ export interface PreparedTerminalControl {
   readonly bindingRows: ReadonlyArray<unknown>;
 }
 
+/** Trusted finite entry needs the already authenticated decoded schema only.
+ * Durable seal/recovery retain their full control evidence query profile. */
+export type PreparedFiniteTerminalControl = Effect.Success<ReturnType<typeof materializeFiniteExecutionSchema>>;
+
+/** The genuine Application construction owner authenticates these originals once. */
+export const prepareFiniteApplicationExecutionSchema = Effect.fn("StoredCommitAuthority.prepareFiniteApplicationExecutionSchema")(
+  function* (original: OriginalApplicationControlRead,
+    expected: Readonly<{ deploymentId: string; schemaVersionId: CatalogSchemaVersionId }>) {
+    const deploymentId = yield* Schema.decodeUnknownEffect(TransactionGrantDeploymentIdV1Schema)(expected.deploymentId)
+      .pipe(Effect.mapError(cause => new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause })));
+    const authority = { deploymentId, schemaVersionId: expected.schemaVersionId };
+    const payload = original.artifact.payload;
+    if (payload === null) return yield* Effect.fail(new StoredCommitAuthorityEvidencePersistenceV1Error({
+      operation: "beforeSchemaArtifactDecode", cause: "Finite Application schema original payload unavailable" }));
+    const bindingRows = yield* Effect.tryPromise({ try: () => selectTerminalStableBindings(original.database, authority, {}),
+      catch: cause => new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause }) });
+    const schema = yield* materializeFiniteExecutionSchema(authority, {
+      schemaSizeRows: [original.artifact.sizes], schemaPayloadRows: [payload], bindingRows,
+    });
+    return Object.freeze({ schemaManifest: snapshotSchemaManifestValue(schema.schemaManifest), stableBindings: schema.stableBindings });
+  },
+);
+
 /** Finite entry only: the existing native preparation lends its authenticated
  * originals. No absent-evidence branch can select the full query profile. */
 export const prepareFiniteTerminalControlEffect = Effect.fn("StoredCommitAuthority.prepareFiniteTerminalControl")(
 function* (ports: StoredCommitAuthorityEvidenceLoaderPortsV1, authority: StoredCommitAuthorityCaptureAuthorityV1,
   session: ApplicationGraphSessionSelector | undefined, application: PreparedFiniteActiveApplication): Effect.fn.Return<
-    PreparedTerminalControl, StoredCommitAuthorityEvidencePersistenceV1Error
+    PreparedFiniteTerminalControl, StoredCommitAuthorityEvidencePersistenceV1Error
   > {
   const selector = captureApplicationGraphSelector(session);
   const db = ports.applicationControlDb;
   if (selector === undefined || db === undefined) return yield* Effect.fail(
     new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
       cause: "Finite Application terminal control evidence unavailable" }));
-  const { basis, schemaVersion, original } = yield* Effect.fromResult(
-    readPreparedFiniteApplicationOriginalControl(application, db, sizes => {
+  const projected = yield* Effect.fromResult(
+    readPreparedFiniteApplicationTerminalProjection(application, db, selector.functionPath, sizes => {
       const jsonLength = parseLength(sizes.manifestJsonByteLengthText);
       const canonicalLength = parseLength(sizes.manifestCanonicalByteLengthText);
       const bindingLength = parseLength(sizes.schemaBindingByteLengthText);
@@ -206,13 +226,13 @@ function* (ports: StoredCommitAuthorityEvidenceLoaderPortsV1, authority: StoredC
           cause: "Finite Application terminal control materialization budget exceeded" })) : Result.succeed(undefined);
     })).pipe(Effect.mapError(cause => cause instanceof StoredCommitAuthorityEvidencePersistenceV1Error ? cause :
       new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause })));
-  const sizes = original.artifact.sizes;
-  const binding = original.schemaAuthority.row;
+  const { basis, schemaVersion, artifact, binding } = projected;
+  const sizes = artifact.sizes;
   // Replacement admission authenticates the original signed program against a
   // fresh head. These immutable schema originals do not pin that head's sequence.
-  if (authority.deploymentId !== basis.deploymentId || authority.scopeId !== basis.authority.scopeId ||
+  if (authority.deploymentId !== basis.deploymentId || authority.scopeId !== basis.scopeId ||
     authority.schemaVersionId !== basis.schemaVersionId || selector.revisionId !== basis.revisionId ||
-    !basis.manifest.functions.some(fn => fn.path === selector.functionPath) ||
+    !basis.functionDeclared ||
     !bytesEqualFullScan(selector.applicationSchemaSha256, basis.applicationSchemaSha256) ||
     sizes.deploymentId !== basis.deploymentId || sizes.schemaVersionId !== basis.schemaVersionId ||
     sizes.version !== schemaVersion || sizes.manifestCodecVersion !== SCHEMA_MANIFEST_CODEC_VERSION_V1 ||
@@ -226,20 +246,14 @@ function* (ports: StoredCommitAuthorityEvidenceLoaderPortsV1, authority: StoredC
       new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
         cause: "Finite Application terminal control selector mismatch" }));
   const canonicalLength = parseLength(sizes.manifestCanonicalByteLengthText);
-  const bindingLength = parseLength(original.schemaAuthority.schemaBindingByteLengthText);
-  const payload = original.artifact.payload;
-  if (payload === null || binding.bindingBytes === null || payload.manifestCodecVersion !== sizes.manifestCodecVersion ||
-    payload.manifestBytes.byteLength !== canonicalLength ||
-    binding.bindingBytes.byteLength !== bindingLength) return yield* Effect.fail(
+  const bindingLength = parseLength(projected.schemaBindingByteLengthText);
+  const payload = artifact.payload;
+  if (payload === null || binding.bindingByteLength === null || payload.manifestCodecVersion !== sizes.manifestCodecVersion ||
+    payload.manifestByteLength !== canonicalLength ||
+    binding.bindingByteLength !== bindingLength) return yield* Effect.fail(
       new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
         cause: "Finite Application terminal control original payload unavailable" }));
-  const bindingRows = yield* Effect.tryPromise({
-    try: () => selectTerminalStableBindings(db, authority, {}),
-    catch: cause => new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause }),
-  });
-  return Object.freeze({ schemaSizeRows: Object.freeze([sizes]), schemaPayloadRows: Object.freeze([payload]),
-    schemaAuthoritySizeRows: Object.freeze([{ schemaBindingByteLengthText: original.schemaAuthority.schemaBindingByteLengthText }]),
-    schemaAuthorityPayloadRows: Object.freeze([binding]), bindingRows });
+  return projected.schema;
 });
 
 /** Full, durable-seal and recovery query profile. The target capture still authenticates
@@ -1529,7 +1543,7 @@ function detachSchemaPayloadRows(
   })));
 }
 
-async function selectTerminalStableBindings(schemaDb: AppRowTransaction | FlarexMetadataDatabase | undefined, authority: StoredCommitAuthorityCaptureAuthorityV1, options: StoredCommitAuthorityEvidenceLoaderOptionsV1) {
+async function selectTerminalStableBindings(schemaDb: AppRowTransaction | FlarexMetadataDatabase | undefined, authority: Pick<StoredCommitAuthorityCaptureAuthorityV1, "deploymentId" | "schemaVersionId">, options: StoredCommitAuthorityEvidenceLoaderOptionsV1) {
   const bindingStatement = sql`
     select
       declared.ordinality::bigint::text as "ordinalText",

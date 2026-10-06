@@ -2292,7 +2292,7 @@ describe("C04A stored-attempt authentication", () => {
       attemptFence: ATTEMPT_FENCE,
       snapshotToken: SNAPSHOT,
       executionScope: makeTestExecutionScope(),
-      liveness: { enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect },
+      liveness: { enterSettlement: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect, enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect },
       executionEvidence: Object.freeze({
         ...current.commitEvidence,
         session: applicationSession,
@@ -2421,7 +2421,7 @@ describe("C04A stored-attempt authentication", () => {
         snapshotToken: SNAPSHOT,
         executionScope: makeTestExecutionScope(),
         executionClaim: TEST_EXECUTION_CLAIM_OBSERVATION,
-        liveness: { enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect },
+        liveness: { enterSettlement: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect, enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect },
         executionEvidence: Object.freeze({
           ...current.commitEvidence,
           session: applicationSession,
@@ -2666,7 +2666,7 @@ describe("C04A stored-attempt authentication", () => {
       snapshotToken: SNAPSHOT,
       executionScope: makeTestExecutionScope(),
       executionClaim: TEST_EXECUTION_CLAIM_OBSERVATION,
-      liveness: { enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      liveness: { enterSettlement: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect, enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         Effect.sync(() => {
           counters.finishing += 1;
         }).pipe(Effect.andThen(effect)) },

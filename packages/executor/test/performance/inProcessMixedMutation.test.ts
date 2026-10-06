@@ -28,9 +28,9 @@ describe("direct mixed performance execution", () => {
         });
         expect(sample.publication).toMatchObject({ kind: "published" });
         expect(sample.workerConstructionMilliseconds).toBe(0);
-        expect(sample.sealedJournalBytes).toBeGreaterThan(0);
+        expect(sample.canonicalResultBytes).toBeGreaterThan(0);
         expect(sample.fixture.nativeInvokeCount.get("update")).toBe(1);
-        expect((await sample.fixture.readSettlementLedger())?.syscallReceipts).toBe(7);
+        expect((await sample.fixture.readSettlementLedger())?.syscallReceipts).toBe(8);
         const earlier = Schema.decodeUnknownSync(Schema.Struct({ earlier: Schema.Struct({ _id: Schema.String }) }))(sample.returnedValue).earlier;
         expect(await sample.fixture.readCurrentApplicationDocument(earlier._id)).toMatchObject({ name: "earlier accepted" });
       }

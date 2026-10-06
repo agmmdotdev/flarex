@@ -4,9 +4,11 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
 
 const extensions = { pg_trgm, btree_gin };
+const startup = { extensions, ...(workerData?.transport === "finiteCapture"
+  ? { startParams: [...PGlite.defaultStartParams, "-c", "statement_timeout=30000"] } : {}) };
 let db = workerData?.dataDir === undefined
-  ? await PGlite.create({ extensions })
-  : await PGlite.create(workerData.dataDir, { extensions });
+  ? await PGlite.create(startup)
+  : await PGlite.create(workerData.dataDir, startup);
 const parsers = Object.fromEntries(
   [1082, 1114, 1184, 1186, 1231, 1115, 1185, 1187, 1182].map((id) => [
     id,
@@ -20,7 +22,7 @@ parentPort.on("message", (message) => {
       if (message.method === "reopen") {
         if (typeof workerData?.dataDir !== "string") throw new Error("Reopen requires persisted fixture data");
         await db.close();
-        db = await PGlite.create(workerData.dataDir, { extensions });
+        db = await PGlite.create(workerData.dataDir, startup);
         parentPort.postMessage({ id: message.id, ok: true, value: null });
         return;
       }

@@ -1,3 +1,4 @@
+import { readFiniteEntryPlanningObservation, type FiniteEntryObservation } from "./finiteEntryObservation";
 import { runEffectTransaction } from "./effectTransaction";
 import { SchemaVersionArtifactPersistenceError } from "./schemaVersionArtifacts";
 import {
@@ -103,6 +104,10 @@ import {
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
+import { captureHostPreparationLifetime } from "./preparedHostRuntime";
+import { getCoLocatedReadInstallationReferencesResult, type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
+import { prepareProtectedMetadata, captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot,
+  registerProtectedMetadataFinalGuard, guardProtectedMetadataEpoch, type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import {
   captureScopePhysicalLocator,
@@ -698,6 +703,13 @@ export interface AppSchemaCandidateWriteGuardDependencies {
 type CandidateWriteGuardState = Readonly<{
   readonly candidateValidation: AppSchemaCandidateValidationPortDependencies;
   readonly pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1;
+  readonly finite?: Readonly<{
+    authority: TrustedScopeAuthority;
+    head: StoredAppSchemaCandidateValidationHead | null;
+    validator: CandidateDocumentValidator | null;
+    lifetime: NonNullable<Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>>;
+    protection?: ProtectedTargetMetadataEvidence;
+  }>;
 }>;
 
 type PreparedCandidateWriteGuardState = Readonly<{
@@ -706,6 +718,8 @@ type PreparedCandidateWriteGuardState = Readonly<{
   readonly scopeId: ScopeId;
   readonly head: StoredAppSchemaCandidateValidationHead | null;
   readonly validator: CandidateDocumentValidator | null;
+  readonly finite?: CandidateWriteGuardState["finite"];
+  readonly manifest?: SchemaManifestAppSchemaV1;
 }>;
 
 const candidateWriteGuardStates = new WeakMap<
@@ -725,22 +739,25 @@ const candidatePlanningHeads = new WeakMap<AppSchemaCandidateWriteGuardPlanningH
   Readonly<{ authority: TrustedScopeAuthority; row: HeadRow | null;
     issuer: PointMutationSessionAuthorityResolutionPortsV1 }>>();
 
-/** Internal seal capture. No control read, frame hashing or validator compilation
- * runs while the accepting transaction is open. The journal releases this
- * handle only after the seal transaction has committed. */
+/** Internal entry/seal capture. No control read, frame hashing or validator
+ * compilation runs while the accepting transaction is open. Its entry/journal
+ * owner releases this handle only after that transaction has committed. */
 export const captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect =
   Effect.fn("AppSchemaCandidateValidation.capturePlanningHead")(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority,
-    issuer: PointMutationSessionAuthorityResolutionPortsV1,
+    issuer: PointMutationSessionAuthorityResolutionPortsV1, finiteEntry?: FiniteEntryObservation,
   ) {
-    const rows = yield* queryEffect("readHead", tx.select()
+    const observed = finiteEntry === undefined ? undefined : yield* Effect.fromResult(readFiniteEntryPlanningObservation(
+      finiteEntry, tx, authority.scopeId, authority.storageGeneration)).pipe(Effect.mapError(cause =>
+        new AppSchemaCandidateValidationPersistenceError({ operation: "readHead", cause })));
+    const rows = observed === undefined ? yield* queryEffect("readHead", tx.select()
       .from(fxSystemAppSchemaCandidateValidations).where(
         eq(fxSystemAppSchemaCandidateValidations.scopeId, authority.scopeId),
-      ).limit(1));
+      ).limit(1)) : undefined;
     const handle = Object.freeze({ [candidatePlanningHeadBrand]: true as const });
     candidatePlanningHeads.set(handle, Object.freeze({
       authority: Object.freeze(structuredClone(authority)), issuer,
-      row: rows[0] === undefined ? null : structuredClone(rows[0]),
+      row: observed === undefined ? (rows?.[0] === undefined ? null : structuredClone(rows[0])) : observed,
     }));
     return handle;
   });
@@ -773,6 +790,116 @@ export const prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
       { deploymentId: capture.authority.deploymentId, scopeId: capture.authority.scopeId },
       capture.authority, head);
   });
+
+/** The finite entry lends its issued head capture. Final acceptance rechecks
+ * the exact head under its existing authority/sequencer exclusion. */
+export const prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
+  Effect.fn("AppSchemaCandidateValidation.prepareFiniteCapturedWriteGuard")(function* (
+    guard: AppSchemaCandidateWriteGuardPort,
+    captured: AppSchemaCandidateWriteGuardPlanningHead,
+    input: Readonly<{ deploymentId: string; scopeId: ScopeId }>,
+  ): Effect.fn.Return<PreparedAppSchemaCandidateWriteGuard, AppSchemaCandidateWriteGuardError> {
+    const state = candidateWriteGuardStates.get(guard);
+    const capture = candidatePlanningHeads.get(captured);
+    if (state === undefined || capture === undefined)
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "notIssued" }));
+    if (state.pointCommitAuthority !== capture.issuer || capture.authority.deploymentId !== input.deploymentId ||
+      capture.authority.scopeId !== input.scopeId)
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
+    const head = capture.row === null ? null : yield* decodeHeadRowEffect(capture.row, "load")
+      .pipe(Effect.mapError(mapCandidateWriteGuardError));
+    const finite = state.finite;
+    if (finite === undefined || !trustedAuthoritiesEqual(finite.authority, capture.authority) ||
+      !sameCandidateSchemaSelection(finite.head, head))
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "concurrentStateChange" }));
+    yield* Effect.fromResult(finite.lifetime.checkOpen()).pipe(Effect.mapError(cause =>
+      new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch", cause })));
+    // The owner-role lane has no protected writer guarantee. It retains the
+    // complete original artifact verification rather than minting epoch proof.
+    if (finite.protection === undefined) {
+      const fresh = yield* prepareWriteGuardFromDecodedHeadEffect(guard, state, input, capture.authority, head);
+      const freshState = preparedCandidateWriteGuardStates.get(fresh);
+      if (freshState === undefined) return yield* Effect.die(new Error("Candidate preparation issuance was lost"));
+      return issuePreparedCandidateWriteGuard(guard, input, head, freshState.validator, finite, freshState.manifest);
+    }
+    return issuePreparedCandidateWriteGuard(guard, input, head, finite.validator, finite);
+  });
+
+/** Construct once under the existing retained host lease. Exact captured heads
+ * select these compiled semantics; current admission and the final metadata
+ * epoch lock remain obligations of the accepting transaction. */
+export const prepareFiniteAppSchemaCandidateWriteGuardPortEffect = Effect.fn(
+  "AppSchemaCandidateValidation.prepareFiniteGuardPort",
+)(function* (dependencies: AppSchemaCandidateWriteGuardDependencies,
+  input: Readonly<{ deploymentId: string; scopeId: ScopeId } & (
+    { profile: "installed"; database: FlarexMetadataDatabase; installation: PreparedCoLocatedReadInstallation } |
+    { profile: "fullArtifactProof"; database?: never; installation?: never })>,
+): Effect.fn.Return<AppSchemaCandidateWriteGuardPort, AppSchemaCandidateWriteGuardError> {
+  const guard = createAppSchemaCandidateWriteGuardPort(dependencies);
+  const state = candidateWriteGuardStates.get(guard);
+  const lifetime = yield* captureHostPreparationLifetime();
+  if (state === undefined || lifetime === undefined)
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(input,
+    { ...state.candidateValidation.authority, ...makeInstallationProtectedScopeAuthorityControlReader(state.candidateValidation.controlDb) })
+    .pipe(Effect.mapError(mapCandidateWriteGuardError));
+  const installed = input.profile === "installed" ? input : undefined;
+  const installedPreparation = installed === undefined ? undefined : yield* Effect.gen(function* () {
+    const refs = yield* Effect.fromResult(getCoLocatedReadInstallationReferencesResult(installed.installation, installed.database));
+    const token = yield* prepareProtectedMetadata(installed.database, refs.controlInstallation);
+    return { refs, token, database: installed.database };
+  }).pipe(Effect.mapError(cause => new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch", cause })));
+  const captured = yield* runLocatedTransaction(located.target, "load", tx => Effect.gen(function* () {
+    const head = yield* readHeadEffect(tx, located.authority.scopeId, "planning");
+    const protection = installedPreparation === undefined ? undefined : {
+      database: installedPreparation.database, token: installedPreparation.token,
+      epoch: yield* captureProtectedMetadataEpoch(installedPreparation.token, installedPreparation.database, tx),
+    };
+    let snapshot: CandidateSnapshot | undefined;
+    if (head !== null && head.frame.kind !== "app_schema_candidate_validation_failure_evidence" && installedPreparation !== undefined) {
+      yield* Effect.tryPromise({ try: () => tx.execute(sql`select pg_catalog.set_config('search_path',
+        pg_catalog.format('%I, pg_temp', ${installedPreparation.refs.control.schemaName}::text), true)`),
+        catch: cause => new AppSchemaCandidateValidationPersistenceError({ operation: "readHead", cause }) });
+      snapshot = yield* loadCandidateSnapshotInTransaction(tx, { ...input, schemaVersionId: head.schemaVersionId }, "advance");
+      yield* Effect.tryPromise({ try: () => tx.execute(sql`select pg_catalog.set_config('search_path',
+        pg_catalog.format('%I, pg_temp', ${installedPreparation.refs.target.schemaName}::text), true)`),
+        catch: cause => new AppSchemaCandidateValidationPersistenceError({ operation: "readHead", cause }) });
+      if (!headMatchesSnapshot(head, located.authority, snapshot))
+        return yield* Effect.fail(operationError("load", "corruption"));
+    }
+    if (protection !== undefined)
+      yield* guardProtectedMetadataEpoch(protection.token, protection.database, protection.epoch, tx);
+    return { head, protection, snapshot };
+  })).pipe(Effect.mapError(cause => new AppSchemaCandidateWriteGuardError({ reason: "persistence", cause })));
+  const prepared = installedPreparation === undefined
+    ? issuePreparedCandidateWriteGuard(guard, input, captured.head, null)
+    : issuePreparedCandidateWriteGuard(guard, input, captured.head,
+      captured.snapshot === undefined ? null : prepareCandidateDocumentValidator(captured.snapshot.manifest), undefined, captured.snapshot?.manifest);
+  const preparedState = preparedCandidateWriteGuardStates.get(prepared);
+  if (preparedState === undefined) return yield* Effect.die(new Error("Candidate preparation issuance was lost"));
+  // Charge actual retained semantics, including an empty selection. The live
+  // validator's manifest was decoded and hashed by its existing schema owner.
+  yield* Effect.fromResult(lifetime.charge(JSON.stringify({ authority: located.authority,
+    head: captured.head, manifest: preparedState.manifest }, (_, value: unknown) =>
+    typeof value === "bigint" ? value.toString() : value))).pipe(Effect.mapError(cause =>
+      new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch", cause })));
+  candidateWriteGuardStates.set(guard, Object.freeze({ ...state, finite: Object.freeze({
+    authority: located.authority, head: captured.head, validator: preparedState.validator, lifetime,
+    ...(captured.protection === undefined ? {} : { protection: captured.protection }),
+  }) }));
+  return guard;
+});
+
+function sameCandidateSchemaSelection(left: StoredAppSchemaCandidateValidationHead | null,
+  right: StoredAppSchemaCandidateValidationHead | null): boolean {
+  return left === null || right === null ? left === right :
+    left.deploymentId === right.deploymentId && left.scopeId === right.scopeId &&
+    left.schemaVersionId === right.schemaVersionId &&
+    left.frame.schemaManifestSha256Hex === right.frame.schemaManifestSha256Hex &&
+    left.frame.storageGeneration === right.frame.storageGeneration &&
+    left.frame.storageGenerationFence === right.frame.storageGenerationFence &&
+    left.frame.scopeEpoch === right.frame.scopeEpoch && left.frame.attemptFence === right.frame.attemptFence;
+}
 
 export function createAppSchemaCandidateWriteGuardPort(
   dependencies: AppSchemaCandidateWriteGuardDependencies,
@@ -1189,6 +1316,7 @@ const prepareWriteGuardFromDecodedHeadEffect = Effect.fn("AppSchemaCandidateVali
   head: StoredAppSchemaCandidateValidationHead | null,
 ): Effect.fn.Return<PreparedAppSchemaCandidateWriteGuard, AppSchemaCandidateWriteGuardError> {
   let validator: CandidateDocumentValidator | null = null;
+  let manifest: SchemaManifestAppSchemaV1 | undefined;
   if (
     head !== null &&
     head.frame.kind !== "app_schema_candidate_validation_failure_evidence"
@@ -1208,7 +1336,14 @@ const prepareWriteGuardFromDecodedHeadEffect = Effect.fn("AppSchemaCandidateVali
       }));
     }
     validator = prepareCandidateDocumentValidator(snapshot.manifest);
+    manifest = snapshot.manifest;
   }
+  return issuePreparedCandidateWriteGuard(guard, input, head, validator, undefined, manifest);
+});
+
+function issuePreparedCandidateWriteGuard(guard: AppSchemaCandidateWriteGuardPort,
+  input: Readonly<{ deploymentId: string; scopeId: ScopeId }>, head: StoredAppSchemaCandidateValidationHead | null,
+  validator: CandidateDocumentValidator | null, finite?: CandidateWriteGuardState["finite"], manifest?: SchemaManifestAppSchemaV1) {
   const prepared = Object.freeze({
     [preparedAppSchemaCandidateWriteGuardBrand]: true as const,
   });
@@ -1218,9 +1353,11 @@ const prepareWriteGuardFromDecodedHeadEffect = Effect.fn("AppSchemaCandidateVali
     scopeId: input.scopeId,
     head,
     validator,
+    ...(finite === undefined ? {} : { finite }),
+    ...(manifest === undefined ? {} : { manifest }),
   }));
   return prepared;
-});
+}
 
 export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
   "AppSchemaCandidateValidation.prepareWriteGuard",
@@ -1298,6 +1435,17 @@ export const applyAppSchemaCandidateWriteGuardInTransactionEffect = Effect.fn(
     return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
       reason: "corruption",
     }));
+  }
+  if (preparedState.finite !== undefined) {
+    const finite = preparedState.finite;
+    yield* Effect.fromResult(finite.lifetime.checkOpen()).pipe(Effect.mapError(cause =>
+      new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch", cause })));
+    if (finite.protection !== undefined) {
+      yield* authenticateProtectedTargetMetadataSnapshot(finite.protection, tx).pipe(Effect.mapError(cause =>
+        new AppSchemaCandidateWriteGuardError({ reason: "concurrentStateChange", cause })));
+      yield* registerProtectedMetadataFinalGuard(tx, finite.protection.token, finite.protection.database, finite.protection.epoch)
+        .pipe(Effect.mapError(cause => new AppSchemaCandidateWriteGuardError({ reason: "concurrentStateChange", cause })));
+    }
   }
   const current = yield* readHeadForUpdateEffect(
     tx,
@@ -1510,6 +1658,20 @@ const loadCandidateSnapshot = Effect.fn(
     tx => readSchemaVersionArtifactByIdEffect(tx, input.deploymentId, input.schemaVersionId),
     cause => new SchemaVersionArtifactPersistenceError({ operation: "readById", cause }),
   );
+  return yield* decodeCandidateSnapshotArtifact(artifact, input, operation);
+});
+
+const loadCandidateSnapshotInTransaction = Effect.fn("AppSchemaCandidateValidation.loadCandidateSnapshotInTransaction")(function* (
+  tx: AppRowTransaction, input: AppSchemaCandidateValidationInput, operation: "install" | "advance" | "settle",
+) {
+  const artifact = yield* readSchemaVersionArtifactByIdEffect(tx, input.deploymentId, input.schemaVersionId);
+  return yield* decodeCandidateSnapshotArtifact(artifact, input, operation);
+});
+
+const decodeCandidateSnapshotArtifact = Effect.fn("AppSchemaCandidateValidation.decodeCandidateSnapshotArtifact")(function* (
+  artifact: Effect.Success<ReturnType<typeof readSchemaVersionArtifactByIdEffect>>, input: AppSchemaCandidateValidationInput,
+  operation: "install" | "advance" | "settle",
+) {
   if (artifact === null) {
     return yield* Effect.fail(operationError(operation, "corruption"));
   }

@@ -85,6 +85,11 @@ export async function activatePointMutationSession(
   return result;
 }
 
+/** Records the actual owner-decoded claim from a trusted primitive storage fixture. */
+export function rememberPrimitiveActivationClaim(anchor: PointMutationSessionAnchorV1, claim: TransactionExecutionClaimObservationV1): void {
+  executionClaimsByAttempt.set(executionClaimAttemptKey(anchor), claim);
+}
+
 /** Returns only the exact server-created claim captured with this fixture. */
 export function executionClaimForAnchor(
   anchor: PointMutationSessionAnchorV1,

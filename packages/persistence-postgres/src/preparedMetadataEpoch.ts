@@ -11,12 +11,14 @@ import { acquireInstallationAdmission, lockInstallationForCurrentTransaction,
   isManagedInstallationTransaction, managedInstallationMetadataIncarnation, managedInstallationSchema,
   managedInstallationIdentity,
   isCoLocatedInstallationTransaction,
+  readAdmittedCoLocatedInstallationPair,
   isCoLocatedControlInstallation,
   type PreparedCoLocatedReadInstallation, type PreparedInstallation } from "./installationLifecycle";
 
 /** Immutable target projection and complete sidecar membership. Control,
  * coverage, live heads and physical catalogs keep their owned fresh proofs. */
 const coveredTables = [
+  "fx_control_schema_version",
   "fx_system_application_candidate_v1",
   "fx_system_application_analysis_v1",
   "fx_system_application_revision_v2",
@@ -321,12 +323,17 @@ export const prepareProtectedMetadata = Effect.fn("PreparedMetadataEpoch.prepare
 ) {
   const identity = installation === undefined ? yield* readIdentity(database, false) :
     yield* readManagedIdentity(database, database, installation, false);
-  // SAFETY: only this issuer records a newly frozen token in the private
-  // WeakMap; consumers cannot manufacture a recognized preparation.
+  return issueProtectedMetadataPreparation(database, identity, installation);
+});
+
+function issueProtectedMetadataPreparation(database: FlarexMetadataDatabase,
+  identity: ProtectedMetadataEpochIdentity, installation?: PreparedInstallation): ProtectedMetadataPreparation {
+  // SAFETY: only this existing issuer records a verified frozen token in its
+  // private preparation registry. Structural data cannot create recognition.
   const token = Object.freeze({}) as ProtectedMetadataPreparation;
   preparations.set(token, Object.freeze({ database, identity, ...(installation === undefined ? {} : { installation }) }));
   return token;
-});
+}
 
 /** Reject partial or foreign managed target construction before any entry. */
 export function requireProtectedControlPreparation(prepared: ProtectedMetadataPreparation | undefined,
@@ -461,6 +468,44 @@ export const registerProtectedMetadataTransactionFinalGuard = Effect.fn("Prepare
     const current = yield* captureProtectedMetadataEpoch(prepared, database, tx);
     yield* registerProtectedMetadataFinalGuard(tx, prepared, database, current);
   });
+
+/** A genuine installed accepting query already supplied this transaction's
+ * exact current epoch. Publication registers both namespaces regardless of
+ * which structural capabilities its graph happens to demand. */
+export const registerManagedMetadataSnapshotFinalGuard = Effect.fn("PreparedMetadataEpoch.registerManagedFinalGuard")(
+  function* (tx: FlarexMetadataTransaction, database: FlarexMetadataDatabase, installation: PreparedInstallation) {
+    const identity = managedSnapshots.get(tx)?.get(installation);
+    if (identity === undefined || !isCoLocatedInstallationTransaction(tx, database, installation))
+      return yield* Effect.fail(issue("unprotectedRuntime"));
+    const token = issueProtectedMetadataPreparation(database, identity, installation);
+    yield* registerProtectedMetadataTransactionFinalGuard(token, database, tx);
+  });
+
+/** Actual admission plus both freshly registered guards selects the installed
+ * coherent-current observation profile. Scope presence alone is insufficient. */
+export function readRegisteredManagedMetadataPairFinalGuards(tx: FlarexMetadataTransaction): Result.Result<
+  Readonly<{ targetNamespaceOid: bigint; controlNamespaceOid: bigint }> | null, PreparedMetadataEpochError> {
+  return Result.gen(function* () {
+    const pair = yield* readAdmittedCoLocatedInstallationPair(tx).pipe(Result.mapError(cause => issue("unprotectedRuntime", cause)));
+    if (pair === null) {
+      if (managedSnapshots.has(tx)) return yield* Result.fail(issue("unprotectedRuntime"));
+      return null;
+    }
+    const snapshots = managedSnapshots.get(tx), scope = finalGuardScopes.get(tx);
+    const target = snapshots?.get(pair.target), control = snapshots?.get(pair.control);
+    if (scope === undefined || target === undefined || control === undefined)
+      return yield* Result.fail(issue("unprotectedRuntime"));
+    for (const expected of [target, control]) {
+      const guard = scope.get(expected.namespaceOid.toString());
+      const preparation = guard === undefined ? undefined : preparations.get(guard.prepared);
+      if (guard === undefined || guard.database !== pair.database || preparation?.database !== pair.database ||
+        preparation.installation === undefined || !isManagedInstallationTransaction(tx, pair.database, preparation.installation) ||
+        !sameInstallation(guard.expected, expected) || guard.expected.generation !== expected.generation)
+        return yield* Result.fail(issue("unprotectedRuntime"));
+    }
+    return { targetNamespaceOid: target.namespaceOid, controlNamespaceOid: control.namespaceOid };
+  });
+}
 
 /** One bounded final submission compares each original registered anchor.
  * Functions retain FOR SHARE NOWAIT; no current verdict is retained. */

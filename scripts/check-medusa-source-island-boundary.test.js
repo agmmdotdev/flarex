@@ -1,5 +1,6 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
+import { posix } from "node:path";
 import { analyzeMedusaSourceIslandBoundary } from "./check-medusa-source-island-boundary.mjs";
 
 const emptyInput = {
@@ -261,9 +262,14 @@ describe("Medusa source-island boundary checker", () => {
         specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" },
       { importer: "packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts",
         specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts" },
-      ...["applicationFiniteBindingCorrelation.test.ts", "bindingMetadataBackfillScenario.ts", "finiteSourceCommitClosure.test.ts"]
+      ...["applicationFiniteBindingCorrelation.test.ts", "bindingMetadataBackfillScenario.ts", "finiteSourceCommitClosure.test.ts",
+        "appSchemaCandidateValidation.postgres.test.ts"]
         .map(file => ({ importer: `packages/persistence-postgres/test/${file}`,
           specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" })),
+      ...["logical-currency-fixture", "logical-product-fixture"].map(fixture => ({
+        importer: "packages/executor/test/performance/support/productFlows.ts",
+        specifier: `../../../../medusa-adapter/test/support/${fixture}`, target: `packages/medusa-adapter/test/support/${fixture}.ts`,
+      })),
     ];
     const promotion = { ...nativeControlPromotion, files: edges.map(edge =>
       ({ target: edge.target, targetSha256: "pinned", classification: "authored" })) };
@@ -272,17 +278,39 @@ describe("Medusa source-island boundary checker", () => {
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
         rootSources: [{ relativePath: edge.importer, text }] }).errors).toEqual([]);
       for (const relativePath of ["packages/flarex-backend/test/adjacent.test.ts", "packages/flarex-backend/src/runtime.ts",
-        "packages/persistence-postgres/test/adjacent.test.ts", "packages/persistence-postgres/src/runtime.ts"]) {
+        "packages/persistence-postgres/test/adjacent.test.ts", "packages/persistence-postgres/src/runtime.ts",
+        "packages/executor/test/performance/support/adjacentFlows.ts", "packages/executor/src/productFlows.ts"]) {
+        const specifier = posix.relative(posix.dirname(relativePath), edge.target).replace(/\.ts$/u, "");
         expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
-          rootSources: [{ relativePath, text }] }).errors.some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
+          rootSources: [{ relativePath, text: `import { operation } from ${JSON.stringify(specifier)};` }] }).errors
+          .some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
       }
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput,
         currencyPromotion: { ...promotion, files: [] }, rootSources: [{ relativePath: edge.importer, text }] }).errors.length).toBeGreaterThan(0);
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput,
         currencyPromotion: { ...promotion, files: promotion.files.map(file => file.target === edge.target
           ? { ...file, classification: "preserved" } : file) }, rootSources: [{ relativePath: edge.importer, text }] }).errors.length).toBeGreaterThan(0);
+      const nativeSpecifier = posix.relative(posix.dirname(edge.importer), "packages/medusa-adapter/src/product-module.ts")
+        .replace(/\.ts$/u, "");
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
-        rootSources: [{ relativePath: edge.importer, text: 'import "../../medusa-adapter/src/product-module";' }] }).errors.length).toBeGreaterThan(0);
+        rootSources: [{ relativePath: edge.importer, text: `import ${JSON.stringify(nativeSpecifier)};` }] }).errors
+        .some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
+    }
+    const importer = "packages/executor/test/performance/support/productFlows.ts";
+    for (const specifier of [
+      "../../../../medusa-adapter/test/support/logical-pricing-fixture",
+      "../../../../medusa-adapter/src/product-attempt",
+      "../../../../medusa-adapter/src/product-launch-workflow",
+      "../../../../medusa-adapter/test/support/logical-currency-fixture.ts",
+      "../../../../medusa-adapter/test/support/./logical-product-fixture",
+    ]) expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+      rootSources: [{ relativePath: importer, text: `import ${JSON.stringify(specifier)};` }] }).errors.length).toBeGreaterThan(0);
+    for (const relativePath of ["packages/executor/src/productFlows.ts", "packages/executor/test/performance/support/adjacentFlows.ts"]) {
+      const specifier = posix.relative(posix.dirname(relativePath), "packages/medusa-adapter/test/support/logical-product-fixture.ts")
+        .replace(/\.ts$/u, "");
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+        rootSources: [{ relativePath, text: `import ${JSON.stringify(specifier)};` }] }).errors
+        .some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
     }
   });
 

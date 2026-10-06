@@ -52,6 +52,7 @@ import {
 } from "./schema";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { readStoredFiniteMetadataReservation } from "./finiteMetadataReservation";
+import { readFiniteAttemptAnchorRow } from "./finiteAttemptAnchor";
 import { readBindingCandidate, readBindingSelectedEvidence, readRetainedBindingActivation } from "./frameworkSchema/binding/repository";
 import {
   decodeAndCorrelateTaskSystemRunRowV1,
@@ -254,6 +255,7 @@ export const inspectPhysicalDefinitionRetirementPinsInTransactionEffect =
         }).from(fxSystemTransactionSessions).where(and(
           eq(fxSystemTransactionSessions.scopeUuid, scopeUuid.scopeUuid),
           or(eq(fxSystemTransactionSessions.executionAuthorityGeneration, "application_v1"),
+            eq(fxSystemTransactionSessions.executionProfile, "finiteRoot"),
             sql`exists (select 1 from ${fxSystemSnapshotLeases} as finite_retirement_lease
               where finite_retirement_lease.scope_uuid = ${fxSystemTransactionSessions.scopeUuid}
                 and finite_retirement_lease.session_id = ${fxSystemTransactionSessions.sessionId}
@@ -455,6 +457,13 @@ function* (tx: AppRowTransaction, scopeId: ScopeId, scopeUuid: ScopeUuidV1, depl
   expectedRevisionId?: string,
 ) {
   const sessionId = row.sessionId;
+  const reservation = yield* Effect.gen(function* () {
+  if (row.executionProfile === "finiteRoot") {
+    const anchor = yield* readFiniteAttemptAnchorRow(row).pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
+      ? pinPersistence("readMutationSession", cause) : pinCorruptionValue(owner, sessionId, cause)));
+    if (anchor.reservation === null) return yield* pinCorruption(owner, sessionId);
+    return anchor.reservation;
+  }
   const leases = yield* queryEffect("readSnapshotLease", () => tx.select().from(fxSystemSnapshotLeases)
     .where(and(eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
       eq(fxSystemSnapshotLeases.sessionId, sessionId))).limit(1).for("share"));
@@ -473,10 +482,12 @@ function* (tx: AppRowTransaction, scopeId: ScopeId, scopeUuid: ScopeUuidV1, depl
       )).limit(1).for("share"));
       if (journals[0]?.executionProfile === "finiteRoot") return yield* pinCorruption(owner, sessionId);
     }
-    return Object.freeze([]);
+    return null;
   }
-  const reservation = yield* readStoredFiniteMetadataReservation(lease).pipe(Effect.mapError(cause =>
+  return yield* readStoredFiniteMetadataReservation(lease).pipe(Effect.mapError(cause =>
     cause.reason === "resourceFailure" ? pinPersistence("readSnapshotLease", cause) : pinCorruptionValue(owner, sessionId, cause)));
+  });
+  if (reservation === null) return Object.freeze([]);
   if (reservation.deploymentId !== deploymentId || reservation.scopeId !== scopeId ||
     reservation.schemaVersionId !== row.schemaVersionId || reservation.attemptFence !== row.attemptFence ||
     expectedRevisionId !== undefined && reservation.application.revisionId !== expectedRevisionId)

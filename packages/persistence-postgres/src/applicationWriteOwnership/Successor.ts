@@ -1,20 +1,36 @@
 import type { ApplicationWriteOwnershipCatalog } from "./Catalog";
-import { readOwnershipUniqueClosure } from "./UniqueEvidence";
-import { and, eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { readOwnershipUniqueClosure, decodeCapturedOwnershipUniqueClosure } from "./UniqueEvidence";
+import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
+import { sql, type SQL } from "drizzle-orm";
+import { Effect, Schema } from "effect";
 import { verifyApplicationManifestV3, type ApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { verifyApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, type Json, type JsonObject } from "flarex-protocol/json";
 import type { ScopeId } from "flarex-protocol/storage-authority";
+import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ApplicationSchemaBindingV3 } from "flarex-protocol/internal/application-schema-binding";
 import type { AppRowTransaction } from "../appRows";
-import { fxSystemApplicationPublications } from "../applicationRelationSchema";
-import { fxSystemApplicationAnalysesV1 } from "../schema";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { ApplicationWriteOwnershipError, type ApplicationManagedTableClaim } from "./Model";
 import type { ApplicationWriteOwnershipHistoryBudget } from "./Policy";
 import { digestApplicationWriteOwnership } from "./Digest";
+
+export type ApplicationOwnershipSuccessorCapturePort =
+  | Readonly<{ kind: "transaction"; tx: AppRowTransaction }>
+  | Readonly<{ kind: "capture";
+      capturePolicyManifest: (scopeId: ScopeId, revisionId: string, remaining: Readonly<{ records: number; bytes: number }>) =>
+        Effect.Effect<readonly unknown[], ApplicationWriteOwnershipError>;
+      captureUniqueClosure: (deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
+        remaining: Readonly<{ records: number; bytes: number }>) => Effect.Effect<readonly unknown[], ApplicationWriteOwnershipError>;
+    }>;
+
+export function buildApplicationOwnershipPolicyManifestReadStatement(scopeId: ScopeId, revisionId: string,
+  remaining: Readonly<{ records: number; bytes: number }>, schemaName?: string): SQL {
+  const reader = schemaName === undefined ? sql`fx_read_application_ownership_manifest`
+    : sql`${sql.identifier(schemaName)}.fx_read_application_ownership_manifest`;
+  return sql`select * from ${reader}(${scopeId}::text, ${revisionId}::text, ${remaining.records}::integer, ${remaining.bytes}::integer)`;
+}
 
 declare const successorBrand: unique symbol;
 export interface ApplicationOwnershipSuccessor { readonly [successorBrand]: true }
@@ -47,14 +63,15 @@ export function isOptionalPostRelationSuccessor(prior: ApplicationManifestV3, ne
 
 /** No Boolean, digest pair, or caller-owned manifest can issue this capability. */
 export const prepareApplicationOwnershipSuccessor = Effect.fn("ApplicationWriteOwnership.prepareSuccessor")(function* (
-  tx: AppRowTransaction, scopeId: ScopeId, priorRevision: string, nextRevision: string,
+  source: ApplicationOwnershipSuccessorCapturePort | undefined, scopeId: ScopeId, priorRevision: string, nextRevision: string,
   previous: readonly ApplicationManagedTableClaim[], policies: readonly Policy[], expectedPolicySetSha256: string, budget: ApplicationWriteOwnershipHistoryBudget, catalog?: ApplicationWriteOwnershipCatalog,
   commitments?: Readonly<{ prior: JsonObject; next: JsonObject }>,
 ): Effect.fn.Return<ApplicationOwnershipSuccessor | undefined, ApplicationWriteOwnershipError> {
   const changed = previous.filter(claim => policies.find(policy => policy.tableId === claim.policy.tableId)?.writePolicySha256 !== claim.policy.writePolicySha256);
   if (changed.length === 0) return undefined;
-  const before = yield* readPolicyManifest(tx, scopeId, priorRevision, budget);
-  const after = yield* readPolicyManifest(tx, scopeId, nextRevision, budget);
+  if (source === undefined) return yield* Effect.fail(refused());
+  const before = yield* readPolicyManifest(source, scopeId, priorRevision, budget);
+  const after = yield* readPolicyManifest(source, scopeId, nextRevision, budget);
   if (commitments !== undefined && (!matchesReadiness(before, commitments.prior) || !matchesReadiness(after, commitments.next))) return yield* Effect.fail(refused());
   if (!isOptionalPostRelationSuccessor(before.manifest, after.manifest)) return yield* Effect.fail(refused());
   const verifiedBefore = yield* verifyApplicationWritePolicies(before.manifest.schema.writePolicies, before.manifest.schema.tables.map(table => table.name)).pipe(Effect.mapError(cause =>
@@ -63,9 +80,13 @@ export const prepareApplicationOwnershipSuccessor = Effect.fn("ApplicationWriteO
     new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })));
   if (verifiedAfter.policySetSha256 !== expectedPolicySetSha256) return yield* Effect.fail(refused());
   for (const policy of policies) if (!verifiedAfter.tables.some(table => table.declaration.logicalTableName === policy.logicalName && table.writePolicySha256 === policy.writePolicySha256)) return yield* Effect.fail(refused());
-  if (catalog === undefined || before.deploymentId !== after.deploymentId) return yield* Effect.fail(refused());
-  const priorUnique = yield* readOwnershipUniqueClosure(catalog, before.deploymentId, before.schemaVersionId, budget);
-  const nextUnique = yield* readOwnershipUniqueClosure(catalog, after.deploymentId, after.schemaVersionId, budget);
+  if ((source.kind === "transaction" && catalog === undefined) || before.deploymentId !== after.deploymentId) return yield* Effect.fail(refused());
+  const unique = (deploymentId: string, schemaVersionId: CatalogSchemaVersionId) => source.kind === "capture"
+    ? source.captureUniqueClosure(deploymentId, schemaVersionId, budget.remaining()).pipe(Effect.flatMap(raw =>
+      decodeCapturedOwnershipUniqueClosure(deploymentId, schemaVersionId, raw, budget)))
+    : readOwnershipUniqueClosure(catalog!, deploymentId, schemaVersionId, budget);
+  const priorUnique = yield* unique(before.deploymentId, before.schemaVersionId);
+  const nextUnique = yield* unique(after.deploymentId, after.schemaVersionId);
   if (priorUnique.closure.definitionCount !== nextUnique.closure.definitionCount ||
     priorUnique.closure.definitionSetSha256Hex !== nextUnique.closure.definitionSetSha256Hex) return yield* Effect.fail(refused());
   const pairs = new Map<number, Readonly<{ prior: string; next: string }>>();
@@ -91,19 +112,34 @@ export function admitsApplicationOwnershipSuccessor(token: ApplicationOwnershipS
 }
 
 const readPolicyManifest = Effect.fn("ApplicationWriteOwnership.readSuccessorManifest")(function* (
-  tx: AppRowTransaction, scopeId: ScopeId, revisionId: string, budget: ApplicationWriteOwnershipHistoryBudget,
+  source: ApplicationOwnershipSuccessorCapturePort, scopeId: ScopeId, revisionId: string, budget: ApplicationWriteOwnershipHistoryBudget,
 ) {
-  const predicate = and(eq(fxSystemApplicationPublications.scopeId, scopeId), eq(fxSystemApplicationPublications.revisionId, revisionId));
-  const join = and(eq(fxSystemApplicationAnalysesV1.scopeId, fxSystemApplicationPublications.scopeId), eq(fxSystemApplicationAnalysesV1.analysisId, fxSystemApplicationPublications.analysisId));
-  const sizes = yield* query(tx.select({ length: sql<number>`octet_length(${fxSystemApplicationAnalysesV1.manifestBytes})` })
-    .from(fxSystemApplicationPublications).innerJoin(fxSystemApplicationAnalysesV1, join).where(predicate).limit(1));
-  const size = sizes[0];
-  if (size === undefined || !Number.isSafeInteger(size.length) || size.length < 1) return yield* Effect.fail(refused());
-  yield* Effect.fromResult(budget.consume(1, size.length));
-  const rows = yield* query(tx.select({ bytes: fxSystemApplicationAnalysesV1.manifestBytes, hash: fxSystemApplicationPublications.manifestSha256,
-    publicationHash: fxSystemApplicationPublications.publicationSha256, analysisHash: fxSystemApplicationAnalysesV1.manifestSha256, deploymentId: fxSystemApplicationPublications.deploymentId, schemaVersionId: fxSystemApplicationPublications.schemaVersionId }).from(fxSystemApplicationPublications).innerJoin(fxSystemApplicationAnalysesV1, join).where(predicate).limit(1));
-  const row = rows[0];
-  if (row?.bytes === null || row?.bytes === undefined || row.bytes.byteLength !== size.length || row.analysisHash === null || !bytesEqualFullScan(row.hash, row.analysisHash)) return yield* Effect.fail(refused());
+  const raw = source.kind === "capture" ? yield* source.capturePolicyManifest(scopeId, revisionId, budget.remaining()) :
+    rowsFromDriverExecuteResult(yield* query(source.tx.execute(buildApplicationOwnershipPolicyManifestReadStatement(scopeId, revisionId, budget.remaining()))), () => {
+      // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - a resolved SQL manifest read must expose the driver rows wrapper.
+      throw new Error("Successor manifest driver result has no rows");
+    });
+  return yield* decodeCapturedApplicationOwnershipPolicyManifest(raw, budget);
+});
+
+const CapturedManifestLengthSchema = Schema.Struct({ evidenceLength: Schema.Number });
+const decodeCapturedManifestLengthResult = Schema.decodeUnknownResult(CapturedManifestLengthSchema);
+const CapturedManifestBodySchema = Schema.Struct({ bytes: Schema.Uint8Array, hash: Schema.Uint8Array,
+  publicationHash: Schema.Uint8Array, analysisHash: Schema.Uint8Array, deploymentId: Schema.String,
+  schemaVersionId: Schema.toType(CatalogSchemaVersionIdSchema) });
+const decodeCapturedManifestBodyResult = Schema.decodeUnknownResult(CapturedManifestBodySchema);
+
+export const decodeCapturedApplicationOwnershipPolicyManifest = Effect.fn("ApplicationWriteOwnership.decodeCapturedSuccessorManifest")(function* (
+  raw: readonly unknown[], budget: ApplicationWriteOwnershipHistoryBudget,
+) {
+  if (raw.length !== 1) return yield* Effect.fail(refused());
+  const size = yield* Effect.fromResult(decodeCapturedManifestLengthResult(raw[0])).pipe(Effect.mapError(cause =>
+    new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })));
+  if (!Number.isSafeInteger(size.evidenceLength) || size.evidenceLength < 1) return yield* Effect.fail(refused());
+  yield* Effect.fromResult(budget.consume(1, size.evidenceLength));
+  const row = yield* Effect.fromResult(decodeCapturedManifestBodyResult(raw[0])).pipe(Effect.mapError(cause =>
+    new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })));
+  if (row.bytes.byteLength !== size.evidenceLength || !bytesEqualFullScan(row.hash, row.analysisHash)) return yield* Effect.fail(refused());
   const bytes = row.bytes;
   const value = yield* Effect.try({ try: (): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)), catch: cause =>
     new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause }) });

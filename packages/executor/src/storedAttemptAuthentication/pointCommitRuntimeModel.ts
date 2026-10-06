@@ -58,6 +58,7 @@ import {
 } from "flarex-protocol/value";
 
 import { dependenciesEqual } from "./authenticationVerification";
+import { InvalidPreparedPointCommitV1Error } from "./planningOperations";
 import {
   captureCommitInputAuthorityPins,
 } from "./commitInputVerification";
@@ -431,9 +432,6 @@ export function capturePointCommitTransactionCommand(
   const rowIntents = Object.freeze(
     state.plan.rowIntents.map(capturePointCommitRowIntent),
   );
-  const terminalCapture = state.executionAuthority.storedAttempt.terminalCapture;
-  const candidatePlanningHead = terminalCapture === undefined ? undefined :
-    confirmedFiniteRootSealCandidatePlanningHead(terminalCapture);
   return Object.freeze({
     ...scalar,
     journalBytes: copyBytes(state.plan.journalBytes),
@@ -441,25 +439,29 @@ export function capturePointCommitTransactionCommand(
     indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
     relationDependencies: capturePointCommitRelationDependencies(state),
     rowIntents,
-    ...(candidatePlanningHead === undefined ? {} : { candidatePlanningHead }),
   } satisfies PointCommitTransactionCommandV1);
 }
 
 export function capturePointMutationAttemptReplacementCommand(
   state: PreparedPointCommitCapabilityStateV1,
   expectedConflict: PointCommitConflictEvidenceV1,
-): PointMutationAttemptReplacementCommandV1 {
-  return Object.freeze({
+): Result.Result<PointMutationAttemptReplacementCommandV1, InvalidPreparedPointCommitV1Error> {
+  if (expectedConflict.conflict.kind === "finiteRootGraph") {
+    return Result.fail(new InvalidPreparedPointCommitV1Error({ reason: "unsupportedConflict" }));
+  }
+  return Result.succeed(Object.freeze({
     ...capturePointCommitAttemptScalarCommand(state),
     dependencies: capturePointCommitDependencies(state),
     indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
     relationDependencies: capturePointCommitRelationDependencies(state),
-    expectedConflict: capturePointCommitConflictEvidence(expectedConflict),
-  });
+    expectedConflict: capturePointCommitConflictEvidence({ ...expectedConflict, conflict: expectedConflict.conflict }),
+  }));
 }
 
 function capturePointCommitConflictEvidence(
-  evidence: PointCommitConflictEvidenceV1,
+  evidence: PointCommitConflictEvidenceV1 & Readonly<{
+    conflict: Exclude<PointCommitConflictEvidenceV1["conflict"], { kind: "finiteRootGraph" }>;
+  }>,
 ): PointCommitConflictEvidenceV1 {
   const conflict = evidence.conflict.kind === "appRowPoint"
     ? Object.freeze({
@@ -928,4 +930,3 @@ function pointCommitSuccessfulResultsEqual(
       flarexValueToJsonV1(right.value),
     );
 }
-import { confirmedFiniteRootSealCandidatePlanningHead } from "@flarex/persistence-postgres/session-journal-store";

@@ -1,5 +1,9 @@
 import { sql, type SQL } from "drizzle-orm";
 import { scopeExecutionAuthorityInstallationSql } from "./scopeExecutionAuthorityInstallation";
+import { FINITE_PUBLICATION_FUNCTIONS } from "./finitePublicationInstallation";
+import { APPLICATION_DOMAIN_FUNCTIONS, APPLICATION_DOMAIN_TYPES } from "./applicationDocumentMaterialization/domainInstallation";
+import { INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS, INDEX_MAINTENANCE_BUILD_PERMISSIONS,
+  INDEX_MAINTENANCE_OBLIGATION_TABLES, indexMaintenanceInstallationSql } from "./indexMaintenanceInstallation";
 import { Data, Effect, Result, Schema } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -29,7 +33,7 @@ const decodeIdentityRows = Schema.decodeUnknownEffect(Schema.Tuple([identitySche
 export type InstallationIdentity = typeof identitySchema.Type;
 declare const preparedInstallationBrand: unique symbol;
 export interface PreparedInstallation { readonly [preparedInstallationBrand]: true }
-export type InstallationAccessProfile = "dataRuntime" | "controlRead";
+export type InstallationAccessProfile = "dataRuntime" | "controlRead" | "activationWriter";
 interface PreparedState {
   readonly database: FlarexMetadataDatabase;
   readonly identity: InstallationIdentity;
@@ -48,6 +52,14 @@ interface CoLocatedState {
 }
 const coLocatedPreparations = new WeakMap<object, CoLocatedState>();
 const coLocatedAdmissions = new WeakMap<object, CoLocatedState>();
+declare const activationServingInstallationBrand: unique symbol;
+export interface PreparedActivationServingInstallation { readonly [activationServingInstallationBrand]: true }
+type InstallationReference = Readonly<{ database: FlarexMetadataDatabase; installation: PreparedInstallation }>;
+type ActivationServingInstallationReferences = Readonly<{
+  serving: InstallationReference;
+  activation: InstallationReference;
+}>;
+const activationServingPreparations = new WeakMap<object, ActivationServingInstallationReferences>();
 
 /** A compact load of an installer-published runtime policy, not catalog verification. */
 export const loadManagedInstallation = Effect.fn("InstallationLifecycle.loadManaged")(
@@ -81,6 +93,56 @@ export const loadManagedInstallation = Effect.fn("InstallationLifecycle.loadMana
     return token;
   },
 );
+
+/** Both independent logins authenticate the same installed identity. Neither a
+ * connection label nor another login's preparation can issue this capability. */
+export const loadActivationServingInstallation = Effect.fn("InstallationLifecycle.loadActivationServing")(
+  function* (input: ActivationServingInstallationReferences) {
+    const serving = preparations.get(input.serving.installation);
+    const activation = preparations.get(input.activation.installation);
+    if (serving === undefined || activation === undefined || serving.database !== input.serving.database ||
+      activation.database !== input.activation.database || serving.accessProfile !== "dataRuntime" ||
+      activation.accessProfile !== "activationWriter" || serving.database === activation.database ||
+      serving.identity.login === activation.identity.login)
+      return yield* Effect.fail(issue("invalidCapability"));
+    if (serving.identity.databaseName !== activation.identity.databaseName ||
+      serving.identity.schemaName !== activation.identity.schemaName ||
+      serving.identity.namespaceOid !== activation.identity.namespaceOid ||
+      serving.identity.incarnation !== activation.identity.incarnation ||
+      serving.identity.structuralGeneration !== activation.identity.structuralGeneration ||
+      serving.metadataIncarnation !== activation.metadataIncarnation)
+      return yield* Effect.fail(issue("changed"));
+    // Issuance is bounded preparation; accepting transactions still enter the
+    // actual login's gate afresh. Keep each login's provenance independent.
+    for (const state of [serving, activation]) {
+      const rows = yield* query(() => state.database.select({
+        databaseName: sql<string>`g.database_name`, schemaName: sql<string>`g.schema_name`,
+        namespaceOid: sql<string>`g.namespace_oid::text`, incarnation: sql<string>`g.incarnation::text`,
+        structuralGeneration: sql<string>`g.structural_generation::text`, login: sql<string>`g.login`,
+        sameLogin: sql<boolean>`g.same_login`, actualDatabase: sql<string>`g.actual_database`,
+        sameSchema: sql<boolean>`g.same_schema`,
+      }).from(sql`${installationGateSource(state)} g`).limit(2));
+      const [identity] = yield* decodeIdentityRows(rows).pipe(Effect.mapError(cause => issue("invalidInstallation", cause)));
+      if (!sameIdentity(identity, state.identity) || !identity.sameLogin || !identity.sameSchema ||
+        identity.databaseName !== identity.actualDatabase)
+        return yield* Effect.fail(issue("changed"));
+    }
+    // SAFETY: only this installation owner authenticates the inert pair.
+    const pair = Object.freeze({}) as PreparedActivationServingInstallation;
+    activationServingPreparations.set(pair, Object.freeze({
+      serving: Object.freeze({ database: input.serving.database, installation: input.serving.installation }),
+      activation: Object.freeze({ database: input.activation.database, installation: input.activation.installation }),
+    }));
+    return pair;
+  },
+);
+
+/** Construction consumes exact issuer-owned references, never copied tokens. */
+export function getActivationServingInstallationReferencesResult(pair: PreparedActivationServingInstallation):
+  Result.Result<ActivationServingInstallationReferences, InstallationLifecycleError> {
+  const state = activationServingPreparations.get(pair);
+  return state === undefined ? Result.fail(issue("invalidCapability")) : Result.succeed(state);
+}
 
 /** Colocation is established by both exact installed incarnations observed by
  * the accepting login. Locator strings or equal database names cannot issue it. */
@@ -191,10 +253,17 @@ const installationGateJson = (alias: "first_gate" | "second_gate") => {
 };
 
 /** Fixed installed namespaces are always latched in the same order before scope locks. */
-export function coLocatedInstallationGateSource(refs: Effect.Success<ReturnType<typeof getCoLocatedReadInstallationReferences>>): SQL {
+export function coLocatedInstallationGateSource(refs: Effect.Success<ReturnType<typeof getCoLocatedReadInstallationReferences>>,
+  profile?: "finiteCapture"): SQL {
   const targetFirst = refs.target.schemaName < refs.control.schemaName;
   const first = targetFirst ? refs.target : refs.control, second = targetFirst ? refs.control : refs.target;
-  return sql`(with first_gate as materialized (select * from ${first.gate} as admitted_first),
+  const firstGate = profile === "finiteCapture" ? sql`with resource_gate as materialized (
+      select pg_catalog.current_setting('statement_timeout')::interval > interval '0 milliseconds'
+        and pg_catalog.current_setting('statement_timeout')::interval <= interval '30000 milliseconds' as accepted)
+    select admitted_first.* from resource_gate cross join lateral
+      (select * from ${first.gate} as first_source where resource_gate.accepted offset 0) as admitted_first`
+    : sql`select * from ${first.gate} as admitted_first`;
+  return sql`(with first_gate as materialized (${firstGate}),
     second_gate as materialized (select admitted_second.* from first_gate cross join lateral
       (select * from ${second.gate} as second_source where first_gate.namespace_oid > 0 offset 0) as admitted_second)
     select ${installationGateJson(targetFirst ? "first_gate" : "second_gate")} as target_installation,
@@ -235,13 +304,17 @@ export const acceptCoLocatedInstallationAdmission = Effect.fn("InstallationLifec
   },
 );
 
+export function requireCoLocatedInstallationAdmissionResult(pair: PreparedCoLocatedReadInstallation,
+  database: FlarexMetadataDatabase, tx: FlarexMetadataTransaction): Result.Result<void, InstallationLifecycleError> {
+  const state = coLocatedPreparations.get(pair);
+  return state === undefined || state.database !== database || coLocatedAdmissions.get(tx) !== state ||
+    !isManagedInstallationTransaction(tx, database, state.target) || !isManagedInstallationTransaction(tx, database, state.control)
+    ? Result.fail(issue("invalidCapability")) : Result.succeed(undefined);
+}
+
 export const requireCoLocatedInstallationAdmission = Effect.fn("InstallationLifecycle.requireCoLocatedAdmission")(
-  function* (pair: PreparedCoLocatedReadInstallation, database: FlarexMetadataDatabase, tx: FlarexMetadataTransaction) {
-    const state = coLocatedPreparations.get(pair);
-    if (state === undefined || state.database !== database || coLocatedAdmissions.get(tx) !== state ||
-      !isManagedInstallationTransaction(tx, database, state.target) || !isManagedInstallationTransaction(tx, database, state.control))
-      return yield* Effect.fail(issue("invalidCapability"));
-  },
+  (pair: PreparedCoLocatedReadInstallation, database: FlarexMetadataDatabase, tx: FlarexMetadataTransaction) =>
+    Effect.fromResult(requireCoLocatedInstallationAdmissionResult(pair, database, tx)),
 );
 
 export function isCoLocatedInstallationTransaction(tx: FlarexMetadataTransaction,
@@ -249,6 +322,19 @@ export function isCoLocatedInstallationTransaction(tx: FlarexMetadataTransaction
   const state = coLocatedAdmissions.get(tx);
   return state?.database === database && (state.target === installation || state.control === installation) &&
     isManagedInstallationTransaction(tx, database, installation);
+}
+
+/** Existing admission owns the exact two namespace preparations. Ordinary
+ * artifact transactions have no managed pair; partial admission is refusal. */
+export function readAdmittedCoLocatedInstallationPair(tx: FlarexMetadataTransaction): Result.Result<
+  Readonly<{ database: FlarexMetadataDatabase; target: PreparedInstallation; control: PreparedInstallation }> | null,
+  InstallationLifecycleError> {
+  const state = coLocatedAdmissions.get(tx);
+  if (state === undefined) return Result.succeed(null);
+  return isManagedInstallationTransaction(tx, state.database, state.target) &&
+    isManagedInstallationTransaction(tx, state.database, state.control)
+    ? Result.succeed({ database: state.database, target: state.target, control: state.control })
+    : Result.fail(issue("invalidCapability"));
 }
 
 /** Construction correlation uses the exact issuer-owned control member. */
@@ -282,7 +368,7 @@ export const acquireInstallationAdmission = Effect.fn("InstallationLifecycle.acq
     if (state === undefined || state.database !== database) return yield* Effect.fail(issue("invalidCapability"));
     const prior = admissions.get(tx)?.get(state.identity.schemaName);
     const identity = prior?.database === database ? prior.identity :
-      yield* readGate(tx, state.identity.schemaName, state.endpointPolicy, state.accessProfile);
+      yield* readGate(tx, state.identity.schemaName, state.endpointPolicy, state.accessProfile, state.metadataIncarnation);
     if (!sameIdentity(identity, state.identity)) return yield* Effect.fail(issue("changed"));
     const entries = admissions.get(tx) ?? new Map();
     entries.set(identity.schemaName, Object.freeze({ identity, database }));
@@ -294,7 +380,13 @@ export const acquireInstallationAdmission = Effect.fn("InstallationLifecycle.acq
 /** Full-proof profiles participate in maintenance without acquiring reusable proof. */
 export const lockInstallationForCurrentTransaction = Effect.fn("InstallationLifecycle.lockCurrent")(
   function* (tx: FlarexMetadataDatabase, schemaName?: string) {
-    if (admissions.has(tx)) return;
+    if (admissions.has(tx)) {
+      if (schemaName !== undefined) {
+        const admittedSchema = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx));
+        if (admittedSchema !== schemaName) return yield* Effect.fail(issue("invalidCapability"));
+      }
+      return;
+    }
     // Full-profile callers retain their role/catalog/search-path attestation.
     // Managed callers use the exact installed, schema-qualified reference above.
     const identity = yield* readGate(tx, schemaName);
@@ -317,7 +409,7 @@ export function closeInstallationAdmission(tx: FlarexMetadataDatabase | FlarexMe
 
 /** The admitted target member owns schema-qualified calls in this transaction.
  * Logical locators and search-path fallbacks cannot choose an installed body. */
-export function requireAdmittedTargetInstallationSchema(tx: FlarexMetadataTransaction): Result.Result<string, InstallationLifecycleError> {
+export function requireAdmittedTargetInstallationSchema(tx: FlarexMetadataDatabase): Result.Result<string, InstallationLifecycleError> {
   const entries = admissions.get(tx);
   const pair = coLocatedAdmissions.get(tx);
   if (pair !== undefined) {
@@ -333,7 +425,7 @@ export function requireAdmittedTargetInstallationSchema(tx: FlarexMetadataTransa
 
 const readGate = Effect.fn("InstallationLifecycle.readGate")(function* (
   tx: FlarexMetadataDatabase, schemaName?: string, endpointPolicy?: string,
-  accessProfile: InstallationAccessProfile = "dataRuntime",
+  accessProfile: InstallationAccessProfile = "dataRuntime", metadataIncarnation?: string,
 ) {
   if (endpointPolicy !== undefined && schemaName === undefined)
     return yield* Effect.fail(issue("invalidInstallation"));
@@ -351,6 +443,7 @@ const readGate = Effect.fn("InstallationLifecycle.readGate")(function* (
     sameLogin: sql<boolean>`current_user = session_user`, actualDatabase: sql<string>`current_database()`,
     sameSchema: schemaName === undefined ? sql<boolean>`current_schema() = i.schema_name` :
       sql<boolean>`i.schema_name = ${schemaName} and i.namespace_oid = ${schemaName}::pg_catalog.regnamespace::oid::bigint`,
+    metadataIncarnation: endpointPolicy === undefined ? sql<string | null>`null` : sql<string | null>`p.metadata_incarnation::text`,
     // This expression executes in the caller, after the qualified gate returns;
     // setting inside its SECURITY DEFINER/SET function would be restored on exit.
     // Explicit pg_temp last prevents temporary relations shadowing real tables.
@@ -359,6 +452,8 @@ const readGate = Effect.fn("InstallationLifecycle.readGate")(function* (
   const [identity] = yield* decodeIdentityRows(rows).pipe(Effect.mapError(cause => issue("invalidInstallation", cause)));
   if (!identity.sameLogin || !identity.sameSchema || identity.databaseName !== identity.actualDatabase)
     return yield* Effect.fail(issue("invalidInstallation"));
+  if (metadataIncarnation !== undefined && rows[0]?.metadataIncarnation !== metadataIncarnation)
+    return yield* Effect.fail(issue("changed"));
   return Object.freeze(identity);
 });
 
@@ -412,7 +507,8 @@ export const verifyInstallationWriterProtection = Effect.fn("InstallationLifecyc
           ('fx_control_scope_provisioning','ready_at','timestamptz'::pg_catalog.regtype,false)
         ) as expected(table_name,column_name,type_oid,required)
       )
-      select ${scopeExecutionAuthorityInstallationSql(sql`${schemaName}`)} and (select count(*) = 2 and bool_and(
+      select ${scopeExecutionAuthorityInstallationSql(sql`${schemaName}`)} and ${indexMaintenanceInstallationSql(sql`${schemaName}`)}
+        and (select count(*) = 2 and bool_and(
         p.proowner = b.owner_oid and p.prosecdef and p.provolatile = 'v' and p.pronargs = 0
         and p.pronargdefaults = 0 and p.prokind = 'f' and not p.proisstrict
         and not p.proleakproof and p.proparallel = 'u' and p.prosupport = 0
@@ -530,6 +626,9 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
       )
       select current_schema() = ${schemaName} and current_user = session_user
         and pg_catalog.current_setting('session_replication_role') = 'origin'
+        and (${accessProfile} <> 'activationWriter' or not exists (
+          select 1 from pg_catalog.pg_auth_members m, bounds b where m.roleid = b.login_oid
+        ))
         and not exists (
           select 1 from pg_catalog.pg_class c, bounds b where c.relnamespace = b.namespace_oid
             and (c.relowner = b.login_oid or (c.relkind in ('r','p') and (
@@ -542,20 +641,43 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
               and pg_catalog.has_function_privilege(b.login_oid,p.oid,'EXECUTE')
               and p.oid not in (${`${schemaName}.fx_lock_installation_admission()`}::pg_catalog.regprocedure,
                 ${`${schemaName}.fx_lock_prepared_metadata_epoch()`}::pg_catalog.regprocedure,
-                case when ${accessProfile} = 'dataRuntime' then
+                case when ${accessProfile} <> 'controlRead' then
                   ${`${schemaName}.fx_publish_application_read_binding(bytea,bytea)`}::pg_catalog.regprocedure
-                else ${`${schemaName}.fx_lock_read_scope_placement(text,text)`}::pg_catalog.regprocedure end)))
+                else ${`${schemaName}.fx_lock_read_scope_placement(text,text)`}::pg_catalog.regprocedure end)
+              and not (${accessProfile} = 'activationWriter' and p.oid in (
+                ${sql.join(INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS.map(operation =>
+                  sql`${`${schemaName}.${operation.name}(${operation.signature})`}::pg_catalog.regprocedure`), sql`, `)}))))
         )
         and not exists (
           select 1 from pg_catalog.pg_class c, bounds b where c.relnamespace = b.namespace_oid
             and (${accessProfile} = 'controlRead' or c.relname in ('fx_system_installation','fx_system_installation_runtime',
               'fx_system_application_read_binding','fx_control_logical_read_source',
-              'fx_control_logical_read_table','fx_control_logical_read_access'))
+              'fx_control_logical_read_table','fx_control_logical_read_access',
+              ${sql.join(INDEX_MAINTENANCE_OBLIGATION_TABLES.map(table => sql`${table}`), sql`, `)}))
             and c.relkind in ('r','p')
             and (pg_catalog.has_table_privilege(b.login_oid,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER')
               or pg_catalog.has_any_column_privilege(b.login_oid,c.oid,'INSERT,UPDATE'))
         )
-        and (${accessProfile} <> 'dataRuntime' or (select count(*) = 2 and bool_and(
+        and ${sql.join(INDEX_MAINTENANCE_BUILD_PERMISSIONS.map(build => sql`exists (
+          select 1 from pg_catalog.pg_class c, bounds b where c.relnamespace = b.namespace_oid
+            and c.relname = ${build.tableName}
+            and not pg_catalog.has_table_privilege(b.login_oid,c.oid,'INSERT,UPDATE')
+            and not pg_catalog.has_column_privilege(b.login_oid,c.oid,${build.bindingColumn},'INSERT')
+            and not pg_catalog.has_column_privilege(b.login_oid,c.oid,${build.bindingColumn},'UPDATE')
+            and not exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = c.oid
+              and a.attnum > 0 and not a.attisdropped
+              and a.attname <> all(array[${sql.join(build.writableColumns.map(column => sql`${column}`), sql`, `)}]::text[])
+              and pg_catalog.has_column_privilege(b.login_oid,c.oid,a.attname,'INSERT,UPDATE'))
+            and (${accessProfile} = 'controlRead' or (select count(*) = ${build.writableColumns.length}
+              and bool_and(pg_catalog.has_column_privilege(b.login_oid,c.oid,a.attname,'INSERT')
+                and pg_catalog.has_column_privilege(b.login_oid,c.oid,a.attname,'UPDATE'))
+              from pg_catalog.pg_attribute a where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+                and a.attname = any(array[${sql.join(build.writableColumns.map(column => sql`${column}`), sql`, `)}]::text[])))
+        )`), sql` and `)}
+        and (${accessProfile} <> 'controlRead' or (pg_catalog.has_table_privilege(session_user,
+          ${`${schemaName}.fx_control_schema_version`}, 'SELECT') and pg_catalog.has_table_privilege(session_user,
+          ${`${schemaName}.fx_control_schema_unique_constraint_set`}, 'SELECT')) )
+        and (${accessProfile} = 'controlRead' or (select count(*) = 2 and bool_and(
           pg_catalog.has_table_privilege(b.login_oid,c.oid,'SELECT')
           and pg_catalog.has_table_privilege(b.login_oid,c.oid,'INSERT')
           and pg_catalog.has_table_privilege(b.login_oid,c.oid,'UPDATE')
@@ -571,11 +693,40 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
         )
         and pg_catalog.has_function_privilege(session_user,
           ${`${schemaName}.fx_lock_installation_admission()`},'EXECUTE')
+        and ${sql.join(INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS.map(operation => sql`
+          pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.${operation.name}(${operation.signature})`}, 'EXECUTE') = (${accessProfile} = 'activationWriter')`), sql` and `)}
+        and pg_catalog.has_function_privilege(session_user,
+          ${`${schemaName}.fx_read_application_write_ownership_snapshot(text,integer,integer)`}, 'EXECUTE') = (${accessProfile} <> 'controlRead')
+        and pg_catalog.has_function_privilege(session_user,
+          ${`${schemaName}.fx_read_application_ownership_manifest(text,text,integer,integer)`}, 'EXECUTE') = (${accessProfile} <> 'controlRead')
+        and ${sql.join([...FINITE_PUBLICATION_FUNCTIONS, ...APPLICATION_DOMAIN_FUNCTIONS].map(operation => sql`
+          pg_catalog.has_function_privilege(session_user,
+            (pg_catalog.quote_ident(${schemaName}) || '.' || ${operation.name} || '(' ||
+              pg_catalog.replace(${operation.signature.replaceAll("fx_app_", '"__flarex_schema__".fx_app_')},
+                '"__flarex_schema__"', pg_catalog.quote_ident(${schemaName})) || ')'), 'EXECUTE') = (${accessProfile} = 'dataRuntime')`), sql` and `)}
+        and ${sql.join(APPLICATION_DOMAIN_TYPES.map(type => sql`
+          pg_catalog.has_type_privilege(session_user,
+            pg_catalog.quote_ident(${schemaName}) || '.' || ${type.name}, 'USAGE') = (${accessProfile} = 'dataRuntime')`), sql` and `)}
         and case when ${accessProfile} = 'dataRuntime' then
           pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_lock_finite_scope_observation(text)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
-            ${`${schemaName}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text)`},'EXECUTE')
+            ${`${schemaName}.fx_observe_finite_entry(text,uuid,text,text)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_complete_finite_entry(${schemaName}.fx_finite_entry_expected,boolean)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_compare_finite_metadata(text,bigint,jsonb)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_accept_finite_storage_capture(text,${schemaName}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_historical_row_identity(uuid,integer,bytea)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_application_ownership_unique_closure(text,text,integer,integer)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_publish_application_read_binding(bytea,bytea)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
@@ -583,11 +734,25 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
         else not pg_catalog.has_function_privilege(session_user,
           ${`${schemaName}.fx_lock_finite_scope_observation(text)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
-          ${`${schemaName}.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text)`},'EXECUTE')
-          and pg_catalog.has_function_privilege(session_user,
-          ${`${schemaName}.fx_lock_read_scope_placement(text,text)`},'EXECUTE')
+            ${`${schemaName}.fx_observe_finite_entry(text,uuid,text,text)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
-            ${`${schemaName}.fx_publish_application_read_binding(bytea,bytea)`},'EXECUTE') end
+            ${`${schemaName}.fx_complete_finite_entry(${schemaName}.fx_finite_entry_expected,boolean)`},'EXECUTE')
+          and not pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_compare_finite_metadata(text,bigint,jsonb)`},'EXECUTE')
+          and not pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_accept_finite_storage_capture(text,${schemaName}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer)`},'EXECUTE')
+          and not pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean)`},'EXECUTE')
+          and not pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_historical_row_identity(uuid,integer,bytea)`},'EXECUTE')
+          and not pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer)`},'EXECUTE')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_read_application_ownership_unique_closure(text,text,integer,integer)`},'EXECUTE') = (${accessProfile} = 'controlRead')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_lock_read_scope_placement(text,text)`},'EXECUTE') = (${accessProfile} = 'controlRead')
+          and pg_catalog.has_function_privilege(session_user,
+            ${`${schemaName}.fx_publish_application_read_binding(bytea,bytea)`},'EXECUTE') = (${accessProfile} <> 'controlRead') end
         and not pg_catalog.has_function_privilege(session_user,
           ${`${schemaName}.fx_check_scope_execution_authority()`},'EXECUTE')
         and not pg_catalog.has_function_privilege(session_user,

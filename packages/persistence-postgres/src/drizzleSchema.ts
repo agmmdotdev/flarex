@@ -72,6 +72,8 @@ export {
   fxSystemDurableTaskRunsV1,
   fxSystemExternalEffectAttemptsV1,
   fxSystemIdempotency,
+  fxSystemIndexMaintenanceObligations,
+  fxSystemUniqueMaintenanceObligations,
   fxSystemIndexBuildStates,
   fxSystemPhysicalDefinitionLifecycles,
   fxSystemCommitWakes,

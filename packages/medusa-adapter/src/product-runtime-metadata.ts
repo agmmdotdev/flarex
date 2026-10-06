@@ -1,13 +1,14 @@
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import type { GraphEntity } from "./write/graph-model";
 import { makeReadCatalog, type ReadCatalog } from "./query/catalog";
-import { productRelatedReadProfiles, type RelatedReadProfile } from "./product-read-profile";
+import { productRelatedReadProfiles, publicProductProjection, internalProductProjection, type RelatedReadProfile } from "./product-read-profile";
+import { compileProjection, retainReadProjection, type ReadProjection } from "./query/projection";
 import { compileProductValueProfile } from "./product-value-profile";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import type { CommerceRelations, CommerceRelation } from "./commerce-relations";
 import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage, ProductTag, ProductType, ProductCollection, ProductCategory, ProductVariantProductImage } from "@medusajs/product/models";
 import { buildModuleResourceEventName, camelToSnakeCase, CommonEvents, Modules } from "@medusajs/framework/utils/portable";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { type captureProductSchema } from "./product-schema";
 import { productModels } from "./product-definition";
 
@@ -24,6 +25,11 @@ export interface ProductEntityMetadata extends GraphEntity {
 }
 export interface ProductRuntimeMetadata {
   readonly readCatalog: ReadCatalog;
+  readonly defaultProductRead: {
+    readonly fields: readonly string[];
+    readonly publicProjection: Result.Result<ReadProjection, CommerceTransactionError>;
+    readonly internalProjection: Result.Result<ReadProjection, CommerceTransactionError>;
+  };
   readonly relatedReads: ReadonlyMap<string, RelatedReadProfile>;
   readonly product: ProductEntityMetadata;
   readonly searchableProductColumns: readonly string[];
@@ -134,13 +140,20 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     columns: table.columns.map(column => column.name), primaryKeys: table.columns.filter(column => column.primaryKey).map(column => column.name),
     foreignKeys: table.foreignKeys.flatMap(key => key.columns), companions: {},
   })), queryRelations));
-  return { readCatalog, relatedReads: productRelatedReadProfiles({ option, value, variant, image, tag, type, collection, category, assignment }),
+  const fields = Object.freeze(product.table.columns.map(column => column.name));
+  // Retain the verdict without raising it here: query decoding consumes it at
+  // the existing projection position, after envelope/options/field validation.
+  const defaultProductRead = Object.freeze({ fields,
+    publicProjection: Object.freeze(compileProjection(readCatalog, product.table.name, fields, [], publicProductProjection).pipe(Result.map(retainReadProjection))),
+    internalProjection: Object.freeze(compileProjection(readCatalog, product.table.name, fields, [], internalProductProjection).pipe(Result.map(retainReadProjection))),
+  });
+  return Object.freeze({ readCatalog, defaultProductRead, relatedReads: productRelatedReadProfiles({ option, value, variant, image, tag, type, collection, category, assignment }),
     product, searchableProductColumns, option, value, variant, image, tag, type, collection, category, assignment, entities,
     tables: [...entities.map(item => item.table), pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot, categoryPivot],
     valueProfile: compileProductValueProfile({ product, option, value, variant, image, tag, type, collection, category, assignment }),
     foreignKeys: { option: yield* foreignKey(option, product), value: yield* foreignKey(value, option), variant: yield* foreignKey(variant, product), image: yield* foreignKey(image, product) },
     pivot: { table: pivot, variantColumn: link.joinColumns[0], valueColumn: link.inverseJoinColumns[0] }, queryRelations,
-  } satisfies ProductRuntimeMetadata;
+  } satisfies ProductRuntimeMetadata);
 });
 
 /** Supported service query paths are capability policy, not a second schema. */

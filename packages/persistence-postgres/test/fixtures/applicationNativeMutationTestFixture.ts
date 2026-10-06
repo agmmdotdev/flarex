@@ -1,3 +1,4 @@
+import type { ApplicationActivationTargetProfile } from "../../src/applicationReadiness";
 import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../../src/scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../src/transactionSessionAttemptKernel";
 import { webcrypto } from "node:crypto";
@@ -43,6 +44,7 @@ import {
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
   decodeAppRowIdHexV1,
+  type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from
@@ -174,7 +176,14 @@ export interface ApplicationNativeMutationAnalysis {
   }>) => Promise<ApplicationAnalysisProjection>;
 }
 
+export interface ApplicationNativeMutationUserDocument {
+  readonly name: string;
+  readonly rowId: AppRowIdHexV1;
+  readonly padding?: string;
+}
+
 export interface ApplicationNativeMutationFixtureOptions {
+  readonly activationProfile?: ApplicationActivationTargetProfile;
   readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation;
     controlProtection: ProtectedMetadataPreparation }>;
   readonly protectedMetadata?: Readonly<{ database: FlarexMetadataDatabase;
@@ -185,6 +194,7 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeUserNameIndex?: boolean;
+  readonly initialUserDocuments?: readonly ApplicationNativeMutationUserDocument[];
   readonly includeProductLaunch?: boolean;
   readonly includeTask?: boolean;
   readonly taskMaximumDurationInSeconds?: number;
@@ -230,6 +240,7 @@ export interface ApplicationNativeMutationFixture<
   readonly authorityPorts: ReturnType<typeof fixtureAuthorityPorts>;
   readonly readiness: ReturnType<typeof makeApplicationReadinessRepository>;
   readonly activation: ReturnType<typeof makeApplicationActivationRepository>;
+  readonly activationProfile: ApplicationActivationTargetProfile;
   readonly active: CoherentActiveApplication;
   readonly source: ApplicationNativeMutationSourceBundle;
   readonly schema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
@@ -282,7 +293,7 @@ export interface ApplicationNativeMutationFixture<
   readonly applicationRelations: ReturnType<
     typeof createApplicationRelationCommitPort
   >;
-  readonly seedUserDocument: (name: string) => Promise<Readonly<{
+  readonly seedUserDocument: (name: string, options?: Readonly<{ rowId?: AppRowIdHexV1; padding?: string }>) => Promise<Readonly<{
     readonly documentId: string;
     readonly name: string;
   }>>;
@@ -415,6 +426,25 @@ export function createApplicationNativeMutationPostgresFixture(
   });
 }
 
+/** Compose the same fixture owner across the actual control and target drivers. */
+export function createApplicationNativeMutationMixedFixture(options: ApplicationNativeMutationFixtureOptions,
+  persistence: Readonly<{ control: PGliteFlarexPersistence | PostgresFlarexPersistence;
+    target: PGliteFlarexPersistence | PostgresFlarexPersistence }>) {
+  const { control, target } = persistence;
+  return createApplicationNativeMutationFixture<PGliteFlarexPersistence | PostgresFlarexPersistence>(options, {
+    control, target,
+    provision: provisionOptions => "pool" in control ? createPostgresSplitScopeAuthorityProvisioner(control, provisionOptions)
+      : createPGliteSplitScopeAuthorityProvisioner(control, provisionOptions),
+    locateClock: locator => "pool" in target ? createPostgresLocatedSplitScopeClockTarget(target, locator)
+      : createPGliteLocatedSplitScopeClockTarget(target, locator),
+    locateSession: locator => "pool" in target ? createPostgresLocatedPointMutationSessionActivationTargetV1(target, locator,
+      options.managedInstallation === undefined ? {} : { managedInstallation: options.managedInstallation })
+      : createPGliteLocatedPointMutationSessionActivationTargetV1(target, locator),
+    locateEpoch: locator => "pool" in target ? createPostgresLocatedScopeAuthorizationEpochTarget(target, locator)
+      : createPGliteLocatedScopeAuthorizationEpochTarget(target, locator),
+  });
+}
+
 async function createApplicationNativeMutationFixture<
   Persistence extends ApplicationNativeMutationPersistence,
 >(
@@ -498,6 +528,7 @@ async function createApplicationNativeMutationFixture<
                 fieldType: { type: "string" },
                 optional: false,
               },
+              padding: { fieldType: { type: "string" }, optional: true },
             },
           },
           placement: { kind: "global" },
@@ -627,6 +658,75 @@ async function createApplicationNativeMutationFixture<
     }
     return published;
   };
+  const appendSeedUserDocument = async (schemaVersionId: CatalogSchemaVersionId, input: ApplicationNativeMutationUserDocument) => {
+    const tableRows = await control.query<{ table_id: number }>(
+      `select table_id
+         from fx_control_table
+        where deployment_id = $1
+          and namespace = 'app'
+          and logical_name = 'users'
+        limit 1`,
+      [deploymentId],
+    );
+    const tableIdValue = tableRows.rows[0]?.table_id;
+    if (tableIdValue === undefined) {
+      throw new Error("Application-native users table is missing.");
+    }
+    const tableId = decodeCatalogTableId(tableIdValue);
+    const rowId = input.rowId;
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    const clock = await target.getScopeClock(authority.scopeId);
+    if (clock === null) {
+      throw new Error("Application-native scope clock is missing.");
+    }
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    const canonicalDocument = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime: decodeAppCreationTimeV1(1),
+      fields: { name: input.name, ...(input.padding === undefined ? {} : { padding: input.padding }) },
+    });
+    const scopeUuid = projectScopeIdUuidV1(authority.scopeId).scopeUuid;
+    const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
+    await target.drizzle.transaction(async tx => {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: authority.scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime: decodeAppCreationTimeV1(1),
+        value: {
+          codecVersion: canonicalDocument.codecVersion,
+          valueJson: canonicalDocument.valueJson,
+          canonicalBytes: canonicalDocument.canonicalBytes,
+          sha256: canonicalDocument.sha256,
+        },
+      });
+      await tx.insert(fxSystemCommits).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeCount: 1,
+      });
+      await tx.insert(fxSystemCommitAppRowChanges).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeOrdinal: 0,
+        tableId,
+        rowId: appRowIdHexV1ToBytes(rowId),
+      });
+      await tx.update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+    });
+    return Object.freeze({ documentId, name: input.name });
+  };
+  let initialUserDocumentsSeeded = false;
   const preparePublishedSchema = async (
     manifest: ApplicationManifestV1,
   ): Promise<ApplicationSchemaAuthority> => {
@@ -636,6 +736,13 @@ async function createApplicationNativeMutationFixture<
       deploymentId,
       published.schemaVersionId,
     );
+    // Initial rows belong to the original build prefix, before activation
+    // certifies that normal publication maintains every later index write.
+    if (!initialUserDocumentsSeeded) {
+      for (const document of options.initialUserDocuments ?? [])
+        await appendSeedUserDocument(published.schemaVersionId, document);
+      initialUserDocumentsSeeded = true;
+    }
     await enablePhysicalBuilds(
       control,
       authorityPorts,
@@ -675,7 +782,11 @@ async function createApplicationNativeMutationFixture<
   if (ready.status !== "ready") {
     throw new Error("Application-native mutation readiness did not settle.");
   }
+  if (options.managedInstallation !== undefined && options.activationProfile === undefined)
+    throw new Error("A managed Application fixture requires its genuine activation target profile");
+  const activationProfile: ApplicationActivationTargetProfile = options.activationProfile ?? { kind: "fullProof" };
   const activation = makeApplicationActivationRepository({
+    activation: activationProfile,
     deploymentId,
     scopeId: authority.scopeId,
     readiness,
@@ -852,79 +963,15 @@ async function createApplicationNativeMutationFixture<
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
     control.drizzle,
   );
-  const seedUserDocument = async (name: string) => {
-    const tableRows = await control.query<{ table_id: number }>(
-      `select table_id
-         from fx_control_table
-        where deployment_id = $1
-          and namespace = 'app'
-          and logical_name = 'users'
-        limit 1`,
-      [deploymentId],
-    );
-    const tableIdValue = tableRows.rows[0]?.table_id;
-    if (tableIdValue === undefined) {
-      throw new Error("Application-native users table is missing.");
-    }
-    const tableId = decodeCatalogTableId(tableIdValue);
-    const rowId = decodeAppRowIdHexV1("00000000000000000000000000000001");
-    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
-    const clock = await target.getScopeClock(authority.scopeId);
-    if (clock === null) {
-      throw new Error("Application-native scope clock is missing.");
-    }
-    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
-    const canonicalDocument = await canonicalizeAppDocumentV1({
-      tableId,
-      rowId,
-      creationTime: decodeAppCreationTimeV1(1),
-      fields: { name },
+  const seedUserDocument = async (name: string, options?: Readonly<{ rowId?: AppRowIdHexV1; padding?: string }>) => {
+    const seeded = await appendSeedUserDocument(schemaVersionId, { name,
+      rowId: options?.rowId ?? decodeAppRowIdHexV1("00000000000000000000000000000001"),
+      ...(options?.padding === undefined ? {} : { padding: options.padding }),
     });
-    const scopeUuid = projectScopeIdUuidV1(authority.scopeId).scopeUuid;
-    const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
-    await target.drizzle.transaction(async tx => {
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: authority.scopeId,
-        tableId,
-        rowId,
-        writeEpoch: clock.epoch,
-        commitSeq,
-        prevCommitSeq: null,
-        schemaVersionId,
-        creationTime: decodeAppCreationTimeV1(1),
-        value: {
-          codecVersion: canonicalDocument.codecVersion,
-          valueJson: canonicalDocument.valueJson,
-          canonicalBytes: canonicalDocument.canonicalBytes,
-          sha256: canonicalDocument.sha256,
-        },
-      });
-      await tx.insert(fxSystemCommits).values({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeCount: 1,
-      });
-      await tx.insert(fxSystemCommitAppRowChanges).values({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeOrdinal: 0,
-        tableId,
-        rowId: appRowIdHexV1ToBytes(rowId),
-      });
-      await tx.update(fxSystemScopeClocks)
-        .set({ lastCommitSeq: commitSeq })
-        .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
-    });
-    // Offline fixture seeding bypasses the Application commit materializer.
-    // Catch up through the real build owner before promising a readable seed;
-    // never forge coverage markers or relax active-read readiness checks.
     await enablePhysicalBuilds(
       control, authorityPorts, authority.scopeId, deploymentId, schemaVersionId,
     );
-    return Object.freeze({ documentId, name });
+    return seeded;
   };
   const corruptCandidateValidationFrameBytesForTest = async () => {
     await target.query(
@@ -975,6 +1022,7 @@ async function createApplicationNativeMutationFixture<
     authorityPorts,
     readiness,
     activation,
+    activationProfile,
     active,
     source,
     schema,

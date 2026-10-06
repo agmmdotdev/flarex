@@ -14,7 +14,7 @@ describe.skipIf(postgresUrl === null)("finite execution authority forward migrat
         try {
           await finiteExecutionAuthorityMigrationScenario(persistence, fixture,
             () => migrate(persistence.drizzle, { migrationsFolder: fixture.migrationsFolder,
-              migrationsSchema: options.migrationsSchema }));
+              migrationsSchema: options.migrationsSchema }), () => persistence.migrate());
         } finally { await persistence.close(); }
       });
     } finally { await fixture.cleanup(); }

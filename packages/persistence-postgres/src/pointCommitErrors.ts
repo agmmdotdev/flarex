@@ -7,6 +7,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 
 import { Data } from "effect";
 import type { FiniteMetadataConflict } from "flarex-protocol/commit-protocol";
+import type { LogicalDocumentConflictObservation } from "./logicalDocuments/contribution";
 
 import {
   type AppDocumentIdV1,
@@ -68,6 +69,7 @@ import { ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstr
 
 export type PointCommitConflictCauseV1 =
   | Readonly<FiniteMetadataConflict>
+  | Readonly<{ kind: "finiteRootGraph"; observation: LogicalDocumentConflictObservation }>
   | Readonly<{
       readonly kind: "logicalParticipant";
       readonly participant: string;
@@ -241,6 +243,7 @@ export type PointCommitSqlOperationV1 =
   | "maintainUniqueConstraintCoverage"
   | "validateCandidateSchema"
   | "writeTentativeRow"
+  | "applyApplicationMaterialization"
   | "loadIntrinsicIndexEntryHeads"
   | "writeIndexEntries"
   | "writeUniqueKey"

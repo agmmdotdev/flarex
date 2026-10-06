@@ -9,3 +9,12 @@ export {
 export {
   validatePointMutationExecutionLivenessConfigurationV1Result,
 } from "./pointMutationExecutionClaimLiveness";
+export {
+  createFinitePointMutationExecution,
+  FinitePointMutationExecutionError,
+  FinitePointMutationOutcomeUnresolvedError,
+  type FinitePointMutationExecution,
+  type FinitePointMutationExecutionDependencies,
+  type AuthenticatedFiniteEntry,
+  type FinitePointMutationExecutionFailure,
+} from "./finitePointMutationExecution";

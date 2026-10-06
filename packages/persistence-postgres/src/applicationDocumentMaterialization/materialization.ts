@@ -1,7 +1,12 @@
-import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import { fxSystemIndexMaintenanceObligations } from "../schema";
+import { IndexMaintenanceError } from "../indexMaintenanceModel";
+export { prepareApplicationDocumentSettlementEffect, preparedApplicationDocumentSettlementHasFailure,
+  type PreparedApplicationDocumentSettlement } from "./settlementPlan";
+import { prepareDeveloperIndexKeyPairsResult, prepareUniqueKeyPairsResult, prepareRelationTransitionsResult,
+  type PreparedApplicationDocumentSettlement } from "./settlementPlan";
 import { observePointCommitPublicationEffect, type PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
-import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
+import { MAX_SCHEMA_MANIFEST_APP_INDEXES } from "flarex-protocol/schema-manifest";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
@@ -26,18 +31,15 @@ import {
   PreparedPointCommitApplicationRelations,
   LocatedPreparedPointCommitApplicationRelations,
   LoadedPointCommitHeadV1,
+  FinitePointCommitHeads,
   PreparedPointCommitApplicationRelationPlan,
   PointCommitApplicationRelationMaintenanceError,
   LockedPointCommitDeveloperIndexV1,
-  PointCommitDeveloperIndexEntryHeadV1,
   PointCommitDeveloperIndexEntryActionV1,
   PointCommitDeveloperIndexRowPlanV1,
   PointCommitDeveloperIndexDocumentRequestV1,
   PointCommitUniqueKeyPlanV1,
-  PointCommitUniqueKeyOwnerV1,
-  PointCommitUniqueKeyOwnerPositionV1,
   PointCommitUniqueKeyActionV1,
-  PointCommitDeveloperIndexPositionV1,
   LockedPointCommitIntrinsicIndexV1,
 } from "./model";
 
@@ -49,18 +51,18 @@ import {
   PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
   PointCommitUniqueConstraintMaintenanceUnavailableV1Error,
   PointCommitSqlFailureMarkerV1,
-  PointCommitSqlOperationV1,
   corruption,
 } from "../pointCommitErrors";
 
 import {
   encodeBytesToLowercaseHex,
+  bytesEqual,
 } from "@flarex/utils/bytes";
 
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { getTableColumns, and, eq, inArray, sql } from "drizzle-orm";
+import { Data, Effect, Exit, Result, Schema } from "effect";
 
 import {
   AppCreationTimeV1Schema,
@@ -70,24 +72,20 @@ import {
 
 import {
   appRowIdHexV1ToBytes,
+  appDocumentIdV1FromRowIdentity,
   type AppDocumentIdV1,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
-  type CatalogIndexDefinitionId,
-  type CatalogUniqueConstraintDefinitionId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 
 import {
   encodeAppOrderedIndexKeyV1,
   orderedIndexCreationTimeV1,
-  orderedIndexKeyBytesHexV1ToBytes,
-  orderedIndexKeyHexV1ToBytes,
   orderedIndexRowIdHexV1ToBytes,
   orderedIndexRowIdHexV1FromBytesResult,
   type OrderedIndexKeyHexV1,
-  type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
 
 import {
@@ -103,14 +101,11 @@ import {
   type CanonicalFlarexValueV1,
 } from "flarex-protocol/value";
 import {
-  lowerAppDeveloperIndexKeyV1,
   type LocateAppDeveloperIndexDefinitionsV1Error,
 } from "../appDeveloperIndexCommitV1";
 
 import {
   hasAppUniqueConstraintDefinitionAuthorityV1,
-  lowerCanonicalAppUniqueConstraintV1Result,
-  type LoweredCanonicalAppUniqueConstraintV1,
 } from "../appUniqueConstraintCommitV1";
 import {
   isLocatedAppUniqueConstraintDefinitionV1,
@@ -120,28 +115,27 @@ import type { ReadAppUniqueConstraintSetClosureV1Error } from "../appUniqueConst
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
   prepareActiveUniqueCoverageInTransactionEffect,
-  advanceUnboundUniqueCoverageInTransactionEffect,
+  prepareUnboundUniqueCoverageApplicationResult,
 } from "../appUniqueConstraintSetBuildV1";
 import {
-  applyAppUniqueKeyMutationsInTransactionEffect,
-  readAppUniqueKeyOwnersInTransactionEffect,
   AppUniqueKeyConflictError,
   AppUniqueKeyHashError,
   AppUniqueKeyPersistenceError,
+  AppUniqueKeyParentRowError, AppUniqueKeyPreviousClaimMismatchError, AppUniqueKeyStorageCorruptionError,
+  AppUniqueKeyScopeAuthorityUnavailableError, InvalidAppUniqueKeyMutationV1Error,
   CanonicalAppUniqueKeyHashCollisionError,
-  type ApplyAppUniqueKeyMutationV1Input,
+  preparedAppUniqueApplicationFailure, recordPreparedAppUniqueApplication,
+  type PreparedAppUniqueMutationApplication,
+  acceptAppUniqueOriginalOwnersInTransactionEffect, prepareAppUniqueCanonicalMutationApplicationEffect,
+  applyPreparedAppUniqueMutationApplicationEffect,
 } from "../appUniqueKeys";
 import {
-  type AppUniqueKeyProjectionV1,
-} from "../appUniqueKeyContract";
-import {
-  appendAppIndexEntryRevisionsInTransactionEffect,
   AppIndexEntryWritePersistenceError,
   AppIndexEntryReadPersistenceError,
-  readAppIndexMembershipHeadsInTransactionEffect,
-  type AppIndexMembershipHeadEvidence,
   type AppIndexEntryPositionV1,
   type AppendAppIndexEntryRevisionV1Input,
+  prepareAppIndexRevisionApplicationEffect, preparedAppIndexApplicationFailure, type PreparedAppIndexRevisionApplication,
+  acceptAppIndexKeyTransitionsInTransactionEffect, AppIndexTransitionLimitExceededError, AppIndexTransitionAcceptanceError,
 } from "../appIndexEntries";
 import type {
   LocatedAppIndexDefinitionV1,
@@ -150,23 +144,21 @@ import type {
 import {
   AppRowReadPersistenceError,
   AppRowWritePersistenceError,
-  appendPreparedAppRowRevisionsInTransactionEffect,
   type AppendPreparedAppRowRevisionV1Input,
   type AppRowIdentityV1,
   type AppRowPointDependencyV1,
   type AppRowTransaction,
+  type LiveAppRowRevisionV1,
+  prepareAppRowRevisionApplicationEffect, preparedAppRowApplicationFailure, type PreparedAppRowRevisionApplication,
 } from "../appRows";
 import { AppRelationEdgePersistenceError } from "../appRelationEdges";
 import {
   applyApplicationRelationCommitEdgesInTransactionEffect,
   assertApplicationRelationRestrictProbesInTransactionEffect,
-  hasPreparedApplicationRelationCommitAuthority,
-  prepareApplicationRelationCommitResult,
   ApplicationRelationCommitCorruptionError,
   ApplicationRelationCommitUnavailableError,
   ApplicationRelationTargetDeleteRestrictedError,
   ApplicationRelationTargetNotLiveError,
-  type ApplicationRelationRowTransition,
   type PreparedApplicationRelationCommit,
 } from "../applicationRelationCommit";
 
@@ -181,18 +173,24 @@ import {
 } from "../appSchemaCandidateValidation";
 
 import {
-  decodeIndexBuildStateRowResult,
+  decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate,
   publicationModeForIndex,
-  type IndexBuildStateRecord,
+  type IndexBuildStateRecord, type IndexBuildStateRow,
 } from "../indexBuildStates";
 import { validateAppRowPointOccV1 } from "../appRowPointOcc";
 
 import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
+import { requireAdmittedTargetInstallationSchema } from "../installationLifecycle";
+import { applicationCompositeSelection, applicationDomainFailureDetail, buildApplicationMaterializationStatement, applicationMaterializationBindCount,
+  applicationIndexCoverageArray, type ApplicationMaterializationValues } from "./domainApplication";
+import { applyApplicationCoverage, applicationCoverageFailure, ApplicationCoverageRefusal, ApplicationCoveragePersistenceError, APPLICATION_COVERAGE_MAX_ROWS,
+  type IndexCoverageWrite, type UniqueCoverageWrite } from "./domainCoverage";
+import { prepareLogicalSearchApplications, searchApplicationFailure, type PreparedLogicalSearchApplication } from "../logicalDocuments/searchEntries";
 
-import { type ScopeClockRecord } from "../scopeClock";
+import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation, type ScopeClockRecord } from "../scopeClock";
 import { type TrustedScopeAuthority } from "../scopeAuthorityResolution";
 
-import { fxAppIndexEntryRevisions, fxSystemIndexBuildStates } from "../schema";
+import { fxAppRowRevisions, fxSystemIndexBuildStates } from "../schema";
 
 const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
 
@@ -288,7 +286,7 @@ export const prepareDeveloperIndexDefinitions = Effect.fn(
     tableIds: Object.freeze([
       ...new Set(command.rowIntents.map((intent) => intent.tableId)),
     ]),
-    maximumDefinitions: MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+    maximumDefinitions: MAX_SCHEMA_MANIFEST_APP_INDEXES,
   });
   if (definitions === null) {
     return yield* Effect.fail(
@@ -297,7 +295,6 @@ export const prepareDeveloperIndexDefinitions = Effect.fn(
       }),
     );
   }
-  let minimumEntryRevisionCount = 0;
   let previousDefinitionId = 0;
   for (const definition of definitions) {
     if (
@@ -309,23 +306,6 @@ export const prepareDeveloperIndexDefinitions = Effect.fn(
       return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
     }
     previousDefinitionId = definition.indexDefinitionId;
-    for (const intent of command.rowIntents) {
-      if (intent.tableId === definition.access.tableId) {
-        minimumEntryRevisionCount += 1;
-      }
-    }
-  }
-  if (
-    minimumEntryRevisionCount >
-    MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1
-  ) {
-    return yield* Effect.fail(
-      new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
-        reason: "entryRevisionLimitExceeded",
-        observed: minimumEntryRevisionCount,
-        maximum: MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
-      }),
-    );
   }
   return definitions;
 });
@@ -531,25 +511,232 @@ export function pointDependenciesEqual(
 }
 
 /** The existing Application row/index/unique lowering order, shared by both participants. */
+export interface PreparedApplicationMaterializationBlock {
+  readonly commitSeq: CommitSeq;
+  readonly scopeUuid: import("flarex-protocol/storage-authority").ScopeUuidV1;
+  readonly rows?: PreparedAppRowRevisionApplication;
+  readonly indexes?: PreparedAppIndexRevisionApplication;
+  readonly unique?: PreparedAppUniqueMutationApplication;
+  readonly validation?: readonly IndexCoverageWrite[];
+  readonly indexCoverage?: readonly IndexCoverageWrite[];
+  readonly uniqueCoverage?: readonly UniqueCoverageWrite[];
+  readonly search?: readonly PreparedLogicalSearchApplication[];
+}
+export class ApplicationMaterializationPersistenceError extends Data.TaggedError("ApplicationMaterializationPersistenceError")<{
+  readonly cause: unknown;
+}> {}
+class ApplicationIndexValidationRefusal extends Data.TaggedError("ApplicationIndexValidationRefusal")<{
+  readonly ordinal: number; readonly cause: unknown;
+}> {}
+const decodeMaterializationRefusal = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
+  family: Schema.Literals(["row", "index", "unique", "indexValidation", "indexCoverage", "uniqueCoverage", "search"]),
+  pageOffset: Schema.Number, detail: Schema.String,
+})), { onExcessProperty: "error" });
+const decodeIndexValidationRefusal = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
+  reason: Schema.Literals(["invalidBatch", "storedCorruption"]), ordinal: Schema.Number,
+})), { onExcessProperty: "error" });
+const decodeIndexValidationSuccess = Schema.decodeUnknownResult(Schema.Struct({
+  reason: Schema.Literal("accepted"), rows: Schema.Number,
+}), { onExcessProperty: "error" });
+const decodeMaterializationSuccess = Schema.decodeUnknownResult(Schema.Struct({
+  reason: Schema.Literal("accepted"), row_count: Schema.Number, index_count: Schema.Number, unique_count: Schema.Number,
+  validation_count: Schema.Number, coverage_count: Schema.Number, search_count: Schema.Number, search_build_count: Schema.Number,
+}), { onExcessProperty: "error" });
+
+function materializationValues(block: PreparedApplicationMaterializationBlock): ApplicationMaterializationValues {
+  return { rows: block.rows?.values ?? [], rowPages: block.rows?.pageCounts ?? [], indexes: block.indexes?.values ?? [],
+    unique: block.unique ?? { owners: [], previous: [], next: [] }, validation: block.validation ?? [],
+    indexCoverage: block.indexCoverage ?? [], uniqueCoverage: block.uniqueCoverage ?? [],
+    commitSeq: block.commitSeq, scopeUuid: block.scopeUuid, search: block.search ?? [] };
+}
+
+function materializationApplicationFailure(cause: unknown, block: PreparedApplicationMaterializationBlock) {
+  const detail = applicationDomainFailureDetail(cause, "fx_apply_app_materialization");
+  if (detail === null) return new ApplicationMaterializationPersistenceError({ cause });
+  return Result.match(decodeMaterializationRefusal(detail), {
+    onFailure: () => new ApplicationMaterializationPersistenceError({ cause }),
+    onSuccess: refusal => {
+      if (!Number.isSafeInteger(refusal.pageOffset) || refusal.pageOffset < 0) return new ApplicationMaterializationPersistenceError({ cause });
+      switch (refusal.family) {
+        case "row": return block.rows === undefined ? new ApplicationMaterializationPersistenceError({ cause })
+          : preparedAppRowApplicationFailure(cause, block.rows, refusal.pageOffset, refusal.detail);
+        case "index": return block.indexes === undefined ? new ApplicationMaterializationPersistenceError({ cause })
+          : preparedAppIndexApplicationFailure(cause, block.indexes, refusal.pageOffset, refusal.detail);
+        case "unique": return block.unique === undefined || refusal.pageOffset !== 0 ? new ApplicationMaterializationPersistenceError({ cause })
+          : preparedAppUniqueApplicationFailure(cause, block.unique, refusal.detail);
+        case "indexValidation": return Result.match(decodeIndexValidationRefusal(refusal.detail), {
+          onFailure: () => new ApplicationMaterializationPersistenceError({ cause }),
+          onSuccess: proof => refusal.pageOffset !== 0 || !Number.isSafeInteger(proof.ordinal) || proof.ordinal < 0 || proof.ordinal >= (block.validation?.length ?? 0)
+            ? new ApplicationMaterializationPersistenceError({ cause }) : new ApplicationIndexValidationRefusal({ ordinal: proof.ordinal, cause }),
+        });
+        case "indexCoverage":
+        case "uniqueCoverage": {
+          const rows = refusal.family === "indexCoverage" ? block.indexCoverage ?? [] : block.uniqueCoverage ?? [];
+          const offset = refusal.pageOffset;
+          if (offset % 32 !== 0 || offset >= rows.length) return new ApplicationMaterializationPersistenceError({ cause });
+          const count = Math.min(32, rows.length - offset);
+          const prior = offset + count === rows.length ? offset : 0;
+          const failure = applicationCoverageFailure(cause, refusal.family === "indexCoverage" ? count : 0,
+            refusal.family === "uniqueCoverage" ? count : 0, refusal.family === "indexCoverage" ? prior : 0,
+            refusal.family === "uniqueCoverage" ? prior : 0, refusal.detail);
+          return failure instanceof ApplicationCoverageRefusal && failure.family !== (refusal.family === "indexCoverage" ? "index" : "unique")
+            ? new ApplicationMaterializationPersistenceError({ cause }) : failure;
+        }
+        case "search": {
+          let offset = 0;
+          for (const search of block.search ?? []) {
+            if (refusal.pageOffset >= offset && refusal.pageOffset < offset + search.ids.length && (refusal.pageOffset - offset) % 32 === 0)
+              return searchApplicationFailure(cause, refusal.detail);
+            offset += search.ids.length;
+          }
+          return new ApplicationMaterializationPersistenceError({ cause });
+        }
+      }
+    },
+  });
+}
+
+/** This accepting boundary composes only already-prepared fixed domain owners. */
+const applyOnePreparedApplicationMaterializationEffect = Effect.fn("ApplicationDocument.applyPreparedMaterializationBlock")(function* (
+  tx: AppRowTransaction, block: PreparedApplicationMaterializationBlock,
+  observation?: PointCommitPublicationObservation,
+) {
+  const values = materializationValues(block);
+  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(Result.mapError(cause => new ApplicationMaterializationPersistenceError({ cause }))));
+  const statement = buildApplicationMaterializationStatement(values, schemaName);
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => tx.execute(statement),
+    catch: cause => materializationApplicationFailure(cause, block),
+  }));
+  const rows = rowsFromDriverExecuteResult(result, () => { throw new ApplicationMaterializationPersistenceError({ cause: result }); });
+  if (rows.length !== 1) return yield* Effect.fail(new ApplicationMaterializationPersistenceError({ cause: result }));
+  const proof = yield* Effect.fromResult(decodeMaterializationSuccess(rows[0]).pipe(Result.mapError(cause => new ApplicationMaterializationPersistenceError({ cause }))));
+  if (proof.row_count !== values.rows.length || proof.index_count !== values.indexes.length || proof.unique_count !== values.unique.owners.length ||
+    proof.validation_count !== values.validation.length || proof.coverage_count !== values.indexCoverage.length + values.uniqueCoverage.length ||
+    proof.search_count !== values.search.reduce((sum, search) => sum + search.entryCount, 0) || !Number.isSafeInteger(proof.search_build_count) ||
+    proof.search_build_count < 0 || proof.search_build_count > values.search.length)
+    return yield* Effect.fail(new ApplicationMaterializationPersistenceError({ cause: proof }));
+  recordPreparedMaterialization(block, proof.search_build_count, observation);
+  return proof;
+}, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
+
+const APPLICATION_MATERIALIZATION_MAX_DRIVER_BINDS = 65_535;
+export const applyPreparedApplicationMaterializationEffect = Effect.fn("ApplicationDocument.applyPreparedMaterialization")(function* (
+  tx: AppRowTransaction, block: PreparedApplicationMaterializationBlock, observation?: PointCommitPublicationObservation,
+) {
+  const base = { commitSeq: block.commitSeq, scopeUuid: block.scopeUuid };
+  const stages: PreparedApplicationMaterializationBlock[] = [];
+  if (block.rows !== undefined && block.rows.values.length > 0) stages.push({ ...base, rows: block.rows });
+  if (block.indexes !== undefined && block.indexes.values.length > 0) stages.push({ ...base, indexes: block.indexes });
+  if (block.validation !== undefined && block.validation.length > 0) stages.push({ ...base, validation: block.validation });
+  if (block.unique !== undefined && block.unique.mutations.length > 0) stages.push({ ...base, unique: block.unique });
+  if (block.indexCoverage !== undefined && block.indexCoverage.length > 0) stages.push({ ...base, indexCoverage: block.indexCoverage });
+  if (block.uniqueCoverage !== undefined && block.uniqueCoverage.length > 0) stages.push({ ...base, uniqueCoverage: block.uniqueCoverage });
+  stages.push(...(block.search ?? []).map(search => ({ ...base, search: [search] })));
+  const blocks: PreparedApplicationMaterializationBlock[] = [];
+  let pending: PreparedApplicationMaterializationBlock = base;
+  let hasStage = false;
+  for (const stage of stages) {
+    const candidate = { ...pending, ...stage, search: [...(pending.search ?? []), ...(stage.search ?? [])] };
+    if (hasStage && applicationMaterializationBindCount(materializationValues(candidate)) > APPLICATION_MATERIALIZATION_MAX_DRIVER_BINDS) {
+      blocks.push(pending); pending = stage;
+    } else pending = candidate;
+    hasStage = true;
+  }
+  if (hasStage) blocks.push(pending);
+  let accepted = { reason: "accepted", row_count: 0, index_count: 0, unique_count: 0,
+    validation_count: 0, coverage_count: 0, search_count: 0, search_build_count: 0 };
+  for (const selected of blocks) {
+    const proof = yield* observePointCommitPublicationEffect(observation, "materializationWrites", applyOnePreparedApplicationMaterializationEffect(tx, selected, observation));
+    accepted = { reason: "accepted", row_count: accepted.row_count + proof.row_count, index_count: accepted.index_count + proof.index_count,
+      unique_count: accepted.unique_count + proof.unique_count, validation_count: accepted.validation_count + proof.validation_count,
+      coverage_count: accepted.coverage_count + proof.coverage_count, search_count: accepted.search_count + proof.search_count,
+      search_build_count: accepted.search_build_count + proof.search_build_count };
+  }
+  return accepted;
+});
+
+function projectMaterializationApplicationFailure(failure: Effect.Error<ReturnType<typeof applyPreparedApplicationMaterializationEffect>>) {
+  if (failure instanceof ApplicationMaterializationPersistenceError) return pointCommitSqlCallFailure("applyApplicationMaterialization", failure.cause);
+  if (failure instanceof AppRowWritePersistenceError) return pointCommitSqlCallFailure("writeTentativeRow", failure.cause);
+  if (failure instanceof AppIndexEntryReadPersistenceError || failure instanceof AppIndexEntryWritePersistenceError)
+    return pointCommitSqlCallFailure("writeIndexEntries", failure.cause);
+  if (failure instanceof AppUniqueKeyPersistenceError || failure instanceof AppUniqueKeyConflictError || failure instanceof AppUniqueKeyHashError ||
+    failure instanceof CanonicalAppUniqueKeyHashCollisionError || failure instanceof AppUniqueKeyParentRowError ||
+    failure instanceof AppUniqueKeyPreviousClaimMismatchError || failure instanceof AppUniqueKeyStorageCorruptionError ||
+    failure instanceof AppUniqueKeyScopeAuthorityUnavailableError || failure instanceof InvalidAppUniqueKeyMutationV1Error)
+    return mapPointCommitUniqueKeyFailure(failure);
+  if (failure instanceof ApplicationCoveragePersistenceError) return pointCommitSqlCallFailure("applyApplicationMaterialization", failure.cause);
+  if (failure instanceof ApplicationCoverageRefusal) return corruption(failure.family === "index" ? "developerIndexBuildInvalid" : "uniqueConstraintBuildInvalid");
+  if (failure instanceof ApplicationIndexValidationRefusal) return corruption("intrinsicIndexBuildInvalid");
+  return failure;
+}
+
+function recordPreparedMaterialization(block: PreparedApplicationMaterializationBlock, advancedSearchBuilds: number, observation?: PointCommitPublicationObservation): void {
+  if (!observation?.detail) return;
+  let rowOffset = 0;
+  for (const count of block.rows?.pageCounts ?? []) {
+    const rows = block.rows?.decoded.slice(rowOffset, rowOffset + count) ?? [];
+    observation.record({ kind: "batch", owner: "rowRevisions", counts: { rows: count,
+      canonicalBytes: rows.reduce((sum, row) => sum + (row.kind === "live" ? row.document.canonicalBytes.byteLength : 0), 0) } });
+    const creates = rows.filter(row => row.prevCommitSeq === null).length;
+    if (creates > 0) observation.record({ kind: "batch", owner: "rowCreates", counts: { rows: creates } });
+    if (creates < count) observation.record({ kind: "batch", owner: "rowUpdates", counts: { rows: count - creates } });
+    rowOffset += count;
+  }
+  for (let offset = 0; offset < (block.indexes?.values.length ?? 0); offset += 32) {
+    const rows = block.indexes?.values.slice(offset, offset + 32) ?? [];
+    observation.record({ kind: "batch", owner: "indexRevisions", counts: { rows: rows.length, canonicalBytes: rows.reduce((sum, row) => sum + row.row.encodedKey.byteLength, 0) } });
+    const creates = rows.filter(row => !row.row.isTombstone).length;
+    if (creates > 0) observation.record({ kind: "batch", owner: "indexCreates", counts: { rows: creates } });
+    if (creates < rows.length) observation.record({ kind: "batch", owner: "indexDeletes", counts: { rows: rows.length - creates } });
+  }
+  if (block.unique !== undefined) recordPreparedAppUniqueApplication(block.unique, observation);
+  for (const [owner, rows] of [["indexValidation", block.validation ?? []], ["indexCoverage", block.indexCoverage ?? []], ["uniqueCoverage", block.uniqueCoverage ?? []]] as const)
+    for (let offset = 0; offset < rows.length; offset += 32) observation.record({ kind: "batch", owner, counts: { rows: Math.min(32, rows.length - offset) } });
+  let entries = 0; let textBytes = 0;
+  for (const search of block.search ?? []) {
+    entries += search.entryCount; textBytes += search.textBytes;
+    for (let offset = 0; offset < search.ids.length; offset += 32) {
+      observation.record({ kind: "batch", owner: "searchDeletes", counts: { rows: Math.min(32, search.ids.length - offset) } });
+      const count = (search.textPages[offset / 32]?.length ?? 0) + (search.jsonPages[offset / 32]?.length ?? 0);
+      if (count > 0) observation.record({ kind: "batch", owner: "searchInserts", counts: { entries: count } });
+    }
+  }
+  if (advancedSearchBuilds > 0) observation.record({ kind: "batch", owner: "searchBuilds", counts: { rows: advancedSearchBuilds } });
+  if ((block.search?.length ?? 0) > 0) observation.record({ kind: "counts", owner: "searchInserts", counts: { entries, textBytes } });
+}
+
+export interface ApplicationDocumentMaterializationInput {
+  readonly command: ApplicationDocumentMaterializationCommand;
+  readonly commitSeq: CommitSeq;
+  readonly clock: ScopeClockRecord;
+  readonly loadedHeads: readonly LoadedPointCommitHeadV1[];
+  readonly intrinsicBuilds: readonly LockedPointCommitIntrinsicIndexV1[];
+  readonly developerIndexActions: readonly PointCommitDeveloperIndexEntryActionV1[];
+  readonly developerBuilds: readonly LockedPointCommitDeveloperIndexV1[];
+  readonly uniqueKeyActions: readonly PointCommitUniqueKeyActionV1[];
+  readonly uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly canonicalUniquePairs: readonly PointCommitUniqueKeyPlanV1[];
+  readonly publicationProfile: import("../indexBuildStates").IndexPublicationProfile;
+  readonly options: ApplicationDocumentMaterializationOptions;
+  readonly deferCoverage?: boolean;
+  readonly capturedCoverage?: import("../indexBuildStates").CapturedApplicationMaterializationCoverage;
+  readonly searchContribution?: Result.Result<import("./model").ApplicationDocumentSearchContribution, PointCommitCorruptionV1Error>;
+  readonly preparedIntrinsic?: PreparedApplicationDocumentSettlement["intrinsic"];
+}
+
 export async function materializeApplicationDocumentRows(
   tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-  commitSeq: CommitSeq,
-  clock: ScopeClockRecord,
-  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
-  intrinsicBuilds: ReadonlyArray<LockedPointCommitIntrinsicIndexV1>,
-  developerIndexActions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
-  developerBuilds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
-  uniqueKeyActions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
-  uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
-  publicationProfile: import("../indexBuildStates").IndexPublicationProfile,
-  options: ApplicationDocumentMaterializationOptions,
-  deferCoverage = false,
+  input: ApplicationDocumentMaterializationInput,
 ): Promise<(() => Promise<void>) | void> {
+  const { command, commitSeq, clock, loadedHeads, intrinsicBuilds, developerIndexActions, developerBuilds,
+    uniqueKeyActions, uniqueDefinitions, canonicalUniquePairs, publicationProfile, options,
+    deferCoverage = false, capturedCoverage, searchContribution, preparedIntrinsic } = input;
   const writeEpoch = clock.epoch;
   const maintainedBuilds = [...intrinsicBuilds, ...developerBuilds];
   const coverageContext = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-    readIndexCoverageContextInTransactionEffect(tx, clock).pipe(Effect.mapError(cause =>
+    readIndexCoverageContextInTransactionEffect(tx, clock, undefined, capturedCoverage).pipe(Effect.mapError(cause =>
       cause.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("lockDeveloperIndexBuilds", cause.cause)
         : corruption("developerIndexBuildInvalid"))),
   ));
@@ -571,9 +758,9 @@ export async function materializeApplicationDocumentRows(
       throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({ reason: "definitionSetUnavailable" });
     const maintenanceSchemaVersionId = typeof publicationProfile !== "string" && mode === "activeApplication"
       ? coverageContext.active?.schema.schemaVersionId : command.authorityPins.schemaVersionId;
-    if (build.maintenance !== null && (build.maintenance.frame.schemaVersionId !== maintenanceSchemaVersionId ||
-      build.maintenance.frame.deploymentId !== command.authorityPins.deploymentId ||
-      build.maintenance.frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex))
+    if (build.maintenance !== null && (build.maintenance.schemaVersionId !== maintenanceSchemaVersionId ||
+      build.maintenance.deploymentId !== command.authorityPins.deploymentId ||
+      encodeBytesToLowercaseHex(build.maintenance.physicalSpecSha256) !== definition.physicalSpecSha256Hex))
       throw corruption("developerIndexBuildInvalid");
     if (build.lifecycle !== "enabled") continue;
     if (!indexFrontiersPrepared && indexFrontierTableIds.length > 0 &&
@@ -619,16 +806,10 @@ export async function materializeApplicationDocumentRows(
     const baselineCoverage = build.coveredThroughCommitSeq;
     if (deferCoverage && mode === "sourceBound" && baselineCoverage !== null &&
       baselineCoverage < clock.lastCommitSeq) {
-      const updated = await sqlCall("resetDeveloperIndexValidation", () => tx.update(fxSystemIndexBuildStates)
-        .set({ coveredThroughCommitSeq: clock.lastCommitSeq, updatedAt: sql`clock_timestamp()` })
-        .where(and(eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-          eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
-          eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
-          eq(fxSystemIndexBuildStates.epoch, build.epoch),
-          eq(fxSystemIndexBuildStates.storageGenerationFence, build.storageGenerationFence),
-          eq(fxSystemIndexBuildStates.coveredThroughCommitSeq, baselineCoverage),
-          eq(fxSystemIndexBuildStates.lifecycle, "enabled"))).returning({ id: fxSystemIndexBuildStates.indexDefinitionId }));
-      if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
+      projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+        applyApplicationCoverage(tx, [build], [], clock.lastCommitSeq, baselineCoverage).pipe(Effect.mapError(cause =>
+          cause instanceof ApplicationCoveragePersistenceError ? pointCommitSqlCallFailure("resetDeveloperIndexValidation", cause.cause)
+            : corruption("developerIndexBuildInvalid")))));
     }
   }
   const rowRevisions = command.rowIntents.map((intent) =>
@@ -651,24 +832,42 @@ export async function materializeApplicationDocumentRows(
         command.authorityPins.scopeId,
         rowRevisions,
         intrinsicBuilds,
+        preparedIntrinsic,
       )),
     ),
   );
   if (rowRevisions.length > 0 && intrinsicBuilds.length > 0)
     await emitTransactionStep(options, command, "intrinsicMembershipPrepared");
+  const scopeUuid = projectPointCommitTransactionResult(projectScopeIdUuidV1Result(command.authorityPins.scopeId)).scopeUuid;
+  const base = { commitSeq, scopeUuid };
+  let pending: PreparedApplicationMaterializationBlock = base;
+  const flush = async () => {
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      applyPreparedApplicationMaterializationEffect(tx, pending, options.publicationObservation)
+        .pipe(Effect.mapError(projectMaterializationApplicationFailure))));
+    pending = base;
+  };
+  // Expected later preparation failures are folded only after their genuine
+  // successful prefix has performed its stored-row and trigger proofs.
+  const prepare = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
+    const exit = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(Effect.exit(effect)));
+    if (Exit.isFailure(exit)) {
+      await flush();
+      closeExactAttemptScopeClockObservation(tx);
+      return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(Effect.failCause(exit.cause)));
+    }
+    return exit.value;
+  };
+  const hasClockObservation = () => readExactScopeWriteClockObservation(tx, command.authorityPins.scopeId) !== undefined;
   if (rowRevisions.length > 0) await emitTransactionStep(options, command, "rowBatchWriting");
-  projectPointCommitTransactionResult(
-    await runPointCommitInTransactionEffect(
-      observePointCommitPublicationEffect(options.publicationObservation, "rowWrites", appendPreparedAppRowRevisionsInTransactionEffect(tx, rowRevisions, options.publicationObservation).pipe(
-        Effect.mapError(cause => cause instanceof AppRowWritePersistenceError
-          ? new PointCommitSqlFailureMarkerV1("writeTentativeRow", cause.cause)
-          : cause),
-      )),
-    ),
-  );
-  if (rowRevisions.length > 0) await emitTransactionStep(options, command, "rowBatchWritten");
-  for (let rowIndex = 0; rowIndex < rowRevisions.length; rowIndex += 1) {
-    await emitTransactionStep(options, command, "tentativeRowWritten");
+  pending = { ...pending, rows: await prepare(prepareAppRowRevisionApplicationEffect(tx, rowRevisions)
+    .pipe(Effect.mapError(cause => cause instanceof AppRowWritePersistenceError
+      ? pointCommitSqlCallFailure("writeTentativeRow", cause.cause) : cause))) };
+  if (options.afterTransactionStep !== undefined) {
+    await flush();
+    if (rowRevisions.length > 0) await emitTransactionStep(options, command, "rowBatchWritten");
+    for (let ordinal = 0; ordinal < rowRevisions.length; ordinal++)
+      await emitTransactionStep(options, command, "tentativeRowWritten");
   }
   const indexActions = [
     ...intrinsicActions.values(),
@@ -679,101 +878,100 @@ export async function materializeApplicationDocumentRows(
   ];
   if (indexActions.length > 0) {
     await emitTransactionStep(options, command, "indexBatchWriting");
-    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-      observePointCommitPublicationEffect(options.publicationObservation, "indexWrites", appendAppIndexEntryRevisionsInTransactionEffect(tx, indexActions, options.publicationObservation).pipe(
-        Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
-          ? new PointCommitSqlFailureMarkerV1("writeIndexEntries", cause.cause) : cause),
-      )),
-    ));
-    await emitTransactionStep(options, command, "indexBatchWritten");
-    for (let i = 0; i < intrinsicActions.size; i++)
-      await emitTransactionStep(options, command, "intrinsicIndexEntryWritten");
-    for (let i = 0; i < developerIndexActions.length; i++)
-      await emitTransactionStep(options, command, "developerIndexEntryWritten");
+    // The ordinary profile may need an actual scope/membership observation.
+    // It occurs after row application, while genuine retained evidence can
+    // prepare the same operation without introducing another database read.
+    if (!hasClockObservation() || !indexActions.some(action => action.membershipHeadEvidence !== undefined)) await flush();
+    pending = { ...pending, indexes: await prepare(prepareAppIndexRevisionApplicationEffect(tx, indexActions)
+      .pipe(Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
+        ? pointCommitSqlCallFailure("writeIndexEntries", cause.cause) : cause))) };
+    if (options.afterTransactionStep !== undefined) {
+      await flush();
+      await emitTransactionStep(options, command, "indexBatchWritten");
+      for (let ordinal = 0; ordinal < intrinsicActions.size; ordinal++)
+        await emitTransactionStep(options, command, "intrinsicIndexEntryWritten");
+      for (let ordinal = 0; ordinal < developerIndexActions.length; ordinal++)
+        await emitTransactionStep(options, command, "developerIndexEntryWritten");
+    }
   }
-  await resetPointCommitIndexValidations(tx, intrinsicBuilds.map(intrinsic => intrinsic.build), "intrinsic", options.publicationObservation);
-  await writePointCommitUniqueKeyActions(
-    tx,
-    command,
-    writeEpoch,
-    uniqueKeyActions,
-    options,
-  );
-  // Page writes may share one publication sequence. The coverage watermarks
-  // must advance only after every page is lowered, or the next page would be
-  // validated against a future watermark while the scope clock is still old.
-  const coverageAuthority = { authorityPins: { scopeId: command.authorityPins.scopeId } };
-  const completeCoverageEffect = Effect.fn("ApplicationDocumentMaterialization.completeCoverage")(function* () {
+  pending = { ...pending, validation: intrinsicBuilds.map(intrinsic => intrinsic.build)
+    .filter(build => build.lifecycle === "validating") };
+  if (options.afterTransactionStep !== undefined) {
+    await flush();
+    await writePointCommitUniqueKeyActions(tx, command, writeEpoch, uniqueKeyActions, options, canonicalUniquePairs);
+  } else if (canonicalUniquePairs.length > 0) {
+    if (!hasClockObservation()) await flush();
+    pending = { ...pending, unique: await prepare(prepareAppUniqueCanonicalMutationApplicationEffect(
+      tx, command.authorityPins.scopeId, writeEpoch, uniqueCanonicalTransitions(canonicalUniquePairs))
+      .pipe(Effect.mapError(mapPointCommitUniqueKeyFailure))) };
+  }
+  // Page writes share the sequence but retain the existing completion seam:
+  // their watermarks advance only once every page has been lowered.
+  const prepareCoverage = async () => {
     const selectedIndexBuilds = maintainedBuilds.map(({ build }) => build)
       .filter(build => build.lifecycle === "enabled" && build.maintenance === null);
+    if (selectedIndexBuilds.length > APPLICATION_COVERAGE_MAX_ROWS) {
+      await flush();
+      throw corruption("developerIndexBuildInvalid");
+    }
     for (let offset = 0; offset < selectedIndexBuilds.length; offset += 32) {
       const batch = selectedIndexBuilds.slice(offset, offset + 32);
-      if (new Set(batch.map(build => build.indexDefinitionId)).size !== batch.length)
-        return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
-      const updated = yield* Effect.tryPromise({ try: () =>
-        tx
-          .update(fxSystemIndexBuildStates)
-          .set({
-            coveredThroughCommitSeq: commitSeq,
-            updatedAt: sql`clock_timestamp()`,
-          })
-          .where(or(...batch.map(build => and(
-            eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-            eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
-            eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
-            eq(fxSystemIndexBuildStates.epoch, build.epoch),
-            eq(fxSystemIndexBuildStates.storageGenerationFence, build.storageGenerationFence),
-            eq(fxSystemIndexBuildStates.lifecycle, "enabled"),
-          ))))
-          .returning({ scopeId: fxSystemIndexBuildStates.scopeId,
-            id: fxSystemIndexBuildStates.indexDefinitionId,
-            attemptFence: fxSystemIndexBuildStates.attemptFence,
-            epoch: fxSystemIndexBuildStates.epoch,
-            storageGenerationFence: fxSystemIndexBuildStates.storageGenerationFence }),
-        catch: cause => pointCommitSqlCallFailure("resetDeveloperIndexValidation", cause),
-      });
-      for (const build of batch)
-        if (!updated.some(row => row.scopeId === build.scopeId && row.id === build.indexDefinitionId &&
-          row.attemptFence === build.attemptFence && row.epoch === build.epoch &&
-          row.storageGenerationFence === build.storageGenerationFence))
-          return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
-      if (updated.length !== batch.length) return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
-      if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "indexCoverage", counts: { rows: batch.length } });
+      if (new Set(batch.map(build => build.indexDefinitionId)).size !== batch.length) {
+        // A refused later page cannot preempt the actual earlier page writes.
+        await flush();
+        for (let prefix = 0; prefix < offset; prefix += 32) {
+          projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+            applyApplicationCoverage(tx, selectedIndexBuilds.slice(prefix, prefix + 32), [], commitSeq)
+              .pipe(Effect.mapError(cause => cause instanceof ApplicationCoveragePersistenceError
+                ? pointCommitSqlCallFailure("resetDeveloperIndexValidation", cause.cause) : corruption("developerIndexBuildInvalid")))));
+        }
+        throw corruption("developerIndexBuildInvalid");
+      }
     }
-
+    pending = { ...pending, indexCoverage: selectedIndexBuilds };
     const selectedUnique: Array<Readonly<{ state: (typeof uniqueBuilds)[number];
       schemaVersionId: (typeof uniqueDefinitions)[number]["schemaVersionId"] }>> = [];
-    const flushUnique = Effect.gen(function* () {
-      if (selectedUnique.length === 0) return;
-      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, selectedUnique, commitSeq, options.publicationObservation)
-        .pipe(Effect.mapError(projectUniqueCoverageFailure));
-      selectedUnique.length = 0;
-    });
+    const retainUniqueCoverage = async () => {
+      const prepared = await prepare(Effect.fromResult(prepareUnboundUniqueCoverageApplicationResult(selectedUnique))
+        .pipe(Effect.mapError(projectUniqueCoverageFailure)));
+      pending = { ...pending, uniqueCoverage: prepared.rows };
+    };
     for (const build of uniqueBuilds) {
-      const definition = uniqueDefinitions.find(member =>
-        member.uniqueConstraintDefinitionId === build.uniqueConstraintDefinitionId);
+      const definition = uniqueDefinitions.find(member => member.uniqueConstraintDefinitionId === build.uniqueConstraintDefinitionId);
       if (definition === undefined) {
-        yield* flushUnique;
-        return yield* Effect.fail(corruption("uniqueConstraintDefinitionInvalid"));
+        await retainUniqueCoverage();
+        await flush();
+        throw corruption("uniqueConstraintDefinitionInvalid");
       }
       selectedUnique.push({ state: build, schemaVersionId: definition.schemaVersionId });
-      if (selectedUnique.length === 32) yield* flushUnique;
     }
-    yield* flushUnique;
-  });
-  // Drizzle's deferred Promise callback owns the sole runtime projection for
-  // the complete coverage graph. The proof hook retains its original boundary.
-  const completeCoverage = async () => {
-    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(observePointCommitPublicationEffect(options.publicationObservation, "coverage", completeCoverageEffect())));
-    if (uniqueBuilds.length > 0)
-      await emitTransactionStep(
-        options,
-        coverageAuthority,
-        "uniquePublicationApplied",
-      );
+    await retainUniqueCoverage();
   };
-  if (deferCoverage) return completeCoverage;
-  await completeCoverage();
+  const finishCoverage = async () => {
+    await prepareCoverage();
+    await flush();
+    if (uniqueBuilds.length > 0) await emitTransactionStep(options, command, "uniquePublicationApplied");
+  };
+  if (!deferCoverage) {
+    await prepareCoverage();
+    if (options.afterTransactionStep !== undefined) {
+      await flush();
+      if (uniqueBuilds.length > 0) await emitTransactionStep(options, command, "uniquePublicationApplied");
+    }
+  }
+  if (searchContribution !== undefined) {
+    if (Result.isFailure(searchContribution)) await flush();
+    const contribution = projectPointCommitTransactionResult(searchContribution);
+    const searchStages = prepareLogicalSearchApplications(contribution.definitions, contribution.changes, scopeUuid, commitSeq);
+    while (true) {
+      const stage = await prepare(Effect.sync(() => searchStages.next()));
+      if (stage.done) break;
+      const search = await prepare(Effect.fromResult(stage.value));
+      pending = { ...pending, search: [...(pending.search ?? []), search] };
+    }
+  }
+  await flush();
+  if (deferCoverage) return finishCoverage;
 }
 
 async function runUniqueCoverage<A>(
@@ -807,94 +1005,28 @@ export async function preparePointCommitApplicationRelationPlan(
   lastCommitSeq: bigint,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<PreparedPointCommitApplicationRelationPlan | null> {
-  if (relations === null) return null;
-  const { headsByDocumentId, documents: priorDocuments } = priorState;
-  const sourceTableIds = new Set(
-    relations.definitions.definitions.map(definition => definition.binding.sourceTableId),
-  );
-  const relationTableIds = new Set(
-    relations.definitions.definitions.flatMap((definition) => [
-      definition.binding.sourceTableId,
-      definition.binding.targetTableId,
-    ]),
-  );
-  const transitions: ApplicationRelationRowTransition[] = [];
-  for (const intent of command.rowIntents) {
-    if (!relationTableIds.has(intent.tableId)) continue;
-    const loaded = headsByDocumentId.get(intent.documentId);
-    if (loaded === undefined) {
-      throw corruption("relationTransitionInvalid");
-    }
-    const prior = sourceTableIds.has(intent.tableId)
-      ? priorDocuments.get(intent.documentId) ?? null
-      : null;
-    if (
-      sourceTableIds.has(intent.tableId) &&
-      loaded.head.kind === "live" &&
-      prior === null
-    ) {
-      throw corruption("relationTransitionInvalid");
-    }
-    transitions.push(
-      Object.freeze({
-        documentId: intent.documentId,
-        tableId: intent.tableId,
-        rowId: intent.rowId,
-        prior,
-        final: intent.kind === "live" ? intent.document : null,
-      }),
-    );
-  }
-  if (transitions.length === 0) return null;
-  const prepared = projectPointCommitTransactionResult(
-    prepareApplicationRelationCommitResult(
-      relations.definitions,
-      Object.freeze(transitions),
-    ).pipe(
-      Result.mapError((cause) =>
-        cause instanceof ApplicationRelationCommitCorruptionError
-          ? corruption(
-              cause.reason === "invalidDefinitionSet"
-                ? "relationBindingInvalid"
-                : "relationTransitionInvalid",
-            )
-          : cause,
-      ),
-    ),
-  );
-  if (
-    !hasPreparedApplicationRelationCommitAuthority(
-      relations.port,
-      prepared,
-      command.authorityPins.schemaVersionId,
-    )
-  ) {
-    throw corruption("relationTransitionInvalid");
-  }
-  await validatePointCommitApplicationRelationTargets(
-    tx,
-    command,
-    prepared,
-    lastCommitSeq,
-    options,
-  );
-  return Object.freeze({ port: relations.port, prepared });
+  const plan = projectPointCommitTransactionResult(prepareRelationTransitionsResult(command, priorState, relations));
+  if (plan === null) return null;
+  const { prepared } = plan;
+  projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(validatePointCommitApplicationRelationTargetsEffect(tx, command, prepared, lastCommitSeq, options)));
+  return plan;
 }
 
-async function validatePointCommitApplicationRelationTargets(
+const decodeRelationTargetDriverRows = Schema.decodeUnknownResult(Schema.Struct({ rows: Schema.Array(Schema.Unknown) }));
+const validatePointCommitApplicationRelationTargetsEffect = Effect.fn("ApplicationDocument.validateRelationTargets")(function* (
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
   prepared: PreparedApplicationRelationCommit,
   lastCommitSeq: bigint,
   options: ApplicationDocumentMaterializationOptions,
-): Promise<void> {
+) {
   const checks = prepared.storedTargetChecks;
   if (checks.length === 0) return;
-  const scopeUuid = projectPointCommitTransactionResult(
+  const scopeUuid = (yield* Effect.fromResult(
     projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
       Result.mapError(() => corruption("relationTargetEvidenceInvalid")),
     ),
-  ).scopeUuid;
+  )).scopeUuid;
   const values = sql.join(
     checks.map(
       (check, ordinal) => sql`
@@ -935,14 +1067,11 @@ async function validatePointCommitApplicationRelationTargets(
       params: Object.freeze([]),
     }),
   );
-  const result = await sqlCall("loadRelationTargets", () =>
-    tx.execute(statement),
-  );
-  const rows = rowsFromDriverExecuteResult(result, () => {
-    throw corruption("relationTargetEvidenceInvalid");
-  });
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => tx.execute(statement),
+    catch: cause => new PointCommitSqlFailureMarkerV1("loadRelationTargets", cause) }));
+  const { rows } = yield* Effect.fromResult(decodeRelationTargetDriverRows(result).pipe(Result.mapError(() => corruption("relationTargetEvidenceInvalid"))));
   if (rows.length !== checks.length) {
-    throw corruption("relationTargetEvidenceInvalid");
+    return yield* Effect.fail(corruption("relationTargetEvidenceInvalid"));
   }
   for (let ordinal = 0; ordinal < checks.length; ordinal += 1) {
     const raw = rows[ordinal];
@@ -952,14 +1081,14 @@ async function validatePointCommitApplicationRelationTargets(
       check === undefined ||
       raw.ordinalText !== String(ordinal)
     ) {
-      throw corruption("relationTargetEvidenceInvalid");
+      return yield* Effect.fail(corruption("relationTargetEvidenceInvalid"));
     }
-    const pointerCommitSeq = projectPointCommitTransactionResult(
+    const pointerCommitSeq = yield* Effect.fromResult(
       parseNullableCommitSeqTextResult(raw.pointerCommitSeqText).pipe(
         Result.mapError(() => corruption("relationTargetEvidenceInvalid")),
       ),
     );
-    const revisionCommitSeq = projectPointCommitTransactionResult(
+    const revisionCommitSeq = yield* Effect.fromResult(
       parseNullableCommitSeqTextResult(raw.revisionCommitSeqText).pipe(
         Result.mapError(() => corruption("relationTargetEvidenceInvalid")),
       ),
@@ -969,9 +1098,9 @@ async function validatePointCommitApplicationRelationTargets(
       revisionCommitSeq === null &&
       raw.isTombstone === null
     ) {
-      throw new ApplicationRelationTargetNotLiveError({
+      return yield* Effect.fail(new ApplicationRelationTargetNotLiveError({
         targetDocumentId: check.documentId,
-      });
+      }));
     }
     if (
       pointerCommitSeq === null ||
@@ -980,15 +1109,15 @@ async function validatePointCommitApplicationRelationTargets(
       revisionCommitSeq > lastCommitSeq ||
       typeof raw.isTombstone !== "boolean"
     ) {
-      throw corruption("relationTargetEvidenceInvalid");
+      return yield* Effect.fail(corruption("relationTargetEvidenceInvalid"));
     }
     if (raw.isTombstone) {
-      throw new ApplicationRelationTargetNotLiveError({
+      return yield* Effect.fail(new ApplicationRelationTargetNotLiveError({
         targetDocumentId: check.documentId,
-      });
+      }));
     }
   }
-}
+});
 
 export const maintainPointCommitApplicationRelationsEffect = Effect.fn(
   "PointCommitTransaction.maintainApplicationRelations",
@@ -1068,7 +1197,72 @@ export async function loadPointCommitHeads(
   >,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<ReadonlyArray<LoadedPointCommitHeadV1>> {
-  if (command.dependencies.length === 0) return Object.freeze([]);
+  return (await selectPointCommitHeads(tx, clock, command, options)).heads;
+}
+
+/** Select fresh continuity in the existing current-head command. Only demanded
+ * positive predecessors hash, and an oversized body never reaches hashing. */
+export async function lockFinitePointCommitDeveloperIndexBuildsAndHeads(
+  tx: AppRowTransaction, clock: ApplicationDocumentMaterializationClock,
+  definitions: readonly LocatedAppIndexDefinitionV1[], command: ApplicationDocumentMaterializationCommand,
+  originalRows: readonly LiveAppRowRevisionV1[], unique: readonly LocatedAppUniqueConstraintDefinitionV1[],
+  relations: LocatedPreparedPointCommitApplicationRelations | null, options: ApplicationDocumentMaterializationOptions,
+): Promise<Readonly<{ developerIndexBuilds: readonly LockedPointCommitDeveloperIndexV1[]; freshHeads: FinitePointCommitHeads }>> {
+  const schemaName = projectPointCommitTransactionResult(requireAdmittedTargetInstallationSchema(tx).pipe(
+    Result.mapError(cause => pointCommitSqlCallFailure("lockDeveloperIndexBuilds", cause))));
+  const tables = new Set(definitions.map(definition => definition.access.tableId));
+  for (const id of predecessorDocumentTableIds([], unique, relations)) tables.add(id);
+  const originals = new Map(originalRows.map(row => [appDocumentIdV1FromRowIdentity(row), row]));
+  const lengths = new Map<AppDocumentIdV1, number>();
+  for (const intent of command.rowIntents) {
+    const original = originals.get(intent.documentId);
+    if (tables.has(intent.tableId) && intent.dependency.observed.kind === "present" && original !== undefined)
+      lengths.set(intent.documentId, original.document.canonicalBytes.byteLength);
+  }
+  const rows = await sqlCall("lockDeveloperIndexBuilds", () => tx.select({
+    maintenanceObligation: getTableColumns(fxSystemIndexMaintenanceObligations),
+    kind: sql<string>`observed.kind`, developerBuild: applicationCompositeSelection(fxSystemIndexBuildStates, "observed.developer_build"),
+    ordinalText: sql<string>`observed.ordinal::text`, pointerCommitSeqText: sql<string | null>`observed.pointer_commit_seq_text`,
+    latestCommitSeqText: sql<string | null>`observed.latest_commit_seq_text`, latestIsTombstone: sql<boolean | null>`observed.latest_is_tombstone`,
+    latestCreationTimeText: sql<string | null>`observed.latest_creation_time_text`,
+    originalScopeUuid: sql<string | null>`observed.original_scope_uuid`,
+    originalWriteEpochUuid: sql<string | null>`observed.original_write_epoch_uuid`,
+    originalPrevCommitSeqText: sql<string | null>`observed.original_prev_commit_seq_text`,
+    originalSchemaVersionId: sql<string | null>`observed.original_schema_version_id`,
+    originalCodecVersion: sql<number | null>`observed.original_codec_version`,
+    originalByteLengthText: sql<string | null>`observed.original_byte_length_text`,
+    originalStoredSha256: sql`observed.original_stored_sha256`.mapWith(fxAppRowRevisions.valueSha256),
+    originalActualSha256: sql`observed.original_actual_sha256`.mapWith(fxAppRowRevisions.valueSha256),
+  }).from(sql`${sql.identifier(schemaName)}.fx_observe_app_developer_heads(
+    ${command.authorityPins.scopeId}::text, ${clock.scopeUuid}::uuid,
+    array[${sql.join(definitions.map(definition => sql`${definition.indexDefinitionId}::integer`), sql`, `)}]::integer[],
+    array[${sql.join(command.dependencies.map(dependency => sql`${dependency.tableId}::integer`), sql`, `)}]::integer[],
+    array[${sql.join(command.dependencies.map(dependency => sql`${sql.param(appRowIdHexV1ToBytes(dependency.rowId), fxAppRowRevisions.rowId)}::bytea`), sql`, `)}]::bytea[],
+    array[${sql.join(command.dependencies.map(dependency => sql`${lengths.get(dependency.documentId) ?? null}::integer`), sql`, `)}]::integer[]
+  ) observed`).leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate(
+    sql`(observed.developer_build).${sql.identifier(fxSystemIndexBuildStates.scopeId.name)}`,
+    sql`(observed.developer_build).${sql.identifier(fxSystemIndexBuildStates.indexDefinitionId.name)}`,
+    sql`(observed.developer_build).${sql.identifier(fxSystemIndexBuildStates.maintenanceActivationSequence.name)}`,
+  )));
+  if (rows.some(row => row.kind !== "developerBuild" && row.kind !== "head")) throw corruption("developerIndexBuildInvalid");
+  const developerIndexBuilds = decodePointCommitDeveloperIndexBuilds(rows.filter(row => row.kind === "developerBuild").map(row => ({ ...row.developerBuild, maintenanceObligation: row.maintenanceObligation })),
+    clock, definitions, command);
+  const predecessorRows = rows.filter(row => row.kind === "head").map(({ kind: _kind, developerBuild: _build, maintenanceObligation: _maintenance, ...row }) => row);
+  options.observeQuery?.(Object.freeze({ name: "loadRowHeads", sql: "fresh heads after developer build locks", params: Object.freeze([]) }));
+  const freshHeads = Object.freeze({ heads: projectPointCommitTransactionResult(
+    capturePointCommitHeadsResult(predecessorRows, command, clock.record.lastCommitSeq)), predecessorRows });
+  return Object.freeze({ developerIndexBuilds, freshHeads });
+}
+
+
+async function selectPointCommitHeads(
+  tx: AppRowTransaction,
+  clock: ApplicationDocumentMaterializationClock,
+  command: Pick<ApplicationDocumentMaterializationCommand, "authorityPins" | "dependencies">,
+  options: ApplicationDocumentMaterializationOptions,
+  originalLengths?: ReadonlyMap<AppDocumentIdV1, number>,
+): Promise<FinitePointCommitHeads> {
+  if (command.dependencies.length === 0) return Object.freeze({ heads: Object.freeze([]), predecessorRows: Object.freeze([]) });
   const values = sql.join(
     command.dependencies.map(
       (dependency, ordinal) => sql`
@@ -1076,13 +1270,14 @@ export async function loadPointCommitHeads(
         ${ordinal}::integer,
         ${dependency.tableId}::integer,
         ${appRowIdHexV1ToBytes(dependency.rowId)}::bytea
+        ${originalLengths === undefined ? sql`` : sql`, ${originalLengths.get(dependency.documentId) ?? null}::integer`}
       )
     `,
     ),
     sql`, `,
   );
   const statement = sql`
-    with requested(ordinal, table_id, row_id) as (
+    with requested(ordinal, table_id, row_id${originalLengths === undefined ? sql`` : sql`, original_byte_length`}) as (
       values ${values}
     )
     select
@@ -1091,6 +1286,17 @@ export async function loadPointCommitHeads(
       latest.commit_seq::text as "latestCommitSeqText",
       latest.is_tombstone as "latestIsTombstone",
       latest.creation_time::text as "latestCreationTimeText"
+      ${originalLengths === undefined ? sql`` : sql`,
+        latest.scope_uuid as "originalScopeUuid",
+        latest.write_epoch_uuid as "originalWriteEpochUuid",
+        latest.prev_commit_seq::text as "originalPrevCommitSeqText",
+        latest.schema_version_id as "originalSchemaVersionId",
+        latest.value_codec_version as "originalCodecVersion",
+        octet_length(latest.value_bytes)::text as "originalByteLengthText",
+        latest.value_sha256 as "originalStoredSha256",
+        case when requested.original_byte_length is not null and latest.is_tombstone = false
+          and latest.value_codec_version = 1 and octet_length(latest.value_bytes) = requested.original_byte_length
+          then pg_catalog.sha256(latest.value_bytes) else null end as "originalActualSha256"`}
     from requested
     left join fx_app_row_current as current_row
       on current_row.scope_uuid = ${clock.scopeUuid}
@@ -1098,6 +1304,9 @@ export async function loadPointCommitHeads(
       and current_row.row_id = requested.row_id
     left join lateral (
       select revision.commit_seq, revision.is_tombstone, revision.creation_time
+        ${originalLengths === undefined ? sql`` : sql`, revision.scope_uuid, revision.write_epoch_uuid,
+          revision.prev_commit_seq, revision.schema_version_id, revision.value_codec_version,
+          revision.value_bytes, revision.value_sha256`}
       from fx_app_row_rev as revision
       where revision.scope_uuid = ${clock.scopeUuid}
         and revision.table_id = requested.table_id
@@ -1118,9 +1327,8 @@ export async function loadPointCommitHeads(
   const rows = rowsFromDriverExecuteResult(result, () => {
     throw corruption("rowHeadInvalid");
   });
-  return projectPointCommitTransactionResult(
-    capturePointCommitHeadsResult(rows, command, clock.record.lastCommitSeq),
-  );
+  return Object.freeze({ heads: projectPointCommitTransactionResult(
+    capturePointCommitHeadsResult(rows, command, clock.record.lastCommitSeq)), predecessorRows: rows });
 }
 
 function capturePointCommitHeadsResult(
@@ -1328,8 +1536,9 @@ export async function lockPointCommitDeveloperIndexBuilds(
   if (definitions.length === 0) return Object.freeze([]);
   const rows = await sqlCall("lockDeveloperIndexBuilds", () =>
     tx
-      .select()
+      .select(indexBuildStateSelection())
       .from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
       .where(
         and(
           eq(fxSystemIndexBuildStates.scopeId, command.authorityPins.scopeId),
@@ -1340,8 +1549,11 @@ export async function lockPointCommitDeveloperIndexBuilds(
         ),
       )
       .orderBy(fxSystemIndexBuildStates.indexDefinitionId)
-      .for("share"),
+      .for("share", { of: fxSystemIndexBuildStates }),
   );
+  return decodePointCommitDeveloperIndexBuilds(rows, clock, definitions, command);
+}
+function decodePointCommitDeveloperIndexBuilds(rows: readonly IndexBuildStateRow[], clock: ApplicationDocumentMaterializationClock, definitions: readonly LocatedAppIndexDefinitionV1[], command: ApplicationDocumentMaterializationCommand): readonly LockedPointCommitDeveloperIndexV1[] {
   if (rows.length !== definitions.length) {
     throw corruption("developerIndexBuildInvalid");
   }
@@ -1359,7 +1571,7 @@ export async function lockPointCommitDeveloperIndexBuilds(
       decodeIndexBuildStateRowResult(
         row,
         command.authorityPins.scopeId,
-        definition.indexDefinitionId,
+        definition.indexDefinitionId, row.maintenanceObligation,
       ).pipe(Result.mapError(() => corruption("developerIndexBuildInvalid"))),
     );
     if (
@@ -1389,372 +1601,111 @@ export async function preparePointCommitDeveloperIndexActions(
   priorState: ApplicationDocumentPriorState,
   builds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
 ): Promise<ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>> {
-  const plans: PointCommitDeveloperIndexRowPlanV1[] = [];
-  const { headsByDocumentId: loadedHeadsByDocumentId, documents: priorDocuments } = priorState;
-  for (const locked of builds) {
-    for (const intent of command.rowIntents) {
-      const loaded = loadedHeadsByDocumentId.get(intent.documentId);
-      if (
-        loaded === undefined ||
-        intent.tableId !== locked.definition.access.tableId
-      ) {
-        continue;
-      }
-      const rowId = projectPointCommitTransactionResult(
-        orderedIndexRowIdHexV1FromBytesResult(
-          appRowIdHexV1ToBytes(intent.rowId),
-        ).pipe(
-          Result.mapError(() => corruption("developerIndexTransitionInvalid")),
-        ),
-      );
-      const priorDocument = priorDocuments.get(intent.documentId) ?? null;
-      if (
-        loaded.head.kind === "live" &&
-        (priorDocument === null || loaded.creationTime === null)
-      ) {
-        throw corruption("developerIndexTransitionInvalid");
-      }
-      const priorKey =
-        loaded.head.kind === "live" &&
-        priorDocument !== null &&
-        loaded.creationTime !== null
-          ? lowerDeveloperIndexKey(
-              locked.definition,
-              priorDocument,
-              loaded.creationTime,
-            )
-          : null;
-      const finalKey =
-        intent.kind === "live"
-          ? lowerDeveloperIndexKey(
-              locked.definition,
-              intent.document,
-              intent.creationTime,
-            )
-          : null;
-      plans.push(
-        Object.freeze({
-          definition: locked.definition,
-          build: locked.build,
-          rowId,
-          priorCommitSeq:
-            loaded.head.kind === "live" ? loaded.head.revisionCommitSeq : null,
-          priorKey,
-          finalKey,
-        }),
-      );
-    }
-  }
-  const positions = uniqueDeveloperIndexPositions(plans);
-  const heads = await loadPointCommitDeveloperIndexEntryHeads(
-    tx,
-    command,
-    positions,
-  );
-  const actions: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">[] = [];
-  for (const plan of plans) {
-    const priorHead =
-      plan.priorKey === null
-        ? null
-        : (heads.heads.get(
-            developerIndexPositionKey(
-              plan.definition.indexDefinitionId,
-              plan.priorKey,
-              plan.rowId,
-            ),
-          ) ?? null);
-    const finalHead =
-      plan.finalKey === null
-        ? null
-        : (heads.heads.get(
-            developerIndexPositionKey(
-              plan.definition.indexDefinitionId,
-              plan.finalKey,
-              plan.rowId,
-            ),
-          ) ?? null);
-    const sameKey = plan.priorKey !== null && plan.priorKey === plan.finalKey;
-    if (plan.priorKey !== null) {
-      if (
-        priorHead?.commitSeq !== null &&
-        priorHead?.commitSeq !== undefined &&
-        (priorHead.isTombstone ||
-          plan.priorCommitSeq === null ||
-          priorHead.commitSeq > plan.priorCommitSeq)
-      ) {
-        throw corruption("developerIndexTransitionInvalid");
-      }
-      if (
-        (priorHead === null || priorHead.commitSeq === null) &&
-        plan.build.lifecycle === "enabled"
-      ) {
-        throw corruption("developerIndexTransitionInvalid");
-      }
-      if (sameKey && (priorHead === null || priorHead.commitSeq === null)) {
-        actions.push(
-          Object.freeze({
-            kind: "live",
-            definition: plan.definition,
-            encodedKey: plan.priorKey,
-            rowId: plan.rowId,
-          }),
-        );
-      } else if (
-        !sameKey &&
-        priorHead !== null &&
-        priorHead.commitSeq !== null
-      ) {
-        actions.push(
-          Object.freeze({
-            kind: "tombstone",
-            definition: plan.definition,
-            encodedKey: plan.priorKey,
-            rowId: plan.rowId,
-          }),
-        );
-      }
-    }
-    if (plan.finalKey !== null && !sameKey) {
-      if (finalHead?.commitSeq !== null && finalHead?.isTombstone === false) {
-        throw corruption("developerIndexTransitionInvalid");
-      }
-      actions.push(
-        Object.freeze({
-          kind: "live",
-          definition: plan.definition,
-          encodedKey: plan.finalKey,
-          rowId: plan.rowId,
-        }),
-      );
-    }
-  }
-  if (actions.length > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1) {
-    throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
-      reason: "entryRevisionLimitExceeded",
-      observed: actions.length,
-      maximum: MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
-    });
-  }
-  actions.sort(compareDeveloperIndexEntryActions);
-  return Object.freeze(actions.map(action => Object.freeze({ ...action, membershipHeadEvidence: heads.evidence })));
+  const pairs = projectPointCommitTransactionResult(prepareDeveloperIndexKeyPairsResult(command, priorState, builds.map(index => index.definition)));
+  const plans = pairs.map(pair => {
+    const build = builds.find(index => index.definition === pair.definition)?.build;
+    if (build === undefined) throw corruption("developerIndexBuildInvalid");
+    return { ...pair, build };
+  });
+  return acceptPreparedDeveloperIndexKeyPairs(tx, command, plans);
+
 }
 
-export async function preparePointCommitUniqueKeyActions(
-  tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-  priorState: ApplicationDocumentPriorState,
-  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
-): Promise<ReadonlyArray<PointCommitUniqueKeyActionV1>> {
-  if (definitions.length === 0) return Object.freeze([]);
-  const { headsByDocumentId, documents: priorDocuments } = priorState;
-  const plans: PointCommitUniqueKeyPlanV1[] = [];
-  for (const definition of definitions) {
-    for (const intent of command.rowIntents) {
-      if (intent.tableId !== definition.tableId) continue;
-      const loaded = headsByDocumentId.get(intent.documentId);
-      if (loaded === undefined) throw corruption("uniqueKeyTransitionInvalid");
-      const priorDocument = priorDocuments.get(intent.documentId) ?? null;
-      if (loaded.head.kind === "live" && priorDocument === null) {
-        throw corruption("uniqueKeyTransitionInvalid");
-      }
-      const previous =
-        loaded.head.kind === "live" && priorDocument !== null
-          ? lowerPointCommitUniqueKey(definition, priorDocument)
-          : null;
-      const next =
-        intent.kind === "live"
-          ? lowerPointCommitUniqueKey(definition, intent.document)
-          : null;
-      plans.push(
-        Object.freeze({
-          definition,
-          rowId: intent.rowId,
-          rowPrevCommitSeq:
-            loaded.head.kind === "live" ? loaded.head.revisionCommitSeq : null,
-          previousProjection: previous?.kind === "claim" ? previous.projection : null,
-          previousCanonical: previous,
-          nextProjection: next?.kind === "claim" ? next.projection : null,
-          nextCanonical: next,
-        }),
-      );
-    }
+const acceptPreparedDeveloperIndexKeyPairsEffect = Effect.fn("ApplicationDocument.acceptDeveloperKeyPairs")(function* (
+  tx: AppRowTransaction, command: ApplicationDocumentMaterializationCommand, plans: readonly PointCommitDeveloperIndexRowPlanV1[],
+) {
+  if (plans.length === 0) return Object.freeze([]);
+  const actions = yield* acceptAppIndexKeyTransitionsInTransactionEffect(tx, { scopeId: command.authorityPins.scopeId, pairs: plans,
+    maximumActions: MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 }).pipe(Effect.mapError(cause =>
+      cause instanceof AppIndexTransitionLimitExceededError ? new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
+        reason: "entryRevisionLimitExceeded", observed: cause.observed, maximum: cause.maximum })
+        : cause instanceof AppIndexEntryReadPersistenceError ? new PointCommitSqlFailureMarkerV1("loadDeveloperIndexEntryHeads", cause.cause)
+          : corruption("developerIndexTransitionInvalid")));
+  return Object.freeze(actions.toSorted(compareDeveloperIndexEntryActions));
+});
+export async function acceptPreparedDeveloperIndexKeyPairs(tx: AppRowTransaction, command: ApplicationDocumentMaterializationCommand,
+  plans: readonly PointCommitDeveloperIndexRowPlanV1[]): Promise<readonly PointCommitDeveloperIndexEntryActionV1[]> {
+  return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(acceptPreparedDeveloperIndexKeyPairsEffect(tx, command, plans)));
+}
+
+export const acceptPreparedApplicationDeveloperTransitionsEffect = Effect.fn("ApplicationDocument.acceptPreparedDeveloperTransitions")(function* (
+  tx: AppRowTransaction, prepared: PreparedApplicationDocumentSettlement, builds: readonly LockedPointCommitDeveloperIndexV1[],
+) {
+  if (Exit.isFailure(prepared.developer)) return yield* Effect.failCause(prepared.developer.cause);
+  const plans: PointCommitDeveloperIndexRowPlanV1[] = [];
+  for (const pair of prepared.developer.value) {
+    const build = builds.find(index => index.definition === pair.definition)?.build;
+    if (build === undefined) return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
+    plans.push({ ...pair, build });
   }
-  const owners = await loadPointCommitUniqueKeyOwners(tx, command, plans);
+  return yield* acceptPreparedDeveloperIndexKeyPairsEffect(tx, prepared.command, plans);
+});
+
+function uniqueCanonicalTransitions(plans: readonly PointCommitUniqueKeyPlanV1[]) {
+  return plans.map(plan => ({ constraintId: plan.definition.uniqueConstraintDefinitionId, tableId: plan.definition.tableId,
+    rowId: plan.rowId, localeKey: plan.previousCanonical?.localeKey ?? plan.nextCanonical?.localeKey ?? "",
+    previous: plan.previousCanonical, next: plan.nextCanonical, rowPrevCommitSeq: plan.rowPrevCommitSeq }));
+}
+function preparedUniqueKeyActions(plans: readonly PointCommitUniqueKeyPlanV1[]): readonly PointCommitUniqueKeyActionV1[] {
   const actions: PointCommitUniqueKeyActionV1[] = [];
   for (const plan of plans) {
-    const owner =
-      owners.get(
-        uniqueKeyOwnerPosition(
-          plan.definition.uniqueConstraintDefinitionId,
-          plan.definition.tableId,
-          plan.rowId,
-        ),
-      ) ?? null;
-    const previousClaim =
-      plan.previousCanonical?.kind === "claim" ? plan.previousCanonical : null;
-    const nextClaim =
-      plan.nextCanonical?.kind === "claim" ? plan.nextCanonical : null;
-    if (owner === null && previousClaim !== null)
-      throw corruption("uniqueKeyTransitionInvalid");
-    if (owner !== null) {
-      if (
-        plan.rowPrevCommitSeq === null ||
-        previousClaim === null ||
-        owner.encodedKey !== previousClaim.encodedKey
-      )
-        throw corruption("uniqueKeyTransitionInvalid");
-      if (
-        nextClaim !== null &&
-        nextClaim.encodedKey === previousClaim.encodedKey
-      ) {
-        continue;
-      }
-      actions.push(
-        uniqueKeyAction(
-          "release",
-          plan,
-          plan.previousProjection,
-          null,
-          previousClaim.encodedKey,
-        ),
-      );
-    }
-    if (nextClaim !== null) {
-      actions.push(
-        uniqueKeyAction(
-          "claim",
-          plan,
-          null,
-          plan.nextProjection,
-          nextClaim.encodedKey,
-        ),
-      );
-    }
+    const previous = plan.previousCanonical?.kind === "claim" ? plan.previousCanonical : null;
+    const next = plan.nextCanonical?.kind === "claim" ? plan.nextCanonical : null;
+    if (previous !== null && next !== null && previous.encodedKey === next.encodedKey) continue;
+    if (previous !== null) actions.push(uniqueKeyAction("release", plan, previous.encodedKey));
+    if (next !== null) actions.push(uniqueKeyAction("claim", plan, next.encodedKey));
   }
-  if (actions.length > MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1) {
-    throw new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
-      reason: "mutationLimitExceeded",
-      observed: actions.length,
-      maximum: MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1,
-    });
-  }
-  actions.sort(comparePointCommitUniqueKeyActions);
-  return Object.freeze(actions);
+  return Object.freeze(actions.toSorted(comparePointCommitUniqueKeyActions));
 }
+export const acceptPreparedUniqueKeyPairsEffect = Effect.fn("ApplicationDocument.acceptUniqueKeyPairs")(function* (
+  tx: AppRowTransaction, command: ApplicationDocumentMaterializationCommand, plans: readonly PointCommitUniqueKeyPlanV1[], writeEpoch: ScopeEpoch,
+) {
+  yield* acceptAppUniqueOriginalOwnersInTransactionEffect(tx, command.authorityPins.scopeId, writeEpoch, uniqueCanonicalTransitions(plans))
+    .pipe(Effect.mapError(mapPointCommitUniqueKeyFailure));
+  const actions = preparedUniqueKeyActions(plans);
+  if (actions.length > MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1) return yield* Effect.fail(new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
+    reason: "mutationLimitExceeded", observed: actions.length, maximum: MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1 }));
+  return actions;
+});
+export async function preparePointCommitUniqueKeyActions(
+  tx: AppRowTransaction, command: ApplicationDocumentMaterializationCommand, priorState: ApplicationDocumentPriorState,
+  definitions: readonly LocatedAppUniqueConstraintDefinitionV1[], writeEpoch: ScopeEpoch,
+): Promise<Readonly<{ actions: readonly PointCommitUniqueKeyActionV1[]; pairs: readonly PointCommitUniqueKeyPlanV1[] }>> {
+  const plans = projectPointCommitTransactionResult(prepareUniqueKeyPairsResult(command, priorState, definitions));
+  const actions = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(acceptPreparedUniqueKeyPairsEffect(tx, command, plans, writeEpoch)));
+  return Object.freeze({ actions, pairs: plans });
+}
+export const acceptPreparedApplicationUniqueOwnersEffect = Effect.fn("ApplicationDocument.acceptPreparedUniqueOwners")(function* (
+  tx: AppRowTransaction, prepared: PreparedApplicationDocumentSettlement, writeEpoch: ScopeEpoch,
+) {
+  if (prepared.unique === undefined) return yield* Effect.die(new Error("Unique planning was not reached"));
+  if (Exit.isFailure(prepared.unique)) return yield* Effect.failCause(prepared.unique.cause);
+  return yield* acceptPreparedUniqueKeyPairsEffect(tx, prepared.command, prepared.unique.value, writeEpoch);
+});
 
-function lowerPointCommitUniqueKey(
-  definition: LocatedAppUniqueConstraintDefinitionV1,
-  document: CanonicalFlarexValueV1,
-): LoweredCanonicalAppUniqueConstraintV1 {
-  return projectPointCommitTransactionResult(
-    lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(
-      Result.mapError(
-        (cause) =>
-          new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
-            reason: "keyInvalid",
-            cause,
-          }),
-      ),
-    ),
-  );
-}
-
-async function loadPointCommitUniqueKeyOwners(
-  tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-  plans: ReadonlyArray<PointCommitUniqueKeyPlanV1>,
-): Promise<ReadonlyMap<string, PointCommitUniqueKeyOwnerV1>> {
-  const positions = uniquePointCommitUniqueKeyOwnerPositions(plans);
-  const claims = projectPointCommitTransactionResult(
-    (
-      await runPointCommitInTransactionEffect(
-        readAppUniqueKeyOwnersInTransactionEffect(tx, {
-          scopeId: command.authorityPins.scopeId,
-          positions: positions.map((position) => {
-            const plan = plans.find(
-              (value) =>
-                value.definition.uniqueConstraintDefinitionId ===
-                position.definitionId,
-            );
-            if (!plan) throw corruption("uniqueKeyTransitionInvalid");
-            return {
-              constraintId: position.definitionId,
-              tableId: position.tableId,
-              rowId: position.rowId,
-              componentCount:
-                plan.definition.physicalSpec.orderedFields.length + 1,
-            };
-          }),
-        }),
-      )
-    ).pipe(Result.mapError(mapPointCommitUniqueKeyFailure)),
-  );
-  const owners = new Map<string, PointCommitUniqueKeyOwnerV1>();
-  for (const claim of claims) {
-    const key = uniqueKeyOwnerPosition(
-      claim.constraintId,
-      claim.tableId,
-      claim.rowId,
-    );
-    if (claim.localeKey !== "" || owners.has(key))
-      throw corruption("uniqueKeyTransitionInvalid");
-    owners.set(key, Object.freeze({ encodedKey: claim.encodedKey }));
+export const acceptPreparedApplicationRelationsEffect = Effect.fn("ApplicationDocument.acceptPreparedRelations")(function* (
+  tx: AppRowTransaction, prepared: PreparedApplicationDocumentSettlement, lastCommitSeq: bigint, options: ApplicationDocumentMaterializationOptions,
+) {
+  if (prepared.relation === undefined) return yield* Effect.die(new Error("Relation planning was not reached"));
+  if (Exit.isFailure(prepared.relation)) return yield* Effect.failCause(prepared.relation.cause);
+  const relation = prepared.relation.value;
+  if (relation !== null) {
+    yield* validatePointCommitApplicationRelationTargetsEffect(tx, prepared.command, relation.prepared, lastCommitSeq, options);
   }
-  return owners;
-}
-
-function uniquePointCommitUniqueKeyOwnerPositions(
-  plans: ReadonlyArray<PointCommitUniqueKeyPlanV1>,
-): ReadonlyArray<PointCommitUniqueKeyOwnerPositionV1> {
-  const positions = new Map<string, PointCommitUniqueKeyOwnerPositionV1>();
-  for (const plan of plans) {
-    const position = Object.freeze({
-      definitionId: plan.definition.uniqueConstraintDefinitionId,
-      tableId: plan.definition.tableId,
-      rowId: plan.rowId,
-    } satisfies PointCommitUniqueKeyOwnerPositionV1);
-    positions.set(
-      uniqueKeyOwnerPosition(
-        position.definitionId,
-        position.tableId,
-        position.rowId,
-      ),
-      position,
-    );
-  }
-  return Object.freeze(
-    [...positions.values()].toSorted(
-      (left, right) =>
-        left.definitionId - right.definitionId ||
-        left.tableId - right.tableId ||
-        left.rowId.localeCompare(right.rowId),
-    ),
-  );
-}
+  return relation;
+});
 
 function uniqueKeyAction(
   phase: PointCommitUniqueKeyActionV1["phase"],
   plan: PointCommitUniqueKeyPlanV1,
-  previous: AppUniqueKeyProjectionV1 | null,
-  next: AppUniqueKeyProjectionV1 | null,
   sortKey: OrderedIndexKeyHexV1,
 ): PointCommitUniqueKeyActionV1 {
   return Object.freeze({
     phase,
     definition: plan.definition,
     rowId: plan.rowId,
-    previous,
-    next,
     sortKey,
   });
-}
-
-function uniqueKeyOwnerPosition(
-  definitionId: CatalogUniqueConstraintDefinitionId,
-  tableId: CatalogTableId,
-  rowId: AppRowIdHexV1,
-): string {
-  return `${definitionId}:${tableId}:${rowId}`;
 }
 
 function pointCommitUniqueKeyPhaseRank(
@@ -1782,6 +1733,90 @@ export interface ApplicationDocumentPriorState {
   readonly documents: ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>;
 }
 
+function predecessorDocumentTableIds(
+  developer: readonly LockedPointCommitDeveloperIndexV1[],
+  unique: readonly LocatedAppUniqueConstraintDefinitionV1[],
+  relations: LocatedPreparedPointCommitApplicationRelations | null,
+): ReadonlySet<CatalogTableId> {
+  return new Set([
+    ...developer.map(index => index.definition.access.tableId),
+    ...unique.map(definition => definition.tableId),
+    ...(relations?.definitions.definitions.map(definition => definition.binding.sourceTableId) ?? []),
+  ]);
+}
+
+function priorDocumentHeadsResult(command: ApplicationDocumentMaterializationCommand,
+  heads: readonly LoadedPointCommitHeadV1[]): Result.Result<ReadonlyMap<AppDocumentIdV1, LoadedPointCommitHeadV1>, PointCommitCorruptionV1Error> {
+  const byId = new Map<AppDocumentIdV1, LoadedPointCommitHeadV1>();
+  if (heads.length !== command.dependencies.length) return Result.fail(corruption("priorDocumentInvalid"));
+  for (const [index, dependency] of command.dependencies.entries()) {
+    const loaded = heads[index];
+    if (loaded === undefined || byId.has(dependency.documentId)) return Result.fail(corruption("priorDocumentInvalid"));
+    byId.set(dependency.documentId, loaded);
+  }
+  return Result.succeed(byId);
+}
+
+const decodeFinitePredecessorResult = Schema.decodeUnknownResult(Schema.Struct({
+  ordinalText: Schema.String,
+  originalScopeUuid: Schema.String,
+  originalWriteEpochUuid: Schema.String,
+  originalPrevCommitSeqText: Schema.NullOr(Schema.String),
+  originalSchemaVersionId: Schema.String,
+  originalCodecVersion: Schema.Literal(1),
+  originalByteLengthText: Schema.String,
+  originalStoredSha256: Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32)),
+  originalActualSha256: Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32)),
+}));
+
+/** Called only at the existing predecessor-verification point after ordinary
+ * OCC and liveness verdicts. No finite fallback can reload missing originals. */
+export const acceptPreparedApplicationOriginalsEffect = Effect.fn("ApplicationDocument.acceptPreparedOriginals")(function* (
+  command: ApplicationDocumentMaterializationCommand,
+  fresh: FinitePointCommitHeads,
+  prepared: PreparedApplicationDocumentSettlement,
+  developer: readonly LockedPointCommitDeveloperIndexV1[],
+  unique: readonly LocatedAppUniqueConstraintDefinitionV1[],
+  relations: LocatedPreparedPointCommitApplicationRelations | null,
+): Effect.fn.Return<void, PointCommitCorruptionV1Error> {
+  if (prepared.command !== command) return yield* Effect.fail(corruption("priorDocumentInvalid"));
+  if (Exit.isFailure(prepared.originals)) return yield* Effect.failCause(prepared.originals.cause);
+  const originalRows = prepared.originalRows;
+  const headsByDocumentId = yield* Effect.fromResult(priorDocumentHeadsResult(command, fresh.heads));
+  const intentsByDocumentId = new Map(command.rowIntents.map(intent => [intent.documentId, intent]));
+  const ordinalsByDocumentId = new Map(command.dependencies.map((dependency, ordinal) => [dependency.documentId, ordinal]));
+  const originals = new Map<AppDocumentIdV1, LiveAppRowRevisionV1>();
+  for (const original of originalRows) {
+    const id = appDocumentIdV1FromRowIdentity(original);
+    const intent = intentsByDocumentId.get(id);
+    if (original.scopeId !== command.authorityPins.scopeId || original.commitSeq > command.authorityPins.snapshotToken.commitSeq ||
+      (intent !== undefined && (intent.dependency.observed.kind !== "present" || intent.dependency.observed.revisionCommitSeq !== original.commitSeq)) || originals.has(id))
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
+    originals.set(id, original);
+  }
+  const tables = predecessorDocumentTableIds(developer, unique, relations);
+  if (fresh.predecessorRows.length !== command.dependencies.length) return yield* Effect.fail(corruption("priorDocumentInvalid"));
+  for (const intent of command.rowIntents) {
+    const loaded = headsByDocumentId.get(intent.documentId);
+    if (loaded === undefined) return yield* Effect.fail(corruption("priorDocumentInvalid"));
+    if (intent.dependency.observed.kind === "present" && !originals.has(intent.documentId))
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
+    if (!tables.has(intent.tableId) || loaded.head.kind !== "live") continue;
+    const original = originals.get(intent.documentId);
+    if (original === undefined || loaded.head.revisionCommitSeq !== original.commitSeq || loaded.creationTime !== original.creationTime)
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
+    const ordinal = ordinalsByDocumentId.get(intent.documentId);
+    if (ordinal === undefined) return yield* Effect.fail(corruption("priorDocumentInvalid"));
+    const raw = yield* Effect.fromResult(decodeFinitePredecessorResult(fresh.predecessorRows[ordinal])
+      .pipe(Result.mapError(() => corruption("priorDocumentInvalid"))));
+    if (raw.ordinalText !== String(ordinal) || raw.originalScopeUuid !== original.scopeUuid ||
+      raw.originalWriteEpochUuid !== original.writeEpochUuid || raw.originalSchemaVersionId !== original.schemaVersionId ||
+      raw.originalPrevCommitSeqText !== (original.prevCommitSeq === null ? null : String(original.prevCommitSeq)) ||
+      raw.originalCodecVersion !== original.document.codecVersion || raw.originalByteLengthText !== String(original.document.canonicalBytes.byteLength) ||
+      !bytesEqual(raw.originalStoredSha256, original.document.sha256) || !bytesEqual(raw.originalActualSha256, original.document.sha256))
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
+  }
+});
 /** Exact predecessor evidence for one command in its protected transaction. */
 export const loadApplicationDocumentPriorState = Effect.fn("ApplicationDocument.loadPriorState")(function* (
   tx: AppRowTransaction,
@@ -1792,21 +1827,8 @@ export const loadApplicationDocumentPriorState = Effect.fn("ApplicationDocument.
   relations: LocatedPreparedPointCommitApplicationRelations | null,
   options: ApplicationDocumentMaterializationOptions,
 ): Effect.fn.Return<ApplicationDocumentPriorState, PointCommitCorruptionV1Error | PointCommitSqlFailureMarkerV1> {
-  const headsByDocumentId = new Map<AppDocumentIdV1, LoadedPointCommitHeadV1>();
-  if (loadedHeads.length !== command.dependencies.length) return yield* Effect.fail(corruption("priorDocumentInvalid"));
-  for (let index = 0; index < command.dependencies.length; index++) {
-    const dependency = command.dependencies[index];
-    const loaded = loadedHeads[index];
-    if (dependency === undefined || loaded === undefined || headsByDocumentId.has(dependency.documentId)) {
-      return yield* Effect.fail(corruption("priorDocumentInvalid"));
-    }
-    headsByDocumentId.set(dependency.documentId, loaded);
-  }
-  const tableIds = new Set([
-    ...developer.map(index => index.definition.access.tableId),
-    ...unique.map(definition => definition.tableId),
-    ...(relations?.definitions.definitions.map(definition => definition.binding.sourceTableId) ?? []),
-  ]);
+  const headsByDocumentId = yield* Effect.fromResult(priorDocumentHeadsResult(command, loadedHeads));
+  const tableIds = predecessorDocumentTableIds(developer, unique, relations);
   const documents = yield* loadPointCommitDocumentsForTables(tx, command, headsByDocumentId, tableIds, options);
   return Object.freeze({ headsByDocumentId, documents });
 });
@@ -1933,102 +1955,6 @@ const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPri
   return documents;
 });
 
-function lowerDeveloperIndexKey(
-  definition: LocatedAppIndexDefinitionV1,
-  document: CanonicalFlarexValueV1,
-  creationTime: AppCreationTimeV1,
-): OrderedIndexKeyHexV1 | null {
-  return projectPointCommitTransactionResult(
-    lowerAppDeveloperIndexKeyV1(definition, document, creationTime).pipe(
-      Result.mapError(
-        (cause) =>
-          new PointCommitDeveloperIndexMaintenanceUnavailableV1Error(cause instanceof ExactDecimalError ? { reason: "entryValueInvalid" } : {
-            reason: "entryKeyLimitExceeded",
-            observed: cause.observedBytes,
-            maximum: cause.maximumBytes,
-          }),
-      ),
-    ),
-  );
-}
-
-function uniqueDeveloperIndexPositions(
-  plans: ReadonlyArray<PointCommitDeveloperIndexRowPlanV1>,
-): ReadonlyArray<PointCommitDeveloperIndexPositionV1> {
-  const positions = new Map<string, PointCommitDeveloperIndexPositionV1>();
-  for (const plan of plans) {
-    for (const encodedKey of [plan.priorKey, plan.finalKey]) {
-      if (encodedKey === null) continue;
-      const key = developerIndexPositionKey(
-        plan.definition.indexDefinitionId,
-        encodedKey,
-        plan.rowId,
-      );
-      positions.set(
-        key,
-        Object.freeze({
-          definitionId: plan.definition.indexDefinitionId,
-          definition: plan.definition,
-          encodedKey,
-          rowId: plan.rowId,
-        }),
-      );
-    }
-  }
-  return Object.freeze(
-    [...positions.values()].toSorted(
-      (left, right) =>
-        left.definitionId - right.definitionId ||
-        left.encodedKey.localeCompare(right.encodedKey) ||
-        left.rowId.localeCompare(right.rowId),
-    ),
-  );
-}
-
-async function loadPointCommitDeveloperIndexEntryHeads(
-  tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-  positions: ReadonlyArray<PointCommitDeveloperIndexPositionV1>,
-): Promise<Readonly<{ heads: ReadonlyMap<string, PointCommitDeveloperIndexEntryHeadV1>; evidence: AppIndexMembershipHeadEvidence }>> {
-  const entries = projectPointCommitTransactionResult(
-    await runPointCommitInTransactionEffect(
-      readAppIndexMembershipHeadsInTransactionEffect(tx, {
-        scopeId: command.authorityPins.scopeId,
-        positions,
-      }).pipe(Effect.mapError(failure => failure instanceof AppIndexEntryReadPersistenceError
-        ? new PointCommitSqlFailureMarkerV1("loadDeveloperIndexEntryHeads", failure.cause)
-        : failure)),
-    ),
-  );
-  const heads = new Map<string, PointCommitDeveloperIndexEntryHeadV1>();
-  for (let index = 0; index < positions.length; index += 1) {
-    const position = positions[index];
-    if (position === undefined)
-      throw corruption("developerIndexTransitionInvalid");
-    const head = entries.heads[index];
-    heads.set(
-      developerIndexPositionKey(
-        position.definitionId,
-        position.encodedKey,
-        position.rowId,
-      ),
-      Object.freeze({
-        commitSeq: head?.commitSeq ?? null,
-        isTombstone: head?.isTombstone ?? null,
-      }),
-    );
-  }
-  return { heads, evidence: entries.evidence };
-}
-
-function developerIndexPositionKey(
-  definitionId: CatalogIndexDefinitionId,
-  encodedKey: OrderedIndexKeyHexV1,
-  rowId: OrderedIndexRowIdHexV1,
-): string {
-  return `${definitionId}:${encodedKey}:${rowId}`;
-}
-
 function compareDeveloperIndexEntryActions(
   left: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">,
   right: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">,
@@ -2047,39 +1973,31 @@ async function writePointCommitUniqueKeyActions(
   writeEpoch: ScopeEpoch,
   actions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
   options: ApplicationDocumentMaterializationOptions,
+  canonicalPairs: readonly PointCommitUniqueKeyPlanV1[],
 ): Promise<void> {
-  if (actions.length === 0) return;
-  await emitTransactionStep(options, command, "uniqueKeyBatchWriting");
+  if (canonicalPairs.length === 0) return;
+  if (actions.length > 0) await emitTransactionStep(options, command, "uniqueKeyBatchWriting");
   for (const phase of ["release", "claim"] as const) {
-    const selected = actions.filter((action) => action.phase === phase);
-    const inputs = selected.map(
-      (action) =>
-        ({
-          scopeId: command.authorityPins.scopeId,
-          constraintId: action.definition.uniqueConstraintDefinitionId,
-          tableId: action.definition.tableId,
-          rowId: action.rowId,
-          writeEpoch,
-          previous: action.previous,
-          next: action.next,
-        }) satisfies ApplyAppUniqueKeyMutationV1Input,
-    );
-    const settled = await runPointCommitInTransactionEffect(
-      observePointCommitPublicationEffect(options.publicationObservation, "uniqueWrites", applyAppUniqueKeyMutationsInTransactionEffect(tx, inputs, undefined, options.publicationObservation)),
-    );
-    projectPointCommitTransactionResult(
-      settled.pipe(Result.mapError(mapPointCommitUniqueKeyFailure)),
-    );
-    for (let index = 0; index < selected.length; index += 1) {
-      await emitTransactionStep(options, command, "uniqueKeyWritten");
-    }
+    const selected = actions.filter(action => action.phase === phase);
+    const phasePairs = uniqueCanonicalTransitions(canonicalPairs)
+      .filter(pair => phase === "claim" || (pair.previous?.kind === "claim" &&
+        (pair.next?.kind !== "claim" || pair.previous.encodedKey !== pair.next.encodedKey)))
+      .map(pair => phase === "release" ? { ...pair, next: null }
+        : pair.previous?.kind === "claim" && pair.next?.kind === "claim" && pair.previous.encodedKey === pair.next.encodedKey
+          ? pair : { ...pair, previous: null });
+    const application = prepareAppUniqueCanonicalMutationApplicationEffect(tx, command.authorityPins.scopeId, writeEpoch, phasePairs)
+        .pipe(Effect.flatMap(prepared => applyPreparedAppUniqueMutationApplicationEffect(tx, prepared, options.publicationObservation)));
+    const settled = await runPointCommitInTransactionEffect(observePointCommitPublicationEffect(
+      options.publicationObservation, "uniqueWrites", application));
+    projectPointCommitTransactionResult(settled.pipe(Result.mapError(mapPointCommitUniqueKeyFailure)));
+    for (let ordinal = 0; ordinal < selected.length; ordinal++) await emitTransactionStep(options, command, "uniqueKeyWritten");
   }
-  await emitTransactionStep(options, command, "uniqueKeyBatchWritten");
+  if (actions.length > 0) await emitTransactionStep(options, command, "uniqueKeyBatchWritten");
 }
 
 function mapPointCommitUniqueKeyFailure(
   failure: Effect.Error<
-    ReturnType<typeof applyAppUniqueKeyMutationsInTransactionEffect>
+    ReturnType<typeof prepareAppUniqueCanonicalMutationApplicationEffect> | ReturnType<typeof applyPreparedAppUniqueMutationApplicationEffect>
   >,
 ) {
   if (
@@ -2131,35 +2049,42 @@ export const runCandidateSchemaWriteGuard = Effect.fn(
     ),
 );
 
+function developerIndexValidationInvalid(): PointCommitCorruptionV1Error {
+  return corruption("developerIndexBuildInvalid");
+}
+
 export async function resetPointCommitDeveloperIndexValidations(
   tx: AppRowTransaction, builds: readonly IndexBuildStateRecord[],
   publicationObservation?: PointCommitPublicationObservation,
 ): Promise<void> {
-  await resetPointCommitIndexValidations(tx, builds, "developer", publicationObservation);
-}
-
-async function resetPointCommitIndexValidations(
-  tx: AppRowTransaction, builds: readonly IndexBuildStateRecord[], family: "intrinsic" | "developer",
-  publicationObservation?: PointCommitPublicationObservation,
-): Promise<void> {
   const selected = builds.filter(build => build.lifecycle === "validating");
-  for (let offset = 0; offset < selected.length; offset += 32) {
-    const batch = selected.slice(offset, offset + 32);
-    const updated = await sqlCall(family === "intrinsic" ? "resetIntrinsicIndexValidation" : "resetDeveloperIndexValidation", () =>
-      tx.update(fxSystemIndexBuildStates).set({ backfillCursorRowId: null, updatedAt: sql`clock_timestamp()` })
-        .where(or(...batch.map(build => and(
-          eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-          eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
-          eq(fxSystemIndexBuildStates.storageGenerationFence, build.storageGenerationFence),
-          eq(fxSystemIndexBuildStates.epoch, build.epoch),
-          eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
-          eq(fxSystemIndexBuildStates.lifecycle, "validating"),
-        )))).returning({ scopeId: fxSystemIndexBuildStates.scopeId, indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId }));
-    if (updated.length !== batch.length || batch.some(build => updated.filter(row =>
-      row.scopeId === build.scopeId && row.indexDefinitionId === build.indexDefinitionId).length !== 1))
-      throw corruption(family === "intrinsic" ? "intrinsicIndexBuildInvalid" : "developerIndexBuildInvalid");
-    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "indexValidation", counts: { rows: batch.length } });
-  }
+  if (selected.length === 0) return;
+  const operation = "resetDeveloperIndexValidation";
+  const effect = Effect.gen(function* () {
+    const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx)
+      .pipe(Result.mapError(cause => pointCommitSqlCallFailure(operation, cause))));
+    const statement = sql`select reason, rows from ${sql.identifier(schemaName)}.fx_reset_app_index_validation(
+      ${applicationIndexCoverageArray(selected, schemaName)})`;
+    const result = yield* Effect.uninterruptible(Effect.tryPromise({
+      try: () => tx.execute(statement),
+      catch: cause => {
+        const detail = applicationDomainFailureDetail(cause, "fx_reset_app_index_validation");
+        if (detail === null) return pointCommitSqlCallFailure(operation, cause);
+        return Result.match(decodeIndexValidationRefusal(detail), {
+          onFailure: () => pointCommitSqlCallFailure(operation, cause),
+          onSuccess: refusal => Number.isSafeInteger(refusal.ordinal) && refusal.ordinal >= 0 && refusal.ordinal < selected.length
+            ? developerIndexValidationInvalid() : pointCommitSqlCallFailure(operation, cause),
+        });
+      },
+    }));
+    const rows = rowsFromDriverExecuteResult(result, () => { throw developerIndexValidationInvalid(); });
+    if (rows.length !== 1) return yield* Effect.fail(developerIndexValidationInvalid());
+    const proof = yield* Effect.fromResult(decodeIndexValidationSuccess(rows[0]).pipe(Result.mapError(developerIndexValidationInvalid)));
+    if (proof.rows !== selected.length) return yield* Effect.fail(developerIndexValidationInvalid());
+    if (publicationObservation?.detail) for (let offset = 0; offset < selected.length; offset += 32)
+      publicationObservation.record({ kind: "batch", owner: "indexValidation", counts: { rows: Math.min(32, selected.length - offset) } });
+  });
+  projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(effect));
 }
 
 export async function lockPointCommitIntrinsicIndexBuilds(
@@ -2178,10 +2103,11 @@ export async function lockPointCommitIntrinsicIndexBuilds(
     // former definition order rather than introducing a new build-ID order.
     const order = sql<number>`case ${fxSystemIndexBuildStates.indexDefinitionId} ${sql.join(batch.map((definition, ordinal) =>
       sql`when ${definition.indexDefinitionId} then ${ordinal}`), sql` `)} end`;
-    const rows = await sqlCall("lockIntrinsicIndexBuild", () => tx.select().from(fxSystemIndexBuildStates)
+    const rows = await sqlCall("lockIntrinsicIndexBuild", () => tx.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
       .where(and(eq(fxSystemIndexBuildStates.scopeId, command.authorityPins.scopeId),
         inArray(fxSystemIndexBuildStates.indexDefinitionId, batch.map(definition => definition.indexDefinitionId))))
-      .orderBy(order).for("share"));
+      .orderBy(order).for("share", { of: fxSystemIndexBuildStates }));
     for (const definition of batch) {
       const row = rows.find(member => member.indexDefinitionId === definition.indexDefinitionId);
 
@@ -2190,7 +2116,7 @@ export async function lockPointCommitIntrinsicIndexBuilds(
       decodeIndexBuildStateRowResult(
         row,
         command.authorityPins.scopeId,
-        definition.indexDefinitionId,
+        definition.indexDefinitionId, row.maintenanceObligation,
       ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
     );
     if (
@@ -2220,26 +2146,27 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
   scopeId: ReplacementScopeIdV1,
   rows: readonly AppendPreparedAppRowRevisionV1Input[],
   builds: readonly LockedPointCommitIntrinsicIndexV1[],
+  prepared?: PreparedApplicationDocumentSettlement["intrinsic"],
 ) {
+  if (prepared !== undefined && Exit.isFailure(prepared)) return yield* Effect.failCause(prepared.cause);
+  const preparedKeys = prepared === undefined || Exit.isFailure(prepared) ? undefined
+    : new Map(prepared.value.map(key => [`${key.definition.indexDefinitionId}/${key.rowId}`, key]));
   const positions: (AppIndexEntryPositionV1 & {
     readonly encodedKey: OrderedIndexKeyHexV1;
     readonly row: AppendPreparedAppRowRevisionV1Input;
     readonly build: IndexBuildStateRecord;
   })[] = [];
-  let buildIndex = 0;
+  const buildsByTable = new Map<CatalogTableId, LockedPointCommitIntrinsicIndexV1>();
+  for (const intrinsic of builds) {
+    const { definition, build } = intrinsic;
+    if (definition.access.kind !== "by_creation_time" || build.indexDefinitionId !== definition.indexDefinitionId ||
+      build.scopeId !== scopeId || buildsByTable.has(definition.access.tableId))
+      return yield* Effect.fail(corruption("intrinsicIndexBuildInvalid"));
+    buildsByTable.set(definition.access.tableId, intrinsic);
+  }
   for (const row of rows) {
-    let intrinsic = builds[buildIndex];
-    while (
-      intrinsic !== undefined &&
-      intrinsic.definition.access.tableId < row.tableId
-    ) {
-      intrinsic = builds[++buildIndex];
-    }
-    if (
-      intrinsic === undefined ||
-      intrinsic.definition.access.tableId !== row.tableId
-    )
-      continue;
+    const intrinsic = buildsByTable.get(row.tableId);
+    if (intrinsic === undefined) continue;
     const { definition, build } = intrinsic;
     if (
       definition.access.kind !== "by_creation_time" ||
@@ -2248,10 +2175,6 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
     ) {
       return yield* Effect.fail(corruption("intrinsicIndexBuildInvalid"));
     }
-    const encodedKey = encodeAppOrderedIndexKeyV1({
-      spec: definition.physicalSpec,
-      values: [orderedIndexCreationTimeV1(row.creationTime)],
-    });
     const rowId = yield* Effect.fromResult(
       orderedIndexRowIdHexV1FromBytesResult(
         appRowIdHexV1ToBytes(row.rowId),
@@ -2259,79 +2182,29 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
         Result.mapError(() => corruption("intrinsicIndexTransitionInvalid")),
       ),
     );
+    const frozen = preparedKeys?.get(`${definition.indexDefinitionId}/${rowId}`);
+    if (preparedKeys !== undefined && (frozen === undefined || frozen.definition !== definition ||
+      frozen.creationTime !== row.creationTime))
+      return yield* Effect.fail(corruption("intrinsicIndexTransitionInvalid"));
+    const encodedKey = frozen?.encodedKey ?? encodeAppOrderedIndexKeyV1({
+      spec: definition.physicalSpec, values: [orderedIndexCreationTimeV1(row.creationTime)],
+    });
     positions.push({ row, build, definition, encodedKey, rowId });
   }
-  const selection = yield* readAppIndexMembershipHeadsInTransactionEffect(tx, {
-    scopeId,
-    positions,
-  }).pipe(
-    Effect.mapError((failure) =>
-      failure instanceof AppIndexEntryReadPersistenceError
-        ? new PointCommitSqlFailureMarkerV1(
-            "loadIntrinsicIndexEntryHeads",
-            failure.cause,
-          )
-        : failure,
-    ),
-  );
-  const heads = selection.heads;
-  const actions = new Map<
-    AppendPreparedAppRowRevisionV1Input,
-    AppendAppIndexEntryRevisionV1Input
-  >();
-  for (let index = 0; index < positions.length; index += 1) {
-    const position = positions[index];
-    const head = heads[index];
-    if (position === undefined || head === undefined)
-      return yield* Effect.fail(corruption("intrinsicIndexTransitionInvalid"));
-    const { row, build, definition, encodedKey, rowId } = position;
-    if (row.kind === "tombstone") {
-      if (head === null) {
-        if (build.lifecycle === "enabled")
-          return yield* Effect.fail(
-            corruption("intrinsicIndexTransitionInvalid"),
-          );
-        continue;
-      }
-      if (
-        head.isTombstone ||
-        row.prevCommitSeq === null ||
-        head.commitSeq > row.prevCommitSeq
-      )
-        return yield* Effect.fail(
-          corruption("intrinsicIndexTransitionInvalid"),
-        );
-    } else {
-      if (
-        head === null &&
-        row.prevCommitSeq !== null &&
-        build.lifecycle === "enabled"
-      )
-        return yield* Effect.fail(
-          corruption("intrinsicIndexTransitionInvalid"),
-        );
-      if (head !== null) {
-        if (
-          head.isTombstone ||
-          row.prevCommitSeq === null ||
-          head.commitSeq > row.prevCommitSeq
-        )
-          return yield* Effect.fail(
-            corruption("intrinsicIndexTransitionInvalid"),
-          );
-        continue;
-      }
-    }
-    actions.set(row, {
-      membershipHeadEvidence: selection.evidence,
-      kind: row.kind,
-      scopeId: row.scopeId,
-      definition,
-      encodedKey,
-      rowId,
-      writeEpoch: row.writeEpoch,
-      commitSeq: row.commitSeq,
-    });
+  const actions = new Map<AppendPreparedAppRowRevisionV1Input, AppendAppIndexEntryRevisionV1Input>();
+  if (positions.length === 0) return actions;
+  const selected = yield* acceptAppIndexKeyTransitionsInTransactionEffect(tx, { scopeId, maximumActions: rows.length,
+    pairs: positions.map(position => ({ definition: position.definition, build: position.build, rowId: position.rowId,
+      priorCommitSeq: position.row.prevCommitSeq, priorKey: position.row.kind === "tombstone" || position.row.prevCommitSeq !== null ? position.encodedKey : null,
+      finalKey: position.row.kind === "live" ? position.encodedKey : null })) }).pipe(Effect.mapError(failure =>
+        failure instanceof AppIndexEntryReadPersistenceError ? new PointCommitSqlFailureMarkerV1("loadIntrinsicIndexEntryHeads", failure.cause)
+          : failure instanceof AppIndexTransitionAcceptanceError ? corruption(failure.reason === "buildInvalid" ? "intrinsicIndexBuildInvalid" : "intrinsicIndexTransitionInvalid")
+            : failure));
+  const rowsByPosition = new Map(positions.map(position => [`${position.definition.indexDefinitionId}/${position.rowId}`, position.row]));
+  for (const action of selected) {
+    const row = rowsByPosition.get(`${action.definition.indexDefinitionId}/${action.rowId}`);
+    if (row === undefined) return yield* Effect.fail(corruption("intrinsicIndexTransitionInvalid"));
+    actions.set(row, { ...action, scopeId: row.scopeId, writeEpoch: row.writeEpoch, commitSeq: row.commitSeq });
   }
   return actions;
 });

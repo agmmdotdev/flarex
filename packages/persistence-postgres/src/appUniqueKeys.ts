@@ -46,12 +46,17 @@ import {
   type AppUniqueConstraintIdV1,
   type AppUniqueKeyProjectionV1,
   type CanonicalAppUniqueKeyClaimV1,
+  type CanonicalAppUniqueKeyV1,
   type InvalidAppUniqueKeyContractV1Error,
 } from "./appUniqueKeyContract";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { decodeCapturedPublishedCurrentAppRowEffect, projectBoundedCurrentAppRowPoint,
   type AppRowRevisionV1, type CurrentAppRowReadLimits, type ReadAppRowError } from "./appRows";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
+import { requireAdmittedTargetInstallationSchema } from "./installationLifecycle";
+import { applicationDomainFailureDetail, buildAppUniqueBatchStatement, buildAppUniqueMutationStatement, buildAppUniqueOwnerAcceptanceStatement,
+  type AppUniqueAbsentOwner } from "./applicationDocumentMaterialization/domainApplication";
+import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
   fxAppRowRevisions,
   fxAppRowCurrent,
@@ -124,6 +129,7 @@ export type ValidateAppUniqueKeyClaimV1Result = Readonly<
 >;
 
 export type InvalidAppUniqueKeyMutationV1Issue =
+  | "rowCountExceeded"
   | "invalidScopeId"
   | "invalidConstraintId"
   | "invalidTableId"
@@ -388,6 +394,7 @@ const decodeOwnerPositionsResult =
 type StoredClaimRow = typeof fxAppUniqueKeys.$inferSelect;
 
 const MATCHED_VALIDATION = Object.freeze({ status: "matched" as const });
+const MAX_APP_UNIQUE_WRITE_MUTATIONS = 512;
 
 const decodeScopeIdResult = Schema.decodeUnknownResult(
   Schema.toType(ScopeIdSchema),
@@ -406,14 +413,14 @@ const decodeRowIdResult = Schema.decodeUnknownResult(
 );
 
 /** Transaction-only set application. Failures must escape to the settlement owner. */
-export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn(
-  "AppUniqueKeys.applyMutationsInTransaction",
+export const prepareAppUniqueMutationApplicationEffect = Effect.fn(
+  "AppUniqueKeys.prepareMutationApplication",
 )(function* (
   tx: AppUniqueKeyTransaction,
   inputs: readonly ApplyAppUniqueKeyMutationV1Input[],
   sha256: AppUniqueKeySha256V1 = liveSha256,
-  publicationObservation?: PointCommitPublicationObservation,
 ) {
+  if (inputs.length > MAX_APP_UNIQUE_WRITE_MUTATIONS) return yield* Effect.fail(invalid("rowCountExceeded"));
   const captured: CapturedMutationV1[] = [];
   const owners = new Set<string>();
   for (const input of inputs) {
@@ -431,7 +438,7 @@ export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn(
     captured.push(value);
   }
   const first = captured[0];
-  if (first === undefined) return [];
+  if (first === undefined) return prepareUniqueApplication([]);
   const scopeUuid = yield* requireScopeAuthorityEffect(
     tx,
     first.scopeId,
@@ -451,216 +458,308 @@ export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn(
         value.next === null ? null : yield* hashClaimEffect(value.next, sha256),
     });
   }
-  const storedOwners = new Map<string, StoredClaimRow>();
-  const storedSlots = new Map<string, StoredClaimRow>();
-  for (let offset = 0; offset < mutations.length; offset += 32) {
-    const batch = mutations.slice(offset, offset + 32);
-    yield* requireLiveParentsEffect(tx, batch);
-    const rows = yield* persistenceEffect(
-      tx
-        .select()
-        .from(fxAppUniqueKeys)
-        .where(
-          and(
-            eq(fxAppUniqueKeys.scopeUuid, scopeUuid),
-            or(
-              ...batch.map((mutation) =>
-                and(
-                  eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-                  or(
-                    and(
-                      eq(fxAppUniqueKeys.localeKey, mutation.localeKey),
-                      eq(fxAppUniqueKeys.tableId, mutation.tableId),
-                      eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
-                    ),
-                    ...[mutation.previous, mutation.next].flatMap((claim) =>
-                      claim === null
-                        ? []
-                        : [
-                            and(
-                              eq(fxAppUniqueKeys.localeKey, claim.localeKey),
-                              eq(
-                                fxAppUniqueKeys.canonicalKeySha256,
-                                claim.canonicalKeySha256,
-                              ),
-                            ),
-                          ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        )
-        .for("update"),
-    );
-    const seen = new Set<string>();
-    for (const raw of rows) {
-      const row = yield* Effect.fromResult(
-        storedField(decodeStoredClaimRowResult(raw)),
-      );
-      const slot = storedSlotKey(row);
-      const owner = storedOwnerKey(row);
-      if (
-        row.scopeUuid !== scopeUuid ||
-        seen.has(slot) ||
-        !batch.some(
-          (mutation) =>
-            mutationOwnerKey(mutation) === owner ||
-            [mutation.previous, mutation.next].some(
-              (claim) =>
-                claim !== null &&
-                claimSlotKey(mutation.constraintId, claim) === slot,
-            ),
-        )
-      )
-        return yield* Effect.fail(
-          corruption("unexpected or repeated ownership evidence"),
-        );
-      seen.add(slot);
-      const prior = storedOwners.get(owner);
-      if (prior !== undefined && !sameStoredIdentity(prior, row))
-        return yield* Effect.fail(
-          corruption("one owner has multiple current claims"),
-        );
-      const priorSlot = storedSlots.get(slot);
-      if (priorSlot !== undefined && !sameClaimRow(priorSlot, row))
-        return yield* Effect.fail(
-          corruption("inconsistent repeated ownership evidence"),
-        );
-      storedOwners.set(owner, row);
-      storedSlots.set(slot, row);
-    }
+  return prepareUniqueApplication(mutations);
+});
+
+export interface PreparedAppUniqueMutationApplication {
+  readonly mutations: readonly DecodedMutationV1[];
+  readonly owners: readonly AppUniqueAbsentOwner[];
+  readonly previous: readonly (StoredClaimRow | null)[];
+  readonly next: readonly (StoredClaimRow | null)[];
+  readonly releases: readonly StoredClaimRow[];
+  readonly claims: readonly StoredClaimRow[];
+  readonly retainedClaims: readonly StoredClaimRow[];
+  readonly absentOwners: readonly AppUniqueAbsentOwner[];
+  readonly results: readonly ApplyAppUniqueKeyMutationV1Result[];
+}
+
+/** These canonical keys originate at the selected immutable definition owner;
+ * allocation of the transaction's write epoch remains a separate operation. */
+export interface AppUniqueCanonicalTransition {
+  readonly constraintId: AppUniqueConstraintIdV1; readonly tableId: CatalogTableId; readonly rowId: AppRowIdHexV1;
+  readonly localeKey: string;
+  readonly previous: CanonicalAppUniqueKeyV1 | null; readonly next: CanonicalAppUniqueKeyV1 | null;
+  readonly rowPrevCommitSeq: CommitSeq | null;
+}
+const decodeUniqueOwnerAcceptance = Schema.decodeUnknownResult(Schema.Struct({ reason: Schema.Literal("accepted"), owners: Schema.Number }), { onExcessProperty: "error" });
+const decodeUniqueApplicationDriverRows = Schema.decodeUnknownResult(Schema.Struct({ rows: Schema.Array(Schema.Unknown) }));
+const decodeUniqueOwnerRefusal = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
+  reason: Schema.Literals(["invalidBatch", "storedCorruption", "previousMismatch"]), ordinal: Schema.Number,
+})), { onExcessProperty: "error" });
+
+export const acceptAppUniqueOriginalOwnersInTransactionEffect = Effect.fn("AppUniqueKeys.acceptOriginalOwners")(function* (
+  tx: AppUniqueKeyTransaction, scopeId: ScopeId, writeEpoch: ScopeEpoch, pairs: readonly AppUniqueCanonicalTransition[],
+) {
+  if (pairs.length === 0) return;
+  const projection = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId).pipe(Result.mapError(cause => invalid("invalidScopeId", cause))));
+  const scopeUuid = yield* requireScopeAuthorityEffect(tx, scopeId, projection.scopeUuid, writeEpoch);
+  const owners: AppUniqueAbsentOwner[] = pairs.map((pair, ordinal) => ({ scopeUuid, constraintId: pair.constraintId,
+    localeKey: pair.localeKey, tableId: pair.tableId, rowId: appRowIdHexV1ToBytes(pair.rowId), ordinal }));
+  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
+  const statement = buildAppUniqueOwnerAcceptanceStatement(owners, pairs.map(pair => pair.previous?.kind === "claim" ? pair.previous.canonicalKeyBytes : null),
+    pairs.map(pair => pair.rowPrevCommitSeq), schemaName);
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => tx.execute(statement), catch: cause => {
+    const detail = applicationDomainFailureDetail(cause, "fx_accept_app_unique_owners");
+    if (detail === null) return new AppUniqueKeyPersistenceError(cause);
+    return Result.match(decodeUniqueOwnerRefusal(detail), { onFailure: () => new AppUniqueKeyPersistenceError(cause), onSuccess: proof =>
+      Number.isSafeInteger(proof.ordinal) && proof.ordinal >= 0 && proof.ordinal < pairs.length
+        ? new AppUniqueKeyStorageCorruptionError("original unique owner differs", { cause }) : new AppUniqueKeyPersistenceError(cause) });
+  } }));
+  const { rows } = yield* Effect.fromResult(decodeUniqueApplicationDriverRows(result)
+    .pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
+  if (rows.length !== 1) return yield* Effect.fail(new AppUniqueKeyPersistenceError(result));
+  const proof = yield* Effect.fromResult(decodeUniqueOwnerAcceptance(rows[0]).pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
+  if (proof.owners !== pairs.length) return yield* Effect.fail(new AppUniqueKeyPersistenceError(proof));
+});
+
+export const prepareAppUniqueCanonicalMutationApplicationEffect = Effect.fn("AppUniqueKeys.bindCanonicalMutationApplication")(function* (
+  tx: AppUniqueKeyTransaction, scopeId: ScopeId, writeEpoch: ScopeEpoch, pairs: readonly AppUniqueCanonicalTransition[],
+  sha256: AppUniqueKeySha256V1 = liveSha256,
+) {
+  if (pairs.length > MAX_APP_UNIQUE_WRITE_MUTATIONS) return yield* Effect.fail(invalid("rowCountExceeded"));
+  if (pairs.length === 0) return prepareUniqueApplication([]);
+  const projection = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId).pipe(Result.mapError(cause => invalid("invalidScopeId", cause))));
+  const scopeUuid = yield* requireScopeAuthorityEffect(tx, scopeId, projection.scopeUuid, writeEpoch);
+  const owners = new Set<string>(); const mutations: DecodedMutationV1[] = [];
+  for (const pair of pairs) {
+    const constraintId = yield* Effect.fromResult(decodeAppUniqueConstraintIdV1Result(pair.constraintId).pipe(Result.mapError(cause => invalid("invalidConstraintId", cause))));
+    const tableId = yield* Effect.fromResult(decodeTableIdResult(pair.tableId).pipe(Result.mapError(cause => invalid("invalidTableId", cause))));
+    const rowId = yield* Effect.fromResult(decodeRowIdResult(pair.rowId).pipe(Result.mapError(cause => invalid("invalidRowId", cause))));
+    const previous = pair.previous?.kind === "claim" ? pair.previous : null;
+    const next = pair.next?.kind === "claim" ? pair.next : null;
+    if ((pair.previous !== null && pair.previous.localeKey !== pair.localeKey) ||
+      (pair.next !== null && pair.next.localeKey !== pair.localeKey)) return yield* Effect.fail(invalid("invalidTransition"));
+    const localeKey = pair.localeKey;
+    const hashedPrevious = previous === null ? null : yield* hashClaimEffect(previous, sha256);
+    const hashedNext = next === null ? null : previous !== null && next.encodedKey === previous.encodedKey
+      ? hashedPrevious : yield* hashClaimEffect(next, sha256);
+    const mutation = { scopeId, expectedScopeUuid: projection.scopeUuid, scopeUuid, constraintId, tableId, rowId,
+      rowIdBytes: appRowIdHexV1ToBytes(rowId), writeEpoch, localeKey,
+      previous: hashedPrevious, next: hashedNext };
+    const key = mutationOwnerKey(mutation);
+    if (owners.has(key)) return yield* Effect.fail(invalid("invalidBatch"));
+    owners.add(key); mutations.push(mutation);
   }
-  const releases: StoredClaimRow[] = [];
-  const claims: StoredClaimRow[] = [];
-  const destinations = new Map<string, StoredClaimRow>();
+  return prepareUniqueApplication(mutations);
+});
+
+function storedMutationClaim(mutation: DecodedMutationV1, claim: HashedClaimV1 | null): StoredClaimRow | null {
+  return claim === null ? null : {
+    scopeUuid: mutation.scopeUuid, constraintId: mutation.constraintId, localeKey: claim.localeKey,
+    canonicalKeySha256: claim.canonicalKeySha256, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+    encodedKey: claim.canonicalKeyBytes, tableId: mutation.tableId, rowId: mutation.rowIdBytes,
+  };
+}
+
+function isUniqueMutationProofPage(offset: number, count: number, size: number): boolean {
+  return Number.isSafeInteger(offset) && offset >= 0 && offset % 32 === 0 && Number.isSafeInteger(count) &&
+    count > 0 && count <= 32 && count === Math.min(32, size - offset);
+}
+
+function prepareUniqueApplication(mutations: readonly DecodedMutationV1[]): PreparedAppUniqueMutationApplication {
+  const owners = mutations.map((mutation, ordinal) => ({ scopeUuid: mutation.scopeUuid, constraintId: mutation.constraintId,
+    localeKey: mutation.localeKey, tableId: mutation.tableId, rowId: mutation.rowIdBytes, ordinal }));
+  const previous = mutations.map(mutation => storedMutationClaim(mutation, mutation.previous));
+  const next = mutations.map(mutation => storedMutationClaim(mutation, mutation.next));
+  const releases: StoredClaimRow[] = []; const claims: StoredClaimRow[] = [];
+  const retainedClaims: StoredClaimRow[] = []; const absentOwners: AppUniqueAbsentOwner[] = [];
   const results: ApplyAppUniqueKeyMutationV1Result[] = [];
-  for (const mutation of mutations) {
-    const { previous, next } = mutation;
-    if (next !== null) {
-      const slot = claimSlotKey(mutation.constraintId, next);
-      const occupied = storedSlots.get(slot) ?? destinations.get(slot);
-      if (occupied !== undefined) {
-        yield* Effect.fromResult(
-          compareStoredKeyResult(occupied, next, mutation.constraintId),
-        );
-        const decoded = yield* Effect.fromResult(
-          decodeStoredClaimResult(mutation.scopeId, occupied, next),
-        );
-        if (!isPreviousOwner(decoded, mutation))
-          return yield* Effect.fail(
-            new AppUniqueKeyConflictError(
-              mutation.constraintId,
-              next.localeKey,
-              decoded.tableId,
-              decoded.rowId,
-            ),
-          );
+  for (const [ordinal, mutation] of mutations.entries()) {
+    const previousRow = previous[ordinal]; const nextRow = next[ordinal];
+    if (mutation.previous !== null && mutation.next !== null && sameClaimSlot(mutation.previous, mutation.next)) {
+      if (previousRow !== undefined && previousRow !== null) retainedClaims.push(previousRow);
+      results.push(projectMutation("unchanged", mutation));
+    } else {
+      if (previousRow !== undefined && previousRow !== null) releases.push(previousRow);
+      if (nextRow !== undefined && nextRow !== null) {
+        claims.push(nextRow); retainedClaims.push(nextRow); results.push(projectMutation("claimed", mutation));
+      } else {
+        const owner = owners[ordinal]; if (owner !== undefined) absentOwners.push(owner);
+        results.push({ status: mutation.previous === null ? "omitted" : "released", claim: null });
       }
     }
-    const owner = storedOwners.get(mutationOwnerKey(mutation));
-    const previousStored =
-      previous === null
-        ? undefined
-        : storedSlots.get(claimSlotKey(mutation.constraintId, previous));
-    if (
-      previous === null
-        ? owner !== undefined
-        : previousStored === undefined || owner === undefined
-    )
-      return yield* Effect.fail(
-        new AppUniqueKeyPreviousClaimMismatchError(
-          mutation.constraintId,
-          mutation.rowId,
-        ),
-      );
-    if (
-      previous !== null &&
-      previousStored !== undefined &&
-      owner !== undefined
-    ) {
-      yield* Effect.fromResult(
-        compareStoredKeyResult(previousStored, previous, mutation.constraintId),
-      );
-      const decoded = yield* Effect.fromResult(
-        decodeStoredClaimResult(mutation.scopeId, previousStored, previous),
-      );
-      if (
-        !isPreviousOwner(decoded, mutation) ||
-        !sameStoredIdentity(previousStored, owner)
-      )
-        return yield* Effect.fail(
-          new AppUniqueKeyPreviousClaimMismatchError(
-            mutation.constraintId,
-            mutation.rowId,
-          ),
-        );
-    }
-    if (previous !== null && next !== null && sameClaimSlot(previous, next)) {
-      results.push(projectMutation("unchanged", mutation));
-      continue;
-    }
-    if (previousStored !== undefined) releases.push(previousStored);
-    if (next === null) {
-      results.push({
-        status: previous === null ? "omitted" : "released",
-        claim: null,
-      });
-    } else {
-      const row: StoredClaimRow = {
-        scopeUuid,
-        constraintId: mutation.constraintId,
-        localeKey: next.localeKey,
-        canonicalKeySha256: next.canonicalKeySha256,
-        keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
-        encodedKey: next.canonicalKeyBytes,
-        tableId: mutation.tableId,
-        rowId: mutation.rowIdBytes,
-      };
-      destinations.set(storedSlotKey(row), row);
-      claims.push(row);
-      results.push(projectMutation("claimed", mutation));
-    }
   }
-  for (let offset = 0; offset < releases.length; offset += 32) {
-    const batch = releases.slice(offset, offset + 32);
-    const returned = yield* persistenceEffect(
-      tx
-        .delete(fxAppUniqueKeys)
-        .where(
-          or(
-            ...batch.map((row) =>
-              and(
-                eq(fxAppUniqueKeys.scopeUuid, row.scopeUuid),
-                eq(fxAppUniqueKeys.constraintId, row.constraintId),
-                eq(fxAppUniqueKeys.localeKey, row.localeKey),
-                eq(fxAppUniqueKeys.canonicalKeySha256, row.canonicalKeySha256),
-                eq(fxAppUniqueKeys.tableId, row.tableId),
-                eq(fxAppUniqueKeys.rowId, row.rowId),
-                eq(fxAppUniqueKeys.encodedKey, row.encodedKey),
-                eq(fxAppUniqueKeys.keyCodecVersion, row.keyCodecVersion),
-              ),
-            ),
-          ),
-        )
-        .returning(),
-    );
-    yield* Effect.fromResult(verifyUniqueWritesResult(batch, returned));
-    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "uniqueReleases",
-      counts: { rows: batch.length, canonicalBytes: batch.reduce((total, row) => total + row.encodedKey.byteLength, 0) } });
-  }
-  for (let offset = 0; offset < claims.length; offset += 32) {
-    const batch = claims.slice(offset, offset + 32);
-    const returned = yield* persistenceEffect(
-      tx.insert(fxAppUniqueKeys).values(batch).returning(),
-    );
-    yield* Effect.fromResult(verifyUniqueWritesResult(batch, returned));
-    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "uniqueClaims",
-      counts: { rows: batch.length, canonicalBytes: batch.reduce((total, row) => total + row.encodedKey.byteLength, 0) } });
-  }
-  return results;
+  return { mutations, owners, previous, next, releases, claims, retainedClaims, absentOwners, results };
+}
+
+const decodeUniqueMutationSuccess = Schema.decodeUnknownResult(Schema.Struct({ reason: Schema.Literal("accepted"), mutations: Schema.Number }), { onExcessProperty: "error" });
+const decodeUniqueMutationRefusal = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("admission"), reason: Schema.Literals(["invalidBatch", "parentMissing", "parentTombstone", "storedCorruption", "hashCollision", "previousMismatch", "claimConflict"]),
+    stage: Schema.Literals(["parent", "stored", "destination", "previous"]), ordinal: Schema.Number,
+    actualTableId: Schema.NullOr(Schema.Number), actualRowIdHex: Schema.NullOr(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("proof"), releaseOffset: Schema.Number, releaseCount: Schema.Number,
+    claimOffset: Schema.Number, claimCount: Schema.Number, detail: Schema.String }),
+])), { onExcessProperty: "error" });
+
+export function preparedAppUniqueApplicationFailure(cause: unknown, prepared: PreparedAppUniqueMutationApplication, capturedDetail?: string): ApplyAppUniqueKeyMutationV1Error {
+  const detail = capturedDetail ?? applicationDomainFailureDetail(cause, "fx_apply_app_unique_mutations");
+  if (detail === null) return new AppUniqueKeyPersistenceError(cause);
+  return Result.match(decodeUniqueMutationRefusal(detail), {
+    onFailure: () => new AppUniqueKeyPersistenceError(cause),
+    onSuccess: verdict => {
+      if (verdict.kind === "proof") {
+        const combined = prepared.releases.length <= 32 && prepared.claims.length <= 32 && prepared.releases.length + prepared.claims.length > 0;
+        const emptyRelease = verdict.releaseOffset === 0 && verdict.releaseCount === 0;
+        const emptyClaim = verdict.claimOffset === 0 && verdict.claimCount === 0;
+        const noWrites = prepared.releases.length === 0 && prepared.claims.length === 0;
+        const reachable = combined
+          ? verdict.releaseOffset === 0 && verdict.claimOffset === 0 &&
+            verdict.releaseCount === prepared.releases.length && verdict.claimCount === prepared.claims.length
+          : noWrites ? prepared.absentOwners.length > 0 && emptyRelease && emptyClaim
+            : (emptyClaim && isUniqueMutationProofPage(verdict.releaseOffset, verdict.releaseCount, prepared.releases.length)) ||
+              (emptyRelease && isUniqueMutationProofPage(verdict.claimOffset, verdict.claimCount, prepared.claims.length));
+        if (!reachable) return new AppUniqueKeyPersistenceError(cause);
+        const releases = prepared.releases.slice(verdict.releaseOffset, verdict.releaseOffset + verdict.releaseCount);
+        const claims = prepared.claims.slice(verdict.claimOffset, verdict.claimOffset + verdict.claimCount);
+        const final = combined || (prepared.claims.length === 0 ? verdict.releaseOffset + verdict.releaseCount === prepared.releases.length
+          : verdict.claimCount > 0 && verdict.claimOffset + verdict.claimCount === prepared.claims.length);
+        const verifyReleases = !final || combined ? [] : prepared.claims.length === 0 ? prepared.releases.slice(0, verdict.releaseOffset) : prepared.releases;
+        const verifyClaims = final ? prepared.retainedClaims.filter(row => !claims.includes(row)) : [];
+        return uniqueBatchFailure(cause, releases, claims, prepared.mutations, verifyReleases, verifyClaims,
+          final ? prepared.absentOwners : [], verdict.detail);
+      }
+      const mutation = Number.isSafeInteger(verdict.ordinal) && verdict.ordinal >= 0 ? prepared.mutations[verdict.ordinal] : undefined;
+      if (mutation === undefined) return new AppUniqueKeyPersistenceError(cause);
+      if (verdict.reason !== "claimConflict" && (verdict.actualTableId !== null || verdict.actualRowIdHex !== null)) return new AppUniqueKeyPersistenceError(cause);
+      switch (verdict.reason) {
+        case "invalidBatch": return verdict.stage === "stored" ? invalid("invalidBatch") : new AppUniqueKeyPersistenceError(cause);
+        case "storedCorruption": return corruption("unique admission stored evidence is inconsistent", cause);
+        case "parentMissing": return verdict.stage !== "parent" || mutation.next === null ? new AppUniqueKeyPersistenceError(cause)
+          : new AppUniqueKeyParentRowError(mutation.scopeId, mutation.tableId, mutation.rowId, "missing");
+        case "parentTombstone": return verdict.stage !== "parent" || mutation.next === null ? new AppUniqueKeyPersistenceError(cause)
+          : new AppUniqueKeyParentRowError(mutation.scopeId, mutation.tableId, mutation.rowId, "tombstonedClaim");
+        case "previousMismatch": return verdict.stage === "previous" ? new AppUniqueKeyPreviousClaimMismatchError(mutation.constraintId, mutation.rowId)
+          : new AppUniqueKeyPersistenceError(cause);
+        case "hashCollision": {
+          const claim = verdict.stage === "destination" ? mutation.next : verdict.stage === "previous" ? mutation.previous : null;
+          return claim === null ? new AppUniqueKeyPersistenceError(cause) : new CanonicalAppUniqueKeyHashCollisionError(mutation.constraintId, claim.localeKey);
+        }
+        case "claimConflict": return Result.match(Result.gen(function* () {
+          const tableId = yield* decodeTableIdResult(verdict.actualTableId);
+          const rowId = yield* decodeRowIdResult(verdict.actualRowIdHex);
+          return verdict.stage !== "destination" || mutation.next === null ? new AppUniqueKeyPersistenceError(cause)
+            : new AppUniqueKeyConflictError(mutation.constraintId, mutation.next.localeKey, tableId, rowId);
+        }), { onFailure: () => new AppUniqueKeyPersistenceError(cause), onSuccess: value => value });
+      }
+    },
+  });
+}
+export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn("AppUniqueKeys.applyMutationsInTransaction")(function* (
+  tx: AppUniqueKeyTransaction, inputs: readonly ApplyAppUniqueKeyMutationV1Input[],
+  sha256: AppUniqueKeySha256V1 = liveSha256, publicationObservation?: PointCommitPublicationObservation,
+) {
+  const prepared = yield* prepareAppUniqueMutationApplicationEffect(tx, inputs, sha256);
+  return yield* applyPreparedAppUniqueMutationApplicationEffect(tx, prepared, publicationObservation);
 }, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
+
+export const applyPreparedAppUniqueMutationApplicationEffect = Effect.fn("AppUniqueKeys.applyPreparedMutationsInTransaction")(function* (
+  tx: AppUniqueKeyTransaction, prepared: PreparedAppUniqueMutationApplication, publicationObservation?: PointCommitPublicationObservation,
+) {
+  if (prepared.mutations.length === 0) return [];
+  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
+  const statement = buildAppUniqueMutationStatement(prepared, schemaName);
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => tx.execute(statement),
+    catch: cause => preparedAppUniqueApplicationFailure(cause, prepared),
+  }));
+  const { rows } = yield* Effect.fromResult(decodeUniqueApplicationDriverRows(result)
+    .pipe(Result.mapError(cause => corruption("unique application result has no rows", cause))));
+  if (rows.length !== 1) return yield* Effect.fail(corruption("unique application result cardinality"));
+  const accepted = yield* Effect.fromResult(decodeUniqueMutationSuccess(rows[0]).pipe(Result.mapError(cause => corruption("unique application result is malformed", cause))));
+  if (accepted.mutations !== prepared.mutations.length) return yield* Effect.fail(corruption("unique application result count mismatch"));
+  recordPreparedAppUniqueApplication(prepared, publicationObservation);
+  return prepared.results;
+}, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
+
+export function recordPreparedAppUniqueApplication(prepared: PreparedAppUniqueMutationApplication, observation?: PointCommitPublicationObservation): void {
+  if (!observation?.detail) return;
+  for (const [owner, rows] of [["uniqueReleases", prepared.releases], ["uniqueClaims", prepared.claims]] as const)
+    for (let offset = 0; offset < rows.length; offset += 32) {
+      const batch = rows.slice(offset, offset + 32);
+      observation.record({ kind: "batch", owner, counts: { rows: batch.length,
+        canonicalBytes: batch.reduce((total, row) => total + row.encodedKey.byteLength, 0) } });
+    }
+}
+
+const applyUniqueBatch = Effect.fn("AppUniqueKeys.applyFixedBatch")(function* (
+  tx: AppUniqueKeyTransaction, releaseBatch: readonly StoredClaimRow[], claimBatch: readonly StoredClaimRow[], mutations: readonly DecodedMutationV1[],
+  verificationReleases: readonly StoredClaimRow[] = [], verificationClaims: readonly StoredClaimRow[] = [],
+  absentOwners: readonly AppUniqueAbsentOwner[] = [],
+) {
+  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(
+    Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
+    const statement = buildAppUniqueBatchStatement(releaseBatch, claimBatch, schemaName, verificationReleases, verificationClaims, absentOwners);
+    const result = yield* Effect.uninterruptible(Effect.tryPromise({
+      try: () => tx.execute(statement),
+      catch: cause => uniqueBatchFailure(cause, releaseBatch, claimBatch, mutations, verificationReleases, verificationClaims, absentOwners),
+    }));
+    const rows = rowsFromDriverExecuteResult(result, () => { throw corruption("unique application result has no rows"); });
+    if (rows.length !== 1) return yield* Effect.fail(corruption("unique application result cardinality"));
+    const accepted = yield* Effect.fromResult(decodeUniqueBatchSuccess(rows[0]).pipe(
+      Result.mapError(cause => corruption("unique application result is malformed", cause))));
+    if (accepted.ordinal !== releaseBatch.length + claimBatch.length)
+      return yield* Effect.fail(corruption("unique application result count mismatch"));
+});
+const decodeUniqueBatchRefusal = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Struct({
+  reason: Schema.Literals(["invalidBatch", "parentMissing", "parentTombstone", "releaseMismatch", "storedCorruption", "claimConflict"]),
+  phase: Schema.Literals(["release", "claim", "absentOwner"]),
+  stage: Schema.Literals(["write", "verify"]),
+  ordinal: Schema.Number, actualTableId: Schema.NullOr(Schema.Number), actualRowIdHex: Schema.NullOr(Schema.String),
+  actualKeyHex: Schema.NullOr(Schema.String), actualCodec: Schema.NullOr(Schema.Number),
+})), { onExcessProperty: "error" });
+const decodeUniqueBatchSuccess = Schema.decodeUnknownResult(Schema.Struct({
+  reason: Schema.Literal("accepted"), ordinal: Schema.Number, actualTableId: Schema.Null,
+  actualRowId: Schema.Null, actualKey: Schema.Null, actualCodec: Schema.Null,
+}), { onExcessProperty: "error" });
+function uniqueBatchFailure(cause: unknown, releases: readonly StoredClaimRow[], claims: readonly StoredClaimRow[], mutations: readonly DecodedMutationV1[],
+  verificationReleases: readonly StoredClaimRow[], verificationClaims: readonly StoredClaimRow[], absentOwners: readonly AppUniqueAbsentOwner[], capturedDetail?: string) {
+  const detail = capturedDetail ?? applicationDomainFailureDetail(cause, "fx_apply_app_unique_batch");
+  if (detail === null) return new AppUniqueKeyPersistenceError(cause);
+  return Result.match(decodeUniqueBatchRefusal(detail), {
+    onFailure: () => new AppUniqueKeyPersistenceError(cause),
+    onSuccess: verdict => {
+    if (verdict.phase === "absentOwner") {
+      const expected = absentOwners.find(owner => owner.ordinal === verdict.ordinal);
+      const mutation = Number.isSafeInteger(verdict.ordinal) && verdict.ordinal >= 0 ? mutations[verdict.ordinal] : undefined;
+      if (verdict.stage !== "verify" || verdict.reason !== "storedCorruption" || expected === undefined ||
+        mutation === undefined || mutation.next !== null || expected.scopeUuid !== mutation.scopeUuid ||
+        storedOwnerKey(expected) !== mutationOwnerKey(mutation) || verdict.actualTableId !== null ||
+        verdict.actualRowIdHex !== null || verdict.actualKeyHex !== null || verdict.actualCodec !== null)
+        return new AppUniqueKeyPersistenceError(cause);
+      return corruption("expected absent unique owner has a stored claim after application", cause);
+    }
+    if (verdict.stage === "verify" && verdict.reason !== "storedCorruption") return new AppUniqueKeyPersistenceError(cause);
+    const selected = verdict.phase === "release" ? verdict.stage === "verify" ? [...verificationReleases, ...releases] : releases
+      : verdict.stage === "verify" ? [...verificationClaims, ...claims] : claims;
+    const expected = selected[verdict.ordinal];
+    if (!Number.isSafeInteger(verdict.ordinal) || expected === undefined)
+      return new AppUniqueKeyPersistenceError(cause);
+    const mutation = mutations.find(value => mutationOwnerKey(value) === storedOwnerKey(expected));
+    if (mutation === undefined) return new AppUniqueKeyPersistenceError(cause);
+    switch (verdict.reason) {
+      case "invalidBatch": return invalid("invalidBatch");
+      case "storedCorruption": return corruption("stored unique application proof differs from prepared claim", cause);
+      case "releaseMismatch": return new AppUniqueKeyPreviousClaimMismatchError(mutation.constraintId, mutation.rowId);
+      case "parentMissing": return new AppUniqueKeyParentRowError(mutation.scopeId, mutation.tableId, mutation.rowId, "missing");
+      case "parentTombstone": return new AppUniqueKeyParentRowError(mutation.scopeId, mutation.tableId, mutation.rowId, "tombstonedClaim");
+      case "claimConflict": {
+        return Result.match(Result.gen(function* () {
+          const tableId = yield* decodeTableIdResult(verdict.actualTableId);
+          const rowId = yield* decodeRowIdResult(verdict.actualRowIdHex);
+          if (verdict.actualKeyHex === null || !/^(?:[0-9a-f]{2})+$/.test(verdict.actualKeyHex) ||
+            verdict.actualCodec !== APP_UNIQUE_KEY_CODEC_VERSION_V1)
+            return new AppUniqueKeyPersistenceError(cause);
+          const encoded = orderedIndexKeyBytesHexV1FromBytes(expected.encodedKey);
+          return encoded !== verdict.actualKeyHex
+            ? new CanonicalAppUniqueKeyHashCollisionError(mutation.constraintId, expected.localeKey)
+            : new AppUniqueKeyConflictError(mutation.constraintId, expected.localeKey, tableId, rowId);
+        }), { onFailure: () => new AppUniqueKeyPersistenceError(cause), onSuccess: conflict => conflict });
+      }
+    }
+    },
+  });
+}
+
 
 function mutationOwnerKey(
   mutation: CapturedMutationV1 | DecodedMutationV1,
@@ -673,7 +772,7 @@ function mutationOwnerKey(
   ]);
 }
 
-function storedOwnerKey(row: StoredClaimRow): string {
+function storedOwnerKey(row: Pick<StoredClaimRow, "constraintId" | "localeKey" | "tableId" | "rowId">): string {
   return JSON.stringify([
     row.constraintId,
     row.localeKey,
@@ -692,135 +791,6 @@ function claimSlotKey(
     [...claim.canonicalKeySha256],
   ]);
 }
-
-function storedSlotKey(row: StoredClaimRow): string {
-  return JSON.stringify([
-    row.constraintId,
-    row.localeKey,
-    [...row.canonicalKeySha256],
-  ]);
-}
-
-function sameClaimRow(left: StoredClaimRow, right: StoredClaimRow): boolean {
-  return (
-    sameStoredIdentity(left, right) &&
-    left.tableId === right.tableId &&
-    bytesEqualFullScan(left.rowId, right.rowId) &&
-    left.keyCodecVersion === right.keyCodecVersion &&
-    bytesEqualFullScan(left.encodedKey, right.encodedKey)
-  );
-}
-
-function verifyUniqueWritesResult(
-  expected: readonly StoredClaimRow[],
-  returned: readonly unknown[],
-) {
-  return Result.gen(function* () {
-    const remaining = new Map(expected.map((row) => [storedSlotKey(row), row]));
-    for (const raw of returned) {
-      const row = yield* storedField(decodeStoredClaimRowResult(raw));
-      const key = storedSlotKey(row);
-      const wanted = remaining.get(key);
-      if (wanted === undefined || !sameClaimRow(wanted, row))
-        return yield* Result.fail(
-          corruption("unexpected unique write evidence"),
-        );
-      remaining.delete(key);
-    }
-    if (remaining.size !== 0)
-      return yield* Result.fail(corruption("missing unique write evidence"));
-  });
-}
-
-const UniqueParentSchema = Schema.Struct({
-  scopeUuid: ScopeUuidV1Schema,
-  tableId: CatalogTableIdSchema,
-  rowId: Schema.Uint8Array.check(
-    Schema.makeFilter((value) => value.byteLength === 16),
-  ),
-  isTombstone: Schema.Boolean,
-});
-const decodeUniqueParentResult = Schema.decodeUnknownResult(UniqueParentSchema);
-
-const requireLiveParentsEffect = Effect.fn("AppUniqueKeys.requireLiveParents")(
-  function* (
-    tx: AppUniqueKeyTransaction,
-    mutations: readonly DecodedMutationV1[],
-  ) {
-    const required = mutations.filter((mutation) => mutation.next !== null);
-    const first = required[0];
-    if (first === undefined) return;
-    const wanted = new Map(
-      required.map((mutation) => [
-        JSON.stringify([mutation.tableId, [...mutation.rowIdBytes]]),
-        mutation,
-      ]),
-    );
-    const rows = yield* persistenceEffect(
-      tx
-        .select({
-          scopeUuid: fxAppRowCurrent.scopeUuid,
-          tableId: fxAppRowCurrent.tableId,
-          rowId: fxAppRowCurrent.rowId,
-          isTombstone: fxAppRowRevisions.isTombstone,
-        })
-        .from(fxAppRowCurrent)
-        .innerJoin(
-          fxAppRowRevisions,
-          and(
-            eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
-            eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
-            eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId),
-            eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
-          ),
-        )
-        .where(
-          and(
-            eq(fxAppRowCurrent.scopeUuid, first.scopeUuid),
-            or(
-              ...required.map((mutation) =>
-                and(
-                  eq(fxAppRowCurrent.tableId, mutation.tableId),
-                  eq(fxAppRowCurrent.rowId, mutation.rowIdBytes),
-                ),
-              ),
-            ),
-          ),
-        ),
-    );
-    for (const raw of rows) {
-      const row = yield* Effect.fromResult(
-        storedField(decodeUniqueParentResult(raw)),
-      );
-      const key = JSON.stringify([row.tableId, [...row.rowId]]);
-      const mutation = wanted.get(key);
-      if (row.scopeUuid !== first.scopeUuid || mutation === undefined)
-        return yield* Effect.fail(
-          corruption("unexpected unique parent evidence"),
-        );
-      if (row.isTombstone)
-        return yield* Effect.fail(
-          new AppUniqueKeyParentRowError(
-            mutation.scopeId,
-            mutation.tableId,
-            mutation.rowId,
-            "tombstonedClaim",
-          ),
-        );
-      wanted.delete(key);
-    }
-    const missing = wanted.values().next().value;
-    if (missing !== undefined)
-      return yield* Effect.fail(
-        new AppUniqueKeyParentRowError(
-          missing.scopeId,
-          missing.tableId,
-          missing.rowId,
-          "missing",
-        ),
-      );
-  },
-);
 
 /**
  * Transaction-only S11 reconciliation primitive for a bounded C08 backfill.
@@ -912,8 +882,7 @@ export const ensureAppUniqueKeyBackfillClaimInTransactionEffect = Effect.fn(
     );
   }
 
-  yield* persistenceEffect(
-    tx.insert(fxAppUniqueKeys).values({
+  yield* applyUniqueBatch(tx, [], [{
       scopeUuid: mutation.scopeUuid,
       constraintId: mutation.constraintId,
       localeKey: claim.localeKey,
@@ -922,8 +891,8 @@ export const ensureAppUniqueKeyBackfillClaimInTransactionEffect = Effect.fn(
       encodedKey: claim.canonicalKeyBytes,
       tableId: mutation.tableId,
       rowId: mutation.rowIdBytes,
-    }),
-  );
+    }], [mutation]).pipe(Effect.mapError(cause => cause instanceof AppUniqueKeyPreviousClaimMismatchError
+      ? new AppUniqueKeyBackfillClaimMismatchError(mutation.constraintId, mutation.rowId) : cause));
   return Object.freeze({
     status: "claimed",
     claim: projectMutation("claimed", mutation).claim!,
@@ -1883,17 +1852,6 @@ export const drainInitialAppUniqueKeyClaimsInTransactionEffect = Effect.fn(
   }
   return Object.freeze({ drained: selected.length, hasMore: rows.length > 16 });
 });
-
-function isPreviousOwner(
-  claim: AppUniqueKeyClaimV1,
-  mutation: DecodedMutationV1,
-): boolean {
-  return (
-    mutation.previous !== null &&
-    claim.tableId === mutation.tableId &&
-    claim.rowId === mutation.rowId
-  );
-}
 
 function sameStoredIdentity(
   left: StoredClaimRow,

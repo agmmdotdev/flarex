@@ -6,6 +6,7 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
+import type { PointCommitRowIntentV1 } from "@flarex/persistence-postgres/point-commit-transaction";
 import { hasLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthoritySource,
@@ -38,6 +39,7 @@ import type {
 } from "flarex-protocol/transaction-session";
 import {
   canonicalizeFlarexValueV1,
+  normalizeFlarexValueJsonV1,
   isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -245,6 +247,39 @@ export interface CommitInputVerificationSourceV1 {
       PointMutationTargetFunctionMetadataV1["returnsValidator"];
   }>;
 }
+
+/** The finite graph is issuer-owned; only native Application validators are applied here. */
+export const verifyFiniteCommitValuesEffect = Effect.fn("StoredAttemptAuthentication.verifyFiniteCommitValues")(
+  function* (source: Readonly<{
+    rowIntents: readonly PointCommitRowIntentV1[];
+    successfulResult: CanonicalSuccessfulResultV1;
+    schemaManifest: SchemaManifestAppSchemaV1;
+    functionValidationAuthority: CommitInputVerificationSourceV1["functionValidationAuthority"];
+  }>) {
+    const tables = new Map(source.schemaManifest.tableDefinitions.tables.map(table => [table.tableId, table]));
+    const idPolicy = tableAwareIdPolicy(new Map(source.schemaManifest.tableDefinitions.tables.map(table =>
+      [table.logicalName, table.tableId])));
+    for (const row of source.rowIntents) {
+      const table = tables.get(row.tableId);
+      if (table === undefined || row.kind !== "live") continue;
+      const fields = yield* projectDeveloperFieldsEffect({ documentId: row.documentId,
+        overlayValue: row.value, overlayCreationTime: row.creationTime }, table.logicalName);
+      yield* Effect.fromResult(validateValidatorValueV1(table.definition.documentType, fields,
+        { path: "$document", idPolicy })).pipe(Effect.mapError(error => new CommitDocumentValidationV1Error({
+          documentId: row.documentId, tableName: table.logicalName, issue: { reason: "validator", issue: error.issue },
+        })));
+    }
+    const result = yield* Effect.try({
+      try: () => normalizeFlarexValueJsonV1(source.successfulResult.valueJson).value,
+      catch: () => authorityCorruption("successfulResultInvalid"),
+    });
+    const validator = source.functionValidationAuthority.returnsValidator;
+    if (validator !== null) yield* Effect.fromResult(validateValidatorValueV1(validator, result,
+      { path: "$return", idPolicy })).pipe(Effect.mapError(error => new CommitSuccessfulResultValidationV1Error({
+        functionPath: source.functionValidationAuthority.path, issue: error.issue,
+      })));
+  },
+);
 
 export const verifyCommitInputStateEffect = Effect.fn(
   "StoredAttemptAuthentication.verifyCommitInputState",
@@ -477,7 +512,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
 });
 
 const projectDeveloperFieldsEffect = Effect.fn(function* (
-  point: AuthenticatedStoredAttemptPointV1,
+  point: Pick<AuthenticatedStoredAttemptPointV1, "documentId" | "overlayValue" | "overlayCreationTime">,
   tableName: string,
 ): Effect.fn.Return<
   CanonicalFlarexRuntimeObjectV1,

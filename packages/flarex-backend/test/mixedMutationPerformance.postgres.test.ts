@@ -289,14 +289,14 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
         ] : [
           "No SQL or phase observer is installed. Outer invocation wall time uses the same workload boundaries and business checks as the traced series.",
         ]),
-        "Sealed attempt bytes come from the canonical journal at successful seal through a delegating test store port; the capture adds no database query.",
+        "Canonical result bytes come from the authentic local frozen attempt through the delegating test store port; the capture adds no database query.",
       ],
       unavailable: [
         "PostgreSQL server execution time (driver await includes transport and scheduling).",
         "Exact native workflow child inclusive/exclusive spans; native steps are not instrumented, so SQL owner mapping is used instead.",
         "Exact inner OCC/materialization phase duration where the existing owner has no test observation hook.",
         "Exact scope-clock lock acquisition wait and lock-hold interval; transaction duration is only a BEGIN-to-settlement envelope.",
-        "Sealed attempt bytes for failed attempts and standalone workflow; settled journal rows are removed, so inventory separately records only remaining live journal bytes.",
+        "Canonical result bytes for failed attempts and standalone workflow; live journal inventory measures real durable-profile rows, while finite attempts own a compact session anchor.",
         ...(observationMode === "traced" ? [
           "Client SQL that loses trace context during an active invocation is detected and invalidates that sample, but SQL through uninstrumented pools or outside the invocation cannot be counted; named phase checks do not prove universal SQL coverage.",
         ] : ["SQL dispatches, awaited time, phase spans, transaction intervals and trace coverage in untraced mode."]),
@@ -376,7 +376,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           let after: PerformanceInventory | null = null;
           let wallMs: number | null = null;
           let requestWorkerConstructionMs: number | null = null;
-          let sealedJournalBytes: number | null = null;
+          let canonicalResultBytes: number | null = null;
           let settlementLedger: PerformanceSettlementLedger | null = null;
           let recorded: TraceInvocationRecord | null = null;
           let failureName: string | null = null;
@@ -408,7 +408,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
               // timer, so demand accounting adds no timed SQL or copy work.
               settlementLedger = await outcome.fixture.readSettlementLedger();
               requestWorkerConstructionMs = outcome.workerConstructionMilliseconds;
-              sealedJournalBytes = outcome.sealedJournalBytes;
+              canonicalResultBytes = outcome.canonicalResultBytes;
               stage = "verifyPublication";
               if (outcome.publication.kind !== "published") throw new Error("ExpectedPublishedResult");
               expect(outcome.publication.successfulResult.valueJson).toEqual(outcome.returnedValue);
@@ -471,7 +471,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             status: failureName === null ? "ok" : "error", failureName, failureStage,
             failureCode, failureReason, failureDiagnosticTokens, wallMs,
             ...(cpuDiagnostic ? { cpuDiagnosticSecondaryFailures } : {}),
-            requestWorkerConstructionMs, sealedJournalBytes, settlementLedger,
+            requestWorkerConstructionMs, canonicalResultBytes, settlementLedger,
             instrumentationFinalizationMs: wallMs === null || recorded === null ? null :
               Math.max(0, wallMs - recorded.durationMs),
             construction: construction({ setupTotalMs: index === 0 ? setupTotalMs : null,
@@ -606,7 +606,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             status: failureName === null ? "ok" : "error", failureName, failureStage,
             failureCode, failureReason, failureDiagnosticTokens, wallMs,
             ...(cpuDiagnostic ? { cpuDiagnosticSecondaryFailures } : {}),
-            requestWorkerConstructionMs: null, sealedJournalBytes: null,
+            requestWorkerConstructionMs: null, canonicalResultBytes: null,
             instrumentationFinalizationMs: wallMs === null || recorded === null ? null :
               Math.max(0, wallMs - recorded.durationMs),
             construction: construction({ setupTotalMs: index === 0 ? setupTotalMs : null,

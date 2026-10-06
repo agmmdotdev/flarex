@@ -6,7 +6,7 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissionEffect } from
   "../logicalDocuments/documentAdmission";
-import { LogicalParticipantAdmissionError, requireLogicalParticipantReadDemandInTransactionEffect, type LogicalParticipantAttemptAdmission } from
+import { projectFiniteStorageCaptureFailure, LogicalParticipantAdmissionError, type LogicalParticipantAttemptAdmission } from
   "../logicalDocuments/participantAdmission";
 import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction, LogicalStorageReadDemand } from "../logicalDocuments/model";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
@@ -64,9 +64,8 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
         const working = yield* makeLogicalDocumentWorkingSet({
           readTransaction,
           ...(input.rootEvaluator === undefined ? {} : { readReadiness: { kind: "finiteQueryRequired" as const,
-            mechanics: state.writeMechanics, requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) =>
-              requireLogicalParticipantReadDemandInTransactionEffect(input.admission, input.attempt, input.method, tx, demand)
-                .pipe(Effect.mapError(projectCheckedReadFailure)) } }),
+            mechanics: state.writeMechanics,
+            captureStorage: (operation, demand) => input.captureStorage(operation, demand).pipe(Effect.mapError(projectFiniteStorageCaptureFailure), Effect.mapError(projectCheckedReadFailure)) } }),
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
           ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,

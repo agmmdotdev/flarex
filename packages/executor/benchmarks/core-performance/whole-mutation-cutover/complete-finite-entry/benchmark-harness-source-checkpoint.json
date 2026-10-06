@@ -1,0 +1,32 @@
+{
+  "note": "Current frozen benchmark harness includes separately owned uncommitted expansion; mixed.ts and mixedMutationProductFixture preserve root handoff hashes.",
+  "files": {
+    "packages/executor/test/performance/corePerformance.postgres.test.ts": "9a9ed6a69cc292534cf7213bbdd7ced9fc116be291148054f31fc78598409314",
+    "packages/executor/test/performance/flows.test.ts": "a01d2938b30f624c6d2f5ced6eec78b196c68ba807d60760fc20369a62b5d0be",
+    "packages/executor/test/performance/inProcessMixedMutation.test.ts": "bf98728b4869791a5505e98c488c1b0317af1b0aaa1fc358ad55c728fcef104b",
+    "packages/executor/test/performance/inProcessMixedMutationPort.test.ts": "474a3085e533792ed8e054b342361a7b806cb703bdb2f5f7aef089b8c985118d",
+    "packages/executor/test/performance/vitest.config.ts": "2fd9ce47333bf23cf518aa046c3029f53230e752f2b2d79d65a5e36c41eb661f",
+    "packages/executor/test/performance/vitest.flows.config.ts": "5f2b4415c3f3060aff578bff3e65d0907ed80e17f845b2308b0ef5467b4ec658",
+    "packages/executor/test/performance/vitest.unit.config.ts": "8813b93b8bc99bfda1cae2d9abcf879d6026acd47ab0d33e0d6da77e6591b445",
+    "packages/executor/test/performance/support/benchmarkCpuProfiler.test.ts": "29764211751f3befe566577eb8e040200f11237198adaa512c4ebec144d44344",
+    "packages/executor/test/performance/support/benchmarkCpuProfiler.ts": "4f4546847a599000ed2a8a2292a5680ccb2b8349eb67a84be709e23dbc3b1a96",
+    "packages/executor/test/performance/support/documentValidationRecoverySource.ts": "25d9fe21f51b314e971ed713ada5b5f47475dd256f938b24afb447ce5bb092ce",
+    "packages/executor/test/performance/support/measurement.test.ts": "70fa2d2fd77d862a7ada65615e81fe46057dc7e6b5b895747e6042926f1da156",
+    "packages/executor/test/performance/support/measurement.ts": "3d230bf2e863fa497449ca5610792b440e0a06b989bb4a21d25caba221757d3f",
+    "packages/executor/test/performance/support/medusaScenario.ts": "473126b6fdead777304ffe1832321e92e07b4637dbc91a414b6d6e9bcedb6700",
+    "packages/executor/test/performance/support/mixed.ts": "e30ccd820b617c452a4059f5f38c8f7f84eb2902ea68e3ac537f07893df025c7",
+    "packages/executor/test/performance/support/mixedFlows.ts": "464a39fd4b97d61879c3cf6a0884c42626625c0c36fcaa6169c9aba5462eb22a",
+    "packages/executor/test/performance/support/mixedMutationInProcessRuntime.ts": "8d18fe9ff106829248a4c8f3815de9907029ca7c2c5baec52ec13c5919a2ed6c",
+    "packages/executor/test/performance/support/mixedMutationMeasurementContracts.ts": "8d92468a16c9a3224345ea7777b7e43761f2258650175e283d2e5d849c469d1a",
+    "packages/executor/test/performance/support/mixedMutationProductFixture.ts": "ccdaa57b47a196f533235a46d6e79dfb0ea5ac1ce7da28aea87d7343aa984601",
+    "packages/executor/test/performance/support/nativeProductOperationDiagnostics.ts": "9700673d0c25bfa79084a3f82b491fff8273add4414eefd5a5e3bb81d8ee5c5a",
+    "packages/executor/test/performance/support/payloadFlows.ts": "05a334e08159170c6e9978a79bbcd2497e6152e1bf083f855a522276e7f93aa2",
+    "packages/executor/test/performance/support/productFlows.ts": "bb82a9e85fc112d198ec2d2419401f4fb84ea3122841356241d879ce660ad9cc",
+    "packages/executor/test/performance/support/scenario.ts": "c0309d77ed1f0f6e910b843eaeb723d1d02087aa5979e181d0fe6636b827abbe",
+    "packages/executor/test/performance/support/scenarioCatalog.ts": "7a727bc0b93d342606a5c47a95a4877210f8fa8fe3ac297b6e69ef60cc3ad2f7",
+    "packages/executor/test/performance/support/scenarioLifetime.test.ts": "23b6c5d561c65bd8b5c265c391f8de759f6e9f98deb554f49e544032f2213abd",
+    "packages/executor/test/performance/support/scenarioLifetime.ts": "61e00f582e10288da91d2e1a560a678918cdc9eb373c155efd80a2e9710d7233",
+    "packages/executor/test/performance/support/workflowResult.ts": "9c3d25d69c320e40b1f0a1db5931491bb45821cad5a079f998f0f41eccd06019",
+    "scripts/run-core-performance.mjs": "61c205a130d27c2573b47ccdfc043056983e13db09bcf238c38be5cd11aa29d1"
+  }
+}

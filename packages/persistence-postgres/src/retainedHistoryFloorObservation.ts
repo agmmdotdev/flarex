@@ -1,7 +1,7 @@
 import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { closeExactAttemptScopeClockObservation } from "./scopeClock";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { and, asc, desc, eq, gt, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
 import type { GrantRetentionPolicyV1 } from
   "flarex-protocol/grant-retention-policy";
@@ -39,7 +39,9 @@ import {
   fxSystemScopeClocks,
   fxSystemCommits,
   fxSystemSnapshotLeases,
+  fxSystemTransactionSessions,
 } from "./schema";
+import { readFiniteAttemptAnchorRow } from "./finiteAttemptAnchor";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -49,6 +51,7 @@ import {
 import { runLocatedReadCommittedEffect } from "./locatedReadCommittedEffect";
 
 export const MAX_RETAINED_FLOOR_LEASE_ROWS = 4_096;
+const MAX_RETAINED_FLOOR_FINITE_SESSION_BYTES = 4_194_304;
 export const MAX_RETAINED_FLOOR_COMMIT_ROWS = 4_096;
 export const MAX_RETAINED_FLOOR_PIN_FACETS = 8;
 
@@ -580,13 +583,43 @@ const calculateCandidateInTransaction = Effect.fn(
       )
       .limit(MAX_RETAINED_FLOOR_LEASE_ROWS + 1),
   );
+  const finiteLeases = yield* Effect.gen(function* () {
+      // Bound both the directory and all retained authority payloads before
+      // fetching bytea/json fields. Keep the selected anchor locks through the
+      // floor decision so renewal/replacement cannot race this observation.
+      const directory = yield* queryEffect("leaseDirectory", tx.select({
+        sessionId: fxSystemTransactionSessions.sessionId,
+        payloadBytes: sql<number>`pg_column_size(${fxSystemTransactionSessions})`,
+      }).from(fxSystemTransactionSessions).where(and(
+        eq(fxSystemTransactionSessions.scopeUuid, scopeUuid.scopeUuid), eq(fxSystemTransactionSessions.executionProfile, "finiteRoot"),
+        inArray(fxSystemTransactionSessions.lifecycle, ["running", "retrying"]),
+        gt(fxSystemTransactionSessions.finiteLeaseExpiresAt, databaseNow),
+      )).orderBy(asc(fxSystemTransactionSessions.finiteLeaseExpiresAt), asc(fxSystemTransactionSessions.sessionId))
+        .limit(MAX_RETAINED_FLOOR_LEASE_ROWS + 1).for("share"));
+      if (directory.some(row => !Number.isSafeInteger(row.payloadBytes) || row.payloadBytes <= 0))
+        return yield* Effect.fail(observationError(authority, "storedEvidenceInvalid"));
+      if (directory.length > MAX_RETAINED_FLOOR_LEASE_ROWS ||
+        directory.reduce((total, row) => total + row.payloadBytes, 0) > MAX_RETAINED_FLOOR_FINITE_SESSION_BYTES)
+        return { rows: [], directoryLimitExceeded: true };
+      if (directory.length === 0) return { rows: [], directoryLimitExceeded: false };
+      const rows = yield* queryEffect("leaseDirectory", tx.select().from(fxSystemTransactionSessions).where(and(
+        eq(fxSystemTransactionSessions.scopeUuid, scopeUuid.scopeUuid),
+        inArray(fxSystemTransactionSessions.sessionId, directory.map(row => row.sessionId)),
+      )));
+      if (rows.length !== directory.length) return yield* Effect.fail(observationError(authority, "storedEvidenceInvalid"));
+      const observations = yield* Effect.forEach(rows, row => readFiniteAttemptAnchorRow(row).pipe(Effect.map(context => ({
+        snapshotEpochUuid: context.session.finiteSnapshotEpochUuid, snapshotCommitSeq: context.snapshotToken.commitSeq,
+        leaseExpiresAt: context.leaseExpiresAt,
+      })), Effect.mapError(cause => observationError(authority, "storedEvidenceInvalid", cause))));
+      return { rows: observations, directoryLimitExceeded: false };
+    });
   const leaseObservation = yield* Effect.fromResult(observeLeasesResult(
     authority,
     clock.oldestAvailableCommitSeq,
     clock.lastCommitSeq,
     epochUuid.epochUuid,
     databaseNowMilliseconds,
-    leaseRows,
+    [...leaseRows, ...finiteLeases.rows], finiteLeases.directoryLimitExceeded,
   ));
 
   const commitRows = yield* queryEffect(
@@ -691,6 +724,7 @@ function observeLeasesResult(
     readonly snapshotCommitSeq: unknown;
     readonly leaseExpiresAt: unknown;
   }>,
+  directoryLimitExceeded = false,
 ): Result.Result<
   Readonly<{
     readonly ceiling: CommitSeq;
@@ -698,7 +732,7 @@ function observeLeasesResult(
   }>,
   RetainedHistoryFloorObservationError
 > {
-  if (rows.length > MAX_RETAINED_FLOOR_LEASE_ROWS) {
+  if (directoryLimitExceeded || rows.length > MAX_RETAINED_FLOOR_LEASE_ROWS) {
     return Result.succeed(Object.freeze({
       ceiling: currentFloor,
       holdReasons: Object.freeze(["leaseDirectoryLimit"] as const),

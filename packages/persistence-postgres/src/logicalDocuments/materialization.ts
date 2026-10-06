@@ -1,5 +1,6 @@
 import { logicalMaterializationBatchBudget } from "./policy";
-import { Data, Effect } from "effect";
+import { Data, Effect, Result } from "effect";
+import { runPointCommitPromiseEffect } from "../pointCommitPromiseBoundary";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
 import type { ApplicationDocumentMaterializationOptions, ApplicationDocumentDefinitionCommand, ApplicationDocumentMaterializationCommand,
@@ -7,8 +8,9 @@ import type { ApplicationDocumentMaterializationOptions, ApplicationDocumentDefi
 import { validateApplicationUniqueTransitionBudget,
   lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState,
   validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions,
-  preparePointCommitUniqueKeyActions, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect,
+  acceptPreparedUniqueKeyPairsEffect, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect,
   resetPointCommitDeveloperIndexValidations } from "../applicationDocumentMaterialization/materialization";
+import { prepareUniqueKeyPairsResult } from "../applicationDocumentMaterialization/settlementPlan";
 import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, PointCommitConflictV1Error,
   PointCommitDeveloperIndexMaintenanceUnavailableV1Error, mapTransactionFailure } from "../pointCommitErrors";
 import { AppUniqueKeyConflictError } from "../appUniqueKeys";
@@ -20,7 +22,7 @@ import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { IndexPublicationProfile } from "../indexBuildStates";
-import { maintainLogicalSearchEntries, type LogicalSearchDefinition } from "./searchEntries";
+import { LogicalSearchMaintenanceError, type LogicalSearchDefinition } from "./searchEntries";
 
 export class LogicalDocumentMaterializationError extends Data.TaggedError("LogicalDocumentMaterializationError")<{
   readonly reason: "invalidAuthority" | "storedCorruption" | "limitExceeded" | "statementFailure" | "uniqueConflict" | "writeConflict" | "relationInvalid" | "relationTargetMissing" | "relationDeleteRestricted";
@@ -51,6 +53,8 @@ export interface LogicalDocumentMaterializationInput<Failure> {
 }
 /** Only the physical owner calls this bridge into its existing Promise-based kernel. */
 export function projectLogicalDocumentMaterializationFailure(cause: unknown): LogicalDocumentMaterializationError {
+  if (cause instanceof LogicalSearchMaintenanceError)
+    return logicalMaterializationError(cause.reason, cause);
   if (cause instanceof ApplicationRelationConstraintError)
     return logicalMaterializationError("relationInvalid", cause);
   if (cause instanceof ApplicationRelationTargetNotLiveError)
@@ -75,7 +79,7 @@ export function projectLogicalDocumentMaterializationFailure(cause: unknown): Lo
 
 /** Participant boundary over the existing shared Promise transaction kernel. */
 const participantKernel = <Value,>(work: () => Promise<Value>) =>
-  Effect.tryPromise({ try: work, catch: projectLogicalDocumentMaterializationFailure });
+  runPointCommitPromiseEffect(work, projectLogicalDocumentMaterializationFailure);
 
 export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMaterialization.enter")(
   function* <Failure>(
@@ -211,40 +215,25 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
             selectedDeveloper,
           ),
         );
-        const uniqueActions = yield* participantKernel(() =>
-          preparePointCommitUniqueKeyActions(
-            tx,
-            command,
-            priorState,
-            selectedUnique,
-          ),
-        );
+        const uniquePairs = yield* Effect.fromResult(prepareUniqueKeyPairsResult(command, priorState, selectedUnique))
+          .pipe(Effect.mapError(projectLogicalDocumentMaterializationFailure));
+        const uniqueActions = yield* acceptPreparedUniqueKeyPairsEffect(tx, command, uniquePairs, scopeClock.epoch)
+          .pipe(Effect.mapError(projectLogicalDocumentMaterializationFailure));
         yield* prepared.validateWrites(commitSeq, changes);
         const completeCoverage = yield* participantKernel(() =>
-          materializeApplicationDocumentRows(
-            tx,
-            command,
-            commitSeq,
-            scopeClock,
-            heads,
-            intrinsic.filter((index) =>
-              changed.has(index.definition.access.tableId),
-            ),
-            indexActions,
-            selectedDeveloper,
-            uniqueActions,
-            selectedUnique,
-            prepared.coverage,
-            prepared.options,
-            prepared.batch === true,
-          ),
+          materializeApplicationDocumentRows(tx, {
+            command, commitSeq, clock: scopeClock, loadedHeads: heads,
+            intrinsicBuilds: intrinsic.filter(index => changed.has(index.definition.access.tableId)),
+            developerIndexActions: indexActions, developerBuilds: selectedDeveloper,
+            uniqueKeyActions: uniqueActions, uniqueDefinitions: selectedUnique, canonicalUniquePairs: uniquePairs,
+            publicationProfile: prepared.coverage, options: prepared.options, deferCoverage: prepared.batch === true,
+            ...(prepared.search === undefined || prepared.search.length === 0 ? {}
+              : { searchContribution: Result.succeed({ definitions: prepared.search, changes }) }),
+          }),
         );
         if (prepared.batch === true && completeCoverage === undefined)
           return yield* Effect.fail(logicalMaterializationError("storedCorruption"));
         if (completeCoverage !== undefined) coverageSteps.push(completeCoverage);
-        if (prepared.search !== undefined && prepared.search.length > 0)
-          yield* maintainLogicalSearchEntries(tx, scope.scopeUuid, commitSeq, prepared.search, changes)
-            .pipe(Effect.mapError(cause => logicalMaterializationError(cause.reason, cause)));
         if (relationPlan !== null)
           yield* maintainPointCommitApplicationRelationsEffect(
             tx,

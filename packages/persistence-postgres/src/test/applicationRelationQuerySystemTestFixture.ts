@@ -881,7 +881,7 @@ async function createRelationalCoreFixture(
       )),
     },
   });
-  const activation = makeApplicationActivationRepository({
+  const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
     deploymentId: input.deploymentId,
     scopeId: input.scopeId,
     readiness: legacyReadiness,
@@ -1191,7 +1191,7 @@ async function createFixture(
       )),
     },
   });
-  const activation = makeApplicationActivationRepository({
+  const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
     deploymentId: input.deploymentId,
     scopeId: input.scopeId,
     readiness: legacyReadiness,

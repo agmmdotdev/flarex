@@ -12,7 +12,7 @@ import { projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitS
 import { type ResolveCommittedPointOutcomeInputV1 } from "../committedPointOutcome";
 import { allocateScopePublicationResult, readScopePublicationDatabaseTime, writeScopePublicationPrefix,
   beginScopePublicationPrefix,
-  advanceScopePublicationClock } from "../commitPublication/publication";
+  advanceScopePublicationClock, reproveScopePublicationPrefix, type ScopePublicationPrefixProof } from "../commitPublication/publication";
 import type { ScopePublicationContribution, ScopePublicationKernel, ScopePublicationOptions } from "../commitPublication/scopePublicationModel";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import { appendDerivedCommerceIdEvents, consumeCommerceEvents,
@@ -155,8 +155,9 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   const adjacencyChanges: ScopePublicationKernel["relationAdjacencyChanges"][number][] = [];
   const kernel: ScopePublicationKernel = { clock, ...allocation,
     relationAdjacencyChanges: adjacencyChanges };
+  let prefix: ScopePublicationPrefixProof;
   if (deltas.length === 0) {
-    yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, options, signal));
+    prefix = yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, options, signal));
   } else {
     // Header and fact pages are uncommitted until this owner settles its one
     // transaction. The shared publisher validates ordered revision-bound facts.
@@ -175,7 +176,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
         return yield* Effect.fail(commerceError("invalidAuthority"));
       adjacencyChanges.push(...lowered.adjacencyChanges);
     }
-    yield* publishCommerceAtoms(signal => writer.finish(signal));
+    prefix = yield* publishCommerceAtoms(signal => writer.finish(signal));
   }
   if (physical?.state.bootstrap) {
     const { state: physicalState, facts } = physical;
@@ -202,6 +203,8 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
     }).returning({ stepId: fxSystemLogicalSourceInitializations.stepId }), cause => commerceError("statementFailure", cause));
     if (recorded.length !== 1 || recorded[0]?.stepId !== initialization.stepId) return yield* Effect.fail(commerceError("storedCorruption"));
   }
+  if (physical?.state.bootstrap || (logical !== undefined && input.kind === "logical" && input.initialization !== undefined))
+    yield* publishCommerceAtoms(() => reproveScopePublicationPrefix(prefix));
   yield* publishCommerceAtoms(() => advanceScopePublicationClock(state.tx, contribution, kernel, options));
   return allocation.commitSeq;
 });

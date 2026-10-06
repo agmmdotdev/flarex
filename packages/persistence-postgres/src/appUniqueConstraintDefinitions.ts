@@ -1,3 +1,5 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
@@ -331,6 +333,13 @@ export const listAppUniqueConstraintDefinitionSetMembersV1Effect = Effect.fn(
         fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId,
       )
       .limit(maximumDefinitions + 1));
+  return yield* decodeAppUniqueConstraintDefinitionSetMembersEffect(deploymentId, schemaVersionId, maximumDefinitions, rows);
+});
+
+export const decodeAppUniqueConstraintDefinitionSetMembersEffect = Effect.fn("AppUniqueConstraintDefinitions.decodeSetMembers")(function* (
+  deploymentId: string, schemaVersionId: CatalogSchemaVersionId, maximumDefinitions: number,
+  rows: readonly Readonly<{ definition: StoredUniqueDefinitionColumns; binding: StoredUniqueBindingColumns }>[],
+): Effect.fn.Return<ReadonlyArray<AppUniqueConstraintSetMemberV1>, ReadAppUniqueConstraintDefinitionV1Error> {
   if (rows.length > maximumDefinitions) {
     return yield* Effect.fail(corruption("unique definition set exceeds limit"));
   }
@@ -922,10 +931,36 @@ function decodeIdentityRow(row: typeof fxControlUniqueConstraints.$inferSelect) 
   });
 }
 
+type StoredUniqueDefinitionColumns = { readonly [Key in keyof typeof fxControlUniqueConstraintDefinitions.$inferSelect]: unknown };
+type StoredUniqueBindingColumns = { readonly [Key in keyof typeof fxControlSchemaVersionUniqueConstraintBindings.$inferSelect]: unknown };
+const decodeCapturedDeploymentIdResult = Schema.decodeUnknownResult(Schema.String);
+
+export const decodeCapturedAppUniqueConstraintSetMembersEffect = Effect.fn("AppUniqueConstraintDefinitions.decodeCapturedSetMembers")(function* (
+  deploymentId: string, schemaVersionId: CatalogSchemaVersionId, maximumDefinitions: number, rawRows: readonly unknown[],
+): Effect.fn.Return<ReadonlyArray<AppUniqueConstraintSetMemberV1>, ReadAppUniqueConstraintDefinitionV1Error> {
+  const rows: { definition: StoredUniqueDefinitionColumns; binding: StoredUniqueBindingColumns }[] = [];
+  for (const raw of rawRows) {
+    if (!isNonArrayRecord(raw)) return yield* Effect.fail(corruption("captured unique definition row is invalid"));
+    rows.push({ definition: {
+      get deploymentId() { return raw.deploymentId; }, get uniqueConstraintDefinitionId() { return raw.uniqueConstraintDefinitionId; },
+      get logicalUniqueConstraintId() { return raw.logicalUniqueConstraintId; }, get tableId() { return raw.tableId; },
+      get physicalSpecCodecVersion() { return raw.physicalSpecCodecVersion; }, get physicalSpecJson() { return raw.physicalSpecJson; },
+      get physicalSpecBytes() { return raw.physicalSpecBytes; }, get physicalSpecSha256() { return raw.physicalSpecSha256; },
+      get createdAt() { return databaseTimestampFromUnknown(raw.definitionCreatedAtText); },
+    }, binding: {
+      get deploymentId() { return raw.deploymentId; }, get schemaVersionId() { return raw.schemaVersionId; },
+      get uniqueConstraintDefinitionId() { return raw.bindingDefinitionId; }, get logicalUniqueConstraintId() { return raw.bindingLogicalId; },
+      get requiredForActivation() { return raw.requiredForActivation; },
+      get createdAt() { return databaseTimestampFromUnknown(raw.bindingCreatedAtText); },
+    } });
+  }
+  return yield* decodeAppUniqueConstraintDefinitionSetMembersEffect(deploymentId, schemaVersionId, maximumDefinitions, rows);
+});
+
 const decodeDefinitionRow = Effect.fn(
   "AppUniqueConstraintDefinitions.decodeDefinitionRow",
 )(function* (
-  row: typeof fxControlUniqueConstraintDefinitions.$inferSelect,
+  row: StoredUniqueDefinitionColumns,
   expected?: CanonicalAppUniqueConstraintPhysicalSpecV1,
 ) {
     const uniqueConstraintDefinitionId = yield* Effect.fromResult(
@@ -972,7 +1007,7 @@ const decodeDefinitionRow = Effect.fn(
     const createdAt = copyFiniteDate(row.createdAt);
     if (createdAt === undefined) return yield* Effect.fail(corruption("invalid creation time"));
     return Object.freeze({
-      deploymentId: row.deploymentId,
+      deploymentId: yield* Effect.fromResult(decodeCapturedDeploymentIdResult(row.deploymentId)).pipe(Effect.mapError(cause => corruption("invalid deployment ID", cause))),
       uniqueConstraintDefinitionId,
       logicalUniqueConstraintId,
       tableId,
@@ -1008,7 +1043,7 @@ function markLocatedDefinition(
 }
 
 const decodeBindingRow = Effect.fn("AppUniqueConstraintDefinitions.decodeBindingRow")(function* (
-  row: typeof fxControlSchemaVersionUniqueConstraintBindings.$inferSelect,
+  row: StoredUniqueBindingColumns,
 ) {
   const schemaVersionId = yield* Effect.fromResult(
     decodeSchemaVersionIdResult(row.schemaVersionId).pipe(
@@ -1030,7 +1065,7 @@ const decodeBindingRow = Effect.fn("AppUniqueConstraintDefinitions.decodeBinding
     return yield* Effect.fail(corruption("invalid binding row"));
   }
   return Object.freeze({
-    deploymentId: row.deploymentId,
+    deploymentId: yield* Effect.fromResult(decodeCapturedDeploymentIdResult(row.deploymentId)).pipe(Effect.mapError(cause => corruption("invalid deployment ID", cause))),
     schemaVersionId,
     logicalUniqueConstraintId,
     uniqueConstraintDefinitionId,

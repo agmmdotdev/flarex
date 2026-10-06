@@ -8,7 +8,8 @@ import {
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import {
@@ -33,6 +34,7 @@ import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuar
   type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
 import type { PreparedHostPreparationCharge } from "./preparedHostRuntime";
 import type { ApplicationActiveSelectionBasis } from "./applicationActivation";
+import { readFiniteEntryApplicationObservation, type FiniteEntryObservation } from "./finiteEntryObservation";
 
 const UTF8 = new TextEncoder();
 const MAX_FRAME_BYTES = 1_048_576;
@@ -105,6 +107,48 @@ export interface CoherentApplicationActiveHead {
   readonly activation: DecodedApplicationActivation;
 }
 
+const CapturedActiveHeadColumnsSchema = Schema.Struct({
+  scopeId: Schema.toType(ScopeIdSchema), sequenceText: Schema.BigIntFromString, revisionId: Schema.String,
+  readinessContractVersion: Schema.Literals([1, 2, 3]), relationCount: Schema.NullOr(Schema.Number),
+  evidenceBytes: Schema.Uint8Array, evidenceSha256: Schema.Uint8Array, readinessSha256: Schema.Uint8Array,
+  relationSetReadinessSha256: Schema.NullOr(Schema.Uint8Array), writePolicySetSha256: Schema.NullOr(Schema.Uint8Array),
+  writeOwnershipSha256: Schema.NullOr(Schema.Uint8Array), activationSha256: Schema.Uint8Array,
+  createdAtText: Schema.String, updatedAtText: Schema.String,
+});
+const decodeCapturedActiveHeadColumnsResult = Schema.decodeUnknownResult(CapturedActiveHeadColumnsSchema);
+const CapturedActivationColumnsSchema = Schema.Struct({
+  scopeId: Schema.toType(ScopeIdSchema), sequenceText: Schema.BigIntFromString,
+  previousSequenceText: Schema.NullOr(Schema.BigIntFromString), revisionId: Schema.String,
+  readinessContractVersion: Schema.Literals([1, 2, 3]), relationCount: Schema.NullOr(Schema.Number),
+  evidenceBytes: Schema.Uint8Array, evidenceSha256: Schema.Uint8Array, readinessSha256: Schema.Uint8Array,
+  relationSetReadinessSha256: Schema.NullOr(Schema.Uint8Array), writePolicySetSha256: Schema.NullOr(Schema.Uint8Array),
+  writeOwnershipSha256: Schema.NullOr(Schema.Uint8Array), activationSha256: Schema.Uint8Array,
+  activationRequestSha256: Schema.Uint8Array, legacyReadinessSha256: Schema.NullOr(Schema.Uint8Array),
+  relationReadinessSha256: Schema.NullOr(Schema.Uint8Array), activatedAtText: Schema.String,
+});
+const decodeCapturedActivationColumnsResult = Schema.decodeUnknownResult(CapturedActivationColumnsSchema);
+
+/** Raw scalar/byte projection only; the canonical head decoder remains authority. */
+export const decodeCapturedApplicationActiveHeadRowEffect = Effect.fn("ApplicationActiveHead.decodeCapturedRow")(function* (raw: unknown) {
+  const row = yield* Effect.fromResult(decodeCapturedActiveHeadColumnsResult(raw)).pipe(Effect.mapError(cause =>
+    new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false, cause })));
+  const createdAt = databaseTimestampFromUnknown(row.createdAtText);
+  const updatedAt = databaseTimestampFromUnknown(row.updatedAtText);
+  if (createdAt === null || updatedAt === null) return yield* storedState(row.revisionId);
+  return yield* decodeApplicationActiveHeadRowEffect({ ...row, activationSequence: row.sequenceText,
+    headBytes: row.evidenceBytes, headSha256: row.evidenceSha256, createdAt, updatedAt });
+});
+
+export const decodeCapturedApplicationActivationRowEffect = Effect.fn("ApplicationActivation.decodeCapturedRow")(function* (raw: unknown) {
+  const row = yield* Effect.fromResult(decodeCapturedActivationColumnsResult(raw)).pipe(Effect.mapError(cause =>
+    new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false, cause })));
+  const activatedAt = databaseTimestampFromUnknown(row.activatedAtText);
+  if (activatedAt === null) return yield* storedState(row.revisionId);
+  return yield* decodeApplicationActivationRowEffect({ ...row, activationSequence: row.sequenceText,
+    previousActivationSequence: row.previousSequenceText, activationBytes: row.evidenceBytes,
+    activationSha256: row.evidenceSha256, activatedAt });
+});
+
 declare const checkedActiveHeadBrand: unique symbol;
 /** A positive, locked observation issued only by the active-head reader. */
 export interface CheckedApplicationActiveHead {
@@ -148,7 +192,8 @@ export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect
   "ApplicationActiveHead.readCheckedCoherentForShare",
 )(function* (tx: AppRowTransaction, clock: ScopeClockRecord,
   onIssued: (checked: CheckedApplicationActiveHead) => void,
-  prepared?: PreparedApplicationActiveHeadStructure) {
+  prepared?: PreparedApplicationActiveHeadStructure,
+  finiteEntry?: FiniteEntryObservation) {
   const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx)
     ? undefined : preparedHeadStructures.get(prepared);
   if (prepared !== undefined && hasProtectedMetadataFinalGuardScope(tx) && preparation === undefined)
@@ -156,7 +201,11 @@ export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect
   if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
     preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
     Effect.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })));
-  const active = yield* readCoherentApplicationActiveHeadInTransaction(tx, clock.scopeId, true, preparation);
+  const captured = finiteEntry === undefined ? undefined : yield* Effect.fromResult(
+    readFiniteEntryApplicationObservation(finiteEntry, tx, clock)).pipe(Effect.mapError(cause =>
+      new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false, cause })));
+  const active = captured === undefined ? yield* readCoherentApplicationActiveHeadInTransaction(tx, clock.scopeId, true, preparation) :
+    yield* decodeObservedCoherentApplicationActiveHead(tx, clock.scopeId, captured, preparation);
   if (active === null) return null;
   const matchingPreparation = preparation !== undefined && preparedHeadMatchesSelection(active.head, preparation) ? preparation : undefined;
   // SAFETY: only this fresh locked reader issues the inert handle; the WeakMap owns its evidence.
@@ -366,6 +415,14 @@ export const readApplicationSchemaForHeadForShareInTransactionEffect = Effect.fn
             )).limit(2).for("share"),
             head.revisionId,
           );
+      return yield* decodeApplicationSchemaBinding(head, bindings);
+    },
+  );
+const decodeApplicationSchemaBinding = Effect.fn("ApplicationActiveHead.decodeSchemaBinding")(
+  function* (head: DecodedApplicationActiveHead,
+    bindings: readonly (typeof fxSystemApplicationRevisionSchemasV1.$inferSelect | typeof fxSystemApplicationRevisionSchemas.$inferSelect)[]) {
+    const scopeId = head.scopeId;
+
       const binding = bindings[0];
       if (bindings.length !== 1 || binding === undefined ||
         binding.scopeId !== scopeId || binding.revisionId !== head.revisionId ||
@@ -467,16 +524,15 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
   scopeId: TrustedScopeAuthority["scopeId"],
   lockForShare: boolean,
   preparation?: ApplicationActiveHeadPreparationState,
+  capturedHead?: Readonly<{ row: typeof fxSystemApplicationActiveHeads.$inferSelect | null }>,
 ): Effect.fn.Return<
   CoherentApplicationActiveHead | null,
   ApplicationActiveHeadStateError
 > {
-  const head = yield* readApplicationActiveHeadInTransaction(
-    tx,
-    scopeId,
-    lockForShare,
-  );
+  const head = capturedHead === undefined ? yield* readApplicationActiveHeadInTransaction(tx, scopeId, lockForShare)
+    : capturedHead.row === null ? null : yield* decodeApplicationActiveHeadRowEffect(capturedHead.row);
   if (head === null) return null;
+  if (head.scopeId !== scopeId) return yield* storedState(head.revisionId);
   // Preserve the owning Application selection's concurrent-head failure order.
   // A different fresh head receives full canonical proof but cannot fill this selection.
   if (preparation !== undefined && !preparedHeadMatchesSelection(head, preparation)) preparation = undefined;
@@ -501,7 +557,52 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
   if (!activationMatchesHead(activation, head)) {
     return yield* storedState(head.revisionId);
   }
-  if (preparation !== undefined) {
+  yield* retainCoherentApplicationHeadPreparation(tx, head, activation, preparation);
+  return Object.freeze({ head, activation });
+});
+
+export const decodeApplicationMaterializationObservation = Effect.fn("ApplicationActiveHead.decodeMaterializationObservation")(
+  function* (tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"], captured: Readonly<{
+    applicationHead: typeof fxSystemApplicationActiveHeads.$inferSelect | null;
+    applicationActivation: typeof fxSystemApplicationActivations.$inferSelect | null;
+    legacySchema: typeof fxSystemApplicationRevisionSchemasV1.$inferSelect | null;
+    relationSchema: typeof fxSystemApplicationRevisionSchemas.$inferSelect | null;
+    snapshot: boolean;
+  }>) {
+    if (!captured.snapshot) {
+      const active = yield* readCoherentApplicationActiveHeadInTransaction(tx, scopeId, true, undefined, { row: captured.applicationHead });
+      return active === null ? null : Object.freeze({ ...active,
+        schema: yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head) });
+    }
+    const active = yield* decodeObservedCoherentApplicationActiveHead(tx, scopeId, captured, undefined);
+    if (active === null) return null;
+    const binding = active.head.readinessKind === "legacy" ? captured.legacySchema : captured.relationSchema;
+    const schema = yield* decodeApplicationSchemaBinding(active.head, binding === null ? [] : [binding]);
+    return Object.freeze({ ...active, schema });
+  },
+);
+const decodeObservedCoherentApplicationActiveHead = Effect.fn("ApplicationActiveHead.decodeFiniteEntryObservation")(
+  function* (tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"],
+    captured: Result.Result.Success<ReturnType<typeof readFiniteEntryApplicationObservation>>,
+    preparation: ApplicationActiveHeadPreparationState | undefined) {
+    const row = captured.applicationHead;
+    if (row === null) {
+      if (captured.applicationActivation !== null) return yield* storedState();
+      return null;
+    }
+    const head = yield* decodeApplicationActiveHeadRowEffect(row);
+    if (head.scopeId !== scopeId || captured.applicationActivation === null) return yield* storedState(head.revisionId);
+    const activation = yield* decodeApplicationActivationRowEffect(captured.applicationActivation);
+    if (!activationMatchesHead(activation, head)) return yield* storedState(head.revisionId);
+    const matching = preparation !== undefined && preparedHeadMatchesSelection(head, preparation) ? preparation : undefined;
+    yield* retainCoherentApplicationHeadPreparation(tx, head, activation, matching);
+    return Object.freeze({ head, activation });
+  },
+);
+const retainCoherentApplicationHeadPreparation = Effect.fn("ApplicationActiveHead.retainCoherentPreparation")(
+  function* (tx: AppRowTransaction, head: DecodedApplicationActiveHead, activation: DecodedApplicationActivation,
+    preparation: ApplicationActiveHeadPreparationState | undefined) {
+    if (preparation === undefined || preparation.active !== undefined) return;
     yield* authenticateProtectedTargetMetadataSnapshot(preparation.protection, tx).pipe(
       Effect.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })));
     yield* Effect.suspend(() => {
@@ -512,9 +613,8 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
         Result.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })),
         Result.map(() => { preparation.active = retained; })));
     });
-  }
-  return Object.freeze({ head, activation });
-});
+  },
+);
 
 function preparedHeadMatchesSelection(head: DecodedApplicationActiveHead, preparation: ApplicationActiveHeadPreparationState): boolean {
   return head.scopeId === preparation.expected.authority.scopeId && head.activationSequence === preparation.expected.activationSequence &&

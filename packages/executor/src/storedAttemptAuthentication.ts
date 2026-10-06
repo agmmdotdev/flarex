@@ -1,6 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
-import type { ConfirmedFiniteRootSealCapture } from "@flarex/persistence-postgres/session-journal-store";
 
 import type {
   VerifiedApplicationMutationGrantInspectionV1,
@@ -464,9 +463,9 @@ export type PointMutationOccRuntimeNeutralRunnerInputV1 =
   | (PointMutationOccRuntimeNeutralRunnerInputCommonV1 & Readonly<{
       readonly executionAuthorityGeneration: "application_v1";
       readonly verifiedGrant: VerifiedApplicationMutationGrantInspectionV1;
-      readonly application: NonNullable<
+      readonly application: Pick<NonNullable<
         StoredCommitAuthorityEvidencePortV1["application"]
-      >;
+      >, "manifest" | "runtimeHostIdentity" | "compatibilityDate" | "executionAuthority" | "runtimeTarget">;
     }>);
 
 export interface PointMutationOccExecutionContextFactoryV1 {
@@ -774,7 +773,6 @@ export interface StoredAttemptEvidencePersistencePortErrorV1 {
 export interface StoredAttemptEvidenceLoaderPortV1 {
   readonly loadEffect: (
     authority: StoredAttemptEvidenceAuthorityPortV1,
-    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     StoredAttemptEvidenceLoadResultPortV1,
     StoredAttemptEvidencePersistencePortErrorV1
@@ -802,7 +800,6 @@ export interface StoredAttemptAuthenticationV1 {
   readonly authenticate: (
     authority: TrustedStoredAttemptAuthorityV1,
     envelope: unknown,
-    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     AuthenticatedStoredAttemptV1,
     StoredAttemptAuthenticationV1Error
@@ -842,7 +839,6 @@ export interface StoredCommitAuthorityAuthenticationV1
 }
 
 export interface AuthenticatedStoredAttemptStateV1 {
-  readonly terminalCapture?: ConfirmedFiniteRootSealCapture;
   readonly authority: StoredAttemptAuthorityStateV1;
   /** Private process-local execution scope; never projected into persistence. */
   readonly executionScope?: PointMutationExecutionScopeV1;
@@ -1186,9 +1182,6 @@ export type PointMutationInitialExecutionV1Error =
 
 export interface PointMutationInitialExecutionV1
   extends StoredPointMutationOccRerunExecutionV1 {
-  readonly runAuthenticatedFiniteInitialEntry: <A, E, R>(activated: ActivatedPointMutationSessionV1,
-    work: (entry: import("./storedAttemptAuthentication/exactPointMutationExecutionOperations").AuthenticatedFiniteInitialEntry) => Effect.Effect<A, E, R>) =>
-    Effect.Effect<A, E | PointMutationInitialExecutionV1Error, R>;
   readonly executeInitialPointMutationAttempt: (
     activated: ActivatedPointMutationSessionV1,
   ) => Effect.Effect<
@@ -1932,7 +1925,6 @@ function createStoredPointMutationCapabilityRuntimeV1(
 
   const {
     executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
-    prepareFiniteInitialEntry,
   } = makeExactPointMutationExecutionOperationsV1({
     functionMetadata: commitAuthority.functionMetadata,
     contextFactory: pointMutationOccContextFactoryPort,
@@ -1983,8 +1975,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
           commitAuthority.applicationMutationGrantVerifier,
         ),
       executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
-      prepareFiniteInitialEntry,
-      publicationResultFromCommittedOutcome,
+        publicationResultFromCommittedOutcome,
     }),
   } satisfies PointMutationInitialExecutionV1);
   if (stage === "initialExecution") return initialExecution;

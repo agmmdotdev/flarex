@@ -5,6 +5,7 @@ import type { AppRowTransaction } from "./appRows";
 import { flarexSchema } from "./schema";
 import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
 import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission,
+  acquireInstallationAdmission, InstallationLifecycleError, type PreparedInstallation,
   type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -29,6 +30,7 @@ export type PostgresLocatedReadCommittedPhaseV1 =
  */
 export interface PostgresLocatedReadCommittedRunnerOptionsV1 {
   readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation; database: FlarexMetadataDatabase }>;
+  readonly directInstallation?: Readonly<{ installation: PreparedInstallation; database: FlarexMetadataDatabase }>;
   readonly afterAcquire?: (client: PoolClient) => void | Promise<void>;
   readonly release?: (
     client: PoolClient,
@@ -150,8 +152,7 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
       async (tx): Promise<Result> => {
         state.phase = "configuring";
         await tx.setTransaction({ isolationLevel: "read committed" });
-        await Effect.runPromise(options.managedInstallation === undefined ? lockInstallationForCurrentTransaction(tx)
-          : acquireCoLocatedInstallationAdmission(options.managedInstallation.installation, options.managedInstallation.database, tx));
+        await Effect.runPromise(acquireRunnerInstallationAdmission(options, tx));
         state.phase = "runningCallback";
         try {
           const result = await work(tx);
@@ -190,6 +191,18 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
     connectionErrors.close();
   }
 }
+
+const acquireRunnerInstallationAdmission = Effect.fn("PostgresLocatedReadCommitted.acquireInstallation")(
+  function* (options: PostgresLocatedReadCommittedRunnerOptionsV1, tx: AppRowTransaction) {
+    if (options.managedInstallation !== undefined && options.directInstallation !== undefined)
+      return yield* Effect.fail(new InstallationLifecycleError({ reason: "invalidCapability" }));
+    if (options.directInstallation !== undefined)
+      return yield* acquireInstallationAdmission(options.directInstallation.installation, options.directInstallation.database, tx);
+    if (options.managedInstallation !== undefined)
+      return yield* acquireCoLocatedInstallationAdmission(options.managedInstallation.installation, options.managedInstallation.database, tx);
+    return yield* lockInstallationForCurrentTransaction(tx);
+  },
+);
 
 export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
   client: Client,

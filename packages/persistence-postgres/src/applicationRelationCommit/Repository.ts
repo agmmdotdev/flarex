@@ -22,6 +22,7 @@ import {
 } from "../appRelationEdges";
 import {
   locateApplicationRelationBindingForCommitEffect,
+  hasLocatedApplicationRelationBindingAuthority,
   type LocatedApplicationRelationBinding,
 } from "../applicationRelationBinding";
 import type { AppRowTransaction } from "../appRows";
@@ -163,6 +164,21 @@ export function hasLocatedApplicationRelationDefinitionSetAuthority(
   return portState !== undefined &&
     locatedApplicationRelationDefinitionSetStates.get(value) === portState;
 }
+
+/** Project a construction-owned binding through this exact commit port. The
+ * binding location owner proves the original catalogue read and database. */
+export const prepareApplicationRelationDefinitionsFromLocatedBindingResult = (
+  port: ApplicationRelationCommitPort, binding: LocatedApplicationRelationBinding, deploymentId: TransactionGrantDeploymentIdV1,
+): Result.Result<LocatedApplicationRelationDefinitionSet, ApplicationRelationCommitCorruptionError> => {
+  const state = applicationRelationCommitPortStates.get(port);
+  if (state === undefined || !hasLocatedApplicationRelationBindingAuthority(binding, state.controlDb))
+    return Result.fail(commitCorruption("invalidDefinitionSet"));
+  return projectLocatedApplicationRelationDefinitionSetResult(binding, deploymentId)
+    .pipe(Result.map(projected => {
+      locatedApplicationRelationDefinitionSetStates.set(projected, state);
+      return projected;
+    }));
+};
 
 /**
  * Same-factory preparation wrapper. Only its result can cross the private C09

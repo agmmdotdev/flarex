@@ -7,10 +7,11 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
-import { fxAppRowRevisions } from "../../persistence-postgres/src/schema";
+import { fxAppRowRevisions, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
-import { PointMutationJournalAttemptUnavailableV1Error } from
+import { PointMutationJournalAdmittedOperationRejectedV1Error } from
   "../../executor/src/pointMutationJournal";
 import { admittedCommerceEventGroup } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -74,6 +75,13 @@ describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
       const conflict = await fixture.prepareOccPublication(returnedValue)
         .then(publication => Effect.runPromise(publication)).then(() => null, cause => cause);
       expect(conflict).toBeInstanceOf(PointCommitConflictV1Error);
+      const [fenced] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+        .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+      if (fenced === undefined) throw new Error("Missing genuine fenced finite anchor");
+      expect(fenced).toMatchObject({ executionProfile: "finiteRoot", lifecycle: "retrying",
+        finiteClaimFence: fixture.activation.executionClaim.claimFence + 1n });
+      expect((await Effect.runPromise(readFiniteAttemptAnchorRow(fenced))).reservation?.snapshotToken)
+        .toEqual(fixture.activation.anchor.snapshotToken);
       expect(await fixture.retryWholeAttempt(conflict)).toMatchObject({ kind: "published" });
       expect(fixture.retryContexts).toHaveLength(1);
       const fresh = fixture.retryContexts[0];
@@ -81,6 +89,10 @@ describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
       expect(fresh.attemptFence).toBeGreaterThan(fixture.activation.anchor.attemptFence);
       expect(fresh.snapshotToken.commitSeq).toBeGreaterThan(
         fixture.activation.anchor.snapshotToken.commitSeq);
+      const [committedAnchor] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+        .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+      expect(committedAnchor).toMatchObject({ executionProfile: "finiteRoot", lifecycle: "committed",
+        attemptFence: fresh.attemptFence, finiteSnapshotCommitSeq: fresh.snapshotToken.commitSeq });
       const history = fixture.payload?.runtimeHistory;
       expect(history).toHaveLength(2);
       expect(history?.[1]).not.toBe(history?.[0]);
@@ -102,7 +114,10 @@ describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
       const callsBeforeStale = fixture.nativeInvokeCount.get("payload-create");
       const stale = await Effect.runPromise(fixture.runAdmitted({ ...originalCreateRequest,
         syscallSequence: CommitSyscallSequenceV1Schema.make(10n) })).then(() => null, cause => cause);
-      expect(stale).toBeInstanceOf(PointMutationJournalAttemptUnavailableV1Error);
+      expect(stale).toBeInstanceOf(PointMutationJournalAdmittedOperationRejectedV1Error);
+      if (!(stale instanceof PointMutationJournalAdmittedOperationRejectedV1Error))
+        throw new Error("Missing exact closed-root Payload refusal", { cause: stale });
+      expect(stale.result).toEqual({ kind: "stateRejected", issue: { reason: "journalFailed" } });
       expect(fixture.nativeInvokeCount.get("payload-create")).toBe(callsBeforeStale);
     } finally { await fixture.close(); }
   }, 180_000);
@@ -130,6 +145,7 @@ describe.each(drivers)("mixed Payload historical title conflict on %s", driver =
         const conflict = await fixture.prepareOccPublication(returnedValue)
           .then(publication => Effect.runPromise(publication)).then(() => null, cause => cause);
         expect(conflict).toBeInstanceOf(PointCommitConflictV1Error);
+        expect(conflict).toMatchObject({ conflict: { kind: "finiteRootGraph", observation: { readKind: "unique" } } });
         const unrelatedTitle = `${fixture.seed.newTitle} unrelated`;
         const unrelated = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String,
           title: Schema.String }))(await fixture.runStandalonePayloadCreate(unrelatedTitle));

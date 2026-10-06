@@ -230,6 +230,10 @@ export const publishApplicationRelationBindingEffect = Effect.fn(
  * coordinates are locators only: retained canonical evidence and every
  * normalized relation/physical row are revalidated before returning.
  */
+const locatedCommitBindings = new WeakMap<LocatedApplicationRelationBinding, FlarexMetadataDatabase>();
+export const hasLocatedApplicationRelationBindingAuthority = (binding: LocatedApplicationRelationBinding,
+  database: FlarexMetadataDatabase): boolean => locatedCommitBindings.get(binding) === database;
+
 export const locateApplicationRelationBindingForCommitEffect = Effect.fn(
   "ApplicationRelationBinding.locateForCommit",
 )(function* (
@@ -305,7 +309,7 @@ export const locateApplicationRelationBindingForCommitEffect = Effect.fn(
     db,
     decoded.bound,
   );
-  return Object.freeze({
+  const located = Object.freeze({
     deploymentId: input.deploymentId,
     schemaVersionId,
     schemaArtifact: artifact,
@@ -314,6 +318,8 @@ export const locateApplicationRelationBindingForCommitEffect = Effect.fn(
     schemaManifestSha256: copyBytes(decoded.schemaManifestSha256),
     boundPublicationSha256: copyBytes(row.boundPublicationSha256),
   } satisfies LocatedApplicationRelationBinding);
+  locatedCommitBindings.set(located, db);
+  return located;
 });
 
 /**

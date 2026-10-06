@@ -1,15 +1,17 @@
-import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import type { AppDocumentIdV1, AppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol/app-document";
+import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import { logicalMetadataDependencyIdentity, MAX_COMMIT_METADATA_READ_DEPENDENCIES,
   type LogicalMetadataReadDependency, type MetadataSequence } from "flarex-protocol/commit-protocol";
-import { Effect } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { ApplicationDocumentObservation } from "../applicationDocumentMaterialization/model";
+import type { AppRowReadResultV1, LiveAppRowRevisionV1 } from "../appRows";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { LogicalIndexRead, LogicalIndexPageRead } from "./indexReads";
 import type { LogicalSearchRead } from "./searchReads";
-import type { LogicalPendingDocumentSeed } from "./model";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
 import { isJsonObject } from "flarex-protocol/json";
 import { detachLogicalDocumentChanges } from "./detachChanges";
@@ -19,9 +21,27 @@ import type { LogicalDocumentAttempt, LogicalDocumentChanges, LogicalDocumentObs
 
 export interface LogicalDocumentRootEvaluator {
   readonly snapshot: () => LogicalDocumentChanges;
-  /** Journal-owned Application point awaiting first native facade access. */
-  readonly stageAppPoint: (seed: LogicalPendingDocumentSeed) => boolean;
+  readonly snapshotOriginalRows: () => Result.Result<readonly LiveAppRowRevisionV1[], LogicalDocumentRootPointFailure>;
+  readonly attemptCount: () => number;
+  readonly point: (tableId: CatalogTableId, rowId: AppRowIdHexV1) => LogicalDocumentRootPoint | undefined;
+  readonly points: (tableId?: CatalogTableId) => readonly LogicalDocumentRootPoint[];
+  readonly observePoint: (tableName: string, observation: ApplicationDocumentObservation,
+    revision: AppRowReadResultV1) => Result.Result<void, LogicalDocumentRootPointFailure>;
+  readonly writePoint: (tableName: string, observation: ApplicationDocumentObservation,
+    overlay: Readonly<{ kind: "live"; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }> |
+      Readonly<{ kind: "deleted" }>, operation: LogicalDocumentAttempt["operation"]) => Result.Result<void, LogicalDocumentRootPointFailure>;
+  readonly forgetUnwrittenPoint: (tableId: CatalogTableId, rowId: AppRowIdHexV1) => void;
   readonly close: () => void;
+}
+
+export type LogicalDocumentRootPointFailure = "closed" | "limitExceeded" | "observationMismatch" | "invalidDocument";
+/** Restricted projection of the one original observation and current pending value. */
+export interface LogicalDocumentRootPoint {
+  readonly observation: ApplicationDocumentObservation;
+  readonly originalDocument: CanonicalFlarexValueV1 | null;
+  readonly document: CanonicalFlarexValueV1 | null;
+  readonly creationTime: AppCreationTimeV1 | undefined;
+  readonly written: boolean;
 }
 
 export interface LogicalDocumentRootPins {
@@ -37,10 +57,16 @@ export interface LogicalDocumentRootLimits {
   readonly workingBytes: number;
 }
 
+/** Private finite evidence stays on the existing pending entry. Missing and
+ * tombstone originals need only their exact dependency for current-head OCC. */
+interface RootPendingDocument extends PendingDocument {
+  readonly originalRevision?: LiveAppRowRevisionV1;
+}
+
 export interface LogicalDocumentRootState {
   readonly pins: LogicalDocumentRootPins;
   readonly limits: LogicalDocumentRootLimits;
-  readonly rows: Map<AppDocumentIdV1, PendingDocument>;
+  readonly rows: Map<AppDocumentIdV1, RootPendingDocument>;
   readonly scanned: Map<CatalogTableId, CommitSeq>;
   readonly dependencies: Map<AppDocumentIdV1, ApplicationDocumentObservation>;
   readonly metadataDependencies: Map<string, LogicalMetadataReadDependency>;
@@ -53,16 +79,24 @@ export interface LogicalDocumentRootState {
   readonly lifecycle: LogicalRelationalLifecycleObservation[];
   readonly setNull: LogicalSetNullIntent[];
   readonly referenceReplacements: LogicalReferenceReplacementIntent[];
-  readonly appPoints: Map<AppDocumentIdV1, LogicalPendingDocumentSeed>;
-  readonly appPointIdsByTable: Map<CatalogTableId, Set<AppDocumentIdV1>>;
-  readonly appPointOrder: Map<AppDocumentIdV1, number>;
-  readonly hydratedAppPoints: Set<AppDocumentIdV1>;
   workingBytes: number;
   inserted: number;
+  activityGeneration: number;
+  ownedSnapshot?: (() => LogicalDocumentChanges) | undefined;
   closed: boolean;
 }
 
 const roots = new WeakMap<LogicalDocumentRootEvaluator, LogicalDocumentRootState>();
+const decodeAppCreationTimeResult = Schema.decodeUnknownResult(AppCreationTimeV1Schema);
+
+const sameObservation = (left: ApplicationDocumentObservation, right: ApplicationDocumentObservation): boolean => {
+  const a = left.dependency.observed, b = right.dependency.observed;
+  return left.documentId === right.documentId && left.tableId === right.tableId && left.rowId === right.rowId &&
+    left.dependency.documentId === right.dependency.documentId && left.readAt === right.readAt && a.kind === b.kind && (a.kind === "present" && b.kind === "present"
+    ? a.revisionCommitSeq === b.revisionCommitSeq : a.kind === "missing" && b.kind === "missing" &&
+      a.basis.kind === b.basis.kind && (a.basis.kind !== "tombstone" || b.basis.kind === "tombstone" &&
+        a.basis.revisionCommitSeq === b.basis.revisionCommitSeq));
+};
 
 /** Issued only by the trusted finite-attempt owner. No SQL resource is held. */
 export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
@@ -71,10 +105,27 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     pins: Object.freeze({ ...pins }), limits: Object.freeze({ ...limits }), rows: new Map(), scanned: new Map(),
     dependencies: new Map(), metadataDependencies: new Map(), scans: new Map(), uniqueReads: new Map(), indexReads: new Map(),
     pageReads: [], searchReads: [], attempts: [], lifecycle: [], setNull: [], referenceReplacements: [],
-    appPoints: new Map(), appPointIdsByTable: new Map(), appPointOrder: new Map(), hydratedAppPoints: new Set(),
-    workingBytes: 0, inserted: 0, closed: false,
+    workingBytes: 0, inserted: 0, activityGeneration: 0, closed: false,
   };
-  const snapshot = (): LogicalDocumentChanges => {
+  const snapshotOriginalRows: LogicalDocumentRootEvaluator["snapshotOriginalRows"] = () => {
+    if (state.closed) return Result.fail("closed");
+    const originals: LiveAppRowRevisionV1[] = [];
+    for (const row of state.rows.values()) {
+      if (row.attempts.length === 0) continue;
+      const observed = state.dependencies.get(row.documentId)?.dependency.observed;
+      if (observed?.kind !== "present") continue;
+      const revision = row.originalRevision;
+      if (revision === undefined || revision.scopeId !== state.pins.scopeId || revision.tableId !== row.tableId ||
+        revision.rowId !== row.rowId || revision.commitSeq !== observed.revisionCommitSeq ||
+        row.base?.kind !== "live" || row.base.document !== revision.document ||
+        row.base.commitSeq !== revision.commitSeq || row.creationTime !== revision.creationTime)
+        return Result.fail("observationMismatch");
+      originals.push(revision);
+    }
+    return Result.succeed(Object.freeze(structuredClone(originals.toSorted((a, b) =>
+      a.tableId - b.tableId || a.rowId.localeCompare(b.rowId)))));
+  };
+  const ownedSnapshot = (): LogicalDocumentChanges => {
     if (state.closed) throw new Error("Logical document root evaluator is closed");
     const changes: LogicalDocumentChanges["changes"][number][] = [];
     const observedRows: LogicalDocumentObservedRow[] = [];
@@ -83,7 +134,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       if (row.current !== null) {
         if (!isJsonObject(row.current.valueJson)) throw new Error("Logical document root value is invalid");
         observedRows.push(Object.freeze({ documentId: row.documentId, tableId: row.tableId,
-          tableName: row.tableName, value: structuredClone(row.current.valueJson) }));
+          tableName: row.tableName, value: row.current.valueJson }));
       }
       if (row.attempts.length === 0) continue;
       if (row.base === null && row.current === null) { noFinalRows.push(row.documentId); continue; }
@@ -95,7 +146,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     changes.sort((left, right) => left.tableId - right.tableId || left.rowId.localeCompare(right.rowId));
     observedRows.sort((left, right) => left.tableId - right.tableId || left.documentId.localeCompare(right.documentId));
     noFinalRows.sort();
-    return detachLogicalDocumentChanges(Object.freeze({ changes: Object.freeze(changes), observedRows: Object.freeze(observedRows),
+    return Object.freeze({ changes: Object.freeze(changes), observedRows: Object.freeze(observedRows),
       noFinalRows: Object.freeze(noFinalRows), attempts: Object.freeze([...state.attempts]),
       lifecycle: Object.freeze([...state.lifecycle]),
       dependencies: Object.freeze([...state.dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
@@ -107,36 +158,101 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       uniqueReads: Object.freeze([...state.uniqueReads.values()]), indexReads: Object.freeze([...state.indexReads.values()]),
       pageReads: Object.freeze([...state.pageReads]), searchReads: Object.freeze([...state.searchReads]),
       setNull: Object.freeze([...state.setNull]), referenceReplacements: Object.freeze([...state.referenceReplacements]),
-    }));
+    });
   };
-  const stageAppPoint = (seed: LogicalPendingDocumentSeed): boolean => {
-    if (state.closed) return false;
-    const documentId = appDocumentIdV1FromRowIdentity(seed);
-    // Native writes to this identity cannot be overwritten by a later App
-    // overlay. The journal owner must settle such overlap in one domain first.
-    if (state.rows.get(documentId)?.attempts.length) return false;
-    const prior = state.appPoints.get(documentId);
-    if (prior !== undefined && (prior.observed.kind !== seed.observed.kind ||
-      (prior.observed.kind === "present" && seed.observed.kind === "present"
-        ? prior.observed.revisionCommitSeq !== seed.observed.revisionCommitSeq
-        : prior.observed.kind === "missing" && seed.observed.kind === "missing" &&
-          (prior.observed.basis.kind !== seed.observed.basis.kind ||
-            prior.observed.basis.kind === "tombstone" && seed.observed.basis.kind === "tombstone" &&
-              prior.observed.basis.revisionCommitSeq !== seed.observed.basis.revisionCommitSeq)))) return false;
-    if (prior === undefined) state.appPointOrder.set(documentId, state.appPoints.size);
-    state.appPoints.set(documentId, structuredClone(seed));
-    let tablePoints = state.appPointIdsByTable.get(seed.tableId);
-    if (tablePoints === undefined) {
-      tablePoints = new Set();
-      state.appPointIdsByTable.set(seed.tableId, tablePoints);
+  const snapshot = (): LogicalDocumentChanges => detachLogicalDocumentChanges(ownedSnapshot());
+  const point = (tableId: CatalogTableId, rowId: AppRowIdHexV1): LogicalDocumentRootPoint | undefined => {
+    if (state.closed) return undefined;
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    const observation = state.dependencies.get(documentId);
+    if (observation === undefined) return undefined;
+    const row = state.rows.get(documentId);
+    return Object.freeze({ observation: structuredClone(observation), originalDocument: row?.base?.kind === "live" ? structuredClone(row.base.document) : null,
+      document: row?.current == null ? null : structuredClone(row.current), creationTime: row?.creationTime, written: (row?.attempts.length ?? 0) > 0 });
+  };
+  const points = (tableId?: CatalogTableId): readonly LogicalDocumentRootPoint[] => {
+    if (state.closed) return [];
+    return [...state.dependencies.values()].filter(observation => tableId === undefined || observation.tableId === tableId)
+      .map(observation => point(observation.tableId, observation.rowId)!);
+  };
+  const observePoint: LogicalDocumentRootEvaluator["observePoint"] = (tableName, observation, revision) => {
+    if (state.closed) return Result.fail("closed");
+    if (observation.readAt !== state.pins.snapshotCommitSeq || observation.documentId !== appDocumentIdV1FromRowIdentity(observation) ||
+      observation.dependency.documentId !== observation.documentId)
+      return Result.fail("observationMismatch");
+    const prior = state.dependencies.get(observation.documentId);
+    if (prior !== undefined) return sameObservation(prior, observation) ? Result.succeed(undefined) : Result.fail("observationMismatch");
+    const observed = observation.dependency.observed;
+    const document = revision.kind === "live" ? revision.document : null;
+    if ((observed.kind === "present") !== (document !== null)) return Result.fail("invalidDocument");
+    if (revision.kind !== "missing" && (revision.scopeId !== state.pins.scopeId || revision.tableId !== observation.tableId ||
+      revision.rowId !== observation.rowId || revision.commitSeq > state.pins.snapshotCommitSeq ||
+      (observed.kind === "present" ? revision.kind !== "live" || revision.commitSeq !== observed.revisionCommitSeq :
+        observed.basis.kind !== "tombstone" || revision.kind !== "tombstone" || revision.commitSeq !== observed.basis.revisionCommitSeq)))
+      return Result.fail("observationMismatch");
+    if (revision.kind === "missing" && (observed.kind !== "missing" || observed.basis.kind !== "noVisibleRevision"))
+      return Result.fail("observationMismatch");
+    return Result.gen(function* () {
+      let creationTime: AppCreationTimeV1 | undefined;
+      if (document !== null) {
+        if (!isJsonObject(document.valueJson)) return yield* Result.fail<LogicalDocumentRootPointFailure>("invalidDocument");
+        creationTime = yield* decodeAppCreationTimeResult(document.valueJson._creationTime).pipe(
+          Result.mapError((): LogicalDocumentRootPointFailure => "invalidDocument"));
+        if (document.valueJson._id !== observation.documentId) return yield* Result.fail<LogicalDocumentRootPointFailure>("invalidDocument");
+      }
+      // The existing fixed observation/row envelope charge owns the revision
+      // scalars. Its canonical document is shared by original/base/current.
+      const bytes = 256 + (document?.canonicalBytes.byteLength ?? 0);
+      if (state.dependencies.size >= state.limits.identities || bytes > state.limits.workingBytes - state.workingBytes)
+        return yield* Result.fail<LogicalDocumentRootPointFailure>("limitExceeded");
+      const ownedObservation = structuredClone(observation), ownedRevision = structuredClone(revision);
+      state.dependencies.set(observation.documentId, ownedObservation);
+      if (ownedRevision.kind === "live" && observed.kind === "present" && creationTime !== undefined) {
+        state.rows.set(observation.documentId, { tableId: observation.tableId, tableName, rowId: observation.rowId,
+          documentId: observation.documentId, base: ownedRevision, originalRevision: ownedRevision, creationTime,
+          current: ownedRevision.document, attempts: [] });
+      }
+      state.workingBytes += bytes;
+      state.activityGeneration++;
+    });
+  };
+  const writePoint: LogicalDocumentRootEvaluator["writePoint"] = (tableName, observation, overlay, operation) => {
+    if (state.closed) return Result.fail("closed");
+    const prior = state.dependencies.get(observation.documentId);
+    if (prior === undefined || !sameObservation(prior, observation)) return Result.fail("observationMismatch");
+    let row = state.rows.get(observation.documentId);
+    if (overlay.kind === "live" && (!isJsonObject(overlay.document.valueJson) ||
+      overlay.document.valueJson._id !== observation.documentId || overlay.document.valueJson._creationTime !== overlay.creationTime ||
+      row !== undefined && row.creationTime !== overlay.creationTime)) return Result.fail("invalidDocument");
+    if (row === undefined) {
+      if (overlay.kind !== "live") return Result.fail("invalidDocument");
+      row = { tableId: observation.tableId, tableName, rowId: observation.rowId, documentId: observation.documentId,
+        base: null, creationTime: overlay.creationTime, current: null, attempts: [] };
     }
-    tablePoints.add(documentId);
-    state.hydratedAppPoints.delete(documentId);
-    return true;
+    const bytes = 128 + (overlay.kind === "live" ? overlay.document.canonicalBytes.byteLength : 0);
+    if (bytes > state.limits.workingBytes - state.workingBytes) return Result.fail("limitExceeded");
+    const after = overlay.kind === "live" ? structuredClone(overlay.document) : null;
+    const ordinal = state.attempts.length;
+    state.attempts.push(Object.freeze({ ordinal, tableId: row.tableId, tableName, documentId: row.documentId,
+      operation, before: row.current, after }));
+    row.attempts.push(ordinal);
+    row.current = after;
+    state.rows.set(row.documentId, row);
+    state.workingBytes += bytes;
+    state.activityGeneration++;
+    return Result.succeed(undefined);
+  };
+  const forgetUnwrittenPoint = (tableId: CatalogTableId, rowId: AppRowIdHexV1) => {
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    if (state.rows.get(documentId)?.attempts.length) return;
+    state.dependencies.delete(documentId);
+    state.rows.delete(documentId);
+    state.activityGeneration++;
   };
   const close = () => {
     if (state.closed) return;
     state.closed = true;
+    state.ownedSnapshot = undefined;
     state.rows.clear();
     state.scanned.clear();
     state.dependencies.clear();
@@ -150,15 +266,30 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     state.lifecycle.length = 0;
     state.setNull.length = 0;
     state.referenceReplacements.length = 0;
-    state.appPoints.clear();
-    state.appPointIdsByTable.clear();
-    state.appPointOrder.clear();
-    state.hydratedAppPoints.clear();
     state.workingBytes = 0;
   };
-  const evaluator = Object.freeze({ snapshot, stageAppPoint, close });
+  const evaluator = Object.freeze({ snapshot, snapshotOriginalRows, attemptCount: () => state.attempts.length,
+    point, points, observePoint, writePoint, forgetUnwrittenPoint, close });
   roots.set(evaluator, state);
+  state.ownedSnapshot = ownedSnapshot;
   return evaluator;
+};
+
+// The snapshot function is private issuer evidence, never a structural method
+// on a caller-provided evaluator. Registry ingress detaches the transferred
+// graph once before retaining it. Closing revokes all working-set operations.
+export const takeLogicalDocumentRootSnapshot = (evaluator: LogicalDocumentRootEvaluator):
+  Result.Result<Readonly<{ graph: LogicalDocumentChanges; originalRows: readonly LiveAppRowRevisionV1[] }>, LogicalDocumentRootPointFailure> => {
+  const state = roots.get(evaluator), snapshot = state?.ownedSnapshot;
+  if (snapshot === undefined || state?.closed !== false)
+    throw new Error("Logical document root evaluator is closed or foreign");
+  const graph = snapshot();
+  // Preserve graph-before-original verification and revoke only after both
+  // succeeded. The caller retains the existing failure cleanup owner.
+  return evaluator.snapshotOriginalRows().pipe(Result.map(originalRows => {
+    evaluator.close();
+    return Object.freeze({ graph, originalRows });
+  }));
 };
 
 /** The trusted entry owner fixes this watermark before any native selection.

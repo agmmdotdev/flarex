@@ -1,5 +1,6 @@
+import type { FiniteStorageCaptureOperation, FiniteStorageCaptureEnvelopes } from "../src/finiteStorageCapture";
 import { fxSystemScopeExecutionAuthorities } from "../src/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { expect } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
@@ -11,7 +12,9 @@ import { lowerAppDeveloperOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ord
 import { canonicalizeAppIndexPhysicalSpecV1, canonicalAppIndexPhysicalSpecBytesHexV1ToBytes,
   appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-definition";
 import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
+import { appendAppRowRevisionAndAdvanceCurrentInTransaction, prepareAppRowsSnapshotReadEffect,
+  captureAppRowsAtSnapshotInTransactionEffect, readAppRowAtSnapshotInTransactionEffect,
+  type AppRowReadResultV1, type ReadAppRowError } from "../src/appRows";
 import { makeBoundedRequestLifetime } from "../src/boundedRequestLifetime";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { runEffectTransaction } from "../src/effectTransaction";
@@ -19,7 +22,6 @@ import { makeLogicalDocumentWorkingSet, prepareLogicalWriteMechanics, combineLog
 import type { LogicalStorageReadDemand, LogicalDocumentWorkingSetInput, PreparedLogicalDocumentWriteMechanics } from "../src/logicalDocuments/model";
 import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
 import { makeLogicalDocumentRootEvaluator, requireLogicalDocumentRootEvaluatorOpen } from "../src/logicalDocuments/rootEvaluator";
-import { projectLogicalDocumentJournalContribution } from "../src/logicalDocuments/journalContribution";
 import type { SessionJournalAttempt } from "../src/sessionJournalStore";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { getScopeClock } from "../src/scopeClock";
@@ -27,9 +29,11 @@ import { lockScopeClockForSnapshotReadInTransactionEffect } from "../src/scopeCl
 import { fxSystemScopeClocks, deployments, fxControlTables, fxControlScopes, fxControlIndexes, fxControlIndexDefinitions } from "../src/schema";
 import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../src/appIndexDefinitions";
 import { lowerAppDeveloperIndexKeyV1 } from "../src/appDeveloperIndexCommitV1";
-import { appendAppIndexEntryRevisionsInTransactionEffect } from "../src/appIndexEntries";
+import { appendAppIndexEntryRevisionsInTransactionEffect, prepareAppIndexSnapshotReadEffect,
+  buildAppIndexSnapshotReadStatement, decodeCapturedAppIndexSnapshotPageEffect } from "../src/appIndexEntries";
+import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
+import { rowsFromDriverExecuteResult } from "../src/driverExecuteResult";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { capturePrivateJsonData } from "../src/privateJsonData";
 import { runEffect } from "./effectTestRuntime";
 
 /** A neutral two-table working-set witness shared by PGlite and ordinary PG. */
@@ -289,11 +293,30 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     const snapshotCommitSeq = CommitSeqSchema.make(3n);
     const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence: "working-set-root-1" };
     const root = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
+    const originalRevision = await runEffect(runEffectTransaction<AppRowReadResultV1, ReadAppRowError, Error, FlarexMetadataTransaction>(
+      callback => db.transaction(callback), "Original finite fixture revision", tx =>
+        readAppRowAtSnapshotInTransactionEffect(tx, { scopeId, tableId: firstTable, rowId: firstRow,
+          snapshotCommitSeq: CommitSeqSchema.make(1n) }), cause => failure("originalRevision", cause)));
+    if (originalRevision.kind !== "live") throw new Error("Missing actual original finite fixture revision");
+    const seedRoot = (evaluator: typeof root, input: Readonly<{ tableId: typeof firstTable; rowId: typeof firstRow;
+      observed: typeof originalObserved | { kind: "missing"; basis: { kind: "noVisibleRevision" } | { kind: "tombstone"; revisionCommitSeq: typeof snapshotCommitSeq } }; overlay: { kind: "deleted" } | { kind: "live"; creationTime: typeof firstTime; document: typeof original } }>): boolean => {
+      const documentId = appDocumentIdV1FromRowIdentity(input);
+      const observation = { documentId, tableId: input.tableId, rowId: input.rowId, readAt: snapshotCommitSeq,
+        dependency: { kind: "appRowPoint" as const, documentId, observed: input.observed } };
+      const admitted = evaluator.observePoint(input.tableId === firstTable ? "notes" : "labels", observation,
+        input.observed.kind === "present" ? originalRevision : { kind: "missing" });
+      if (Result.isFailure(admitted)) return false;
+      if (input.overlay.kind === "deleted" && input.observed.kind === "missing") return true;
+      return Result.isSuccess(evaluator.writePoint(input.tableId === firstTable ? "notes" : "labels", observation,
+        input.overlay, input.overlay.kind === "deleted" ? "delete" : input.observed.kind === "present" ? "replace" : "insert"));
+    };
+    const originalObserved = { kind: "present" as const, revisionCommitSeq: CommitSeqSchema.make(1n) };
+    const missingObserved = { kind: "missing" as const, basis: { kind: "noVisibleRevision" as const } };
     const seedDocument = structuredClone(pending);
     const seed = { tableId: firstTable, rowId: firstRow,
       observed: { kind: "present" as const, revisionCommitSeq: CommitSeqSchema.make(1n) },
       overlay: { kind: "live" as const, creationTime: firstTime, document: seedDocument } };
-    expect(root.stageAppPoint(seed)).toBe(true);
+    expect(seedRoot(root, seed)).toBe(true);
     if (!isJsonObject(seedDocument.valueJson)) throw new Error("Expected seed object");
     Reflect.set(seedDocument.valueJson, "label", "input-tampered");
     const firstReadCount = checkedReads;
@@ -319,8 +342,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         return { working, lifetime, id };
       });
       const first = yield* open(firstTable, "notes");
-      // Construction is local; the first operation authenticates the seed's
-      // historical base before it consumes the pending overlay.
+      // Application already supplied the original observation and preimage.
+      // Construction and cached native reuse need no hydration SQL.
       expect(checkedReads - firstReadCount).toBe(0);
       expect(rootSnapshotRevisions).toBe(0);
       expect(admissionTransactions - rootAdmissionCount).toBe(0);
@@ -328,36 +351,38 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         .toMatchObject({ label: "pending" });
       expect(yield* first.working.documents.patch(first.lifetime.context, first.id, firstId,
         { label: "native-first" }, "notes")).toMatchObject({ label: "native-first" });
-      expect(checkedReads - firstReadCount).toBe(1);
-      expect(rootSnapshotRevisions).toBe(1);
+      expect(checkedReads - firstReadCount).toBe(0);
+      expect(rootSnapshotRevisions).toBe(0);
       expect(admissionTransactions - rootAdmissionCount).toBe(0);
       yield* first.lifetime.seal;
       const firstChanges = yield* first.working.close();
       expect(firstChanges.attempts).toHaveLength(1);
       expect(firstChanges.attempts[0]?.ordinal).toBe(0);
-      yield* projectLogicalDocumentJournalContribution(firstChanges);
+      expect(firstChanges.changes).toHaveLength(0);
+      expect(firstChanges.dependencies).toHaveLength(0);
       expect((yield* Effect.result(first.working.documents.get(first.lifetime.context, first.id, firstId)))
         ._tag).toBe("Failure");
 
       const second = yield* open(secondTable, "labels");
-      expect(checkedReads - firstReadCount).toBe(1);
+      expect(checkedReads - firstReadCount).toBe(0);
       expect(yield* second.working.documents.get(second.lifetime.context, second.id, secondId, "labels"))
         .toEqual(null);
-      expect(checkedReads - firstReadCount).toBe(2);
-      expect(rootSnapshotRevisions).toBe(2);
+      expect(checkedReads - firstReadCount).toBe(1);
+      expect(rootSnapshotRevisions).toBe(1);
       expect(admissionTransactions - rootAdmissionCount).toBe(0);
       expect(yield* second.working.documents.get(second.lifetime.context, second.id, secondId, "labels"))
         .toEqual(null);
       yield* second.lifetime.seal;
       const secondChanges = yield* second.working.close();
       expect(secondChanges.attempts).toHaveLength(0);
-      expect(secondChanges.dependencies.map(dependency => dependency.documentId)).toEqual([secondId]);
+      expect(secondChanges.dependencies).toHaveLength(0);
+      expect(root.snapshot().dependencies.map(dependency => dependency.documentId)).toContain(secondId);
       expect((yield* Effect.result(second.working.documents.get(second.lifetime.context, second.id, firstId)))
         ._tag).toBe("Failure");
 
       const third = yield* open(firstTable, "notes");
-      expect(checkedReads - firstReadCount).toBe(2);
-      expect(rootSnapshotRevisions).toBe(2);
+      expect(checkedReads - firstReadCount).toBe(1);
+      expect(rootSnapshotRevisions).toBe(1);
       expect(yield* third.working.documents.get(third.lifetime.context, third.id, firstId, "notes"))
         .toMatchObject({ label: "native-first" });
       expect(yield* third.working.documents.patch(third.lifetime.context, third.id, firstId,
@@ -366,12 +391,13 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       const thirdChanges = yield* third.working.close();
       expect(thirdChanges.attempts).toHaveLength(1);
       expect(thirdChanges.attempts[0]?.ordinal).toBe(0);
-      expect(thirdChanges.dependencies.map(dependency => dependency.documentId)).toContain(firstId);
-      yield* projectLogicalDocumentJournalContribution(thirdChanges);
+      expect(thirdChanges.dependencies).toHaveLength(0);
+      expect(root.snapshot().dependencies.map(dependency => dependency.documentId)).toContain(firstId);
+      expect(thirdChanges.changes).toHaveLength(0);
       // Root-local cached gets, patches and later source reuse stay tentative.
-      // Only seed hydration and the uncached tombstone load use checked SQL.
-      expect(checkedReads - firstReadCount).toBe(2);
-      expect(rootSnapshotRevisions).toBe(2);
+      // Only the uncached tombstone load uses checked SQL.
+      expect(checkedReads - firstReadCount).toBe(1);
+      expect(rootSnapshotRevisions).toBe(1);
       expect(admissionTransactions - rootAdmissionCount).toBe(0);
       const detached = root.snapshot();
       expect(detached.changes).toHaveLength(1);
@@ -386,8 +412,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       const nextLive = root.snapshot().changes[0];
       if (nextLive?.kind !== "live") throw new Error("Expected retained live root change");
       expect(nextLive.document.canonicalBytes[0]).toBe(originalByte);
-      expect(root.stageAppPoint({ tableId: firstTable, rowId: firstRow,
-        observed: seed.observed, overlay: { kind: "live", creationTime: firstTime, document: laterPending } })).toBe(false);
+      expect(seedRoot(root, { tableId: firstTable, rowId: firstRow,
+        observed: seed.observed, overlay: { kind: "live", creationTime: firstTime, document: laterPending } })).toBe(true);
       expect((yield* Effect.result(makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime: third.lifetime,
         readTransaction, snapshotCommitSeq, rootEvaluator: root, rootAttempt: {} as SessionJournalAttempt,
         rootAttemptFence: pins.attemptFence, tables: [{ tableId: firstTable, logicalName: "notes" }],
@@ -410,7 +436,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       // A later persisted refusal is discovered by the next actual read;
       // previously observed root-local data remains tentative in the meantime.
       expect(yield* refused.working.documents.get(refused.lifetime.context, refused.id, firstId, "notes"))
-        .toMatchObject({ label: "native-second" });
+        .toMatchObject({ label: "later-pending" });
       expect(checkedReads).toBe(beforeRefusedRead);
       expect(admissionTransactions).toBe(beforeRefusedAdmissions);
       expect(yield* Effect.result(refused.working.documents.get(refused.lifetime.context, refused.id, absentId, "notes")))
@@ -446,11 +472,11 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       expect(smallCallRoot.snapshot().dependencies).toHaveLength(0);
       smallCallRoot.close();
       const appUpdates = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+      expect(seedRoot(appUpdates, { tableId: firstTable, rowId: firstRow, observed: seed.observed,
         overlay: { kind: "live", creationTime: firstTime, document: pending } })).toBe(true);
-      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+      expect(seedRoot(appUpdates, { tableId: firstTable, rowId: firstRow, observed: seed.observed,
         overlay: { kind: "live", creationTime: firstTime, document: laterPending } })).toBe(true);
-      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow,
+      expect(seedRoot(appUpdates, { tableId: firstTable, rowId: firstRow,
         observed: { kind: "missing", basis: { kind: "noVisibleRevision" } },
         overlay: { kind: "live", creationTime: firstTime, document: pending } })).toBe(false);
       const latestApp = yield* open(firstTable, "notes", appUpdates);
@@ -458,18 +484,18 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         .toMatchObject({ label: "later-pending" });
       const cachedSeedReads = checkedReads;
       const cachedSeedSql = rootSnapshotRevisions;
-      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+      expect(seedRoot(appUpdates, { tableId: firstTable, rowId: firstRow, observed: seed.observed,
         overlay: { kind: "live", creationTime: firstTime, document: pending } })).toBe(true);
-      // A new App overlay is a checked frontier even though the original
-      // snapshot point is already cached. It must replace cached membership.
+      // Application and native code share this same row. Later writes replace
+      // cached membership while preserving the exact original dependency.
       expect(yield* latestApp.working.documents.getMany(latestApp.lifetime.context, latestApp.id, "notes", [firstId]))
         .toMatchObject([{ label: "pending" }]);
-      expect(checkedReads).toBe(cachedSeedReads + 1);
+      expect(checkedReads).toBe(cachedSeedReads);
       expect(rootSnapshotRevisions).toBe(cachedSeedSql);
-      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+      expect(seedRoot(appUpdates, { tableId: firstTable, rowId: firstRow, observed: seed.observed,
         overlay: { kind: "deleted" } })).toBe(true);
       expect(yield* latestApp.working.documents.get(latestApp.lifetime.context, latestApp.id, firstId)).toEqual(null);
-      expect(checkedReads).toBe(cachedSeedReads + 2);
+      expect(checkedReads).toBe(cachedSeedReads);
       yield* latestApp.lifetime.seal;
       yield* latestApp.working.close();
       appUpdates.close();
@@ -498,7 +524,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       expect(combined.tableName(decodeCatalogTableId(998))).toBeUndefined();
       expect(combined.tableId("missing")).toBeUndefined();
       const constructionRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-      expect(constructionRoot.stageAppPoint(seed)).toBe(true);
+      expect(seedRoot(constructionRoot, seed)).toBe(true);
       let constructionReads = 0;
       let constructionDemands = 0;
       const refuseFiniteConstruction = (selected: PreparedLogicalDocumentWriteMechanics,
@@ -515,7 +541,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
             constructionReads++;
             return Effect.fail(failure("unexpectedConstructionRead"));
           }),
-          readReadiness: { kind: "finiteQueryRequired", mechanics: selected, requireDemand: () => Effect.suspend(() => {
+          readReadiness: { kind: "finiteQueryRequired", mechanics: selected, captureStorage: () => Effect.suspend(() => {
             constructionDemands++;
             return Effect.fail(failure("unexpectedConstructionDemand"));
           }) },
@@ -527,7 +553,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         }, firstTime, unique, indexes))).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
         expect(constructionReads).toBe(0);
         expect(constructionDemands).toBe(0);
-        expect(constructionRoot.snapshot().dependencies).toHaveLength(0);
+        expect(constructionRoot.snapshot().dependencies).toHaveLength(1);
       });
       let foreignMechanicsReads = 0;
       const forgedMechanics = new Proxy(mechanics.small, { get(target, key, receiver) {
@@ -558,6 +584,61 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       constructionRoot.close();
       let demandAllowed = true;
       const demands: LogicalStorageReadDemand[] = [];
+      const captureStorage = <K extends FiniteStorageCaptureOperation["kind"]>(
+        operation: Extract<FiniteStorageCaptureOperation, { kind: K }>, demand: LogicalStorageReadDemand,
+      ): Effect.Effect<FiniteStorageCaptureEnvelopes[K], Error> => {
+        const named: FiniteStorageCaptureOperation = operation;
+        const capture = Effect.suspend(() => {
+          demands.push(demand);
+          if (!demandAllowed) return Effect.fail(failure("notReady"));
+          return readTransaction(tx => Effect.gen(function* () {
+            if (named.kind === "rows") {
+              const prepared = yield* prepareAppRowsSnapshotReadEffect(named.input)
+                .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+              const rawRows = yield* captureAppRowsAtSnapshotInTransactionEffect(tx, prepared,
+                named.maximumTotalValueBytes, query => {
+                  expect(active).toBe(true);
+                  if (query.name === "snapshotRevision") rootSnapshotRevisions++;
+                }).pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+              return { kind: "rows" as const, prepared, rawRows };
+            }
+            if (named.kind === "indexPage" || named.kind === "indexRows") {
+              const prepared = yield* prepareAppIndexSnapshotReadEffect(named.input)
+                .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+              const captured = yield* runDrizzleStatementEffect(tx.execute(buildAppIndexSnapshotReadStatement(prepared)),
+                cause => failure("statementFailure", cause));
+              const rawRows = rowsFromDriverExecuteResult(captured, () => { throw failure("storedCorruption"); });
+              if (named.kind === "indexPage") return { kind: "indexPage" as const, prepared, rawRows };
+              const page = yield* decodeCapturedAppIndexSnapshotPageEffect(prepared, rawRows)
+                .pipe(Effect.mapError(cause => failure("storedCorruption", cause)));
+              const excluded = new Set(named.excludeRowIds);
+              const rowIds = [...new Set(page.entries.map(entry => entry.rowId))].filter(rowId => !excluded.has(rowId));
+              const capturedRows = !page.isDone || rowIds.length === 0 || rowIds.length > 256 ? [] : yield* Effect.gen(function* () {
+                const rowsPrepared = yield* prepareAppRowsSnapshotReadEffect({ scopeId: named.input.scopeId,
+                  tableId: named.tableId, rowIds, snapshotCommitSeq: named.input.snapshotCommitSeq })
+                  .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+                return yield* captureAppRowsAtSnapshotInTransactionEffect(tx, rowsPrepared,
+                  named.maximumTotalValueBytes, query => {
+                    expect(active).toBe(true);
+                    if (query.name === "snapshotRevision") rootSnapshotRevisions++;
+                  }).pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+              });
+              return { kind: "indexRows" as const, prepared, rawIndexRows: rawRows, rawRows: capturedRows };
+            }
+            if (named.kind === "transactionTime") {
+              const times = yield* runDrizzleStatementEffect(tx.select({ timestamp: sql<string>`current_timestamp::text` })
+                .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("statementFailure", cause));
+              const timestamp = times[0]?.timestamp;
+              if (timestamp === undefined) return yield* Effect.die("Missing actual fixture database time");
+              return { kind: "transactionTime" as const, timestamp };
+            }
+            return yield* Effect.die("This working-set fixture only captures row, index and time storage");
+          }));
+        });
+        // SAFETY: each implemented named operation constructs its matching envelope;
+        // unsupported operations die rather than pretending to return another kind.
+        return capture as Effect.Effect<FiniteStorageCaptureEnvelopes[K], Error>;
+      };
       const openPrepared = (evaluator: typeof root, prepared: PreparedLogicalDocumentWriteMechanics,
         maximumIdentities = 8) => Effect.gen(function* () {
         const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
@@ -567,71 +648,63 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
           tables: prepared.tables,
           ...(prepared.relationalCapabilities === undefined ? {} : { relationalCapabilities: prepared.relationalCapabilities }),
           searchDefinitions: prepared.searchDefinitions,
-          readReadiness: { kind: "finiteQueryRequired", mechanics: prepared,
-            requireDemand: (_tx, demand) => Effect.suspend(() => {
-              expect(active).toBe(true);
-              demands.push(demand);
-              return demandAllowed ? Effect.void : Effect.fail(failure("notReady"));
-            }) },
+          readReadiness: { kind: "finiteQueryRequired", mechanics: prepared, captureStorage },
           requireAdmission: requireLogicalDocumentRootEvaluatorOpen(evaluator, pins, () => failure("closed")),
           validateDocument: () => Effect.void, error: failure, uniqueConflict: () => failure("uniqueConflict"),
           limits: { pageRows: maximumIdentities, identities: maximumIdentities, documentBytes: 65_536 },
-        }, firstTime, prepared.unique, prepared.indexes, { observeQuery: query => {
-          expect(active).toBe(true);
-          if (query.name === "snapshotRevision") rootSnapshotRevisions++;
-        } });
+        }, firstTime, prepared.unique, prepared.indexes);
         const id = yield* lifetime.begin(lifetime.context);
         return { working, lifetime, id };
       });
       for (const prepared of [mechanics.small, mechanics.broad]) {
         const selective = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-        expect(selective.stageAppPoint(seed)).toBe(true);
-        // These corrupt original observations must remain irrelevant to an
-        // exact point even when they belong to the same admitted table/source.
-        expect(selective.stageAppPoint({ tableId: firstTable, rowId: absentRow,
-          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) }, overlay: { kind: "deleted" } })).toBe(true);
-        expect(selective.stageAppPoint({ tableId: secondTable, rowId: secondRow,
-          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(2n) }, overlay: { kind: "deleted" } })).toBe(true);
+        expect(seedRoot(selective, seed)).toBe(true);
+        // The single pending owner refuses a mismatched original document
+        // before it can influence a different identity or table.
+        expect(seedRoot(selective, { tableId: firstTable, rowId: absentRow,
+          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) }, overlay: { kind: "deleted" } })).toBe(false);
+        expect(seedRoot(selective, { tableId: secondTable, rowId: secondRow,
+          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(2n) }, overlay: { kind: "deleted" } })).toBe(false);
         const borrowed = yield* openPrepared(selective, prepared);
         const beforeRead = checkedReads, beforeSql = rootSnapshotRevisions;
         const beforeDemand = demands.length;
         expect(yield* borrowed.working.documents.getMany(borrowed.lifetime.context, borrowed.id, "notes", [firstId]))
           .toMatchObject([{ label: "pending" }]);
-        expect(checkedReads - beforeRead).toBe(1);
-        expect(rootSnapshotRevisions - beforeSql).toBe(1);
+        expect(checkedReads - beforeRead).toBe(0);
+        expect(rootSnapshotRevisions - beforeSql).toBe(0);
         expect(demands.slice(beforeDemand).every(demand => demand.kind === "rows" && demand.tableId === firstTable)).toBe(true);
         expect(selective.snapshot().dependencies.map(dependency => dependency.documentId)).toEqual([firstId]);
         expect(yield* borrowed.working.documents.find(borrowed.lifetime.context, borrowed.id, "notes",
           { where: { _id: firstId }, offset: 0, limit: 1 })).toMatchObject({ docs: [{ label: "pending" }], total: 1 });
+        expect(checkedReads - beforeRead).toBe(0);
+        expect(yield* borrowed.working.documents.get(borrowed.lifetime.context, borrowed.id, absentId)).toBeNull();
         expect(checkedReads - beforeRead).toBe(1);
-        expect(yield* Effect.result(borrowed.working.documents.get(borrowed.lifetime.context, borrowed.id, absentId)))
-          .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
         selective.close();
       }
       const grouped = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-      expect(grouped.stageAppPoint(seed)).toBe(true);
-      expect(grouped.stageAppPoint({ tableId: firstTable, rowId: absentRow,
+      expect(seedRoot(grouped, seed)).toBe(true);
+      expect(seedRoot(grouped, { tableId: firstTable, rowId: absentRow,
         observed: { kind: "missing", basis: { kind: "noVisibleRevision" } },
         overlay: { kind: "live", creationTime: firstTime, document: insertedPending } })).toBe(true);
       const batch = yield* openPrepared(grouped, mechanics.broad);
       const batchReads = checkedReads, batchSql = rootSnapshotRevisions;
       expect(yield* batch.working.documents.getMany(batch.lifetime.context, batch.id, "notes", [absentId, firstId]))
         .toMatchObject([{ label: "inserted-pending" }, { label: "pending" }]);
-      expect(checkedReads - batchReads).toBe(1);
-      expect(rootSnapshotRevisions - batchSql).toBe(1);
+      expect(checkedReads - batchReads).toBe(0);
+      expect(rootSnapshotRevisions - batchSql).toBe(0);
       expect(grouped.snapshot().dependencies.map(dependency => dependency.documentId).toSorted()).toEqual([firstId, absentId].toSorted());
-      // A changed cached overlay requires fresh authority, with no historical
-      // reload. Output remains in request order; seed processing remains staged.
-      expect(grouped.stageAppPoint({ ...seed, overlay: { kind: "live", creationTime: firstTime, document: laterPending } })).toBe(true);
+      // A changed cached overlay preserves the original observation and output
+      // order. The next uncached demand still authenticates current authority.
+      expect(seedRoot(grouped, { ...seed, overlay: { kind: "live", creationTime: firstTime, document: laterPending } })).toBe(true);
       expect(yield* batch.working.documents.getMany(batch.lifetime.context, batch.id, "notes", [firstId]))
         .toMatchObject([{ label: "later-pending" }]);
-      expect(checkedReads - batchReads).toBe(2);
-      expect(rootSnapshotRevisions - batchSql).toBe(1);
+      expect(checkedReads - batchReads).toBe(0);
+      expect(rootSnapshotRevisions - batchSql).toBe(0);
       grouped.close();
       for (const scale of pendingScaleCases) {
         const stageScale = (evaluator: typeof root) => {
-          expect(evaluator.stageAppPoint(seed)).toBe(true);
-          for (const entry of scale.inserts) expect(evaluator.stageAppPoint({ tableId: firstTable, rowId: entry.rowId,
+          expect(seedRoot(evaluator, seed)).toBe(true);
+          for (const entry of scale.inserts) expect(seedRoot(evaluator, { tableId: firstTable, rowId: entry.rowId,
             observed: { kind: "missing", basis: { kind: "noVisibleRevision" } },
             overlay: { kind: "live", creationTime: firstTime, document: entry.document } })).toBe(true);
         };
@@ -641,10 +714,10 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         const pointReads = checkedReads, pointSql = rootSnapshotRevisions, pointAdmissions = admissionTransactions;
         expect(yield* point.working.documents.get(point.lifetime.context, point.id, firstId))
           .toMatchObject({ label: "pending" });
-        expect(checkedReads - pointReads).toBe(1);
-        expect(rootSnapshotRevisions - pointSql).toBe(1);
+        expect(checkedReads - pointReads).toBe(0);
+        expect(rootSnapshotRevisions - pointSql).toBe(0);
         expect(admissionTransactions - pointAdmissions).toBe(0);
-        expect(pointRoot.snapshot().dependencies.map(dependency => dependency.documentId)).toEqual([firstId]);
+        expect(pointRoot.snapshot().dependencies).toHaveLength(scale.count);
         pointRoot.close();
 
         const batchRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 128, workingBytes: 1_048_576 });
@@ -656,79 +729,79 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         const found = yield* scaled.working.documents.getMany(scaled.lifetime.context, scaled.id, "notes", selectedIds);
         expect(found.map(document => document?.label)).toEqual(selectedLabels);
         expect(found).toHaveLength(scale.count);
-        expect(checkedReads - scaledReads).toBe(1);
-        expect(rootSnapshotRevisions - scaledSql).toBe(1);
+        expect(checkedReads - scaledReads).toBe(0);
+        expect(rootSnapshotRevisions - scaledSql).toBe(0);
         expect(admissionTransactions - scaledAdmissions).toBe(0);
         expect(batchRoot.snapshot().dependencies).toHaveLength(scale.count);
         batchRoot.close();
 
-        // Increasing the pending batch must not move a later corrupt original
-        // ahead of the first seed's resource refusal or open per-seed authority.
-        const resourceInput = Result.getOrThrow(capturePrivateJsonData(selectedIds, 65_536, failure));
+        // Capacity and original-identity refusals occur at the pending owner,
+        // before a native operation can consume an invalid staged value.
         const resourceRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 128,
-          workingBytes: resourceInput.bytes + 1024 });
-        expect(resourceRoot.stageAppPoint({ ...seed,
-          overlay: { kind: "live", creationTime: firstTime, document: largePending } })).toBe(true);
-        for (const entry of scale.inserts) expect(resourceRoot.stageAppPoint({ tableId: firstTable, rowId: entry.rowId,
-          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) }, overlay: { kind: "deleted" } })).toBe(true);
+          workingBytes: 1024 });
+        expect(seedRoot(resourceRoot, { ...seed,
+          overlay: { kind: "live", creationTime: firstTime, document: largePending } })).toBe(false);
+        for (const entry of scale.inserts) expect(seedRoot(resourceRoot, { tableId: firstTable, rowId: entry.rowId,
+          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) }, overlay: { kind: "deleted" } })).toBe(false);
         const resource = yield* openPrepared(resourceRoot, mechanics.broad, 128);
         const resourceReads = checkedReads, resourceSql = rootSnapshotRevisions;
-        expect(yield* Effect.result(resource.working.documents.getMany(resource.lifetime.context, resource.id, "notes", selectedIds)))
-          .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
-        expect(checkedReads - resourceReads).toBe(1);
-        expect(rootSnapshotRevisions - resourceSql).toBe(1);
+        expect(yield* resource.working.documents.get(resource.lifetime.context, resource.id, firstId))
+          .toMatchObject({ label: "original" });
+        expect(checkedReads - resourceReads).toBe(0);
+        expect(rootSnapshotRevisions - resourceSql).toBe(0);
+        expect(resourceRoot.snapshot().changes).toHaveLength(0);
         expect(resourceRoot.snapshot().dependencies.map(dependency => dependency.documentId)).toEqual([firstId]);
         resourceRoot.close();
       }
       for (const prepared of [mechanics.indexed, mechanics.indexedBroad]) {
         const membership = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-        expect(membership.stageAppPoint(seed)).toBe(true); // original matches, overlay moves out
-        expect(membership.stageAppPoint({ tableId: firstTable, rowId: absentRow,
+        expect(seedRoot(membership, seed)).toBe(true); // original matches, overlay moves out
+        expect(seedRoot(membership, { tableId: firstTable, rowId: absentRow,
           observed: { kind: "missing", basis: { kind: "noVisibleRevision" } },
           overlay: { kind: "live", creationTime: firstTime, document: entered } })).toBe(true);
-        expect(membership.stageAppPoint({ tableId: secondTable, rowId: secondRow,
-          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(2n) }, overlay: { kind: "deleted" } })).toBe(true);
+        expect(seedRoot(membership, { tableId: secondTable, rowId: secondRow,
+          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(2n) }, overlay: { kind: "deleted" } })).toBe(false);
         const indexed = yield* openPrepared(membership, prepared);
         const beforeRangeRead = checkedReads, beforeRangeSql = rootSnapshotRevisions, beforeRangeDemand = demands.length;
         expect(yield* indexed.working.documents.find(indexed.lifetime.context, indexed.id, "notes",
           { where: { label: "original" }, offset: 0, limit: 8 })).toMatchObject({ docs: [{ _id: absentId, label: "original" }], total: 1 });
         expect(checkedReads - beforeRangeRead).toBe(1);
-        expect(rootSnapshotRevisions - beforeRangeSql).toBe(1);
+        expect(rootSnapshotRevisions - beforeRangeSql).toBe(0);
         expect(demands[beforeRangeDemand]).toEqual({ kind: "index", tableId: firstTable, indexDefinitionId: labelIndex.indexDefinitionId });
         expect(membership.snapshot().dependencies.map(dependency => dependency.documentId).toSorted()).toEqual([firstId, absentId].toSorted());
-        expect(membership.stageAppPoint({ ...seed, overlay: { kind: "deleted" } })).toBe(true);
+        expect(seedRoot(membership, { ...seed, overlay: { kind: "deleted" } })).toBe(true);
         expect(yield* indexed.working.documents.find(indexed.lifetime.context, indexed.id, "notes",
           { where: { label: { gte: "a" } }, offset: 0, limit: 8 })).toMatchObject({ docs: [{ _id: absentId }], total: 1 });
-        expect(rootSnapshotRevisions - beforeRangeSql).toBe(1);
+        expect(rootSnapshotRevisions - beforeRangeSql).toBe(0);
         membership.close();
       }
       const pageRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-      expect(pageRoot.stageAppPoint(seed)).toBe(true);
-      expect(pageRoot.stageAppPoint({ tableId: firstTable, rowId: absentRow,
+      expect(seedRoot(pageRoot, seed)).toBe(true);
+      expect(seedRoot(pageRoot, { tableId: firstTable, rowId: absentRow,
         observed: { kind: "missing", basis: { kind: "noVisibleRevision" } },
         overlay: { kind: "live", creationTime: firstTime, document: entered } })).toBe(true);
-      // An unrelated table's corrupt original cannot influence page membership.
-      expect(pageRoot.stageAppPoint({ tableId: secondTable, rowId: secondRow,
-        observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(2n) }, overlay: { kind: "deleted" } })).toBe(true);
+      // An unrelated table's mismatched original is refused before page membership.
+      expect(seedRoot(pageRoot, { tableId: secondTable, rowId: secondRow,
+        observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(2n) }, overlay: { kind: "deleted" } })).toBe(false);
       const paged = yield* openPrepared(pageRoot, mechanics.paged);
       const pageQuery = { fields: ["label"], order: { column: "label", direction: "asc" }, take: 1 };
       const beforePageReads = checkedReads, beforePageSql = rootSnapshotRevisions, beforePageAdmissions = admissionTransactions;
       expect(yield* paged.working.relationalPage(paged.lifetime.context, paged.id, "notes", pageQuery))
         .toEqual({ rows: [{ label: "original" }], hasMore: true });
       expect(checkedReads - beforePageReads).toBe(1);
-      expect(rootSnapshotRevisions - beforePageSql).toBe(1);
+      expect(rootSnapshotRevisions - beforePageSql).toBe(0);
       expect(admissionTransactions - beforePageAdmissions).toBe(0);
       expect(pageRoot.snapshot().dependencies.map(dependency => dependency.documentId).toSorted()).toEqual([firstId, absentId].toSorted());
-      expect(pageRoot.stageAppPoint({ ...seed, overlay: { kind: "live", creationTime: firstTime, document: sortedPending } })).toBe(true);
+      expect(seedRoot(pageRoot, { ...seed, overlay: { kind: "live", creationTime: firstTime, document: sortedPending } })).toBe(true);
       expect(yield* paged.working.relationalPage(paged.lifetime.context, paged.id, "notes", pageQuery))
         .toEqual({ rows: [{ label: "aaa" }], hasMore: true });
       expect(checkedReads - beforePageReads).toBe(2);
-      expect(rootSnapshotRevisions - beforePageSql).toBe(1);
-      expect(pageRoot.stageAppPoint({ ...seed, overlay: { kind: "deleted" } })).toBe(true);
+      expect(rootSnapshotRevisions - beforePageSql).toBe(0);
+      expect(seedRoot(pageRoot, { ...seed, overlay: { kind: "deleted" } })).toBe(true);
       expect(yield* paged.working.relationalPage(paged.lifetime.context, paged.id, "notes", pageQuery))
         .toEqual({ rows: [{ label: "original" }], hasMore: false });
       expect(checkedReads - beforePageReads).toBe(3);
-      expect(rootSnapshotRevisions - beforePageSql).toBe(1);
+      expect(rootSnapshotRevisions - beforePageSql).toBe(0);
       expect(admissionTransactions - beforePageAdmissions).toBe(0);
       expect(pageRoot.snapshot().pageReads).toHaveLength(3);
       pageRoot.close();
@@ -737,40 +810,45 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         const bounded = yield* openPrepared(ordered, mechanics.small);
         if (cachedBase) expect(yield* bounded.working.documents.get(bounded.lifetime.context, bounded.id, firstId))
           .toMatchObject({ label: "original" });
-        expect(ordered.stageAppPoint({ ...seed, overlay: { kind: "live", creationTime: firstTime, document: largePending } })).toBe(true);
-        expect(ordered.stageAppPoint({ tableId: firstTable, rowId: absentRow,
-          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) }, overlay: { kind: "deleted" } })).toBe(true);
+        expect(seedRoot(ordered, { ...seed, overlay: { kind: "live", creationTime: firstTime, document: largePending } })).toBe(false);
+        expect(seedRoot(ordered, { tableId: firstTable, rowId: absentRow,
+          observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) }, overlay: { kind: "deleted" } })).toBe(false);
         const beforeOrderedSql = rootSnapshotRevisions;
-        // Request order cannot move the later corrupt witness ahead of the
-        // earlier seed's resource refusal, including when its base is cached.
-        expect(yield* Effect.result(bounded.working.documents.getMany(bounded.lifetime.context, bounded.id, "notes", [absentId, firstId])))
-          .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
-        expect(rootSnapshotRevisions - beforeOrderedSql).toBe(cachedBase ? 0 : 1);
+        // Both rejected writes leave the valid original cached, independent
+        // of whether native code observed it before the Application write.
+        expect(yield* bounded.working.documents.get(bounded.lifetime.context, bounded.id, firstId))
+          .toMatchObject({ label: "original" });
+        expect(rootSnapshotRevisions - beforeOrderedSql).toBe(0);
+        expect(ordered.snapshot().changes).toHaveLength(0);
         expect(ordered.snapshot().dependencies.map(dependency => dependency.documentId)).toEqual([firstId]);
         ordered.close();
       }
       const refusedDemand = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-      expect(refusedDemand.stageAppPoint(seed)).toBe(true);
+      expect(seedRoot(refusedDemand, seed)).toBe(true);
       const refusedPrepared = yield* openPrepared(refusedDemand, mechanics.small);
       const refusedSql = rootSnapshotRevisions;
       demandAllowed = false;
-      expect(yield* Effect.result(refusedPrepared.working.documents.get(refusedPrepared.lifetime.context, refusedPrepared.id, firstId)))
+      expect(yield* Effect.result(refusedPrepared.working.documents.get(refusedPrepared.lifetime.context, refusedPrepared.id, absentId)))
         .toMatchObject({ _tag: "Failure", failure: { message: "notReady" } });
       expect(rootSnapshotRevisions).toBe(refusedSql);
-      expect(refusedDemand.snapshot().dependencies).toHaveLength(0);
+      expect(refusedDemand.snapshot().dependencies).toHaveLength(1);
       demandAllowed = true;
       expect(yield* Effect.result(refusedPrepared.working.readTransactionTime(refusedPrepared.lifetime.context, refusedPrepared.id)))
         .toMatchObject({ _tag: "Failure", failure: { message: "rollbackOnly" } });
       refusedDemand.close();
       const clockRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-      expect(clockRoot.stageAppPoint(seed)).toBe(true);
+      expect(seedRoot(clockRoot, seed)).toBe(true);
       const clockPrepared = yield* openPrepared(clockRoot, mechanics.small);
       // Clock SQL authenticates fresh pins without consuming any staged row.
-      expect(yield* clockPrepared.working.readTransactionTime(clockPrepared.lifetime.context, clockPrepared.id))
-        .toEqual(expect.any(String));
+      const beforeClockReads = checkedReads;
+      const invocationTime = yield* clockPrepared.working.readTransactionTime(clockPrepared.lifetime.context, clockPrepared.id);
+      expect(invocationTime).toEqual(expect.any(String));
+      expect(checkedReads - beforeClockReads).toBe(1);
+      expect(yield* clockPrepared.working.readTransactionTime(clockPrepared.lifetime.context, clockPrepared.id)).toBe(invocationTime);
+      expect(checkedReads - beforeClockReads).toBe(1);
       expect(demands.at(-1)).toEqual({ kind: "clock" });
       expect(rootSnapshotRevisions).toBe(refusedSql);
-      expect(clockRoot.snapshot().dependencies).toHaveLength(0);
+      expect(clockRoot.snapshot().dependencies).toHaveLength(1);
       clockRoot.close();
       yield* retained.close;
       expect(yield* Effect.result(combineLogicalWriteMechanics([mechanics.small, mechanics.extra], failure)))

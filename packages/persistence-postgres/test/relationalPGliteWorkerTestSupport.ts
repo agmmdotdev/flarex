@@ -16,13 +16,13 @@ import {
 } from "../src/relationalTransaction/model";
 
 /** One Wasm instance, one lease, with an external watchdog that can stop active SQL. */
-export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean; readonly observeQuery?: (text: string) => Promise<void> | void; readonly registerCleanup?: (cleanup: () => Promise<void>) => void } = {}) {
+export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean; readonly transport?: "ordinary" | "finiteCapture"; readonly observeQuery?: (text: string) => Promise<void> | void; readonly registerCleanup?: (cleanup: () => Promise<void>) => void } = {}) {
   const fixtureOptions = options;
   // Only this fixture-created directory is removed by its registered cleanup.
   const dataDir = options.fileBacked === true ? await mkdtemp(join(tmpdir(), "flarex-relational-")) : undefined;
   const worker = new Worker(
     new URL("./relationalPGliteWorker.mjs", import.meta.url),
-    { workerData: { dataDir } },
+    { workerData: { dataDir, transport: options.transport } },
   );
   let id = 0;
   let timeoutMs = 30_000;

@@ -1,3 +1,4 @@
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { verifyIndexBatches } from "./indexBatchScenario";
 import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
 import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
@@ -45,6 +46,7 @@ import {
 import { appendPreparedAppRowRevisionsInTransactionEffect } from "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
 import {
   postgresUrl,
   withPostgresSequentialScansDisabled,
@@ -86,17 +88,27 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
       expect(Reflect.set(definition.physicalSpec, "maxEncodedKeyBytes", 1)).toBe(false);
       expect(Reflect.set(definition.physicalSpec.orderedFields, "0", { kind: "documentPath", path: "other" })).toBe(false);
       expect(Reflect.set(definition, "physicalSpecSha256Hex", "0".repeat(64))).toBe(false);
-      expect(await persistence.drizzle.transaction(tx => runEffect(scanAppIndexAtSnapshotInTransactionEffect(tx, {
+      expect(await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffect(scanAppIndexAtSnapshotInTransactionEffect(tx, {
         scopeId, definition, bounds: {}, snapshotCommitSeq: CommitSeqSchema.make(1n), limit: 10,
-      })))).toMatchObject({ entries: [], isDone: true });
+      }));
+        } finally { closeInstallationAdmission(tx); }
+      })).toMatchObject({ entries: [], isDone: true });
       for (const publicationIndex of [
         { indexDefinitionId: definition.indexDefinitionId, physicalSpec: definition.physicalSpec,
           physicalSpecSha256Hex: "0".repeat(64) },
         { indexDefinitionId: definition.indexDefinitionId, physicalSpec: APP_BY_ID_PHYSICAL_SPEC_V1,
           physicalSpecSha256Hex: definition.physicalSpecSha256Hex },
       ]) {
-        const refused = await persistence.drizzle.transaction(tx => runEffectFailure(
-          scanCurrentPublicationIndexInTransactionEffect(tx, { scopeId, publicationIndex, bounds: {}, limit: 10 })));
+        const refused = await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffectFailure(
+          scanCurrentPublicationIndexInTransactionEffect(tx, { scopeId, publicationIndex, bounds: {}, limit: 10 }));
+        } finally { closeInstallationAdmission(tx); }
+      });
         expect(refused).toBeInstanceOf(AppIndexEntryStorageCorruptionError);
         expect(refused).toMatchObject({ reason: "activation index digest mismatch" });
       }
@@ -113,7 +125,14 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
   it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       await insertClock(persistence);
-      await verifyIndexBatches(persistence, persistence.drizzle, scopeId, epoch, locatedDefinition);
+      await verifyIndexBatches(persistence, persistence.drizzle, scopeId, epoch, locatedDefinition, async run => {
+        const measured = await withPostgresExecutionObservation(persistence.pool, run, { returnedCommands: true });
+        expect(measured.observation.checkouts).toBe(1);
+        expect(measured.observation.releases).toBe(1);
+        expect(measured.observation.returnedCommands.filter(command => command.submittedCommand === "begin" || command.submittedCommand === "commit"))
+          .toEqual([{ checkout: 1, submittedCommand: "begin", returnedCommand: "BEGIN" },
+            { checkout: 1, submittedCommand: "commit", returnedCommand: "ROLLBACK" }]);
+      });
     });
   }, 120_000);
 
@@ -121,14 +140,21 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await insertClock(persistence);
       await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+
         await appendRow(tx, rowA, 1n, null, "a");
         expect(await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowA, keyA, 1n)])),).toHaveLength(1);
         await appendRow(tx, rowB, 2n, null, "b");
         expect(await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowB, keyB, 2n)])),).toHaveLength(1);
+      
+        } finally { closeInstallationAdmission(tx); }
       });
 
-      const snapshot = await persistence.drizzle.transaction((tx) =>
-        runEffect(
+      const snapshot = await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffect(
           scanAppIndexAtSnapshotInTransactionEffect(tx, {
             scopeId,
             definition: locatedDefinition,
@@ -136,7 +162,9 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
             snapshotCommitSeq: CommitSeqSchema.make(2n),
             limit: 10,
           }),
-        ),
+        );
+        } finally { closeInstallationAdmission(tx); }
+      },
       );
       expect(
         snapshot.entries.map((entry) => [entry.encodedKey, entry.rowId]),
@@ -146,6 +174,9 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
       ]);
 
       await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+
         await appendRow(tx, rowA, 3n, 1n, "a-next");
         const released =
           await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
@@ -153,6 +184,8 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
               kind: "tombstone",
             }]));
         expect(released).toHaveLength(1);
+      
+        } finally { closeInstallationAdmission(tx); }
       });
       const attempts = await Promise.allSettled([
         appendConcurrent(persistence, rowA, keyC),
@@ -163,15 +196,19 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
       expect(failure?.reason).toBeInstanceOf(
         AppIndexEntryRevisionAlreadyExistsError,
       );
-      const current = await persistence.drizzle.transaction((tx) =>
-        runEffect(
+      const current = await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffect(
           scanCurrentAppIndexInTransactionEffect(tx, {
             scopeId,
             definition: locatedDefinition,
             bounds: {},
             limit: 10,
           }),
-        ),
+        );
+        } finally { closeInstallationAdmission(tx); }
+      },
       );
       expect(current.entries.map((entry) => entry.commitSeq)).toEqual([2n, 3n]);
 
@@ -311,8 +348,12 @@ async function appendConcurrent(
   rowId: typeof rowA,
   encodedKey: OrderedIndexKeyHexV1,
 ) {
-  return persistence.drizzle.transaction((tx) =>
-    runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowId, encodedKey, 3n)])),
+  return persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+return await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowId, encodedKey, 3n)]));
+        } finally { closeInstallationAdmission(tx); }
+      },
   );
 }
 

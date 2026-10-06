@@ -1,3 +1,5 @@
+import { claimApplicationExecutableActiveSelection, type ApplicationActiveSelection } from "../applicationActivation";
+import type { FiniteApplicationExecutionEvidence } from "./model";
 import { type ScopeClockRow } from "../scopeClock";
 import { isRetainedTransactionSessionIdentityV1, isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
 import {
@@ -32,6 +34,7 @@ import {
 } from "@flarex/analysis/application-analysis";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
+  type CanonicalApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
   APPLICATION_MANIFEST_SCHEMA_BINDING_FORMAT_V1,
@@ -47,6 +50,8 @@ import {
   JsonValue,
   isJson,
   isJsonObject,
+  jsonEqual,
+  isJsonObjectFromUnknown,
   type Json,
   type JsonObject,
 } from "flarex-protocol/json";
@@ -142,6 +147,7 @@ import {
   type StoredCommitAuthorityEvidenceAuthorityV1,
   type StoredCommitAuthorityEvidenceLoadResultV1,
   StoredCommitAuthorityEvidencePersistenceV1Error,
+  MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1,
   type StoredCommitAuthoritySealIdentityV1,
   type StoredCommitAuthoritySessionScalarsV1,
 } from "./model";
@@ -191,6 +197,17 @@ export interface SessionSizeRow extends Omit<
   | "authorizationGrantCanonicalBytes"
   | "applicationExecutionAuthorityJson"
   | "applicationExecutionAuthorityCanonicalBytes"
+  | "executionProfile"
+  | "finiteAttemptBytes"
+  | "finiteAttemptSha256"
+  | "finiteSnapshotEpochUuid"
+  | "finiteSnapshotCommitSeq"
+  | "finiteMetadataWatermark"
+  | "finiteLeaseExpiresAt"
+  | "finiteClaimOwner"
+  | "finiteClaimFence"
+  | "finiteClaimedAt"
+  | "finiteClaimExpiresAt"
 > {
   readonly validatedArgsJsonByteLengthText: string | null;
   readonly validatedArgsCanonicalByteLengthText: string | null;
@@ -2376,10 +2393,63 @@ function sameSealIdentity(
     expected.participantWorkCalls === root.participantWorkCalls;
 }
 
+/** Projects only the accepted Application selection and its exact session authority.
+ * The confirmed-entry issuer owns the live binding and transaction lifetime. */
+function invalidFiniteApplicationExecutionEvidence(cause?: unknown) {
+  return new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
+    cause: cause ?? "Finite Application execution evidence is invalid" });
+}
+
+export const materializeFiniteApplicationExecutionEvidence = Effect.fn("StoredCommitAuthority.materializeFiniteApplicationExecutionEvidence")(
+  function* (application: ApplicationActiveSelection, session: Readonly<SessionRow>,
+    canonical: CanonicalApplicationMutationExecutionAuthorityV1): Effect.fn.Return<FiniteApplicationExecutionEvidence, StoredCommitAuthorityEvidencePersistenceV1Error> {
+    const selected = yield* Effect.fromResult(claimApplicationExecutableActiveSelection(application)).pipe(Effect.mapError(invalidFiniteApplicationExecutionEvidence));
+    const basis = selected.basis;
+    if (session.applicationExecutionAuthorityCanonicalBytes === null || session.applicationExecutionAuthoritySha256 === null ||
+      !isJsonObjectFromUnknown(session.applicationExecutionAuthorityJson) ||
+      !jsonEqual(session.applicationExecutionAuthorityJson, canonical.authorityJson) ||
+      !bytesEqual(canonical.canonicalBytes, session.applicationExecutionAuthorityCanonicalBytes) ||
+      !bytesEqual(canonical.sha256, session.applicationExecutionAuthoritySha256)) return yield* Effect.fail(invalidFiniteApplicationExecutionEvidence());
+    const authority = canonical.authority, target = authority.runtimeTarget;
+    if (session.executionAuthorityGeneration !== "application_v1" || session.packageId !== null ||
+      session.artifactRuntime !== null || session.artifactId !== null || session.sourcePackageHash !== null ||
+      session.executionModule !== null ||
+      authority.schemaVersionId !== session.schemaVersionId || authority.schemaVersionId !== basis.schemaVersionId ||
+      target.scopeId !== basis.authority.scopeId || target.revisionId !== basis.revisionId || target.candidateId !== basis.candidateId ||
+      target.analysisId !== basis.analysisId || target.sourceArtifactRootSha256 !== encodeBytesToLowercaseHex(basis.sourceArtifactRootSha256) ||
+      target.manifestSha256 !== encodeBytesToLowercaseHex(basis.manifestSha256) || target.schemaSha256 !== encodeBytesToLowercaseHex(basis.applicationSchemaSha256) ||
+      target.functionCatalogSha256 !== encodeBytesToLowercaseHex(basis.functionCatalogSha256) || target.publicationSha256 !== encodeBytesToLowercaseHex(basis.publicationSha256) ||
+      target.function.path !== session.functionPath || target.function.kind !== session.functionKind)
+      return yield* Effect.fail(invalidFiniteApplicationExecutionEvidence());
+    return Object.freeze({ manifest: structuredClone(basis.manifest), runtimeHostIdentity: basis.runtimeHostIdentity, compatibilityDate: basis.compatibilityDate,
+      executionAuthority: authority, runtimeTarget: target });
+  });
+
+/** Finite entry reuses the actual schema decoder without a journal or lease
+ * projection. The outer confirmed-entry issuer owns admission provenance. */
+function invalidFiniteExecutionSchema() {
+  return new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode",
+    cause: "Finite execution schema or stable bindings are invalid" });
+}
+
+export const materializeFiniteExecutionSchema = Effect.fn("StoredCommitAuthority.materializeFiniteExecutionSchema")(
+  function* (expected: Pick<StoredCommitAuthorityCaptureAuthorityV1, "deploymentId" | "schemaVersionId">,
+    control: Pick<CapturedRowsV1, "schemaSizeRows" | "schemaPayloadRows" | "bindingRows">) {
+    const size = control.schemaSizeRows[0], row = control.schemaPayloadRows[0];
+    if (control.schemaSizeRows.length !== 1 || control.schemaPayloadRows.length !== 1 || size === undefined || row === undefined ||
+      utf8ByteLength(row.manifestJsonText) + row.manifestBytes.byteLength > MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 ||
+      control.bindingRows.length > MAX_SCHEMA_MANIFEST_APP_TABLES) return yield* Effect.fail(invalidFiniteExecutionSchema());
+    const schemaManifest = yield* Effect.fromResult(yield* verifySchemaArtifactEffect(expected, size, row))
+      .pipe(Effect.mapError(invalidFiniteExecutionSchema));
+    const stableBindings = materializeBindings(schemaManifest, control.bindingRows);
+    if (typeof stableBindings === "string") return yield* Effect.fail(invalidFiniteExecutionSchema());
+    return Object.freeze({ schemaManifest, stableBindings });
+  });
+
 const verifySchemaArtifactEffect = Effect.fn(
   "StoredCommitAuthority.verifySchemaArtifact",
 )(function* (
-  expected: StoredCommitAuthorityCaptureAuthorityV1,
+  expected: Pick<StoredCommitAuthorityCaptureAuthorityV1, "deploymentId" | "schemaVersionId">,
   size: SchemaSizeRow,
   row: SchemaPayloadRow,
 ): Effect.fn.Return<

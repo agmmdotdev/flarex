@@ -188,54 +188,7 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
     return yield* commitAuthorityMismatchEffect("sealChanged");
   }
 
-  const normalizedArguments = yield* Effect.try({
-    try: () => normalizeFlarexValueJsonV1(evidence.session.validatedArgsJson),
-    catch: (cause) => commitAuthorityCorruption(
-      "validatedArgumentsInvalid",
-      cause,
-    ),
-  });
-  if (!isJsonObject(normalizedArguments.valueJson)) {
-    return yield* commitAuthorityCorruptionEffect(
-      "validatedArgumentsInvalid",
-    );
-  }
-  const argumentArraySemanticBytes = yield* Effect.try({
-    try: () => requirePointMutationArgumentSemanticSizeV1(
-      normalizedArguments.semanticSizeBytes,
-    ),
-    catch: (cause) =>
-      cause instanceof PointMutationTargetSelectionV1Error
-        ? cause
-        : commitAuthorityCorruption("validatedArgumentsInvalid", cause),
-  });
-  const canonicalArguments = yield* Effect.tryPromise({
-    try: () => canonicalizeFlarexValueJsonV1(
-      normalizedArguments.valueJson,
-    ),
-    catch: (cause) => commitAuthorityCorruption(
-      "validatedArgumentsInvalid",
-      cause,
-    ),
-  });
-  if (
-    evidence.session.validatedArgsValueCodecVersion !==
-      FLAREX_VALUE_CODEC_VERSION_V1 ||
-    evidence.session.validatedArgsCanonicalByteLength !==
-      canonicalArguments.canonicalBytes.byteLength ||
-    !bytesEqual(
-      evidence.session.validatedArgsCanonicalBytes,
-      canonicalArguments.canonicalBytes,
-    ) ||
-    !bytesEqual(
-      evidence.session.validatedArgsSha256,
-      canonicalArguments.sha256,
-    )
-  ) {
-    return yield* commitAuthorityCorruptionEffect(
-      "validatedArgumentsInvalid",
-    );
-  }
+  const { normalizedArguments, argumentArraySemanticBytes } = yield* verifyStoredMutationArguments(evidence.session);
 
   let verifiedAuthority:
     | Readonly<{ readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
@@ -326,7 +279,7 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
 
 export function applicationGrantPinsResult(
   storedAttempt: CommitAuthorityVerificationStateV1,
-  application: NonNullable<StoredCommitAuthorityEvidencePortV1["application"]>,
+  application: Pick<NonNullable<StoredCommitAuthorityEvidencePortV1["application"]>, "executionAuthority">,
 ) {
   return Result.try({
     try: () => {
@@ -509,7 +462,7 @@ function sameStoredGrantEvidence(
     ) === grant.payload.identityAccessPolicySha256;
 }
 
-function sameStoredApplicationGrantEvidence(
+export function sameStoredApplicationGrantEvidence(
   session: StoredCommitAuthoritySessionEvidencePortV1,
   verified: VerifiedApplicationMutationGrantInspectionV1,
 ): boolean {
@@ -574,3 +527,38 @@ function commitAuthorityMismatchEffect(
 ) {
   return Effect.fail(new StoredCommitAuthorityMismatchV1Error({ reason }));
 }
+
+/** The stored argument artifact is a foreign boundary on cold recovery. */
+export const verifyStoredMutationArguments = Effect.fn("StoredCommitAuthority.verifyArguments")(
+  function* (session: Pick<StoredCommitAuthoritySessionEvidencePortV1, "validatedArgsJson" | "validatedArgsValueCodecVersion" |
+    "validatedArgsCanonicalBytes" | "validatedArgsCanonicalByteLength" | "validatedArgsSha256">) {
+    const normalizedArguments = yield* Effect.try({
+      try: () => normalizeFlarexValueJsonV1(session.validatedArgsJson),
+      catch: (cause) => commitAuthorityCorruption("validatedArgumentsInvalid", cause),
+    });
+    if (!isJsonObject(normalizedArguments.valueJson)) {
+      return yield* commitAuthorityCorruptionEffect("validatedArgumentsInvalid");
+    }
+    const argumentArraySemanticBytes = yield* Effect.try({
+      try: () => requirePointMutationArgumentSemanticSizeV1(normalizedArguments.semanticSizeBytes),
+      catch: (cause) => cause instanceof PointMutationTargetSelectionV1Error
+        ? cause
+        : commitAuthorityCorruption("validatedArgumentsInvalid", cause),
+    });
+    const canonicalArguments = yield* Effect.tryPromise({
+      try: () => canonicalizeFlarexValueJsonV1(normalizedArguments.valueJson),
+      catch: (cause) => commitAuthorityCorruption("validatedArgumentsInvalid", cause),
+    });
+    if (
+      session.validatedArgsValueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
+      session.validatedArgsCanonicalByteLength !== canonicalArguments.canonicalBytes.byteLength ||
+      !bytesEqual(session.validatedArgsCanonicalBytes, canonicalArguments.canonicalBytes) ||
+      !bytesEqual(session.validatedArgsSha256, canonicalArguments.sha256)
+    ) {
+      return yield* commitAuthorityCorruptionEffect("validatedArgumentsInvalid");
+    }
+    return Object.freeze({
+      normalizedArguments: { ...normalizedArguments, valueJson: normalizedArguments.valueJson },
+      argumentArraySemanticBytes,
+    });
+  });

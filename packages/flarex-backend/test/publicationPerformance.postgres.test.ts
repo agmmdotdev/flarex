@@ -274,7 +274,7 @@ describe.skipIf(!enabled)("genuine mixed publication attribution", () => {
                     expect(payload.final).toMatchObject({ id: payload.created.id, title: outcome.seed.newTitle, score: 1, enabled: true });
                   }
                   settlementLedger = await outcome.fixture.readSettlementLedger();
-                  if (settlementLedger === null) throw new Error("Missing genuine confirmed-seal demand ledger");
+                  if (settlementLedger === null) throw new Error("Missing genuine frozen-attempt demand ledger");
                 }
               } catch (cause) { diagnosticFailure ??= { cause }; }
               const evidenceMs = performance.now() - evidenceStarted;
@@ -297,7 +297,7 @@ describe.skipIf(!enabled)("genuine mixed publication attribution", () => {
                   diagnosticFailure === undefined ? null : failureSummary(diagnosticFailure.cause),
                 observationFailures: observation.status().failureCount, cleanupFailures: cleanupFailures.map(failureSummary),
                 unmatchedEdges: parsed.unmatchedEdges,
-                sealedJournalBytes: outcome?.sealedJournalBytes ?? null,
+                canonicalResultBytes: outcome?.canonicalResultBytes ?? null,
                 workerConstructionMs: outcome?.workerConstructionMilliseconds ?? null,
                 intervals, phases: publicationPhaseSummary(intervals), events, trace: recorded, fingerprintOwners,
                 dispatchAttribution: recorded === null ? null : correlatePublicationDispatches(recorded,

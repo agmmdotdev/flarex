@@ -30,6 +30,13 @@ const dependencyFields = [
 ];
 const islandPrefix = "third_party/medusa/upstream/";
 const mixedProductTestFixture = "packages/executor/test/performance/support/mixedMutationProductFixture.ts";
+const productFlowsTestFixture = "packages/executor/test/performance/support/productFlows.ts";
+const productFlowsTestImports = new Map([
+  ["../../../../medusa-adapter/test/support/logical-currency-fixture",
+    "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
+  ["../../../../medusa-adapter/test/support/logical-product-fixture",
+    "packages/medusa-adapter/test/support/logical-product-fixture.ts"],
+]);
 const nativeProductDiagnosticTypeConsumers = new Set([
   "packages/executor/test/performance/support/nativeProductOperationDiagnostics.ts",
   "packages/flarex-backend/test/nativeProductOperationDiagnostics.test.ts",
@@ -81,6 +88,9 @@ const finiteContractTestImports = new Map([
     specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
   ["packages/persistence-postgres/test/finiteSourceCommitClosure.test.ts", {
+    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  }],
+  ["packages/persistence-postgres/test/appSchemaCandidateValidation.postgres.test.ts", {
     specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
 ]);
@@ -334,6 +344,7 @@ function invalidNativeRetrievalLoader(node, relativePath) {
  * @param {string} specifier */
 function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
   const permitted = relativePath === mixedProductTestFixture ? mixedProductTestImports
+    : relativePath === productFlowsTestFixture ? productFlowsTestImports
     : relativePath === coreMedusaScenario ? coreMedusaScenarioImports
     : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports
       : relativePath === mixedProductWorkerdTest ? mixedProductWorkerdTestImports

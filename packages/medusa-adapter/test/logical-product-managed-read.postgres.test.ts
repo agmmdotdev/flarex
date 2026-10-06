@@ -155,7 +155,7 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
       const created = await service.createProducts({ id: "managed_index_product", title: "Indexed Product",
         handle: "managed-index-product", collection_id: collection.id });
       const selectedIndex = (field: "collection_id" | "status") => prepareLogicalReadIndexReadinessWitness({
-        controlDb: currency.control.drizzle, targetDb: currency.persistence.drizzle,
+        controlDb: currency.control.drizzle, targetDb: currency.testOwner.drizzle,
         deploymentId: currency.deploymentId, schemaVersionId: currency.schemaVersionId,
         scopeId: currency.application.authority.scopeId, sourceKey: "medusa.product", localName: "product", field,
       });
@@ -163,7 +163,7 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
       const managed = currency.managedRead;
       if (managedInput === undefined || managed === undefined) throw new Error("Missing managed Product input");
       const required = await prepareLogicalReadDemandReadinessWitness({
-        controlDb: managed.control.drizzle, targetDb: currency.persistence.drizzle,
+        controlDb: managed.control.drizzle, targetDb: currency.testOwner.drizzle,
         installation: managed.controlInstallation, deploymentId: currency.deploymentId,
         schemaVersionId: currency.schemaVersionId, scopeId: currency.application.authority.scopeId,
         source: managedInput.logicalStorage.source, localName: "product",
@@ -180,7 +180,7 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
       }, currency.application.authorityPorts));
       await Effect.runPromise(logicalManagedReadDemandScenario({
         controlDb: managedInput.database, controlInstallation: references.controlInstallation,
-        targetDb: currency.persistence.drizzle, deploymentId: currency.deploymentId,
+        targetDb: currency.persistence.drizzle, ownerDb: currency.testOwner.drizzle, deploymentId: currency.deploymentId,
         scopeId: located.authority.scopeId, schemaVersionId: currency.schemaVersionId,
         authority: located.authority, source: managedInput.logicalStorage.source,
         tableName: "product", otherTableName: "product_collection", where: { collection_id: collection.id },

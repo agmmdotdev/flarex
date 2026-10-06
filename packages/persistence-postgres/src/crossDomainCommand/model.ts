@@ -18,7 +18,7 @@ import { AppUniqueConstraintSetBuildIntegrationV1Error } from "../appUniqueConst
 import { AppUniqueConstraintCatalogPersistenceError } from "../appUniqueConstraintDefinitions";
 import { AppIndexDefinitionReadPersistenceError, AppSchemaVersionIndexBindingPersistenceError } from "../appIndexDefinitions";
 import { IndexBuildStatePersistenceError } from "../indexBuildStates";
-import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import { IndexMaintenanceError } from "../indexMaintenanceModel";
 import { LogicalStorageDefinitionError } from "../logicalStorageDefinitions";
 import { LogicalSchemaAdmissionEvidenceError } from "../logicalSchemaAdmissionEvidence";
 import { SchemaVersionArtifactPersistenceError } from "../schemaVersionArtifacts";

@@ -27,7 +27,7 @@ describe.skipIf(postgresUrl === null)("legacy writer exclusion (ordinary Postgre
       const entered = barrier<void>();
       const release = barrier<void>();
       const waiterPid = barrier<number>();
-      const activationOwner = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+      const activationOwner = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
         readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts,
         faultAfter: async point => { if (point === "headWritten") { entered.resolve(); await release.promise; } } });
       const activation = Promise.allSettled([runEffect(activationOwner.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }))]);

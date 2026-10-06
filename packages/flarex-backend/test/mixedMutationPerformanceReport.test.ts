@@ -16,7 +16,7 @@ describe("mixed mutation diagnostic report", () => {
         failureStage: "invoke", failureCode: "40001", failureReason: "resourceFailure",
         failureDiagnosticTokens: [], cpuDiagnosticSecondaryFailures: [
           { stage: "stop", name: "Error" }, { stage: "disconnect", name: "Error" },
-        ], wallMs: 12, requestWorkerConstructionMs: null, sealedJournalBytes: null,
+        ], wallMs: 12, requestWorkerConstructionMs: null, canonicalResultBytes: null,
         instrumentationFinalizationMs: null, construction: {
           setupTotalMs: null, provisioningMs: null, preparedModuleMs: null,
           initialSeedingMs: null, additionalSetupSeedingMs: null,

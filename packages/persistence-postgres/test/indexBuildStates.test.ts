@@ -630,6 +630,7 @@ function validFencedIndexBuildReadRow(
 ) {
   const timestamp = new Date("2026-07-12T00:00:00.000Z");
   return {
+    maintenanceObligation: null,
     clock: {
       scopeId,
       scopeUuid: "00000000-0000-5000-8000-000000000001",
@@ -647,8 +648,6 @@ function validFencedIndexBuildReadRow(
       scopeId,
       indexDefinitionId,
       maintenanceActivationSequence: null,
-      maintenanceBytes: null,
-      maintenanceSha256: null,
       storageGeneration: "flarexdb_v1" as const,
       storageGenerationFence: 1n,
       epoch: "epoch-index-build-row",

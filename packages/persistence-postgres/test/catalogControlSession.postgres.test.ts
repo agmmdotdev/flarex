@@ -5,7 +5,6 @@ import { Cause, Clock, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
 import {
   Client,
-  Pool,
   type PoolClient,
   type PoolConfig,
   type QueryResultRow,
@@ -18,6 +17,7 @@ import {
   CatalogControlSessionCleanupDefect,
   CatalogControlSessionDeadlineIssue,
   CatalogControlSessionResourceIssue,
+  catalogControlPhysicalErrors,
   makeCatalogControlConnectionIdentity,
   makeCatalogControlSessionStarter,
   runCatalogControlEffect,
@@ -27,7 +27,10 @@ import {
 import {
   makePostgresCatalogControlSessionDriver,
 } from "../src/postgresCatalogControlSession";
-import { postgresUrl } from "./postgresHelpers";
+import { makePostgresPhysicalSessionDriver, type PostgresPhysicalSessionOptions } from "../src/physicalSession/postgres";
+import { makePhysicalSessionAccess } from "../src/physicalSession/drizzle";
+import { flarexSchema } from "../src/schema";
+import { postgresUrl, createFileScopedPostgresFixture } from "./postgresHelpers";
 
 type ControlPool = Parameters<
   typeof makePostgresCatalogControlSessionDriver
@@ -69,11 +72,11 @@ const restoreInterruptibility: CatalogControlRestore =
   effect => effect;
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describe("PostgreSQL framework artifact control-session adapter", () => {
+describe("PostgreSQL physical transport with catalog error projection", () => {
   it("rejects an invalid quarantine-drain timeout at construction", () => {
     const pool = queuedPool([], []);
     for (const timeout of [0, -1, 60_001, 1.5, Number.NaN]) {
-      expect(() => makePostgresCatalogControlSessionDriver(
+      expect(() => makePhysicalTransportProofDriver(
         pool,
         { quarantineDrainTimeoutMilliseconds: timeout },
       )).toThrow(
@@ -85,7 +88,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
   it("runs callbacks with the enclosing Effect clock context", async () => {
     const events: string[] = [];
     const client = fakePoolClient("clock", events);
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
 
@@ -111,7 +114,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("first", events, {
       delayedQuery: delayed,
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -177,7 +180,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       useForeignPromise,
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -232,7 +235,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         "select stalled_user_query": stalled,
       },
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
 
@@ -289,7 +292,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("initial-command", events, {
       commitCommand: "ROLLBACK",
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -320,7 +323,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("recovery-command", events, {
       commitCommand: "ROLLBACK",
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
@@ -353,7 +356,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("initial-rollback-command", events, {
       rollbackCommand: "COMMIT",
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -393,7 +396,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       rollbackCommand: "COMMIT",
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
@@ -448,7 +451,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
       { quarantineDrainTimeoutMilliseconds: 5 },
     );
@@ -506,7 +509,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
       { quarantineDrainTimeoutMilliseconds: 5 },
     );
@@ -566,7 +569,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       },
     };
     const client = fakePoolClient("late", events);
-    const driver = makePostgresCatalogControlSessionDriver(pool);
+    const driver = makePhysicalTransportProofDriver(pool);
     const exit = await Effect.runPromise(Effect.gen(function* () {
       const deadline = yield* startCatalogControlDeadline(
         "read",
@@ -609,7 +612,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
 
@@ -655,7 +658,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const events: string[] = [];
     const finalizerDefect = new Error("read callback finalizer failed");
     const client = fakePoolClient("read-interrupt", events);
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
@@ -697,7 +700,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       releaseFailure: destroy => destroy ? destroyFailure : undefined,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
       {
         get lifecycleFault() {
@@ -766,7 +769,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         emitEndOnDestroy: true,
         runtimeBackendKeyData: { processId: 731, secretKey: -913 },
       });
-      const driver = makePostgresCatalogControlSessionDriver(
+      const driver = makePhysicalTransportProofDriver(
         queuedPool([client], events, {
           host: "127.0.0.1",
           port: address.port,
@@ -831,7 +834,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       emitEndOnDestroy: true,
       runtimeBackendKeyData: { processId: 947, secretKey: 1_127 },
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events, {
         host: "127.0.0.1",
         port: address.port,
@@ -876,7 +879,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       emitEndOnDestroy: true,
       runtimeBackendKeyData: { processId: 1_013, secretKey: -1_219 },
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events, {
         host: "127.0.0.1",
         port: 1,
@@ -928,7 +931,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         throw new Error("observer installation failed");
       },
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
@@ -952,7 +955,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("read", events, {
       releaseFailure: destroy => destroy ? undefined : releaseCause,
     });
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
@@ -975,7 +978,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const first = fakePoolClient("first", events);
     const second = fakePoolClient("second", events);
     let faulted = false;
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([first, first, second], events),
       {
         lifecycleFault: ({ phase, edge, client }) => {
@@ -1031,7 +1034,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const events: string[] = [];
     const finalizerDefect = new Error("callback finalizer failed");
     const client = fakePoolClient("interrupt", events);
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -1081,7 +1084,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const finalizerGate = deferred<void>();
     const finalizerDefect = new Error("deadline callback finalizer failed");
     const client = fakePoolClient("deadline", events);
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([client], events),
       {
         lifecycleFault: ({ phase, edge }) => {
@@ -1150,7 +1153,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const first = fakePoolClient("recovery-first", events);
     const second = fakePoolClient("recovery-second", events);
     let faulted = false;
-    const driver = makePostgresCatalogControlSessionDriver(
+    const driver = makePhysicalTransportProofDriver(
       queuedPool([first, second], events),
       {
         lifecycleFault: ({ phase, edge, client }) => {
@@ -1224,7 +1227,8 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
 describePostgres("PostgreSQL framework artifact control-session server proof", () => {
   it("uses one backend, read committed, positive local budgets, and exact read reset", async () => {
     if (postgresUrl === null) throw new Error("PostgreSQL URL is unavailable.");
-    const pool = new Pool({ connectionString: postgresUrl, max: 1 });
+    const fixture = await createFileScopedPostgresFixture();
+    const pool = fixture.persistence.pool;
     try {
       const baseline = await pool.query<{
         readonly pid: number;
@@ -1283,7 +1287,7 @@ describePostgres("PostgreSQL framework artifact control-session server proof", (
           .toBeLessThanOrEqual(5_000);
       }
     } finally {
-      await pool.end();
+      await fixture.dispose();
     }
   }, 60_000);
 });
@@ -1335,6 +1339,14 @@ async function initialDeadline(timeoutMilliseconds = 1_000) {
     "initial",
     timeoutMilliseconds,
   ));
+}
+
+/** Exercise the transport owner directly. Fake clients do not issue installation
+ * admission; the separate server proof retains the actual catalog adapter. */
+function makePhysicalTransportProofDriver(pool: ControlPool, options: PostgresPhysicalSessionOptions = {}) {
+  return makePostgresPhysicalSessionDriver(pool, {
+    access: makePhysicalSessionAccess(flarexSchema), errors: catalogControlPhysicalErrors,
+  }, options);
 }
 
 function queuedPool(

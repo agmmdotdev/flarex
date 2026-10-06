@@ -46,7 +46,9 @@ async function committedCountFromIndependentConnection(
 /** The response is lost only after an independent connection sees exactly one
  * durable commit. The publisher must recover from its own committed evidence. */
 export async function installOneCommitResponseFault(fixture: MixedFixture,
-  baselineCommits: number, fault: () => unknown): Promise<Readonly<{ restore: () => void; fired: () => boolean }>> {
+  baselineCommits: number, fault: () => unknown,
+  afterCommitStatement?: (text: string) => void,
+): Promise<Readonly<{ restore: () => void; fired: () => boolean }>> {
   if (fixture.currency.resource.kind !== "postgres") throw new Error("Expected real PostgreSQL fixture");
   const schemaName = (await fixture.currency.resource.target.query<{ schema: string }>(
     "select current_schema() as schema")).rows[0]?.schema;
@@ -54,6 +56,7 @@ export async function installOneCommitResponseFault(fixture: MixedFixture,
   let armed = true;
   let didFire = false;
   return installPoolCommitResponseFault(fixture.currency.resource.target.pool, () => ({
+    observe: text => { if (didFire) afterCommitStatement?.(text); },
     commit: forward => {
       if (!armed) return forward();
       return Promise.resolve(forward()).then(async result => {
@@ -77,15 +80,41 @@ export function installOneEntryCommitResponseFault(context: MixedMutationFinalEn
   if (context.currency.resource.kind !== "postgres") throw new Error("Expected real PostgreSQL fixture");
   let didFire = false;
   return installPoolCommitResponseFault(context.currency.resource.target.pool, () => {
-    let createdSession = false;
+    let completedEntry = false;
     return {
-      observe: text => { if (/insert\s+into\s+"?fx_system_tx_session"?\s/i.test(text)) createdSession = true; },
+      // The initial INSERT is private to the installed completion command.
+      // Arm on its real invocation, then forward COMMIT before losing its response.
+      observe: text => { if (/\bfx_complete_finite_entry\b"?\s*\(/i.test(text)) completedEntry = true; },
       commit: forward => {
-        if (!createdSession || didFire) return forward();
+        if (!completedEntry || didFire) return forward();
         return Promise.resolve(forward()).then(async result => {
           didFire = true;
           await fault();
           return result;
+        });
+      },
+    };
+  }, () => didFire);
+}
+
+/** Lose the acknowledgement of the real anchor-fencing transaction. A final
+ * publication is never selected: the caller first provokes its real rollback. */
+export function installOneFiniteFenceCommitResponseFault(fixture: MixedFixture):
+  Readonly<{ restore: () => void; fired: () => boolean }> {
+  if (fixture.currency.resource.kind !== "postgres") throw new Error("Expected real PostgreSQL fixture");
+  let didFire = false;
+  return installPoolCommitResponseFault(fixture.currency.resource.target.pool, () => {
+    let changedClaimFence = false;
+    return {
+      observe: text => {
+        if (/update\s+"?fx_system_tx_session"?\s/i.test(text) && /finite_claim_fence/i.test(text))
+          changedClaimFence = true;
+      },
+      commit: forward => {
+        if (!changedClaimFence || didFire) return forward();
+        return Promise.resolve(forward()).then(() => {
+          didFire = true;
+          throw new Error("finite anchor fence COMMIT acknowledgement lost");
         });
       },
     };

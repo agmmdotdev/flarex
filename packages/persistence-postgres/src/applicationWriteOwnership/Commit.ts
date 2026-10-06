@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { AppRowTransaction } from "../appRows";
@@ -12,6 +12,11 @@ import { ApplicationWriteOwnershipHistoryBudget, denyManagedApplicationTableWrit
 import { readApplicationOwnershipForUniqueDefinitions, type AppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import { fxSystemApplicationWriteOwnership } from "./Schema";
 
+const ApplicationWriteOwnershipCommitStatusSchema = Schema.Struct({
+  contract: Schema.NullOr(Schema.Int), retained: Schema.Boolean,
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+const decodeApplicationWriteOwnershipCommitStatus = Schema.decodeUnknownEffect(ApplicationWriteOwnershipCommitStatusSchema);
+
 /** Decisive guard on the existing point-commit transaction, under its scope-clock lock. */
 export const validateApplicationWriteOwnershipForCommit = Effect.fn("ApplicationWriteOwnership.validateCommit")(
   function* (tx: AppRowTransaction, input: Readonly<{
@@ -19,15 +24,17 @@ export const validateApplicationWriteOwnershipForCommit = Effect.fn("Application
     generation: "application_v1" | "legacy_dynamic_worker_v1";
     authenticatedAttemptedTables: ReadonlyArray<CatalogTableId> | null;
     materialTables: ReadonlyArray<CatalogTableId>;
-  }>, uniqueConstraints?: AppUniqueConstraintDefinitionPortV1, target?: LocatedReadCommittedAttemptTargetV1): Effect.fn.Return<void, ApplicationWriteOwnershipError> {
-    const rows = yield* runDrizzleStatementEffect(tx.select({
+  }>, uniqueConstraints?: AppUniqueConstraintDefinitionPortV1, target?: LocatedReadCommittedAttemptTargetV1,
+    observedStatus?: unknown): Effect.fn.Return<void, ApplicationWriteOwnershipError> {
+    const rows = observedStatus === undefined ? yield* runDrizzleStatementEffect(tx.select({
       contract: fxSystemApplicationActiveHeads.readinessContractVersion,
       retained: sql<boolean>`exists (select 1 from ${fxSystemApplicationWriteOwnership}
         where ${fxSystemApplicationWriteOwnership.scopeId} = ${input.scopeId})`,
     }).from(fxSystemScopeClocks).leftJoin(fxSystemApplicationActiveHeads,
       eq(fxSystemApplicationActiveHeads.scopeId, fxSystemScopeClocks.scopeId))
       .where(eq(fxSystemScopeClocks.scopeId, input.scopeId)).limit(1),
-    cause => new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause }));
+    cause => new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause })) : [yield* decodeApplicationWriteOwnershipCommitStatus(observedStatus)
+      .pipe(Effect.mapError(cause => new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause })))];
     const status = rows[0];
     if (status === undefined) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "authorityChanged" }));
     // The scope clock orders this status against activation. A legacy attempt

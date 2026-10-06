@@ -1,0 +1,1818 @@
+{
+  "runId": "9b67463c-17be-41c7-8670-a69d4e280908",
+  "scenario": "payload-create",
+  "full": true,
+  "plan": {
+    "warmups": 3,
+    "measured": 20
+  },
+  "measurementMode": "quiet",
+  "quietAcceptance": true,
+  "status": "passed",
+  "failureStage": null,
+  "failureTokens": [],
+  "method": "Node direct execution; fresh requests; real settlement; separate single SQL diagnostic",
+  "environment": {
+    "node": "v24.16.0",
+    "postgres": {
+      "postgresVersion": "18.3",
+      "role": "flarex_read_redesign_logical",
+      "superuser": false,
+      "bypassRls": false,
+      "createDb": false,
+      "createRole": false,
+      "synchronousCommit": "on",
+      "fsync": "on",
+      "fullPageWrites": "on"
+    },
+    "revision": "5c9152621a6d4c177be8c314fa336d525e92c585",
+    "dirty": "true"
+  },
+  "latency": {
+    "samples": 20,
+    "medianMs": 84.07309999999961,
+    "minMs": 76.92230000000018,
+    "maxMs": 93.39600000000064,
+    "p95Ms": 86.6964999999982
+  },
+  "sql": {
+    "outcome": "ok",
+    "dispatches": 130,
+    "statements": 130,
+    "transactions": 9,
+    "openTransactions": 0,
+    "queryErrors": 0,
+    "lostContextDispatches": 0,
+    "unknownStatementDispatches": 0,
+    "unobservedDispatches": 0,
+    "incompleteSpans": 0,
+    "diagnosticDurationMs": 178.6190000000006,
+    "dispatchAwaitedMsSum": 67.15750000000662,
+    "dispatchAwaitedUnionMs": 67.15750000000662,
+    "checkoutAwaitedMsSum": 0.6915999999982887,
+    "checkoutAwaitedUnionMs": 0.6915999999982887,
+    "phases": [
+      {
+        "id": 0,
+        "parentId": null,
+        "name": "invocation",
+        "startMs": 0,
+        "endMs": 178.6190000000006,
+        "inclusiveMs": 178.6190000000006,
+        "exclusiveMs": 178.6190000000006,
+        "complete": true
+      }
+    ],
+    "dispatchGroups": [
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+        "template": "begin",
+        "dispatchCount": 9,
+        "statementCount": 9,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.0932000000029802,
+        "awaitedMsMin": 0.09029999999984284,
+        "awaitedMsMax": 0.23110000000087894,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 18,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "3a1c548973bfdd1f9929fd26fdbecbbc468f7bb6d53b83bfa50dd20d34009097",
+        "template": "select i . database_name , i . schema_name , i . namespace_oid : : text , i . incarnation : : text , i . structural_generation : : text , session_user , current_user = session_user , current_database ( ) , current_schema ( ) = i . schema_name , pg_catalog . set_config ( ? , pg_catalog . format ( ? , i . schema_name ) , true ) from fx_lock_installation_admission ( ) as i limit $?",
+        "dispatchCount": 9,
+        "statementCount": 9,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 3.3144000000011147,
+        "awaitedMsMin": 0.24420000000100117,
+        "awaitedMsMax": 0.6257999999997992,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 9,
+        "decodedResultJsonUtf8Bytes": 2331,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "36693dbe9a698882df729b73b28c47a2aee63cf7db1ee5e3bb4bb54604eaaf15",
+        "template": "select \"id\" , \"deployment_id\" , \"active_schema_version_id\" , \"isolation_kind\" , \"physical_locator_json\" , \"created_at\" from \"fx_control_scope\" where \"fx_control_scope\" . \"id\" = $? limit $?",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 2.7806000000000495,
+        "awaitedMsMin": 0.23619999999937136,
+        "awaitedMsMax": 2.544400000000678,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 588,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+        "template": "commit",
+        "dispatchCount": 9,
+        "statementCount": 9,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 3.9653999999991356,
+        "awaitedMsMin": 0.22069999999985157,
+        "awaitedMsMax": 1.7145000000000437,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 18,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "a52fcc300f049ed78a68fda0f3393694471a9346ea54dac18d72dc06a8315373",
+        "template": "select \"scope_id\" , \"protocol_version\" , \"state\" , \"physical_locator_json\" , \"initial_epoch\" , \"reserved_at\" , \"ready_at\" from \"fx_control_scope_provisioning\" where \"fx_control_scope_provisioning\" . \"scope_id\" = $? limit $?",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.46299999999973807,
+        "awaitedMsMin": 0.19839999999931024,
+        "awaitedMsMax": 0.2646000000004278,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 678,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "11c2bab76ba548850aa6ead86c2cdd2bc9ba26d1aac2455322bbcc3616f312a1",
+        "template": "select \"fx_system_scope_clock\" . \"scope_id\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_clock\" . \"last_metadata_sequence\" , greatest ( \"fx_system_scope_clock\" . \"updated_at\" , \"fx_system_scope_execution_authority\" . \"updated_at\" ) , \"fx_system_scope_execution_authority\" . \"storage_generation\" , \"fx_system_scope_execution_authority\" . \"storage_generation_fence\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_system_scope_execution_authority\" . \"epoch_uuid\" , \"fx_system_scope_execution_authority\" . \"authorization_revocation_epoch\" from \"fx_system_scope_clock\" left join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $?",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.7831000000005588,
+        "awaitedMsMin": 0.30240000000048894,
+        "awaitedMsMax": 0.48070000000006985,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 474,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "982f754329d76bcfeb0a92c388736e7b5a74741112ac753aa55e3a3a11d55d3c",
+        "template": "select \"deployment_id\" from \"fx_control_scope\" where \"fx_control_scope\" . \"id\" = $? limit $?",
+        "dispatchCount": 4,
+        "statementCount": 4,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.0392999999985477,
+        "awaitedMsMin": 0.17599999999947613,
+        "awaitedMsMax": 0.4353999999984808,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 4,
+        "decodedResultJsonUtf8Bytes": 176,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "af5843b9cb3b995b28b494266af7110060544c5f144109f7cee6a0cc7491d9e0",
+        "template": "select \"deployment_id\" , \"index_definition_id\" , \"access_kind\" , \"access_identity_id\" , \"table_id\" , \"logical_index_id\" , \"physical_spec_codec_version\" , \"physical_spec_json\" , \"physical_spec_bytes\" , \"physical_spec_sha256\" , \"created_at\" from \"fx_control_index_definition\" where ( \"fx_control_index_definition\" . \"deployment_id\" = $? and \"fx_control_index_definition\" . \"access_kind\" = $? and \"fx_control_index_definition\" . \"access_identity_id\" = $? and \"fx_control_index_definition\" . \"table_id\" = $? ) order by \"fx_control_index_definition\" . \"index_definition_id\" limit $?",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.5311000000001513,
+        "awaitedMsMin": 0.2316000000009808,
+        "awaitedMsMax": 0.29949999999917054,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 3476,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "a57100be48a366bb7a81f8ba86e6ab35dd9c8a1da8a8bf0f1c614695ba7e79f0",
+        "template": "select \"fx_control_index_definition\" . \"deployment_id\" , \"fx_control_index_definition\" . \"index_definition_id\" , \"fx_control_index_definition\" . \"access_kind\" , \"fx_control_index_definition\" . \"access_identity_id\" , \"fx_control_index_definition\" . \"table_id\" , \"fx_control_index_definition\" . \"logical_index_id\" , \"fx_control_index_definition\" . \"physical_spec_codec_version\" , \"fx_control_index_definition\" . \"physical_spec_json\" , \"fx_control_index_definition\" . \"physical_spec_bytes\" , \"fx_control_index_definition\" . \"physical_spec_sha256\" , \"fx_control_index_definition\" . \"created_at\" from \"fx_control_schema_version_index_binding\" inner join \"fx_control_index_definition\" on ( \"fx_control_index_definition\" . \"deployment_id\" = \"fx_control_schema_version_index_binding\" . \"deployment_id\" and \"fx_control_index_definition\" . \"index_definition_id\" = \"fx_control_schema_version_index_binding\" . \"index_definition_id\" and \"fx_control_index_definition\" . \"logical_index_id\" = \"fx_control_schema_version_index_binding\" . \"logical_index_id\" ) where ( \"fx_control_schema_version_index_binding\" . \"deployment_id\" = $? and \"fx_control_schema_version_index_binding\" . \"schema_version_id\" = $? and \"fx_control_index_definition\" . \"access_kind\" = $? and \"fx_control_index_definition\" . \"table_id\" in ( $? , $? ) ) order by \"fx_control_index_definition\" . \"index_definition_id\" limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.36340000000018335,
+        "awaitedMsMin": 0.36340000000018335,
+        "awaitedMsMax": 0.36340000000018335,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1894,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "0e842c929a0349caacbed5859b03a114a70a7987f3c82b49208869894851c529",
+        "template": "select \"deployment_id\" , \"schema_version_id\" , \"version\" , \"manifest_codec_version\" , octet_length ( \"manifest_bytes\" ) , case when octet_length ( \"fx_control_schema_version\" . \"manifest_bytes\" ) < = $? then \"manifest_bytes\" else null end , \"manifest_sha256\" , case when isfinite ( \"created_at\" ) then ( extract ( epoch from \"created_at\" ) * ? ) : : numeric ( ? , ? ) : : text else null end , \"created_at\" from \"fx_control_schema_version\" where ( \"fx_control_schema_version\" . \"deployment_id\" = $? and \"fx_control_schema_version\" . \"schema_version_id\" = $? ) limit $?",
+        "dispatchCount": 3,
+        "statementCount": 3,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.077899999998408,
+        "awaitedMsMin": 0.28989999999976135,
+        "awaitedMsMax": 0.4206999999987602,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 3,
+        "decodedResultJsonUtf8Bytes": 13995,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "9a126a20fa88ab1bde58e4be8d6d155f98724a497bdf6d12f9ebbd70b4a7807c",
+        "template": "select \"schema_version_id\" from \"fx_control_schema_version\" where ( \"fx_control_schema_version\" . \"deployment_id\" = $? and \"fx_control_schema_version\" . \"schema_version_id\" = $? and \"fx_control_schema_version\" . \"version\" = $? and \"fx_control_schema_version\" . \"manifest_codec_version\" = $? and \"fx_control_schema_version\" . \"manifest_json\" = $? and \"fx_control_schema_version\" . \"manifest_bytes\" = $? and \"fx_control_schema_version\" . \"manifest_sha256\" = $? and case when isfinite ( \"fx_control_schema_version\" . \"created_at\" ) then ( extract ( epoch from \"fx_control_schema_version\" . \"created_at\" ) * ? ) : : numeric ( ? , ? ) : : text else null end = $? ) limit $?",
+        "dispatchCount": 3,
+        "statementCount": 3,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.0754999999971915,
+        "awaitedMsMin": 0.3283999999985099,
+        "awaitedMsMax": 0.4113999999990483,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 3,
+        "decodedResultJsonUtf8Bytes": 246,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "ae0742346ef406d3e54e65b097ccb74b53e833f3389ef272fa7adb2d594f2b8b",
+        "template": "select \"deployment_id\" , \"schema_version_id\" , \"logical_index_id\" , \"index_definition_id\" , \"required_for_activation\" , \"created_at\" from \"fx_control_schema_version_index_binding\" where ( \"fx_control_schema_version_index_binding\" . \"deployment_id\" = $? and \"fx_control_schema_version_index_binding\" . \"schema_version_id\" = $? ) order by \"fx_control_schema_version_index_binding\" . \"logical_index_id\" limit $?",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.5249000000003434,
+        "awaitedMsMin": 0.22769999999945867,
+        "awaitedMsMax": 0.29720000000088476,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 328,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "86a5af047e5c46e3cd63903f0babf006774a0024bf4a2037dfe77bd1c5248f4a",
+        "template": "select \"deployment_id\" , \"index_definition_id\" , \"access_kind\" , \"access_identity_id\" , \"table_id\" , \"logical_index_id\" , \"physical_spec_codec_version\" , \"physical_spec_json\" , \"physical_spec_bytes\" , \"physical_spec_sha256\" , \"created_at\" from \"fx_control_index_definition\" where ( \"fx_control_index_definition\" . \"deployment_id\" = $? and ( ( \"fx_control_index_definition\" . \"access_kind\" = $? and \"fx_control_index_definition\" . \"index_definition_id\" in ( $? ) ) or ( \"fx_control_index_definition\" . \"access_kind\" = $? and \"fx_control_index_definition\" . \"access_identity_id\" = $? and \"fx_control_index_definition\" . \"table_id\" = $? and \"fx_control_index_definition\" . \"physical_spec_sha256\" = $? ) or ( \"fx_control_index_definition\" . \"access_kind\" = $? and \"fx_control_index_definition\" . \"access_identity_id\" = $? and \"fx_control_index_definition\" . \"table_id\" = $? and \"fx_control_index_definition\" . \"physical_spec_sha256\" = $? ) ) ) order by \"fx_control_index_definition\" . \"index_definition_id\"",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.6573000000007596,
+        "awaitedMsMin": 0.316899999999805,
+        "awaitedMsMax": 0.3404000000009546,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 6,
+        "decodedResultJsonUtf8Bytes": 10736,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "6a7ee2ea7c2b25d8f824189db46135a45e4fcc841cb961a743b4b0e531015031",
+        "template": "select \"fx_control_unique_constraint_definition\" . \"deployment_id\" , \"fx_control_unique_constraint_definition\" . \"unique_constraint_definition_id\" , \"fx_control_unique_constraint_definition\" . \"logical_unique_constraint_id\" , \"fx_control_unique_constraint_definition\" . \"table_id\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_codec_version\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_json\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_bytes\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_sha256\" , \"fx_control_unique_constraint_definition\" . \"created_at\" , \"fx_control_schema_version_unique_constraint_binding\" . \"deployment_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"schema_version_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"logical_unique_constraint_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"unique_constraint_definition_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"required_for_activation\" , \"fx_control_schema_version_unique_constraint_binding\" . \"created_at\" from \"fx_control_schema_version_unique_constraint_binding\" inner join \"fx_control_unique_constraint_definition\" on ( \"fx_control_unique_constraint_definition\" . \"deployment_id\" = \"fx_control_schema_version_unique_constraint_binding\" . \"deployment_id\" and \"fx_control_unique_constraint_definition\" . \"unique_constraint_definition_id\" = \"fx_control_schema_version_unique_constraint_binding\" . \"unique_constraint_definition_id\" and \"fx_control_unique_constraint_definition\" . \"logical_unique_constraint_id\" = \"fx_control_schema_version_unique_constraint_binding\" . \"logical_unique_constraint_id\" ) where ( \"fx_control_schema_version_unique_constraint_binding\" . \"deployment_id\" = $? and \"fx_control_schema_version_unique_constraint_binding\" . \"schema_version_id\" = $? and \"fx_control_unique_constraint_definition\" . \"table_id\" in ( $? , $? ) ) order by \"fx_control_unique_constraint_definition\" . \"unique_constraint_definition_id\" limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.6154000000005908,
+        "awaitedMsMin": 0.6154000000005908,
+        "awaitedMsMax": 0.6154000000005908,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1752,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "d44bb70764e97f38da4af28e0da188109ba11ab33e8c06d1a5b975441991ee51",
+        "template": "select \"deployment_id\" , \"schema_version_id\" , \"set_codec_version\" , \"definition_count\" , \"definition_set_sha256\" , \"closed_at\" from \"fx_control_schema_unique_constraint_set\" where ( \"fx_control_schema_unique_constraint_set\" . \"deployment_id\" = $? and \"fx_control_schema_unique_constraint_set\" . \"schema_version_id\" = $? ) limit $?",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.6211000000002969,
+        "awaitedMsMin": 0.20269999999982247,
+        "awaitedMsMax": 0.4184000000004744,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 602,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "31f43bdfc62359eebb272f1d4be5b69986318bf328772063572e58e2f7bf1e58",
+        "template": "select \"fx_control_unique_constraint_definition\" . \"deployment_id\" , \"fx_control_unique_constraint_definition\" . \"unique_constraint_definition_id\" , \"fx_control_unique_constraint_definition\" . \"logical_unique_constraint_id\" , \"fx_control_unique_constraint_definition\" . \"table_id\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_codec_version\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_json\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_bytes\" , \"fx_control_unique_constraint_definition\" . \"physical_spec_sha256\" , \"fx_control_unique_constraint_definition\" . \"created_at\" , \"fx_control_schema_version_unique_constraint_binding\" . \"deployment_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"schema_version_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"logical_unique_constraint_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"unique_constraint_definition_id\" , \"fx_control_schema_version_unique_constraint_binding\" . \"required_for_activation\" , \"fx_control_schema_version_unique_constraint_binding\" . \"created_at\" from \"fx_control_schema_version_unique_constraint_binding\" inner join \"fx_control_unique_constraint_definition\" on ( \"fx_control_unique_constraint_definition\" . \"deployment_id\" = \"fx_control_schema_version_unique_constraint_binding\" . \"deployment_id\" and \"fx_control_unique_constraint_definition\" . \"unique_constraint_definition_id\" = \"fx_control_schema_version_unique_constraint_binding\" . \"unique_constraint_definition_id\" and \"fx_control_unique_constraint_definition\" . \"logical_unique_constraint_id\" = \"fx_control_schema_version_unique_constraint_binding\" . \"logical_unique_constraint_id\" ) where ( \"fx_control_schema_version_unique_constraint_binding\" . \"deployment_id\" = $? and \"fx_control_schema_version_unique_constraint_binding\" . \"schema_version_id\" = $? ) order by \"fx_control_unique_constraint_definition\" . \"unique_constraint_definition_id\" limit $?",
+        "dispatchCount": 3,
+        "statementCount": 3,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.209900000001653,
+        "awaitedMsMin": 0.37850000000071304,
+        "awaitedMsMax": 0.43330000000059954,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 3,
+        "decodedResultJsonUtf8Bytes": 5256,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "f65c0a2931ed21bbcd3a1be7b749ca2bef6b4f84bf3026bae8a0793a28bb18f2",
+        "template": "set transaction isolation level read committed",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.1581000000005588,
+        "awaitedMsMin": 0.07669999999961874,
+        "awaitedMsMax": 0.08140000000094005,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 4,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "dd9edd56915feb5f28cf1221278ab90bd598d3f87864ec50ccafa38581443a31",
+        "template": "select \"scope_id\" , \"deployment_id\" , \"schema_version_id\" , \"schema_manifest_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"frontier_commit_seq\" , \"attempt_fence\" , \"frame_codec_version\" , \"frame_kind\" , \"frame_byte_length\" , \"frame_sha256\" , \"frame_bytes\" , \"created_at\" , \"updated_at\" from \"fx_system_app_schema_candidate_validation\" where \"fx_system_app_schema_candidate_validation\" . \"scope_id\" = $? limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.2664999999997235,
+        "awaitedMsMin": 0.2664999999997235,
+        "awaitedMsMax": 0.2664999999997235,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 3608,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "15cd3de606ee73eaac22bfd615ddbd1596226669496f51e06b0f474eeea75cbb",
+        "template": "select set_config ( ? , $? , true ) , set_config ( ? , $? , true )",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.3139000000010128,
+        "awaitedMsMin": 0.140400000000227,
+        "awaitedMsMax": 0.1735000000007858,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 49,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "216d53d247280d51e238eda227e77dae2af3e79c43ef9dbdf12f0e0a749b8a7f",
+        "template": "select pg_advisory_xact_lock ( hashtextextended ( $? , ? ) )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.25279999999838765,
+        "awaitedMsMin": 0.25279999999838765,
+        "awaitedMsMax": 0.25279999999838765,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 30,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "869de89969a5d218f5816df5e5b97f51502276cc9fec5e396f71ac44b60b52ae",
+        "template": "select \"fx_system_scope_execution_authority\" . \"scope_id\" , \"fx_system_scope_execution_authority\" . \"storage_generation\" , \"fx_system_scope_execution_authority\" . \"storage_generation_fence\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_scope_execution_authority\" . \"authorization_revocation_epoch\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_system_scope_execution_authority\" . \"epoch_uuid\" , \"fx_system_scope_execution_authority\" . \"updated_at\" , \"fx_system_scope_clock\" . \"scope_uuid\" from \"fx_system_scope_execution_authority\" inner join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_id\" = \"fx_system_scope_execution_authority\" . \"scope_id\" where \"fx_system_scope_execution_authority\" . \"scope_id\" = $? limit $? for key share of \"fx_system_scope_execution_authority\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.3171999999995023,
+        "awaitedMsMin": 0.3171999999995023,
+        "awaitedMsMax": 0.3171999999995023,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 229,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "02bef84caf14107ed22ca51eff22ccd3787a06a274b1ecc6ccfb0605cd22656b",
+        "template": "select \"fx_system_scope_clock\" . \"scope_id\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_clock\" . \"last_metadata_sequence\" , greatest ( \"fx_system_scope_clock\" . \"updated_at\" , \"fx_system_scope_execution_authority\" . \"updated_at\" ) , \"fx_system_scope_execution_authority\" . \"storage_generation\" , \"fx_system_scope_execution_authority\" . \"storage_generation_fence\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_system_scope_execution_authority\" . \"epoch_uuid\" , \"fx_system_scope_execution_authority\" . \"authorization_revocation_epoch\" from \"fx_system_scope_clock\" inner join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $? for key share of \"fx_system_scope_clock\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.325700000001234,
+        "awaitedMsMin": 0.325700000001234,
+        "awaitedMsMax": 0.325700000001234,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 237,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "2ba209045b4f742981492c369d96095aab2ad88a09de3066cec5369b40f89b2f",
+        "template": "select \"scope_id\" , \"activation_sequence\" , \"revision_id\" , \"readiness_contract_version\" , \"readiness_sha256\" , \"relation_set_readiness_sha256\" , \"relation_count\" , \"write_policy_set_sha256\" , \"write_ownership_sha256\" , \"activation_sha256\" , \"head_sha256\" , \"head_bytes\" , \"created_at\" , \"updated_at\" from \"fx_system_application_active_head\" where \"fx_system_application_active_head\" . \"scope_id\" = $? limit $? for share",
+        "dispatchCount": 4,
+        "statementCount": 4,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.9984000000022206,
+        "awaitedMsMin": 0.22420000000056461,
+        "awaitedMsMax": 0.2782000000006519,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 4,
+        "decodedResultJsonUtf8Bytes": 13412,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "10f5420f43a2779ac8d3df351b269337d4e9954eacea417a3af8df776034e2d8",
+        "template": "select \"scope_id\" , \"activation_sequence\" , \"previous_activation_sequence\" , \"revision_id\" , \"readiness_contract_version\" , \"readiness_sha256\" , \"legacy_readiness_sha256\" , \"relation_readiness_sha256\" , \"relation_set_readiness_sha256\" , \"relation_count\" , \"write_policy_set_sha256\" , \"write_ownership_sha256\" , \"activation_request_sha256\" , \"activation_sha256\" , \"activation_bytes\" , \"activated_at\" from \"fx_system_application_activation\" where ( \"fx_system_application_activation\" . \"scope_id\" = $? and \"fx_system_application_activation\" . \"activation_sequence\" = $? ) limit $? for share",
+        "dispatchCount": 4,
+        "statementCount": 4,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.0600000000013097,
+        "awaitedMsMin": 0.24020000000018626,
+        "awaitedMsMax": 0.28960000000006403,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 4,
+        "decodedResultJsonUtf8Bytes": 15048,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "79a08aa79571aac996db890fab5000ade5d125850b8bb842ceff7fc21faf3692",
+        "template": "select \"deployment_id\" , \"application_manifest_sha256\" , \"application_manifest_bytes\" , \"application_schema_sha256\" , \"schema_version_id\" , \"schema_version\" , \"bound_publication_sha256\" , \"binding_sha256\" , \"binding_bytes\" , \"created_at\" from \"fx_control_application_manifest_schema_binding\" where ( \"fx_control_application_manifest_schema_binding\" . \"deployment_id\" = $? and \"fx_control_application_manifest_schema_binding\" . \"application_manifest_sha256\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.2739000000001397,
+        "awaitedMsMin": 0.2739000000001397,
+        "awaitedMsMax": 0.2739000000001397,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 13407,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "becf994e85fbdfd912eedaccb48bede8e21641fa787a8be9f6d109205c1630f6",
+        "template": "select \"deployment_id\" , \"application_schema_sha256\" , \"application_schema_frame_bytes\" , \"schema_version_id\" , \"schema_version\" , \"schema_manifest_sha256\" , \"binding_codec_version\" , \"binding_json\" , \"binding_bytes\" , \"bound_publication_sha256\" , \"created_at\" from \"fx_control_bound_application_schema\" where ( \"fx_control_bound_application_schema\" . \"deployment_id\" = $? and \"fx_control_bound_application_schema\" . \"schema_version_id\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.32300000000032014,
+        "awaitedMsMin": 0.32300000000032014,
+        "awaitedMsMax": 0.32300000000032014,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 16978,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "a153a6207b2083f294f448e2ec2e6cf78b64e9e3484d6a852eba45ae01dca500",
+        "template": "select \"deployment_id\" , \"schema_version_id\" , \"relation_ordinal\" , \"relation_id\" , \"source_table_id\" , \"target_table_id\" , \"semantic_definition_sha256\" , \"edge_definition_id\" , \"evolution_kind\" , \"origin_schema_version_id\" , \"origin_relation_ordinal\" , \"physical_evolution\" , \"required_for_activation\" , \"created_at\" from \"fx_control_schema_relation_binding\" where ( \"fx_control_schema_relation_binding\" . \"deployment_id\" = $? and \"fx_control_schema_relation_binding\" . \"schema_version_id\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.2768999999989319,
+        "awaitedMsMin": 0.2768999999989319,
+        "awaitedMsMax": 0.2768999999989319,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "12c04ec814c71a20515908835451f09b3aeef4e1bc6ecb8127e77518ccb273d4",
+        "template": "select \"scope_id\" , \"unique_constraint_definition_id\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"start_commit_seq\" , \"lifecycle\" , \"covered_through_commit_seq\" , \"maintenance_activation_sequence\" , \"maintenance_bytes\" , \"maintenance_sha256\" , \"cursor_row_id\" , \"attempt_fence\" , \"created_at\" , \"updated_at\" from \"fx_system_unique_constraint_build\" where ( \"fx_system_unique_constraint_build\" . \"scope_id\" = $? and \"fx_system_unique_constraint_build\" . \"unique_constraint_definition_id\" in ( $? ) ) order by \"fx_system_unique_constraint_build\" . \"unique_constraint_definition_id\" limit $? for share",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.6111999999993714,
+        "awaitedMsMin": 0.294899999998961,
+        "awaitedMsMax": 0.31630000000041036,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 5346,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "c889d152feaee4854cc989a6b933bbb91015bc10d2bed5c8b5c302f4fd9ee253",
+        "template": "select \"scope_id\" , \"revision_id\" , \"deployment_id\" , \"manifest_sha256\" , \"publication_sha256\" , \"application_schema_sha256\" , \"schema_version_id\" , \"schema_version\" , \"schema_manifest_sha256\" , \"manifest_schema_binding_sha256\" , \"bound_publication_sha256\" , \"bound_at\" from \"fx_system_application_revision_schema\" where ( \"fx_system_application_revision_schema\" . \"scope_id\" = $? and \"fx_system_application_revision_schema\" . \"revision_id\" = $? ) limit $? for share",
+        "dispatchCount": 3,
+        "statementCount": 3,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.7078999999976077,
+        "awaitedMsMin": 0.23019999999996799,
+        "awaitedMsMax": 0.24039999999877182,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 3,
+        "decodedResultJsonUtf8Bytes": 3312,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "562e690b41f3690dc922f037be536ed5ea269638f79489fe7d32c040bf08f9e1",
+        "template": "select \"candidate_validation_receipt_sha256\" from \"fx_system_application_readiness\" where ( \"fx_system_application_readiness\" . \"scope_id\" = $? and \"fx_system_application_readiness\" . \"revision_id\" = $? ) limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.21050000000104774,
+        "awaitedMsMin": 0.21050000000104774,
+        "awaitedMsMax": 0.21050000000104774,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 139,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "8277d9659ad766f37b1a2f0284686b77e77e294dc7e96a2b7efa0a9ee901e05e",
+        "template": "select \"scope_id\" , \"revision_id\" , \"candidate_id\" , \"analysis_id\" , \"analysis_status\" , \"source_artifact_root_sha256\" , \"manifest_sha256\" , \"status\" , \"registered_at\" from \"fx_system_application_revision_v2\" where ( \"fx_system_application_revision_v2\" . \"scope_id\" = $? and \"fx_system_application_revision_v2\" . \"revision_id\" = $? ) limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.22400000000016007,
+        "awaitedMsMin": 0.22400000000016007,
+        "awaitedMsMax": 0.22400000000016007,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 516,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "28da9071ecde53274c467d0d97b3d5b4ce4ec584568a9aef19836d70747726f1",
+        "template": "select \"fx_system_application_candidate_v1\" . \"scope_id\" , \"fx_system_application_candidate_v1\" . \"candidate_id\" , \"fx_system_application_candidate_v1\" . \"request_key\" , \"fx_system_application_candidate_v1\" . \"source_artifact_root_sha256\" , \"fx_system_application_candidate_v1\" . \"storage_generation\" , \"fx_system_application_candidate_v1\" . \"storage_generation_fence\" , \"fx_system_application_candidate_v1\" . \"epoch\" , \"fx_system_application_candidate_v1\" . \"created_at\" , \"fx_system_application_analysis_v1\" . \"scope_id\" , \"fx_system_application_analysis_v1\" . \"analysis_id\" , \"fx_system_application_analysis_v1\" . \"candidate_id\" , \"fx_system_application_analysis_v1\" . \"source_artifact_root_sha256\" , \"fx_system_application_analysis_v1\" . \"analyzer_identity\" , \"fx_system_application_analysis_v1\" . \"analyzer_policy_identity\" , \"fx_system_application_analysis_v1\" . \"status\" , \"fx_system_application_analysis_v1\" . \"manifest_sha256\" , \"fx_system_application_analysis_v1\" . \"manifest_bytes\" , \"fx_system_application_analysis_v1\" . \"receipt_sha256\" , \"fx_system_application_analysis_v1\" . \"receipt_bytes\" , \"fx_system_application_analysis_v1\" . \"failure_code\" , \"fx_system_application_analysis_v1\" . \"failure_detail\" , \"fx_system_application_analysis_v1\" . \"completed_at\" , \"fx_system_application_analysis_v1\" . \"created_at\" , \"fx_system_application_analysis_v1\" . \"updated_at\" , \"fx_system_application_publication\" . \"scope_id\" , \"fx_system_application_publication\" . \"deployment_id\" , \"fx_system_application_publication\" . \"revision_id\" , \"fx_system_application_publication\" . \"candidate_id\" , \"fx_system_application_publication\" . \"analysis_id\" , \"fx_system_application_publication\" . \"revision_status\" , \"fx_system_application_publication\" . \"source_artifact_root_sha256\" , \"fx_system_application_publication\" . \"manifest_sha256\" , \"fx_system_application_publication\" . \"schema_sha256\" , \"fx_system_application_publication\" . \"schema_bytes\" , \"fx_system_application_publication\" . \"function_catalog_sha256\" , \"fx_system_application_publication\" . \"function_catalog_bytes\" , \"fx_system_application_publication\" . \"schema_version_id\" , \"fx_system_application_publication\" . \"schema_manifest_sha256\" , \"fx_system_application_publication\" . \"manifest_schema_binding_sha256\" , \"fx_system_application_publication\" . \"bound_publication_sha256\" , \"fx_system_application_publication\" . \"publication_sha256\" , \"fx_system_application_publication\" . \"published_at\" from \"fx_system_application_revision_v2\" left join \"fx_system_application_candidate_v1\" on ( \"fx_system_application_candidate_v1\" . \"scope_id\" = \"fx_system_application_revision_v2\" . \"scope_id\" and \"fx_system_application_candidate_v1\" . \"candidate_id\" = \"fx_system_application_revision_v2\" . \"candidate_id\" ) left join \"fx_system_application_analysis_v1\" on ( \"fx_system_application_analysis_v1\" . \"scope_id\" = \"fx_system_application_revision_v2\" . \"scope_id\" and \"fx_system_application_analysis_v1\" . \"analysis_id\" = \"fx_system_application_revision_v2\" . \"analysis_id\" ) left join \"fx_system_application_publication\" on ( \"fx_system_application_publication\" . \"scope_id\" = \"fx_system_application_revision_v2\" . \"scope_id\" and \"fx_system_application_publication\" . \"revision_id\" = \"fx_system_application_revision_v2\" . \"revision_id\" ) where ( \"fx_system_application_revision_v2\" . \"scope_id\" = $? and \"fx_system_application_revision_v2\" . \"revision_id\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.8535999999985506,
+        "awaitedMsMin": 0.8535999999985506,
+        "awaitedMsMax": 0.8535999999985506,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 25078,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "3e41efa4379577d1d242411bb491d68e330b94439965e3a62d468777d26b0380",
+        "template": "select \"scope_id\" , \"revision_id\" , \"function_catalog_sha256\" , \"function_path\" , \"module_name\" , \"export_name\" , \"function_kind\" , \"visibility\" , \"entry_sha256\" , \"entry_bytes\" from \"fx_system_application_function\" where ( \"fx_system_application_function\" . \"scope_id\" = $? and \"fx_system_application_function\" . \"revision_id\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.23720000000139407,
+        "awaitedMsMin": 0.23720000000139407,
+        "awaitedMsMax": 0.23720000000139407,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "ae14614a96a24edd9620fe438d650df282395edbf345b91992f148f7b3661628",
+        "template": "select \"fx_system_scope_clock\" . \"scope_id\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_clock\" . \"last_metadata_sequence\" , greatest ( \"fx_system_scope_clock\" . \"updated_at\" , \"fx_system_scope_execution_authority\" . \"updated_at\" ) , \"fx_system_scope_execution_authority\" . \"storage_generation\" , \"fx_system_scope_execution_authority\" . \"storage_generation_fence\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_system_scope_execution_authority\" . \"epoch_uuid\" , \"fx_system_scope_execution_authority\" . \"authorization_revocation_epoch\" from \"fx_system_scope_clock\" inner join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.35230000000046857,
+        "awaitedMsMin": 0.35230000000046857,
+        "awaitedMsMax": 0.35230000000046857,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 237,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "83bc8c4788b3d7118b9cffda4067c2d4ca1c684acc5546755b09be2be7089ec4",
+        "template": "select \"scope_id\" , \"revision_id\" , \"candidate_id\" , \"analysis_id\" , \"source_artifact_root_sha256\" , \"publication_sha256\" , \"task_catalog_sha256\" , \"task_catalog_binding_sha256\" , \"task_count\" , \"runtime_host_identity\" , \"compatibility_date\" , \"binding_bytes\" , \"registered_at\" from \"fx_system_application_task_catalog\" where ( \"fx_system_application_task_catalog\" . \"scope_id\" = $? and \"fx_system_application_task_catalog\" . \"revision_id\" = $? ) limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.277299999999741,
+        "awaitedMsMin": 0.277299999999741,
+        "awaitedMsMax": 0.277299999999741,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 3325,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "dd7405367ba2da4e3885929bab79a08839d4ced9875ffe9b6995cbd05a9751bb",
+        "template": "select \"scope_id\" , \"revision_id\" , \"task_catalog_binding_sha256\" , \"task_definition_binding_sha256\" , \"task_id\" , \"canonical_task_manifest_sha256\" , \"logical_module_path\" , \"source_module_path\" , \"export_name\" , \"manifest_bytes\" , \"binding_bytes\" from \"fx_system_application_task_definition\" where ( \"fx_system_application_task_definition\" . \"scope_id\" = $? and \"fx_system_application_task_definition\" . \"revision_id\" = $? ) limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.23550000000068394,
+        "awaitedMsMin": 0.23550000000068394,
+        "awaitedMsMax": 0.23550000000068394,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 3919,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "ca58e7a62708d06d9a0125c292c57f1d2ad5fc93ff7f54a40488a5e128e1c1a1",
+        "template": "select \"fx_system_index_build_state\" . \"scope_id\" , \"fx_system_index_build_state\" . \"index_definition_id\" , \"fx_system_index_build_state\" . \"storage_generation\" , \"fx_system_index_build_state\" . \"storage_generation_fence\" , \"fx_system_index_build_state\" . \"epoch\" , \"fx_system_index_build_state\" . \"start_commit_seq\" , \"fx_system_index_build_state\" . \"covered_through_commit_seq\" , \"fx_system_index_build_state\" . \"first_readable_commit_seq\" , \"fx_system_index_build_state\" . \"maintenance_activation_sequence\" , \"fx_system_index_build_state\" . \"maintenance_bytes\" , \"fx_system_index_build_state\" . \"maintenance_sha256\" , \"fx_system_index_build_state\" . \"lifecycle\" , \"fx_system_index_build_state\" . \"cursor_codec_version\" , \"fx_system_index_build_state\" . \"backfill_cursor_row_id\" , \"fx_system_index_build_state\" . \"attempt_fence\" , \"fx_system_index_build_state\" . \"created_at\" , \"fx_system_index_build_state\" . \"updated_at\" , \"fx_system_scope_clock\" . \"scope_id\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_clock\" . \"last_metadata_sequence\" , greatest ( \"fx_system_scope_clock\" . \"updated_at\" , \"fx_system_scope_execution_authority\" . \"updated_at\" ) , \"fx_system_scope_execution_authority\" . \"storage_generation\" , \"fx_system_scope_execution_authority\" . \"storage_generation_fence\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_system_scope_execution_authority\" . \"epoch_uuid\" , \"fx_system_scope_execution_authority\" . \"authorization_revocation_epoch\" from \"fx_system_index_build_state\" inner join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_id\" = \"fx_system_index_build_state\" . \"scope_id\" inner join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where ( \"fx_system_index_build_state\" . \"scope_id\" = $? and \"fx_system_index_build_state\" . \"index_definition_id\" in ( $? , $? , $? ) )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.389099999998507,
+        "awaitedMsMin": 0.389099999998507,
+        "awaitedMsMax": 0.389099999998507,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 3,
+        "decodedResultJsonUtf8Bytes": 9577,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "52542258e7a53fef92b45c5429ffa108bac4dab77e3982c9e7aa681257af5935",
+        "template": "select \"scope_id\" , \"deployment_id\" , \"definition_kind\" , \"definition_id\" , \"lifecycle\" , \"transition_fence\" , \"physical_spec_sha256\" , \"request_codec_version\" , \"request_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"created_at\" , \"updated_at\" from \"fx_system_physical_definition_lifecycle\" where ( \"fx_system_physical_definition_lifecycle\" . \"scope_id\" = $? and \"fx_system_physical_definition_lifecycle\" . \"definition_kind\" = $? and \"fx_system_physical_definition_lifecycle\" . \"definition_id\" in ( $? , $? , $? ) ) for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.22999999999956344,
+        "awaitedMsMin": 0.22999999999956344,
+        "awaitedMsMax": 0.22999999999956344,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "ab446de573c360c55ad1ddfbfcae2ab6f487a2e1b155e942ee126b7c9b0d4466",
+        "template": "select \"scope_id\" , \"deployment_id\" , \"definition_kind\" , \"definition_id\" , \"lifecycle\" , \"transition_fence\" , \"physical_spec_sha256\" , \"request_codec_version\" , \"request_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"created_at\" , \"updated_at\" from \"fx_system_physical_definition_lifecycle\" where ( \"fx_system_physical_definition_lifecycle\" . \"scope_id\" = $? and \"fx_system_physical_definition_lifecycle\" . \"definition_kind\" = $? and \"fx_system_physical_definition_lifecycle\" . \"definition_id\" in ( $? ) ) for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.1823000000003958,
+        "awaitedMsMin": 0.1823000000003958,
+        "awaitedMsMax": 0.1823000000003958,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "f008ef77d8c152a5b56f7f1391e0ac74f7994ed90495a0509a3f1fc1754e71e4",
+        "template": "select \"scope_id\" , \"revision_id\" , \"deployment_id\" , \"candidate_id\" , \"analysis_id\" , \"source_artifact_root_sha256\" , \"manifest_sha256\" , \"publication_sha256\" , \"application_schema_sha256\" , \"function_catalog_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"schema_version_id\" , \"schema_manifest_sha256\" , \"manifest_schema_binding_sha256\" , \"bound_publication_sha256\" , \"task_catalog_binding_sha256\" , \"runtime_host_identity\" , \"compatibility_date\" , \"cold_receipt_set_sha256\" , \"candidate_validation_receipt_sha256\" , \"unique_constraint_status\" , \"unique_constraint_eligibility_sha256\" , \"physical_readiness_sha256\" , \"relation_set_codec_version\" , \"relation_frontier_commit_seq\" , \"relation_count\" , \"relation_set_readiness_sha256\" , \"relation_set_readiness_bytes\" , \"readiness_codec_version\" , \"readiness_sha256\" , \"readiness_bytes\" , \"ready_at\" from \"fx_system_application_readiness\" where ( \"fx_system_application_readiness\" . \"scope_id\" = $? and \"fx_system_application_readiness\" . \"revision_id\" = $? ) limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.3581000000012864,
+        "awaitedMsMin": 0.3581000000012864,
+        "awaitedMsMax": 0.3581000000012864,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 18116,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "fa253e73d332be8f71d08803c3b6a5ccf342de6bccd2ef5647dec66c472cf916",
+        "template": "select \"scope_id\" , \"revision_id\" , \"readiness_sha256\" , \"relation_set_readiness_sha256\" , \"relation_count\" , \"schema_version_id\" , \"relation_ordinal\" , \"relation_id\" , \"source_table_id\" , \"target_table_id\" , \"semantic_definition_sha256\" , \"edge_definition_id\" , \"physical_definition_sha256\" , \"readiness_kind\" , \"physical_attempt_fence\" , \"semantic_attempt_fence\" , \"relation_readiness_sha256\" from \"fx_system_application_readiness_relation\" where ( \"fx_system_application_readiness_relation\" . \"scope_id\" = $? and \"fx_system_application_readiness_relation\" . \"revision_id\" = $? ) order by \"fx_system_application_readiness_relation\" . \"relation_ordinal\" asc for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.29429999999956635,
+        "awaitedMsMin": 0.29429999999956635,
+        "awaitedMsMax": 0.29429999999956635,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "8723c04ea228e0f8263c8c91d9c85efa76c9143282505881a81b48f1f29a9993",
+        "template": "select * from fx_read_application_write_ownership_snapshot ( $? : : text , $? : : integer , $? : : integer )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.7461999999995896,
+        "awaitedMsMin": 0.7461999999995896,
+        "awaitedMsMax": 0.7461999999995896,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 4,
+        "decodedResultJsonUtf8Bytes": 26539,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "0267c10313a0c19a2ad6f75d174915b911a68c4c70b42b21e3144a1136b4e9b1",
+        "template": "select \"ready_at\" from \"fx_system_application_readiness\" where ( \"fx_system_application_readiness\" . \"scope_id\" = $? and \"fx_system_application_readiness\" . \"revision_id\" = $? ) limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.23140000000057626,
+        "awaitedMsMin": 0.23140000000057626,
+        "awaitedMsMax": 0.23140000000057626,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 32,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "a7195bea489092407309c2d3b8e41f8f14e65a4e24eb0dacf457361ea11ccb15",
+        "template": "select \"scope_id\" , \"revision_id\" , \"deployment_id\" , \"manifest_sha256\" , \"publication_sha256\" , \"application_schema_sha256\" , \"schema_version_id\" , \"schema_version\" , \"schema_manifest_sha256\" , \"manifest_schema_binding_sha256\" , \"bound_publication_sha256\" , \"bound_at\" from \"fx_system_application_revision_schema\" where ( \"fx_system_application_revision_schema\" . \"scope_id\" = $? and \"fx_system_application_revision_schema\" . \"revision_id\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.21609999999964202,
+        "awaitedMsMin": 0.21609999999964202,
+        "awaitedMsMax": 0.21609999999964202,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1104,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "e2bcef068925bcd745760a9612361d7f3dd1caaa1336e1f820eedd6775bf3849",
+        "template": "select \"scope_id\" , \"revision_id\" , \"deployment_id\" , \"candidate_id\" , \"analysis_id\" , \"source_artifact_root_sha256\" , \"manifest_sha256\" , \"publication_sha256\" , \"application_schema_sha256\" , \"function_catalog_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"schema_version_id\" , \"schema_manifest_sha256\" , \"manifest_schema_binding_sha256\" , \"bound_publication_sha256\" , \"task_catalog_binding_sha256\" , \"runtime_host_identity\" , \"compatibility_date\" , \"cold_receipt_set_sha256\" , \"candidate_validation_receipt_sha256\" , \"unique_constraint_status\" , \"unique_constraint_eligibility_sha256\" , \"physical_readiness_sha256\" , \"relation_set_codec_version\" , \"relation_frontier_commit_seq\" , \"relation_count\" , \"relation_set_readiness_sha256\" , \"relation_set_readiness_bytes\" , \"readiness_codec_version\" , \"readiness_sha256\" , \"readiness_bytes\" , \"ready_at\" from \"fx_system_application_readiness\" where ( \"fx_system_application_readiness\" . \"scope_id\" = $? and \"fx_system_application_readiness\" . \"revision_id\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.30860000000029686,
+        "awaitedMsMin": 0.30860000000029686,
+        "awaitedMsMax": 0.30860000000029686,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 18116,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "7291957388ad51dcb250831d5313ed6ccfc5cb9f8a814e9b99347bd98695880e",
+        "template": "select \"scope_id\" , \"revision_id\" , \"readiness_sha256\" , \"relation_set_readiness_sha256\" , \"relation_count\" , \"schema_version_id\" , \"relation_ordinal\" , \"relation_id\" , \"source_table_id\" , \"target_table_id\" , \"semantic_definition_sha256\" , \"edge_definition_id\" , \"physical_definition_sha256\" , \"readiness_kind\" , \"physical_attempt_fence\" , \"semantic_attempt_fence\" , \"relation_readiness_sha256\" from \"fx_system_application_readiness_relation\" where ( \"fx_system_application_readiness_relation\" . \"scope_id\" = $? and \"fx_system_application_readiness_relation\" . \"revision_id\" = $? ) order by \"fx_system_application_readiness_relation\" . \"relation_ordinal\" asc",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.2559000000001106,
+        "awaitedMsMin": 0.2559000000001106,
+        "awaitedMsMax": 0.2559000000001106,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "e63e6176aaa4f29ab79494884b37c1e7d69dbcad1c65a3d2057be59766fecb58",
+        "template": "select \"scope_id\" , \"authorization_revocation_epoch\" from \"fx_system_scope_execution_authority\" where \"fx_system_scope_execution_authority\" . \"scope_id\" = $? limit $? for key share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.18759999999929278,
+        "awaitedMsMin": 0.18759999999929278,
+        "awaitedMsMax": 0.18759999999929278,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 52,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "463f2eaa3998eb4d7ab2c4a1dddbc2072208ce0396712aafbe127a1cd88dfd99",
+        "template": "select \"scope_id\" , \"storage_generation\" , \"sha256\" , case when octet_length ( \"canonical_bytes\" ) between ? and ? then \"canonical_bytes\" else null end , \"canonical_byte_length\" , \"sequence\" , \"activation_sha256\" , \"candidate_sha256\" from \"fx_system_data_binding_head\" where ( \"fx_system_data_binding_head\" . \"scope_id\" = $? and \"fx_system_data_binding_head\" . \"storage_generation\" = $? ) limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.24389999999948486,
+        "awaitedMsMin": 0.24389999999948486,
+        "awaitedMsMax": 0.24389999999948486,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1478,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "02125dcebaa1b322733a82d74cd6ce64fd108e5ee17117fceaf9ad2c980c465c",
+        "template": "select \"scope_id\" , \"storage_generation\" , \"sha256\" , case when octet_length ( \"canonical_bytes\" ) between ? and ? then \"canonical_bytes\" else null end , \"canonical_byte_length\" , \"sequence\" , \"request_id\" , \"candidate_sha256\" from \"fx_system_data_binding_activation\" where ( \"fx_system_data_binding_activation\" . \"scope_id\" = $? and \"fx_system_data_binding_activation\" . \"storage_generation\" = $? and \"fx_system_data_binding_activation\" . \"sequence\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.24750000000130967,
+        "awaitedMsMin": 0.24750000000130967,
+        "awaitedMsMax": 0.24750000000130967,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 2157,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "00b4cdaec40c1b2eca63f3880a5f8ccd552e4bcbfbb49971497160d3529edbd6",
+        "template": "select \"fx_system_data_binding_candidate\" . \"scope_id\" , \"fx_system_data_binding_candidate\" . \"storage_generation\" , \"fx_system_data_binding_candidate\" . \"sha256\" , case when row_number ( ) over ( ) = ? then case when octet_length ( \"fx_system_data_binding_candidate\" . \"canonical_bytes\" ) between ? and ? then \"fx_system_data_binding_candidate\" . \"canonical_bytes\" else null end else null end , \"fx_system_data_binding_candidate\" . \"canonical_byte_length\" , \"fx_system_data_binding_physical_lane\" . \"scope_id\" , \"fx_system_data_binding_physical_lane\" . \"storage_generation\" , \"fx_system_data_binding_physical_lane\" . \"candidate_sha256\" , \"fx_system_data_binding_physical_lane\" . \"slot\" , \"fx_system_data_binding_physical_lane\" . \"installation_storage_id\" , \"fx_system_data_binding_physical_lane\" . \"installation_sha256\" , \"fx_system_data_binding_physical_lane\" . \"installation_receipt_sha256\" , \"fx_system_data_binding_physical_lane\" . \"readiness_storage_id\" , \"fx_system_data_binding_physical_lane\" . \"readiness_sha256\" , \"fx_system_data_binding_physical_lane\" . \"availability_history_storage_id\" , \"fx_system_data_binding_physical_lane\" . \"availability_sequence\" , \"fx_system_data_binding_physical_lane\" . \"availability_status\" , \"fx_system_data_binding_physical_lane\" . \"availability_history_sha256\" from \"fx_system_data_binding_candidate\" left join \"fx_system_data_binding_physical_lane\" on ( \"fx_system_data_binding_physical_lane\" . \"scope_id\" = \"fx_system_data_binding_candidate\" . \"scope_id\" and \"fx_system_data_binding_physical_lane\" . \"storage_generation\" = \"fx_system_data_binding_candidate\" . \"storage_generation\" and \"fx_system_data_binding_physical_lane\" . \"candidate_sha256\" = \"fx_system_data_binding_candidate\" . \"sha256\" ) where ( \"fx_system_data_binding_candidate\" . \"scope_id\" = $? and \"fx_system_data_binding_candidate\" . \"storage_generation\" = $? and \"fx_system_data_binding_candidate\" . \"sha256\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.44099999999889405,
+        "awaitedMsMin": 0.44099999999889405,
+        "awaitedMsMax": 0.44099999999889405,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 17896,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "464053e574e7afb739f48041d24c17dd782094fde1a9b600239879437444448a",
+        "template": "select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_schema_availability_head\" . \"installation_storage_id\" , \"fx_system_framework_schema_availability_head\" . \"readiness_storage_id\" , \"fx_system_framework_schema_availability_head\" . \"availability_history_storage_id\" , \"fx_system_framework_schema_availability_head\" . \"availability_sequence\" , \"fx_system_framework_schema_availability_head\" . \"status\" , encode ( \"fx_system_framework_schema_availability_head\" . \"history_sha256\" , ? ) , encode ( \"fx_system_framework_schema_availability_head\" . \"availability_head_sha256\" , ? ) , \"fx_system_framework_schema_availability_head\" . \"frame_format\" , \"fx_system_framework_schema_availability_head\" . \"frame_version\" , \"fx_system_framework_schema_availability_head\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_schema_availability_head\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) from \"fx_system_framework_schema_availability_head\" where \"fx_system_framework_schema_availability_head\" . \"installation_storage_id\" = $? limit $? for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.35820000000057917,
+        "awaitedMsMin": 0.35820000000057917,
+        "awaitedMsMax": 0.35820000000057917,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 70,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "c76a1db7afd500de96d4911bccf6fe05bb361f6b855655fdf0154ee5bfa1195e",
+        "template": "select ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_schema_target_namespace\" . \"target_namespace_storage_id\" , \"fx_system_framework_schema_target_namespace\" . \"deployment_id\" , \"fx_system_framework_schema_target_namespace\" . \"physical_database_identity\" , \"fx_system_framework_schema_target_namespace\" . \"schema_name\" , encode ( \"fx_system_framework_schema_target_namespace\" . \"target_namespace_sha256\" , ? ) , \"fx_system_framework_schema_target_namespace\" . \"frame_format\" , \"fx_system_framework_schema_target_namespace\" . \"frame_version\" , \"fx_system_framework_schema_target_namespace\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_schema_target_namespace\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_schema_target_namespace\" where \"fx_system_framework_schema_target_namespace\" . \"target_namespace_storage_id\" = $? limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_collision_domain\" . \"collision_storage_id\" , \"fx_system_framework_migration_collision_domain\" . \"target_namespace_storage_id\" , \"fx_system_framework_migration_collision_domain\" . \"physical_database_identity\" , \"fx_system_framework_migration_collision_domain\" . \"schema_name\" , \"fx_system_framework_migration_collision_domain\" . \"owner\" , \"fx_system_framework_migration_collision_domain\" . \"lineage_id\" , \"fx_system_framework_migration_collision_domain\" . \"physical_namespace_profile\" ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_collision_domain\" where \"fx_system_framework_migration_collision_domain\" . \"collision_storage_id\" = $? limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_schema_installation\" . \"installation_storage_id\" , \"fx_system_framework_schema_installation\" . \"collision_storage_id\" , \"fx_system_framework_schema_installation\" . \"plan_storage_id\" , encode ( \"fx_system_framework_schema_installation\" . \"migration_plan_sha256\" , ? ) , \"fx_system_framework_schema_installation\" . \"admission_storage_id\" , encode ( \"fx_system_framework_schema_installation\" . \"admission_sha256\" , ? ) , \"fx_system_framework_schema_installation\" . \"terminal_storage_id\" , \"fx_system_framework_schema_installation\" . \"terminal_outcome_kind\" , encode ( \"fx_system_framework_schema_installation\" . \"terminal_sha256\" , ? ) , encode ( \"fx_system_framework_schema_installation\" . \"installation_sha256\" , ? ) , encode ( \"fx_system_framework_schema_installation\" . \"installation_receipt_sha256\" , ? ) , encode ( \"fx_system_framework_schema_installation\" . \"installed_structure_sha256\" , ? ) , \"fx_system_framework_schema_installation\" . \"frame_format\" , \"fx_system_framework_schema_installation\" . \"frame_version\" , \"fx_system_framework_schema_installation\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_schema_installation\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_schema_installation\" where \"fx_system_framework_schema_installation\" . \"installation_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_plan\" . \"created_transaction_id\" , \"fx_system_framework_migration_plan\" . \"plan_storage_id\" , \"fx_system_framework_migration_plan\" . \"collision_storage_id\" , encode ( \"fx_system_framework_migration_plan\" . \"artifact_sha256\" , ? ) , \"fx_system_framework_migration_plan\" . \"locator_kind\" , \"fx_system_framework_migration_plan\" . \"locator_database_key\" , \"fx_system_framework_migration_plan\" . \"locator_schema_name\" , encode ( \"fx_system_framework_migration_plan\" . \"migration_plan_sha256\" , ? ) , encode ( \"fx_system_framework_migration_plan\" . \"required_step_set_sha256\" , ? ) , encode ( \"fx_system_framework_migration_plan\" . \"physical_layout_sha256\" , ? ) , \"fx_system_framework_migration_plan\" . \"frame_format\" , \"fx_system_framework_migration_plan\" . \"frame_version\" , \"fx_system_framework_migration_plan\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_migration_plan\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_plan\" where \"fx_system_framework_migration_plan\" . \"plan_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_plan_step\" . \"plan_storage_id\" , \"fx_system_framework_migration_plan_step\" . \"collision_storage_id\" , \"fx_system_framework_migration_plan_step\" . \"step_ordinal\" , \"fx_system_framework_migration_plan_step\" . \"step_id\" , encode ( \"fx_system_framework_migration_plan_step\" . \"step_sha256\" , ? ) , encode ( \"fx_system_framework_migration_plan_step\" . \"precondition_sha256\" , ? ) , encode ( \"fx_system_framework_migration_plan_step\" . \"postcondition_sha256\" , ? ) , \"fx_system_framework_migration_plan_step\" . \"phase\" , \"fx_system_framework_migration_plan_step\" . \"operation_format\" , \"fx_system_framework_migration_plan_step\" . \"operation_version\" , \"fx_system_framework_migration_plan_step\" . \"dependency_count\" ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_plan_step\" where \"fx_system_framework_migration_plan_step\" . \"plan_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_plan_step_dependency\" . \"plan_storage_id\" , \"fx_system_framework_migration_plan_step_dependency\" . \"source_step_id\" , \"fx_system_framework_migration_plan_step_dependency\" . \"dependency_ordinal\" , \"fx_system_framework_migration_plan_step_dependency\" . \"dependency_step_id\" , encode ( \"fx_system_framework_migration_plan_step_dependency\" . \"dependency_step_sha256\" , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_plan_step_dependency\" where \"fx_system_framework_migration_plan_step_dependency\" . \"plan_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_plan_base\" . \"plan_storage_id\" , \"fx_system_framework_migration_plan_base\" . \"collision_storage_id\" , \"fx_system_framework_migration_plan_base\" . \"base_plan_storage_id\" , \"fx_system_framework_migration_plan_base\" . \"installation_storage_id\" , encode ( \"fx_system_framework_migration_plan_base\" . \"installation_sha256\" , ? ) , encode ( \"fx_system_framework_migration_plan_base\" . \"installation_receipt_sha256\" , ? ) , \"fx_system_framework_migration_plan_base\" . \"readiness_storage_id\" , encode ( \"fx_system_framework_migration_plan_base\" . \"readiness_sha256\" , ? ) , encode ( \"fx_system_framework_migration_plan_base\" . \"physical_layout_sha256\" , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_plan_base\" where \"fx_system_framework_migration_plan_base\" . \"plan_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_plan_admission\" . \"created_transaction_id\" , \"fx_system_framework_migration_plan_admission\" . \"admission_storage_id\" , \"fx_system_framework_migration_plan_admission\" . \"collision_storage_id\" , \"fx_system_framework_migration_plan_admission\" . \"plan_storage_id\" , encode ( \"fx_system_framework_migration_plan_admission\" . \"migration_plan_sha256\" , ? ) , \"fx_system_framework_migration_plan_admission\" . \"previous_plan_storage_id\" , encode ( \"fx_system_framework_migration_plan_admission\" . \"previous_plan_sha256\" , ? ) , encode ( \"fx_system_framework_migration_plan_admission\" . \"admission_sha256\" , ? ) , \"fx_system_framework_migration_plan_admission\" . \"admission_profile\" , \"fx_system_framework_migration_plan_admission\" . \"assignment_count\" , \"fx_system_framework_migration_plan_admission\" . \"frame_format\" , \"fx_system_framework_migration_plan_admission\" . \"frame_version\" , \"fx_system_framework_migration_plan_admission\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_migration_plan_admission\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_plan_admission\" where \"fx_system_framework_migration_plan_admission\" . \"admission_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_admission_assignment\" . \"admission_storage_id\" , \"fx_system_framework_migration_admission_assignment\" . \"collision_storage_id\" , \"fx_system_framework_migration_admission_assignment\" . \"assignment_ordinal\" , \"fx_system_framework_migration_admission_assignment\" . \"assignment_storage_id\" , \"fx_system_framework_migration_admission_assignment\" . \"spelling\" , encode ( \"fx_system_framework_migration_admission_assignment\" . \"assignment_sha256\" , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_admission_assignment\" where \"fx_system_framework_migration_admission_assignment\" . \"admission_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_attempt_start\" . \"attempt_storage_id\" , \"fx_system_framework_migration_attempt_start\" . \"collision_storage_id\" , \"fx_system_framework_migration_attempt_start\" . \"plan_storage_id\" , encode ( \"fx_system_framework_migration_attempt_start\" . \"migration_plan_sha256\" , ? ) , \"fx_system_framework_migration_attempt_start\" . \"admission_storage_id\" , encode ( \"fx_system_framework_migration_attempt_start\" . \"admission_sha256\" , ? ) , \"fx_system_framework_migration_attempt_start\" . \"attempt_id\" , \"fx_system_framework_migration_attempt_start\" . \"attempt_fence\" , \"fx_system_framework_migration_attempt_start\" . \"lease_owner_id\" , extract ( epoch from \"fx_system_framework_migration_attempt_start\" . \"lease_expires_at\" ) : : text , \"fx_system_framework_migration_attempt_start\" . \"previous_attempt_storage_id\" , \"fx_system_framework_migration_attempt_start\" . \"previous_attempt_id\" , encode ( \"fx_system_framework_migration_attempt_start\" . \"attempt_start_sha256\" , ? ) , \"fx_system_framework_migration_attempt_start\" . \"frame_format\" , \"fx_system_framework_migration_attempt_start\" . \"frame_version\" , \"fx_system_framework_migration_attempt_start\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_migration_attempt_start\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_attempt_start\" where \"fx_system_framework_migration_attempt_start\" . \"attempt_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_attempt_terminal\" . \"terminal_storage_id\" , \"fx_system_framework_migration_attempt_terminal\" . \"collision_storage_id\" , \"fx_system_framework_migration_attempt_terminal\" . \"plan_storage_id\" , \"fx_system_framework_migration_attempt_terminal\" . \"attempt_storage_id\" , \"fx_system_framework_migration_attempt_terminal\" . \"admission_storage_id\" , encode ( \"fx_system_framework_migration_attempt_terminal\" . \"admission_sha256\" , ? ) , \"fx_system_framework_migration_attempt_terminal\" . \"attempt_id\" , \"fx_system_framework_migration_attempt_terminal\" . \"attempt_fence\" , \"fx_system_framework_migration_attempt_terminal\" . \"outcome_kind\" , encode ( \"fx_system_framework_migration_attempt_terminal\" . \"required_step_set_sha256\" , ? ) , \"fx_system_framework_migration_attempt_terminal\" . \"failure_reason\" , encode ( \"fx_system_framework_migration_attempt_terminal\" . \"evidence_sha256\" , ? ) , \"fx_system_framework_migration_attempt_terminal\" . \"last_receipt_storage_id\" , encode ( \"fx_system_framework_migration_attempt_terminal\" . \"last_step_receipt_sha256\" , ? ) , encode ( \"fx_system_framework_migration_attempt_terminal\" . \"attempt_terminal_sha256\" , ? ) , \"fx_system_framework_migration_attempt_terminal\" . \"frame_format\" , \"fx_system_framework_migration_attempt_terminal\" . \"frame_version\" , \"fx_system_framework_migration_attempt_terminal\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_migration_attempt_terminal\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_attempt_terminal\" where \"fx_system_framework_migration_attempt_terminal\" . \"terminal_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_step_receipt\" . \"created_transaction_id\" , \"fx_system_framework_migration_step_receipt\" . \"receipt_storage_id\" , \"fx_system_framework_migration_step_receipt\" . \"collision_storage_id\" , \"fx_system_framework_migration_step_receipt\" . \"plan_storage_id\" , \"fx_system_framework_migration_step_receipt\" . \"attempt_storage_id\" , \"fx_system_framework_migration_step_receipt\" . \"attempt_id\" , \"fx_system_framework_migration_step_receipt\" . \"attempt_fence\" , \"fx_system_framework_migration_step_receipt\" . \"step_id\" , encode ( \"fx_system_framework_migration_step_receipt\" . \"step_sha256\" , ? ) , encode ( \"fx_system_framework_migration_step_receipt\" . \"precondition_sha256\" , ? ) , encode ( \"fx_system_framework_migration_step_receipt\" . \"postcondition_sha256\" , ? ) , encode ( \"fx_system_framework_migration_step_receipt\" . \"observed_postcondition_sha256\" , ? ) , \"fx_system_framework_migration_step_receipt\" . \"dependency_count\" , encode ( \"fx_system_framework_migration_step_receipt\" . \"step_receipt_sha256\" , ? ) , \"fx_system_framework_migration_step_receipt\" . \"frame_format\" , \"fx_system_framework_migration_step_receipt\" . \"frame_version\" , \"fx_system_framework_migration_step_receipt\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_migration_step_receipt\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_step_receipt\" where \"fx_system_framework_migration_step_receipt\" . \"plan_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_migration_step_receipt_dependency\" . \"receipt_storage_id\" , \"fx_system_framework_migration_step_receipt_dependency\" . \"plan_storage_id\" , \"fx_system_framework_migration_step_receipt_dependency\" . \"dependency_ordinal\" , \"fx_system_framework_migration_step_receipt_dependency\" . \"dependency_receipt_storage_id\" , \"fx_system_framework_migration_step_receipt_dependency\" . \"dependency_step_id\" , encode ( \"fx_system_framework_migration_step_receipt_dependency\" . \"dependency_step_receipt_sha256\" , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_migration_step_receipt_dependency\" where \"fx_system_framework_migration_step_receipt_dependency\" . \"receipt_storage_id\" in ( select \"receipt_storage_id\" from \"fx_system_framework_migration_step_receipt\" where \"fx_system_framework_migration_step_receipt\" . \"plan_storage_id\" in ( $? ) ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_schema_readiness\" . \"readiness_storage_id\" , \"fx_system_framework_schema_readiness\" . \"installation_storage_id\" , encode ( \"fx_system_framework_schema_readiness\" . \"installation_sha256\" , ? ) , encode ( \"fx_system_framework_schema_readiness\" . \"installation_receipt_sha256\" , ? ) , encode ( \"fx_system_framework_schema_readiness\" . \"readiness_sha256\" , ? ) , encode ( \"fx_system_framework_schema_readiness\" . \"validation_sha256\" , ? ) , encode ( \"fx_system_framework_schema_readiness\" . \"validated_structure_sha256\" , ? ) , \"fx_system_framework_schema_readiness\" . \"frame_format\" , \"fx_system_framework_schema_readiness\" . \"frame_version\" , \"fx_system_framework_schema_readiness\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_schema_readiness\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_schema_readiness\" where \"fx_system_framework_schema_readiness\" . \"readiness_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_framework_schema_availability_history\" . \"availability_history_storage_id\" , \"fx_system_framework_schema_availability_history\" . \"installation_storage_id\" , \"fx_system_framework_schema_availability_history\" . \"readiness_storage_id\" , encode ( \"fx_system_framework_schema_availability_history\" . \"readiness_sha256\" , ? ) , \"fx_system_framework_schema_availability_history\" . \"availability_sequence\" , \"fx_system_framework_schema_availability_history\" . \"status\" , encode ( \"fx_system_framework_schema_availability_history\" . \"reason_sha256\" , ? ) , encode ( \"fx_system_framework_schema_availability_history\" . \"history_sha256\" , ? ) , \"fx_system_framework_schema_availability_history\" . \"previous_history_storage_id\" , \"fx_system_framework_schema_availability_history\" . \"previous_availability_sequence\" , encode ( \"fx_system_framework_schema_availability_history\" . \"previous_history_sha256\" , ? ) , \"fx_system_framework_schema_availability_history\" . \"previous_status\" , \"fx_system_framework_schema_availability_history\" . \"frame_format\" , \"fx_system_framework_schema_availability_history\" . \"frame_version\" , \"fx_system_framework_schema_availability_history\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_framework_schema_availability_history\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_framework_schema_availability_history\" where \"fx_system_framework_schema_availability_history\" . \"availability_history_storage_id\" in ( $? ) limit $? ) ) evidence_row ) , ( select case when count ( * ) > $? then null else encode ( sha256 ( convert_to ( coalesce ( string_agg ( evidence_row . digest , ? order by evidence_row . digest collate \"C\" ) , ? ) , ? ) ) , ? ) end from ( ( select encode ( sha256 ( convert_to ( jsonb_build_array ( \"fx_system_relational_physical_name_assignment\" . \"assignment_storage_id\" , \"fx_system_relational_physical_name_assignment\" . \"collision_storage_id\" , \"fx_system_relational_physical_name_assignment\" . \"physical_database_identity\" , \"fx_system_relational_physical_name_assignment\" . \"schema_name\" , \"fx_system_relational_physical_name_assignment\" . \"spelling\" , encode ( \"fx_system_relational_physical_name_assignment\" . \"name_sha256\" , ? ) , encode ( \"fx_system_relational_physical_name_assignment\" . \"assignment_sha256\" , ? ) , \"fx_system_relational_physical_name_assignment\" . \"frame_format\" , \"fx_system_relational_physical_name_assignment\" . \"frame_version\" , \"fx_system_relational_physical_name_assignment\" . \"canonical_byte_length\" , encode ( sha256 ( \"fx_system_relational_physical_name_assignment\" . \"canonical_bytes\" ) , ? ) ) : : text , ? ) ) , ? ) as \"digest\" from \"fx_system_relational_physical_name_assignment\" where ( \"fx_system_relational_physical_name_assignment\" . \"physical_database_identity\" = $? and \"fx_system_relational_physical_name_assignment\" . \"schema_name\" = $? and \"fx_system_relational_physical_name_assignment\" . \"spelling\" in ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) ) limit $? ) ) evidence_row ) from ( values ( ? ) ) as installation_evidence ( only_row )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 3.634700000000521,
+        "awaitedMsMin": 3.634700000000521,
+        "awaitedMsMax": 3.634700000000521,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1075,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "fece6890d3b72cd781a9ec7c99b1a99dbc1fadf39a343aad86d1d7d8c4597b63",
+        "template": "select \"fx_system_idempotency\" . \"scope_uuid\" , \"fx_system_idempotency\" . \"request_key\" , octet_length ( \"fx_system_idempotency\" . \"identity_access_policy_sha256\" ) , \"fx_system_idempotency\" . \"identity_access_policy_sha256\" = $? , btrim ( \"fx_system_idempotency\" . \"function_path\" , u & ? ) < > ? , \"fx_system_idempotency\" . \"function_path\" = $? , octet_length ( \"fx_system_idempotency\" . \"request_sha256\" ) , \"fx_system_idempotency\" . \"request_sha256\" = $? , \"fx_system_idempotency\" . \"epoch_uuid\" , \"fx_system_idempotency\" . \"commit_seq\" , \"fx_system_idempotency\" . \"result_state\" , \"fx_system_idempotency\" . \"result_encoding\" , \"fx_system_idempotency\" . \"result_value_codec_version\" , \"fx_system_idempotency\" . \"result_semantic_bytes\" , case when \"fx_system_idempotency\" . \"result_bytes\" is null then null else octet_length ( \"fx_system_idempotency\" . \"result_bytes\" ) end , case when \"fx_system_idempotency\" . \"result_sha256\" is null then null else octet_length ( \"fx_system_idempotency\" . \"result_sha256\" ) end , \"fx_system_idempotency\" . \"result_expired_at\" , \"fx_system_idempotency\" . \"created_at\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_commit\" . \"scope_uuid\" , \"fx_system_commit\" . \"epoch_uuid\" , \"fx_system_commit\" . \"commit_seq\" , case when \"fx_system_idempotency\" . \"result_state\" = ? and \"fx_system_idempotency\" . \"identity_access_policy_sha256\" = $? and \"fx_system_idempotency\" . \"function_path\" = $? and \"fx_system_idempotency\" . \"request_sha256\" = $? and \"fx_system_idempotency\" . \"result_encoding\" = $? and \"fx_system_idempotency\" . \"result_value_codec_version\" = ? and \"fx_system_idempotency\" . \"result_semantic_bytes\" between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_bytes\" ) between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_sha256\" ) = ? and \"fx_system_idempotency\" . \"result_expired_at\" is null and isfinite ( \"fx_system_idempotency\" . \"created_at\" ) and \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_scope_clock\" . \"last_commit_seq\" between ? and $? and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and \"fx_system_idempotency\" . \"commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and ( ( \"fx_system_commit\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_commit\" . \"commit_seq\" = \"fx_system_idempotency\" . \"commit_seq\" and \"fx_system_commit\" . \"epoch_uuid\" = \"fx_system_idempotency\" . \"epoch_uuid\" ) or ( \"fx_system_commit\" . \"scope_uuid\" is null and \"fx_system_commit\" . \"commit_seq\" is null and \"fx_system_commit\" . \"epoch_uuid\" is null and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" > ? and \"fx_system_idempotency\" . \"commit_seq\" < \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" ) ) then \"fx_system_idempotency\" . \"result_bytes\" else null end , case when \"fx_system_idempotency\" . \"result_state\" = ? and \"fx_system_idempotency\" . \"identity_access_policy_sha256\" = $? and \"fx_system_idempotency\" . \"function_path\" = $? and \"fx_system_idempotency\" . \"request_sha256\" = $? and \"fx_system_idempotency\" . \"result_encoding\" = $? and \"fx_system_idempotency\" . \"result_value_codec_version\" = ? and \"fx_system_idempotency\" . \"result_semantic_bytes\" between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_bytes\" ) between ? and $? and octet_length ( \"fx_system_idempotency\" . \"result_sha256\" ) = ? and \"fx_system_idempotency\" . \"result_expired_at\" is null and isfinite ( \"fx_system_idempotency\" . \"created_at\" ) and \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_scope_clock\" . \"last_commit_seq\" between ? and $? and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and \"fx_system_idempotency\" . \"commit_seq\" between ? and \"fx_system_scope_clock\" . \"last_commit_seq\" and ( ( \"fx_system_commit\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_commit\" . \"commit_seq\" = \"fx_system_idempotency\" . \"commit_seq\" and \"fx_system_commit\" . \"epoch_uuid\" = \"fx_system_idempotency\" . \"epoch_uuid\" ) or ( \"fx_system_commit\" . \"scope_uuid\" is null and \"fx_system_commit\" . \"commit_seq\" is null and \"fx_system_commit\" . \"epoch_uuid\" is null and \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" > ? and \"fx_system_idempotency\" . \"commit_seq\" < \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" ) ) then \"fx_system_idempotency\" . \"result_sha256\" else null end from \"fx_system_idempotency\" left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" left join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" left join \"fx_system_commit\" on ( \"fx_system_commit\" . \"scope_uuid\" = \"fx_system_idempotency\" . \"scope_uuid\" and \"fx_system_commit\" . \"commit_seq\" = \"fx_system_idempotency\" . \"commit_seq\" ) where ( \"fx_system_idempotency\" . \"scope_uuid\" = $? and \"fx_system_idempotency\" . \"request_key\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 4.444999999999709,
+        "awaitedMsMin": 4.444999999999709,
+        "awaitedMsMax": 4.444999999999709,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "47a820cf6eae047630c371f40cbe3ff9a6f0966168449da81557a721c43d48ac",
+        "template": "select \"fx_app_unique_key\" . \"scope_uuid\" , \"fx_app_unique_key\" . \"constraint_id\" , \"fx_app_unique_key\" . \"locale_key\" , \"fx_app_unique_key\" . \"canonical_key_sha256\" , \"fx_app_unique_key\" . \"key_codec_version\" , \"fx_app_unique_key\" . \"encoded_key\" , \"fx_app_unique_key\" . \"table_id\" , \"fx_app_unique_key\" . \"row_id\" , \"fx_app_row_current\" . \"commit_seq\" , \"fx_app_row_rev\" . \"is_tombstone\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , false , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_app_row_current\" . \"row_id\" is null or ( $? > = ? and coalesce ( octet_length ( \"fx_app_row_rev\" . \"value_bytes\" ) , ? ) < = $? and coalesce ( octet_length ( \"fx_app_row_rev\" . \"value_bytes\" ) , ? ) < = $? ) , false , \"fx_app_row_current\" . \"scope_uuid\" , \"fx_app_row_current\" . \"table_id\" , \"fx_app_row_current\" . \"row_id\" , \"fx_app_row_current\" . \"commit_seq\" , \"fx_app_row_rev\" . \"scope_uuid\" , \"fx_app_row_rev\" . \"table_id\" , \"fx_app_row_rev\" . \"row_id\" , \"fx_app_row_rev\" . \"commit_seq\" , \"fx_app_row_rev\" . \"prev_commit_seq\" , \"fx_app_row_rev\" . \"write_epoch_uuid\" , \"fx_app_row_rev\" . \"schema_version_id\" , \"fx_app_row_rev\" . \"creation_time\" , \"fx_app_row_rev\" . \"value_codec_version\" , \"fx_app_row_rev\" . \"is_tombstone\" , case when \"fx_app_row_current\" . \"row_id\" is null or ( $? > = ? and coalesce ( octet_length ( \"fx_app_row_rev\" . \"value_bytes\" ) , ? ) < = $? and coalesce ( octet_length ( \"fx_app_row_rev\" . \"value_bytes\" ) , ? ) < = $? ) then \"fx_app_row_rev\" . \"value_bytes\" else null end , \"fx_app_row_rev\" . \"value_sha256\" from \"fx_app_unique_key\" left join \"fx_app_row_current\" on ( \"fx_app_row_current\" . \"scope_uuid\" = \"fx_app_unique_key\" . \"scope_uuid\" and \"fx_app_row_current\" . \"table_id\" = \"fx_app_unique_key\" . \"table_id\" and \"fx_app_row_current\" . \"row_id\" = \"fx_app_unique_key\" . \"row_id\" ) left join \"fx_app_row_rev\" on ( \"fx_app_row_rev\" . \"scope_uuid\" = \"fx_app_row_current\" . \"scope_uuid\" and \"fx_app_row_rev\" . \"table_id\" = \"fx_app_row_current\" . \"table_id\" and \"fx_app_row_rev\" . \"row_id\" = \"fx_app_row_current\" . \"row_id\" and \"fx_app_row_rev\" . \"commit_seq\" = \"fx_app_row_current\" . \"commit_seq\" ) left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_app_unique_key\" . \"scope_uuid\" left join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"canonical_key_sha256\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.3959000000013475,
+        "awaitedMsMin": 1.3959000000013475,
+        "awaitedMsMax": 1.3959000000013475,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "85a8fa0762988fbc147ebb52c9f1de5ce4850c8d9d8a521a797c3dda376bd289",
+        "template": "select \"fx_system_scope_execution_authority\" . \"scope_id\" , \"fx_system_scope_execution_authority\" . \"storage_generation\" , \"fx_system_scope_execution_authority\" . \"storage_generation_fence\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_scope_execution_authority\" . \"authorization_revocation_epoch\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_system_scope_execution_authority\" . \"epoch_uuid\" , \"fx_system_scope_execution_authority\" . \"updated_at\" , \"fx_system_scope_clock\" . \"scope_uuid\" from \"fx_system_scope_execution_authority\" inner join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_id\" = \"fx_system_scope_execution_authority\" . \"scope_id\" where \"fx_system_scope_execution_authority\" . \"scope_id\" = $? limit $? for share of \"fx_system_scope_execution_authority\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.4554000000007363,
+        "awaitedMsMin": 0.4554000000007363,
+        "awaitedMsMax": 0.4554000000007363,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 229,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "f11de682ba6eabc288051a24a84eb565fd4941a3479c982b816d4a8bcf422d95",
+        "template": "select \"fx_system_scope_clock\" . \"scope_id\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_clock\" . \"last_metadata_sequence\" , greatest ( \"fx_system_scope_clock\" . \"updated_at\" , \"fx_system_scope_execution_authority\" . \"updated_at\" ) , \"fx_system_scope_execution_authority\" . \"storage_generation\" , \"fx_system_scope_execution_authority\" . \"storage_generation_fence\" , \"fx_system_scope_execution_authority\" . \"oldest_available_commit_seq\" , \"fx_system_scope_execution_authority\" . \"epoch\" , \"fx_system_scope_execution_authority\" . \"epoch_uuid\" , \"fx_system_scope_execution_authority\" . \"authorization_revocation_epoch\" from \"fx_system_scope_clock\" inner join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $? for no key update of \"fx_system_scope_clock\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.3396999999986292,
+        "awaitedMsMin": 0.3396999999986292,
+        "awaitedMsMax": 0.3396999999986292,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 237,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "13f54b3e7bf7a210c3919a769e4c7299a878aa8adae3bc59f1d18492cafb1281",
+        "template": "select \"scope_id\" , \"index_definition_id\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"start_commit_seq\" , \"covered_through_commit_seq\" , \"first_readable_commit_seq\" , \"maintenance_activation_sequence\" , \"maintenance_bytes\" , \"maintenance_sha256\" , \"lifecycle\" , \"cursor_codec_version\" , \"backfill_cursor_row_id\" , \"attempt_fence\" , \"created_at\" , \"updated_at\" from \"fx_system_index_build_state\" where ( \"fx_system_index_build_state\" . \"scope_id\" = $? and \"fx_system_index_build_state\" . \"index_definition_id\" in ( $? , $? ) ) order by case \"fx_system_index_build_state\" . \"index_definition_id\" when $? then $? when $? then $? end for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.3676000000014028,
+        "awaitedMsMin": 0.3676000000014028,
+        "awaitedMsMax": 0.3676000000014028,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 5909,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "42fd3d0c15b6a0f14f067c4be47b15886facef7a412d4157bde084d46d86eb5d",
+        "template": "select \"scope_id\" , \"index_definition_id\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"start_commit_seq\" , \"covered_through_commit_seq\" , \"first_readable_commit_seq\" , \"maintenance_activation_sequence\" , \"maintenance_bytes\" , \"maintenance_sha256\" , \"lifecycle\" , \"cursor_codec_version\" , \"backfill_cursor_row_id\" , \"attempt_fence\" , \"created_at\" , \"updated_at\" from \"fx_system_index_build_state\" where ( \"fx_system_index_build_state\" . \"scope_id\" = $? and \"fx_system_index_build_state\" . \"index_definition_id\" in ( $? ) ) order by \"fx_system_index_build_state\" . \"index_definition_id\" for share",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.25720000000001164,
+        "awaitedMsMin": 0.25720000000001164,
+        "awaitedMsMax": 0.25720000000001164,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 2967,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "06b85ea82155596ac7c3f08272956710495c7212891426a5a0754ea6a4399796",
+        "template": "select \"fx_app_unique_key\" . \"scope_uuid\" , \"fx_app_unique_key\" . \"constraint_id\" , \"fx_app_unique_key\" . \"locale_key\" , \"fx_app_unique_key\" . \"canonical_key_sha256\" , \"fx_app_unique_key\" . \"key_codec_version\" , \"fx_app_unique_key\" . \"encoded_key\" , \"fx_app_unique_key\" . \"table_id\" , \"fx_app_unique_key\" . \"row_id\" , \"fx_app_row_current\" . \"commit_seq\" , \"fx_app_row_rev\" . \"is_tombstone\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , exists ( select ? from \"fx_system_commit_app_row_change\" as fact where fact . scope_uuid = \"fx_app_unique_key\" . \"scope_uuid\" and fact . commit_seq = \"fx_app_row_current\" . \"commit_seq\" and fact . table_id = \"fx_app_unique_key\" . \"table_id\" and fact . row_id = \"fx_app_unique_key\" . \"row_id\" ) from \"fx_app_unique_key\" left join \"fx_app_row_current\" on ( \"fx_app_row_current\" . \"scope_uuid\" = \"fx_app_unique_key\" . \"scope_uuid\" and \"fx_app_row_current\" . \"table_id\" = \"fx_app_unique_key\" . \"table_id\" and \"fx_app_row_current\" . \"row_id\" = \"fx_app_unique_key\" . \"row_id\" ) left join \"fx_app_row_rev\" on ( \"fx_app_row_rev\" . \"scope_uuid\" = \"fx_app_row_current\" . \"scope_uuid\" and \"fx_app_row_rev\" . \"table_id\" = \"fx_app_row_current\" . \"table_id\" and \"fx_app_row_rev\" . \"row_id\" = \"fx_app_row_current\" . \"row_id\" and \"fx_app_row_rev\" . \"commit_seq\" = \"fx_app_row_current\" . \"commit_seq\" ) left join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_uuid\" = \"fx_app_unique_key\" . \"scope_uuid\" left join \"fx_system_scope_execution_authority\" on \"fx_system_scope_execution_authority\" . \"scope_id\" = \"fx_system_scope_clock\" . \"scope_id\" where ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"canonical_key_sha256\" = $? )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 2.5712000000003172,
+        "awaitedMsMin": 2.5712000000003172,
+        "awaitedMsMax": 2.5712000000003172,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "f3b97e0ff063221b0a725dd56c729bf97b2587e4938d21fd013c17f8588d53f5",
+        "template": "with requested ( ordinal , table_id , row_id ) as ( values ( $? : : integer , $? : : integer , $? : : bytea ) ) select requested . ordinal : : text as \"ordinalText\" , current_row . commit_seq : : text as \"pointerCommitSeqText\" , latest . commit_seq : : text as \"latestCommitSeqText\" , latest . is_tombstone as \"latestIsTombstone\" , latest . creation_time : : text as \"latestCreationTimeText\" from requested left join fx_app_row_current as current_row on current_row . scope_uuid = $? and current_row . table_id = requested . table_id and current_row . row_id = requested . row_id left join lateral ( select revision . commit_seq , revision . is_tombstone , revision . creation_time from fx_app_row_rev as revision where revision . scope_uuid = $? and revision . table_id = requested . table_id and revision . row_id = requested . row_id order by revision . commit_seq desc limit ? ) as latest on true order by requested . ordinal asc",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.49619999999958964,
+        "awaitedMsMin": 0.49619999999958964,
+        "awaitedMsMax": 0.49619999999958964,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 131,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "470af2e7c064badf8760014d957a279600ad27e02bdb282257da025619be19ee",
+        "template": "select floor ( extract ( epoch from clock_timestamp ( ) ) * ? ) : : bigint : : text from \"fx_system_scope_clock\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.493400000001202,
+        "awaitedMsMin": 0.493400000001202,
+        "awaitedMsMax": 0.493400000001202,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 19,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "bd4f75478e494bfa56c2c81b511e5d54bed2e5d5912d4dca83816b4539a9513f",
+        "template": "with requested ( ordinal , scope_uuid , index_definition_id , encoded_key , row_id ) as ( values ( $? : : integer , $? : : uuid , $? : : integer , $? : : bytea , $? : : bytea ) ) select requested . ordinal : : text as \"ordinal\" , current_entry . commit_seq : : text as \"currentCommitSeq\" , latest . table_id : : text as \"tableIdText\" , latest . key_codec_version : : text as \"keyCodecVersionText\" , latest . physical_spec_sha256 as \"physicalSpecSha256\" , latest . encoded_key as \"encodedKeyBytes\" , latest . key_sha256 as \"keySha256\" , latest . row_id as \"rowIdBytes\" , latest . commit_seq : : text as \"commitSeqText\" , latest . is_tombstone as \"isTombstone\" from requested left join fx_app_index_entry_current as current_entry on current_entry . scope_uuid = requested . scope_uuid and current_entry . index_definition_id = requested . index_definition_id and current_entry . encoded_key = requested . encoded_key and current_entry . row_id = requested . row_id left join lateral ( select revision . * from fx_app_index_entry_rev as revision where revision . scope_uuid = requested . scope_uuid and revision . index_definition_id = requested . index_definition_id and revision . encoded_key = requested . encoded_key and revision . row_id = requested . row_id order by revision . commit_seq desc limit ? ) as latest on true order by requested . ordinal",
+        "dispatchCount": 2,
+        "statementCount": 2,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 2.9884000000001834,
+        "awaitedMsMin": 0.5474000000012893,
+        "awaitedMsMax": 2.440999999998894,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 422,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "1318369d0b18327503847f13b46fb8112166943cb29f2fffc73a3768fb521ca5",
+        "template": "select \"scope_uuid\" , \"constraint_id\" , \"locale_key\" , \"canonical_key_sha256\" , \"key_codec_version\" , \"encoded_key\" , \"table_id\" , \"row_id\" from \"fx_app_unique_key\" where ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and ( \"fx_app_unique_key\" . \"constraint_id\" = $? and \"fx_app_unique_key\" . \"table_id\" = $? and \"fx_app_unique_key\" . \"row_id\" = $? ) ) order by \"fx_app_unique_key\" . \"constraint_id\" , \"fx_app_unique_key\" . \"table_id\" , \"fx_app_unique_key\" . \"row_id\" , \"fx_app_unique_key\" . \"locale_key\" limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.30380000000150176,
+        "awaitedMsMin": 0.30380000000150176,
+        "awaitedMsMax": 0.30380000000150176,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "e7038552a97cc5bc1877653e4b2a4e1a05b8c92eb471536a2f37ef68bfe19cb5",
+        "template": "select \"scope_id\" , \"deployment_id\" , \"schema_version_id\" , \"schema_manifest_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"frontier_commit_seq\" , \"attempt_fence\" , \"frame_codec_version\" , \"frame_kind\" , \"frame_byte_length\" , \"frame_sha256\" , \"frame_bytes\" , \"created_at\" , \"updated_at\" from \"fx_system_app_schema_candidate_validation\" where \"fx_system_app_schema_candidate_validation\" . \"scope_id\" = $? limit $? for update",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.2651000000005297,
+        "awaitedMsMin": 0.2651000000005297,
+        "awaitedMsMax": 0.2651000000005297,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 3608,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "29715400e480675800b18ec2c0b21f3454cc01c3ae16d107e9452867643920dc",
+        "template": "insert into \"fx_app_row_rev\" ( \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_bytes\" , \"value_sha256\" ) values ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) on conflict do nothing returning \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.7793000000001484,
+        "awaitedMsMin": 1.7793000000001484,
+        "awaitedMsMax": 1.7793000000001484,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 135,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "60a523d176f496261730c1c999b678218004ff8ebfc546f2af966f29d46afead",
+        "template": "insert into \"fx_app_row_current\" ( \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" ) values ( $? , $? , $? , $? ) on conflict do nothing returning \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.123199999999997,
+        "awaitedMsMin": 1.123199999999997,
+        "awaitedMsMax": 1.123199999999997,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 135,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "85d139bf80bed02c905a4a91350736cff6cb8d619b3c13b52a943adde6a54483",
+        "template": "select \"fx_app_row_current\" . \"scope_uuid\" , \"fx_app_row_current\" . \"table_id\" , \"fx_app_row_current\" . \"row_id\" , \"fx_app_row_rev\" . \"is_tombstone\" from \"fx_app_row_current\" inner join \"fx_app_row_rev\" on ( \"fx_app_row_rev\" . \"scope_uuid\" = \"fx_app_row_current\" . \"scope_uuid\" and \"fx_app_row_rev\" . \"table_id\" = \"fx_app_row_current\" . \"table_id\" and \"fx_app_row_rev\" . \"row_id\" = \"fx_app_row_current\" . \"row_id\" and \"fx_app_row_rev\" . \"commit_seq\" = \"fx_app_row_current\" . \"commit_seq\" ) where ( ( \"fx_app_row_current\" . \"scope_uuid\" = $? and \"fx_app_row_current\" . \"table_id\" = $? and \"fx_app_row_current\" . \"row_id\" = $? ) or ( \"fx_app_row_current\" . \"scope_uuid\" = $? and \"fx_app_row_current\" . \"table_id\" = $? and \"fx_app_row_current\" . \"row_id\" = $? ) )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.41700000000128057,
+        "awaitedMsMin": 0.41700000000128057,
+        "awaitedMsMax": 0.41700000000128057,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 137,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "7eb0cfa1565920488b20fee615e83c2ae89d309dd81c8fac9fbba4d4104c9d4a",
+        "template": "insert into \"fx_app_index_entry_rev\" ( \"scope_uuid\" , \"index_definition_id\" , \"table_id\" , \"key_codec_version\" , \"physical_spec_sha256\" , \"encoded_key\" , \"key_sha256\" , \"row_id\" , \"commit_seq\" , \"is_tombstone\" ) values ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) , ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) on conflict do nothing returning \"scope_uuid\" , \"index_definition_id\" , \"encoded_key\" , \"row_id\" , \"commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.4079000000001543,
+        "awaitedMsMin": 1.4079000000001543,
+        "awaitedMsMax": 1.4079000000001543,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 464,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "8c9901f1251b477c5b753e35b8024c0a76d24211b38c05bf56e7f336d706e92b",
+        "template": "insert into \"fx_app_index_entry_current\" ( \"scope_uuid\" , \"index_definition_id\" , \"encoded_key\" , \"row_id\" , \"commit_seq\" ) values ( $? , $? , $? , $? , $? ) , ( $? , $? , $? , $? , $? ) on conflict do nothing returning \"scope_uuid\" , \"index_definition_id\" , \"encoded_key\" , \"row_id\" , \"commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.1574000000000524,
+        "awaitedMsMin": 1.1574000000000524,
+        "awaitedMsMax": 1.1574000000000524,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 2,
+        "decodedResultJsonUtf8Bytes": 464,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "8c6b5d12e990401d9b279b916bf6abd6f51d24cc674a3a67b4223dc480ef46a6",
+        "template": "select \"fx_app_row_current\" . \"scope_uuid\" , \"fx_app_row_current\" . \"table_id\" , \"fx_app_row_current\" . \"row_id\" , \"fx_app_row_rev\" . \"is_tombstone\" from \"fx_app_row_current\" inner join \"fx_app_row_rev\" on ( \"fx_app_row_rev\" . \"scope_uuid\" = \"fx_app_row_current\" . \"scope_uuid\" and \"fx_app_row_rev\" . \"table_id\" = \"fx_app_row_current\" . \"table_id\" and \"fx_app_row_rev\" . \"row_id\" = \"fx_app_row_current\" . \"row_id\" and \"fx_app_row_rev\" . \"commit_seq\" = \"fx_app_row_current\" . \"commit_seq\" ) where ( \"fx_app_row_current\" . \"scope_uuid\" = $? and ( \"fx_app_row_current\" . \"table_id\" = $? and \"fx_app_row_current\" . \"row_id\" = $? ) )",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.3750999999992928,
+        "awaitedMsMin": 0.3750999999992928,
+        "awaitedMsMax": 0.3750999999992928,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 137,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "48da1e1756e0ab99bce3346ae6c9e22b8a1e5df5d18d92781ef8ed6f35ec295b",
+        "template": "select \"scope_uuid\" , \"constraint_id\" , \"locale_key\" , \"canonical_key_sha256\" , \"key_codec_version\" , \"encoded_key\" , \"table_id\" , \"row_id\" from \"fx_app_unique_key\" where ( \"fx_app_unique_key\" . \"scope_uuid\" = $? and ( \"fx_app_unique_key\" . \"constraint_id\" = $? and ( ( \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"table_id\" = $? and \"fx_app_unique_key\" . \"row_id\" = $? ) or ( \"fx_app_unique_key\" . \"locale_key\" = $? and \"fx_app_unique_key\" . \"canonical_key_sha256\" = $? ) ) ) ) for update",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.33259999999972933,
+        "awaitedMsMin": 0.33259999999972933,
+        "awaitedMsMax": 0.33259999999972933,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 0,
+        "decodedResultJsonUtf8Bytes": 2,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "b6c946d5f1b8466efab3967a59ae5f0b83898ce01c92a59ee73963dbb275853e",
+        "template": "insert into \"fx_app_unique_key\" ( \"scope_uuid\" , \"constraint_id\" , \"locale_key\" , \"canonical_key_sha256\" , \"key_codec_version\" , \"encoded_key\" , \"table_id\" , \"row_id\" ) values ( $? , $? , $? , $? , $? , $? , $? , $? ) returning \"scope_uuid\" , \"constraint_id\" , \"locale_key\" , \"canonical_key_sha256\" , \"key_codec_version\" , \"encoded_key\" , \"table_id\" , \"row_id\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.507899999998699,
+        "awaitedMsMin": 1.507899999998699,
+        "awaitedMsMax": 1.507899999998699,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 388,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "de13ed62a850e69dd5689318dd8af8d3fb3ed5cbb6fbf4098f87d2322272fdc9",
+        "template": "insert into \"fx_system_commit\" ( \"scope_uuid\" , \"epoch_uuid\" , \"commit_seq\" , \"change_count\" , \"relation_adjacency_change_count\" , \"payload_preference_deletion_count\" , \"relational_change_count\" , \"event_count\" , \"event_sha256\" , \"committed_at\" ) values ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) returning \"commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.6293000000005122,
+        "awaitedMsMin": 1.6293000000005122,
+        "awaitedMsMax": 1.6293000000005122,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 7,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "b09bc453e3f140ca0f3986b97137a4555e5415b55d903eebd6c43046b3478ca6",
+        "template": "insert into \"fx_system_commit_app_row_change\" ( \"scope_uuid\" , \"epoch_uuid\" , \"commit_seq\" , \"change_ordinal\" , \"table_id\" , \"row_id\" ) values ( $? , $? , $? , $? , $? , $? ) returning \"commit_seq\" , \"change_ordinal\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.5154999999995198,
+        "awaitedMsMin": 1.5154999999995198,
+        "awaitedMsMax": 1.5154999999995198,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 9,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "ddc1abf2203c9b95d422c5028e3ddd1e040afc559486df37a078f42edfa2850c",
+        "template": "insert into \"fx_system_idempotency\" ( \"scope_uuid\" , \"request_key\" , \"identity_access_policy_sha256\" , \"function_path\" , \"request_sha256\" , \"epoch_uuid\" , \"commit_seq\" , \"result_state\" , \"result_encoding\" , \"result_value_codec_version\" , \"result_semantic_bytes\" , \"result_bytes\" , \"result_sha256\" , \"result_expired_at\" , \"created_at\" ) values ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) returning \"commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 1.3359999999993306,
+        "awaitedMsMin": 1.3359999999993306,
+        "awaitedMsMax": 1.3359999999993306,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 7,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "8c4b0978ba240c6a7ea96da5462ba35b75daa6b50ec2cb635af2f4cca0af31a1",
+        "template": "insert into \"fx_system_commit_wake\" ( \"scope_uuid\" , \"epoch_uuid\" , \"commit_seq\" , \"delivery_state\" , \"created_at\" , \"next_attempt_at\" , \"claim_fence\" , \"claim_owner\" , \"claimed_at\" , \"claim_expires_at\" , \"last_failure_code\" , \"last_failure_summary\" , \"last_failed_at\" , \"delivered_at\" , \"dead_lettered_at\" ) values ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) returning \"commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 2.8148999999993976,
+        "awaitedMsMin": 2.8148999999993976,
+        "awaitedMsMax": 2.8148999999993976,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 7,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "7464e06c4e1f45b1b698b6e4a186488f214fb560157823e9d06c9570ab1cda4d",
+        "template": "select \"sha256\" , case when octet_length ( \"canonical_bytes\" ) between ? and ? then \"canonical_bytes\" else null end , \"canonical_byte_length\" , \"candidate_sha256\" , \"activation_sha256\" , \"sequence\" from \"fx_system_data_binding_head\" where ( \"fx_system_data_binding_head\" . \"scope_id\" = $? and \"fx_system_data_binding_head\" . \"storage_generation\" = $? ) limit $?",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.24200000000018917,
+        "awaitedMsMin": 0.24200000000018917,
+        "awaitedMsMax": 0.24200000000018917,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 1419,
+        "unknownResultEncodingDispatches": 0
+      },
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "fingerprint": "4c2a17a47877cf2cffcd02f9fc24f4e7ba3ca89ab783790519c84a5ea9bad7a3",
+        "template": "update \"fx_system_scope_clock\" set \"last_commit_seq\" = $? , \"updated_at\" = $? where ( \"fx_system_scope_clock\" . \"scope_uuid\" = $? and \"fx_system_scope_clock\" . \"last_commit_seq\" = $? ) returning \"last_commit_seq\"",
+        "dispatchCount": 1,
+        "statementCount": 1,
+        "unknownStatementDispatches": 0,
+        "awaitedMsSum": 0.4241999999994732,
+        "awaitedMsMin": 0.4241999999994732,
+        "awaitedMsMax": 0.4241999999994732,
+        "errorCount": 0,
+        "unobservedCount": 0,
+        "returnedRowCount": 1,
+        "decodedResultJsonUtf8Bytes": 7,
+        "unknownResultEncodingDispatches": 0
+      }
+    ],
+    "sqlByPhase": [
+      {
+        "pool": "target",
+        "phasePath": [
+          "invocation"
+        ],
+        "dispatches": 130,
+        "statements": 130,
+        "awaitedMsSum": 67.15750000000662
+      }
+    ]
+  },
+  "timings": {
+    "loadMs": 5243.7225,
+    "prepareMs": 6493.214100000001,
+    "preparation": {
+      "provisionAndPrepareMs": 6493.072399999999,
+      "runtimeConstructionMs": null,
+      "initialSeedMs": 0,
+      "installation": {
+        "migrationMs": 2232.2210999999998
+      }
+    },
+    "cleanupMs": 584.1035000000011,
+    "runnerTotalMs": 17761.7153
+  },
+  "samples": [
+    {
+      "id": "payload-create-sql-0",
+      "kind": "sql",
+      "requestMs": 179.79019999999946,
+      "seedMs": 0.0588000000007014,
+      "verifyMs": 58.96419999999853,
+      "cleanupMs": 103.20279999999912,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-warmup-1",
+      "kind": "warmup",
+      "requestMs": 89.31860000000052,
+      "seedMs": 0.010599999999612919,
+      "verifyMs": 54.904200000000856,
+      "cleanupMs": 87.21610000000146,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-warmup-2",
+      "kind": "warmup",
+      "requestMs": 94.25900000000001,
+      "seedMs": 0.008399999998800922,
+      "verifyMs": 55.28500000000167,
+      "cleanupMs": 88.84200000000055,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-warmup-3",
+      "kind": "warmup",
+      "requestMs": 90.47010000000046,
+      "seedMs": 0.008900000000721775,
+      "verifyMs": 50.44770000000062,
+      "cleanupMs": 92.34559999999874,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-4",
+      "kind": "measured",
+      "requestMs": 86.0734999999986,
+      "seedMs": 0.008799999999610009,
+      "verifyMs": 49.71680000000015,
+      "cleanupMs": 88.25380000000041,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-5",
+      "kind": "measured",
+      "requestMs": 84.07309999999961,
+      "seedMs": 0.008900000000721775,
+      "verifyMs": 51.326499999999214,
+      "cleanupMs": 86.3101000000006,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-6",
+      "kind": "measured",
+      "requestMs": 85.0526000000009,
+      "seedMs": 0.010299999999915599,
+      "verifyMs": 53.82290000000103,
+      "cleanupMs": 85.67510000000038,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-7",
+      "kind": "measured",
+      "requestMs": 85.92590000000018,
+      "seedMs": 0.011099999999714782,
+      "verifyMs": 48.30619999999908,
+      "cleanupMs": 79.51059999999961,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-8",
+      "kind": "measured",
+      "requestMs": 83.87220000000161,
+      "seedMs": 0.012000000000625732,
+      "verifyMs": 48.50140000000101,
+      "cleanupMs": 87.13999999999942,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-9",
+      "kind": "measured",
+      "requestMs": 80.73639999999978,
+      "seedMs": 0.011699999999109423,
+      "verifyMs": 52.595400000000154,
+      "cleanupMs": 88.45119999999952,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-10",
+      "kind": "measured",
+      "requestMs": 76.92230000000018,
+      "seedMs": 0.012499999998908606,
+      "verifyMs": 49.338700000000244,
+      "cleanupMs": 81.66519999999946,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-11",
+      "kind": "measured",
+      "requestMs": 79.57129999999961,
+      "seedMs": 0.003700000001117587,
+      "verifyMs": 54.214600000001155,
+      "cleanupMs": 84.52850000000035,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-12",
+      "kind": "measured",
+      "requestMs": 85.58340000000135,
+      "seedMs": 0.005599999998594285,
+      "verifyMs": 49.64300000000003,
+      "cleanupMs": 92.84950000000026,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-13",
+      "kind": "measured",
+      "requestMs": 93.39600000000064,
+      "seedMs": 0.004700000001321314,
+      "verifyMs": 51.50089999999909,
+      "cleanupMs": 84.9997000000003,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-14",
+      "kind": "measured",
+      "requestMs": 79.77779999999984,
+      "seedMs": 0.007400000000416185,
+      "verifyMs": 48.40650000000096,
+      "cleanupMs": 83.89539999999943,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-15",
+      "kind": "measured",
+      "requestMs": 84.08069999999861,
+      "seedMs": 0.004999999999199645,
+      "verifyMs": 52.36059999999998,
+      "cleanupMs": 87.0026999999991,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-16",
+      "kind": "measured",
+      "requestMs": 82.23120000000017,
+      "seedMs": 0.003500000000713044,
+      "verifyMs": 54.432700000001205,
+      "cleanupMs": 93.19290000000001,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-17",
+      "kind": "measured",
+      "requestMs": 86.28420000000006,
+      "seedMs": 0.003700000001117587,
+      "verifyMs": 47.52020000000084,
+      "cleanupMs": 82.96539999999914,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-18",
+      "kind": "measured",
+      "requestMs": 85.33229999999821,
+      "seedMs": 0.003500000000713044,
+      "verifyMs": 46.58799999999974,
+      "cleanupMs": 80.86610000000292,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-19",
+      "kind": "measured",
+      "requestMs": 78.16220000000249,
+      "seedMs": 0.004100000001926674,
+      "verifyMs": 47.28690000000279,
+      "cleanupMs": 83.77349999999933,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-20",
+      "kind": "measured",
+      "requestMs": 80.41430000000037,
+      "seedMs": 0.003200000002834713,
+      "verifyMs": 55.789700000001176,
+      "cleanupMs": 83.863400000002,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-21",
+      "kind": "measured",
+      "requestMs": 79.85659999999916,
+      "seedMs": 0.004300000000512227,
+      "verifyMs": 53.85480000000098,
+      "cleanupMs": 84.71779999999853,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-22",
+      "kind": "measured",
+      "requestMs": 86.6964999999982,
+      "seedMs": 0.0030000000006111804,
+      "verifyMs": 49.215000000000146,
+      "cleanupMs": 82.62610000000132,
+      "failureStage": null,
+      "failureTokens": []
+    },
+    {
+      "id": "payload-create-measured-23",
+      "kind": "measured",
+      "requestMs": 84.32910000000265,
+      "seedMs": 0.0034999999988940544,
+      "verifyMs": 49.91749999999956,
+      "cleanupMs": 86.81450000000041,
+      "failureStage": null,
+      "failureTokens": []
+    }
+  ]
+}

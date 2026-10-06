@@ -6,6 +6,8 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
+import { readPublishedPhysicalRequirementDefinitionRecordsResult, InvalidIndexBuildReconciliationInputV1Error } from "./publishedPhysicalRequirementProvenance";
+import type { PublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
 import {
   CatalogIndexDefinitionIdSchema,
   CatalogIndexIdSchema,
@@ -57,6 +59,7 @@ import {
   type PreparedAppSchemaPublicationV1,
 } from "./appSchemaPublicationPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { readSchemaVersionTableBindings, type SchemaVersionTableBinding } from "./schemaVersionTableBindings";
 import { readSchemaVersionArtifactByIdEffect } from "./schemaVersionArtifacts";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
@@ -1134,6 +1137,22 @@ export const locateAppIndexDefinitionByIdEffect = Effect.fn(
     ? null
     : markLocatedAppIndexDefinition(scopeId, definition);
 });
+
+/** Bounded construction locates the original verified published records. The
+ * scope binding is checked once for this complete set; final acceptance uses
+ * current canonical closure and mutable build/coverage checks. */
+export const locatePublishedAppIndexDefinitionsEffect = Effect.fn("AppIndexDefinitions.locatePublishedDefinitions")(
+  function* (db: FlarexMetadataDatabase, snapshot: PublishedPhysicalRequirementSnapshotV1, scopeId: ScopeId) {
+    const definitions = yield* Effect.fromResult(readPublishedPhysicalRequirementDefinitionRecordsResult(snapshot, db));
+    const scopeRows = yield* runDrizzleStatementEffect(
+      db.select({ deploymentId: fxControlScopes.deploymentId }).from(fxControlScopes)
+        .where(eq(fxControlScopes.scopeId, scopeId)).limit(1),
+      cause => new AppIndexDefinitionReadPersistenceError("readByDefinitionId", cause),
+    );
+    if (scopeRows[0]?.deploymentId !== snapshot.deploymentId)
+      return yield* Effect.fail(new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidInputShape" }));
+    return Object.freeze(definitions.map(definition => markLocatedAppIndexDefinition(scopeId, definition)));
+  });
 
 /**
  * Package-private C08 owner for the table-owned intrinsic definition.

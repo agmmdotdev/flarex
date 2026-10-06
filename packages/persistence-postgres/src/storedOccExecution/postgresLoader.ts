@@ -1,6 +1,5 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { Effect } from "effect";
-import { readConfirmedFiniteRootEntryCapture, type ConfirmedFiniteRootEntryCapture } from "../sessionJournalStore";
 
 import { materializeOpenOccExecutionEffect } from "../storedCommitAuthority/materialization";
 import {
@@ -25,15 +24,9 @@ export function createStoredOccExecutionEvidenceLoaderV1(
 ): StoredOccExecutionEvidenceLoaderV1 {
   const loadEffect = Effect.fn("StoredOccExecution.load")((
     input: StoredOccExecutionEvidenceAuthorityV1,
-    initialCapture?: ConfirmedFiniteRootEntryCapture,
   ) =>
     Effect.gen(function* () {
       const authority = captureAuthority(input);
-      if (initialCapture !== undefined) {
-        const initial = readConfirmedFiniteRootEntryCapture(initialCapture, ports);
-        if (initial === undefined) return occExecutionCorrupt("authorityProjectionInvalid");
-        return yield* materializeOpenOccExecutionEffect(authority, initial.preliminaryAuthority, initial.rows, options);
-      }
       const captured = yield* captureStoredCommitAuthorityRowsEffect(
         ports,
         authority,

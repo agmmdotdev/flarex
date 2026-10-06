@@ -342,8 +342,8 @@ creating another pending-value authority. Full catalog preparation remains bound
 and separately charged, including complete-request and miss costs; warm selected
 proof and incremental retention must not scale with unrelated source definitions.
 
-The [delivered aggregate-entry slice](../roadmaps/mixed-mutation-core/19-aggregate-entry-preflight.md)
-connects the existing private `finiteRoot` profile to one preparatory target
+The predecessor [aggregate-entry slice](../roadmaps/mixed-mutation-core/19-aggregate-entry-preflight.md)
+connected the private `finiteRoot` profile to one preparatory target
 capture and one accepting transaction for atomic session creation and complete
 ordered source entry. Source refusal rolls back creation. Issuer-bound entry
 facts and journal installation require confirmed COMMIT and the original local
@@ -404,8 +404,35 @@ does not permit pruning its history. Distinct nominal evidence preserves the
 stronger existing direct/write/durable observation contracts.
 
 Framework business semantics and one Postgres settlement remain unchanged.
-Finite seal retains the current durable model while authenticating captured
-metadata/dependencies; package 2's terminal durability change remains gated.
+The selected [whole mutation replacement](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+extends that foundation with one compact durable attempt anchor, one shared
+pending evaluator and one final accepting transaction. Finite operation receipts
+and the frozen graph remain local; this profile has no durable child journal or
+seal. Ordinary and durable-operation profiles retain their actual journal and
+finishing obligations.
+
+Replay-eligible finite callbacks may rerun only after conclusive precommit
+nonacceptance and confirmed fencing. Unknown COMMIT resolves before replay;
+permanent refusal terminalizes durably. The persisted budget permits four root
+reruns across five fences. Committed outcomes, events and history remain durable.
+Immutable Application/schema/definition evidence belongs to genuine bounded host
+preparation. Entry, actual storage demands and final settlement retain their fresh
+authority, retention, metadata, serving, conflict and constraint checks. Local
+known-point edits require earlier accepted write ownership; reads cannot grant it.
+Finite entry accepts the capability's exact current Application/binding/schema,
+source and policy correlation without requiring unused serving paths to be ready.
+Actual storage demands check selected readiness; final writes check their complete
+current maintenance closure. The issued attempt retains its original physical
+target, with fresh installation/placement/authority acceptance inside each real
+transaction. Placement movement refuses that attempt rather than rerouting its
+pending graph. Candidate semantics and compiled validators retain the genuine
+charged preparation lifetime and writer/epoch protection.
+
+Post-wait observations must preserve Read Committed freshness. Evaluation order
+inside one joined statement does not establish a new snapshot after a lock wait;
+an installed database projection uses separate internal commands when required.
+The connected runtime's accepting boundaries are under further correction, with
+numerical acceptance open.
 Forward migration preserves stored scope fields, identities and outcomes, and
 refuses new finite activation until any incompatible nonterminal records have
 an explicit drain/migration disposition. No silent data deletion is authorized.
@@ -456,9 +483,9 @@ checkpoints, retries, and compensation. A workflow's recovery transaction is
 not one SQL transaction spanning its complete execution.
 
 The [first mixed mutation preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
-approves a separate, private admitted Application and Product logical attempt
-for one authenticated scope and placement. It borrows the native journal and
-one pending view, runs selected real Product operations under their own domain
+established a separate, private admitted Application and Product logical attempt
+for one authenticated scope and placement. It borrowed the native journal and
+one pending view, ran selected real Product operations under their own domain
 authority, and settles one result and event intent with the Application writes.
 This profile is implemented in isolated test scopes and has no public developer
 API or named-environment activation. Existing Application, standalone framework and named
@@ -2429,10 +2456,28 @@ share mechanics without becoming one universal transaction contract.
 
 The owner requests a complete remaining mutation redesign with breaking changes
 accepted. The [whole mutation preflight](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
-records a recommended compact durable entry anchor, one pending-state owner,
+records the selected compact durable entry anchor, one pending-state owner,
 one frozen contribution, distinct-table complete current write maintenance and
-one final settlement. Its precommit replay versus durable-seal recovery choice
-is pending; that proposal does not yet replace the current lifecycle guarantee.
+one final settlement. The owner selects replay-safe whole-root re-execution after
+proven precommit nonacceptance, replacing finite durable seal/finishing. Unknown
+COMMIT must be resolved before callbacks rerun. Implement entry, pending state,
+freeze, final acceptance, retry/recovery, reservation readers and actual consumers
+together; current runtime remains until the complete validated cutover. Ordinary
+and durable profiles keep their named checkpoint/finish-only obligations. No
+silent durable-data deletion or general external-effect replay is authorized.
+
+The selected private finite start owns admission through execution, rather than
+returning a detached executable handle that requires another initial renewal.
+Fresh final entry acceptance follows all required waits under the existing
+authority and ownership locks. Callback admission linearizes there; confirmed
+COMMIT is the issuance barrier, followed by immediate owned continuation and
+heartbeat supervision. This does not assert liveness at a delayed acknowledgement.
+Every actual storage frontier and final settlement still accept current ownership.
+Unknown entry COMMIT grants no callback permission. Ordinary detached and durable
+execution retain their initial renewal. Genuine original signed authority may be
+retained by the existing entry/frozen owners; fresh compatible-head admission and
+full cold stored authentication remain distinct obligations. Preflight 24 owns
+the connected migration, cancellation, acknowledgement and cleanup proofs.
 
 The [execution checks and framework lifecycle preflight](../roadmaps/mixed-mutation-core/22-execution-checks-and-framework-lifecycles-preflight.md)
 owns the selected direction, source evidence, replacement inventory and handoff

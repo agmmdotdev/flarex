@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Fiber, Result } from "effect";
 import {
   canonicalizeAppDocumentV1,
@@ -58,6 +58,9 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../src/transactionSessionAttemptKernel";
 import { runEffect } from "./effectTestRuntime";
+import { runEffectTransaction } from "../src/effectTransaction";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
+import { fxSystemScopeClocks } from "../src/schema";
 import {
   postgresUrl,
   withTemporaryPostgresSchema,
@@ -925,13 +928,16 @@ async function seedScopedAppRow(
     creationTime: appRowCreationTime,
     fields: { tenantValue },
   });
-  await persistence.drizzle.transaction(async tx => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+  await runEffect(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
+    "Scoped row fixture rollback", tx => Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId);
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    yield* Effect.tryPromise({ try: () => appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
       scopeId: located.authority.scopeId,
       ...sharedAppRowIdentity,
-      writeEpoch: located.authority.epoch,
-      commitSeq: CommitSeqSchema.make(1n),
+      writeEpoch: clock.epoch,
+      commitSeq,
       prevCommitSeq: null,
       schemaVersionId: appRowSchemaVersionId,
       creationTime: appRowCreationTime,
@@ -941,13 +947,10 @@ async function seedScopedAppRow(
         canonicalBytes: document.canonicalBytes,
         sha256: document.sha256,
       },
-    });
-    await tx.execute(sql`
-      update fx_system_scope_clock
-         set last_commit_seq = 1
-       where scope_id = ${located.authority.scopeId}
-    `);
-  });
+    }), catch: cause => cause });
+    yield* Effect.tryPromise({ try: () => tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+      .where(eq(fxSystemScopeClocks.scopeId, located.authority.scopeId)), catch: cause => cause });
+  }), cause => cause));
 }
 
 function postgresTestQueryEffect<Value>(

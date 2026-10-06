@@ -16,6 +16,17 @@ import {
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
 import { Effect } from "effect";
+import { and, eq } from "drizzle-orm";
+import { logicalCurrencyFixture } from "../../medusa-adapter/test/support/logical-currency-fixture";
+import { ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION, RUN_INSTALLED_ACCEPTING_READ_COMMITTED,
+  isInstalledAttemptScopeAuthorityTarget } from "../src/scopeAuthorityControlRead";
+import { fxControlSchemaVersions, fxSystemPreparedMetadataEpoch } from "../src/schema";
+import { openProtectedMetadataFinalGuardScope, closeProtectedMetadataFinalGuardScope,
+  flushProtectedMetadataFinalGuards } from "../src/preparedMetadataEpoch";
+import { decodeScopeClockRecordResult } from "../src/scopeClock";
+import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../src/scopeAuthorityResolution";
+import { retainPreparedHost } from "../src/preparedHostRuntime";
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { describe, expect, it } from "vitest";
 
@@ -25,7 +36,8 @@ import {
   type PreparedAppSchemaCandidateWriteGuard,
   prepareAppSchemaCandidateWriteGuardEffect,
   captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
-  prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
+  prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
+  prepareFiniteAppSchemaCandidateWriteGuardPortEffect,
   applyAppSchemaCandidateWriteGuardInTransactionEffect,
   createLocatedAppSchemaCandidateValidationTarget,
   advanceAppSchemaCandidateValidationEffect,
@@ -37,7 +49,7 @@ import { appendPreparedAppRowRevisionsInTransactionEffect } from
   "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { insertCurrentScopeClockFixture } from "./scopeClockFixture";
 import {
   postgresUrl,
@@ -52,6 +64,86 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 
 describePostgres("M03-A candidate validation - PostgreSQL", () => {
+  it("invalidates retained installed candidate artifacts and reconstructs under the original charged lease", async () => {
+    const cleanup: Array<() => Promise<void>> = [];
+    try {
+      const fixture = await logicalCurrencyFixture("postgres", close => cleanup.push(close), { managedRead: true });
+      const { application, managedRead } = fixture;
+      if (managedRead === undefined) throw new Error("Missing genuine managed installation");
+      const selection = { deploymentId: fixture.deploymentId, scopeId: application.authority.scopeId };
+      await runEffect(installAppSchemaCandidateValidationEffect(application.candidateValidation,
+        { ...selection, schemaVersionId: application.active.basis.schemaVersionId }));
+      const { target } = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect(selection, {
+        scopeMetadata: application.sessionAuthority.scopeMetadata,
+        provisioningReceipts: application.sessionAuthority.provisioningReceipts,
+        scopeClockTargets: application.sessionAuthority.scopeSessionTargets,
+      }));
+      if (!isInstalledAttemptScopeAuthorityTarget(target)) throw new Error("Missing genuine installed accepting target");
+      const construct = () => prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
+        candidateValidation: application.candidateValidation, pointCommitAuthority: application.sessionAuthority,
+      }, { ...selection, profile: "installed", database: fixture.persistence.drizzle, installation: managedRead.readInstallation });
+      expect(await runEffectFailure(construct())).toMatchObject({ reason: "compositionMismatch" });
+      const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(fixture.persistence.drizzle), construct()));
+      cleanup.push(() => runEffect(retained.close));
+      const original = await runEffect(retained.use(Effect.succeed));
+      const usage = await runEffect(Effect.fromResult(retained.readUsage()));
+      expect(usage.chargedBytes).toBeGreaterThan(0);
+      const capture = await target[RUN_INSTALLED_ACCEPTING_READ_COMMITTED](selection, tx => runEffect(Effect.gen(function* () {
+        const accepted = yield* target[ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION](tx, selection);
+        return yield* captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx, accepted.authority, application.sessionAuthority);
+      })));
+      const prepared = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(original, capture, selection));
+      const users = application.schemaAuthority.tables.find(table => table.logicalName === "users");
+      if (users === undefined) throw new Error("Missing actual Application users table");
+      const id = rowId(90);
+      const document = await canonicalizeAppDocumentV1({ tableId: users.tableId, rowId: id,
+        creationTime: decodeAppCreationTimeV1(1_750_000_000_000), fields: { name: "protected candidate" } });
+      const liveRows = [{ tableId: users.tableId, rowId: id, document }];
+      const apply = (guard: typeof original, preparation: PreparedAppSchemaCandidateWriteGuard, writes = liveRows) =>
+        target[RUN_INSTALLED_ACCEPTING_READ_COMMITTED](selection, tx => runEffect(Effect.gen(function* () {
+          const accepted = yield* target[ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION](tx, selection);
+          const clock = yield* Effect.fromResult(decodeScopeClockRecordResult(accepted.row));
+          openProtectedMetadataFinalGuardScope(tx);
+          const result = yield* applyAppSchemaCandidateWriteGuardInTransactionEffect(tx, guard, preparation,
+            accepted.authority, clock, CommitSeqSchema.make(clock.lastCommitSeq + 1n), writes).pipe(Effect.result);
+          yield* flushProtectedMetadataFinalGuards(tx);
+          return result;
+        }).pipe(Effect.ensuring(Effect.sync(() => closeProtectedMetadataFinalGuardScope(tx))))));
+      expect(await apply(original, prepared)).toMatchObject({ _tag: "Success", success: { status: "unchanged" } });
+      const identity = and(eq(fxControlSchemaVersions.deploymentId, selection.deploymentId),
+        eq(fxControlSchemaVersions.schemaVersionId, application.active.basis.schemaVersionId));
+      const [artifact] = await fixture.control.drizzle.select().from(fxControlSchemaVersions).where(identity);
+      const [epochBefore] = await fixture.control.drizzle.select().from(fxSystemPreparedMetadataEpoch);
+      if (artifact === undefined || epochBefore === undefined) throw new Error("Missing genuine protected artifact");
+      expect(artifact.manifestBytes.byteLength).toBeGreaterThan(0);
+      await fixture.control.drizzle.update(fxControlSchemaVersions)
+        .set({ createdAt: new Date(artifact.createdAt.getTime() + 1_000) }).where(identity);
+      const [epochAfter] = await fixture.control.drizzle.select().from(fxSystemPreparedMetadataEpoch);
+      expect(epochAfter?.generation).toBe(epochBefore.generation + 1n);
+      expect(await apply(original, prepared)).toMatchObject({ _tag: "Failure", failure: { reason: "concurrentStateChange" } });
+      const reconstructed = await runEffect(retained.reconstruct(() => construct()));
+      expect((await runEffect(Effect.fromResult(retained.readUsage()))).chargedBytes).toBeGreaterThan(usage.chargedBytes);
+      const freshPreparation = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(reconstructed, capture, selection));
+      expect(await apply(reconstructed, freshPreparation)).toMatchObject({ _tag: "Success", success: { status: "unchanged" } });
+      expect(await apply(original, freshPreparation)).toMatchObject({ _tag: "Failure", failure: { reason: "compositionMismatch" } });
+      const foreignLease = await runEffect(retainPreparedHost(preparedHostTestRuntime(fixture.persistence.drizzle), construct()));
+      cleanup.push(() => runEffect(foreignLease.close));
+      const foreignGuard = await runEffect(foreignLease.use(Effect.succeed));
+      const foreignPreparation = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(foreignGuard, capture, selection));
+      expect(await apply(reconstructed, foreignPreparation)).toMatchObject({ _tag: "Failure", failure: { reason: "compositionMismatch" } });
+      await runEffect(foreignLease.close);
+      expect(await apply(reconstructed, freshPreparation)).toMatchObject({ _tag: "Success", success: { status: "unchanged" } });
+      const invalidDocument = await canonicalizeAppDocumentV1({ tableId: users.tableId, rowId: id,
+        creationTime: decodeAppCreationTimeV1(1_750_000_000_000), fields: { name: 42 } });
+      expect(await apply(reconstructed, freshPreparation, [{ tableId: users.tableId, rowId: id, document: invalidDocument }]))
+        .toMatchObject({ _tag: "Success", success: { status: "candidateFailed" } });
+      await runEffect(retained.close);
+      expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(reconstructed, capture, selection)))
+        .toMatchObject({ reason: "compositionMismatch" });
+      expect(await apply(reconstructed, freshPreparation)).toMatchObject({ _tag: "Failure", failure: { reason: "compositionMismatch" } });
+    } finally { for (const close of cleanup.reverse()) await close(); }
+  }, 240_000);
+
   it("serializes concurrent replacements behind the scope clock", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       const fixture = await fixtureFor(persistence, "concurrency");
@@ -69,10 +161,11 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
       const pointCommitAuthority = { scopeMetadata: dependencies.authority.scopeMetadata,
         provisioningReceipts: dependencies.authority.provisioningReceipts,
         scopeSessionTargets: dependencies.authority.scopeClockTargets };
-      const guard = createAppSchemaCandidateWriteGuardPort({
-        candidateValidation: createAppSchemaCandidateValidationPort(dependencies),
-        pointCommitAuthority,
-      });
+      const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle),
+        prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
+          candidateValidation: createAppSchemaCandidateValidationPort(dependencies), pointCommitAuthority,
+        }, { profile: "fullArtifactProof", deploymentId: fixture.deploymentId, scopeId: fixture.scopeId })));
+      const guard = await runEffect(retained.use(Effect.succeed));
       let preparation: PreparedAppSchemaCandidateWriteGuard;
       const blocker = await persistence.pool.connect();
       let released = false;
@@ -102,8 +195,19 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
               storageGeneration: clock.storageGeneration, storageGenerationFence: clock.storageGenerationFence,
               epoch: clock.epoch, lastCommitSeq: clock.lastCommitSeq }, pointCommitAuthority),
         ));
-        preparation = await runEffect(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
-          capture).pipe(Effect.timeout(2_000)));
+        const finiteInput = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId };
+        expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
+          { ...capture }, finiteInput))).toMatchObject({ reason: "notIssued" });
+        expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
+          capture, { ...finiteInput, scopeId: ScopeIdSchema.make("scope_m03_pg_wrong_capture") })))
+          .toMatchObject({ reason: "compositionMismatch" });
+        const foreignGuard = createAppSchemaCandidateWriteGuardPort({
+          candidateValidation: createAppSchemaCandidateValidationPort(dependencies), pointCommitAuthority: { ...pointCommitAuthority },
+        });
+        expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(foreignGuard,
+          capture, finiteInput))).toMatchObject({ reason: "compositionMismatch" });
+        preparation = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
+          capture, finiteInput).pipe(Effect.timeout(2_000)));
         const first = install(fixture, fixture.replacementSchemaVersionId);
         const second = install(fixture, fixture.emptySchemaVersionId);
         await waitForBlockedBy(persistence, blockerPid, 2);

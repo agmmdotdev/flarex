@@ -32,7 +32,7 @@ native("existing installation derived-metadata restoration", () => {
       // The real fixture publishes canonical readiness, activates the Application,
       // admits the composed logical schema and installs its real definitions.
       await logicalCurrencyFixture("postgres", cleanup => { cleanups.push(cleanup); }, {
-        resource: { kind: "postgres", control: controlOwner.persistence, target: targetOwner.persistence },
+        resource: { kind: "postgres", control: controlOwner.persistence, target: targetOwner.persistence, testOwner: targetOwner.persistence },
         fixtureIdentity: { deploymentId: "installation_existing_roots", projectId: "installation_existing_roots", uuidOffset: 6000 },
         includeUserNameIndex: true,
       });

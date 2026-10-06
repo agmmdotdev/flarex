@@ -15,6 +15,12 @@ export class ApplicationWriteOwnershipHistoryBudget {
   private records = 0;
   private bytes = 0;
 
+  /** Transfer projection only. Admission still occurs through consume in order. */
+  remaining(): Readonly<{ records: number; bytes: number }> {
+    return Object.freeze({ records: MAX_WRITE_OWNERSHIP_HISTORY_RECORDS - this.records,
+      bytes: MAX_WRITE_OWNERSHIP_HISTORY_BYTES - this.bytes });
+  }
+
   consume(records: number, bytes: number): Result.Result<void, ApplicationWriteOwnershipError> {
     if (!Number.isSafeInteger(records) || records < 0 || !Number.isSafeInteger(bytes) || bytes < 0 ||
       this.records + records > MAX_WRITE_OWNERSHIP_HISTORY_RECORDS ||

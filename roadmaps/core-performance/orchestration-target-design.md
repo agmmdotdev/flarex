@@ -3,7 +3,7 @@
 Status: **the accepted standalone-read replacement is implemented for its local
 profiles.** Consumer and installation cutover is complete. The owner accepts the
 recorded latency for now; full performance targets remain unproven and tuning is
-paused. The finite execution proposal below retains its separate owning gates.
+paused. The finite whole-mutation replacement below has separate owning gates.
 
 ## Standalone Read Refactor
 
@@ -40,19 +40,34 @@ The [main roadmap](./README.md) owns order and status;
 [reassessment](./orchestration-simplification-preflight.md) owns the architectural
 challenge record. Their old planning-only labels are superseded for this scope.
 
-## Deferred Finite Proposal
+## Finite Successor And Historical Proposal
 
 The successor [whole mutation preflight](../mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
 now owns the owner's requested total replacement and current recommended contract,
-including entry and unified Application/native pending ownership. Its recovery
-choice remains pending. The material below is supporting proposal/history; it
-does not override the delivered slice 23 contract or select its successor.
+including entry and unified Application/native pending ownership. The owner selects
+safe whole-root replay after proven precommit nonacceptance and one final settlement;
+unknown COMMIT requires resolution before replay. The material below is supporting proposal/history; it
+does not override slice 24's selected contract. Accepting boundaries and complete
+dependency batches, owned finite start and logical capture ownership are
+implemented. Named bounded finite storage captures and protocol parsing
+reuse are implemented through genuine installed preparation and fresh exact
+authority; existing finite consumers are migrated and displaced callbacks removed.
+Complete finite entry and the connected historical-row/publication replacement
+are implemented. Workflow and Product/Payload met former mixed milestones,
+which are now historical rather than completion targets. The selected
+[complete native reference](../mixed-mutation-core/26-native-business-baseline-preflight.md)
+requires at most 5/10 ms median/P95 paired excess once per complete root, matched
+final sources and stable tails. Immutable preparation and owned-evidence changes
+have not established accepted improvement. Preflight 24 now owns the deeper
+prepared-database, logical-attempt and authoritative-settlement replacement.
+Immediate live-frontier checks, complete business results, metadata scaling and
+numerical acceptance remain required.
 
 Everything below describes the separate finite/mixed target and its retained
-source analysis. It is **not the selected first slice**, and its unresolved
+source analysis. It is **not the standalone first slice**, and its historical
 terminal durability decisions or historical numerical-ceiling deferrals do not
-block the standalone decision above. Current finite entry/seal/publication and
-recovery semantics remain until their own coherent replacement is selected.
+block the standalone decision above. Slice 24 now selects compact entry,
+local freeze, direct publication and fenced whole-root recovery together.
 Historical line numbers and counts below identify the inspected baseline and
 must be rechecked before a finite implementation.
 

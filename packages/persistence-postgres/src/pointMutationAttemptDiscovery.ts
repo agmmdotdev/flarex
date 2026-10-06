@@ -487,6 +487,8 @@ export function buildPointMutationAttemptDiscoveryStatementV1(
     sql`session.attempt_fence`,
     input.continuation,
   );
+  const finiteAfter = discoveryKeysetPredicate(0, sql`session.finite_claim_expires_at`,
+    sql`session.session_id`, sql`session.attempt_fence`, input.continuation);
 
   return sql`
     with discovery_context as materialized (
@@ -527,6 +529,7 @@ export function buildPointMutationAttemptDiscoveryStatementV1(
             and session.storage_generation_fence =
               context.storage_generation_fence
             and session.lifecycle = 'running'
+            and session.execution_profile = 'durableOperations'
           limit 1
           offset 0
         ) as current_session
@@ -538,6 +541,22 @@ export function buildPointMutationAttemptDiscoveryStatementV1(
           claim.claim_expires_at asc,
           claim.session_id asc,
           claim.attempt_fence asc
+        limit ${input.limitPlusOne}
+      ) as candidate
+    ),
+    finite_anchor_candidates as materialized (
+      select candidate.* from discovery_context as context
+      cross join lateral (
+        select 'expiredClaim'::text as source, 0::integer as source_rank,
+          session.finite_claim_expires_at as eligible_at, session.session_id,
+          session.attempt_fence, false::boolean as finishing_claim_present
+        from fx_system_tx_session as session
+        where context.horizon <= context.database_now and session.scope_uuid = context.scope_uuid
+          and session.execution_profile = 'finiteRoot' and session.lifecycle in ('running', 'retrying')
+          and session.storage_generation = context.storage_generation
+          and session.storage_generation_fence = context.storage_generation_fence
+          and session.finite_claim_expires_at <= context.horizon and ${finiteAfter}
+        order by session.finite_claim_expires_at asc, session.session_id asc, session.attempt_fence asc
         limit ${input.limitPlusOne}
       ) as candidate
     ),
@@ -560,6 +579,7 @@ export function buildPointMutationAttemptDiscoveryStatementV1(
           and session.storage_generation = context.storage_generation
           and session.storage_generation_fence = context.storage_generation_fence
           and session.lifecycle = 'finishing'
+          and session.execution_profile = 'durableOperations'
           and session.updated_at <= context.horizon
           and ${finishingAfter}
         order by
@@ -582,6 +602,8 @@ export function buildPointMutationAttemptDiscoveryStatementV1(
       select *
       from (
         select * from expired_claim_candidates
+        union all
+        select * from finite_anchor_candidates
         union all
         select * from finishing_session_candidates
       ) as candidates

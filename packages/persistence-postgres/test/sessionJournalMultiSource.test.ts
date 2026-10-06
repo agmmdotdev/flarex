@@ -93,12 +93,11 @@ describe("neutral admitted operation source bundle", () => {
         const selection: LogicalParticipantSelection = {
           bindAttemptEffect: (_application, selectedAttempt, root, readTransaction, methods) => Effect.sync(() =>
             issueLogicalParticipantAttemptAdmission({ preparedSource: selection, attempt: selectedAttempt, root, readTransaction,
-              methods: new Set(methods), verifyReadBinding: () => Effect.die("Durable profile must retain full readiness"), verifyBinding: () => {
+              methods: new Set(methods), verifyBinding: () => {
                 checks[index] = checks[index]! + 1;
                 return currentHeads[index] === pinnedHead.sequence ? Effect.void :
                   Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
               },
-              verifyDemand: () => Effect.die("Durable profile must retain full source readiness"),
               sourceKey, sourceSha256: `${index + 4}`.repeat(64), head: pinnedHead,
               tableIds: new Set([decodeCatalogTableId(100 + index)]), indexes: [], unique: [],
             })),

@@ -102,21 +102,10 @@ export async function assertCmsParticipantAdmission<Failure>(
                   _tag: "Failure",
                   failure: { reason: "invalidAuthority" },
                 });
-                // Admission is already authenticated: prove the shared materializer
-                // refuses the missing build instead of relying on readiness to fail.
-                const removed = yield* Effect.promise(() => tx.delete(fxSystemIndexBuildStates).where(and(
-                  eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
-                  eq(fxSystemIndexBuildStates.indexDefinitionId, intrinsic.indexDefinitionId),
-                )).returning());
-                expect(removed).toHaveLength(1);
-                // The materializer now enters at settlement, after publication
-                // exclusion. Exercise that owner directly under this locked fixture.
-                const missingBuild = yield* Effect.result(enterApplicationDocumentParticipant(
-                  prepared.core, tx, authority, clock, application.schema));
-                expect(missingBuild).toMatchObject({ _tag: "Failure", failure: {
-                  reason: "storedCorruption", cause: { reason: "intrinsicIndexBuildInvalid" },
-                } });
-                yield* Effect.promise(() => tx.insert(fxSystemIndexBuildStates).values(removed));
+                // The typed opening FK and maintained-delete guard now protect
+                // this actual build. Exercise the materializer in the admitted
+                // transaction without a privileged destructive fixture mutation.
+                yield* enterApplicationDocumentParticipant(prepared.core, tx, authority, clock, application.schema);
                 yield* enterCmsApplicationCommit(prepared, admission, lifetime);
                 return admission;
               }),

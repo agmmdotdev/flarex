@@ -89,7 +89,9 @@ export interface FiniteExecutionAuthorityObservation extends Omit<ScopeExecution
   readonly attemptFence: TransactionAttemptFence;
   readonly snapshotToken: typeof SnapshotTokenSchema.Type;
 }
-const finiteAuthorities = new WeakMap<FlarexMetadataTransaction, FiniteExecutionAuthorityObservation>();
+const finiteAuthorities = new WeakMap<FlarexMetadataTransaction, Readonly<{
+  observation: FiniteExecutionAuthorityObservation;
+}>>();
 /** Kernel-only issuance after exact session, lease, root, claim and post-wait time acceptance. */
 export function openFiniteExecutionAuthorityObservation(tx: FlarexMetadataTransaction,
   authority: ScopeExecutionAuthorityRecord, attempt: Pick<FiniteExecutionAuthorityObservation, "sessionId" | "attemptFence" | "snapshotToken">,
@@ -103,18 +105,18 @@ export function openFiniteExecutionAuthorityObservation(tx: FlarexMetadataTransa
   if (authority.scopeUuid === null || authority.epochUuid === null) throw new ScopeClockCorruptionError(authority.scopeId, "finite execution authority has no native identity");
   const observation: FiniteExecutionAuthorityObservation = Object.freeze({ ...authority, ...attempt, scopeUuid: authority.scopeUuid, epochUuid: authority.epochUuid,
     snapshotToken: Object.freeze({ ...attempt.snapshotToken }), [finiteAuthorityBrand]: true as const });
-  finiteAuthorities.set(tx, observation);
+  finiteAuthorities.set(tx, Object.freeze({ observation }));
   return observation;
 }
 export function readFiniteExecutionAuthorityObservation(tx: FlarexMetadataTransaction, scopeId: ScopeId):
   FiniteExecutionAuthorityObservation | undefined {
-  const observation = finiteAuthorities.get(tx);
+  const observation = finiteAuthorities.get(tx)?.observation;
   return observation?.scopeId === scopeId ? observation : undefined;
 }
 export function requireFiniteExecutionAuthorityObservation(tx: FlarexMetadataTransaction,
   observation: FiniteExecutionAuthorityObservation,
 ): Result.Result<FiniteExecutionAuthorityObservation, ScopeClockCorruptionError> {
-  return finiteAuthorities.get(tx) === observation ? Result.succeed(observation)
+  return finiteAuthorities.get(tx)?.observation === observation ? Result.succeed(observation)
     : Result.fail(new ScopeClockCorruptionError(observation.scopeId, "finite execution authority is foreign or closed"));
 }
 export function closeFiniteExecutionAuthorityObservation(tx: FlarexMetadataTransaction): void { finiteAuthorities.delete(tx); }
@@ -140,7 +142,7 @@ const exactAttemptClockObservations = new WeakMap<FlarexMetadataTransaction, Rea
   clock: ScopeClockRecord;
   revocation: TransactionAuthorizationRevocationEpoch;
   lock: "snapshot" | "share" | "attempt";
-  lifetime: object;
+  lifetime: symbol;
 }>>();
 
 export function openExactAttemptScopeClockObservation(
@@ -148,7 +150,7 @@ export function openExactAttemptScopeClockObservation(
   revocation: TransactionAuthorizationRevocationEpoch, lock: "snapshot" | "share" | "attempt",
 ): void {
   if (exactAttemptClockObservations.has(tx)) throw new Error("Exact attempt clock scope already opened");
-  exactAttemptClockObservations.set(tx, Object.freeze({ clock: copyScopeClockObservation(clock), revocation, lock, lifetime: Object.freeze({}) }));
+  exactAttemptClockObservations.set(tx, Object.freeze({ clock: copyScopeClockObservation(clock), revocation, lock, lifetime: Symbol("ExactScopeClockLifetime") }));
 }
 
 const copyScopeClockObservation = (clock: ScopeClockRecord): ScopeClockRecord =>
@@ -162,7 +164,7 @@ export function readExactScopeWriteClockObservation(tx: FlarexMetadataTransactio
 
 /** Process-local identity of the currently open writer observation. Closing or
  * reopening the clock makes previously prepared writer evidence unusable. */
-export function exactScopeWriteClockObservationIdentity(tx: FlarexMetadataTransaction, scopeId: ScopeId): object | undefined {
+export function exactScopeWriteClockObservationIdentity(tx: FlarexMetadataTransaction, scopeId: ScopeId): symbol | undefined {
   const observed = exactAttemptClockObservations.get(tx);
   return observed?.clock.scopeId === scopeId && observed.lock === "attempt" ? observed.lifetime : undefined;
 }

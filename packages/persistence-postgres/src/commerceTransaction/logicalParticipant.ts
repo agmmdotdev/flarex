@@ -107,6 +107,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
   const resources = selectedResources ?? defaultCommerceResources;
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   const sourceReadReadiness = state.readReadiness;
+  if (sourceReadReadiness.kind === "finiteQueryRequired") return yield* Effect.fail(commerceError("invalidAuthority"));
   const readReadiness: LogicalStorageReadReadiness<CommerceTransactionError> = sourceReadReadiness.kind === "full"
     ? sourceReadReadiness : Object.freeze({ ...sourceReadReadiness,
       requireDemand: (demandTx, demand) => sourceReadReadiness.requireDemand(demandTx, demand).pipe(Effect.mapError(projectCommerceRequestFailure)),

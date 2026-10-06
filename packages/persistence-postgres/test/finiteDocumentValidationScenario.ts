@@ -4,7 +4,7 @@ import * as appRows from "../src/appRows";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
-import { CommitSyscallSequenceV1Schema, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import type { CatalogSchemaVersionId, SchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -65,10 +65,6 @@ export async function finiteDocumentValidationScenario(
     expect(reads).toHaveBeenCalledTimes(3);
     } finally { reads.mockRestore(); }
   }
-  expect(await persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
-    .where(eq(fxSystemTransactionJournalReceipts.sessionId, current.anchor.sessionId))).toHaveLength(0);
-  await runEffect(current.store.sealFiniteRootEffect(current.attempt,
-    await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))));
   const roots = await persistence.drizzle.select().from(fxSystemTransactionJournals)
     .where(eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId));
   const hasSeed = current.seededDocumentId != null;

@@ -168,6 +168,7 @@ export const makeSourceCmsDocuments = Effect.fn("CmsDocuments.makeSource")(funct
   const requireAdmission = requireLogicalDocumentSourceAdmission(admission, tx).pipe(
     Effect.asVoid, Effect.mapError(cause => cmsError("invalidAuthority", cause)));
   const sourceReadReadiness = state.readReadiness;
+  if (sourceReadReadiness.kind === "finiteQueryRequired") return yield* Effect.fail(cmsError("invalidAuthority"));
   const readReadiness: LogicalStorageReadReadiness<CmsTransactionError> = sourceReadReadiness.kind === "full"
     ? sourceReadReadiness : Object.freeze({ ...sourceReadReadiness,
       requireDemand: (demandTx, demand) => sourceReadReadiness.requireDemand(demandTx, demand).pipe(Effect.mapError(cause =>

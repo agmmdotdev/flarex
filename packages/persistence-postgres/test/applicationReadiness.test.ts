@@ -1,4 +1,5 @@
 import { fxSystemScopeExecutionAuthorities } from "../src/schema";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../src/installationLifecycle";
 import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { webcrypto } from "node:crypto";
@@ -131,6 +132,7 @@ import {
   selectApplicationMutationAdmission,
   prepareFiniteApplicationMutationAdmission,
   readPreparedFiniteApplicationMutationInputs,
+  readPreparedFiniteApplicationMutationActivationInputs,
   withPreparedFiniteApplicationMutationAdmissionInTransaction,
 } from "../src/applicationMutationAdmission";
 import { selectApplicationActionAdmission } from
@@ -262,6 +264,10 @@ import { makeInstallationProtectedScopeAuthorityControlReader } from "../src/sco
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
 import { prepareFiniteTerminalControlEffect, type ApplicationGraphSessionSelector } from "../src/storedCommitAuthority/postgresLoader";
+import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
+import { preparedFiniteEntries, prepareFiniteSessionJournalEntryControlEffect,
+  readPreparedFiniteSessionJournalEntrySchema } from "../src/sessionJournalFiniteEntry";
+import { TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
 import * as hostPreparation from "../src/preparedHostRuntime";
 import type { ScopePhysicalLocator, SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
@@ -271,6 +277,7 @@ import {
 } from "../src/scopeClock";
 import {
   fxSystemIndexBuildStates,
+  fxSystemIndexMaintenanceObligations,
   fxSystemApplicationCandidatesV1,
   fxSystemApplicationFunctionsV1,
   fxSystemApplicationPublicationsV1,
@@ -530,7 +537,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
   it("keeps readiness and active selection on the chosen scope after a peer shop joins the deployment", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -596,7 +603,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       if (progress.lifecycle === "enabled") { enabled = true; break; }
     }
     expect(enabled).toBe(true);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -807,7 +814,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     expect(await runEffect(fixture.repository.readReady(fixture.input))).toMatchObject({
       status: "ready", readinessSha256: ready.readinessSha256,
     });
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts,
     });
@@ -820,9 +827,22 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     const advanced = await runEffect(activation.readActive());
     expect(advanced.expectedActiveHead).toEqual(before.expectedActiveHead);
     expect(await fixture.target.drizzle.select().from(fxSystemIndexBuildStates)).toEqual(builds);
-    await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ firstReadableCommitSeq: CommitSeqSchema.make(1n) })
-      .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
-    await expect(runEffect(activation.readActive())).rejects.toMatchObject({ _tag: "ApplicationReadinessError", reason: "storedState" });
+    const inventory = async () => ({
+      builds: await fixture.target.drizzle.select().from(fxSystemIndexBuildStates)
+        .orderBy(fxSystemIndexBuildStates.indexDefinitionId),
+      openings: await fixture.target.drizzle.select().from(fxSystemIndexMaintenanceObligations)
+        .orderBy(fxSystemIndexMaintenanceObligations.indexDefinitionId, fxSystemIndexMaintenanceObligations.activationSequence),
+      heads: await fixture.target.drizzle.select().from(fxSystemApplicationActiveHeads),
+      activations: await fixture.target.drizzle.select().from(fxSystemApplicationActivations)
+        .orderBy(fxSystemApplicationActivations.activationSequence),
+      clocks: await fixture.target.drizzle.select().from(fxSystemScopeClocks),
+    });
+    const beforeRefusal = await inventory();
+    await expect(fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ firstReadableCommitSeq: CommitSeqSchema.make(1n) })
+      .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId)))
+      .rejects.toMatchObject({ cause: { code: "23503", constraint: "fx_index_build_maintenance_opening_fk" } });
+    expect(await inventory()).toEqual(beforeRefusal);
+    expect((await runEffect(activation.readActive())).expectedActiveHead).toEqual(advanced.expectedActiveHead);
   });
 
   it("closes readiness and active selection while a required definition drains", async () => {
@@ -831,7 +851,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     await enablePhysicalBuilds(fixture, schemaVersionId);
     expect(await runEffect(fixture.repository.settle(fixture.input)))
       .toMatchObject({ status: "ready", disposition: "inserted" });
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -970,7 +990,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     } });
     const fixture = await readinessFixture({ targetPersistence });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     const initial = await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     let captures = 0;
@@ -1044,7 +1064,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       })),
     } });
     const fixture = await readinessFixture({ targetPersistence });
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     const actualTransaction = fixture.target.drizzle.transaction.bind(fixture.target.drizzle);
     const transaction = vi.spyOn(fixture.target.drizzle, "transaction").mockImplementation((work, config) =>
@@ -1071,7 +1091,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("keeps standalone tokens request-owned under ambient host construction and rejects a closed retained issuer", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const requests = await runEffect(Effect.scoped(Effect.gen(function* () {
@@ -1104,7 +1124,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("preserves standalone canonical refusal order ahead of absent durable readiness", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const candidate = (await fixture.target.drizzle.select().from(fxSystemApplicationCandidatesV1))[0];
@@ -1126,13 +1146,18 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture({ includeTable: true });
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const prior = await runEffect(prepareApplicationBindingSelection(activation));
-    if (mode === "missing") await fixture.target.drizzle.delete(fxSystemIndexBuildStates);
+    if (mode === "missing") {
+      // A disposable privileged fixture withdraws the binding before removal;
+      // ordinary maintained deletion is separately refused by the native guard.
+      await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceActivationSequence: null });
+      await fixture.target.drizzle.delete(fxSystemIndexBuildStates);
+    }
     else if (mode === "not-enabled") await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ lifecycle: "validating",
-      maintenanceActivationSequence: null, maintenanceBytes: null, maintenanceSha256: null });
+      maintenanceActivationSequence: null, });
     else {
       const requirements = await runEffect(loadPublishedPhysicalRequirementSnapshotV1(fixture.control.drizzle,
         { deploymentId: fixture.input.deploymentId, schemaVersionId }));
@@ -1256,7 +1281,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("activates by explicit CAS, exactly replays, and issues one authentic selection", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -1348,7 +1373,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("selects one immutable Application task without creating a run and invalidates it on head movement", async () => {
     const fixture = await readinessFixture({ includeTask: true });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -1442,7 +1467,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("creates and replays one Application task run from the authentic selection", async () => {
     const fixture = await readinessFixture({ includeTask: true });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -2203,7 +2228,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("rejects a missing or corrupted stored Application task", async () => {
     const empty = await readinessFixture();
     await prepareReadinessAuthorities(empty);
-    const emptyActivation = makeApplicationActivationRepository({
+    const emptyActivation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: empty.input.deploymentId,
       scopeId: empty.input.scopeId,
       readiness: empty.repository,
@@ -2231,7 +2256,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
 
     const corrupt = await readinessFixture({ includeTask: true });
     await prepareReadinessAuthorities(corrupt);
-    const corruptActivation = makeApplicationActivationRepository({
+    const corruptActivation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: corrupt.input.deploymentId,
       scopeId: corrupt.input.scopeId,
       readiness: corrupt.repository,
@@ -2292,7 +2317,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("classifies retained active readiness as non-serving and rejects a corrupt active head", async () => {
     const fixture = await readinessFixture({ functionKind: "mutation" });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -2359,7 +2384,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("admits and replays exact Application mutation authority and rejects stale or foreign authority", async () => {
     const fixture = await readinessFixture({ functionKind: "mutation" });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -2617,7 +2642,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("prepares private finite mutation inputs with detached getters and fresh unprotected acceptance", async () => {
     const fixture = await readinessFixture({ functionKind: "mutation" });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const context = Object.freeze({ deploymentId: fixture.input.deploymentId,
@@ -2638,14 +2663,23 @@ describe("Application activation", { timeout: 30_000 }, () => {
       hashBoundaries.push(targetOpen);
       return originalHash(algorithm, data);
     });
+    const constructionMembership = vi.spyOn(fixture.control.drizzle, "execute");
     const prepared = await (async () => {
-      try { return await runEffect(prepareFiniteApplicationMutationAdmission(activation, "users:get", context)); }
-      finally { digest.mockRestore(); transaction.mockRestore(); }
+      try {
+        const result = await runEffect(prepareFiniteApplicationMutationAdmission(activation, "users:get", context));
+        expect(constructionMembership).toHaveBeenCalledTimes(1);
+        return result;
+      } finally {
+        constructionMembership.mockRestore(); digest.mockRestore(); transaction.mockRestore();
+      }
     })();
     expect(targetCaptures).toBe(1);
     expect(hashBoundaries.length).toBeGreaterThan(0);
     expect(hashBoundaries.every(open => !open)).toBe(true);
     const first = Result.getOrThrow(readPreparedFiniteApplicationMutationInputs(prepared, context));
+    expect("schema" in first).toBe(true);
+    const originalInspectionSchema = structuredClone(first.schema);
+    Reflect.set(first.schema.manifest.tableDefinitions, "tables", [{ logicalName: "tampered", tableId: 1 }]);
     const originalDigest = encodeBytesToLowercaseHex(first.basis.manifestSha256);
     first.basis.manifestSha256.fill(0);
     Reflect.set(first.basis.manifest.functions[0]!, "path", "tampered:path");
@@ -2654,6 +2688,19 @@ describe("Application activation", { timeout: 30_000 }, () => {
     expect(encodeBytesToLowercaseHex(second.basis.manifestSha256)).toBe(originalDigest);
     expect(second.basis.manifest.functions[0]?.path).toBe("users:get");
     expect(second.executionAuthority.canonicalBytes.some(value => value !== 0)).toBe(true);
+    expect(second.schema).toEqual(originalInspectionSchema);
+    const narrow = Result.getOrThrow(readPreparedFiniteApplicationMutationActivationInputs(prepared, context));
+    expect("manifest" in narrow.basis).toBe(false);
+    expect("physicalRequirements" in narrow.basis).toBe(false);
+    expect("schema" in narrow).toBe(false);
+    expect(encodeBytesToLowercaseHex(narrow.basis.manifestSha256)).toBe(originalDigest);
+    narrow.basis.manifestSha256.fill(0);
+    narrow.executionAuthority.canonicalBytes.fill(0);
+    const narrowAgain = Result.getOrThrow(readPreparedFiniteApplicationMutationActivationInputs(prepared, context));
+    expect(encodeBytesToLowercaseHex(narrowAgain.basis.manifestSha256)).toBe(originalDigest);
+    expect(narrowAgain.executionAuthority.canonicalBytes.some(value => value !== 0)).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationMutationActivationInputs({ ...prepared }, context))).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationMutationActivationInputs(prepared, { ...context }))).toBe(true);
     // Inspecting inert copies does not admit terminal work; the terminal owner
     // below supplies its mandatory aggregate budget independently.
     const inspectOriginalSizes = () => Result.succeed(undefined);
@@ -2690,6 +2737,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
         application: Result.getOrThrow(readPreparedFiniteApplicationMutationInputs(value.preparation, context)).application }));
     })));
     expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(closedPreparation.preparation, context))).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationMutationActivationInputs(closedPreparation.preparation, context))).toBe(true);
     expect(Result.isFailure(readPreparedFiniteApplicationOriginalControl(closedPreparation.application, context.controlDb, inspectOriginalSizes))).toBe(true);
     const terminalPorts = {
       scopeMetadata: fixture.control,
@@ -2702,8 +2750,9 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const sessionActivation = createApplicationMutationSessionActivationPersistenceV1(terminalPorts, {
       leaseDurationMilliseconds: 60_000, randomUuid: uuidSequence(80, 81, 82, 83),
     });
+    const otherActive = await runEffect(activation.readActive());
     const created = await runEffect(sessionActivation.activateEffect(await applicationMutationActivationInput(
-      fixture, await runEffect(activation.readActive()),
+      fixture, otherActive,
     )));
     if (created.status !== "created") throw new Error("Expected genuine Application session anchor");
     const authority = { deploymentId: created.anchor.deploymentId, scopeId: created.anchor.scopeId,
@@ -2727,6 +2776,8 @@ describe("Application activation", { timeout: 30_000 }, () => {
       for (const refused of [
         prepareFiniteTerminalControlEffect({ ...terminalPorts, applicationControlDb: fixture.target.drizzle }, authority, terminalSelector, second.application),
         prepareFiniteTerminalControlEffect(terminalPorts, { ...authority, schemaVersionId: decodeCatalogSchemaVersionId("wrong_native_schema") }, terminalSelector, second.application),
+        prepareFiniteTerminalControlEffect(terminalPorts, authority, { ...terminalSelector, applicationExecutionAuthorityFunctionPath: "missing:function" }, second.application),
+        prepareFiniteTerminalControlEffect(terminalPorts, authority, { ...terminalSelector, applicationExecutionAuthorityRevisionId: "wrong_revision" }, second.application),
         prepareFiniteTerminalControlEffect(terminalPorts, authority, { ...terminalSelector, applicationExecutionAuthoritySchemaSha256: "0".repeat(64) }, second.application),
         prepareFiniteTerminalControlEffect(terminalPorts, authority, terminalSelector, Object.freeze({ ...second.application })),
         prepareFiniteTerminalControlEffect(terminalPorts, authority, terminalSelector, closedPreparation.application),
@@ -2736,44 +2787,77 @@ describe("Application activation", { timeout: 30_000 }, () => {
       expect(stableMembership).not.toHaveBeenCalled();
       expect(rawReacquisition).not.toHaveBeenCalled();
       const terminal = await runEffect(prepareFiniteTerminalControlEffect(terminalPorts, authority, terminalSelector, second.application));
-      expect(terminal.schemaPayloadRows[0]?.manifestBytes).toEqual(expectedOriginals.original.artifact.payload?.manifestBytes);
-      expect(terminal.schemaAuthorityPayloadRows[0]?.bindingBytes).toEqual(expectedOriginals.original.schemaAuthority.row.bindingBytes);
-      expect(stableMembership).toHaveBeenCalledTimes(1);
+      const originalPayload = expectedOriginals.original.artifact.payload;
+      if (originalPayload === null) throw new Error("Missing original prepared schema payload");
+      expect(Object.keys(terminal).sort()).toEqual(["schemaManifest", "stableBindings"]);
+      expect(terminal.schemaManifest).toEqual(JSON.parse(originalPayload.manifestJsonText));
+      expect(Reflect.set(terminal.schemaManifest.tableDefinitions, "tables", [])).toBe(false);
+      expect(Reflect.set(terminal.stableBindings, "0", { logicalName: "tampered", tableId: 1 })).toBe(false);
+      const escapedSchema = structuredClone(terminal);
+      Reflect.set(escapedSchema.schemaManifest.tableDefinitions, "tables", [{ logicalName: "tampered", tableId: 1 }]);
+      const repeated = await runEffect(prepareFiniteTerminalControlEffect(terminalPorts, authority, terminalSelector, second.application));
+      expect(repeated.schemaManifest).toEqual(JSON.parse(originalPayload.manifestJsonText));
+      expect(repeated.stableBindings).toEqual(terminal.stableBindings);
+      expect(stableMembership).not.toHaveBeenCalled();
       expect(rawReacquisition).not.toHaveBeenCalled();
     } finally {
       stableMembership.mockRestore();
       rawReacquisition.mockRestore();
     }
-    const accept = () => fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
-      const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
-      let escaped: AcceptedApplicationBinding | undefined;
-      const accepted = yield* withPreparedFiniteApplicationMutationAdmissionInTransaction(prepared, context, tx, clock,
-        (admitted, binding) => Effect.gen(function* () {
-          escaped = binding;
-          expect(Result.isSuccess(requireAcceptedApplicationBindingObservation(binding, admitted.selection, tx, clock))).toBe(true);
-          expect(Result.isFailure(claimApplicationExecutableActiveSelection(binding))).toBe(true);
-          // SAFETY: cloned nominal token/transaction deliberately exercise identity refusal.
-          expect(Result.isFailure(requireAcceptedApplicationBindingObservation({ ...binding } as AcceptedApplicationBinding,
-            admitted.selection, tx, clock))).toBe(true);
-          expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, admitted.selection, { ...tx } as typeof tx, clock))).toBe(true);
-          expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, admitted.selection, tx,
-            { ...clock, storageGenerationFence: Schema.decodeUnknownSync(StorageGenerationFenceSchema)(
-              (clock.storageGenerationFence + 1n).toString()) }))).toBe(true);
-          expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding,
-            { ...admitted.selection }, tx, clock))).toBe(true);
-          const borrowed = yield* withValidatedApplicationBindingBasisInTransaction(admitted.selection, tx, clock,
-            validated => Effect.succeed(validated), binding);
-          expect(borrowed.basis.revisionId).toBe(admitted.basis.revisionId);
-          return admitted;
-        }));
-      if (escaped === undefined) throw new Error("Missing finite callback observation");
-      expect(Result.isFailure(requireAcceptedApplicationBindingObservation(escaped, accepted.selection, tx, clock))).toBe(true);
-      return accepted;
-    })));
-    expect((await accept()).basis.revisionId).toBe(fixture.input.revisionId);
-    await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({ entryBytes: new Uint8Array([1]) })
-      .where(eq(fxSystemApplicationFunctionsV1.functionPath, "users:get"));
-    await expect(accept()).rejects.toMatchObject({ _tag: "ApplicationReadinessError", reason: "storedState" });
+    const entryScope = await runEffect(Scope.make());
+    try {
+      const entryStore = createSessionJournalStorePersistence(terminalPorts, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 });
+      const entry = await runEffect(Scope.provide(entryStore.prepareFiniteEntryEffect([]), entryScope));
+      const entryControl = await runEffect(prepareFiniteSessionJournalEntryControlEffect(entry, {
+        ...authority, kind: "claimedAttempt", scopeUuid: projectScopeIdUuidV1(authority.scopeId).scopeUuid,
+        executionClaim: created.executionClaim,
+      }, terminalSelector, second.application));
+      const entryState = preparedFiniteEntries.get(entry);
+      if (entryState === undefined) throw new Error("Missing original finite entry reservation");
+      const accept = () => fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
+        let escaped: AcceptedApplicationBinding | undefined;
+        const accepted = yield* withPreparedFiniteApplicationMutationAdmissionInTransaction(prepared, context, tx, clock,
+          (admitted, binding) => Effect.gen(function* () {
+            escaped = binding;
+            expect(Result.isSuccess(requireAcceptedApplicationBindingObservation(binding, admitted.selection, tx, clock))).toBe(true);
+            expect(Result.isFailure(claimApplicationExecutableActiveSelection(binding))).toBe(true);
+            // SAFETY: cloned nominal token/transaction deliberately exercise identity refusal.
+            expect(Result.isFailure(requireAcceptedApplicationBindingObservation({ ...binding } as AcceptedApplicationBinding,
+              admitted.selection, tx, clock))).toBe(true);
+            expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, admitted.selection, { ...tx } as typeof tx, clock))).toBe(true);
+            expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, admitted.selection, tx,
+              { ...clock, storageGenerationFence: Schema.decodeUnknownSync(StorageGenerationFenceSchema)(
+                (clock.storageGenerationFence + 1n).toString()) }))).toBe(true);
+            expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding,
+              { ...admitted.selection }, tx, clock))).toBe(true);
+            const borrowed = yield* withValidatedApplicationBindingBasisInTransaction(admitted.selection, tx, clock,
+              validated => Effect.succeed(validated), binding);
+            expect(borrowed.basis.revisionId).toBe(admitted.basis.revisionId);
+            // Exercise the process-local control consumption boundary using an
+            // actual entry and Application issuer. Durable entry SQL is covered
+            // by the connected finite-entry fixtures.
+            expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, entryControl))).toBe(true);
+            entryState.status = "running";
+            try {
+              expect(Result.getOrThrow(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, entryControl))).toBe(entryControl);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, structuredClone(entryControl)))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, new Proxy(entryControl, {})))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema({ ...entry }, admitted.selection, entryControl))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, { ...admitted.selection }, entryControl))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, otherActive.selection, entryControl))).toBe(true);
+            } finally { entryState.status = "prepared"; }
+            return admitted;
+          }));
+        if (escaped === undefined) throw new Error("Missing finite callback observation");
+        expect(Result.isFailure(requireAcceptedApplicationBindingObservation(escaped, accepted.selection, tx, clock))).toBe(true);
+        return accepted;
+      })));
+      expect((await accept()).basis.revisionId).toBe(fixture.input.revisionId);
+      await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({ entryBytes: new Uint8Array([1]) })
+        .where(eq(fxSystemApplicationFunctionsV1.functionPath, "users:get"));
+      await expect(accept()).rejects.toMatchObject({ _tag: "ApplicationReadinessError", reason: "storedState" });
+    } finally { await runEffect(Scope.close(entryScope, Exit.succeed(undefined))); }
   });
 
   it("charges retained finite opaque index lifecycle evidence before issuing a usable handle", async () => {
@@ -2781,7 +2865,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     await runEffect(fixture.repository.settle(fixture.input));
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const context = Object.freeze({ deploymentId: fixture.input.deploymentId,
@@ -2879,7 +2963,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     } });
     const fixture = await readinessFixture({ targetPersistence, functionKind: "mutation" });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const context = Object.freeze({ deploymentId: fixture.input.deploymentId,
@@ -2917,7 +3001,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("refuses unchanged-digest publication body corruption before issuing finite preparation", async () => {
     const fixture = await readinessFixture({ functionKind: "mutation" });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const context = Object.freeze({ deploymentId: fixture.input.deploymentId,
@@ -2931,7 +3015,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("selects an exact public Application mutation and rejects a stale admitted head", async () => {
     const fixture = await readinessFixture({ functionKind: "mutation" });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -3004,7 +3088,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("selects an exact public Application action without legacy revision evidence", async () => {
     const fixture = await readinessFixture({ functionKind: "action" });
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -3704,7 +3788,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("rolls back history and head together after a late injected failure", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -3763,7 +3847,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const originalResolve = fixture.authorityPorts.scopeClockTargets.resolve;
     fixture.authorityPorts.scopeClockTargets.resolve = async () =>
       uncertainTarget;
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -3808,7 +3892,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("fails closed when the active-head canonical evidence is corrupted", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -3835,7 +3919,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("moves the head with the prior CAS token and invalidates the issued selection", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -3903,7 +3987,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("opens and revalidates an Application query snapshot from exact active function evidence", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -3960,7 +4044,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("accepts Application query snapshots at or above the retained floor and rejects below it", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4031,7 +4115,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("rejects corrupted stored Application function evidence before issuing a query snapshot", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4073,7 +4157,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("rejects a developer-index port issued by another control database", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4111,7 +4195,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture({ includeTable: true });
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4212,7 +4296,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await insertApplicationQueryRow(fixture, schemaVersionId);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     await runEffect(fixture.repository.settle(fixture.input));
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4308,7 +4392,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
   it("rejects a query snapshot after the Application active head moves", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4365,7 +4449,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture({ includeTable: true });
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4440,7 +4524,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const expected = await insertApplicationQueryRow(fixture, schemaVersionId);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     await runEffect(fixture.repository.settle(fixture.input));
-    const activation = makeApplicationActivationRepository({
+    const activation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
       deploymentId: fixture.input.deploymentId,
       scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
@@ -4608,8 +4692,6 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
       lifecycle: "validating",
       maintenanceActivationSequence: null,
-      maintenanceBytes: null,
-      maintenanceSha256: null,
     }).where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
     const unavailable = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
       const opened = yield* openApplicationQuerySnapshot(
@@ -5011,26 +5093,32 @@ async function insertApplicationQueryRow(
   if (clock === null) throw new Error("Application query clock missing.");
   const commitSeq = CommitSeqSchema.make(1n);
   await fixture.target.drizzle.transaction(async tx => {
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId: fixture.authority.scopeId,
-      tableId,
-      rowId,
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: null,
-      schemaVersionId,
-      creationTime,
-      value: {
-        codecVersion: document.codecVersion,
-        valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes,
-        sha256: document.sha256,
-      },
-    });
-    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
-      eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId),
-    );
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId));
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: fixture.authority.scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
+        eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId),
+      );
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
   return document;
 }

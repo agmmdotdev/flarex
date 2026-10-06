@@ -1,3 +1,4 @@
+import type { FiniteStorageCaptureOperation, FiniteStorageCaptureEnvelopes, FiniteStorageCaptureError } from "../finiteStorageCapture";
 import type { Effect } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
@@ -95,6 +96,10 @@ export interface PreparedLogicalDocumentWriteMechanics {
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
 }
 
+export type LogicalFiniteStorageCapture<Failure> = <K extends FiniteStorageCaptureOperation["kind"]>(
+  operation: Extract<FiniteStorageCaptureOperation, { kind: K }>, demand: LogicalStorageReadDemand,
+) => Effect.Effect<FiniteStorageCaptureEnvelopes[K], Failure>;
+
 export type LogicalStorageReadReadiness<Failure> =
   | Readonly<{ kind: "full" }>
   | Readonly<{ kind: "queryRequired";
@@ -102,10 +107,10 @@ export type LogicalStorageReadReadiness<Failure> =
       requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) => Effect.Effect<void, Failure> }>
   | Readonly<{ kind: "finiteQueryRequired";
       mechanics: PreparedLogicalDocumentWriteMechanics;
-      requireDemand: (tx: FlarexMetadataTransaction, demand: LogicalStorageReadDemand) => Effect.Effect<void, Failure> }>;
+      captureStorage: LogicalFiniteStorageCapture<Failure> }>;
 
-/** Immutable decoded rows from the same journal point table that serves App
- * syscalls. This is evaluator hydration; the journal remains the pending owner. */
+/** Only the independently durable borrowed profile decodes journal overlays.
+ * Finite execution shares the root evaluator directly. */
 export type LogicalPendingDocumentSeed = Readonly<{
   tableId: CatalogTableId;
   rowId: AppRowIdHexV1;
@@ -118,9 +123,10 @@ export type LogicalPendingDocumentSeed = Readonly<{
  * borrowed native call. The finite branch binds the caller's exact attempt. */
 export type LogicalDocumentBorrowView =
   | Readonly<{ pendingRows: readonly LogicalPendingDocumentSeed[];
-      rootEvaluator?: never; rootAttemptFence?: never }>
+      rootEvaluator?: never; rootAttemptFence?: never; captureStorage?: never }>
   | Readonly<{ pendingRows?: never;
-      rootEvaluator: LogicalDocumentRootEvaluator; rootAttemptFence: string }>;
+      rootEvaluator: LogicalDocumentRootEvaluator; rootAttemptFence: string;
+      captureStorage: LogicalFiniteStorageCapture<FiniteStorageCaptureError> }>;
 
 type LogicalDocumentWorkingSetRoot =
   | Readonly<{ pendingRows?: readonly LogicalPendingDocumentSeed[];

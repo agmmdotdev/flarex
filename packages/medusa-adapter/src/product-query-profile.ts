@@ -60,10 +60,11 @@ export function decodeProductQuery(
     // assignment entity after this DAL query. Admit its two prerequisite reads.
     const relations = requested.includes("*") ? [...productRelations]
       : [...requested.filter(name => name !== "variants.images"), ...(requested.includes("variants.images") ? ["variants", "images"] : [])];
-    const scalarFields = catalog.product.table.columns.map(column => column.name);
-    const selected = yield* decodeFields(options.fields ?? scalarFields);
-    const projection = yield* compileProjection(catalog.readCatalog, catalog.product.table.name, selected, relations,
-      internalProduct ? internalProductProjection : publicProductProjection);
+    const selected = yield* decodeFields(options.fields ?? catalog.defaultProductRead.fields);
+    const projection = yield* options.fields === undefined && relations.length === 0
+      ? (internalProduct ? catalog.defaultProductRead.internalProjection : catalog.defaultProductRead.publicProjection)
+      : compileProjection(catalog.readCatalog, catalog.product.table.name, selected, relations,
+        internalProduct ? internalProductProjection : publicProductProjection);
     const skip = yield* decodeOffset(options.offset ?? 0);
     const take = yield* decodeLimit(options.limit ?? (internalProduct ? 256 : 15));
     const order = yield* decodeOrder(options.orderBy ?? { id: "ASC" });

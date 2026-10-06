@@ -1,4 +1,4 @@
-import { compileProjection, projectRows, type ReadProjection } from "../src/query/projection";
+import { compileProjection, projectRows, retainReadProjection, type ReadProjection } from "../src/query/projection";
 import { findCollectionMembershipProducts } from "../src/product-collection-membership";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -31,6 +31,69 @@ describe("Medusa relation query extraction", () => {
     catalog = await Effect.runPromise(captureProductSchema("query-test").pipe(
       Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)),
     ));
+  });
+
+  it("reuses prepared default projections while keeping query selection and predicates local", () => {
+    const first = Result.getOrThrow(decodeProductQuery(catalog, {}));
+    const second = Result.getOrThrow(decodeProductQuery(catalog, {}));
+    const internal = Result.getOrThrow(decodeProductQuery(catalog, {}, true));
+    expect(first.projection).toBe(second.projection);
+    expect(first.projection).toBe(Result.getOrThrow(catalog.defaultProductRead.publicProjection));
+    expect(internal.projection).toBe(Result.getOrThrow(catalog.defaultProductRead.internalProjection));
+    expect(first.selected).not.toBe(second.selected);
+    expect(first.query.predicate).not.toBe(second.query.predicate);
+    expect(Reflect.set(first.selected, "length", 0)).toBe(true);
+    expect(second.selected).toEqual(catalog.defaultProductRead.fields);
+    expect(Reflect.set(first.projection.storageFields, "0", "poisoned")).toBe(false);
+    expect(Reflect.get(first.projection.node.fields, "add")).toBeUndefined();
+    expect(() => Set.prototype.clear.call(first.projection.node.fields)).toThrowError();
+    first.projection.node.fields.forEach((value, key, fields) => {
+      expect(fields).toBe(first.projection.node.fields);
+      expect(Reflect.get(fields, "clear")).toBeUndefined();
+      expect(value).toBe(key);
+    });
+    const later = Result.getOrThrow(decodeProductQuery(catalog, {}));
+    expect(later.selected).toEqual(catalog.defaultProductRead.fields);
+    expect([...later.projection.node.fields]).toEqual(catalog.defaultProductRead.fields);
+    const populated = Result.getOrThrow(decodeProductQuery(catalog, { options: { populate: ["collection"] } }));
+    expect(populated.projection).not.toBe(first.projection);
+    expect(populated.relations).toEqual(["collection"]);
+  });
+
+  it("refuses replacement of the retained default preparation through its metadata record", () => {
+    const prepared = catalog.defaultProductRead;
+    const poisoned = { fields: ["poisoned"], publicProjection: Result.fail(commerceError("invalidInput")),
+      internalProjection: Result.fail(commerceError("invalidInput")) };
+    expect(Reflect.set(catalog, "defaultProductRead", poisoned)).toBe(false);
+    expect(Reflect.set(prepared, "publicProjection", poisoned.publicProjection)).toBe(false);
+    expect(catalog.defaultProductRead).toBe(prepared);
+    const decoded = Result.getOrThrow(decodeProductQuery(catalog, {}));
+    expect(decoded.selected).toEqual(prepared.fields);
+    expect(decoded.projection).toBe(Result.getOrThrow(prepared.publicProjection));
+  });
+
+  it("retains complete nested projection plans without exposing mutable fields or relation keys", () => {
+    const sourceFields = new Set(["id", "title"]);
+    const sourceKeys = ["collection_id"];
+    const source: ReadProjection = { storageFields: ["id", "title"], node: {
+      fields: sourceFields, children: [{ name: "collection", many: false, node: {
+        fields: new Set(["id"]), children: [], nullRelations: [],
+      } }], nullRelations: [{ name: "collection", keys: sourceKeys }],
+    } };
+    const retained = retainReadProjection(source);
+    sourceFields.clear();
+    sourceKeys[0] = "poisoned";
+    expect([...retained.node.fields]).toEqual(["id", "title"]);
+    expect(retained.node.nullRelations[0]?.keys).toEqual(["collection_id"]);
+    expect(Reflect.set(retained.node.children, "length", 0)).toBe(false);
+    const child = retained.node.children[0];
+    expect(child).toBeDefined();
+    if (child !== undefined) {
+      expect(Reflect.get(child.node.fields, "add")).toBeUndefined();
+      child.node.fields.forEach((_value, _key, fields) => expect(fields).toBe(child.node.fields));
+    }
+    expect(Result.getOrThrow(projectRows([{ id: "p", title: "Title", collection: { id: "c", discarded: "value" } }], retained.node)))
+      .toEqual([{ id: "p", title: "Title", collection: { id: "c" } }]);
   });
 
   it("admits only the internal unpaged membership selector and reads the full resource bound", async () => {

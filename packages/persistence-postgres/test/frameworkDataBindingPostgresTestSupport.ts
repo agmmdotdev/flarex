@@ -89,7 +89,7 @@ export async function reopenBindingHost(
       applicationControlDb: control.drizzle,
     },
   );
-  const application = makeApplicationActivationRepository({
+  const application = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
     deploymentId: frame.application.deploymentId,
     scopeId: ScopeIdSchema.make(frame.application.scopeId),
     readiness,

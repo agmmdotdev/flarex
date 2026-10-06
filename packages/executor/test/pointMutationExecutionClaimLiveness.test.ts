@@ -30,6 +30,7 @@ import {
   validatePointMutationExecutionLivenessConfigurationV1Result,
 } from "../src/pointMutationExecutionClaimLiveness";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { superviseExecutionClaimWork } from "../src/pointMutationExecutionClaimSupervision";
 
 const SELECTOR = Object.freeze({
   deploymentId: TransactionGrantDeploymentIdV1Schema.make(
@@ -126,6 +127,29 @@ describe("O08-B2b2b2b1b1 structured execution-claim liveness", () => {
       expect(yield* Fiber.join(fiber)).toBe("done");
     });
     await runEffect(program.pipe(Effect.provide(TestClock.layer())));
+  });
+
+  it("supervises acknowledged finite entry without a second initial renewal and drains its heartbeat", async () => {
+    let calls = 0;
+    const fixture = makeCoordinator(() => Effect.sync(() => { calls += 1; return RENEWED_OPEN; }));
+    const release = await runEffect(Deferred.make<void>());
+    await runEffect(Effect.gen(function* () {
+      const fiber = yield* superviseExecutionClaimWork(fixture.liveness.renewEffect({ selector: SELECTOR, executionClaim: OBSERVATION }), 10, "execute",
+        () => Deferred.await(release).pipe(Effect.as("done"))).pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      expect(calls).toBe(0);
+      yield* TestClock.adjust("10 millis");
+      expect(calls).toBe(1);
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(fiber)).toBe("done");
+      yield* TestClock.adjust("1 minute");
+      expect(calls).toBe(1);
+    }).pipe(Effect.provide(TestClock.layer())));
+  });
+
+  it("keeps the general coordinator run-only with its initial renewal boundary", () => {
+    const fixture = makeCoordinator(() => Effect.succeed(RENEWED_OPEN));
+    expect(Object.keys(fixture.coordinator)).toEqual(["run"]);
   });
 
   it("rejects a relation-conflicted root as initial execution authority", async () => {

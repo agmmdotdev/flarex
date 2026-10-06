@@ -1,4 +1,5 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { bytesEqualFullScan, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Data, Effect, Result, Schema } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { LogicalMetadataKeySchema, LogicalMetadataReadDependencySchema, MetadataSequenceSchema,
@@ -29,7 +30,7 @@ const decodeContractEffect = Schema.decodeUnknownEffect(FiniteMetadataContractSc
 const decodeOwnersEffect = Schema.decodeUnknownEffect(Schema.Array(FiniteMetadataOwnerSchema));
 const decodeSequenceTypeEffect = Schema.decodeUnknownEffect(Schema.toType(MetadataSequenceSchema));
 const decodeDependencyTypeResult = Schema.decodeUnknownResult(Schema.toType(LogicalMetadataReadDependencySchema));
-const decodeDependencyArrayTypeEffect = Schema.decodeUnknownEffect(Schema.toType(Schema.Array(LogicalMetadataReadDependencySchema)));
+const decodeDependencyArrayTypeResult = Schema.decodeUnknownResult(Schema.toType(Schema.Array(LogicalMetadataReadDependencySchema)));
 export const APPLICATION_EXECUTION_METADATA_OWNER = Object.freeze({ namespace: "execution", ownerKey: "application" } as const satisfies FiniteMetadataOwner);
 
 export class FiniteMetadataError extends Data.TaggedError("FiniteMetadataError")<{
@@ -48,11 +49,77 @@ const canonical = (value: Json): string => encodeCanonicalJson(value, () => { th
 export const finiteMetadataContractKey = (kind: string, ...identity: readonly (string | number)[]): string =>
   canonical([kind, ...identity]);
 
+const FiniteMetadataComparisonExpectedSchema = Schema.Struct({ ...LogicalMetadataKeySchema.fields,
+  present: Schema.Boolean, semanticSha256Hex: Schema.NullOr(digest),
+  semanticBytesHex: Schema.optional(Schema.String.check(Schema.isPattern(/^(?:[0-9a-f]{2})+$/))),
+}).annotate(strict);
+export type FiniteMetadataComparisonExpected = typeof FiniteMetadataComparisonExpectedSchema.Type;
+const FiniteMetadataComparisonVerdictSchema = Schema.Union([
+  Schema.Struct({ reason: Schema.Literal("accepted") }).annotate(strict),
+  Schema.Struct({ reason: Schema.Literals(["writeConflict", "projectionMissing"]),
+    ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    currentObservation: Schema.NullOr(Schema.Struct({ present: Schema.Boolean,
+      semanticSha256Hex: Schema.NullOr(digest), lastChangedMetadataSequence: MetadataSequenceSchema }).annotate(strict)),
+  }).annotate(strict),
+]);
+const decodeComparisonVerdict = Schema.decodeUnknownResult(FiniteMetadataComparisonVerdictSchema);
+const entryComparisonFailure = (cause: FiniteMetadataError): FiniteMetadataError => cause.reason === "writeConflict"
+  ? new FiniteMetadataError({ ...cause, reason: "projectionMissing", cause }) : cause;
+
+/** Driver JSON is decoded once, then correlated with the ordered authentic
+ * expectations. A success carries no returned metadata graph. */
+export const acceptFiniteMetadataComparisonVerdict = (input: unknown,
+  expected: readonly FiniteMetadataComparisonExpected[], capturedWatermark: MetadataSequence | null,
+): Result.Result<void, FiniteMetadataError> => Result.gen(function* () {
+  const verdict = yield* decodeComparisonVerdict(input).pipe(Result.mapError(cause => failure("invalidProjection", cause)));
+  if (verdict.reason === "accepted") return;
+  const selected = expected[verdict.ordinal];
+  if (selected === undefined || verdict.reason === "writeConflict" && (capturedWatermark === null ||
+    verdict.currentObservation === null || verdict.currentObservation.lastChangedMetadataSequence <= capturedWatermark))
+    return yield* Result.fail(failure("invalidProjection"));
+  return yield* Result.fail(new FiniteMetadataError({ reason: verdict.reason,
+    dependency: { namespace: selected.namespace, ownerKey: selected.ownerKey, contractKey: selected.contractKey },
+    expectedObservation: selected.present && selected.semanticSha256Hex !== null
+      ? { kind: "present", semanticSha256Hex: selected.semanticSha256Hex } : { kind: "missing" },
+    currentObservation: verdict.currentObservation,
+    ...(verdict.reason === "writeConflict" && capturedWatermark !== null && verdict.currentObservation !== null ? {
+      capturedMetadataWatermark: capturedWatermark,
+      lastChangedMetadataSequence: verdict.currentObservation.lastChangedMetadataSequence,
+    } : {}),
+  }));
+});
+/** Entry preserves construction refusal even when the underlying observation
+ * identifies a relevant activation after its provisional watermark. */
+export const acceptFiniteMetadataEntryComparisonVerdict = (input: unknown,
+  expected: readonly FiniteMetadataComparisonExpected[], capturedWatermark: MetadataSequence,
+) => acceptFiniteMetadataComparisonVerdict(input, expected, capturedWatermark).pipe(Result.mapError(entryComparisonFailure));
+
+const compareFiniteMetadata = Effect.fn("FiniteMetadata.compareCurrent")(function* (
+  tx: FlarexMetadataTransaction, scopeId: ScopeId, watermark: MetadataSequence | null,
+  expected: readonly FiniteMetadataComparisonExpected[],
+) {
+  if (expected.length === 0) return;
+  const [row] = yield* runDrizzleStatementEffect(tx.select({ verdict: sql<unknown>`fx_compare_finite_metadata(
+    ${scopeId}::text, ${watermark?.toString() ?? null}::bigint, ${JSON.stringify(expected)}::jsonb)` }).from(sql`(values (1)) as metadata_comparison`),
+  cause => failure("resourceFailure", cause));
+  return yield* Effect.fromResult(acceptFiniteMetadataComparisonVerdict(row?.verdict, expected, watermark));
+});
+
+/** Full-artifact entry submits its complete authentic expectations once before
+ * flushing the existing epoch guards. The installed path composes this same
+ * SQL owner inside its completion statement instead. */
+export const submitFiniteMetadataEntryComparisonEffect = Effect.fn("FiniteMetadata.submitEntryComparison")((
+  tx: FlarexMetadataTransaction, scopeId: ScopeId, watermark: MetadataSequence,
+  expected: readonly FiniteMetadataComparisonExpected[],
+): Effect.Effect<void, FiniteMetadataError> =>
+  compareFiniteMetadata(tx, scopeId, watermark, expected).pipe(Effect.mapError(entryComparisonFailure)));
+
 declare const projectionBrand: unique symbol;
 /** An authenticated retained semantic projection, never an admission authority. */
 export interface PreparedFiniteMetadataProjection { readonly [projectionBrand]: true }
 interface ProjectionState {
   readonly contracts: ReadonlyMap<string, FiniteMetadataContract>;
+  readonly semanticBytes: ReadonlyMap<string, Uint8Array>;
   readonly owners: readonly FiniteMetadataOwner[];
   readonly tables: ReadonlyMap<CatalogTableId, Readonly<{ namespace: FiniteMetadataOwner["namespace"]; ownerKey: string; localName: string }>>;
 }
@@ -80,6 +147,7 @@ export type FiniteMetadataProjectionInput = Readonly<{
  * their original meaning and are deliberately absent from table preimages. */
 export const prepareFiniteMetadataProjection = Effect.fn("FiniteMetadata.prepareProjection")(function* (input: FiniteMetadataProjectionInput) {
   const contracts = new Map<string, FiniteMetadataContract>();
+  const semanticBytes = new Map<string, Uint8Array>();
   const owners = new Map<string, FiniteMetadataOwner>();
   const tables = new Map<CatalogTableId, ProjectionState["tables"] extends ReadonlyMap<CatalogTableId, infer Value> ? Value : never>();
   const add = Effect.fn("FiniteMetadata.addContract")(function* (owner: FiniteMetadataOwner, contractKey: string, semantic: unknown) {
@@ -93,6 +161,7 @@ export const prepareFiniteMetadataProjection = Effect.fn("FiniteMetadata.prepare
     if (prior !== undefined && prior.semanticSha256Hex !== contract.semanticSha256Hex)
       return yield* Effect.fail(failure("invalidProjection"));
     contracts.set(identity, Object.freeze(contract));
+    semanticBytes.set(identity, captured.copyCanonicalBytes());
     owners.set(canonical([owner.namespace, owner.ownerKey]), Object.freeze(owner));
   });
   if (input.requirements !== undefined && input.requirementsProfile !== "binding" && input.requirementsProfile !== "nativeApplication" ||
@@ -214,7 +283,7 @@ export const prepareFiniteMetadataProjection = Effect.fn("FiniteMetadata.prepare
   for (const group of input.application?.groups ?? []) yield* add(applicationOwner, finiteMetadataContractKey("executionGroup", group.group), group.semantic);
   // SAFETY: only this private issuer can lend retained authenticated semantics.
   const projection = Object.freeze({}) as PreparedFiniteMetadataProjection;
-  projections.set(projection, { contracts, owners: Object.freeze([...owners.values()]), tables });
+  projections.set(projection, { contracts, semanticBytes, owners: Object.freeze([...owners.values()]), tables });
   return projection;
 });
 
@@ -222,10 +291,30 @@ export const inspectFiniteMetadataProjection = (projection: PreparedFiniteMetada
   const state = projections.get(projection);
   return state === undefined ? null : Object.freeze({ contracts: Object.freeze([...state.contracts.values()]), owners: state.owners });
 };
+/** The authentic issuer supplies the complete entry projection once. These
+ * scalar expectations are inert data until the installed owner compares them. */
+export const prepareFiniteMetadataEntryComparison = (projection: PreparedFiniteMetadataProjection):
+  Result.Result<readonly FiniteMetadataComparisonExpected[], FiniteMetadataError> => {
+  const state = projections.get(projection);
+  if (state === undefined || state.contracts.size === 0) return Result.fail(failure("invalidProjection"));
+  return Result.succeed(Object.freeze([...state.contracts.values()].map(contract => Object.freeze({
+    namespace: contract.namespace, ownerKey: contract.ownerKey, contractKey: contract.contractKey,
+    present: true, semanticSha256Hex: contract.semanticSha256Hex,
+  }))));
+};
+/** The preparation owner charges the actual retained canonical bytes once. */
+export function readFiniteMetadataProjectionPreparationPayload(projection: PreparedFiniteMetadataProjection) {
+  const state = projections.get(projection);
+  if (state === undefined) return Result.fail(failure("invalidProjection"));
+  return Result.succeed(Object.freeze({ contracts: structuredClone([...state.contracts.entries()]), owners: structuredClone(state.owners),
+    tables: structuredClone([...state.tables.entries()]), semanticBytes: [...state.semanticBytes.entries()].map(([identity, bytes]) =>
+      Object.freeze({ identity, bytes: copyBytes(bytes) })) }));
+}
 /** Compose authenticated owner projections without lending a second issuer. */
 const mergeAuthenticatedMetadataProjections = (inputs: readonly PreparedFiniteMetadataProjection[], includeTableRouting: boolean):
   Result.Result<PreparedFiniteMetadataProjection, FiniteMetadataError> => {
   const contracts = new Map<string, FiniteMetadataContract>();
+  const semanticBytes = new Map<string, Uint8Array>();
   const owners = new Map<string, FiniteMetadataOwner>();
   const tables = new Map<CatalogTableId, ProjectionState["tables"] extends ReadonlyMap<CatalogTableId, infer Value> ? Value : never>();
   for (const input of inputs) {
@@ -236,6 +325,9 @@ const mergeAuthenticatedMetadataProjections = (inputs: readonly PreparedFiniteMe
       if (prior !== undefined && prior.semanticSha256Hex !== contract.semanticSha256Hex)
         return Result.fail(failure("invalidProjection"));
       contracts.set(identity, contract);
+      const bytes = state.semanticBytes.get(identity);
+      if (bytes === undefined) return Result.fail(failure("invalidProjection"));
+      semanticBytes.set(identity, bytes);
     }
     for (const owner of state.owners) owners.set(canonical([owner.namespace, owner.ownerKey]), owner);
     if (includeTableRouting) for (const [tableId, table] of state.tables) {
@@ -248,7 +340,7 @@ const mergeAuthenticatedMetadataProjections = (inputs: readonly PreparedFiniteMe
   if (contracts.size === 0) return Result.fail(failure("invalidProjection"));
   // SAFETY: the private registry authenticates every composed projection.
   const projection = Object.freeze({}) as PreparedFiniteMetadataProjection;
-  projections.set(projection, { contracts, owners: Object.freeze([...owners.values()]), tables });
+  projections.set(projection, { contracts, semanticBytes, owners: Object.freeze([...owners.values()]), tables });
   return Result.succeed(projection);
 };
 export const mergeFiniteMetadataProjections = (inputs: readonly PreparedFiniteMetadataProjection[]) =>
@@ -266,6 +358,7 @@ export const getFiniteMetadataProjectionSource = (projection: PreparedFiniteMeta
   const selected = Object.freeze({}) as PreparedFiniteMetadataProjection;
   projections.set(selected, { owners: Object.freeze(owners),
     contracts: new Map([...state.contracts].filter(([, contract]) => contract.ownerKey === sourceKey)),
+    semanticBytes: new Map([...state.semanticBytes].filter(([identity]) => state.contracts.get(identity)?.ownerKey === sourceKey)),
     tables: new Map([...state.tables].filter(([, table]) => table.ownerKey === sourceKey)) });
   return selected;
 };
@@ -274,6 +367,66 @@ export const finiteMetadataTableKey = (projection: PreparedFiniteMetadataProject
   return table === undefined ? null : Object.freeze({ namespace: table.namespace, ownerKey: table.ownerKey,
     contractKey: finiteMetadataContractKey(kind, table.localName) });
 };
+
+/** Transaction-local cache comparison consults the genuine private projection,
+ * without lending its mutable byte arrays or copying them for comparison. */
+export const matchesFiniteTableWriteClosureProjections = (left: PreparedFiniteMetadataProjection,
+  right: PreparedFiniteMetadataProjection, tableId: CatalogTableId): boolean => {
+  const leftKey = finiteMetadataTableKey(left, tableId, "writeClosure");
+  const rightKey = finiteMetadataTableKey(right, tableId, "writeClosure");
+  const leftBytes = leftKey === null ? undefined : projections.get(left)?.semanticBytes.get(logicalMetadataDependencyIdentity(leftKey));
+  const rightBytes = rightKey === null ? undefined : projections.get(right)?.semanticBytes.get(logicalMetadataDependencyIdentity(rightKey));
+  return leftBytes !== undefined && rightBytes !== undefined && bytesEqualFullScan(leftBytes, rightBytes);
+};
+/** Distinct demanded tables share an ordered actual full-byte comparison.
+ * Success lends no bytes; the source owner may then lend its original located
+ * capabilities. Digest-only rows require managed backfill, never request repair. */
+export interface FiniteTableWriteClosureComparison {
+  readonly pages: readonly (readonly FiniteMetadataComparisonExpected[])[];
+  readonly invalidProjection: boolean;
+}
+export function prepareFiniteTableWriteClosureComparison(projection: PreparedFiniteMetadataProjection,
+  tableIds: readonly CatalogTableId[],
+): Result.Result<FiniteTableWriteClosureComparison, FiniteMetadataError> {
+  const state = projections.get(projection);
+  if (state === undefined) return Result.fail(failure("invalidProjection"));
+  const selected: { key: LogicalMetadataKey; semanticSha256Hex: string; semanticBytes: Uint8Array }[] = [];
+  let invalidProjection = false;
+  for (const tableId of new Set(tableIds)) {
+    const key = finiteMetadataTableKey(projection, tableId, "writeClosure");
+    if (key === null) { invalidProjection = true; break; }
+    const identity = logicalMetadataDependencyIdentity(key);
+    const contract = state.contracts.get(identity), bytes = state.semanticBytes.get(identity);
+    if (contract === undefined || bytes === undefined) { invalidProjection = true; break; }
+    selected.push({ key, semanticSha256Hex: contract.semanticSha256Hex, semanticBytes: bytes });
+  }
+  // An invalid later selector cannot preempt an earlier actual SQL refusal.
+  // Fully authentic input still performs one comparison per bounded batch.
+  const pages: (readonly FiniteMetadataComparisonExpected[])[] = [];
+  for (let offset = 0; offset < selected.length; offset += MAX_COMMIT_METADATA_READ_DEPENDENCIES)
+    pages.push(selected.slice(offset, offset + MAX_COMMIT_METADATA_READ_DEPENDENCIES).map(closure => ({
+      ...closure.key, present: true, semanticSha256Hex: closure.semanticSha256Hex,
+      semanticBytesHex: encodeBytesToLowercaseHex(closure.semanticBytes),
+    })));
+  return Result.succeed(Object.freeze({ pages: Object.freeze(pages), invalidProjection }));
+}
+const decodeComparisonPages = Schema.decodeUnknownResult(Schema.Array(Schema.Unknown));
+export function acceptFiniteTableWriteClosureComparison(plan: FiniteTableWriteClosureComparison, input: unknown) {
+  return Result.gen(function* () {
+    const pages = yield* decodeComparisonPages(input).pipe(Result.mapError(cause => failure("invalidProjection", cause)));
+    for (const [index, expected] of plan.pages.entries())
+      yield* acceptFiniteMetadataComparisonVerdict(pages[index], expected, null);
+    if (pages.length !== plan.pages.length || plan.invalidProjection) return yield* Result.fail(failure("invalidProjection"));
+  });
+}
+export const requireFiniteTableWriteClosures = Effect.fn("FiniteMetadata.requireTableWriteClosures")(function* (
+  tx: FlarexMetadataTransaction, scopeId: ScopeId, projection: PreparedFiniteMetadataProjection,
+  tableIds: readonly CatalogTableId[],
+) {
+  const plan = yield* Effect.fromResult(prepareFiniteTableWriteClosureComparison(projection, tableIds));
+  for (const page of plan.pages) yield* compareFiniteMetadata(tx, scopeId, null, page);
+  if (plan.invalidProjection) return yield* Effect.fail(failure("invalidProjection"));
+});
 export const finiteMetadataAccessKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId,
   family: string, leadingField: string): LogicalMetadataKey | null => {
   const table = projections.get(projection)?.tables.get(tableId);
@@ -291,6 +444,20 @@ export const captureFiniteMetadataDependency = (projection: PreparedFiniteMetada
   return decodeDependencyTypeResult({ kind: "metadata", ...key,
     capturedWatermark, observed: selected === undefined ? { kind: "missing" } :
       { kind: "present", semanticSha256Hex: selected.semanticSha256Hex } }).pipe(Result.mapError(cause => failure("invalidInput", cause)));
+};
+
+/** Compare a previously decoded consumption against its original immutable
+ * issuer. This is an observation comparison, never an admission capability or
+ * a substitute for the first-use decoder. */
+export const matchesFiniteMetadataDependencyObservation = (projection: PreparedFiniteMetadataProjection,
+  key: LogicalMetadataKey, capturedWatermark: MetadataSequence, dependency: LogicalMetadataReadDependency): boolean => {
+  const state = projections.get(projection);
+  if (state === undefined || dependency.capturedWatermark !== capturedWatermark ||
+    dependency.namespace !== key.namespace || dependency.ownerKey !== key.ownerKey || dependency.contractKey !== key.contractKey)
+    return false;
+  const selected = state.contracts.get(logicalMetadataDependencyIdentity(key));
+  return selected === undefined ? dependency.observed.kind === "missing" :
+    dependency.observed.kind === "present" && dependency.observed.semanticSha256Hex === selected.semanticSha256Hex;
 };
 
 /** Called only by an effective activation writer after its authority-first
@@ -322,17 +489,23 @@ export const applyFiniteMetadataActivationProjection = Effect.fn("FiniteMetadata
     const next = new Map(selected.map(contract => [contract.contractKey, contract]));
     for (const row of existing) {
       const contract = next.get(row.contractKey);
-      if (contract !== undefined && row.present && row.semanticSha256Hex === contract.semanticSha256Hex) { next.delete(row.contractKey); continue; }
+      const semanticBytes = contract === undefined ? null : state.semanticBytes.get(logicalMetadataDependencyIdentity(contract));
+      if (contract !== undefined && semanticBytes === undefined) return yield* Effect.fail(failure("invalidProjection"));
+      if (contract !== undefined && row.present && row.semanticSha256Hex === contract.semanticSha256Hex &&
+        row.semanticBytes !== null && semanticBytes !== null && semanticBytes !== undefined &&
+        bytesEqualFullScan(row.semanticBytes, semanticBytes)) { next.delete(row.contractKey); continue; }
       if (contract === undefined && !row.present) continue;
       yield* runDrizzleStatementEffect(tx.update(fxSystemMetadataContractObservations).set({ present: contract !== undefined,
-        semanticSha256Hex: contract?.semanticSha256Hex ?? null, lastChangedMetadataSequence: sequence }).where(and(
+        semanticSha256Hex: contract?.semanticSha256Hex ?? null, semanticBytes: semanticBytes ?? null,
+        lastChangedMetadataSequence: sequence }).where(and(
         eq(fxSystemMetadataContractObservations.scopeId, scopeId), eq(fxSystemMetadataContractObservations.namespace, owner.namespace),
         eq(fxSystemMetadataContractObservations.ownerKey, owner.ownerKey), eq(fxSystemMetadataContractObservations.contractKey, row.contractKey))),
       cause => failure("resourceFailure", cause));
       next.delete(row.contractKey);
     }
     for (const contract of next.values()) yield* runDrizzleStatementEffect(tx.insert(fxSystemMetadataContractObservations).values({
-      scopeId, ...contract, present: true, lastChangedMetadataSequence: sequence }), cause => failure("resourceFailure", cause));
+      scopeId, ...contract, semanticBytes: state.semanticBytes.get(logicalMetadataDependencyIdentity(contract)),
+      present: true, lastChangedMetadataSequence: sequence }), cause => failure("resourceFailure", cause));
   }
   return sequence;
 });
@@ -367,7 +540,9 @@ export const initializeCurrentFiniteMetadataProjection = Effect.fn("FiniteMetada
     for (const row of rows) {
       if (row.lastChangedMetadataSequence > sequence) return yield* Effect.fail(failure("projectionMissing"));
       const contract = expected.get(row.contractKey);
-      if (contract === undefined ? row.present : !row.present || row.semanticSha256Hex !== contract.semanticSha256Hex) complete = false;
+      const bytes = contract === undefined ? undefined : state.semanticBytes.get(logicalMetadataDependencyIdentity(contract));
+      if (contract === undefined ? row.present : !row.present || row.semanticSha256Hex !== contract.semanticSha256Hex ||
+        row.semanticBytes === null || bytes === undefined || !bytesEqualFullScan(row.semanticBytes, bytes)) complete = false;
       expected.delete(row.contractKey);
     }
     if (expected.size > 0) complete = false;
@@ -378,43 +553,36 @@ export const initializeCurrentFiniteMetadataProjection = Effect.fn("FiniteMetada
 
 /** The persisted reservation watermark is supplied by the journal authority;
  * dependency-carried numbers cannot establish an attempt's entry observation. */
-export const validateConsumedMetadataDependencies = Effect.fn("FiniteMetadata.validateConsumed")(function* (
-  tx: FlarexMetadataTransaction, scopeId: ScopeId, capturedWatermark: MetadataSequence,
+export function prepareConsumedFiniteMetadataComparison(capturedWatermark: MetadataSequence,
   input: readonly LogicalMetadataReadDependency[],
-) {
-  const dependencies = yield* decodeDependencyArrayTypeEffect(input)
-    .pipe(Effect.mapError(cause => failure("invalidInput", cause)));
-  if (dependencies.length > MAX_COMMIT_METADATA_READ_DEPENDENCIES) return yield* Effect.fail(failure("limitExceeded"));
+) { return Result.gen(function* () {
+  const dependencies = yield* decodeDependencyArrayTypeResult(input)
+    .pipe(Result.mapError(cause => failure("invalidInput", cause)));
+  if (dependencies.length > MAX_COMMIT_METADATA_READ_DEPENDENCIES) return yield* Result.fail(failure("limitExceeded"));
   const seen = new Map<string, LogicalMetadataReadDependency>();
   for (const dependency of dependencies) {
-    if (dependency.capturedWatermark !== capturedWatermark) return yield* Effect.fail(failure("invalidInput"));
+    if (dependency.capturedWatermark !== capturedWatermark) return yield* Result.fail(failure("invalidInput"));
     const identity = logicalMetadataDependencyIdentity(dependency);
     const prior = seen.get(identity);
     if (prior !== undefined) {
       if (prior.observed.kind !== dependency.observed.kind || prior.observed.kind === "present" && dependency.observed.kind === "present" &&
-        prior.observed.semanticSha256Hex !== dependency.observed.semanticSha256Hex) return yield* Effect.fail(failure("invalidInput"));
+        prior.observed.semanticSha256Hex !== dependency.observed.semanticSha256Hex) return yield* Result.fail(failure("invalidInput"));
       continue;
     }
     seen.set(identity, dependency);
   }
-  if (seen.size === 0) return;
-  const rows = yield* runDrizzleStatementEffect(tx.select().from(fxSystemMetadataContractObservations).where(and(
-    eq(fxSystemMetadataContractObservations.scopeId, scopeId), or(...[...seen.values()].map(dependency => and(
-      eq(fxSystemMetadataContractObservations.namespace, dependency.namespace), eq(fxSystemMetadataContractObservations.ownerKey, dependency.ownerKey),
-      eq(fxSystemMetadataContractObservations.contractKey, dependency.contractKey)))) )), cause => failure("resourceFailure", cause));
-  const current = new Map(rows.map(row => [logicalMetadataDependencyIdentity(row), row]));
-  for (const [identity, dependency] of seen) {
-    const row = current.get(identity);
-    const diagnostic = { dependency: { namespace: dependency.namespace, ownerKey: dependency.ownerKey, contractKey: dependency.contractKey },
-      expectedObservation: dependency.observed, currentObservation: row === undefined ? null : {
-        present: row.present, semanticSha256Hex: row.semanticSha256Hex, lastChangedMetadataSequence: row.lastChangedMetadataSequence } };
-    if (row !== undefined && row.lastChangedMetadataSequence > capturedWatermark)
-      return yield* Effect.fail(new FiniteMetadataError({ reason: "writeConflict", ...diagnostic,
-        capturedMetadataWatermark: capturedWatermark, lastChangedMetadataSequence: row.lastChangedMetadataSequence }));
-    if (dependency.observed.kind === "present" && (row === undefined || !row.present || row.semanticSha256Hex !== dependency.observed.semanticSha256Hex) ||
-      dependency.observed.kind === "missing" && row?.present === true)
-      return yield* Effect.fail(new FiniteMetadataError({ reason: "projectionMissing", ...diagnostic }));
-  }
+  return [...seen.values()].map(dependency => ({
+    namespace: dependency.namespace, ownerKey: dependency.ownerKey, contractKey: dependency.contractKey,
+    present: dependency.observed.kind === "present",
+    semanticSha256Hex: dependency.observed.kind === "present" ? dependency.observed.semanticSha256Hex : null,
+  }));
+}); }
+export const validateConsumedMetadataDependencies = Effect.fn("FiniteMetadata.validateConsumed")(function* (
+  tx: FlarexMetadataTransaction, scopeId: ScopeId, capturedWatermark: MetadataSequence,
+  input: readonly LogicalMetadataReadDependency[],
+) {
+  const expected = yield* Effect.fromResult(prepareConsumedFiniteMetadataComparison(capturedWatermark, input));
+  if (expected.length > 0) yield* compareFiniteMetadata(tx, scopeId, capturedWatermark, expected);
 });
 
 /** Entry authenticates that every retained selector matches current projection
@@ -423,20 +591,9 @@ export const requireCurrentFiniteMetadataProjection = Effect.fn("FiniteMetadata.
   tx: FlarexMetadataTransaction, scopeId: ScopeId, capturedWatermark: MetadataSequence,
   projection: PreparedFiniteMetadataProjection,
 ) {
-  const state = projections.get(projection);
-  if (state === undefined || state.contracts.size === 0) return yield* Effect.fail(failure("invalidProjection"));
-  const dependencies = [...state.contracts.values()].map(contract => ({
-    kind: "metadata", namespace: contract.namespace, ownerKey: contract.ownerKey, contractKey: contract.contractKey,
-    capturedWatermark, observed: { kind: "present", semanticSha256Hex: contract.semanticSha256Hex },
-  } as const));
-  for (let offset = 0; offset < dependencies.length; offset += MAX_COMMIT_METADATA_READ_DEPENDENCIES)
-    yield* validateConsumedMetadataDependencies(tx, scopeId, capturedWatermark,
-      dependencies.slice(offset, offset + MAX_COMMIT_METADATA_READ_DEPENDENCIES))
-      .pipe(Effect.mapError(cause => cause.reason === "writeConflict" ? new FiniteMetadataError({ reason: "projectionMissing", cause,
-        ...(cause.dependency === undefined ? {} : { dependency: cause.dependency }),
-        ...(cause.expectedObservation === undefined ? {} : { expectedObservation: cause.expectedObservation }),
-        ...(cause.currentObservation === undefined ? {} : { currentObservation: cause.currentObservation }),
-        ...(cause.capturedMetadataWatermark === undefined ? {} : { capturedMetadataWatermark: cause.capturedMetadataWatermark }),
-        ...(cause.lastChangedMetadataSequence === undefined ? {} : { lastChangedMetadataSequence: cause.lastChangedMetadataSequence }),
-      }) : cause));
+  const expected = yield* Effect.fromResult(prepareFiniteMetadataEntryComparison(projection));
+  for (let offset = 0; offset < expected.length; offset += MAX_COMMIT_METADATA_READ_DEPENDENCIES)
+    yield* compareFiniteMetadata(tx, scopeId, capturedWatermark,
+      expected.slice(offset, offset + MAX_COMMIT_METADATA_READ_DEPENDENCIES))
+      .pipe(Effect.mapError(entryComparisonFailure));
 });

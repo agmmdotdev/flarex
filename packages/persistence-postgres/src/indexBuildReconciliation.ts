@@ -1,3 +1,5 @@
+import { fxSystemIndexMaintenanceObligations } from "./schema";
+import { insertIndexBuildState } from "./indexBuildLifecycleDml";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
@@ -48,12 +50,14 @@ import {
 } from "./appIndexDefinitions";
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { InvalidIndexBuildReconciliationInputV1Error, publishedPhysicalRequirementSnapshots } from "./publishedPhysicalRequirementProvenance";
+export { InvalidIndexBuildReconciliationInputV1Error } from "./publishedPhysicalRequirementProvenance";
 import { runEffectTransaction } from "./effectTransaction";
 import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
-  decodeIndexBuildStateRowResult,
+  decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate,
   IndexBuildStateCorruptionError,
   type IndexBuildStateRecord,
   validateIndexBuildStateFrontierResult,
@@ -169,15 +173,6 @@ export type ReconcilePublishedIndexBuildsV1Result =
       readonly redeclaredCount: number;
     }>;
 
-export class InvalidIndexBuildReconciliationInputV1Error
-  extends Data.TaggedError("InvalidIndexBuildReconciliationInputV1Error")<{
-    readonly reason:
-      | "invalidInputShape"
-      | "invalidDeploymentId"
-      | "invalidScopeId"
-      | "invalidSchemaVersionId";
-  }> {}
-
 export class IndexBuildReconciliationCatalogV1Error
   extends Data.TaggedError("IndexBuildReconciliationCatalogV1Error")<{
     readonly reason:
@@ -285,18 +280,13 @@ export interface PublishedPhysicalRequirementSnapshotV1 {
   readonly definitions: ReadonlyArray<PhysicalDefinitionRequirementV1>;
 }
 
-const publishedPhysicalRequirementSnapshots = new WeakMap<
-  object,
-  FlarexMetadataDatabase
->();
-
 /** Exact process-local provenance check for a verified control-catalog read. */
 export function isPublishedPhysicalRequirementSnapshotV1(
   value: unknown,
   db: FlarexMetadataDatabase,
 ): value is PublishedPhysicalRequirementSnapshotV1 {
   return typeof value === "object" && value !== null &&
-    publishedPhysicalRequirementSnapshots.get(value) === db;
+    publishedPhysicalRequirementSnapshots.get(value)?.database === db;
 }
 
 interface TransactionProjectionV1 {
@@ -418,7 +408,7 @@ export const loadRelatedPublishedPhysicalRequirementSnapshotV1 = Effect.fn("Inde
   function* (source: PublishedPhysicalRequirementSnapshotV1, schemaVersionId: string,
     target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction,
     borrowedCatalog?: Readonly<{ database: FlarexMetadataDatabase; transaction: FlarexMetadataTransaction }>) {
-    const db = publishedPhysicalRequirementSnapshots.get(source);
+    const db = publishedPhysicalRequirementSnapshots.get(source)?.database;
     if (db === undefined || (borrowedCatalog !== undefined && borrowedCatalog.database !== db)) {
       return yield* Effect.fail(new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidInputShape" }));
     }
@@ -431,7 +421,11 @@ export const loadRelatedPublishedPhysicalRequirementSnapshotV1 = Effect.fn("Inde
       borrowedCatalog?.transaction ?? (hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db),
       { deploymentId: source.deploymentId, schemaVersionId: id },
     );
-    if (related !== null) publishedPhysicalRequirementSnapshots.set(related, db);
+    if (related !== null) {
+      const retained = publishedPhysicalRequirementSnapshots.get(related);
+      if (retained === undefined) return yield* Effect.fail(new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidInputShape" }));
+      publishedPhysicalRequirementSnapshots.set(related, Object.freeze({ ...retained, database: db }));
+    }
     return related;
   },
 );
@@ -579,7 +573,7 @@ const loadPublishedPhysicalRequirementsInTransaction = Effect.fn("IndexBuildReco
     manifest: manifest.kind === "appSchema" ? snapshotSchemaManifestValue(manifest) : manifest,
     definitions: snapshotDecodedProtocolPlainData(projectedDefinitions),
   });
-  publishedPhysicalRequirementSnapshots.set(snapshot, db);
+  publishedPhysicalRequirementSnapshots.set(snapshot, Object.freeze({ database: db, definitions: Object.freeze([...definitions]) }));
   return snapshot;
 });
 
@@ -840,14 +834,15 @@ const reconcileInTransaction = Effect.fn(
   const rows = ids.length === 0
     ? []
     : yield* queryEffect(
-      tx.select()
+      tx.select(indexBuildStateSelection())
         .from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
         .where(and(
           eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
           inArray(fxSystemIndexBuildStates.indexDefinitionId, ids),
         ))
         .orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId))
-        .for("update"),
+        .for("update", { of: fxSystemIndexBuildStates }),
     );
   const states = new Map<CatalogIndexDefinitionId, IndexBuildStateRecord>();
   for (const row of rows) {
@@ -864,7 +859,7 @@ const reconcileInTransaction = Effect.fn(
     const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(
       row,
       authority.scopeId,
-      definitionId,
+      definitionId, row.maintenanceObligation,
     ));
     yield* Effect.fromResult(validateIndexBuildStateFrontierResult(
       state,
@@ -879,7 +874,7 @@ const reconcileInTransaction = Effect.fn(
   for (const definition of snapshot.definitions) {
     const existing = states.get(definition.indexDefinitionId);
     if (existing === undefined) {
-      const inserted = yield* queryEffect(tx.insert(fxSystemIndexBuildStates).values({
+      const inserted = yield* queryEffect(insertIndexBuildState(tx, {
         scopeId: authority.scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         storageGeneration: FlarexDbV1StorageGenerationSchema.make(
@@ -892,7 +887,7 @@ const reconcileInTransaction = Effect.fn(
         cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
         backfillCursorRowId: null,
         attemptFence: IndexBuildAttemptFenceSchema.make(1n),
-      }).returning({ id: fxSystemIndexBuildStates.indexDefinitionId }));
+      }));
       if (inserted.length !== 1) {
         return yield* Effect.fail(new IndexBuildReconciliationStateV1Error({
           reason: "concurrentStateChange",
@@ -1071,8 +1066,9 @@ const observeCompletionInTransaction = Effect.fn(
     definition.indexDefinitionId
   );
   const rows = yield* queryEffect(
-    tx.select()
+    tx.select(indexBuildStateSelection())
       .from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
       .where(and(
         eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
         inArray(fxSystemIndexBuildStates.indexDefinitionId, ids),
@@ -1088,7 +1084,7 @@ const observeCompletionInTransaction = Effect.fn(
     const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(
       row,
       authority.scopeId,
-      expectedId,
+      expectedId, row.maintenanceObligation,
     ));
     yield* Effect.fromResult(validateIndexBuildStateFrontierResult(
       state,

@@ -27,6 +27,32 @@ export interface ReadProjection {
   readonly node: ProjectionNode;
 }
 
+/** A prepared query plan may be shared across operations. Keep mutable Set
+ * storage private, including the third argument supplied to forEach, and own
+ * every nested array so an escaped plan cannot change a later query. */
+export function retainReadProjection(projection: ReadProjection): ReadProjection {
+  const retainNode = (node: ProjectionNode): ProjectionNode => {
+    const selected = new Set(node.fields);
+    const fields: ReadonlySet<string> = Object.freeze({
+      size: selected.size,
+      has: (field: string) => selected.has(field),
+      entries: () => selected.entries(),
+      keys: () => selected.keys(),
+      values: () => selected.values(),
+      [Symbol.iterator]: () => selected[Symbol.iterator](),
+      forEach: (callback: (value: string, key: string, set: ReadonlySet<string>) => void, thisArg?: unknown) =>
+        selected.forEach(value => callback.call(thisArg, value, value, fields)),
+    });
+    return Object.freeze({
+      fields,
+      ...(node.requireFields === undefined ? {} : { requireFields: node.requireFields }),
+      children: Object.freeze(node.children.map(child => Object.freeze({ ...child, node: retainNode(child.node) }))),
+      nullRelations: Object.freeze(node.nullRelations.map(relation => Object.freeze({ ...relation, keys: Object.freeze([...relation.keys]) }))),
+    });
+  };
+  return Object.freeze({ storageFields: Object.freeze([...projection.storageFields]), node: retainNode(projection.node) });
+}
+
 /** Bounded projection-tree planning from the pinned DAL's selection semantics.
  * Module policies decide which nested fields are admitted; DML supplies names. */
 export function compileProjection(

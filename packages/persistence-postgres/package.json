@@ -84,6 +84,7 @@
     "./internal/retained-history-scheduler-directory": "./src/retainedHistorySchedulerDirectory.ts",
     "./internal/retained-history-maintenance-continuation-evidence-v1": "./src/retainedHistoryMaintenanceContinuationEvidenceV1.ts",
     "./point-commit-transaction": "./src/pointCommitTransactionApi.ts",
+    "./finite-attempt-anchor": "./src/finiteAttemptAnchor.ts",
     "./session-journal-store": "./src/sessionJournalStore.ts",
     "./stored-occ-execution": "./src/storedOccExecution.ts",
     "./transaction-execution-claim": "./src/transactionExecutionClaim.ts",

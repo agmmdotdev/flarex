@@ -1,14 +1,13 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
-import { decodeCanonicalSessionJournalEffect } from "flarex-protocol/commit-protocol";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../persistence-postgres/src/scopeClock";
-import { FiniteLogicalParticipantDependencyEvidenceSchema } from "../../persistence-postgres/src/logicalDocuments/journalEvidence";
-import { readStoredFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
-import { fxSystemSnapshotLeases, fxSystemTransactionJournalReceipts, fxSystemTransactionJournals } from "../../persistence-postgres/src/schema";
+import { readCapturedFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
+import { fxSystemTransactionSessions, fxSystemTransactionJournalReceipts, fxSystemTransactionJournals } from "../../persistence-postgres/src/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { rebindMixedMutationApplication } from "./support/mixedMutationApplicationRebinding";
 
@@ -20,7 +19,7 @@ const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 type ReadFrontier = Readonly<{ phase: string; statements: readonly string[] }>;
 
-/** Observe issued SQL at the existing fixture boundary. Entry, seal and
+/** Observe issued SQL at the existing fixture boundary. Entry, freeze and
  * publication are deliberately excluded from read frontiers. */
 function collectReadFrontiers() {
   const completed: ReadFrontier[] = [];
@@ -46,7 +45,7 @@ function assertFixedMetadataFrontier(frontier: ReadFrontier) {
   expect(reads("fx_system_application_active_head"), frontier.phase).toBe(0);
   expect(reads("fx_system_application_revision_schema_v1"), frontier.phase).toBe(0);
   // Both data owners use the scope identity already accepted by this frontier's
-  // finite kernel; its full security/lease checks remain present below.
+  // finite kernel; its fresh authority and anchor guards remain present below.
   const scopeIdentityReads = frontier.statements.filter(statement => {
     const compact = statement.replace(/\s+/g, "").toLowerCase();
     return compact.startsWith('select"fx_system_scope_clock"."scope_id","fx_system_scope_clock"."scope_uuid"from"fx_system_scope_clock"') ||
@@ -54,6 +53,10 @@ function assertFixedMetadataFrontier(frontier: ReadFrontier) {
   });
   expect(scopeIdentityReads, frontier.phase).toHaveLength(0);
   expect(frontier.statements.some(statement => /\bfx_lock_finite_running_attempt\b/.test(statement)),
+    frontier.phase).toBe(false);
+  expect(frontier.statements.some(statement => /\bfrom\s+"fx_system_scope_execution_authority"[\s\S]*\bfor\s+share\b/i.test(statement)),
+    frontier.phase).toBe(true);
+  expect(frontier.statements.some(statement => /\bfrom\s+"fx_system_tx_session"[\s\S]*\bfor\s+share\b/i.test(statement)),
     frontier.phase).toBe(true);
 }
 
@@ -94,33 +97,30 @@ describe("fixed finite metadata through native Worker graphs", () => {
             expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
           }
         }
-        const publication = await fixture.preparePublication(result);
+        const frozen = await Effect.runPromise(fixture.freeze(result));
+        const graph = readFrozenFiniteAttempt(frozen);
+        if (graph === undefined) throw new Error("Missing authentic frozen graph");
+        const publication = await fixture.prepareFrozenPublication(frozen);
         const roots = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
           .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-        const root = roots[0];
-        if (roots.length !== 1 || root?.sealedJournalBytes == null || root.sealedJournalSha256 == null)
-          throw new Error("Missing finite graph sealed journal");
-        const journal = await Effect.runPromise(decodeCanonicalSessionJournalEffect({
-          canonicalBytes: root.sealedJournalBytes,
-          expectedSha256Hex: encodeBytesToLowercaseHex(root.sealedJournalSha256),
-        }));
-        expect(journal.journal.finiteMetadataReservationSha256Hex).toMatch(/^[0-9a-f]{64}$/);
-        const [lease] = await fixture.currency.persistence.drizzle.select().from(fxSystemSnapshotLeases)
-          .where(and(eq(fxSystemSnapshotLeases.sessionId, fixture.activation.anchor.sessionId),
-            eq(fxSystemSnapshotLeases.attemptFence, fixture.activation.anchor.attemptFence)));
-        if (lease === undefined || lease.finiteMetadataReservationSha256 === null)
-          throw new Error("Missing finite graph snapshot reservation");
-        const reservation = await Effect.runPromise(readStoredFiniteMetadataReservation(lease));
+        expect(roots).toHaveLength(0);
+        const [session] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+          .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+        if (session === undefined) throw new Error("Missing finite graph compact anchor");
+        const anchor = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+        const reservation = anchor.reservation;
+        if (reservation === null || graph.metadataReservation === undefined)
+          throw new Error("Missing authentic finite metadata reservation");
         expect(reservation.snapshotToken).toEqual(fixture.activation.anchor.snapshotToken);
-        expect(journal.journal.finiteMetadataReservationSha256Hex)
-          .toBe(encodeBytesToLowercaseHex(lease.finiteMetadataReservationSha256));
-        expect(journal.journal.readDependencies.some(dependency => dependency.kind === "metadata")).toBe(true);
-        for (const operation of journal.journal.participantOperations) for (const source of operation.sourceContributions) {
-          const evidence = Schema.decodeUnknownSync(FiniteLogicalParticipantDependencyEvidenceSchema)(source.dependencyEvidence);
-          expect(evidence.metadataDependencies.length).toBeGreaterThan(0);
+        expect(readCapturedFiniteMetadataReservation(graph.metadataReservation)).toEqual(reservation);
+        expect(graph.graph.metadataDependencies?.length).toBeGreaterThan(0);
+        const operations = graph.operations.filter(operation => operation.kind === "participant");
+        for (const operation of operations) for (const source of operation.sourceRefs) {
+          expect(source.sourceSha256Hex).toMatch(/^[0-9a-f]{64}$/);
+          expect(source.sourceBindingSha256Hex).toMatch(/^[0-9a-f]{64}$/);
+          expect(source.methods.length).toBeGreaterThan(0);
         }
-        const sourceKeys = new Set(journal.journal.participantOperations.flatMap(operation =>
-          operation.sourceContributions.map(source => source.sourceKey)));
+        const sourceKeys = new Set(operations.flatMap(operation => operation.sourceRefs.map(source => source.sourceKey)));
         expect(sourceKeys.has("medusa.product")).toBe(true);
         if (profile !== "product") {
           expect(fixture.nativeInvokeCount.get("payload-create")).toBe(1);
@@ -211,7 +211,7 @@ describe.each(drivers)("finite live authority on %s", driver => {
     } finally { await fixture.close(); }
   }, 180_000);
 
-  it("rejects a real scope revocation after a successful borrowed read and poisons seal", async () => {
+  it("rejects a real scope revocation after a successful borrowed read and poisons freeze", async () => {
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
     let checked = false;
     let checkingRead = false;
@@ -252,7 +252,7 @@ describe.each(drivers)("finite live authority on %s", driver => {
       expect(checked, fixture.bridgeFailures.join("\n")).toBe(true);
       expect(await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
-      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
+      await expect(Effect.runPromise(fixture.freeze(null)))
         .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
     } finally { await fixture.close(); }
   }, 180_000);

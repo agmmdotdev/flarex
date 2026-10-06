@@ -1,6 +1,6 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
+import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { and, asc, eq, getTableColumns, gt, inArray, lte, sql, type SQLWrapper } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -41,16 +41,22 @@ import type { AppIndexDefinitionRecord } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
-import { decodeScopeClockRecordResult, requireFiniteExecutionAuthorityObservation, scopeClockSelection,
-  type FiniteExecutionAuthorityObservation, type ScopeClockRecord } from "./scopeClock";
-import { readFiniteApplicationMetadata, type ApplicationBindingInput, type FiniteApplicationMetadata } from "./applicationActivation";
-import type { SessionJournalAttempt } from "./sessionJournalStore";
+import { decodeScopeClockRecordResult, scopeClockSelection, exactScopeWriteClockObservationIdentity, type ScopeClockRecord } from "./scopeClock";
 import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readApplicationSchemaForHeadForShareInTransactionEffect,
   readCheckedApplicationActiveHead, readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
   type CheckedApplicationActiveHead, type CoherentApplicationActiveHead } from "./applicationActiveHeadRead";
-import { decodeIndexMaintenanceEvidenceResult, verifyIndexMaintenanceEvidence, IndexMaintenanceError, type IndexMaintenanceEvidence } from "./indexMaintenanceEvidence";
+import { decodeApplicationMaterializationObservation } from "./applicationActiveHeadRead";
+import { applicationCompositeSelection } from "./applicationDocumentMaterialization/domainApplication";
+import { requireAdmittedTargetInstallationSchema } from "./installationLifecycle";
+import { readRegisteredManagedMetadataPairFinalGuards } from "./preparedMetadataEpoch";
+import { databaseTimestampFromUnknown } from "./databaseTimestamp";
+import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from "./applicationActivationSchema";
+import { fxSystemApplicationRevisionSchemas } from "./applicationRelationSchema";
+import { fxSystemApplicationRevisionSchemasV1 } from "./schema";
+import { decodeIndexMaintenanceObligationResult, IndexMaintenanceError, type IndexMaintenanceObligation } from "./indexMaintenanceModel";
 import {
   fxSystemIndexBuildStates,
+  fxSystemIndexMaintenanceObligations,
   fxSystemCommitAppRowChanges,
   fxSystemScopeClocks,
   fxSystemScopeExecutionAuthorities,
@@ -75,6 +81,7 @@ const decodeIndexBuildLifecycleResult = Schema.decodeUnknownResult(
 const decodeCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
 );
+
 const decodeFlarexDbV1StorageGenerationResult = Schema.decodeUnknownResult(
   Schema.toType(FlarexDbV1StorageGenerationSchema),
 );
@@ -101,7 +108,7 @@ export interface IndexBuildStorageAuthority {
 }
 
 interface IndexBuildStateRecordBase {
-  readonly maintenance: IndexMaintenanceEvidence | null;
+  readonly maintenance: IndexMaintenanceObligation | null;
   readonly scopeId: ScopeId;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly storageGeneration: FlarexDbV1StorageGeneration;
@@ -239,9 +246,10 @@ export const readRequiredEnabledIndexBuildsInTransactionEffect = Effect.fn("Inde
     if (definitionIds.length > MAX_REQUIRED_INDEX_BUILDS || new Set(definitionIds).size !== definitionIds.length)
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
     const rows = definitionIds.length === 0 ? [] : yield* Effect.uninterruptible(runDrizzleStatementEffect(
-      tx.select().from(fxSystemIndexBuildStates).where(and(
+      tx.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+        .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(and(
         eq(fxSystemIndexBuildStates.scopeId, clock.scopeId), inArray(fxSystemIndexBuildStates.indexDefinitionId, [...definitionIds]),
-      )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for(lock),
+      )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for(lock, { of: fxSystemIndexBuildStates }),
       cause => new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", cause),
     ));
     const rowsByDefinitionId = new Map(rows.map(row => [row.indexDefinitionId, row]));
@@ -298,27 +306,8 @@ function selectFencedIndexBuildStateRows(
   return db
     .select({
       clock: scopeClockSelection(),
-      buildState: {
-        scopeId: fxSystemIndexBuildStates.scopeId,
-        maintenanceActivationSequence: fxSystemIndexBuildStates.maintenanceActivationSequence,
-        maintenanceBytes: fxSystemIndexBuildStates.maintenanceBytes,
-        maintenanceSha256: fxSystemIndexBuildStates.maintenanceSha256,
-        indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
-        storageGeneration: fxSystemIndexBuildStates.storageGeneration,
-        storageGenerationFence:
-          fxSystemIndexBuildStates.storageGenerationFence,
-        epoch: fxSystemIndexBuildStates.epoch,
-        startCommitSeq: fxSystemIndexBuildStates.startCommitSeq,
-        coveredThroughCommitSeq: fxSystemIndexBuildStates.coveredThroughCommitSeq,
-        firstReadableCommitSeq: fxSystemIndexBuildStates.firstReadableCommitSeq,
-        lifecycle: fxSystemIndexBuildStates.lifecycle,
-        cursorCodecVersion: fxSystemIndexBuildStates.cursorCodecVersion,
-        backfillCursorRowId:
-          fxSystemIndexBuildStates.backfillCursorRowId,
-        attemptFence: fxSystemIndexBuildStates.attemptFence,
-        createdAt: fxSystemIndexBuildStates.createdAt,
-        updatedAt: fxSystemIndexBuildStates.updatedAt,
-      },
+      buildState: getTableColumns(fxSystemIndexBuildStates),
+      maintenanceObligation: getTableColumns(fxSystemIndexMaintenanceObligations),
     })
     .from(fxSystemScopeClocks)
     .innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
@@ -335,6 +324,7 @@ function selectFencedIndexBuildStateRows(
         ),
       ),
     )
+    .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
     .where(eq(fxSystemScopeClocks.scopeId, input.scopeId))
     .limit(1);
 }
@@ -383,6 +373,7 @@ function materializeFencedIndexBuildState(
       row.buildState,
       input.scopeId,
       input.indexDefinitionId,
+      row.maintenanceObligation,
     );
     yield* validateIndexBuildStateFrontierResult(
       buildState,
@@ -404,13 +395,33 @@ function materializeFencedIndexBuildState(
   });
 }
 
-type IndexBuildStateRow = typeof fxSystemIndexBuildStates.$inferSelect;
+export type IndexBuildStateRow = typeof fxSystemIndexBuildStates.$inferSelect & {
+  readonly maintenanceObligation: typeof fxSystemIndexMaintenanceObligations.$inferSelect | null;
+};
+
+/** Read the immutable opening binding with its build in the existing statement. */
+export function indexBuildStateSelection() {
+  return { ...getTableColumns(fxSystemIndexBuildStates),
+    maintenanceObligation: getTableColumns(fxSystemIndexMaintenanceObligations) };
+}
+
+/** Also accepts a native observed build's real composite-column projections. */
+export function indexMaintenanceBindingPredicate(
+  scopeId: SQLWrapper = fxSystemIndexBuildStates.scopeId,
+  definitionId: SQLWrapper = fxSystemIndexBuildStates.indexDefinitionId,
+  activationSequence: SQLWrapper = fxSystemIndexBuildStates.maintenanceActivationSequence,
+) {
+  return and(eq(fxSystemIndexMaintenanceObligations.scopeId, scopeId),
+    eq(fxSystemIndexMaintenanceObligations.indexDefinitionId, definitionId),
+    eq(fxSystemIndexMaintenanceObligations.activationSequence, activationSequence));
+}
 
 /** Package-internal decoder shared by the C4 read and S03-D3 transaction. */
 export function decodeIndexBuildStateRowResult(
-  row: IndexBuildStateRow,
+  row: typeof fxSystemIndexBuildStates.$inferSelect,
   expectedScopeId: ScopeId,
   expectedIndexDefinitionId: CatalogIndexDefinitionId,
+  maintenanceObligation: typeof fxSystemIndexMaintenanceObligations.$inferSelect | null,
 ): Result.Result<IndexBuildStateRecord, IndexBuildStateCorruptionError> {
   return Result.gen(function* () {
     const cursorCodecVersion = yield* decodeStoredBuildStateFieldResult(
@@ -532,17 +543,21 @@ export function decodeIndexBuildStateRowResult(
       ));
     }
 
-    const maintenance = yield* decodeIndexMaintenanceEvidenceResult(
-      row.maintenanceActivationSequence, row.maintenanceBytes, row.maintenanceSha256,
+    if ((row.maintenanceActivationSequence === null) !== (maintenanceObligation === null)) {
+      return yield* Result.fail(storedBuildStateCorruption(scopeId, indexDefinitionId,
+        "Maintenance binding and obligation presence disagree"));
+    }
+    const maintenance = maintenanceObligation === null ? null : yield* decodeIndexMaintenanceObligationResult(
+      maintenanceObligation,
     ).pipe(Result.mapError(cause => storedBuildStateCorruption(scopeId, indexDefinitionId, cause)));
-    if (maintenance !== null) {
-      const frame = maintenance.frame;
-      if (lifecycle !== "enabled" || frame.scopeId !== scopeId || frame.indexDefinitionId !== indexDefinitionId ||
-        frame.storageGeneration !== storageGeneration || frame.storageGenerationFence !== storageGenerationFence.toString() ||
-        frame.epoch !== epoch || frame.attemptFence !== attemptFence.toString() ||
-        frame.firstReadableCommitSeq !== firstReadableCommitSeq?.toString() || frame.openedCommitSeq !== coveredThroughCommitSeq?.toString()) {
-        return yield* Result.fail(storedBuildStateCorruption(scopeId, indexDefinitionId, "Maintenance certificate does not match build state"));
-      }
+    if (maintenance !== null && (lifecycle !== "enabled" ||
+      maintenance.activationSequence !== row.maintenanceActivationSequence || maintenance.scopeId !== scopeId ||
+      maintenance.indexDefinitionId !== indexDefinitionId || maintenance.storageGeneration !== storageGeneration ||
+      maintenance.storageGenerationFence !== storageGenerationFence || maintenance.epoch !== epoch ||
+      maintenance.attemptFence !== attemptFence || maintenance.firstReadableCommitSeq !== firstReadableCommitSeq ||
+      maintenance.openedCommitSeq !== coveredThroughCommitSeq)) {
+      return yield* Result.fail(storedBuildStateCorruption(scopeId, indexDefinitionId,
+        "Maintenance obligation does not match build opening"));
     }
     const common = {
       maintenance,
@@ -695,11 +710,72 @@ export const publicationModeForIndex = (profile: IndexPublicationProfile, defini
     ? publicationModeForTable(profile, definition.access.tableId)
     : profile.activeApplicationDeveloperIndexDefinitionIds.has(definition.indexDefinitionId) ? "activeApplication" : "sourceBound";
 
+type MaterializationObservation = Parameters<typeof decodeApplicationMaterializationObservation>[2];
+const materializationCaptureBrand: unique symbol = Symbol("MaterializationCoverageCapture");
+export interface CapturedApplicationMaterializationCoverage { readonly [materializationCaptureBrand]: true }
+class CapturedMaterializationCoverage implements CapturedApplicationMaterializationCoverage {
+  readonly [materializationCaptureBrand] = true;
+  #tx: AppRowTransaction;
+  #clockIdentity: NonNullable<ReturnType<typeof exactScopeWriteClockObservationIdentity>>;
+  #observation: MaterializationObservation;
+  constructor(tx: AppRowTransaction, clockIdentity: NonNullable<ReturnType<typeof exactScopeWriteClockObservationIdentity>>, observation: MaterializationObservation) {
+    this.#tx = tx; this.#clockIdentity = clockIdentity; this.#observation = observation;
+  }
+  read(tx: AppRowTransaction, clock: ScopeClockRecord) {
+    return this.#tx === tx && this.#clockIdentity === exactScopeWriteClockObservationIdentity(tx, clock.scopeId)
+      ? Result.succeed(this.#observation) : Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  }
+}
+export const beginFiniteApplicationMaterialization = Effect.fn("IndexBuildState.beginFiniteMaterialization")(
+  function* (tx: AppRowTransaction, clock: ScopeClockRecord, originalDeadline: Date) {
+    const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx));
+    const pair = yield* Effect.fromResult(readRegisteredManagedMetadataPairFinalGuards(tx));
+    const identity = exactScopeWriteClockObservationIdentity(tx, clock.scopeId);
+    if (identity === undefined) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const snapshot = pair !== null;
+    const rows = yield* runDrizzleStatementEffect(tx.select({
+      reason: sql<string>`observed.reason`, databaseNow: sql`observed.database_now`.mapWith(fxSystemScopeClocks.updatedAt),
+      applicationHead: applicationCompositeSelection(fxSystemApplicationActiveHeads, "observed.application_head"),
+      applicationActivation: applicationCompositeSelection(fxSystemApplicationActivations, "observed.application_activation"),
+      legacySchema: applicationCompositeSelection(fxSystemApplicationRevisionSchemasV1, "observed.legacy_schema"),
+      relationSchema: applicationCompositeSelection(fxSystemApplicationRevisionSchemas, "observed.relation_schema"),
+    }).from(sql`${sql.identifier(schemaName)}.fx_begin_app_materialization(${clock.scopeId}::text,
+      ${sql.param(originalDeadline, fxSystemScopeClocks.updatedAt)}::timestamptz, ${snapshot}::boolean) observed`),
+      cause => new IndexMaintenanceError({ reason: "resourceFailure", cause }));
+    const row = rows[0];
+    const now = databaseTimestampFromUnknown(row?.databaseNow);
+    if (rows.length !== 1 || row === undefined || now === null || (row.reason !== "accepted" && row.reason !== "expired"))
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    if (row.reason === "expired") return Object.freeze({ databaseNowMilliseconds: now.getTime(), capturedCoverage: null });
+    const observation = {
+      snapshot, applicationHead: row.applicationHead.scopeId === null ? null : row.applicationHead,
+      applicationActivation: row.applicationActivation.scopeId === null ? null : row.applicationActivation,
+      legacySchema: row.legacySchema.scopeId === null ? null : row.legacySchema,
+      relationSchema: row.relationSchema.scopeId === null ? null : row.relationSchema,
+    };
+    return Object.freeze({ databaseNowMilliseconds: now.getTime(),
+      capturedCoverage: new CapturedMaterializationCoverage(tx, identity, observation) });
+  },
+  effect => effect.pipe(Effect.mapError(cause => cause instanceof IndexMaintenanceError ? cause :
+    new IndexMaintenanceError({ reason: "resourceFailure", cause }))),
+);
+
+
 /** Keep this value within the guarded transaction that produced it. */
 export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuildState.readCoverageContext")(
   function* (tx: AppRowTransaction, clock: ScopeClockRecord,
-    checkedActive?: CheckedApplicationActiveHead): Effect.fn.Return<IndexCoverageContext, IndexMaintenanceError> {
+    checkedActive?: CheckedApplicationActiveHead,
+    capturedCoverage?: CapturedApplicationMaterializationCoverage): Effect.fn.Return<IndexCoverageContext, IndexMaintenanceError> {
     return yield* Effect.gen(function* () {
+      if (capturedCoverage !== undefined) {
+        if (!(capturedCoverage instanceof CapturedMaterializationCoverage))
+          return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+        const observation = yield* Effect.fromResult(capturedCoverage.read(tx, clock));
+        const active = yield* decodeApplicationMaterializationObservation(tx, clock.scopeId, observation);
+        const context = Object.freeze({ clock, active });
+        registerCoverageContext(context, tx, clock);
+        return context;
+      }
       const checked = checkedActive === undefined ? "refresh" as const
         : yield* Effect.fromResult(readCheckedApplicationActiveHead(checkedActive, tx, clock));
       const active = checked === "refresh"
@@ -718,7 +794,8 @@ export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuild
       const context = Object.freeze({ clock, active: Object.freeze({ ...active, schema }) });
       registerCoverageContext(context, tx, clock);
       return context;
-    }).pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: cause.reason, retryable: cause.retryable, cause: cause.cause })));
+    }).pipe(Effect.mapError(cause => cause instanceof IndexMaintenanceError ? cause :
+      new IndexMaintenanceError({ reason: cause.reason, retryable: cause.retryable, cause: cause.cause })));
   },
 );
 
@@ -765,13 +842,13 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
   )
     return false;
   if (state.maintenance !== null) {
-    yield* verifyIndexMaintenanceEvidence(state.maintenance);
-    const frame = state.maintenance.frame;
-    if (frame.tableId !== definition.tableId || frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex || context.active === null ||
-      frame.deploymentId !== context.active.schema.deploymentId || frame.schemaVersionId !== context.active.schema.schemaVersionId ||
-      frame.schemaManifestSha256 !== context.active.schema.schemaManifestSha256 ||
-      frame.activationSequence !== context.active.head.activationSequence.toString() ||
-      frame.headSha256 !== encodeBytesToLowercaseHex(context.active.head.headSha256)) {
+    const obligation = state.maintenance;
+    if (obligation.tableId !== definition.tableId || encodeBytesToLowercaseHex(obligation.physicalSpecSha256) !== definition.physicalSpecSha256Hex || context.active === null ||
+      obligation.deploymentId !== context.active.schema.deploymentId || obligation.schemaVersionId !== context.active.schema.schemaVersionId ||
+      encodeBytesToLowercaseHex(obligation.schemaManifestSha256) !== context.active.schema.schemaManifestSha256 ||
+      obligation.activationSequence !== context.active.head.activationSequence ||
+      !bytesEqualFullScan(obligation.activationSha256, context.active.head.activationSha256) ||
+      encodeBytesToLowercaseHex(obligation.headSha256) !== encodeBytesToLowercaseHex(context.active.head.headSha256)) {
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
     }
     return true;
@@ -807,64 +884,6 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
       : yield* Effect.fromResult(batched);
   return latest === null || latest <= covered;
 });
-
-/** Finite serving uses the original snapshot and entry-fixed metadata. It
- * authenticates current lifecycle without selecting another Application head. */
-export const readFiniteServingCommitSequence = Effect.fn("IndexBuildState.readFiniteServingSequence")(
-  function* (tx: AppRowTransaction, observation: FiniteExecutionAuthorityObservation) {
-    const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, observation));
-    const rows = yield* runDrizzleStatementEffect(tx.select({ sequence: fxSystemScopeClocks.lastCommitSeq })
-      .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, live.scopeId)).limit(1),
-    cause => new IndexMaintenanceError({ reason: "resourceFailure", cause }));
-    const sequence = yield* Effect.fromResult(decodeCommitSeqResult(rows[0]?.sequence).pipe(
-      Result.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause }))));
-    if (sequence < live.snapshotToken.commitSeq || live.snapshotToken.commitSeq < live.oldestAvailableCommitSeq)
-      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
-    return sequence;
-  },
-);
-
-export const isFiniteIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn("IndexBuildState.isFiniteSnapshotCovered")(
-  function* (tx: AppRowTransaction, state: IndexBuildStateRecord, definition: IndexCoverageDefinition,
-    observation: FiniteExecutionAuthorityObservation, metadata: FiniteApplicationMetadata,
-    application: ApplicationBindingInput, root: SessionJournalAttempt) {
-    const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, observation));
-    const pinned = yield* Effect.fromResult(readFiniteApplicationMetadata(metadata, application, root, tx, observation));
-    const snapshot = pinned.snapshotCommitSeq;
-    const sequence = yield* readFiniteServingCommitSequence(tx, observation);
-    yield* Effect.fromResult(validateIndexBuildStateFrontierResult(state, sequence));
-    if (state.scopeId !== live.scopeId || state.storageGeneration !== live.storageGeneration ||
-      state.storageGenerationFence !== live.storageGenerationFence || state.epoch !== live.epoch ||
-      state.indexDefinitionId !== definition.indexDefinitionId)
-      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
-    if (state.lifecycle !== "enabled" || state.firstReadableCommitSeq === null || state.firstReadableCommitSeq > snapshot ||
-      state.coveredThroughCommitSeq === null) return false;
-    const covered = state.coveredThroughCommitSeq;
-    if (state.maintenance !== null) {
-      yield* verifyIndexMaintenanceEvidence(state.maintenance);
-      const frame = state.maintenance.frame;
-      if (frame.tableId !== definition.tableId || frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex)
-        return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
-      // A later activation may replace the certificate. Its closed covered
-      // prefix is usable, but it cannot lend its suffix to the old tuple.
-      if (covered >= snapshot) return true;
-      const basis = pinned.basis;
-      if (frame.deploymentId === basis.deploymentId && frame.schemaVersionId === basis.schemaVersionId &&
-        frame.schemaManifestSha256 === basis.manifestSha256 &&
-        frame.activationSequence === basis.activationSequence &&
-        frame.headSha256 === basis.headSha256) return true;
-    } else if (covered >= snapshot) return true;
-    const latest = yield* readAppTableWriteFrontierInTransactionEffect(tx, live.scopeId, definition.tableId);
-    if (latest === null || latest <= covered) return true;
-    if (covered < live.oldestAvailableCommitSeq) return false;
-    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(live.scopeId));
-    const changes = yield* runDrizzleStatementEffect(tx.select({ commitSeq: fxSystemCommitAppRowChanges.commitSeq })
-      .from(fxSystemCommitAppRowChanges).where(and(eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid),
-        eq(fxSystemCommitAppRowChanges.tableId, definition.tableId), gt(fxSystemCommitAppRowChanges.commitSeq, covered),
-        lte(fxSystemCommitAppRowChanges.commitSeq, snapshot))).limit(1), cause => new IndexMaintenanceError({ reason: "resourceFailure", cause }));
-    return changes.length === 0;
-  },
-);
 
 function decodeReadInput(
   value: unknown,

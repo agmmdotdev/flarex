@@ -1,0 +1,25 @@
+{
+  "runId": "c90af250-70e7-4deb-844c-500f4b0ed459",
+  "revision": "c6bbd01c5d9a9347e4475ff8d894294cb493f474",
+  "dirty": true,
+  "selection": "mixed-product",
+  "size": "small",
+  "measurementMode": "quiet",
+  "samplingPlan": {
+    "warmups": 3,
+    "measured": 20
+  },
+  "quietSamplingEligible": false,
+  "quietAcceptance": false,
+  "nativeRelativeAcceptance": "pending-paired-comparison",
+  "totalMs": 51539.0643,
+  "exitCode": 0,
+  "signal": null,
+  "reports": [
+    {
+      "name": "mixed-product",
+      "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\work\\validation\\whole-mutation-redesign-20261004\\typed-maintenance-product-43\\mixed-product.json",
+      "available": true
+    }
+  ]
+}

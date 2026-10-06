@@ -18,6 +18,7 @@ export function documentValidationRecoverySource(seed: Readonly<{
       const listed = await ctx.privateMixed.call("medusa.product", "listByHandle", ${JSON.stringify(seed.listInput)});
       await ctx.db.patch(id, { name: pending.title });
       const earlier = await ctx.db.get(earlierId);
-      return { id, updated, pending, listed, caughtDocumentValidation, earlier };
+      const later = await ctx.db.get(id);
+      return { id, updated, pending, listed, caughtDocumentValidation, earlier, later };
     } } } };`;
 }

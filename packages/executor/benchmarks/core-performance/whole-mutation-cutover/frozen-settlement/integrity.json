@@ -1,0 +1,33 @@
+{
+  "runId": "b5fcc186-38a0-4548-9dca-ca873504b7c9",
+  "files": {
+    "mixed-product.json": {
+      "sha256": "b3ae59f8bd3a88b5ad34c79463cc47e240540350f8cb72ae4b9d24168b62bd91",
+      "bytes": 190214
+    },
+    "command.json": {
+      "sha256": "8b6ac170103f50a7cbe4dced266fa52c57d8909738dcaa57f9f282baa3974ca3",
+      "bytes": 741
+    },
+    "families.json": {
+      "sha256": "4434443e20ed6980e4e34a47bad0055318f4a3d1301a7220f1d1bedc07acd85a",
+      "bytes": 135
+    },
+    "source-before.json": {
+      "sha256": "d622349548d7d454c7bf4dc075708c6fe3876a78e511307d59ce78d4201a69d9",
+      "bytes": 306659
+    },
+    "source-after.json": {
+      "sha256": "bea4be9fad62037ab070c8e089c139783400aa582a19f6bf7a98bd67a7065ba4",
+      "bytes": 306651
+    },
+    "postgres-before.json": {
+      "sha256": "c8e8457669bed064839514c4c979695c17f6a0a428cfd96d320dbbef70744de4",
+      "bytes": 664
+    },
+    "postgres-after.json": {
+      "sha256": "987084a2ffc049eacefc23385a3a81da7a3870bb2cbb5b65238dbb0e2e612bf8",
+      "bytes": 664
+    }
+  }
+}

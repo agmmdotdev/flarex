@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { newTestPGlite } from "./pgliteSearchExtensions";
+import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { describe, expect, it } from "vitest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
@@ -21,6 +22,8 @@ import {
   insertLegacyOpenTransactionJournalFixture,
   insertLegacySessionTestScope,
   insertTransactionSessionFixture,
+  insertSessionTestScope,
+  SESSION_TEST_SCOPE_UUID,
   transactionSessionFixture,
   transactionSessionIdAt,
 } from "./sessionAuthorityTestSupport";
@@ -35,6 +38,79 @@ describe("createPGlitePersistence", () => {
 
     await expect(persistence.check()).resolves.toEqual({ status: "ok" });
   });
+
+  it.each(["aborted", "running"] as const)("upgrades 0126 under the real installer drain with a %s predecessor finite root", async lifecycle => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-whole-mutation-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const sourceFolder = resolve(dirname(fileURLToPath(import.meta.url)), "../drizzle");
+    const journalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const db = newTestPGlite();
+    try {
+      await cp(sourceFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(journalPath, "utf8");
+      await writeFile(journalPath, migrationJournalBefore(journalText, 127), "utf8");
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      // Structural predecessor bootstrap uses its exact recorded migrations.
+      // No current installation verifier/capability is issued for old columns.
+      await migratePGlite(previous.drizzle, { migrationsFolder });
+      await previous.query(`update fx_system_installation set state='active' where singleton_id=1`);
+      await insertSessionTestScope(previous);
+      const sessionId = transactionSessionIdAt(127);
+      await insertTransactionSessionFixture(previous, transactionSessionFixture(sessionId, { lifecycle: "running" }));
+      if (lifecycle === "aborted") await previous.query(`update fx_system_tx_session set lifecycle='aborted',
+        validated_args_json=null,validated_args_canonical_bytes=null,
+        authorization_grant_json=null,authorization_grant_canonical_bytes=null where session_id=$1::uuid`, [sessionId]);
+      // Exact predecessor format is an intentional structural migration fixture;
+      // its immutable execution profile is established at insertion.
+      await previous.query(`insert into fx_system_tx_journal
+        (scope_uuid,session_id,attempt_fence,state,journal_format,execution_profile,
+         creation_time_seed,next_creation_time,created_at,updated_at)
+        values ($1::uuid,$2::uuid,1,'open','flarex.session-journal','finiteRoot',
+          1893456000000,1893456000000,'2030-01-01','2030-01-01')`, [SESSION_TEST_SCOPE_UUID, sessionId]);
+      const before = await previous.query(`select scope_uuid::text,session_id::text,attempt_fence::text,
+        request_key,encode(request_sha256,'hex') request_hash from fx_system_tx_session`);
+      await writeFile(journalPath, journalText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      if (lifecycle === "running") {
+        await expect(current.migrate()).rejects.toMatchObject({ reason: "resourceFailure", cause: { cause: {
+          code: "55000", message: "whole mutation cutover requires terminal or authenticated recovery drain of existing finite roots",
+        } } });
+        const failed = await current.query(`select i.state,
+          (select count(*)::text from drizzle.__drizzle_migrations) receipts,
+          exists(select 1 from information_schema.columns where table_schema='public'
+            and table_name='fx_system_tx_session' and column_name='finite_attempt_bytes') anchor_column
+          from fx_system_installation i`);
+        expect(failed.rows).toEqual([{ state: "draining", receipts: "127", anchor_column: false }]);
+        expect((await current.query(`select scope_uuid::text,session_id::text,attempt_fence::text,
+          request_key,encode(request_sha256,'hex') request_hash from fx_system_tx_session`)).rows).toEqual(before.rows);
+        expect((await current.query(`select lifecycle,
+          (select count(*)::text from fx_system_tx_journal where execution_profile='finiteRoot') retained_roots
+          from fx_system_tx_session`)).rows).toEqual([{ lifecycle: "running", retained_roots: "1" }]);
+        return;
+      }
+      await current.migrate();
+      await current.migrate();
+      expect((await current.query(`select
+        to_regprocedure(current_schema() || '.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text)') is null retired_attempt_owner,
+        to_regprocedure(current_schema() || '.fx_lock_finite_scope_observation(text)') is not null retained_scope_owner`)).rows)
+        .toEqual([{ retired_attempt_owner: true, retained_scope_owner: true }]);
+      const after = await current.query(`select scope_uuid::text,session_id::text,attempt_fence::text,
+        request_key,encode(request_sha256,'hex') request_hash from fx_system_tx_session`);
+      expect(after.rows).toEqual(before.rows);
+      const installed = await current.query(`select i.state,
+        (select count(*)::text from drizzle.__drizzle_migrations) receipts,
+        (select count(*)::text from fx_system_tx_journal where execution_profile='finiteRoot') retained_roots,
+        (select execution_profile from fx_system_tx_session limit 1) predecessor_profile,
+        pg_try_advisory_lock(2147483002,(i.namespace_oid-2147483648)::integer) exclusion_released
+        from fx_system_installation i`);
+      expect(installed.rows).toEqual([{ state: "active", receipts: await currentMigrationReceiptCount(),
+        retained_roots: "1", predecessor_profile: "durableOperations", exclusion_released: true }]);
+      await current.query(`select pg_advisory_unlock(2147483002,(namespace_oid-2147483648)::integer) from fx_system_installation`);
+    } finally {
+      await db.close();
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("runs Drizzle Kit migrations idempotently", async () => {
     const persistence = await createPGlitePersistence();
@@ -75,6 +151,9 @@ describe("createPGlitePersistence", () => {
       "fx_control_framework_schema_artifact_dependency",
       "fx_control_index",
       "fx_control_index_definition",
+      "fx_control_logical_read_access",
+      "fx_control_logical_read_source",
+      "fx_control_logical_read_table",
       "fx_control_relation",
       "fx_control_schema_relation_binding",
       "fx_control_schema_unique_constraint_set",
@@ -96,6 +175,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_application_function_v1",
       "fx_system_application_publication",
       "fx_system_application_publication_v1",
+      "fx_system_application_read_binding",
       "fx_system_application_readiness",
       "fx_system_application_readiness_function",
       "fx_system_application_readiness_function_v1",
@@ -156,13 +236,17 @@ describe("createPGlitePersistence", () => {
       "fx_system_framework_schema_target_namespace",
       "fx_system_idempotency",
       "fx_system_index_build_state",
+      "fx_system_installation",
+      "fx_system_installation_runtime",
       "fx_system_logical_source_initialization",
+      "fx_system_metadata_contract_observation",
       "fx_system_physical_definition_lifecycle",
       "fx_system_point_mutation_redelivery_scheduler",
       "fx_system_prepared_metadata_epoch",
       "fx_system_relational_physical_name_assignment",
       "fx_system_retained_history_scheduler",
       "fx_system_scope_clock",
+      "fx_system_scope_execution_authority",
       "fx_system_search_build_state",
       "fx_system_snapshot_lease",
       "fx_system_tx_execution_claim",
@@ -424,9 +508,9 @@ describe("createPGlitePersistence", () => {
         "utf8",
       );
       const failing = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(failing.migrate()).rejects.toThrow(
-        /fx_framework_artifact_deliberate_missing_table/,
-      );
+      await expect(failing.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/fx_framework_artifact_deliberate_missing_table/) } },
+      });
       const rolledBack = await failing.query<{
         tables: string;
         sequence: string;
@@ -582,9 +666,9 @@ describe("createPGlitePersistence", () => {
         "utf8",
       );
       const failing = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(failing.migrate()).rejects.toThrow(
-        /fx_framework_coordinator_deliberate_missing_table/,
-      );
+      await expect(failing.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/fx_framework_coordinator_deliberate_missing_table/) } },
+      });
       const rolledBack =
         await frameworkCoordinatorMetadataUpgradeState(failing);
       expect(rolledBack).toEqual({
@@ -677,9 +761,9 @@ describe("createPGlitePersistence", () => {
 
       await writeFile(copiedJournal, journalText, "utf8");
       const current = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(current.migrate()).rejects.toThrow(
-        /cannot add active relation selection authority to populated private relation journal evidence/,
-      );
+      await expect(current.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/cannot add active relation selection authority to populated private relation journal evidence/) } },
+      });
       const rejected = await current.query<{
         rows: string;
         new_columns: string;
@@ -1107,9 +1191,9 @@ describe("createPGlitePersistence", () => {
       ]);
       await copyFile(currentJournal, copiedJournal);
       const replacement = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(replacement.migrate()).rejects.toThrow(
-        /session journal replacement requires fresh isolated data/,
-      );
+      await expect(replacement.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/session journal replacement requires fresh isolated data/) } },
+      });
       expect((await replacement.query<{ session_id: string }>(
         "select session_id from fx_system_tx_session where session_id = $1", [sessionId])).rows)
         .toEqual([{ session_id: sessionId }]);
@@ -1828,10 +1912,11 @@ describe("createPGlitePersistence", () => {
         select
           (select count(*)::text from fx_system_scope_clock) as clock_count,
           (select count(*)::text from fx_system_index_build_state) as build_count,
-          storage_generation_fence::text as fence,
+          authority.storage_generation_fence::text as fence,
           last_commit_seq::text as commit_seq
-        from fx_system_scope_clock
-        where scope_id = 'scope_before_index_build'
+        from fx_system_scope_clock clock
+        join fx_system_scope_execution_authority authority using (scope_id)
+        where clock.scope_id = 'scope_before_index_build'
       `);
       expect(preserved.rows).toEqual([
         {
@@ -1904,9 +1989,10 @@ describe("createPGlitePersistence", () => {
         scope_uuid: string | null;
         epoch_uuid: string | null;
       }>(`
-        select scope_id, scope_uuid::text, epoch_uuid::text
-        from fx_system_scope_clock
-        order by scope_id
+        select clock.scope_id, clock.scope_uuid::text, authority.epoch_uuid::text
+        from fx_system_scope_clock clock
+        join fx_system_scope_execution_authority authority using (scope_id)
+        order by clock.scope_id
       `);
       expect(preserved.rows).toEqual([
         {
@@ -2205,9 +2291,9 @@ describe("createPGlitePersistence", () => {
       expect(defaulted.rows).toEqual([{ epoch: "0" }]);
       await copyFile(currentJournal, resolve(previousMigrationsFolder, "meta/_journal.json"));
       const replacement = await createPGlitePersistence({ db, migrationsFolder: previousMigrationsFolder });
-      await expect(replacement.migrate()).rejects.toThrow(
-        /session journal replacement requires fresh isolated data/,
-      );
+      await expect(replacement.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/session journal replacement requires fresh isolated data/) } },
+      });
       expect((await replacement.query<{ session_epoch: string }>(
         "select authorization_revocation_epoch::text as session_epoch from fx_system_tx_session where session_id = $1",
         [sessionId])).rows).toEqual([{ session_epoch: "17" }]);
@@ -2304,7 +2390,7 @@ describe("createPGlitePersistence", () => {
       await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
       const recovered = await recoveredPersistence.query<{ epoch: string }>(`
         select authorization_revocation_epoch::text as epoch
-        from fx_system_scope_clock
+        from fx_system_scope_execution_authority
         where scope_id = 'scope_before_revocation_epoch'
       `);
       expect(recovered.rows).toEqual([{ epoch: "0" }]);
@@ -3291,9 +3377,9 @@ describe("createPGlitePersistence", () => {
         "utf8",
       );
       const failing = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(failing.migrate()).rejects.toThrow(
-        /fx_s10_deliberate_missing_table/,
-      );
+      await expect(failing.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/fx_s10_deliberate_missing_table/) } },
+      });
       const afterFailure = await failing.query<{ count: string }>(`
         select count(*)::text as count
         from information_schema.tables
@@ -3395,9 +3481,9 @@ describe("createPGlitePersistence", () => {
         "utf8",
       );
       const failing = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(failing.migrate()).rejects.toThrow(
-        /fx_s11_deliberate_missing_table/,
-      );
+      await expect(failing.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/fx_s11_deliberate_missing_table/) } },
+      });
       const afterFailure = await failing.query<{ count: string }>(`
         select count(*)::text as count
         from information_schema.tables
@@ -3628,9 +3714,9 @@ describe("createPGlitePersistence", () => {
         "utf8",
       );
       const failing = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(failing.migrate()).rejects.toThrow(
-        /fx_fsv04_deliberate_missing_table/,
-      );
+      await expect(failing.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/fx_fsv04_deliberate_missing_table/) } },
+      });
       const afterRollback = await failing.query<{ count: string }>(`
         select count(*)::text as count
         from information_schema.columns
@@ -3731,9 +3817,9 @@ describe("createPGlitePersistence", () => {
       `);
       await writeFile(copiedJournalPath, journalText, "utf8");
       const current = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(current.migrate()).rejects.toThrow(
-        /migration 0043 cannot replace legacy declarative V2 verdict rows/,
-      );
+      await expect(current.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/migration 0043 cannot replace legacy declarative V2 verdict rows/) } },
+      });
       const unchanged = await current.query<{
         rows: string;
         revision_column: string;
@@ -3825,9 +3911,9 @@ describe("createPGlitePersistence", () => {
         "utf8",
       );
       const failing = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(failing.migrate()).rejects.toThrow(
-        /fx_c08_b1a_deliberate_missing_table/,
-      );
+      await expect(failing.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/fx_c08_b1a_deliberate_missing_table/) } },
+      });
       const rolledBack = await failing.query<{
         table_count: string;
         receipts: string;
@@ -3918,9 +4004,9 @@ describe("createPGlitePersistence", () => {
         "utf8",
       );
       const failing = await createPGlitePersistence({ db, migrationsFolder });
-      await expect(failing.migrate()).rejects.toThrow(
-        /fx_o11_f1_deliberate_missing_table/,
-      );
+      await expect(failing.migrate()).rejects.toMatchObject({
+        reason: "resourceFailure", cause: { cause: { message: expect.stringMatching(/fx_o11_f1_deliberate_missing_table/) } },
+      });
       const rolledBack = await failing.query<{
         table_count: string;
         point_fence: string;

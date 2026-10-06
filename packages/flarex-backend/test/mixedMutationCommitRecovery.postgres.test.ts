@@ -1,10 +1,12 @@
 import { inspect } from "node:util";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { fxSystemCommits } from "../../persistence-postgres/src/schema";
+import { fxSystemCommits, fxSystemTransactionSessions, fxSystemSnapshotLeases,
+  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../persistence-postgres/src/schema";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { createPointCommitPublisherPortV1 } from "../../persistence-postgres/src/pointCommitTransaction";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
@@ -13,6 +15,21 @@ import { installOneCommitResponseFault } from "./support/postgresCommitResponseF
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 async function runMixedAttempt(fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>) {
+  const database = fixture.currency.persistence.drizzle;
+  const selector = fixture.activation.anchor;
+  const scopeUuid = projectScopeIdUuidV1(selector.scopeId).scopeUuid;
+  const sessions = await database.select().from(fxSystemTransactionSessions).where(and(
+    eq(fxSystemTransactionSessions.scopeUuid, scopeUuid), eq(fxSystemTransactionSessions.sessionId, selector.sessionId)));
+  const session = sessions[0];
+  if (session === undefined || sessions.length !== 1) throw new Error("Missing exact finite attempt anchor");
+  expect(session.executionProfile).toBe("finiteRoot");
+  const captured = await Effect.runPromise(readFiniteAttemptAnchorRow(session));
+  expect(captured.reservation).not.toBeNull();
+  expect(captured.snapshotToken).toEqual(selector.snapshotToken);
+  for (const table of [fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims]) {
+    expect(await database.select().from(table).where(and(
+      eq(table.scopeUuid, scopeUuid), eq(table.sessionId, selector.sessionId)))).toHaveLength(0);
+  }
   const raw = await fixture.runExecution();
   const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
     result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);

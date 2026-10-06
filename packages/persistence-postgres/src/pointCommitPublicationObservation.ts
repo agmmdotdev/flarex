@@ -6,7 +6,7 @@ export type PointCommitPublicationPhase = "publisher" | "commandPreparation" | "
   "durablePublication" | "finalReferences" | "clockAdvance" | "finalOutcome" |
   "priorDocuments" | "developerIndexPreparation" | "uniquePreparation" | "relationPreparation" |
   "intrinsicMembership" | "rowWrites" | "indexWrites" | "uniqueWrites" | "coverage" |
-  "searchWrites" | "relationWrites";
+  "searchWrites" | "materializationWrites" | "relationWrites";
 
 export type PointCommitPublicationOwner = "plan" | "definitions" | "participant" |
   "rowRevisions" | "rowCreates" | "rowUpdates" | "indexRevisions" | "indexCreates" | "indexCoverage" | "indexValidation" |

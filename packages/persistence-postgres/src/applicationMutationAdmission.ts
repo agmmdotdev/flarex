@@ -1,9 +1,11 @@
+import type { FiniteEntryObservation } from "./finiteEntryObservation";
 import { applicationFunctionEntryPublicationFrameV1 } from
   "@flarex/analysis/internal/application-publication-v1";
 import { applicationFunctionEntryPublicationFrameV2 } from
   "@flarex/analysis/internal/application-publication-v2";
 import {
   bytesEqualFullScan,
+  copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
@@ -24,7 +26,9 @@ import {
   hasApplicationActivationPlanningComposition,
   validateApplicationExecutableActiveSelectionInTransaction,
   prepareFiniteActiveApplication,
+  readPreparedFiniteApplicationMutationConstruction,
   readPreparedFiniteActiveApplication,
+  readPreparedFiniteApplicationAuthority,
   withPreparedFiniteActiveApplicationInTransaction,
   type AcceptedApplicationBinding,
   type validateApplicationBindingBasisInTransaction,
@@ -101,10 +105,21 @@ export interface PreparedFiniteApplicationMutationAdmission {
 export type PreparedFiniteApplicationMutationInputs = Omit<ApplicationMutationAdmission, "selection"> & {
   readonly application: PreparedFiniteActiveApplication;
 };
+/** Exact immutable pins consumed by session activation. Executable manifest and
+ * schema preparation remain with their original construction owners. */
+export type ApplicationMutationActivationBasis = Pick<ApplicationMutationAdmission["basis"],
+  "deploymentId" | "authority" | "revisionId" | "candidateId" | "analysisId" | "sourceArtifactRootSha256" |
+  "manifestSha256" | "applicationSchemaSha256" | "functionCatalogSha256" | "publicationSha256" |
+  "activationSequence" | "headSha256" | "schemaVersionId">;
+export type PreparedFiniteApplicationMutationActivationInputs = Readonly<{
+  basis: ApplicationMutationActivationBasis;
+  executionAuthority: CanonicalApplicationMutationExecutionAuthorityV1;
+  application: PreparedFiniteActiveApplication;
+}>;
 const finiteMutationPreparations = new WeakMap<PreparedFiniteApplicationMutationAdmission, {
   readonly active: PreparedFiniteActiveApplication;
   readonly context: ApplicationMutationAdmissionContext;
-  readonly inputs: PreparedFiniteApplicationMutationInputs;
+  readonly inputs: Omit<PreparedFiniteApplicationMutationInputs, "schema">;
 }>();
 
 /** Private finite constructor; captures one target bundle, then authenticates while target SQL is closed. */
@@ -116,10 +131,8 @@ export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   if (!hasApplicationActivationPlanningComposition(activationRepository, context.controlDb,
     context.schema, context.authority)) return yield* failure("invalidComposition");
   const active = yield* prepareFiniteActiveApplication(activationRepository);
-  const prepared = yield* Effect.fromResult(readPreparedFiniteActiveApplication(active));
-  const { claimed, schema } = prepared;
-  const basis = claimed.basis;
-  if (claimed.kind !== "legacy" || basis.deploymentId !== context.deploymentId ||
+  const { basis, schema } = yield* Effect.fromResult(readPreparedFiniteApplicationMutationConstruction(active));
+  if (basis.deploymentId !== context.deploymentId ||
     !hasApplicationSchemaAuthorityComposition(context.schema, context.controlDb) ||
     schema.schemaVersionId !== basis.schemaVersionId || schema.applicationSchemaSha256 !==
       encodeBytesToLowercaseHex(basis.applicationSchemaSha256) || schema.schemaManifestSha256 !==
@@ -132,8 +145,10 @@ export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   const entrySha256 = encodeBytesToLowercaseHex(yield* sha256(entryBytes));
   const executionAuthority = yield* prepareMutationExecutionAuthority(basis, Object.freeze({ ...fn,
     kind: "mutation" as const, visibility: "public" as const, entrySha256 }));
-  const inputs = Object.freeze({ basis, schema, executionAuthority, application: active });
-  yield* chargeHostPreparation({ basis, executionAuthority: { ...executionAuthority } }).pipe(
+  const inputs = Object.freeze({ basis, executionAuthority, application: active });
+  // The active Application issuer already charged its complete retained basis.
+  // Function selection contributes only its additional immutable authority.
+  yield* chargeHostPreparation({ executionAuthority: { ...executionAuthority } }).pipe(
     Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
   // SAFETY: only the issuing owner registry authenticates this inert nominal handle.
   const result = Object.freeze({}) as PreparedFiniteApplicationMutationAdmission;
@@ -141,14 +156,43 @@ export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   return result;
 });
 
+/** Detached inspection boundary retained for complete executable evidence.
+ * Runtime activation consumes its narrower authenticated projection below. */
 export function readPreparedFiniteApplicationMutationInputs(prepared: PreparedFiniteApplicationMutationAdmission,
   context: ApplicationMutationAdmissionContext): Result.Result<PreparedFiniteApplicationMutationInputs,
     ApplicationMutationAdmissionError | ApplicationActivationError> {
   const state = finiteMutationPreparations.get(prepared);
   if (state === undefined || state.context !== context) return Result.fail(failureValue("invalidComposition"));
-  return readPreparedFiniteActiveApplication(state.active).pipe(Result.map(({ claimed, schema }) =>
-    Object.freeze({ basis: claimed.basis, schema, executionAuthority: structuredClone(state.inputs.executionAuthority),
-      application: state.active })));
+  return readPreparedFiniteApplicationAuthority(state.active, context.controlDb).pipe(
+    Result.flatMap(() => readPreparedFiniteActiveApplication(state.active)),
+    Result.map(({ claimed, schema }) =>
+      Object.freeze({ basis: claimed.basis, schema, executionAuthority: structuredClone(state.inputs.executionAuthority),
+        application: state.active })));
+}
+
+export function readPreparedFiniteApplicationMutationActivationInputs(prepared: PreparedFiniteApplicationMutationAdmission,
+  context: ApplicationMutationAdmissionContext): Result.Result<PreparedFiniteApplicationMutationActivationInputs,
+    ApplicationMutationAdmissionError | ApplicationActivationError> {
+  const state = finiteMutationPreparations.get(prepared);
+  if (state === undefined || state.context !== context) return Result.fail(failureValue("invalidComposition"));
+  return readPreparedFiniteApplicationAuthority(state.active, context.controlDb).pipe(Result.map(authority => {
+    const basis = state.inputs.basis;
+    return Object.freeze({ basis: Object.freeze({ deploymentId: basis.deploymentId, authority,
+      revisionId: basis.revisionId, candidateId: basis.candidateId, analysisId: basis.analysisId,
+      sourceArtifactRootSha256: copyBytes(basis.sourceArtifactRootSha256), manifestSha256: copyBytes(basis.manifestSha256),
+      applicationSchemaSha256: copyBytes(basis.applicationSchemaSha256), functionCatalogSha256: copyBytes(basis.functionCatalogSha256),
+      publicationSha256: copyBytes(basis.publicationSha256), activationSequence: basis.activationSequence,
+      headSha256: copyBytes(basis.headSha256), schemaVersionId: basis.schemaVersionId }),
+      executionAuthority: structuredClone(state.inputs.executionAuthority), application: state.active });
+  }));
+}
+
+export function readPreparedFiniteApplicationMutationAuthority(prepared: PreparedFiniteApplicationMutationAdmission,
+  context: ApplicationMutationAdmissionContext): Result.Result<Result.Result.Success<ReturnType<typeof readPreparedFiniteApplicationAuthority>>,
+    ApplicationMutationAdmissionError | ApplicationActivationError> {
+  const state = finiteMutationPreparations.get(prepared);
+  return state === undefined || state.context !== context ? Result.fail(failureValue("invalidComposition")) :
+    readPreparedFiniteApplicationAuthority(state.active, context.controlDb);
 }
 
 export type PreparedFiniteApplicationMutationAdmissionAcceptanceError = ApplicationMutationAdmissionError |
@@ -159,13 +203,13 @@ export const withPreparedFiniteApplicationMutationAdmissionInTransaction = Effec
   "ApplicationMutationAdmission.acceptPreparedFinite",
 )(function* <Value, Failure, Requirements>(prepared: PreparedFiniteApplicationMutationAdmission,
   context: ApplicationMutationAdmissionContext, tx: AppRowTransaction, clock: ScopeClockRecord,
-  work: (accepted: ApplicationMutationAdmission, binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>) {
+  work: (accepted: Omit<ApplicationMutationAdmission, "schema">, binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+  finiteEntry?: FiniteEntryObservation) {
   const state = finiteMutationPreparations.get(prepared);
   if (state === undefined || state.context !== context) return yield* failure("invalidComposition");
   return yield* withPreparedFiniteActiveApplicationInTransaction(state.active, tx, clock,
     (accepted, binding) => work(Object.freeze({ basis: accepted.basis, selection: accepted.selection,
-      schema: structuredClone(state.inputs.schema),
-      executionAuthority: structuredClone(state.inputs.executionAuthority) }), binding));
+      executionAuthority: structuredClone(state.inputs.executionAuthority) }), binding), finiteEntry);
 });
 
 export class ApplicationMutationAdmissionError extends Data.TaggedError(

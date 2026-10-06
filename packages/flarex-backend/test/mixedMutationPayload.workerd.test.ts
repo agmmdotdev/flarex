@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeAppDocumentIdentityV1, appRowIdHexV1ToBytes } from
@@ -9,8 +9,9 @@ import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { fxAppRowRevisions, fxSystemIdempotency, fxSystemTransactionJournalReceipts,
-  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from
+  fxSystemTransactionJournals, fxSystemTransactionSessions } from
   "../../persistence-postgres/src/schema";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
@@ -38,9 +39,12 @@ async function assertNoPublishedMixedOutput(fixture: MixedFixture,
   expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(0);
   const roots = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
     .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-  expect(roots).toHaveLength(1);
-  expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n,
-    executionProfile: "finiteRoot" });
+  expect(roots).toEqual([]);
+  const [session] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
+    .where(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId));
+  if (session === undefined) throw new Error("Missing genuine compact finite anchor");
+  expect(session).toMatchObject({ lifecycle: "running", executionProfile: "finiteRoot" });
+  expect((await Effect.runPromise(readFiniteAttemptAnchorRow(session))).reservation).not.toBeNull();
   const receipts = await fixture.currency.persistence.drizzle.select()
     .from(fxSystemTransactionJournalReceipts)
     .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId));
@@ -48,8 +52,8 @@ async function assertNoPublishedMixedOutput(fixture: MixedFixture,
   const accepted = fixture.getUpdateRequest();
   if (accepted === undefined) throw new Error("Missing accepted Product operation");
   await expect(Effect.runPromise(fixture.runAdmitted(accepted))).rejects.toBeDefined();
-  await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
-    fixture.attempt, null))).rejects.toBeDefined();
+  await expect(Effect.runPromise(fixture.freeze(null)))
+    .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
 }
 
 async function waitUntil(observe: () => boolean, description: string): Promise<void> {
@@ -107,7 +111,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
     } finally { await fixture.close(); }
   }, 180_000);
 
-  it("constructs pending-only Payload calls after claim loss and refuses the next Application storage frontier", async () => {
+  it("constructs pending-only Payload calls after claim expiry, refuses the Application frontier and rejects expired-owner cleanup", async () => {
     let fixture: MixedFixture;
     let revoked = false;
     let beforePendingCalls = 0;
@@ -117,9 +121,10 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       hooks: { afterPayloadBeforeAck: (method, result) => Effect.gen(function* () {
         if (method === "payload-create") {
           yield* Effect.tryPromise({ try: async () => {
-            const updated = await fixture.currency.persistence.drizzle.update(fxSystemTransactionExecutionClaims)
-              .set({ claimedAt: new Date(Date.now() - 120_000), claimExpiresAt: new Date(Date.now() - 60_000) })
-              .where(eq(fxSystemTransactionExecutionClaims.sessionId, fixture.activation.anchor.sessionId)).returning();
+            const updated = await fixture.currency.persistence.drizzle.update(fxSystemTransactionSessions)
+              .set({ finiteClaimExpiresAt: sql`${fxSystemTransactionSessions.finiteClaimedAt} + interval '1 millisecond'` })
+              .where(and(eq(fxSystemTransactionSessions.sessionId, fixture.activation.anchor.sessionId),
+                sql`${fxSystemTransactionSessions.finiteClaimedAt} + interval '1 millisecond' < clock_timestamp()`)).returning();
             expect(updated).toHaveLength(1);
           }, catch: cause => new CmsTransactionError({ reason: "resourceFailure", cause }) });
           revoked = true;
@@ -140,7 +145,17 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       expect(fixture.nativeInvokeCount.get("payload-findByID")).toBe(2);
       expect(fixture.nativeInvokeCount.get("payload-update")).toBe(1);
       await assertNoPublishedMixedOutput(fixture, before);
-    } finally { await fixture.close(); }
+    } finally {
+      try {
+        if (fixture.hasSqlObserver) expect(fixture.getOpenTransactionDepth()).toBe(0);
+        if (driver === "postgres") expect(await fixture.observePgNativeSqlTransactions()).toMatchObject({ openTransactions: 0 });
+      } finally {
+        await expect(fixture.close()).rejects.toMatchObject({
+          _tag: "PointMutationSessionAttemptTerminalizationV1Error", issue: { reason: "executionClaimUnavailable" },
+        });
+      }
+      if (fixture.hasSqlObserver) expect(fixture.getOpenTransactionDepth()).toBe(0);
+    }
   }, 180_000);
 
   it("runs the selected create hook, nested update/read and outer update on one pending root", async () => {

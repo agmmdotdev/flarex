@@ -6,7 +6,7 @@ import {
 } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import {
   CatalogSchemaVersionIdSchema,
@@ -14,6 +14,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   APP_UNIQUE_CONSTRAINT_SET_CODEC_VERSION_V1,
+  AppUniqueConstraintSetCodecVersionV1Schema,
   MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   AppUniqueConstraintSetSha256HexV1Schema,
   appUniqueConstraintSetSha256HexV1ToBytes,
@@ -25,10 +26,13 @@ import {
 
 import {
   listAppUniqueConstraintDefinitionSetMembersV1Effect,
+  decodeCapturedAppUniqueConstraintSetMembersEffect,
   type LocatedAppUniqueConstraintDefinitionV1,
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { databaseTimestampFromUnknown } from "./databaseTimestamp";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { isLogicalSchemaAdmissionManifest } from "./logicalSchemaAdmissionEvidence";
 import { verifyLogicalUniqueDefinitionSet } from "./logicalStorageDefinitions";
@@ -59,6 +63,43 @@ const decodeSchemaVersionIdResult = Schema.decodeUnknownResult(
 const decodeSetSha256HexResult = Schema.decodeUnknownResult(
   AppUniqueConstraintSetSha256HexV1Schema,
 );
+
+/** Bounded retained-ownership catalog read, with the same member decoder as
+ * ordinary closed-set restoration. The authentic catalog chooses its namespace. */
+export function buildApplicationOwnershipUniqueClosureReadStatement(deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
+  remaining: Readonly<{ records: number; bytes: number }>, schemaName?: string): SQL {
+  const reader = schemaName === undefined ? sql`fx_read_application_ownership_unique_closure`
+    : sql`${sql.identifier(schemaName)}.fx_read_application_ownership_unique_closure`;
+  return sql`select * from ${reader}(${deploymentId}::text, ${schemaVersionId}::text,
+    ${remaining.records}::integer, ${remaining.bytes}::integer)`;
+}
+
+const CapturedClosureSchema = Schema.Struct({ deploymentId: Schema.String,
+  schemaVersionId: Schema.toType(CatalogSchemaVersionIdSchema), setCodecVersion: Schema.toType(AppUniqueConstraintSetCodecVersionV1Schema),
+  definitionCount: Schema.Number, definitionSetSha256: Schema.Uint8Array, closedAtText: Schema.String });
+const decodeCapturedClosureResult = Schema.decodeUnknownResult(CapturedClosureSchema);
+
+export const decodeCapturedAppUniqueConstraintSetClosureEffect = Effect.fn("AppUniqueConstraintSetClosure.decodeCaptured")(
+  function* (deploymentId: string, schemaVersionId: CatalogSchemaVersionId, maximumDefinitions: number,
+    rawRows: readonly unknown[]): Effect.fn.Return<LocatedAppUniqueConstraintSetClosureV1 | null, ReadAppUniqueConstraintSetClosureV1Error> {
+    if (!Number.isSafeInteger(maximumDefinitions) || maximumDefinitions < 0 || maximumDefinitions > MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1)
+      return yield* Effect.fail(corruption("invalid unique definition restoration limit"));
+    const closureRows = rawRows.filter(row => isNonArrayRecord(row) && row.kind === "closure");
+    if (closureRows.length === 0) return null;
+    if (closureRows.length !== 1) return yield* Effect.fail(corruption("captured closure cardinality differs"));
+    const row = yield* Effect.fromResult(decodeCapturedClosureResult(closureRows[0])).pipe(
+      Effect.mapError(cause => corruption("captured closure projection does not decode", cause)));
+    const closedAt = databaseTimestampFromUnknown(row.closedAtText);
+    if (closedAt === null || row.deploymentId !== deploymentId || row.schemaVersionId !== schemaVersionId)
+      return yield* Effect.fail(corruption("captured closure identity or time differs"));
+    const closure = yield* decodeClosureRowEffect({ ...row, closedAt });
+    const members = yield* decodeCapturedAppUniqueConstraintSetMembersEffect(deploymentId, schemaVersionId, maximumDefinitions,
+      rawRows.filter(member => isNonArrayRecord(member) && member.kind === "definition"));
+    const canonical = yield* canonicalizeClosureMembers(members);
+    if (canonical.memberCount !== closure.definitionCount || canonical.sha256Hex !== closure.definitionSetSha256Hex)
+      return yield* Effect.fail(corruption("closure no longer matches bindings"));
+    return Object.freeze({ closure, members: canonical.members });
+  });
 
 export interface PrepareAppUniqueConstraintSetClosureV1Input {
   readonly deploymentId: string;

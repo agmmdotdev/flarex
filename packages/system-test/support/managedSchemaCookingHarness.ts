@@ -1,13 +1,11 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { makeApplicationActivationRepository } from "@flarex/persistence-postgres/internal/application-activation";
-import { createHash } from "node:crypto";
-import { deepStrictEqual } from "node:assert/strict";
-import { bytesEqualFullScan } from "@flarex/utils/bytes";
-import { readFencedIndexBuildStateEffect, readIndexCoverageContextInTransactionEffect, isIndexBuildSnapshotCoveredInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/indexBuildStates";
+import { deepStrictEqual, rejects } from "node:assert/strict";
+import { decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate, readFencedIndexBuildStateEffect, readIndexCoverageContextInTransactionEffect, isIndexBuildSnapshotCoveredInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/indexBuildStates";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/scopeClock";
 import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction } from "@flarex/persistence-postgres/internal/app-unique-constraint-definitions-v1";
-import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
+import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect, uniqueConstraintBuildStateSelection, uniqueMaintenanceBindingPredicate } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
 import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
 import { SchemaManifestAppIndexDescriptorSchema } from "flarex-protocol/schema-manifest";
 import { ensureAppUniqueConstraintSetClosureV1Effect } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-closure-v1";
@@ -16,6 +14,7 @@ import { openApplicationQuerySnapshot, readApplicationQueryIndex, readApplicatio
 import { ScopeExecutionLive } from "@flarex/persistence-postgres/internal/scope-execution";
 import { decodeAppDocumentIdV1, decodeAppDocumentIdentityV1, appRowIdHexV1FromBytes } from "flarex-protocol/app-document-id";
 import { and, eq } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { locateAppIndexDefinitionByIdEffect } from "@flarex/persistence-postgres/internal/system-test/appIndexDefinitions";
 import { scanAppIndexAtSnapshotInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/appIndexEntries";
 import { buildAppDeveloperOrderedIndexV1Effect, AppDeveloperOrderedIndexBuildDecisionUncertainV1Error, AppDeveloperOrderedIndexBuildIntegrationV1Error, AppDeveloperOrderedIndexBuildStateV1Error } from "@flarex/persistence-postgres/internal/app-developer-ordered-index-build-v1";
@@ -72,7 +71,7 @@ import {
   createApplicationManagedSchemaPlanningPort,
 } from
   "@flarex/persistence-postgres/internal/application-managed-schema-planning";
-import { fxSystemScopeExecutionAuthorities, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxAppIndexEntryRevisions } from
+import { fxSystemScopeExecutionAuthorities, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemIndexMaintenanceObligations, fxSystemUniqueMaintenanceObligations, fxAppIndexEntryRevisions } from
   "@flarex/persistence-postgres/internal/system-test/schema";
 import { PointCommitStaleAuthorityV1Error } from
   "@flarex/persistence-postgres/point-commit-transaction";
@@ -106,7 +105,10 @@ import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
 import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
-import { encodeCanonicalJson, isJson, isJsonObject, jsonEqual, type Json } from "flarex-protocol/json";
+import { isJson, jsonEqual, type Json } from "flarex-protocol/json";
+import { IndexBuildAttemptFenceSchema } from "flarex-protocol/index-build-state";
+import { AppUniqueConstraintSetBuildAttemptFenceV1Schema } from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { ValidatorValueErrorV1 } from "flarex-protocol/validator-engine";
 import {
   TransactionFunctionPathV1Schema,
@@ -344,9 +346,13 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     const prepared = await runSystemTestEffectV1(prepareFlarexManagedSchemaDeployment({ candidatePublication: candidate.publication }).pipe(Effect.provide(planningLayer)));
     const activated = await applyManagedSchemaPlanUntilTerminal(scenario, prepared.prepared);
     if (activated.status !== "activated" || activated.revisionId !== candidate.publication.revisionId) throw new Error("Repaired unique candidate did not activate through normal managed apply.");
-    const maintainedBuilds = await fixture.target.query<{ build: string; certified: boolean }>(
-      "select to_jsonb(b)::text build, maintenance_bytes is not null certified from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
-    if (maintainedBuilds.rows.length !== 1 || !maintainedBuilds.rows[0]?.certified) throw new Error("Activated unique build lacks maintenance authority.");
+    const uniqueBuildRows = () => fixture.target.drizzle.select(uniqueConstraintBuildStateSelection()).from(fxSystemUniqueConstraintBuilds)
+      .leftJoin(fxSystemUniqueMaintenanceObligations, uniqueMaintenanceBindingPredicate())
+      .where(eq(fxSystemUniqueConstraintBuilds.scopeId, fixture.authority.scopeId))
+      .orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId);
+    const maintainedBuilds = await uniqueBuildRows();
+    if (maintainedBuilds.length !== 1 || maintainedBuilds[0]?.maintenanceActivationSequence === null ||
+      !maintainedBuilds[0]?.maintenanceObligation) throw new Error("Activated unique build lacks maintenance authority.");
     const activeWrite = await scenario.mutation(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:rename"),
       { id: ids[1]!, name: "maintained by B" }, TransactionRequestKeyV1Schema.make("unique-coverage:active-B")));
     if (activeWrite.disposition !== "published") throw new Error("B could not maintain its activated unique constraint.");
@@ -354,9 +360,7 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     if (afterWrite.status !== "eligible") throw new Error(`B publication lost unique coverage: ${JSON.stringify(afterWrite)}`);
     const builder = await runSystemTestEffectV1(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, scopeId: fixture.authority.scopeId, pageSize: 1 }));
     if (builder.status !== "replayed" || builder.scanned !== 0) throw new Error("Active unique build incorrectly entered catch-up.");
-    const afterMaintainedWrite = await fixture.target.query<{ build: string; certified: boolean }>(
-      "select to_jsonb(b)::text build, maintenance_bytes is not null certified from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
-    if (JSON.stringify(afterMaintainedWrite.rows) !== JSON.stringify(maintainedBuilds.rows)) throw new Error("Native writer or builder changed certified unique build progress.");
+    deepStrictEqual(await uniqueBuildRows(), maintainedBuilds, "Native writer or builder changed maintained unique build progress.");
     const beforeConflict = await durableCounts(fixture);
     const storageBeforeConflict = await applicationStorageCounts(fixture);
     const claimsBeforeConflict = await fixture.target.query("select to_jsonb(c)::text claim from fx_app_unique_key c order by constraint_id, row_id");
@@ -371,12 +375,17 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     if (JSON.stringify(claimsAfterConflict.rows) !== JSON.stringify(claimsBeforeConflict.rows) ||
       JSON.stringify(buildsAfterConflict.rows) !== JSON.stringify(buildsBeforeConflict.rows)) throw new Error("B unique conflict changed ownership or coverage.");
     const readUniqueBuild = async () => {
-      const rows = await fixture.target.drizzle.select().from(fxSystemUniqueConstraintBuilds)
-        .where(eq(fxSystemUniqueConstraintBuilds.scopeId, fixture.authority.scopeId));
+      const rows = await uniqueBuildRows();
       if (rows.length !== 1 || rows[0] === undefined) throw new Error("Expected one unique workspace");
       return rows[0];
     };
     const activeBuild = await readUniqueBuild();
+    const activeUniqueOpening = activeBuild.maintenanceObligation;
+    if (activeUniqueOpening === null) throw new Error("Missing active unique opening");
+    const readOriginalUniqueOpening = async () => (await fixture.target.drizzle.select().from(fxSystemUniqueMaintenanceObligations)
+      .where(and(eq(fxSystemUniqueMaintenanceObligations.scopeId, fixture.authority.scopeId),
+        eq(fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId, activeBuild.uniqueConstraintDefinitionId),
+        eq(fxSystemUniqueMaintenanceObligations.activationSequence, activeUniqueOpening.activationSequence))))[0];
     const switchUniqueSchema = async (version: "A" | "B", suffix: string) => {
       const nextSource = await cookingSourceBundle(version);
       scenario.sources.set(nextSource.sourceArtifact.rootSha256, nextSource);
@@ -389,26 +398,32 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
         await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(fixture.candidateValidation, validation));
         await settleReadyCandidateValidation(fixture, validation, "unique maintenance A");
         const original = await readUniqueBuild();
-        if (original.maintenanceBytes === null) throw new Error("Missing outgoing unique certificate");
-        const frame: unknown = JSON.parse(new TextDecoder().decode(original.maintenanceBytes));
-        if (!isJson(frame) || !isJsonObject(frame)) throw new Error("Invalid unique certificate fixture");
+        const obligation = original.maintenanceObligation;
+        if (obligation === null) throw new Error("Missing outgoing unique obligation");
         const beforeHead = await runSystemTestEffectV1(fixture.activation.readActive());
+        const inventoryBefore = await maintenanceInventory(fixture);
         const identity = and(eq(fxSystemUniqueConstraintBuilds.scopeId, fixture.authority.scopeId),
           eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, original.uniqueConstraintDefinitionId));
-        for (const patch of [{ physicalSpecSha256Hex: "0".repeat(64) }, { tableId: 999999 }, { headSha256: "0".repeat(64) }]) {
-          const bytes = new TextEncoder().encode(encodeCanonicalJson({ ...frame, ...patch }, () => { throw new Error("Invalid certificate fixture"); }));
-          await fixture.target.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: bytes,
-            maintenanceSha256: new Uint8Array(createHash("sha256").update(bytes).digest()) }).where(identity);
-          try {
-            const refused = await runSystemTestEffectV1(Effect.result(fixture.activation.activate({ revisionId: next.publication.revisionId,
-              expectedActiveHead: beforeHead.expectedActiveHead })));
-            if (Result.isSuccess(refused)) throw new Error("Outgoing-only forged unique certificate activated");
-          } finally {
-            await fixture.target.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: original.maintenanceBytes,
-              maintenanceSha256: original.maintenanceSha256 }).where(identity);
-          }
-          deepStrictEqual(await runSystemTestEffectV1(fixture.activation.readActive()), beforeHead);
+        await rejects(async () => { await fixture.target.drizzle.update(fxSystemUniqueConstraintBuilds).set({
+          attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(original.attemptFence + 1n),
+        }).where(identity); }, error => maintenanceSqlStateIs(error, "23503"));
+        deepStrictEqual(await maintenanceInventory(fixture), inventoryBefore);
+        const obligationIdentity = and(eq(fxSystemUniqueMaintenanceObligations.scopeId, fixture.authority.scopeId),
+          eq(fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId, original.uniqueConstraintDefinitionId),
+          eq(fxSystemUniqueMaintenanceObligations.activationSequence, obligation.activationSequence));
+        for (const patch of [{ physicalSpecSha256: new Uint8Array(32) }, { tableId: CatalogTableIdSchema.make(obligation.tableId + 1) }, { headSha256: new Uint8Array(32) }]) {
+          await rejects(async () => { await fixture.target.drizzle.update(fxSystemUniqueMaintenanceObligations).set(patch).where(obligationIdentity); },
+            error => maintenanceSqlStateIs(error, "55000"));
+          deepStrictEqual(await maintenanceInventory(fixture), inventoryBefore);
         }
+        let uniqueFault = false;
+        const faulty = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.deploymentId,
+          scopeId: fixture.authority.scopeId, readiness: fixture.readiness, authority: fixture.authorityPorts,
+          faultAfter: point => { if (point === "uniqueMaintenanceWritten") { uniqueFault = true; throw new Error("Rollback unique maintenance"); } } });
+        const rolledBack = await runSystemTestEffectV1(Effect.result(faulty.activate({ revisionId: next.publication.revisionId,
+          expectedActiveHead: beforeHead.expectedActiveHead })));
+        if (!uniqueFault || Result.isSuccess(rolledBack)) throw new Error("Unique maintenance fault did not abort activation");
+        deepStrictEqual(await maintenanceInventory(fixture), inventoryBefore);
       }
       const result = await applyManagedSchemaPlanUntilTerminal(scenario, plan.prepared);
       if (result.status !== "activated") throw new Error("Unique maintenance successor did not activate");
@@ -417,7 +432,9 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     if (beforeClose === null) throw new Error("Missing unique scope clock");
     await switchUniqueSchema("A", "close");
     const closed = await readUniqueBuild();
-    if (closed.maintenanceBytes !== null || closed.coveredThroughCommitSeq !== beforeClose.lastCommitSeq) throw new Error("Unique deactivation did not seal coverage");
+    if (closed.maintenanceActivationSequence !== null || closed.maintenanceObligation !== null ||
+      closed.coveredThroughCommitSeq !== beforeClose.lastCommitSeq) throw new Error("Unique deactivation did not seal coverage");
+    deepStrictEqual(await readOriginalUniqueOpening(), activeUniqueOpening);
     await scenario.mutation(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:rename"),
       { id: ids[1]!, name: "unique gap under A" }, TransactionRequestKeyV1Schema.make("unique-maintenance:gap")));
     const inactive = await runSystemTestEffectV1(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(fixture.uniqueConstraintEligibility,
@@ -426,8 +443,12 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     deepStrictEqual(await readUniqueBuild(), closed);
     await switchUniqueSchema("B", "reopen");
     const reopened = await readUniqueBuild();
-    if (reopened.maintenanceBytes === null || reopened.attemptFence !== activeBuild.attemptFence || reopened.startCommitSeq !== activeBuild.startCommitSeq ||
+    if (reopened.maintenanceActivationSequence === null || reopened.maintenanceObligation === null ||
+      reopened.attemptFence !== activeBuild.attemptFence || reopened.startCommitSeq !== activeBuild.startCommitSeq ||
       reopened.coveredThroughCommitSeq === closed.coveredThroughCommitSeq) throw new Error("Unique reactivation did not bridge its gap and preserve build identity");
+    if (reopened.maintenanceObligation.activationSequence <= activeUniqueOpening.activationSequence)
+      throw new Error("Unique reactivation reused its historical opening");
+    deepStrictEqual(await readOriginalUniqueOpening(), activeUniqueOpening);
     return true;
   });
 }
@@ -489,8 +510,9 @@ export async function proveManagedSchemaCandidateIndexCoverageBoundaries(
     );
     const buildRows = () =>
       fixture.target.drizzle
-        .select()
+        .select(indexBuildStateSelection())
         .from(fxSystemIndexBuildStates)
+        .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
         .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
     // Definition handles are retained by the catalog owner; locate after managed declaration.
     const definitions = [];
@@ -622,12 +644,13 @@ export async function proveManagedSchemaCandidateIndexCoverageBoundaries(
       sharedAfter.coveredThroughCommitSeq !== sharedBefore.coveredThroughCommitSeq ||
       sharedAfter.maintenanceActivationSequence === null ||
       sharedAfter.updatedAt.getTime() !== sharedBefore.updatedAt.getTime() ||
-      (sharedBefore.maintenanceBytes === null || sharedAfter.maintenanceBytes === null || !bytesEqualFullScan(sharedBefore.maintenanceBytes, sharedAfter.maintenanceBytes)) ||
+      sharedBefore.maintenanceObligation === null || sharedAfter.maintenanceObligation === null ||
       sharedBefore.firstReadableCommitSeq !== sharedAfter.firstReadableCommitSeq
     )
       throw new Error(
         "Shared active definition changed its build tuple during an ordinary write.",
       );
+    deepStrictEqual(sharedAfter.maintenanceObligation, sharedBefore.maintenanceObligation);
     if (mode === "retainedGap") {
       // Retention fault fixture: the builder must reject the lost prefix, not certify newer data.
       await fixture.target.drizzle.transaction(async tx => {
@@ -1074,7 +1097,8 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
         throw new Error(`Catch-up changed snapshot ${witness.commitSeq}.`);
     }
     const readBuild = async () => {
-      const rows = await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).where(and(
+      const rows = await fixture.target.drizzle.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+        .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(and(
         eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId), eq(fxSystemIndexBuildStates.indexDefinitionId, definition.indexDefinitionId)));
       const row = rows[0];
       if (!row) throw new Error("Maintenance witness build missing");
@@ -1093,15 +1117,22 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
       if (result.disposition !== "published") throw new Error("Maintenance witness mutation did not publish");
     };
     const activeBuild = await readBuild();
+    const activeIndexOpening = activeBuild.maintenanceObligation;
+    if (activeIndexOpening === null) throw new Error("Missing active index opening");
+    const readOriginalIndexOpening = async () => (await fixture.target.drizzle.select().from(fxSystemIndexMaintenanceObligations)
+      .where(and(eq(fxSystemIndexMaintenanceObligations.scopeId, fixture.authority.scopeId),
+        eq(fxSystemIndexMaintenanceObligations.indexDefinitionId, definition.indexDefinitionId),
+        eq(fxSystemIndexMaintenanceObligations.activationSequence, activeIndexOpening.activationSequence))))[0];
     await mutateName("maintained-by-B");
     const beforeActiveBuilder = await readBuild();
     const built = await runSystemTestEffectV1(buildAppDeveloperOrderedIndexV1Effect(buildPorts, buildInput));
     const afterActiveBuilder = await readBuild();
-    if (built.status !== "replayed" || activeBuild.maintenanceBytes === null || beforeActiveBuilder.maintenanceBytes === null ||
-      afterActiveBuilder.maintenanceBytes === null || activeBuild.updatedAt.getTime() !== afterActiveBuilder.updatedAt.getTime() ||
-      activeBuild.coveredThroughCommitSeq !== afterActiveBuilder.coveredThroughCommitSeq ||
-      !bytesEqualFullScan(activeBuild.maintenanceBytes, afterActiveBuilder.maintenanceBytes))
+    if (built.status !== "replayed" || activeBuild.maintenanceObligation === null || beforeActiveBuilder.maintenanceObligation === null ||
+      afterActiveBuilder.maintenanceObligation === null || activeBuild.updatedAt.getTime() !== afterActiveBuilder.updatedAt.getTime() ||
+      activeBuild.coveredThroughCommitSeq !== afterActiveBuilder.coveredThroughCommitSeq)
       throw new Error("Active write or builder advanced continuous build progress");
+    deepStrictEqual(afterActiveBuilder, activeBuild);
+    deepStrictEqual(beforeActiveBuilder, activeBuild);
     const beforeClose = await fixture.target.getScopeClock(fixture.authority.scopeId);
     if (!beforeClose || !(await checkCoverage(beforeClose.lastCommitSeq))) throw new Error("Active suffix was not readable");
     const switchSchema = async (version: "A" | "B", suffix: string) => {
@@ -1118,37 +1149,46 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
         const validation = { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, schemaVersionId: nextSchema.schemaVersionId };
         await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(fixture.candidateValidation, validation));
         await settleReadyCandidateValidation(fixture, validation, "maintenance A");
-        // B's developer index is outgoing-only: incoming A readiness cannot
-        // authenticate its certificate. Exercise the activation owner itself.
+        // B's developer index is outgoing-only. The opening remains immutable
+        // while its accepting consumer still authenticates the exact head/spec.
         const original = await readBuild();
-        if (original.maintenanceBytes === null) throw new Error("Missing outgoing certificate");
-        const frame: unknown = JSON.parse(new TextDecoder().decode(original.maintenanceBytes));
-        if (!isJson(frame) || !isJsonObject(frame)) throw new Error("Invalid maintenance fixture");
-        for (const patch of [{ physicalSpecSha256Hex: "0".repeat(64) }, { tableId: 999999 }, { schemaManifestSha256: "0".repeat(64) }]) {
-          const bytes = new TextEncoder().encode(encodeCanonicalJson({ ...frame, ...patch }, () => { throw new Error("Invalid corruption fixture"); }));
-          const identity = and(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId), eq(fxSystemIndexBuildStates.indexDefinitionId, definition.indexDefinitionId));
-          await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceBytes: bytes,
-            maintenanceSha256: createHash("sha256").update(bytes).digest() }).where(identity);
-          try {
-            const rejected = await runSystemTestEffectV1(Effect.result(fixture.activation.activate(activationInput)));
-            if (Result.isSuccess(rejected) || !isNonArrayRecord(rejected.failure) || rejected.failure._tag !== "ApplicationActivationError" ||
-              rejected.failure.reason !== "storedState")
-              throw new Error("Activation accepted corrupt outgoing-only maintenance", { cause: rejected });
-            const afterRefusal = await readBuild();
-            if (afterRefusal.maintenanceBytes === null || !bytesEqualFullScan(afterRefusal.maintenanceBytes, bytes))
-              throw new Error("Refused activation changed outgoing certificate");
-          } finally { await fixture.target.drizzle.update(fxSystemIndexBuildStates).set(original).where(identity); }
-          deepStrictEqual(await runSystemTestEffectV1(fixture.activation.readActive()), headBefore);
+        const obligation = original.maintenanceObligation;
+        if (obligation === null) throw new Error("Missing outgoing index obligation");
+        const identity = and(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId),
+          eq(fxSystemIndexBuildStates.indexDefinitionId, definition.indexDefinitionId));
+        const inventoryBefore = await maintenanceInventory(fixture);
+        await rejects(async () => { await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
+          attemptFence: IndexBuildAttemptFenceSchema.make(original.attemptFence + 1n),
+        }).where(identity); }, error => maintenanceSqlStateIs(error, "23503"));
+        deepStrictEqual(await maintenanceInventory(fixture), inventoryBefore);
+        const obligationIdentity = and(eq(fxSystemIndexMaintenanceObligations.scopeId, fixture.authority.scopeId),
+          eq(fxSystemIndexMaintenanceObligations.indexDefinitionId, definition.indexDefinitionId),
+          eq(fxSystemIndexMaintenanceObligations.activationSequence, obligation.activationSequence));
+        for (const patch of [{ physicalSpecSha256: new Uint8Array(32) }, { tableId: CatalogTableIdSchema.make(obligation.tableId + 1) },
+          { headSha256: new Uint8Array(32) }, { schemaManifestSha256: new Uint8Array(32) }]) {
+          await rejects(async () => { await fixture.target.drizzle.update(fxSystemIndexMaintenanceObligations).set(patch).where(obligationIdentity); },
+            error => maintenanceSqlStateIs(error, "55000"));
+          deepStrictEqual(await maintenanceInventory(fixture), inventoryBefore);
+          await rejects(() => fixture.target.drizzle.transaction(tx => runSystemTestEffectV1(Effect.gen(function* () {
+            const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.authority.scopeId);
+            const captured = (yield* Effect.promise(() => tx.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+              .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(identity)))[0];
+            if (!captured?.maintenanceObligation) throw new Error("Missing genuine accepting capture");
+            const build = yield* Effect.fromResult(decodeIndexBuildStateRowResult({ ...captured,
+              maintenanceObligation: { ...captured.maintenanceObligation, ...patch } }, fixture.authority.scopeId, definition.indexDefinitionId, { ...captured.maintenanceObligation, ...patch }));
+            return yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, build, { ...definition, tableId: definition.access.tableId },
+              clock.lastCommitSeq, yield* readIndexCoverageContextInTransactionEffect(tx, clock));
+          }))), error => isNonArrayRecord(error) && error.reason === "storedState");
+          deepStrictEqual(await maintenanceInventory(fixture), inventoryBefore);
         }
-        const buildsBefore = await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
         let closedFault = false;
-        const faulty = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.readiness,
+        const faulty = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.readiness,
           authority: fixture.authorityPorts, faultAfter: point => {
-            if (point === "maintenanceClosed") { closedFault = true; throw new Error("Rollback closed maintenance"); }
+            if (point === "indexMaintenanceWritten") { closedFault = true; throw new Error("Rollback index maintenance"); }
           } });
         const rolledBack = await runSystemTestEffectV1(Effect.result(faulty.activate(activationInput)));
         if (!closedFault || Result.isSuccess(rolledBack)) throw new Error("Closing maintenance fault did not abort activation");
-        deepStrictEqual(await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId), buildsBefore);
+        deepStrictEqual(await maintenanceInventory(fixture), inventoryBefore);
         deepStrictEqual(await runSystemTestEffectV1(fixture.activation.readActive()), headBefore);
       }
       const result = await applyManagedSchemaPlanUntilTerminal(scenario, plan.prepared);
@@ -1157,14 +1197,15 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
     };
     const closeActivation = await switchSchema("A", "close-B");
     const closed = await readBuild();
-    if (closed.maintenanceBytes !== null || closed.coveredThroughCommitSeq !== beforeClose.lastCommitSeq ||
+    if (closed.maintenanceActivationSequence !== null || closed.maintenanceObligation !== null || closed.coveredThroughCommitSeq !== beforeClose.lastCommitSeq ||
       closed.firstReadableCommitSeq !== activeBuild.firstReadableCommitSeq || !(await checkCoverage(beforeClose.lastCommitSeq)))
       throw new Error("Outgoing maintenance did not seal historical coverage");
+    deepStrictEqual(await readOriginalIndexOpening(), activeIndexOpening);
     await mutateName("gap-under-A");
     const gap = await fixture.target.getScopeClock(fixture.authority.scopeId);
     if (!gap || gap.lastCommitSeq <= beforeClose.lastCommitSeq || await checkCoverage(gap.lastCommitSeq))
       throw new Error("Inactive definition was falsely continuously covered");
-    const gapBuilds = await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
+    const gapInventory = await maintenanceInventory(fixture);
     const gapActive = await runSystemTestEffectV1(fixture.activation.readActive());
     const originalB = { revisionId: candidate.publication.revisionId, expectedActiveHead: fixture.active.expectedActiveHead };
     const gapReplay = await runSystemTestEffectV1(fixture.activation.activate(originalB));
@@ -1173,19 +1214,22 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
       expectedActiveHead: { ...originalB.expectedActiveHead, headSha256: "0".repeat(64) } })));
     if (Result.isSuccess(wrongToken) || !isNonArrayRecord(wrongToken.failure) || wrongToken.failure.reason !== "expectedHead")
       throw new Error("Historical replay accepted a different predecessor hash");
-    deepStrictEqual(await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId), gapBuilds);
+    deepStrictEqual(await maintenanceInventory(fixture), gapInventory);
     deepStrictEqual(await runSystemTestEffectV1(fixture.activation.readActive()), gapActive);
     await switchSchema("B", "reopen-B");
-    const beforeHistoricalReplay = await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
+    const beforeHistoricalReplay = await maintenanceInventory(fixture);
     const activeBeforeReplay = await runSystemTestEffectV1(fixture.activation.readActive());
     const replay = await runSystemTestEffectV1(fixture.activation.activate(closeActivation));
     if (replay.disposition !== "replayed") throw new Error("Historical activation did not replay");
-    deepStrictEqual(await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId), beforeHistoricalReplay);
+    deepStrictEqual(await maintenanceInventory(fixture), beforeHistoricalReplay);
     deepStrictEqual(await runSystemTestEffectV1(fixture.activation.readActive()), activeBeforeReplay);
     const reopened = await readBuild();
-    if (reopened.maintenanceBytes === null || reopened.firstReadableCommitSeq !== activeBuild.firstReadableCommitSeq ||
+    if (reopened.maintenanceActivationSequence === null || reopened.maintenanceObligation === null || reopened.firstReadableCommitSeq !== activeBuild.firstReadableCommitSeq ||
       reopened.attemptFence !== activeBuild.attemptFence || !(await checkCoverage(gap.lastCommitSeq)))
       throw new Error("Reactivation did not bridge the inactive gap");
+    if (reopened.maintenanceObligation.activationSequence <= activeIndexOpening.activationSequence)
+      throw new Error("Index reactivation reused its historical opening");
+    deepStrictEqual(await readOriginalIndexOpening(), activeIndexOpening);
     for (const [snapshot, expected] of [[beforeClose.lastCommitSeq, "maintained-by-B"], [gap.lastCommitSeq, "gap-under-A"]] as const) {
       const page = await fixture.target.drizzle.transaction(tx => runSystemTestEffectV1(scanAppIndexAtSnapshotInTransactionEffect(tx, {
         scopeId: fixture.authority.scopeId, definition, bounds: {}, limit: 8, snapshotCommitSeq: snapshot,
@@ -3875,6 +3919,36 @@ function hasTaggedReason(
 function failureIdentity(value: unknown): string {
   if (!isNonArrayRecord(value)) return "unknown";
   return `${String(value._tag)}:${String(value.reason)}`;
+}
+
+async function maintenanceInventory(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+) {
+  return {
+    active: await runSystemTestEffectV1(fixture.activation.readActive()),
+    durable: await durableCounts(fixture),
+    storage: await applicationStorageCounts(fixture),
+    activationHistory: (await fixture.target.query<{ activations: string; bindings: string }>(`select
+      (select count(*)::text from fx_system_application_activation) as activations,
+      (select count(*)::text from fx_system_application_read_binding) as bindings`)).rows,
+    indexes: await fixture.target.drizzle.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
+      .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId)).orderBy(fxSystemIndexBuildStates.indexDefinitionId),
+    unique: await fixture.target.drizzle.select(uniqueConstraintBuildStateSelection()).from(fxSystemUniqueConstraintBuilds)
+      .leftJoin(fxSystemUniqueMaintenanceObligations, uniqueMaintenanceBindingPredicate())
+      .where(eq(fxSystemUniqueConstraintBuilds.scopeId, fixture.authority.scopeId)).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId),
+    indexOpenings: await fixture.target.drizzle.select().from(fxSystemIndexMaintenanceObligations)
+      .where(eq(fxSystemIndexMaintenanceObligations.scopeId, fixture.authority.scopeId))
+      .orderBy(fxSystemIndexMaintenanceObligations.indexDefinitionId, fxSystemIndexMaintenanceObligations.activationSequence),
+    uniqueOpenings: await fixture.target.drizzle.select().from(fxSystemUniqueMaintenanceObligations)
+      .where(eq(fxSystemUniqueMaintenanceObligations.scopeId, fixture.authority.scopeId))
+      .orderBy(fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId, fxSystemUniqueMaintenanceObligations.activationSequence),
+  };
+}
+
+function maintenanceSqlStateIs(error: unknown, code: "23503" | "55000"): boolean {
+  const provider = error instanceof DrizzleQueryError ? error.cause : error;
+  return isNonArrayRecord(provider) && provider.code === code;
 }
 
 async function durableCounts(

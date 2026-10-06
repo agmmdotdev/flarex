@@ -3,11 +3,13 @@ import { Effect } from "effect";
 
 import { validateApplicationBindingBasisInTransaction } from "../src/applicationActivation";
 import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
-  openProtectedMetadataFinalGuardScope } from "../src/preparedMetadataEpoch";
+  openProtectedMetadataFinalGuardScope, prepareProtectedMetadata } from "../src/preparedMetadataEpoch";
+import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../src/postgres";
+import { isLocatedReadCommittedAttemptTargetV1 } from "../src/transactionSessionAttemptKernel";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../src/scopeClock";
 import { createApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
-import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture,
-  postgresUrl } from "./postgresHelpers";
+import { createFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture,
+  postgresUrl, type ActivationServingFileScopedPostgresFixture } from "./postgresHelpers";
 import { runEffect } from "./effectTestRuntime";
 
 const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL
@@ -16,12 +18,24 @@ const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_
 native("legacy Application protected metadata admission", () => {
   it("rejects a stale prepared selection and reconstructs it for the next root", async () => {
     const control = await createFileScopedPostgresFixture();
-    const target = await createProtectedFileScopedPostgresFixture();
+    let dual: ActivationServingFileScopedPostgresFixture | undefined;
     try {
+      dual = await createActivationServingFileScopedPostgresFixture();
+      const target = dual.serving;
+      const physicalLocator = { kind: "database_per_scope", databaseKey: "protected-application",
+        schemaName: target.schemaName } as const;
+      const activationTarget = createPostgresLocatedPointMutationSessionActivationTargetV1(dual.activation.persistence,
+        physicalLocator, { directInstallation: dual.activation.installation });
+      if (!isLocatedReadCommittedAttemptTargetV1(activationTarget)) throw new Error("Missing actual installed activation runner");
+      // This witness retains serving's complete full-artifact metadata proof.
+      // Activation independently admits its genuine restricted installation.
+      const protectedMetadata = await Effect.runPromise(prepareProtectedMetadata(target.persistence.drizzle));
       const application = await createApplicationNativeMutationPostgresFixture({
         runtimeHostIdentity: "flarex.test/protected-application",
         compatibilityDate: "2026-09-28",
-        protectedMetadata: { database: target.persistence.drizzle, token: target.protectedMetadata },
+        physicalLocator,
+        activationProfile: { kind: "installed", installation: dual.pair, target: activationTarget },
+        protectedMetadata: { database: target.persistence.drizzle, token: protectedMetadata },
       }, { control: control.persistence, target: target.persistence });
       const verify = async (selection: typeof application.active.selection) =>
         target.persistence.drizzle.transaction(async tx => {
@@ -46,7 +60,7 @@ native("legacy Application protected metadata admission", () => {
       const refreshed = await runEffect(application.activation.readActive());
       await expect(verify(refreshed.selection)).resolves.toMatchObject({ kind: "legacy" });
     } finally {
-      await target.dispose();
+      await dual?.dispose();
       await control.dispose();
     }
   }, 180_000);

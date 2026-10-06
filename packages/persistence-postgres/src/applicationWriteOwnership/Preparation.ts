@@ -53,7 +53,7 @@ export const prepareApplicationWriteOwnershipInTransaction = Effect.fn("Applicat
       ? yield* readPreviouslyApplicationWritableTables(tx, catalog, input, budget)
       : new Set<never>();
     const activationSequence = (snapshot.active?.head.activationSequence ?? 0n) + 1n;
-    const successor = snapshot.ownership === null ? undefined : yield* prepareApplicationOwnershipSuccessor(tx, input.scopeId,
+    const successor = snapshot.ownership === null ? undefined : yield* prepareApplicationOwnershipSuccessor({ kind: "transaction", tx }, input.scopeId,
       snapshot.ownership.frame.revisionId, input.revisionId, previous, input.policy.writePolicies, input.policy.writePolicySetSha256, budget, catalog);
     const claims = yield* Effect.fromResult(retainApplicationManagedTableClaims({ policies: input.policy.writePolicies,
       previous, previouslyWritable, activationSequence, revisionId: input.revisionId, ...(successor === undefined ? {} : { successor }) }));

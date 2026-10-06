@@ -2,7 +2,11 @@
 
 ## Status And Purpose
 
-Status: **selected architectural cutover delivered for the existing private finite profiles; performance acceptance remains incomplete.**
+Status: **architectural foundation delivered for the existing private finite profiles; performance acceptance remains incomplete.**
+The [whole mutation successor](./24-whole-mutation-redesign-preflight.md) now owns
+the current entry, pending-state and terminal lifecycle replacement. Its connected
+runtime is under final validation; this document retains the predecessor scope
+and the metadata/readiness invariants carried forward.
 The owner wants the Convex-inspired admission/readiness/publication design,
 not an indefinite sequence of optimizations to the existing protocol. The
 [common-observation work](./20-query-required-read-execution-preflight.md) is
@@ -22,13 +26,13 @@ paths before a separate round of small optimizations. Each change must establish
 a selected responsibility or lifetime and identify the old choreography it
 replaces. SQL batching or fusion alone is not an architecture deliverable.
 Correctness fixes and required validation continue; record unfinished architecture
-and performance acceptance separately without weakening either gate or silently
-starting the deferred terminal durability replacement.
+and performance acceptance separately without weakening either gate. The terminal
+durability replacement is explicitly selected in slice 24.
 
 The owner authorizes the connected replacement below. The inventory selects
 existing immutable version owners, one live-authority relation and bounded
-consumed-metadata observations. The current durable seal/finishing model remains;
-this does not select package 2's terminal durability replacement. Developer APIs,
+consumed-metadata observations. This slice retained its durable seal/finishing
+model; slice 24 replaces it for the selected finite consumers. Developer APIs,
 new framework capabilities and historical search remain gated.
 
 ## Concrete Selected Contract
@@ -629,5 +633,7 @@ finite consumers to confirmed attempt-owned evidence, demanded readiness and
 consumed-metadata OCC, and removes the displaced finite choreography. Named
 direct, ordinary and durable/recovery profiles retain their declared obligations.
 This architectural delivery does not satisfy the fixed numerical performance
-gates. Further tuning follows architecture completion; terminal durability
-replacement and hosted activation remain separately gated.
+gates. Further tuning follows architecture completion. The
+[whole mutation successor](./24-whole-mutation-redesign-preflight.md) selects the
+connected terminal durability replacement; its runtime is under final validation
+and numerical acceptance remains open. Hosted activation stays separately gated.

@@ -193,7 +193,7 @@ const SECOND_ROW_ID = decodeAppRowIdHexV1(
 const SECOND_CREATION_TIME = decodeAppCreationTimeV1(1_725_000_000_001.25);
 
 interface ScenarioOptions {
-  readonly executionProfile?: "durableOperations" | "finiteRoot";
+  readonly executionProfile?: "durableOperations";
   readonly grantRetentionPolicy?: GrantRetentionPolicyV1;
   readonly randomUuid?: () => string;
   readonly seedFields?: unknown;
@@ -808,9 +808,9 @@ describe("C03 Postgres SessionJournalStore", () => {
     expect(ranges.rows[0]?.count).toBe(1);
   });
 
-  it("holds Application point and index evidence until one finite root seal", async () => {
+  it("retains durable Application point and index receipts through settlement", async () => {
     const current = await scenario("finite_app_point_index", {
-      executionProfile: "finiteRoot", seedFields: { name: "before" }, developerIndex: true,
+      executionProfile: "durableOperations", seedFields: { name: "before" }, developerIndex: true,
     });
     if (current.developerIndex === null) throw new Error("Missing developer index handle");
     const documentId = requireSeededDocumentId(current);
@@ -835,8 +835,10 @@ describe("C03 Postgres SessionJournalStore", () => {
       `select count(*)::int as count from fx_system_tx_journal_receipt where session_id = $1`,
       [current.anchor.sessionId],
     );
-    expect(beforeSeal.rows[0]?.count).toBe(0);
-    await runEffect(current.store.sealFiniteRootEffect(current.attempt,
+    expect(beforeSeal.rows[0]?.count).toBe(4);
+    const prepared = await prepareSeal(current.store, current.attempt);
+    await runEffect(current.store.completeSealEffect(prepared.preparation,
+      await runEffect(canonicalizeSessionJournalEffect(prepared.journal)),
       await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))));
     const afterSeal = await persistence.query<{ count: number }>(
       `select count(*)::int as count from fx_system_tx_journal_receipt where session_id = $1`,
@@ -845,29 +847,28 @@ describe("C03 Postgres SessionJournalStore", () => {
     expect(afterSeal.rows[0]?.count).toBe(4);
   });
 
-  it("preserves finite accepted work across pre-stage document validation rejection", async () => {
+  it("preserves durable accepted work across pre-stage document validation rejection", async () => {
     await finiteDocumentValidationScenario(persistence, await scenario("finite_document_validation", {
-      executionProfile: "finiteRoot", seedFields: { name: "persisted" },
+      executionProfile: "durableOperations", seedFields: { name: "persisted" },
     }));
   });
 
-  it("refuses a finite root seal after claim expiry without another operation read", async () => {
-    const current = await scenario("finite_seal_claim_expiry", { executionProfile: "finiteRoot" });
+  it("refuses durable seal preparation after claim expiry", async () => {
+    const current = await scenario("finite_seal_claim_expiry", { executionProfile: "durableOperations" });
     expect(await runPointOperation(current.store, current.table, {
       kind: "insert", syscallSequence: syscallSequence(1n), fields: { name: "tentative" },
     })).toMatchObject({ kind: "completed", delivery: "executed" });
-    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({ receipts: 0, points: 0 });
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({ receipts: 1, points: 1 });
     await persistence.query(
       `update fx_system_tx_execution_claim
        set claimed_at = clock_timestamp() - interval '2 minutes',
            claim_expires_at = clock_timestamp() - interval '1 minute'
        where session_id = $1`, [current.anchor.sessionId]);
-    await expect(runEffect(current.store.sealFiniteRootEffect(current.attempt,
-      await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))))).rejects.toMatchObject({
+    await expect(prepareSeal(current.store, current.attempt)).rejects.toMatchObject({
       _tag: "SessionJournalAttemptUnavailableV1Error",
       issue: { reason: "executionClaimUnavailable" },
     });
-    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({ receipts: 0, points: 0, events: 0 });
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({ receipts: 1, points: 1, events: 1 });
   });
 
   it("orders staged inserts, patches, and deletes before applying the page limit", async () => {

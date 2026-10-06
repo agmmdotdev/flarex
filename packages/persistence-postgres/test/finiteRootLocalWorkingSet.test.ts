@@ -1,4 +1,4 @@
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Result } from "effect";
 import { expect, it } from "vitest";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { MetadataSequenceSchema, LogicalMetadataReadDependencySchema, canonicalizeSessionJournalEffect, SESSION_JOURNAL_FORMAT } from "flarex-protocol/commit-protocol";
@@ -10,9 +10,10 @@ import { makeBoundedRequestLifetime, type RequestFailureReason } from "../src/bo
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import type { SessionJournalAttempt } from "../src/sessionJournalStore";
 import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
-  recordLogicalDocumentRootMetadataDependency } from "../src/logicalDocuments/rootEvaluator";
+  recordLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot } from "../src/logicalDocuments/rootEvaluator";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
 import { runEffect } from "./effectTestRuntime";
+import { captureFiniteMetadataDependency, finiteMetadataContractKey, prepareFiniteMetadataProjection } from "../src/finiteMetadataDependencies";
 
 const tableId = CatalogTableIdSchema.make(1);
 const scopeId = ScopeIdSchema.make("scope_91000000-0000-4000-8000-000000000001");
@@ -94,6 +95,106 @@ it("evaluates a finite root's pending writes, cached reads, and close without ad
     expect(readCalls()).toBe(0);
     yield* lifetime.close;
     root.close();
+  })));
+
+it("records real decoded positive and negative metadata once while preserving root correlation, capacity and closure", () =>
+  runEffect(Effect.gen(function* () {
+    const metadataWatermark = MetadataSequenceSchema.make(1n);
+    const projection = yield* prepareFiniteMetadataProjection({ indexes: [], unique: [],
+      application: { functions: [{ path: "a", semantic: { result: 1 } }], groups: [] } });
+    const key = (path: string) => ({ namespace: "execution" as const, ownerKey: "application", contractKey: finiteMetadataContractKey("function", path) });
+    const positive = Result.getOrThrow(captureFiniteMetadataDependency(projection, key("a"), metadataWatermark));
+    const negative = Result.getOrThrow(captureFiniteMetadataDependency(projection, key("missing"), metadataWatermark));
+    const bytes = 512 + 2 * (positive.ownerKey.length + positive.contractKey.length + negative.ownerKey.length + negative.contractKey.length);
+    const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence, metadataWatermark };
+    const root = makeLogicalDocumentRootEvaluator(pins, { identities: 16, workingBytes: bytes });
+    const state = attachLogicalDocumentRootEvaluator(root, pins);
+    if (state === null) throw new Error("Missing genuine local root state");
+    try {
+      expect(recordLogicalDocumentRootMetadataDependency(state, positive)).toBe(true);
+      expect(recordLogicalDocumentRootMetadataDependency(state, negative)).toBe(true);
+      expect(state.workingBytes).toBe(bytes);
+      for (let index = 0; index < 4; index++) {
+        expect(recordLogicalDocumentRootMetadataDependency(state, positive)).toBe(true);
+        expect(recordLogicalDocumentRootMetadataDependency(state, negative)).toBe(true);
+      }
+      expect(state.workingBytes).toBe(bytes);
+      expect(recordLogicalDocumentRootMetadataDependency(state,
+        Result.getOrThrow(captureFiniteMetadataDependency(projection, key("third"), metadataWatermark)))).toBe(false);
+      expect(recordLogicalDocumentRootMetadataDependency(state, { ...positive, capturedWatermark: MetadataSequenceSchema.make(2n) })).toBe(false);
+      const foreign = yield* prepareFiniteMetadataProjection({ indexes: [], unique: [],
+        application: { functions: [{ path: "a", semantic: { result: 2 } }], groups: [] } });
+      expect(recordLogicalDocumentRootMetadataDependency(state,
+        Result.getOrThrow(captureFiniteMetadataDependency(foreign, key("a"), metadataWatermark)))).toBe(false);
+      root.close();
+      expect(recordLogicalDocumentRootMetadataDependency(state, positive)).toBe(false);
+      expect(recordLogicalDocumentRootMetadataDependency(state, negative)).toBe(false);
+    } finally { root.close(); }
+  })));
+
+it("detaches activity and final graph values once without lending mutable root evidence", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, id, working } = yield* make();
+    try {
+      const inserted = yield* working.documents.insert(lifetime.context, id, "items", { name: "Ada", nested: { label: "original" } });
+      if (typeof inserted._id !== "string") throw new Error("Missing inserted identity");
+      const activity = yield* working.activitySnapshot();
+      const observed = activity.observedRows[0], after = activity.attempts[0]?.after;
+      if (observed === undefined || after == null) throw new Error("Missing captured activity");
+      Reflect.set(observed.value, "name", "activity-tampered");
+      after.canonicalBytes.fill(0);
+      const beforeClose = root.snapshot();
+      const observedRoot = beforeClose.observedRows[0], change = beforeClose.changes[0];
+      if (observedRoot === undefined || change?.kind !== "live") throw new Error("Missing captured graph");
+      expect(observedRoot.value).toMatchObject({ name: "Ada", nested: { label: "original" } });
+      expect(change.document.canonicalBytes.some(byte => byte !== 0)).toBe(true);
+      Reflect.set(observedRoot.value, "name", "graph-tampered");
+      change.document.canonicalBytes.fill(0);
+      yield* lifetime.seal;
+      const closed = yield* working.close();
+      expect(closed.observedRows[0]?.value).toMatchObject({ name: "Ada" });
+      const closedAfter = closed.attempts[0]?.after;
+      if (closedAfter == null) throw new Error("Missing detached close value");
+      expect(closedAfter.canonicalBytes.some(byte => byte !== 0)).toBe(true);
+      Reflect.set(closed.observedRows[0]?.value ?? {}, "name", "close-tampered");
+      closedAfter.canonicalBytes.fill(0);
+      expect(root.snapshot().observedRows[0]?.value).toMatchObject({ name: "Ada" });
+      const final = root.snapshot().changes[0];
+      expect(final?.kind === "live" && final.document.canonicalBytes.some(byte => byte !== 0)).toBe(true);
+    } finally { yield* lifetime.close; root.close(); }
+  })));
+
+it("invalidates prepared activity for work after a snapshot and preserves root transfer revocation", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, id, working, readCalls } = yield* make();
+    try {
+      const inserted = yield* working.documents.insert(lifetime.context, id, "items", { name: "Ada" });
+      if (typeof inserted._id !== "string") throw new Error("Missing inserted document identity");
+      const first = yield* working.activitySnapshot();
+      expect(first.attempts).toHaveLength(1);
+      yield* working.documents.patch(lifetime.context, id, inserted._id, { name: "Grace" }, "items");
+      yield* working.documents.insert(lifetime.context, id, "items", { name: "Lin" });
+      const second = yield* working.activitySnapshot();
+      expect(second.attempts).toHaveLength(3);
+      expect(second.observedRows.map(row => row.value.name).toSorted()).toEqual(["Grace", "Lin"]);
+      expect(first.observedRows[0]?.value.name).toBe("Ada");
+      const escaped = second.attempts[1]?.after;
+      if (escaped == null) throw new Error("Missing late patch activity");
+      escaped.canonicalBytes.fill(0);
+      Reflect.set(second.observedRows[0]?.value ?? {}, "name", "escaped");
+      yield* lifetime.seal;
+      const closed = yield* working.close();
+      expect(closed.attempts).toHaveLength(3);
+      expect(closed.observedRows.map(row => row.value.name).toSorted()).toEqual(["Grace", "Lin"]);
+      const transferred = yield* Effect.fromResult(takeLogicalDocumentRootSnapshot(root));
+      expect(transferred.graph.changes).toHaveLength(2);
+      expect(transferred.originalRows).toEqual([]);
+      expect(transferred.graph.attempts[1]?.after?.canonicalBytes.some(byte => byte !== 0)).toBe(true);
+      expect(() => root.snapshot()).toThrow("closed");
+      expect(() => takeLogicalDocumentRootSnapshot({ ...root })).toThrow("foreign");
+      expect(() => takeLogicalDocumentRootSnapshot(root)).toThrow("closed");
+      expect(readCalls()).toBe(0);
+    } finally { yield* lifetime.close; root.close(); }
   })));
 
 it("checks live authority on the next uncached read after tentative local work", () =>

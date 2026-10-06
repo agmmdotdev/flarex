@@ -35,7 +35,7 @@ import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSche
 import { DataBindingError } from "../frameworkSchema/binding/errors";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { capturePrivateJsonData } from "../privateJsonData";
-import type { ScopeClockRecord, FiniteExecutionAuthorityObservation } from "../scopeClock";
+import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import type { LogicalDocumentWrite, LogicalStorageReadReadiness, PreparedLogicalDocumentWriteMechanics } from "./model";
 import { prepareLogicalWriteMechanics } from "./workingSet";
@@ -266,31 +266,10 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       selected.withBinding(application, tx, authority, clock, binding => binding.frame.payloadContent === null && binding.frame.payloadLifecycle === null
         ? verifyPinnedBinding(binding, authority, clock) : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })))
         .pipe(Effect.mapError(projectAttemptFailure));
-    const demanded = new WeakMap<FlarexMetadataTransaction, Set<string>>();
-    const verifyFiniteBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, observation: FiniteExecutionAuthorityObservation) =>
-      pinned.metadata === undefined ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }))
-        : selected.verifyFiniteReadBinding(pinned.metadata, application, attempt, tx, authority, observation).pipe(
-          Effect.flatMap(binding => !binding.hasPayloadContent && !binding.hasPayloadLifecycle ? verifyPinnedBinding(binding, authority, observation) : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }))),
-          Effect.mapError(projectAttemptFailure));
-    const verifyReadBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: FiniteExecutionAuthorityObservation,
-      demand?: LogicalStorageReadDemand) => Effect.gen(function* () {
-      if (pinned.metadata === undefined || demand === undefined)
-        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-      const key = JSON.stringify(demand);
-      if (demanded.get(tx)?.has(key)) {
-        yield* verifyFiniteBinding(tx, authority, clock);
-        return;
-      }
-      yield* selected.withFiniteReadBinding(pinned.metadata, application, attempt, tx, authority, clock,
-        binding => !binding.hasPayloadContent && !binding.hasPayloadLifecycle ? verifyPinnedBinding(binding, authority, clock)
-          : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })), demand).pipe(Effect.mapError(projectAttemptFailure));
-      const checked = demanded.get(tx) ?? new Set<string>(); checked.add(key); demanded.set(tx, checked);
-    });
     const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
       preparedSource: prepared,
-      ...(pinned.metadata === undefined ? {} : { metadata: pinned.metadata, verifyFiniteBinding }),
-      methods: new Set(methods), readTransaction, verifyBinding, verifyReadBinding, tableIds,
-      verifyDemand: verifyReadBinding,
+      ...(pinned.metadata === undefined ? {} : { metadata: pinned.metadata }),
+      methods: new Set(methods), readTransaction, verifyBinding, tableIds,
       indexes: selected.indexes, unique: selected.unique,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
     attemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }), clock: pinned.clock,
@@ -325,6 +304,10 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       tableIds, indexes: selected.indexes, unique: selected.unique, search: Object.freeze([]),
       validateDocument: validateCommitDocument,
       metadataProjection: selected.metadataProjection,
+      prepareFiniteTables: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord, touchedTableIds: readonly CatalogTableId[]) =>
+        selected.prepareFiniteCommitClosureObservation(tx, authority, clock, touchedTableIds).pipe(Result.map(prepared => ({
+          pages: prepared.pages, accept: (observation: unknown) => prepared.accept(observation).pipe(Effect.mapError(projectAttemptFailure)),
+        }))),
       verifyFinite: (_operation: AdmittedParticipantOperation, contribution: SourceContribution,
         tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
         selected.readFiniteCommitClosure(tx, authority, clock, [...new Set(contribution.effects.map(effect => effect.tableId))])

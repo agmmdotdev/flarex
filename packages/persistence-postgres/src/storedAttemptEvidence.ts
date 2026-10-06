@@ -111,7 +111,6 @@ import type {
   PointMutationSessionAttemptSelectorV1,
   PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
-import { readConfirmedFiniteRootSealCapture, type ConfirmedFiniteRootSealCapture } from "./sessionJournalStore";
 
 type TransactionSessionRow =
   typeof fxSystemTransactionSessions.$inferSelect;
@@ -330,7 +329,6 @@ export type StoredAttemptEvidenceLoadResultV1 =
 export interface StoredAttemptEvidenceLoaderV1 {
   readonly loadEffect: (
     authority: StoredAttemptEvidenceAuthorityV1,
-    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     StoredAttemptEvidenceLoadResultV1,
     StoredAttemptEvidencePersistenceV1Error
@@ -533,15 +531,7 @@ export function createStoredAttemptEvidenceLoaderV1(
 
   const loadEffect: StoredAttemptEvidenceLoaderV1["loadEffect"] = Effect.fn(
     "StoredAttemptEvidence.loadExpectedAuthority",
-  )(function* (input, capture) {
-    if (capture !== undefined) {
-      const captured = readConfirmedFiniteRootSealCapture(capture, ports);
-      if (captured === undefined) return corrupt("repeatableReadCapabilityMissing");
-      return yield* materializeStoredAttemptEvidence({ kind: "expectedAuthority",
-        authority: captureAuthority(input) }, captured.preliminaryAuthority,
-        captured.attemptRows).pipe(Effect.match({ onFailure: failure => failure,
-          onSuccess: result => result }));
-    }
+  )(function* (input) {
     return yield* loadRequestEffect(Object.freeze({
       kind: "expectedAuthority" as const,
       authority: captureAuthority(input),

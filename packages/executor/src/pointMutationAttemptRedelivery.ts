@@ -9,8 +9,8 @@ import { Effect } from "effect";
 import type {
   PointMutationCrashRedispatchV1Error,
   PointMutationCrashRedispatchResultV1,
-  StoredPointMutationCrashRedispatchV1,
 } from "./storedAttemptAuthentication";
+import type { FinitePointMutationExecutionFailure } from "./finitePointMutationExecution";
 
 export type PointMutationAttemptRedeliveryDispositionV1 =
   | Readonly<{
@@ -39,7 +39,8 @@ export interface PointMutationAttemptRedeliveryPageV1 {
 
 export type PointMutationAttemptRedeliveryV1Error =
   | PointMutationAttemptDiscoveryV1Error
-  | PointMutationCrashRedispatchV1Error;
+  | PointMutationCrashRedispatchV1Error
+  | FinitePointMutationExecutionFailure;
 
 type PointMutationAttemptRedeliveryTokenV1 = Extract<
   PointMutationCrashRedispatchResultV1,
@@ -63,10 +64,12 @@ export interface PointMutationAttemptRedeliveryV1 {
 
 export function createPointMutationAttemptRedeliveryV1(
   discovery: Pick<PointMutationAttemptDiscoveryV1, "discoverEffect">,
-  redispatch: Pick<
-    StoredPointMutationCrashRedispatchV1,
-    "redispatchExactPointMutationAttempt"
-  >,
+  redispatch: Readonly<{
+    redispatchExactPointMutationAttempt: (selector: unknown) => Effect.Effect<
+      PointMutationCrashRedispatchResultV1,
+      PointMutationCrashRedispatchV1Error | FinitePointMutationExecutionFailure
+    >;
+  }>,
 ): PointMutationAttemptRedeliveryV1 {
   const sweepEffect: PointMutationAttemptRedeliveryV1["sweepEffect"] =
     Effect.fn("PointMutationAttemptRedelivery.sweep")(function* (input) {

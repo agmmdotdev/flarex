@@ -1,4 +1,4 @@
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Effect, Fiber, Result } from "effect";
 import { expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
@@ -291,8 +291,11 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     const observation = root.snapshot().dependencies.find(row => row.documentId === identity.id)?.dependency.observed;
     if (observation === undefined) throw new Error("Missing historical Product dependency");
     const overlay = yield* canonicalizeFlarexValueV1Effect({ ...originalPoint.value, handle: "app-overlay-handle" }, "appDocument");
-    expect(root.stageAppPoint({ tableId: identity.tableId, rowId: identity.rowId, observed: observation,
-      overlay: { kind: "live", creationTime: AppCreationTimeV1Schema.make(Number(originalPoint.value._creationTime)), document: overlay } })).toBe(true);
+    const originalObservation = root.snapshot().dependencies.find(row => row.documentId === identity.id);
+    if (originalObservation === undefined) throw new Error("Missing original Product observation");
+    expect(Result.isSuccess(root.writePoint("product", originalObservation,
+      { kind: "live", creationTime: AppCreationTimeV1Schema.make(Number(originalPoint.value._creationTime)), document: overlay }, "replace"))).toBe(true);
+
     const beforeSeed = readTransactions;
     // Old index and unique membership are cached; a new App seed must still
     // create a checked frontier and affect both cached and new membership.
@@ -322,13 +325,16 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     expect((yield* images()).map(row => row.id).sort()).toEqual([imageId, "img_pending_attempt"].sort());
     yield* lifetime.seal;
     const closed = yield* working.close();
-    expect(closed.scans).toHaveLength(0);
-    expect(closed.indexReads.length).toBeGreaterThan(0);
-    expect(closed.uniqueReads.some(read => read.owner === null)).toBe(true);
-    expect(closed.uniqueReads.some(read => read.owner === null && unique.some(definition =>
+    expect(closed.changes).toHaveLength(0);
+    expect(closed.dependencies).toHaveLength(0);
+    const frozen = root.snapshot();
+    expect(frozen.scans).toHaveLength(0);
+    expect(frozen.indexReads.length).toBeGreaterThan(0);
+    expect(frozen.uniqueReads.some(read => read.owner === null)).toBe(true);
+    expect(frozen.uniqueReads.some(read => read.owner === null && unique.some(definition =>
       definition.uniqueConstraintDefinitionId === read.constraintId &&
       definition.physicalSpec.orderedFields.length === 2))).toBe(true);
-    expect(closed.dependencies.some(row => row.dependency.observed.kind === "present")).toBe(true);
+    expect(frozen.dependencies.some(row => row.dependency.observed.kind === "present")).toBe(true);
     expect(closed.attempts.some(row => row.tableName === "product")).toBe(true);
     root.close();
   }));

@@ -1,5 +1,7 @@
 import { describe, it } from "vitest";
+import { drizzle } from "drizzle-orm/pglite";
 import { createPGlitePersistence } from "../src/pglite";
+import { flarexSchema } from "../src/schema";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import { finiteMetadataDependenciesScenario } from "./finiteMetadataDependenciesScenario";
 
@@ -9,7 +11,11 @@ describe("finite consumed metadata OCC PGlite", () => {
     const persistence = await createPGlitePersistence({ db });
     try {
       await persistence.migrate();
-      await finiteMetadataDependenciesScenario(persistence.drizzle);
+      let comparatorCount = 0;
+      const observed = drizzle({ client: db, schema: flarexSchema, logger: { logQuery(query) {
+        if (query.includes("fx_compare_finite_metadata(")) comparatorCount++;
+      } } });
+      await finiteMetadataDependenciesScenario(observed, () => comparatorCount);
     } finally { await db.close(); }
   }, 180_000);
 });

@@ -2,7 +2,7 @@
  * evidence observations, never net committed-row deltas. */
 export interface PerformanceSettlementLedger {
   readonly syscallReceipts: number;
-  readonly readDocumentOccurrences: number;
+  readonly observedDocuments: number;
   readonly admittedRangeDemands: number;
   readonly admittedPageDemands: number;
   readonly admittedUniqueDemands: number;
@@ -12,7 +12,6 @@ export interface PerformanceSettlementLedger {
   readonly admittedConstraintDefinitionDemands: number;
   readonly distinctAdmittedIndexDefinitions: number;
   readonly distinctAdmittedConstraintDefinitions: number;
-  readonly dependencyBytesBySource: Readonly<Record<string, number>>;
   readonly publicationQueries: readonly Readonly<{ ownerQuery: string; dispatches: number;
     parameterCount: number; scalarParameterBytes: number; unknownEncodingParameters: number }>[];
   readonly pointDependencies: number;
@@ -20,12 +19,7 @@ export interface PerformanceSettlementLedger {
   readonly indexRangeDependencies: number;
   readonly relationReadSyscalls: number;
   readonly relationDependencies: number;
-  readonly pointProjectionRows: number;
-  readonly sealProjectionChunkRows: 128;
-  readonly pointProjectionChunks: number;
-  readonly receiptProjectionChunks: number;
-  readonly indexRangeProjectionChunks: number;
-  readonly relationProjectionChunks: number;
+  readonly finalRows: number;
   readonly bytes: Readonly<Record<string, number>>;
   readonly unavailable: readonly string[];
 }

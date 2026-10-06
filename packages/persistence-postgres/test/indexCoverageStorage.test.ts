@@ -198,8 +198,11 @@ async function proveCoverageStorage(
   await persistence.query(
     "update fx_system_index_build_state set covered_through_commit_seq=1000",
   );
+  const beforeRefusals = (await persistence.query("select * from fx_system_index_build_state")).rows;
+  await expect(persistence.query("update fx_system_index_build_state set maintenance_activation_sequence=1"))
+    .rejects.toMatchObject({ code: "23503", message: expect.stringContaining('"fx_index_build_maintenance_opening_fk"') });
+  expect((await persistence.query("select * from fx_system_index_build_state")).rows).toEqual(beforeRefusals);
   for (const change of [
-    "maintenance_activation_sequence=1",
     "covered_through_commit_seq=-1",
     "first_readable_commit_seq=1001",
     "covered_through_commit_seq=null",
@@ -207,6 +210,7 @@ async function proveCoverageStorage(
     await expect(
       persistence.query(`update fx_system_index_build_state set ${change}`),
     ).rejects.toThrow(/check constraint/);
+    expect((await persistence.query("select * from fx_system_index_build_state")).rows).toEqual(beforeRefusals);
   }
   if (provePlan) {
     await persistence.query("analyze fx_app_row_current");

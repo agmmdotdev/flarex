@@ -419,6 +419,7 @@ function finishingConflictCauseIsBound(
   >,
   conflictCause: CapturedPointMutationOccConflictV1["conflict"],
 ): boolean {
+  if (conflictCause.kind === "finiteRootGraph") return false;
   const prepared = ticket.prepared;
   return conflictCause.kind === "appRowPoint"
     ? prepared.plan.dependencies.some(

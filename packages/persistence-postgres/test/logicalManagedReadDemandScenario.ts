@@ -22,7 +22,7 @@ import { fxSystemIndexBuildStates } from "../src/schema";
  * The native managed host tests own the separate accepting-batch proof. */
 export const logicalManagedReadDemandScenario = Effect.fn("LogicalManagedReadDemand.scenario")(function* (
   input: Readonly<{ controlDb: FlarexMetadataDatabase; controlInstallation: PreparedInstallation;
-    targetDb: FlarexMetadataDatabase; deploymentId: string; scopeId: ScopeId;
+    targetDb: FlarexMetadataDatabase; ownerDb: FlarexMetadataDatabase; deploymentId: string; scopeId: ScopeId;
     schemaVersionId: CatalogSchemaVersionId; authority: TrustedScopeAuthority; source: LogicalSourceReadPin;
     tableName: string; otherTableName: string; where: LogicalWhere }>,
 ) {
@@ -64,14 +64,14 @@ export const logicalManagedReadDemandScenario = Effect.fn("LogicalManagedReadDem
         cause => new Error("Capture actual index lifecycle", { cause }));
       if (original === undefined) return yield* Effect.die("Missing selected index build");
       expect(original.lifecycle).toBe("enabled");
-      yield* Effect.acquireUseRelease(runDrizzleStatementEffect(input.targetDb.update(fxSystemIndexBuildStates)
-        .set({ lifecycle: "retiring", maintenanceActivationSequence: null, maintenanceBytes: null, maintenanceSha256: null })
+      yield* Effect.acquireUseRelease(runDrizzleStatementEffect(input.ownerDb.update(fxSystemIndexBuildStates)
+        .set({ lifecycle: "retiring", maintenanceActivationSequence: null, })
         .where(predicate), cause => new Error("Retire actual selected index", { cause })), () => Effect.gen(function* () {
           expect(yield* inspect({ kind: "rows", tableId: prepared.table.tableId }))
             .toMatchObject({ status: "ready", readiness: "queryRequired" });
           expect(yield* inspect(indexDemand)).toMatchObject({ status: "not_ready", kind: "index",
             indexDefinitionId: prepared.index.indexDefinitionId, lifecycle: "retiring" });
-        }), () => runDrizzleStatementEffect(input.targetDb.update(fxSystemIndexBuildStates).set(original).where(predicate),
+        }), () => runDrizzleStatementEffect(input.ownerDb.update(fxSystemIndexBuildStates).set(original).where(predicate),
           cause => new Error("Restore actual selected index", { cause })));
     })), retained => retained.close);
   }));

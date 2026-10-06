@@ -1,9 +1,10 @@
 # Matched finite Product retrieval
 
-The selected [finite execution contract](../../../../../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
+The selected [whole mutation contract](../../../../../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
 replaces current-head correlation at finite read boundaries with authenticated
-attempt metadata and demanded serving checks. Its cutover and acceptance remain
-in progress. The frozen predecessor comparison failed the fixed added-latency
+attempt metadata and demanded serving checks. Slice 23 delivered that foundation;
+slice 24's connected mutation replacement requires further accepting-boundary
+corrections and numerical acceptance remains open. The frozen predecessor comparison failed the fixed added-latency
 and whole-request regression gates; those reports remain evidence of that
 earlier runtime. Successful scenario execution confirms result/error assertions
 and records measurements; it does not mean numerical performance gates passed.
@@ -20,11 +21,11 @@ ms for both hits and misses**. Three discarded warmups precede thirty retained
 serial pairs per branch, with alternating pair order. Whole request latency must
 also avoid regression against the matched original. These component gates do
 not replace the complete Product, Product/Payload and workflow targets in
-[preflight 20](../../../../../roadmaps/mixed-mutation-core/20-query-required-read-execution-preflight.md).
+[preflight 24](../../../../../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md).
 
 The method interval includes native service construction, storage, operation
 close and receipt validation. The separate complete finite interval includes
-request admission, Worker startup/execution/disposal, seal, publication and
+request admission, Worker startup/execution/disposal, local freeze, publication and
 attempt-fixture disposal. Actual provisioning, module preparation and all seed
 work are charged separately for the measured series lifetime. Native schema and
 module bootstrap is recorded independently. Setup is never assumed permanent or
@@ -87,8 +88,8 @@ results separately from SQL text and scalar parameters. BigInt uses decimal
 strings; Date and Buffer use their normal JSON forms. This is an explicit
 decoded encoding measure, not wire traffic or heap allocation. Metadata
 summaries report all method results, then isolate installation/placement/clock,
-session/lease, journal/claim/running tail, binding/Application heads, selected
-index maintenance and the metadata epoch tail from business rows. Unknown result
+the session anchor that owns lease and claim state, binding/Application heads,
+selected index maintenance and metadata epochs from business rows. Unknown result
 encodings are counted and refuse the focused trace evidence.
 
 The setup report reads the existing source preparation lease's actual charged
@@ -98,8 +99,10 @@ incremental demand retention is the difference between those real lease reads.
 Quiet mode does not add these per-demand counters.
 SQL dispatches are distinct from network round trips. The frozen original
 actual method uses nineteen dispatches for a hit and eighteen for a miss in one
-accepting transaction; the selected indexed-method ceiling is thirteen/twelve,
-including BEGIN/COMMIT and the required positive row observation.
+accepting transaction. The whole mutation contract targets one entry, actual
+required storage frontiers and one final settlement; it does not prescribe a
+measured SQL ceiling. Both the fresh checks and business observation remain
+charged in the candidate evidence.
 
 For CPU attribution, run a separate diagnostic series with a unique label and
 an owned report directory, retaining the same PostgreSQL inputs:
@@ -164,19 +167,27 @@ native/Flarex databases. The existing observer authenticates actual database
 identities and records all executing roles, including protected function owners.
 It requires actual calls for both native and finite methods, control tracking
 `all`, and positive nested reads of installation, placement/receipt, execution
-authority, publication sequencer, session, snapshot lease, journal and claim.
-The actual finite acceptance has two separately observed top-level statements:
-installed acceptance invokes the installation/placement/scope functions and
-reads both qualified target/control epoch joins; JavaScript authenticates that
-projection before compact attempt acceptance invokes the running-attempt
-function and acquires session/lease/root/claim locks. The scope function locks
-execution authority and reads the sequencer without a stable sequence lock.
-Finite metadata stays fixed by its entry reservation, so its epoch projections
-are not an additional nested whole-metadata tail. The diagnostic requires both
-actual phases and every nested owner rather than substituting any epoch mention
-for the installed projection. The classifier recognizes the scope-observation
-function explicitly; existing installed/compact statements already matched
-other owner names, so this addition does not establish a prior undercount.
+authority and the publication sequencer. Installed acceptance invokes the
+installation/placement/scope functions and reads both qualified target/control
+epoch joins. The named `fx_accept_finite_storage_capture` acceptor runs within
+that same outer statement, locks the exact scope's execution authority `FOR SHARE`
+and reads its sequencer without a stable sequence lock. It locks the exact
+original session by scope and session identity, and checks its
+immutable pins against the genuine entry anchor. The session owns the original
+snapshot/reservation plus lease and claim fields. The acceptor locks the demanded
+index build `FOR KEY SHARE`, then starts separate internal commands for fresh
+database time and current serving sequence. Its `VOLATILE` Read Committed commands
+observe changes after an anchor or build-lock wait. Selected history coverage
+follows only when the demanded build requires it. The diagnostic requires positive
+top-level capture calls and the exact nested anchor/build locks and separate
+post-wait time/sequence commands, alongside the acceptor's exact authority
+lock and sequencer read. All remain required and charged. No finite
+lease, journal or claim child rows participate.
+Metadata epoch projections remain installed-state observations rather than an
+additional whole-catalogue tail. The diagnostic requires the exact installed
+projection, nested authority and original anchor locks, and the named capture's
+post-wait clock, serving sequence and selected build, preserving
+attribution of both direct and nested server work.
 
 The observer does not reset global statistics. Quiet/trace/CPU require tracking
 `none` and disabled `auto_explain` logging; all lanes retain fsync, synchronous

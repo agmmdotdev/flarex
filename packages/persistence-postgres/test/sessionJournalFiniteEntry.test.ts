@@ -22,7 +22,7 @@ function lifecycleFixture(failure?: Error) {
     applicationSelection: {}, issuedAdmissions: new Map(), finiteKey: "entry",
     preliminaryAuthority: { deploymentId: "deployment" }, state: {},
     context: { session: { bytes: new Uint8Array([1, 2]) } },
-    rows: { session: { canonicalBytes: new Uint8Array([3, 4]) } }, finite: {},
+    schemaManifest: { bytes: new Uint8Array([3, 4]) }, stableBindings: [], applicationEvidence: { manifest: {} }, finite: {},
   } as unknown as Capture;
   const entry = Object.freeze({ [preparedFiniteSessionJournalEntryBrand]: true as const });
   const install = vi.fn();
@@ -34,9 +34,14 @@ function lifecycleFixture(failure?: Error) {
     install, discard, release,
   };
   preparedFiniteEntries.set(entry, state);
-  const run = () => Effect.runPromise(runPreparedFiniteSessionJournalEntryEffect(entry,
-    {} as RunArguments[0], {} as RunArguments[1], {} as RunArguments[2],
-    {} as RunArguments[3], {} as RunArguments[4], undefined, Effect.void));
+  // Exercise the process-local confirmation owner directly. The genuine entry
+  // transaction (including its candidate-head capture) belongs to the connected
+  // database fixture; this lifecycle fixture cannot supply a transaction.
+  const run = () => {
+    state.status = "running";
+    state.capture = capture;
+    return Promise.resolve(capture);
+  };
   return { entry, state, capture, install, discard, release, run };
 }
 
@@ -149,7 +154,7 @@ describe("finite entry confirmed installation", () => {
     const fixture = lifecycleFixture(failure);
     const exit = await Effect.runPromiseExit(runPreparedFiniteSessionJournalEntryEffect(fixture.entry,
       {} as RunArguments[0], {} as RunArguments[1], {} as RunArguments[2],
-      {} as RunArguments[3], {} as RunArguments[4], undefined, Effect.void));
+      {} as RunArguments[3], {} as RunArguments[4], undefined, fixture.capture.canonicalExecutionAuthority, Effect.void));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain(failure.message);
     abandonPreparedFiniteSessionJournalEntry(fixture.entry);
@@ -166,11 +171,11 @@ describe("finite entry confirmed installation", () => {
     const first = readConfirmedFiniteRootEntryCapture(confirmed, fixture.state.issuer);
     const second = readConfirmedFiniteRootEntryCapture(confirmed, fixture.state.issuer);
     expect(first).toEqual(second);
-    expect(first?.rows).not.toBe(second?.rows);
+    expect(first?.schemaManifest).not.toBe(second?.schemaManifest);
     // Alter every copied frame through its test-only shape; issuer facts stay intact.
-    const altered = first as unknown as { context: { session: { bytes: Uint8Array } }; rows: { session: { canonicalBytes: Uint8Array } } };
+    const altered = first as unknown as { context: { session: { bytes: Uint8Array } }; schemaManifest: { bytes: Uint8Array } };
     altered.context.session.bytes[0] = 9;
-    altered.rows.session.canonicalBytes[0] = 9;
+    altered.schemaManifest.bytes[0] = 9;
     expect(readConfirmedFiniteRootEntryCapture(confirmed, fixture.state.issuer)).toEqual(second);
   });
 });
