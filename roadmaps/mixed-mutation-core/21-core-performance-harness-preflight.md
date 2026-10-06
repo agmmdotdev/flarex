@@ -203,6 +203,11 @@ Node tools, and do not construct measurement infrastructure. Existing narrow
 owner observation hooks are injected at the trusted fixture boundary; missing
 evidence may add a proportional hook at its real owner. No reverse dependency,
 core-wide instrumentation registry or per-owner SDK client is selected.
+The owner also accepts focused core refactoring for internal measurement. The
+SDK constructs diagnostic Effect Layers using the existing Tracer service;
+core operations use named spans and bounded scalar work observations. Production
+and quiet comparisons provide no measurement Layer or collectors. This expands
+the observation design, not transaction, authority or business semantics.
 
 The current persistence test trace already records nested phases, child-union
 exclusive time, query awaits, checkout awaits, transaction lifetimes, structural

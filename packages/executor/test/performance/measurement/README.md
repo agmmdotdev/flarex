@@ -76,19 +76,81 @@ events. Framework and native construction remain with existing scenario and
 framework owners. The SDK imports those implementations; it does not reproduce
 transactions, readiness, hooks, storage traversal or business verification.
 
-Core owners contribute only through their existing small observation hooks.
-Add a missing hook only when a specific measurement cannot be captured at the
-current boundary. The hook carries domain-owned scalar evidence and is supplied
-by trusted fixture composition. The SDK converts this evidence into its private
-artifact shape. That conversion is observation translation, not another business
-or authority path. A core module should not construct a measurement client,
-register metric names, assemble tracing contexts or import the SDK's event types.
+The owner accepts focused core refactoring for deeper observation, including
+Effect tracing and SDK-composed measurement Layers. Instrument real operation
+boundaries and selected synchronous work through the contract below. Hooks carry
+domain-owned scalar evidence and are supplied by trusted fixture composition.
+The SDK converts this evidence into its private artifact shape. That conversion
+is observation translation, not another business or authority path. A core module
+should not construct a measurement client, register metric names, assemble
+tracing contexts or import the SDK's event types.
 
 No singleton, ambient cross-request recorder or per-owner SDK instance is
 selected. Correlation, buffering, timing and observer-cost accounting stay inside
 the scoped collector. Preserve full outcomes, cancellation, evaluation order
 and existing resource ownership; instrumentation introduces no extra runtime
 bridge per event, database command, transaction or settling capability.
+
+## Effect Measurement Layers
+
+Use the installed Effect tracer as the shared injected tracing capability.
+The SDK constructs a private measurement Layer and provides it once at the
+trusted diagnostic composition boundary. Reuse `Tracer.Tracer`, named
+`Effect.fn` operations and `Effect.withSpan`; do not create another generic
+telemetry Context service or a Layer for each core module. An inert tracer can
+use `Layer.succeed`; a collector with resources uses scoped Layer construction.
+The SDK owns those resources. Existing prepared-host, request, connection and
+transaction owners keep their lifetimes and finalizers.
+
+Core operations retain ordinary Effect signatures and their existing imports.
+Observe admission, demanded data capture, working-set processing, framework
+calls, freeze/preparation, current validation, materialization, publication and
+outcome resolution at their real owners. Add selected internal phases for
+canonical capture, copying, validation, encoding/hashing and relation traversal
+when a concrete cost question warrants them. Layers provide capabilities;
+they do not automatically discover these internal operations.
+
+Counts and known byte sizes use one operation/request-bound synchronous sink
+captured at an existing boundary. Accumulate scalars and emit coarse span
+attributes/events. No per-row service lookup, runtime bridge, Layer provision,
+serialization or copied payload is selected. Counts of actual work complement
+span durations; elapsed spans alone cannot establish allocations or copies.
+Migrate displaced custom phase wrappers and observation construction into this
+contract when their consumers move, preserving the native Promise boundaries
+that still exist. Do not retain two parallel core observation frameworks.
+
+Each diagnostic invocation gets one root span and a fresh bounded record.
+Structured child fibers inherit the tracer and parent; all owned work must
+settle before the record closes. Independent existing Promise/runtime bridges
+explicitly carry the captured tracer and parent into their genuine Effect
+runtime. A JavaScript request ID alone does not establish Effect parentage.
+Record fiber identity at selected entries when needed; no global current-request
+variable or mutation of business service Context is selected.
+
+Production and quiet comparison composition provide no measurement Layer,
+collector, count sink, profiler or exporter. They perform no measurement event
+serialization or export. Additional diagnostic-only wrapping is selected at the
+existing composition/factory boundary; absent observation retains the original
+work. Built-in disabled tracing still has span/context/finalizer machinery in
+the pinned Effect version, so disabling it is not a zero-overhead proof. Measure
+the normal path and the instrumented path separately; do not leave new always-on
+profiling work in core and compensate by subtracting its estimated cost.
+
+The installed Effect span timestamps use the business Clock's wall time.
+The SDK records an independent monotonic timestamp synchronously when its tracer
+receives span start/end, retaining Effect timestamps separately for correlation.
+Do not replace the business Clock to obtain performance timers. One SDK clock
+aligns local span and driver observations; cross-process clocks retain their
+own correlation/uncertainty. Span completion preserves the full Exit, including
+typed failure, defect and interruption. Collector faults are reported as
+diagnostic failures without changing business settlement or swallowing its Cause.
+
+Effect spans observe elapsed scoped operations, including asynchronous waits.
+They do not directly measure scheduler CPU, GC, allocations, wire transport,
+driver queueing or PostgreSQL lock/execution time. Database, CPU and server
+collectors remain necessary. The completion report must show both attribution
+coverage and what remains unexplained; no Layer can guarantee discovery of every
+bottleneck from one run.
 
 ## Internal Modules
 
@@ -101,7 +163,7 @@ measurement/
   artifact.ts        one observation schema and derived internal types
   analysis.ts        pure interval, attribution and pair calculations
   report.ts          rendering and post-request artifact persistence
-  collectors/        bindings to existing database, CPU and server collectors
+  collectors/        Effect measurement Layer and existing DB/CPU/server bindings
 ```
 
 This is a responsibility map, not a requirement to create empty modules. Keep
