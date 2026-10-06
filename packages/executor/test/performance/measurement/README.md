@@ -1,12 +1,13 @@
 # Measurement SDK Design
 
 Status: the SDK covers the adopted 25-flow catalog with `quiet`, `timeline`,
-`database`, `cpu` and `server` diagnostics. Matched fresh native pairs cover the
+`resources`, `database`, `cpu` and `server` diagnostics. Matched fresh native pairs cover the
 five original small graphs. SDK-owned Effect
 Layers collect diagnostics at the existing trusted composition boundary;
 production and quiet requests provide no measurement Layer or collectors.
-Runtime performance optimization remains paused. The
-[owning preflight](../../../../../roadmaps/mixed-mutation-core/21-core-performance-harness-preflight.md#selected-cost-attribution-successor)
+The current attribution slice adds lighter observation before selecting another
+runtime redesign. The
+[owning preflight](../../../../../roadmaps/mixed-mutation-core/21-core-performance-harness-preflight.md#selected-complete-cost-attribution)
 owns scope, evidence lanes, accounting, validation and cutover. Existing scenario
 expansion is owned by this SDK delivery after the explicit handoff. Extended
 native reference work retains its declared gates.
@@ -50,12 +51,15 @@ accepts only the five original small graphs. Missing native mappings fail before
 resource acquisition. The CLI owns existing daily/all family iteration; the SDK
 selects one declared graph per bounded command.
 Diagnostic mode is one discriminant, not overlapping SQL/CPU/server booleans.
-The complete design selects `quiet`, `timeline`, `database`, `cpu` and `server`.
+The complete design selects `quiet`, `timeline`, `resources`, `database`, `cpu` and `server`.
 `compare` accepts no diagnostic mode: its timed requests are quiet. Sampling defaults
 are retained in the report: one warmup and one sample for `measure`, five warmups
 and 30 fresh pairs for `compare`. The adopted fixture supports 105 fresh attempts:
 100 quiet pairs plus five warmups, or at most 99 diagnostics with five warmups
-and a separate calibration. This is fixture capacity, not a core budget change.
+and a separate calibration. Resource mode reserves two fresh attempts per sample
+and alternates quiet/diagnostic order after its warmups. Its `observerPairs`
+calibrate observation using separate Flarex executions; they are not native
+acceptance pairs. This is fixture capacity, not a core budget change.
 Sampling, stable
 sources/settings, complete comparable results and
 cleanup must satisfy the existing acceptance policy before `passed` is possible.
@@ -174,6 +178,27 @@ bottleneck from one run.
 ## Internal Modules
 
 ### CPU And Server Resources
+
+`resources` records coarse operation wall time, process/thread CPU deltas and
+event-loop counters through the SDK's existing tracer. It retains exact driver
+submission/completion, operation parentage, checkout, backend PID, outcomes and
+plain transaction controls. It performs no SQL fingerprinting, stack capture,
+parameter/result sizing, heap sampling, inspector work or server logging.
+Unavailable sizes and statement counts remain unavailable rather than zero.
+`database` retains full driver detail; `cpu` and `server` use resource-only
+driver detail to avoid unrelated observer work.
+
+Counter windows bracket the observed operation with small observer work at the
+edges and are retained independently of operation timestamps. Counters are
+inclusive: nested windows overlap, process CPU includes other threads and
+thread CPU includes observation and platform quantization. A zero CPU delta
+can reflect quantization rather than zero work. Event-loop idle is
+not network or database time. Descendant driver unions use actual operation
+ancestry. These quantities cannot be added or subtracted to infer exclusive
+CPU, transport cost or quiet phase durations. Unsupported thread counters are
+explicitly null. Counter faults invalidate diagnostics without changing business
+values, failures or settlement. Resource mode's alternating fresh quiet pairs
+expose total observer perturbation and run variation; neither is subtracted.
 
 `cpu` owns one Node inspector session and a bounded GC observer around the
 actual request. Profiler setup/stop stays outside its request timer. It retains
@@ -306,6 +331,12 @@ The [CPU/server completion evidence](../../../benchmarks/core-performance/measur
 retains representative reports and sanitized profiles. These are diagnostic and
 assembly proofs; native-relative acceptance remains open.
 
+The [complete cost inventory](../../../benchmarks/core-performance/complete-attribution/README.md)
+retains lighter resource diagnostics, actual alternating observer pairs and
+source-owned admission/readiness/working-set/publication inventories for the five
+original profiles. Quiet phase CPU and PostgreSQL CPU remain unavailable; these
+reports identify replacement boundaries without claiming a runtime speedup.
+
 ## Running The SDK Proofs
 
 Run the deterministic SDK and connected-owner suite from the workspace root:
@@ -316,7 +347,7 @@ pnpm exec vitest run --config packages/executor/test/performance/measurement/vit
 
 Actual requests are explicitly gated so this suite does not start framework or
 database fixtures by default. Set `FLAREX_MEASUREMENT_INTEGRATION` to one of
-`pglite-cpu`, `postgres-cpu`, `postgres-server`, `product-timeline`,
+`pglite-resources`, `pglite-cpu`, `postgres-cpu`, `postgres-server`, `product-timeline`,
 `payload-database` or `postgres-compare`, then run the same command with
 `packages/executor/test/performance/measurement/run.integration.test.ts` as its
 file argument. Select one proof per process. `FLAREX_MEASUREMENT_REPORT_DIRECTORY`

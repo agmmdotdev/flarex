@@ -7,7 +7,7 @@ import { analyzeMeasurementEvidence, pairedSummary } from "./analysis";
 import type { MeasurementEvent, MeasurementEvidence, MeasurementObserver } from "./artifact";
 import { databaseEvents } from "./collectors/database";
 import { createEffectMeasurementCollector } from "./collectors/effect";
-import { createCpuMeasurementCollector, assertCpuMeasurementIdle } from "./collectors/cpu";
+import { createCpuMeasurementCollector, assertCpuMeasurementIdle, readNodeResourceCounters } from "./collectors/cpu";
 import { acquireServerMeasurementResource } from "./collectors/server";
 import { acquireNativeBusinessResource } from "./collectors/native";
 import { MeasurementInfrastructureError, MeasurementRunFailure, persistMeasurementReport, type RequestReport, type RunReport } from "./report";
@@ -32,11 +32,12 @@ const common = {
   warmups: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 }))),
 };
 const MeasureOptionsSchema = Schema.Struct({ ...common,
-  mode: Schema.Literals(["quiet", "timeline", "database", "cpu", "server"]),
+  mode: Schema.Literals(["quiet", "timeline", "resources", "database", "cpu", "server"]),
   driver: Schema.optional(Schema.Literals(["postgres", "pglite"])),
 }).check(Schema.makeFilter(value => value.driver === "pglite" && (value.mode === "database" || value.mode === "server")
   ? "Database/server diagnostics require the PostgreSQL driver"
-  : (value.samples ?? 1) + (value.warmups ?? 1) + (value.mode === "quiet" ? 0 : 1) > maxCorePerformanceSeriesSamples
+  : (value.samples ?? 1) * (value.mode === "resources" ? 2 : 1) + (value.warmups ?? 1) +
+    (value.mode === "quiet" || value.mode === "resources" ? 0 : 1) > maxCorePerformanceSeriesSamples
     ? "Selected sampling exceeds the fixture's fresh-attempt capacity" : undefined));
 const CompareOptionsSchema = Schema.Struct({ ...common,
   selection: Schema.Struct({ scenario: NativeScenarioName }), size: Schema.Literal("small") });
@@ -128,10 +129,12 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
   const seedStart = performance.now();
   const sample = await scenario.prepareSample(id, index);
   const seedMs = performance.now() - seedStart;
-  const collector = kind === "diagnostic" ? createEffectMeasurementCollector({ now: () => performance.now() }) : undefined;
+  const collector = kind === "diagnostic" ? createEffectMeasurementCollector({ now: () => performance.now(),
+    ...(mode === "resources" ? { readResources: readNodeResourceCounters } : {}) }) : undefined;
   let trace: ReturnType<typeof createMixedMutationPerformanceTrace> | undefined;
-  if (collector !== undefined && (mode === "database" || mode === "server" || mode === "cpu") && scenario.pools !== undefined) {
-    trace = createMixedMutationPerformanceTrace({ ...scenario.pools, currentOperationId: collector.currentOperationId });
+  if (collector !== undefined && (mode === "resources" || mode === "database" || mode === "server" || mode === "cpu") && scenario.pools !== undefined) {
+    trace = createMixedMutationPerformanceTrace({ ...scenario.pools, currentOperationId: collector.currentOperationId,
+      detail: mode === "database" ? "full" : "resources" });
   }
   const cpu = collector !== undefined && mode === "cpu" ? createCpuMeasurementCollector() : undefined;
   const observation = collector?.publicationObservation();
@@ -272,6 +275,7 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   let family: PreparedPerformanceFamily | undefined;
   let scenario: CorePerformanceScenario | undefined;
   let server: Awaited<ReturnType<typeof acquireServerMeasurementResource>> | undefined;
+  const observerPairs: NonNullable<RunReport["observerPairs"]>[number][] = [];
   let native: Awaited<ReturnType<typeof acquireNativeBusinessResource>> | undefined;
   let setupMs = 0, cleanupMs = 0;
   let cleanup: RunReport["cleanup"] = "notAcquired";
@@ -288,7 +292,8 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
           prefix: "FXPLAN[%p][%d][%c][%Q]" } }) });
     const fixture = await import("../support/prepareScenario");
     family = await fixture.prepareCorePerformanceFamily(descriptor.family, { driver, size: options.size,
-      sampleCount: warmups + requested + (diagnostic ? 1 : 0),
+      sampleCount: warmups + requested * (options.mode === "resources" ? 2 : 1) +
+        (diagnostic && options.mode !== "resources" ? 1 : 0),
       ...(server === undefined ? {} : { postgresEndpoints: server.endpoints }) });
     scenario = family.scenario(name);
     cleanup = "failed";
@@ -315,8 +320,25 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
     settingsBefore = { flarex: await environment(scenario, driver, options.mode), native: native?.resource.settings ?? null };
     stage = "measurement";
     if (samples.every(sample => sample.outcome === "success")) {
-      if (diagnostic) samples.push(await flarexRequest(scenario, name, warmups, "calibration", "quiet", runId, retainFailure, server));
+      if (diagnostic && options.mode !== "resources") samples.push(await flarexRequest(scenario, name, warmups, "calibration", "quiet", runId, retainFailure, server));
       for (let position = 0; position < requested && samples.every(sample => sample.outcome === "success"); position++) {
+        if (options.mode === "resources") {
+          const requests: RequestReport[] = [];
+          const kinds = position % 2 === 0 ? ["calibration", "diagnostic"] as const : ["diagnostic", "calibration"] as const;
+          for (const kind of kinds) {
+            const index = warmups + position * 2 + requests.length;
+            const request = await flarexRequest(scenario, name, index, kind,
+              kind === "calibration" ? "quiet" : "resources", runId, retainFailure, server);
+            samples.push(request); requests.push(request);
+            if (request.outcome === "failure") break;
+          }
+          const quiet = requests.find(request => request.kind === "calibration");
+          const observed = requests.find(request => request.kind === "diagnostic");
+          if (quiet?.outcome === "success" && observed?.outcome === "success" &&
+            quiet.requestMs !== null && observed.requestMs !== null) observerPairs.push({ index: position,
+            quietMs: quiet.requestMs, diagnosticMs: observed.requestMs, addedMs: observed.requestMs - quiet.requestMs });
+          continue;
+        }
         const index = warmups + position + (diagnostic ? 1 : 0);
         if (native === undefined) samples.push(await flarexRequest(scenario, name, index,
           diagnostic ? "diagnostic" : "quiet", options.mode, runId, retainFailure, server));
@@ -383,8 +405,9 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
     ? execution === "complete" && gates.every(gate => gate.passed) ? "passed" : "failed" : "notEvaluated";
   const report: RunReport = { runId, operation, mode: options.mode, execution, acceptance,
     sampling: { requestedSamples: requested, warmups, size: options.size, scenario: name,
-      driver, pairOrder: operation === "compare" ? "alternating" : "none" },
+      driver, pairOrder: operation === "compare" || options.mode === "resources" ? "alternating" : "none" },
     ...(scenario?.workload === undefined ? {} : { workload: scenario.workload }), samples, pairs,
+    ...(options.mode === "resources" ? { observerPairs } : {}),
     pairedSummary: summary, gates, setupMs, cleanupMs, cleanup, failures,
     sources: { before: before?.digest ?? null, after: after?.digest ?? null, files: before?.files ?? 0 },
     environment: { before: settingsBefore, after: settingsAfter } };

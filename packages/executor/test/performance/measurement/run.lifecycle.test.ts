@@ -26,7 +26,8 @@ const boundary = vi.hoisted(() => {
 vi.mock("../support/prepareScenario", () => ({ prepareCorePerformanceFamily: boundary.prepareFamily }));
 vi.mock("./collectors/native", () => ({ acquireNativeBusinessResource: boundary.native }));
 vi.mock("./source", () => ({ measurementSourceDigest: boundary.source }));
-vi.mock("./collectors/cpu", () => ({ createCpuMeasurementCollector: boundary.cpu, assertCpuMeasurementIdle: boundary.idle }));
+vi.mock("./collectors/cpu", async importOriginal => ({ ...await importOriginal<typeof import("./collectors/cpu")>(),
+  createCpuMeasurementCollector: boundary.cpu, assertCpuMeasurementIdle: boundary.idle }));
 vi.mock("./report", async importOriginal => ({ ...await importOriginal<typeof import("./report")>(), persistMeasurementReport: boundary.persist }));
 
 const outputDirectory = resolve("unused-sdk-lifecycle");
@@ -137,6 +138,37 @@ const quiet = { mode: "quiet", driver: "pglite", size: "small", warmups: 0, samp
   Omit<Parameters<typeof measure>[0], "selection">;
 
 describe("measurement SDK family and sample lifecycle", () => {
+  it("alternates fresh quiet/resource pairs without constructing a profiler", async () => {
+    await measure({ ...quiet, mode: "resources", warmups: 1, samples: 3,
+      selection: { scenario: "mixed-product" } });
+    expect(boundary.prepareFamily).toHaveBeenCalledExactlyOnceWith("mixed-product", { driver: "pglite", size: "small", sampleCount: 7 });
+    expect(boundary.requests.map(request => [request.index, request.effect])).toEqual([
+      [0, false], [1, false], [2, true], [3, true], [4, false], [5, false], [6, true],
+    ]);
+    expect(boundary.cpu).not.toHaveBeenCalled();
+    const report = boundary.reports[0];
+    expect(report?.observerPairs).toHaveLength(3);
+    expect(report?.sampling.pairOrder).toBe("alternating");
+    expect(report?.pairs).toEqual([]);
+    expect(report?.acceptance).toBe("notEvaluated");
+    expect(report?.samples.filter(sample => sample.kind === "diagnostic").every(sample =>
+      sample.evidence?.events.some(event => event.kind === "effectSpan" && event.resources !== undefined))).toBe(true);
+    expect(report?.samples.filter(sample => sample.kind !== "diagnostic").every(sample => sample.evidence === undefined)).toBe(true);
+  });
+
+  it("retains a completed observer lane when acquiring its fresh partner fails", async () => {
+    const original = new Error("partner preparation failed");
+    const prepare = prepareSample.getMockImplementation();
+    if (prepare === undefined) throw new Error("Missing sample preparation witness");
+    prepareSample.mockImplementationOnce(prepare).mockRejectedValueOnce(original);
+    const result = await rejection(() => measure({ ...quiet, mode: "resources", samples: 2,
+      selection: { scenario: "mixed-product" } }));
+    expect(result.cause).toBe(original);
+    expect(boundary.reports[0]?.samples).toMatchObject([{ kind: "calibration", outcome: "success" }]);
+    expect(boundary.reports[0]?.observerPairs).toEqual([]);
+    expect(boundary.reports[0]?.cleanup).toBe("completed");
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
   it.each(corePerformanceScenarios)("delegates $name to its catalog family with requested typical size", async descriptor => {
     const result = await measure({ ...quiet, size: "typical", selection: { scenario: descriptor.name } });
     expect(result.execution).toBe("complete");

@@ -1,8 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Cause, Effect, Exit, Layer, Option, Tracer } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Result, Schema, Tracer } from "effect";
 import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from
   "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
 import type { MeasurementEvent, MeasurementObserver } from "../artifact";
+import { ResourceCountersSchema, ResourceReadingSchema, type ResourceReading } from "../cpu";
 import { failureTokens, type MixedMutationEffectDiagnostics } from "../../support/measurement";
 
 type SpanRecord = Extract<MeasurementEvent, { kind: "effectSpan" }>;
@@ -17,6 +18,8 @@ const boundaryOwners = new Map<string, string>([
   ["finite outer entry activation", "finiteExecution"],
   ["portable runtime execution", "executorRuntime"],
   ["Worker execution", "executorRuntime"],
+  ["runtime result validation", "executorRuntime"],
+  ["complete call cleanup", "requestLifecycle"],
   ["Application point", "applicationJournal"],
   ["Product borrow and source checks", "logicalParticipantAdmission"],
   ["Payload borrow and source checks", "logicalParticipantAdmission"],
@@ -42,14 +45,53 @@ const boundaryOwners = new Map<string, string>([
   ["LogicalDocuments.relationalFind", "logicalWorkingSet"],
   ["LogicalDocuments.relationalPage", "logicalWorkingSet"],
   ["LogicalDocuments.relationalChange", "logicalWorkingSet"],
+  ["LogicalDocuments.readRelationalSelection", "logicalWorkingSet"],
+  ["LogicalDocuments.locate", "logicalWorkingSet"],
+  ["LogicalDocuments.collectSelections", "logicalWorkingSet"],
+  ["LogicalDocuments.validateWrite", "logicalWorkingSet"],
+  ["LogicalDocuments.validateUnique", "logicalWorkingSet"],
+  ["LogicalDocuments.validateRelationalReferences", "logicalWorkingSet"],
   ["LogicalDocuments.close", "logicalWorkingSet"],
   ["LogicalSourceAdmission.captureMetadata", "logicalSourceAdmission"],
   ["LogicalSourceAdmission.pinFiniteReadBinding", "logicalSourceAdmission"],
   ["LogicalDocumentMaterialization.prepareDelta", "logicalMaterialization"],
   ["LogicalDocumentMaterialization.lower", "logicalMaterialization"],
   ["LogicalDocumentMaterialization.completeBatch", "logicalMaterialization"],
+  ["FiniteStorageCapture.run", "logicalReadCapture"],
+  ["FiniteStorageCapture.acceptOwnership", "logicalReadCapture"],
+  ["FiniteStorageCapture.acceptDemandBuild", "logicalReadCapture"],
+  ["SessionJournalStore.freezeFiniteRoot", "finiteCommitPreparation"],
+  ["SessionJournalStore.prepareFiniteEntry", "finiteExecution"],
+  ["ApplicationMutationSessionActivation.completeFiniteEntry", "finiteExecution"],
+  ["ApplicationMutationSessionActivation.prepareFiniteSession", "finiteExecution"],
+  ["ApplicationMutationSessionActivation.finiteEntryContext", "finiteExecution"],
+  ["ApplicationMutationSessionActivation.enterFiniteInTransaction", "finiteExecution"],
+  ["PointCommitTransaction.prepareFiniteCommand", "finiteCommitPreparation"],
+  ["PostgresPhysicalSession.implicitRead", "physicalDatabase"],
+  ["PointCommitTransaction.publishFinite", "pointCommitPublication"],
+  ["ApplicationDocument.applyPreparedMaterializationBlock", "logicalMaterialization"],
+  ["AppIndexEntries.consumeCurrentPages", "applicationIndexes"],
+  ["LogicalDocuments.withCandidateSelection", "logicalWorkingSet"],
+  ["FiniteEntryObservation.capture", "finiteExecution"],
+  ["FinitePublication.observeMetadata", "pointCommitPublication"],
 ]);
 const boundaryOwner = (name: string) => boundaryOwners.get(name) ?? null;
+// Coarse counter brackets only. Internal spans remain wall evidence without
+// a syscall at every row/helper. These are actual source-owned boundaries.
+const resourceBoundaries = new Set([
+  "request admission", "stored read and source preparation", "finite outer entry activation",
+  "portable runtime execution", "Worker execution", "Application point", "native Product operation",
+  "native Payload operation", "native Medusa workflow", "finite freeze and validation", "freeze and verify",
+  "authoritative publication", "runtime result validation", "complete call cleanup", "FiniteStorageCapture.run",
+  "SessionJournalStore.freezeFiniteRoot", "ApplicationMutationSessionActivation.completeFiniteEntry",
+  "PointCommitTransaction.prepareFiniteCommand",
+  "LogicalDocuments.readRelationalSelection", "LogicalDocuments.collectSelections",
+  "LogicalDocuments.validateContribution", "LogicalDocuments.compileRelationalRead",
+  "LogicalDocuments.relationalChange", "FiniteStorageCapture.acceptOwnership",
+  "FiniteStorageCapture.acceptDemandBuild",
+]);
+const decodeResourceReading = Schema.decodeUnknownResult(ResourceReadingSchema, { onExcessProperty: "error" });
+const decodeResourceCounters = Schema.decodeUnknownResult(ResourceCountersSchema, { onExcessProperty: "error" });
 // This named operation owns fork/race/join and the fixture's initialDone wait.
 // Its interval remains evidence; it is not a foreground execution frontier.
 const operationRole = (name: string): SpanRecord["role"] =>
@@ -69,6 +111,7 @@ export function classifyMeasurementExit(exit: Exit.Exit<unknown, unknown>): Span
 export function createEffectMeasurementCollector(input: Readonly<{
   now: () => number;
   capacity?: number;
+  readResources?: () => ResourceReading;
 }>) {
   const capacity = input.capacity ?? 20_000;
   if (!Number.isSafeInteger(capacity) || capacity < 1) throw new Error("Invalid Effect collection capacity");
@@ -103,6 +146,31 @@ export function createEffectMeasurementCollector(input: Readonly<{
     } catch (cause) { fault(cause); }
     return lastTime;
   };
+  const resourceStart = () => {
+    const read = input.readResources;
+    if (read === undefined) return undefined;
+    const atMonotonicMs = now();
+    return Result.match(Result.try({ try: () => Result.getOrThrow(decodeResourceReading(read())), catch: cause => cause }), {
+      onFailure: cause => { fault(cause); return undefined; },
+      onSuccess: reading => ({ atMonotonicMs, reading }),
+    });
+  };
+  const resourceEnd = (start: ReturnType<typeof resourceStart>) => {
+    if (start === undefined) return undefined;
+    const end = resourceStart();
+    if (end === undefined) return undefined;
+    const delta = (last: ResourceReading["process"], first: ResourceReading["process"]) =>
+      ({ user: last.user - first.user, system: last.system - first.system });
+    const idle = end.reading.eventLoop.idle - start.reading.eventLoop.idle;
+    const active = end.reading.eventLoop.active - start.reading.eventLoop.active;
+    return Result.match(decodeResourceCounters({
+      window: { startMonotonicMs: start.atMonotonicMs, endMonotonicMs: end.atMonotonicMs },
+      process: delta(end.reading.process, start.reading.process),
+      thread: start.reading.thread === null || end.reading.thread === null ? null : delta(end.reading.thread, start.reading.thread),
+      eventLoop: { idle, active, utilization: active + idle === 0 ? 0 : active / (active + idle) },
+    }), { onFailure: cause => { fault(cause); return undefined; }, onSuccess: reading => reading });
+  };
+  const nativePhaseResources = new WeakMap<PhaseRecord, ReturnType<typeof resourceStart>>();
   const append = (event: MeasurementEvent) => {
     if (closed || events.length + observerIntervals.length >= capacity) { droppedEvents++; return false; }
     positions.set(event, events.length);
@@ -126,6 +194,8 @@ export function createEffectMeasurementCollector(input: Readonly<{
     },
     span(options) {
       const startMs = now();
+      const resourcesBefore = options.root || resourceBoundaries.has(options.name) || options.name.startsWith("publication.")
+        ? resourceStart() : undefined;
       const span = new Tracer.NativeSpan(options);
       const id = `effect:${span.spanId}`;
       identities.set(span, id);
@@ -146,7 +216,9 @@ export function createEffectMeasurementCollector(input: Readonly<{
           let cause: string | null = null;
           try { if (Exit.isFailure(exit)) cause = failureTokens(exit.cause).join(",") || null; }
           catch (failure) { fault(failure); }
+          const resources = resourceEnd(resourcesBefore);
           const completed: SpanRecord = { ...record, endMs, effectEndNanos: endTime.toString(),
+            ...(resources === undefined ? {} : { resources }),
             outcome: classifyMeasurementExit(exit), cause,
             owner: typeof span.attributes.get("measurement.owner") === "string"
               ? String(span.attributes.get("measurement.owner")) : record.owner,
@@ -187,6 +259,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
   const withPhase = <A>(name: string, run: () => Promise<A>): Promise<A> => {
     if (closed) return run();
     const startMs = now();
+    const resourcesBefore = resourceBoundaries.has(name) ? resourceStart() : undefined;
     const outer = context.getStore();
     if (outer === undefined) lostContextEvents++;
     const ordinal = sequence++;
@@ -204,7 +277,8 @@ export function createEffectMeasurementCollector(input: Readonly<{
         if (closed) { droppedEvents++; lostContextEvents++; }
         else if (retained) {
           const index = positions.get(record);
-          if (index !== undefined) events[index] = { ...record, endMs };
+          const resources = resourceEnd(resourcesBefore);
+          if (index !== undefined) events[index] = { ...record, endMs, ...(resources === undefined ? {} : { resources }) };
         }
         observer(endMs, "Promise phase completion");
       }
@@ -220,18 +294,25 @@ export function createEffectMeasurementCollector(input: Readonly<{
       // decorated by the injected tracer rather than recorded twice.
       const stack = nativePhases.get(event.phase) ?? [];
       if (event.edge === "begin") {
+        const resourcesBefore = resourceStart();
         const ordinal = sequence++;
         const record: PhaseRecord = { kind: "phase", id: `publication-phase:${ordinal}`, sequence: ordinal,
           name: `publication.${event.phase}`, role: "operation", startMs, endMs: null, owner: "pointCommitPublication",
           site: event.phase, parentId: parentId(parent) };
-        if (append(record)) stack.push(record);
+        if (append(record)) {
+          stack.push(record);
+          if (resourcesBefore !== undefined) nativePhaseResources.set(record, resourcesBefore);
+        }
         nativePhases.set(event.phase, stack);
       } else {
         const record = stack.pop();
         if (record === undefined) lostContextEvents++;
         else {
           const index = positions.get(record);
-          if (index !== undefined) events[index] = { ...record, endMs: startMs };
+          const resources = resourceEnd(nativePhaseResources.get(record));
+          if (index !== undefined) events[index] = { ...record, endMs: startMs,
+            ...(resources === undefined ? {} : { resources }) };
+          nativePhaseResources.delete(record);
         }
       }
     } else {
@@ -279,7 +360,8 @@ export function createEffectMeasurementCollector(input: Readonly<{
         },
       });
     },
-    records: () => events.map(event => ({ ...event })),
+    records: () => events.map(event => (event.kind === "phase" || event.kind === "effectSpan") && event.resources !== undefined
+      ? { ...event, resources: structuredClone(event.resources) } : { ...event }),
     observers: () => observerIntervals.map(event => ({ ...event })),
     fullExits: () => new Map(exits),
     status: () => ({ capacity, droppedEvents, lostContextEvents, failureCount,

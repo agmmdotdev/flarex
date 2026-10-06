@@ -26,6 +26,22 @@ function successful(input: unknown) {
 }
 
 describe("measurement interval analysis", () => {
+  it("keeps inclusive resource counters separate from actual descendant driver unions", () => {
+    const resource = { process: { user: 20_000, system: 5_000 }, thread: null,
+      eventLoop: { idle: 30, active: 20, utilization: 0.4 },
+      window: { startMonotonicMs: 1005, endMonotonicMs: 1055 } };
+    const input = evidence([
+      { ...phase("operation", 0, 10, 60, "storage"), resources: resource },
+      phase("child", 1, 10, 60, null, "operation"),
+      // Time overlap alone does not make this exchange part of the operation.
+      driver("unrelated", 2, 10, 60),
+      { ...driver("one", 3, 20, 40), parentId: "child" },
+      { ...driver("two", 4, 30, 50), parentId: "child" },
+    ]);
+    expect(successful(input).operationResources).toEqual([{ id: "operation", name: "operation", owner: "storage",
+      wallMs: 50, counterWindowMs: 50, processCpuMs: 25, threadCpuMs: null,
+      eventLoopIdleMs: 30, eventLoopActiveMs: 20, driverExchangeCount: 2, driverAwaitUnionMs: 30 }]);
+  });
   it("keeps uncovered wall visible and separates two reconciled ledgers", () => {
     const input = evidence([phase("request-phase", 0, 10, 80, "executor"), driver("sql", 1, 20, 60),
       { ...interval, id: "checkout", sequence: 2, startMs: 40, endMs: 70, kind: "checkoutAwait", pool: "target",

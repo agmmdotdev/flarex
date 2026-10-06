@@ -57,11 +57,11 @@ describe("mixed mutation performance trace driver contract", () => {
       expect(JSON.stringify(trace.records())).not.toContain("secretKey");
     } finally { trace.close(); await driver.pool.end(); }
   });
-  it("retains distinct direct operation parents for identical SQL and isolates concurrent requests", async () => {
+  it.each(["full", "resources"] as const)("retains distinct direct operation parents and concurrent request identity in %s detail", async detail => {
     const driver = fakeDriver();
     const operations = new AsyncLocalStorage<string>();
     const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool,
-      currentOperationId: () => operations.getStore() ?? null });
+      detail, currentOperationId: () => operations.getStore() ?? null });
     try {
       await trace.withInvocation({ id: "same-sql", mode: "recon" }, async () => {
         const client = await operations.run("checkout-operation", () => driver.pool.connect());
@@ -90,7 +90,7 @@ describe("mixed mutation performance trace driver contract", () => {
     } finally { trace.close(); await driver.pool.end(); operations.disable(); }
   });
 
-  it("carries the pool submission parent through a queued foreign checkout callback", async () => {
+  it.each(["full", "resources"] as const)("carries the pool submission parent through a queued foreign checkout callback in %s detail", async detail => {
     const driver = fakeDriver();
     const operations = new AsyncLocalStorage<string>();
     const foreignCallback = new AsyncResource("foreign-pg-checkout");
@@ -119,7 +119,7 @@ describe("mixed mutation performance trace driver contract", () => {
     const originalConnect = driver.pool.connect;
     const originalClientQuery = driver.client.query;
     const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool,
-      currentOperationId: () => { reads++; return operations.getStore() ?? null; } });
+      detail, currentOperationId: () => { reads++; return operations.getStore() ?? null; } });
     try {
       await trace.withInvocation({ id: "queued-pool", mode: "recon" }, async () => {
         const promise = operations.run("initiating-operation", () => driver.pool.query("select 7"));
@@ -180,11 +180,11 @@ describe("mixed mutation performance trace driver contract", () => {
     } finally { trace.close(); await driver.pool.end(); }
   });
 
-  it("retains BEGIN's initiating operation without parenting the longer transaction interval", async () => {
+  it.each(["full", "resources"] as const)("retains BEGIN's initiating operation and transaction interval in %s detail", async detail => {
     const driver = fakeDriver();
     const operations = new AsyncLocalStorage<string>();
     const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool,
-      currentOperationId: () => operations.getStore() ?? null });
+      detail, currentOperationId: () => operations.getStore() ?? null });
     try {
       await trace.withInvocation({ id: "transaction-origin", mode: "recon" }, async () => {
         const client = await operations.run("checkout", () => driver.pool.connect());
@@ -250,9 +250,9 @@ describe("mixed mutation performance trace driver contract", () => {
     } finally { trace.close(); await driver.pool.end(); }
   });
 
-  it("preserves callback reentry, synchronous validation and the original Promise rejection", async () => {
+  it.each(["full", "resources"] as const)("preserves callback reentry, synchronous validation and original Promise rejection in %s detail", async detail => {
     const driver = fakeDriver();
-    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool });
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool, detail });
     try {
       await trace.withInvocation({ id: "outcomes", mode: "recon" }, async () => {
         const client = await driver.pool.connect();
@@ -328,6 +328,161 @@ describe("mixed mutation performance trace driver contract", () => {
       expect(driver.client.query).toBe(original);
       expect(trace.records().map(record => record.observationErrors)).toEqual([1, 1]);
       expect(trace.records().every(record => record.outcome === "ok")).toBe(true);
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+});
+
+describe("mixed mutation performance trace resource detail", () => {
+  it("validates detail before installing observers and records the full default", async () => {
+    const driver = fakeDriver();
+    const originalQuery = driver.pool.query;
+    const originalConnect = driver.pool.connect;
+    for (const detail of ["unknown", null, 7]) {
+      expect(() => Reflect.apply(createMixedMutationPerformanceTrace, undefined,
+        [{ controlPool: driver.pool, targetPool: driver.pool, detail }])).toThrow();
+      expect(driver.pool.query).toBe(originalQuery);
+      expect(driver.pool.connect).toBe(originalConnect);
+    }
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool });
+    try {
+      await trace.withInvocation({ id: "default-detail", mode: "recon" }, async () => undefined);
+      expect(trace.records()[0]?.detail).toBe("full");
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+
+  it("captures detail once at construction and records the selected mode", async () => {
+    const driver = fakeDriver();
+    let reads = 0;
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool,
+      get detail(): "resources" { reads++; return "resources"; } });
+    try {
+      await trace.withInvocation({ id: "captured-detail", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        await client.query("select 7");
+      });
+      expect(reads).toBe(1);
+      expect(trace.records()[0]?.detail).toBe("resources");
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+
+  it("omits SQL, input, result and source inspection while preserving original values and callbacks", async () => {
+    const driver = fakeDriver();
+    let inspected = 0;
+    const hostile = () => { inspected++; throw new Error("Unexpected diagnostic inspection"); };
+    const statement = `select '${"private".repeat(100_000)}'`;
+    const parameters = new Proxy([statement], { get: hostile, getOwnPropertyDescriptor: hostile });
+    const config = { text: statement, get values() { return hostile(); } };
+    const textAccessor = { get text() { return hostile(); }, get values() { return hostile(); } };
+    const originalResult = { get rows() { return hostile(); }, toJSON: hostile };
+    driver.result(originalResult);
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool, detail: "resources" });
+    try {
+      await trace.withInvocation({ id: "resource-no-inspection", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        const result = client.query(statement, parameters);
+        expect(result).toBe(driver.lastPromise());
+        expect(await result).toBe(originalResult);
+        expect(await client.query(config)).toBe(originalResult);
+        expect(await client.query(textAccessor)).toBe(originalResult);
+        await new Promise<void>((resolve, reject) => {
+          const returned = client.query(config, function (this: PoolClient, error, value) {
+            if (error) { reject(error); return; }
+            expect(this).toBe(client);
+            expect(value).toBe(originalResult);
+            resolve();
+          });
+          expect(returned).toBe(driver.callbackReturn);
+        });
+        // Also exercise source-stack suppression on the pool delegation route.
+        expect(await driver.pool.query("select 7")).toBe(originalResult);
+      });
+      const record = trace.records()[0];
+      expect(inspected).toBe(0);
+      expect(driver.submitted()).toBe(5);
+      expect(record).toMatchObject({ detail: "resources", outcome: "ok", observationErrors: 0,
+        poolQueryCalls: 1, delegatedPoolQueryDispatches: 1, unknownStatementDispatches: 5 });
+      expect(record?.dispatches).toHaveLength(5);
+      for (const dispatch of record?.dispatches ?? []) {
+        expect(dispatch).toMatchObject({ fingerprint: null, template: null, statementCount: null,
+          parameterCount: null, scalarParameterBytes: null, unknownEncodingParameters: null, sqlUtf8Bytes: null,
+          returnedRowCount: null, decodedResultJsonUtf8Bytes: null, outcome: "ok" });
+      }
+      expect(record?.observerIntervals.some(interval => ["input-sizing", "fingerprinting", "source-stack", "result-sizing"]
+        .includes(interval.kind))).toBe(false);
+      expect(trace.ownerMappings()).toEqual([]);
+      expect(JSON.stringify(record)).not.toContain("private");
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+
+  it("recognizes bounded plain controls and retains backend, operation, checkout and phase correlation", async () => {
+    const driver = fakeDriver();
+    const operations = new AsyncLocalStorage<string>();
+    Object.defineProperty(driver.client, "processID", { configurable: true, value: 8123 });
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool,
+      detail: "resources", currentOperationId: () => operations.getStore() ?? null });
+    try {
+      await trace.withInvocation({ id: "resource-controls", mode: "recon" }, async () => trace.withPhase("business", async () => {
+        const client = await operations.run("checkout", () => driver.pool.connect());
+        await operations.run("begin", () => client.query({ text: "\tBEGIN ;\n" }));
+        await operations.run("body", () => client.query("select 7"));
+        await operations.run("commit", () => client.query("COMMIT"));
+        await operations.run("begin-again", () => client.query("begin"));
+        await operations.run("rollback", () => client.query({ text: "ROLLBACK;" }));
+      }));
+      const record = trace.records()[0];
+      expect(record?.dispatches.map(dispatch => dispatch.transactionAction)).toEqual(["begin", null, "commit", "begin", "rollback"]);
+      expect(record?.dispatches.map(dispatch => dispatch.operationId)).toEqual(["begin", "body", "commit", "begin-again", "rollback"]);
+      expect(record?.transactions.map(transaction => transaction.outcome)).toEqual(["commit", "rollback"]);
+      expect(record?.checkouts[0]?.operationId).toBe("checkout");
+      const checkout = record?.checkouts[0];
+      for (const dispatch of record?.dispatches ?? []) {
+        expect(dispatch).toMatchObject({ backendPid: 8123, connectionId: checkout?.connectionId,
+          checkoutId: checkout?.checkoutId, phasePath: ["invocation", "business"], statementCount: null });
+        expect(dispatch.awaitedMs).toBeGreaterThanOrEqual(0);
+        expect(dispatch.atMs).toBeGreaterThanOrEqual(0);
+      }
+      expect(record?.dispatches.slice(0, 3).map(dispatch => dispatch.transactionId))
+        .toEqual(Array(3).fill(record?.transactions[0]?.transactionId));
+      expect(record?.dispatches.slice(3).map(dispatch => dispatch.transactionId))
+        .toEqual(Array(2).fill(record?.transactions[1]?.transactionId));
+      expect(record).toMatchObject({ observationErrors: 0, lostOperationContexts: 0, aggregationComplete: true });
+      expect(trace.ownerMappings()).toEqual([]);
+    } finally { trace.close(); await driver.pool.end(); operations.disable(); }
+  });
+
+  it("leaves unsupported transaction syntax and business statement counts unknown", async () => {
+    const driver = fakeDriver();
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool, detail: "resources" });
+    const statements = ["START TRANSACTION", "BEGIN TRANSACTION", "END", "ABORT", "ROLLBACK TO SAVEPOINT nested",
+      "/* comment */ BEGIN", "BEGIN; SELECT 1", "COMMIT;;", `${" ".repeat(33)}BEGIN`, "select 1; select 2"];
+    try {
+      await trace.withInvocation({ id: "resource-unknown-syntax", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        for (const text of statements) await client.query(text);
+        await client.query(Object.create({ text: "BEGIN" }));
+      });
+      const record = trace.records()[0];
+      expect(record?.dispatches).toHaveLength(statements.length + 1);
+      expect(record?.dispatches.every(dispatch => dispatch.transactionAction === null && dispatch.statementCount === null)).toBe(true);
+      expect(record?.transactions).toEqual([]);
+      expect(record?.unknownStatementDispatches).toBe(statements.length + 1);
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+
+  it("retains the existing observation bound in resource detail", async () => {
+    const driver = fakeDriver();
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool,
+      detail: "resources", observationLimit: 5 });
+    try {
+      await trace.withInvocation({ id: "resource-bound", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        expect(await client.query("select 7")).toEqual({ rows: [{ value: 7 }] });
+      });
+      const record = trace.records()[0];
+      expect(record).toMatchObject({ detail: "resources", observationLimit: 5, observationErrors: 0, outcome: "ok" });
+      expect(record?.droppedObservations).toBeGreaterThan(0);
+      expect((record?.dispatches.length ?? 0) + (record?.checkouts.length ?? 0)
+        + (record?.transactions.length ?? 0) + (record?.observerIntervals.length ?? 0)).toBe(5);
     } finally { trace.close(); await driver.pool.end(); }
   });
 });

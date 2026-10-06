@@ -97,6 +97,7 @@ describe("core performance report", () => {
       unknownStatementDispatches: 0, awaitedMsMin: 4, awaitedMsMax: 4,
       errorCount: 0, unobservedCount: 0 };
     const record: TraceInvocationRecord = {
+      detail: "full",
       id: "diagnostic", mode: "measured", startedAtMs: 0, durationMs: 12, outcome: "ok",
       spans: [
         { id: 0, parentId: null, name: "invocation", startMs: 0, endMs: 12,

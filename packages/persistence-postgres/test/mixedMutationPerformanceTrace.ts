@@ -6,6 +6,9 @@ import type { Pool, PoolClient } from "pg";
 
 export type TracePool = "control" | "target";
 export type TraceMode = "measured" | "recon";
+const TraceDetail = Schema.Literals(["full", "resources"]);
+export type TraceDetail = typeof TraceDetail.Type;
+const decodeTraceDetail = Schema.decodeUnknownSync(TraceDetail);
 
 const decodeBackendPid = Schema.decodeUnknownSync(Schema.NullOr(Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: 2_147_483_647 }))));
@@ -117,6 +120,8 @@ export interface TraceInvocationRecord {
   readonly startedAtMs: number;
   readonly id: string;
   readonly mode: TraceMode;
+  /** Resources deliberately omits SQL structure, source sites and sizing. */
+  readonly detail: TraceDetail;
   readonly durationMs: number;
   readonly outcome: "ok" | "error";
   readonly spans: readonly TracePhaseSpan[];
@@ -557,8 +562,23 @@ function stackFrames(): readonly string[] {
     .slice(0, 8);
 }
 
+/** Only the core's plain transaction commands, not a SQL parser. The length
+ * guard precedes matching so business statements have bounded inspection cost.
+ * Own data descriptors preserve pg config identity without invoking getters. */
+function resourceTransactionAction(input: unknown): TraceDispatchRecord["transactionAction"] {
+  const descriptor = isRecord(input) ? Object.getOwnPropertyDescriptor(input, "text") : undefined;
+  const text: unknown = typeof input === "string" ? input
+    : descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+  if (typeof text !== "string" || text.length > 32) return null;
+  const command = /^[\t\n\r ]*(begin|commit|rollback)[\t\n\r ]*;?[\t\n\r ]*$/i.exec(text)?.[1]?.toLowerCase();
+  if (command === "begin" || command === "commit" || command === "rollback") return command;
+  return null;
+}
+
 export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPool: Pool; targetPool: Pool;
-  observationLimit?: number; currentOperationId?: () => string | null }>): MixedMutationPerformanceTrace {
+  detail?: TraceDetail; observationLimit?: number; currentOperationId?: () => string | null }>): MixedMutationPerformanceTrace {
+  const requestedDetail = input.detail;
+  const detail = decodeTraceDetail(requestedDetail === undefined ? "full" : requestedDetail);
   const observationLimit = input.observationLimit ?? 100_000;
   if (!Number.isSafeInteger(observationLimit) || observationLimit < 1)
     throw new Error("Trace observationLimit must be a positive safe integer.");
@@ -571,7 +591,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
   const activeTransactionClients = new Set<PoolClient>();
   const activeInvocations = new Set<MutableInvocation>();
   // Hash keys avoid retaining raw SQL text (which could contain inlined values).
-  const sqlCache = new Map<string, ReturnType<typeof structuralSql>>();
+  const sqlCache = detail === "full" ? new Map<string, ReturnType<typeof structuralSql>>() : undefined;
   let closed = false;
   let inFlight = 0;
 
@@ -622,6 +642,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
   }
 
   function parsedSql(value: unknown): ReturnType<typeof structuralSql> {
+    if (sqlCache === undefined) return null;
     const descriptor = isRecord(value) ? Object.getOwnPropertyDescriptor(value, "text") : undefined;
     const text = typeof value === "string" ? value
       : descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string" ? descriptor.value : null;
@@ -670,10 +691,16 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
         const originOperationId = operationId(context, eventId);
         const identity = clientIdentity(invocation, client);
         const path = phasePath(invocation, context.span);
-        const sql = observe(invocation, "fingerprinting", eventId, null, () => parsedSql(args[0]));
-        const sizes = observe<ReturnType<typeof dispatchInputSizes>>(invocation, "input-sizing", eventId, {
+        const sql = detail === "full"
+          ? observe(invocation, "fingerprinting", eventId, null, () => parsedSql(args[0])) : null;
+        const transactionAction = detail === "resources"
+          ? observe(invocation, "preparation", eventId, null, () => resourceTransactionAction(args[0]))
+          : sql?.transactionAction ?? null;
+        const unavailableSizes: ReturnType<typeof dispatchInputSizes> = {
           parameterCount: null, scalarParameterBytes: null, unknownEncodingParameters: null, sqlUtf8Bytes: null,
-        }, () => dispatchInputSizes(args));
+        };
+        const sizes = detail === "full"
+          ? observe(invocation, "input-sizing", eventId, unavailableSizes, () => dispatchInputSizes(args)) : unavailableSizes;
         const backendPid = observe(invocation, "backend-identity", eventId, null, () => {
           // pg declares processID on the client when BackendKeyData arrives.
           // Avoid accessors and never inspect its adjacent cancellation secret.
@@ -687,11 +714,12 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           backendPid,
           pool: poolName, phasePath: path, atMs: 0, awaitedMs: null,
           outcome: "unobserved", fingerprint: sql?.fingerprint ?? null, template: sql?.template ?? null,
-          statementCount: sql?.statementCount ?? null, transactionAction: sql?.transactionAction ?? null,
+          statementCount: sql?.statementCount ?? null,
+          transactionAction,
           delegatedPoolQuery: context.delegatedPoolQuery,
           returnedRowCount: null, decodedResultJsonUtf8Bytes: null, ...sizes,
         };
-        const frames = invocation.mode === "recon" && sql !== null
+        const frames = detail === "full" && invocation.mode === "recon" && sql !== null
           ? context.reconFrames ?? observe(invocation, "source-stack", eventId, [], stackFrames) : undefined;
         const recordOwner = (): void => {
           if (frames === undefined || sql === null) return;
@@ -723,7 +751,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           record.awaitedMs = elapsed(start, end);
           record.outcome = outcome;
           observe(invocation, "event-recording", eventId, undefined, () => {
-            if (outcome === "ok") Object.assign(record,
+            if (detail === "full" && outcome === "ok") Object.assign(record,
               observe(invocation, "result-sizing", eventId, {}, () => {
                 const sizes = decodedQueryResultSizes(result);
                 if (sizes.decodedResultJsonUtf8Bytes === null) throw new Error("Decoded result size unavailable.");
@@ -863,7 +891,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
       context.invocation.poolQueryCalls++;
       const originOperationId = operationId(context, null, false);
       // Capture the source callsite before pg-pool's internal callback frames.
-      const reconFrames = context.invocation.mode === "recon"
+      const reconFrames = detail === "full" && context.invocation.mode === "recon"
         ? observe(context.invocation, "source-stack", null, [], stackFrames) : undefined;
       return storage.run({ ...context, delegatedPoolQuery: true, operationId: originOperationId,
         ...(reconFrames === undefined ? {} : { reconFrames }) },
@@ -946,7 +974,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           unknownStatementDispatches: invocation.dispatches.filter(dispatch => dispatch.statementCount === null).length,
           incompleteSpans: invocation.spans.length,
         };
-        records.push({ ...retained,
+        records.push({ ...retained, detail,
           operationCorrelation: input.currentOperationId === undefined ? "disabled" : "enabled",
           lostOperationContexts: invocation.lostOperationContexts,
           observerIntervals: invocation.observerIntervals.toSorted((a, b) => a.eventId - b.eventId),

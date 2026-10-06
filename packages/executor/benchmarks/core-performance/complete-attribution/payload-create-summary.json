@@ -1,0 +1,1421 @@
+{
+  "runId": "19db7237-0cf7-4210-9961-b828e2bb6d04",
+  "scenario": "payload-create",
+  "execution": "complete",
+  "acceptance": "notEvaluated",
+  "sources": {
+    "before": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+    "after": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+    "files": 2592
+  },
+  "sampling": {
+    "requestedSamples": 3,
+    "warmups": 5,
+    "size": "small",
+    "scenario": "payload-create",
+    "driver": "postgres",
+    "pairOrder": "alternating"
+  },
+  "cleanup": "completed",
+  "environment": {
+    "before": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": null
+    },
+    "after": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": null
+    }
+  },
+  "observer": {
+    "pairs": 3,
+    "quietMedianMs": 102.8044000000009,
+    "diagnosticMedianMs": 179.33499999999913,
+    "differenceMedianMs": 53.34189999999944,
+    "differenceP95Ms": 76.53059999999823,
+    "differencesMs": [
+      53.34189999999944,
+      76.53059999999823,
+      32.25460000000021
+    ]
+  },
+  "diagnostic": {
+    "samples": 3,
+    "rootMedianMs": 178.73340000000098,
+    "driverUnionMedianMs": 79.69749999999476,
+    "checkoutUnionMedianMs": 0.375899999995454,
+    "observerUnionMedianMs": 9.627600000079838,
+    "strictUnknownMedianMs": 161.46700000000783,
+    "strictAmbiguousMedianMs": 0,
+    "contextUnknownMedianMs": 0.3342000000011467,
+    "contextAmbiguousMedianMs": 0,
+    "unknownLeaves": [
+      {
+        "name": "CmsCommit.publishOutcome",
+        "medianMs": 11.973999999998341,
+        "samples": 3
+      },
+      {
+        "name": "InstallationRuntime.readEvidence",
+        "medianMs": 8.584399999999732,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.loadBundle",
+        "medianMs": 4.261300000001938,
+        "samples": 3
+      },
+      {
+        "name": "PayloadAdapter.call",
+        "medianMs": 3.97269999999844,
+        "samples": 3
+      },
+      {
+        "name": "PostgresPhysicalSession.initialTransaction",
+        "medianMs": 3.6614000000008673,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveLocatedTrustedById",
+        "medianMs": 3.2766999999948894,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocumentMaterialization.enter",
+        "medianMs": 3.240699999998469,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.runLocatedTransaction",
+        "medianMs": 2.958600000001752,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationAnalysis.verifyPolicyManifest",
+        "medianMs": 2.9142999999967287,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.readRows",
+        "medianMs": 2.8656000000009954,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveSplit",
+        "medianMs": 2.861399999997957,
+        "samples": 3
+      },
+      {
+        "name": "PrivateSha256V1.digest",
+        "medianMs": 2.8504999999968277,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readCoherentInOwnedTransaction",
+        "medianMs": 2.7968000000037136,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readInOwnedTransaction",
+        "medianMs": 2.7027999999954773,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationTaskCatalogSnapshot.loadInTransaction",
+        "medianMs": 2.660599999999249,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.loadPhysicalBuildRows",
+        "medianMs": 2.6062000000019907,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinitions.listSetMembers",
+        "medianMs": 2.505799999995361,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.decodeStoredDefinition",
+        "medianMs": 2.324300000003859,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockExecutionAuthority",
+        "medianMs": 2.300199999997858,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.validateReadinessReplay",
+        "medianMs": 2.22269999999844,
+        "samples": 3
+      },
+      {
+        "name": "InstallationLifecycle.readGate",
+        "medianMs": 2.2144999999945867,
+        "samples": 3
+      },
+      {
+        "name": "CommittedPointOutcome.executeStatement",
+        "medianMs": 2.1406999999999243,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.selectById",
+        "medianMs": 1.9269999999996799,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWritePolicy.verify",
+        "medianMs": 1.8575000000091677,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinitions.locateForSchema",
+        "medianMs": 1.7351000000053318,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readSchemaForHead",
+        "medianMs": 1.6867999999994936,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationBinding.locateManifestBinding",
+        "medianMs": 1.628100000001723,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.corroborateManifestJson",
+        "medianMs": 1.5845999999983178,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.withSlots",
+        "medianMs": 1.5721000000012282,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWritePolicy.digestFrame",
+        "medianMs": 1.4812000000056287,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readCandidate",
+        "medianMs": 1.4076999999997497,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveAtTarget",
+        "medianMs": 1.3862000000008265,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.loadStoredActiveRelationEvidence",
+        "medianMs": 1.3561999999983527,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.loadSelected",
+        "medianMs": 1.3317999999999302,
+        "samples": 3
+      },
+      {
+        "name": "InstallationRuntime.lockHead",
+        "medianMs": 1.2452999999986787,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.loadCandidateSnapshot",
+        "medianMs": 1.2446000000054482,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.loadStoredReplay",
+        "medianMs": 1.159799999997631,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.validateFrame",
+        "medianMs": 1.1502999999975145,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.locateCreationTimeDefinitionForTable",
+        "medianMs": 1.1050999999970372,
+        "samples": 3
+      },
+      {
+        "name": "PhysicalDefinitionLifecycle.validateReadinessInTransaction",
+        "medianMs": 1.1029000000016822,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.captureOrdinaryWriteRows",
+        "medianMs": 1.0846999999994296,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinition.locate",
+        "medianMs": 1.0574999999989814,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchema.capturePrivateCanonicalValue",
+        "medianMs": 1.033900000002177,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.canonicalize",
+        "medianMs": 0.9836999999934051,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationBinding.locateForCommit",
+        "medianMs": 0.9832999999998719,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.decodeRow",
+        "medianMs": 0.9684000000015658,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readActiveReferences",
+        "medianMs": 0.9506000000001222,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.validateRevisionSchemaReplay",
+        "medianMs": 0.9472999999961758,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.captureSnapshot",
+        "medianMs": 0.9448999999985972,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationTaskCatalogSnapshot.reconstruct",
+        "medianMs": 0.9084000000002561,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinitions.decodeDefinitionRow",
+        "medianMs": 0.8428999999996449,
+        "samples": 3
+      },
+      {
+        "name": "CommitProtocol.canonicalizeSuccessfulResultV1",
+        "medianMs": 0.830100000002858,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.requireAuthorizationRevocationEpochInTransaction",
+        "medianMs": 0.7391999999999825,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.acceptOriginalOwners",
+        "medianMs": 0.7289000000018859,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockForDataAccess",
+        "medianMs": 0.7234000000025844,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationBinding.validateLocatedCommitCatalog",
+        "medianMs": 0.6758000000008906,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readHeadRecord",
+        "medianMs": 0.6707999999998719,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchemaArtifact.capture",
+        "medianMs": 0.6609000000025844,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSchemaBinding.canonicalizeV3",
+        "medianMs": 0.6604000000006636,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchema.verifyStoredPrivateCanonicalValue",
+        "medianMs": 0.6374999999970896,
+        "samples": 3
+      },
+      {
+        "name": "CmsHost.runAdmitted",
+        "medianMs": 0.6107999999949243,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.decodeCapturedSnapshot",
+        "medianMs": 0.6005000000004657,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.readHeadForUpdate",
+        "medianMs": 0.5839999999989232,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetClosure.read",
+        "medianMs": 0.5633000000016182,
+        "samples": 3
+      },
+      {
+        "name": "RelationalSchema.captureArtifact",
+        "medianMs": 0.5586000000002969,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.locateDeveloperDefinitionsForSchema",
+        "medianMs": 0.5278000000034808,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.withValidatedBindingBasis",
+        "medianMs": 0.4897999999993772,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.validateStoredPublication",
+        "medianMs": 0.48589999999967404,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.loadStoredActiveCandidateValidationReceipt",
+        "medianMs": 0.46449999999822467,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeRow",
+        "medianMs": 0.4613000000026659,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.decodeRow",
+        "medianMs": 0.4096000000026834,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationSchemaAuthority.resolve",
+        "medianMs": 0.4074000000000524,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.validatePreparedInTransaction",
+        "medianMs": 0.40579999999681604,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildState.readCoverageContext",
+        "medianMs": 0.3705000000009022,
+        "samples": 3
+      },
+      {
+        "name": "CmsCommit.validateContribution",
+        "medianMs": 0.3447999999989406,
+        "samples": 3
+      },
+      {
+        "name": "payload-create",
+        "medianMs": 0.3342000000011467,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.decodeSha256",
+        "medianMs": 0.32740000000194414,
+        "samples": 3
+      },
+      {
+        "name": "CmsCommit.finalize",
+        "medianMs": 0.321300000003248,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.validateContribution",
+        "medianMs": 0.32049999999799184,
+        "samples": 3
+      },
+      {
+        "name": "DataBinding.restoreValue",
+        "medianMs": 0.31750000000101863,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.acceptPreparedActiveRead",
+        "medianMs": 0.31520000000091386,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.decodeCandidateSnapshotArtifact",
+        "medianMs": 0.3094999999993888,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.loadPhysicalReadiness",
+        "medianMs": 0.2981999999974505,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.canonicalizeFrameV1",
+        "medianMs": 0.2852999999995518,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.decodeStoredManifest",
+        "medianMs": 0.26700000000346336,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.canonicalBytes",
+        "medianMs": 0.2598000000034517,
+        "samples": 3
+      },
+      {
+        "name": "CommittedPointOutcome.resolve",
+        "medianMs": 0.2577999999994063,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.listRequiredDefinitions",
+        "medianMs": 0.25689999999667634,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSchemaBinding.canonicalizeManifestBindingV1",
+        "medianMs": 0.24439999999958673,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationUniqueDeclarations.match",
+        "medianMs": 0.2374999999992724,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinitions.decodeSetMembers",
+        "medianMs": 0.1995999999999185,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationParticipant.prepare",
+        "medianMs": 0.19699999999647844,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.decodeCanonicalFrameV1",
+        "medianMs": 0.19650000000183354,
+        "samples": 3
+      },
+      {
+        "name": "CmsAdmission.require",
+        "medianMs": 0.18610000000262517,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationAnalysis.verifyCurrentManifest",
+        "medianMs": 0.18369999999777065,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationBinding.decodeStoredBoundRow",
+        "medianMs": 0.18029999999998836,
+        "samples": 3
+      },
+      {
+        "name": "InstallationRuntime.accept",
+        "medianMs": 0.16149999999834108,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.readById",
+        "medianMs": 0.1574000000000524,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.loadPriorState",
+        "medianMs": 0.1540999999997439,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decode",
+        "medianMs": 0.15170000000216532,
+        "samples": 3
+      },
+      {
+        "name": "InstallationLifecycle.lockCurrent",
+        "medianMs": 0.151400000002468,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchemaArtifact.sha256",
+        "medianMs": 0.14939999999842257,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.decodeState",
+        "medianMs": 0.14440000000104192,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWritePolicyBinding.verifyStored",
+        "medianMs": 0.14050000000133878,
+        "samples": 3
+      },
+      {
+        "name": "CmsHost.invoke",
+        "medianMs": 0.13830000000234577,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.prepareSlotRead",
+        "medianMs": 0.13800000000264845,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.digestCanonicalJson",
+        "medianMs": 0.13739999999961583,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.activationBasis",
+        "medianMs": 0.13659999999799766,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadinessFold.relationReadinessFrame",
+        "medianMs": 0.1363999999994121,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.applyWriteGuardInTransaction",
+        "medianMs": 0.13149999999950523,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.validateBindingBasisOwned",
+        "medianMs": 0.12919999999576248,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeCandidateWithLanes",
+        "medianMs": 0.12899999999717693,
+        "samples": 3
+      },
+      {
+        "name": "CmsHost.execute",
+        "medianMs": 0.12650000000212458,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.prepareWriteGuard",
+        "medianMs": 0.1261000000013155,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSet.canonicalize",
+        "medianMs": 0.1261000000013155,
+        "samples": 3
+      },
+      {
+        "name": "PhysicalDefinitionLifecycle.validateReadinessCatalog",
+        "medianMs": 0.1227000000035332,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.inspectBuildReadiness",
+        "medianMs": 0.12239999999655993,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.listSchemaVersionBindings",
+        "medianMs": 0.1202000000012049,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeSchemaBinding",
+        "medianMs": 0.11520000000018626,
+        "samples": 3
+      },
+      {
+        "name": "PayloadPreferences.verifyStorageBinding",
+        "medianMs": 0.11469999999826541,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSchemaBinding.canonicalizeWithRelations",
+        "medianMs": 0.1143000000010943,
+        "samples": 3
+      },
+      {
+        "name": "CmsHost.attempt",
+        "medianMs": 0.11310000000230502,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.decodeCapturedRow",
+        "medianMs": 0.1121000000021013,
+        "samples": 3
+      },
+      {
+        "name": "CmsDocuments.make",
+        "medianMs": 0.10890000000654254,
+        "samples": 3
+      },
+      {
+        "name": "PayloadUniqueDeclarations.compile",
+        "medianMs": 0.10650000000168802,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.decodeStored",
+        "medianMs": 0.1055000000014843,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.hashBytes",
+        "medianMs": 0.10329999999885331,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinitions.decodeBindingRow",
+        "medianMs": 0.09959999999773572,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.readInTransaction",
+        "medianMs": 0.09809999999924912,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveLocatedMetadata",
+        "medianMs": 0.09350000000267755,
+        "samples": 3
+      },
+      {
+        "name": "CmsHost.sha256",
+        "medianMs": 0.08949999999822467,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readCheckedCoherentForShare",
+        "medianMs": 0.08929999999963911,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeCapturedRow",
+        "medianMs": 0.08879999999771826,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWriteOwnership.prepareInTransaction",
+        "medianMs": 0.0885999999991327,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildState.isSnapshotCovered",
+        "medianMs": 0.08739999999670545,
+        "samples": 3
+      },
+      {
+        "name": "RelationalSession.postgres",
+        "medianMs": 0.08729999999923166,
+        "samples": 3
+      },
+      {
+        "name": "CmsCommit.enter",
+        "medianMs": 0.0864000000001397,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.makeLifetime",
+        "medianMs": 0.08559999999852153,
+        "samples": 3
+      },
+      {
+        "name": "IntrinsicCreationTimeIndexDefinition.locate",
+        "medianMs": 0.08209999999598949,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.prepareWriteGuardFromHead",
+        "medianMs": 0.07579999999870779,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationParticipant.enter",
+        "medianMs": 0.07549999999901047,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.project",
+        "medianMs": 0.0753999999978987,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingContent.verifyAccepted",
+        "medianMs": 0.07479999999850406,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareIntrinsicIndexDefinitions",
+        "medianMs": 0.07470000000466825,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationUniqueDeclarations.lower",
+        "medianMs": 0.07409999999799766,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readHead",
+        "medianMs": 0.07359999999971478,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readCoherentForShareInTransaction",
+        "medianMs": 0.0730000000075961,
+        "samples": 3
+      },
+      {
+        "name": "AppSchemaCandidateValidation.decodeHeadRow",
+        "medianMs": 0.07300000000032014,
+        "samples": 3
+      },
+      {
+        "name": "CmsCommit.prepare",
+        "medianMs": 0.07289999999920838,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.readAccepted",
+        "medianMs": 0.07080000000496511,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockForSnapshotRead",
+        "medianMs": 0.07079999999768916,
+        "samples": 3
+      },
+      {
+        "name": "PayloadAdapter.invoke",
+        "medianMs": 0.0702000000019325,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.retainCoherentPreparation",
+        "medianMs": 0.06929999999920256,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.create",
+        "medianMs": 0.06750000000465661,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeActivation",
+        "medianMs": 0.06620000000111759,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.acceptUniqueKeyPairs",
+        "medianMs": 0.06589999999778229,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareUniqueConstraintDefinitions",
+        "medianMs": 0.06400000000212458,
+        "samples": 3
+      },
+      {
+        "name": "PayloadPreferences.captureArtifact",
+        "medianMs": 0.06390000000101281,
+        "samples": 3
+      },
+      {
+        "name": "RelationalRequest.recover",
+        "medianMs": 0.06220000000394066,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.restoreHeadRecord",
+        "medianMs": 0.061400000002322486,
+        "samples": 3
+      },
+      {
+        "name": "RelationalSession.run",
+        "medianMs": 0.059600000000500586,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareDeveloperIndexDefinitions",
+        "medianMs": 0.056600000003527384,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.prepareCandidateSchemaWriteGuard",
+        "medianMs": 0.05579999999827123,
+        "samples": 3
+      },
+      {
+        "name": "AppDeveloperIndexDefinition.locate",
+        "medianMs": 0.05529999999998836,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.inspectEligibilityWithLockedClock",
+        "medianMs": 0.055100000001402805,
+        "samples": 3
+      },
+      {
+        "name": "CmsAdmission.withTransaction",
+        "medianMs": 0.054199999998672865,
+        "samples": 3
+      },
+      {
+        "name": "PayloadPreferences.captureProfile",
+        "medianMs": 0.054199999998672865,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.withAcceptedBinding",
+        "medianMs": 0.05350000000180444,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.readCoverageContext",
+        "medianMs": 0.05279999999766005,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingContent.verifyOwnership",
+        "medianMs": 0.052100000000791624,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.writeData",
+        "medianMs": 0.05129999999917345,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.getById",
+        "medianMs": 0.0507999999972526,
+        "samples": 3
+      },
+      {
+        "name": "CmsRequest.makeLifetime",
+        "medianMs": 0.049999999999272404,
+        "samples": 3
+      },
+      {
+        "name": "PayloadPreferences.makeCleanup",
+        "medianMs": 0.04890000000159489,
+        "samples": 3
+      },
+      {
+        "name": "PayloadPreferences.closeCleanup",
+        "medianMs": 0.046000000002095476,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSyscallValidator.derive",
+        "medianMs": 0.0459999999984575,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.hashClaim",
+        "medianMs": 0.04379999999946449,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocumentMaterialization.runCandidateSchemaWriteGuard",
+        "medianMs": 0.0433999999986554,
+        "samples": 3
+      },
+      {
+        "name": "CmsDocuments.close",
+        "medianMs": 0.04279999999926076,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.consumeSlots",
+        "medianMs": 0.04200000000128057,
+        "samples": 3
+      },
+      {
+        "name": "CmsRelations.make",
+        "medianMs": 0.04170000000158325,
+        "samples": 3
+      },
+      {
+        "name": "PayloadPreferences.applyCleanup",
+        "medianMs": 0.04160000000410946,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.envelope",
+        "medianMs": 0.039999999997235136,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.acceptPreparedCatalog",
+        "medianMs": 0.038799999998445855,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationSchemaAuthority.resolveInTransaction",
+        "medianMs": 0.03870000000097207,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.consumeIndexPages",
+        "medianMs": 0.0371000000013737,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.acceptPreparedUniqueConstraintSet",
+        "medianMs": 0.03610000000480795,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetClosure.readControl",
+        "medianMs": 0.03539999999702559,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.readBindingActiveHead",
+        "medianMs": 0.035199999994802056,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationReadiness.validateReferencedSet",
+        "medianMs": 0.034599999999045394,
+        "samples": 3
+      },
+      {
+        "name": "CmsDocuments.consumeClosure",
+        "medianMs": 0.03419999999823631,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.readCapturedSlotOrdinal",
+        "medianMs": 0.033100000000558794,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockForOrdinaryWrite",
+        "medianMs": 0.03289999999833526,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.requireScopeAuthority",
+        "medianMs": 0.0272000000004482,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.consumeTableWriteFrontiers",
+        "medianMs": 0.02659999999741558,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.hasCoverage",
+        "medianMs": 0.026100000002770685,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationRelationBinding.prepareEdgeEvidence",
+        "medianMs": 0.025499999999738066,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeActiveReferences",
+        "medianMs": 0.024699999998119893,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSchemaBinding.verifyRelations",
+        "medianMs": 0.024099999998725252,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.loadPriorDocuments",
+        "medianMs": 0.02110000000175205,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationWritePolicyBinding.bindTables",
+        "medianMs": 0.019700000000739237,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.consumeIndexRanges",
+        "medianMs": 0.019500000002153683,
+        "samples": 3
+      },
+      {
+        "name": "PayloadInput.collection",
+        "medianMs": 0.01690000000235159,
+        "samples": 3
+      }
+    ]
+  },
+  "operations": [
+    {
+      "name": "payload-create",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 178.73340000000098,
+      "processCpuMs": 188,
+      "threadCpuMs": 109,
+      "eventLoopIdleMs": 46.80110000000059,
+      "eventLoopActiveMs": 131.91499999239386,
+      "driverAwaitUnionMs": 79.69749999999476,
+      "driverExchangeCount": 111
+    },
+    {
+      "name": "native Payload operation",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 178.39919999999984,
+      "processCpuMs": 188,
+      "threadCpuMs": 109,
+      "eventLoopIdleMs": 46.80110000000059,
+      "eventLoopActiveMs": 131.6296000041002,
+      "driverAwaitUnionMs": 79.69749999999476,
+      "driverExchangeCount": 111
+    },
+    {
+      "name": "LogicalDocuments.validateContribution",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 2.391700000000128,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0.7134000000005472,
+      "eventLoopActiveMs": 1.6112999946362834,
+      "driverAwaitUnionMs": 1.0093999999990046,
+      "driverExchangeCount": 1
+    }
+  ],
+  "databaseOperations": [
+    {
+      "name": "LogicalDocumentMaterialization.lower",
+      "medianAwaitSumMs": 8.666700000001583,
+      "medianExchanges": 7
+    },
+    {
+      "name": "CmsCommit.publishOutcome",
+      "medianAwaitSumMs": 6.925599999998667,
+      "medianExchanges": 4
+    },
+    {
+      "name": "InstallationRuntime.readEvidence",
+      "medianAwaitSumMs": 6.265699999999924,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationRelationReadinessFold.loadBundle",
+      "medianAwaitSumMs": 2.435700000001816,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ScopeAuthority.resolveLocatedTrustedById",
+      "medianAwaitSumMs": 2.0780999999988126,
+      "medianExchanges": 8
+    },
+    {
+      "name": "PostgresPhysicalSession.initialTransaction",
+      "medianAwaitSumMs": 1.87760000000344,
+      "medianExchanges": 6
+    },
+    {
+      "name": "AppIndexDefinitions.readRows",
+      "medianAwaitSumMs": 1.8242000000027474,
+      "medianExchanges": 5
+    },
+    {
+      "name": "AppSchemaCandidateValidation.runLocatedTransaction",
+      "medianAwaitSumMs": 1.7916000000004715,
+      "medianExchanges": 5
+    },
+    {
+      "name": "ScopeAuthority.resolveSplit",
+      "medianAwaitSumMs": 1.7744000000020606,
+      "medianExchanges": 8
+    },
+    {
+      "name": "AppUniqueConstraintDefinitions.listSetMembers",
+      "medianAwaitSumMs": 1.6761999999980617,
+      "medianExchanges": 2
+    },
+    {
+      "name": "CommittedPointOutcome.executeStatement",
+      "medianAwaitSumMs": 1.66729999999734,
+      "medianExchanges": 1
+    },
+    {
+      "name": "LogicalDocumentMaterialization.enter",
+      "medianAwaitSumMs": 1.6362000000008265,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationActiveHead.readInOwnedTransaction",
+      "medianAwaitSumMs": 1.620599999998376,
+      "medianExchanges": 3
+    },
+    {
+      "name": "InstallationLifecycle.readGate",
+      "medianAwaitSumMs": 1.5949000000036904,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ApplicationRelationTaskCatalogSnapshot.loadInTransaction",
+      "medianAwaitSumMs": 1.4887000000053376,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ScopeClock.lockExecutionAuthority",
+      "medianAwaitSumMs": 1.4508000000023458,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationActiveHead.readCoherentInOwnedTransaction",
+      "medianAwaitSumMs": 1.4095999999954074,
+      "medianExchanges": 3
+    },
+    {
+      "name": "SchemaVersionArtifacts.selectById",
+      "medianAwaitSumMs": 1.33100000000195,
+      "medianExchanges": 2
+    },
+    {
+      "name": "PayloadAdapter.call",
+      "medianAwaitSumMs": 1.1464999999989232,
+      "medianExchanges": 1
+    },
+    {
+      "name": "SchemaVersionArtifacts.corroborateManifestJson",
+      "medianAwaitSumMs": 1.0801999999966938,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationRelationReadinessFold.validateReadinessReplay",
+      "medianAwaitSumMs": 1.0630999999993946,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationReadiness.loadPhysicalBuildRows",
+      "medianAwaitSumMs": 1.0485000000007858,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppUniqueConstraintDefinitions.locateForSchema",
+      "medianAwaitSumMs": 1.0311000000001513,
+      "medianExchanges": 2
+    },
+    {
+      "name": "AppUniqueKeys.withSlots",
+      "medianAwaitSumMs": 1.0093999999990046,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationActiveHead.readSchemaForHead",
+      "medianAwaitSumMs": 0.9729999999981374,
+      "medianExchanges": 2
+    },
+    {
+      "name": "AppUniqueConstraintBuild.loadSelected",
+      "medianAwaitSumMs": 0.8780000000006112,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationWriteOwnership.captureSnapshot",
+      "medianAwaitSumMs": 0.8513999999995576,
+      "medianExchanges": 1
+    },
+    {
+      "name": "DataBindingRepository.readCandidate",
+      "medianAwaitSumMs": 0.8451999999997497,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppSchemaCandidateValidation.loadCandidateSnapshot",
+      "medianAwaitSumMs": 0.832300000001851,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationRelationReadinessFold.loadStoredActiveRelationEvidence",
+      "medianAwaitSumMs": 0.7145000000018626,
+      "medianExchanges": 2
+    },
+    {
+      "name": "LogicalDocumentMaterialization.prepareDelta",
+      "medianAwaitSumMs": 0.7006000000001222,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ScopeAuthority.resolveAtTarget",
+      "medianAwaitSumMs": 0.7004000000015367,
+      "medianExchanges": 2
+    },
+    {
+      "name": "InstallationRuntime.lockHead",
+      "medianAwaitSumMs": 0.6938000000009197,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ScopeClock.captureOrdinaryWriteRows",
+      "medianAwaitSumMs": 0.6445999999996275,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationRelationBinding.locateForCommit",
+      "medianAwaitSumMs": 0.6362000000008265,
+      "medianExchanges": 1
+    },
+    {
+      "name": "PhysicalDefinitionLifecycle.validateReadinessInTransaction",
+      "medianAwaitSumMs": 0.6260000000038417,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationRelationReadinessFold.loadStoredReplay",
+      "medianAwaitSumMs": 0.6224999999976717,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationRelationBinding.locateManifestBinding",
+      "medianAwaitSumMs": 0.5888000000013562,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppUniqueConstraintDefinition.locate",
+      "medianAwaitSumMs": 0.5792000000001281,
+      "medianExchanges": 2
+    },
+    {
+      "name": "AppIndexDefinitions.locateCreationTimeDefinitionForTable",
+      "medianAwaitSumMs": 0.5178000000014435,
+      "medianExchanges": 2
+    },
+    {
+      "name": "DataBindingRepository.readActiveReferences",
+      "medianAwaitSumMs": 0.5156000000024505,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppUniqueKeys.acceptOriginalOwners",
+      "medianAwaitSumMs": 0.5073999999985972,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ScopeClock.requireAuthorizationRevocationEpochInTransaction",
+      "medianAwaitSumMs": 0.44029999999838765,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationRelationReadinessFold.validateRevisionSchemaReplay",
+      "medianAwaitSumMs": 0.4393999999992957,
+      "medianExchanges": 1
+    },
+    {
+      "name": "DataBindingRepository.readHeadRecord",
+      "medianAwaitSumMs": 0.399199999999837,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationRelationBinding.validateLocatedCommitCatalog",
+      "medianAwaitSumMs": 0.3735999999989872,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppSchemaCandidateValidation.readHeadForUpdate",
+      "medianAwaitSumMs": 0.3404000000009546,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ScopeClock.lockForDataAccess",
+      "medianAwaitSumMs": 0.32660000000032596,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppUniqueConstraintSetClosure.read",
+      "medianAwaitSumMs": 0.2944999999999709,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationRelationReadinessFold.loadStoredActiveCandidateValidationReceipt",
+      "medianAwaitSumMs": 0.2936999999983527,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppIndexDefinitions.locateDeveloperDefinitionsForSchema",
+      "medianAwaitSumMs": 0.2187000000012631,
+      "medianExchanges": 1
+    }
+  ]
+}

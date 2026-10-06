@@ -26,10 +26,14 @@ so removing Worker transport alone does not explain their harness improvement.
 
 The owner selects the [cost-attribution successor](#selected-cost-attribution-successor)
 below: precise evidence for choosing core changes, with small measurement APIs
-and explicit owners. Its first small `mixed-product` SDK cutover is implemented
-for quiet/timeline/database diagnostics and fresh native comparisons. Runtime
-optimization remains paused; broader measurement modes and scenario expansion
-retain their separate gates.
+and explicit owners. The SDK covers the adopted 25-flow catalog with
+quiet/timeline/resources/database/CPU/server diagnostics; matched native
+comparisons cover the five original small graphs. The
+[complete cost-attribution continuation](#selected-complete-cost-attribution)
+uses lighter operation resource brackets and fresh alternating observer pairs
+to distinguish repeated mechanics from required semantics before selecting
+another runtime redesign. Native-relative performance acceptance remains open;
+diagnostic completion does not close it.
 
 ## Ownership And Execution Contract
 
@@ -581,3 +585,66 @@ root identifiers and malformed/noncanonical values. An omitted plan identifier
 is explicitly unavailable, with no header fallback. SQL text and parameters stay
 excluded. Existing archived evidence retains its original format and limitation;
 do not reinterpret its logged identifier as the plan's identifier.
+
+### Selected Complete Cost Attribution
+
+Implemented SDK contract. The [current owner inventory and evidence](../../packages/executor/benchmarks/core-performance/complete-attribution/README.md)
+separates finite mixed execution from standalone CMS and Medusa profiles. Their
+different admission, definition, readiness and settlement contracts must remain
+explicit in the connected redesign. Fresh authority and durable atomic outcomes
+remain requirements; repeated immutable reconstruction and proof transport are
+replacement candidates. Exact quiet per-function CPU and PostgreSQL server CPU
+remain unavailable rather than inferred from elapsed or overlapping counters.
+
+The owner requests enough current-source attribution to select the connected
+core redesign. Aggregate latency, instrumented SQL totals and sampled stacks
+have not yet ranked the quiet gap by responsible work. This continuation adds
+a low-observer `resources` measurement through the existing SDK, driver trace
+and actual scenario owners. `measure` and `compare` remain the only public
+entry points. Production and quiet composition remain collector-free.
+
+Resource diagnostics retain operation wall intervals, coarse process/thread CPU
+counter brackets, exact originating operation identity, driver submission and
+completion, checkout, backend PID, outcome and recognized plain transaction
+controls. They omit SQL fingerprints, source stacks, input/result serialization,
+heap sampling, inspector and server logging. The existing driver trace owns this
+lighter detail profile; absent statement, row and byte evidence is unavailable,
+not zero. Full database diagnostics keep their query-shape evidence. CPU/server
+diagnostics use resource-only driver detail so unrelated reconnaissance does not
+obscure the question. Counter intervals are inclusive process/thread observations;
+concurrency, observer cost and platform counter resolution prevent exact causal
+per-function CPU claims.
+
+First classify already named, source-proven operations and preserve genuinely
+unknown or competing children. Observe capture preparation, execution/mapping
+and acceptance, entry construction/acceptance, result verification/root freeze,
+command preparation, actual publication families, and complete call cleanup at
+their real boundaries when the first resource pass shows a material grouping
+gap. Counts cover actual captures, rows, memberships, definitions and already
+known bytes, with no per-row Context lookup, payload copy or serialization for
+measurement. SDK composition constructs diagnostics; core owners carry only their
+existing tracing or observation capability. No new authority, transaction,
+business service, universal telemetry registry or alternate execution path is
+selected.
+
+Use the retained quiet native comparison as the acceptance reference. Calibrate
+the minimal observer against fresh quiet Flarex calls in ten alternating pairs
+after five warmups; this is an observer comparison, not native acceptance, and
+its difference is never subtracted to invent quiet timings. A first pass and at
+most one targeted refinement must answer which owner work is repeated, which
+database exchanges are distinct demands, and which source-proven repetition has
+enough measured cost to change the design. Bound the primary mixed-Product
+campaign to 35 fresh attempts. The other original profiles have separate bounded
+resource diagnostics only where their admission/transaction contract differs;
+do not combine them into one latency population. Additional CPU/server requests
+must resolve a named question, rather than repeat aggregate gap measurements.
+
+Completion requires current complete committed readback, reconciled operation
+and driver intervals, observer comparison, intentional unavailable fields,
+original values/Cause/cancellation and joined cleanup, ordinary-role PostgreSQL,
+focused deterministic collector proofs, affected typechecks/lint, both reviews,
+safe retained evidence and a scoped commit. Record the redesign inventory with
+required semantics, measured repeated mechanics, affected owners and remaining
+uncertainty. This investigation does not claim knowledge of every possible
+future bottleneck or authorize speculative performance changes merely to improve
+an isolated helper.

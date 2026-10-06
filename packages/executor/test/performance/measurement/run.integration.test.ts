@@ -6,6 +6,7 @@ import { compare, measure } from "./index";
 import { decodeMeasurementEvidence } from "./artifact";
 
 const cases = [
+  { name: "pglite-resources", scenario: "application-only", driver: "pglite", mode: "resources", size: "small" },
   { name: "pglite-cpu", scenario: "application-only", driver: "pglite", mode: "cpu", size: "small" },
   { name: "postgres-cpu", scenario: "mixed-product", driver: "postgres", mode: "cpu", size: "small" },
   { name: "postgres-server", scenario: "mixed-product", driver: "postgres", mode: "server", size: "small" },
@@ -47,6 +48,12 @@ describe("connected measurement SDK", () => {
       expect(evidence.cpu?.complete).toBe(true);
       expect(evidence.cpu?.cpuProfile?.samples?.length).toBeGreaterThan(0);
       expect(result.reports.profiles).toHaveLength(2);
+    }
+    if (proof.mode === "resources") {
+      expect(evidence.events.some(event => event.kind === "effectSpan" && event.resources !== undefined)).toBe(true);
+      expect(evidence.cpu).toBeUndefined();
+      expect(evidence.server).toBeUndefined();
+      expect(evidence.events.some(event => event.kind === "driverAwait")).toBe(false);
     }
     if (proof.driver === "postgres") {
       const dispatches = evidence.events.filter(event => event.kind === "driverAwait");

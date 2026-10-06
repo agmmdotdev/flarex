@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { CpuEvidenceSchema } from "./cpu";
+import { CpuEvidenceSchema, ResourceCountersSchema } from "./cpu";
 import { ServerMeasurementEvidenceSchema } from "./server";
 
 const Identity = Schema.String.check(Schema.makeFilter(value => value.length > 0 ? undefined : "Expected nonempty identity"));
@@ -35,12 +35,14 @@ export const MeasurementObserverSchema = Schema.Struct({
 }).check(orderedInterval);
 
 export const MeasurementEventSchema = Schema.Union([
-  Schema.Struct({ ...IntervalFields, kind: Schema.Literal("phase"), name: Identity, role: OperationRole }).check(orderedInterval),
+  Schema.Struct({ ...IntervalFields, kind: Schema.Literal("phase"), name: Identity, role: OperationRole,
+    resources: Schema.optional(ResourceCountersSchema) }).check(orderedInterval),
   Schema.Struct({
     ...IntervalFields, kind: Schema.Literal("effectSpan"), name: Identity, role: OperationRole,
     traceId: NullableIdentity, spanId: Identity, fiberId: NullableIdentity,
     effectStartNanos: Schema.NullOr(Schema.String), effectEndNanos: Schema.NullOr(Schema.String),
     outcome: Outcome, cause: Schema.NullOr(Schema.String),
+    resources: Schema.optional(ResourceCountersSchema),
   }).check(orderedInterval),
   Schema.Struct({
     ...IntervalFields, ...DatabaseFields, kind: Schema.Literal("driverAwait"),

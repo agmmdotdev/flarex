@@ -30,7 +30,7 @@ export interface RequestReport {
 export interface RunReport {
   readonly runId: string;
   readonly operation: "measure" | "compare";
-  readonly mode: "quiet" | "timeline" | "database" | "cpu" | "server";
+  readonly mode: "quiet" | "timeline" | "resources" | "database" | "cpu" | "server";
   readonly execution: "complete" | "failed" | "incomplete";
   readonly acceptance: "passed" | "failed" | "notEvaluated";
   readonly sampling: Readonly<{ requestedSamples: number; warmups: number; size: CorePerformanceSize;
@@ -38,6 +38,7 @@ export interface RunReport {
   readonly workload?: CorePerformanceScenario["workload"];
   readonly samples: readonly RequestReport[];
   readonly pairs: readonly Readonly<{ index: number; nativeMs: number; flarexMs: number; addedMs: number }>[];
+  readonly observerPairs?: readonly Readonly<{ index: number; quietMs: number; diagnosticMs: number; addedMs: number }>[];
   readonly pairedSummary: Readonly<{ samples: number; medianAddedMs: number; p95AddedMs: number }> | null;
   readonly gates: readonly Readonly<{ name: string; passed: boolean; detail: string }>[];
   readonly setupMs: number;
@@ -69,6 +70,12 @@ function humanReport(report: RunReport): string {
     "Matched native references run independently committed framework calls; Application portions use a SQL surrogate. They do not provide Flarex's atomic mixed publication, Application OCC, revision history or durable outcome. Paired excess is a business-reference comparison, not an equal-guarantee engine comparison.", "",
     "| Request | Lane | Kind | Complete call ms | Outcome |", "|---|---|---|---:|---|"];
   for (const sample of report.samples) rows.push(`| ${sample.id} | ${sample.lane} | ${sample.kind} | ${sample.requestMs?.toFixed(3) ?? "unavailable"} | ${sample.outcome} |`);
+  if (report.observerPairs !== undefined) {
+    rows.push("", "| Observer pair | Quiet Flarex ms | Resource diagnostic ms | Observed difference ms |",
+      "|---|---:|---:|---:|");
+    for (const pair of report.observerPairs) rows.push(`| ${pair.index} | ${pair.quietMs.toFixed(3)} | ${pair.diagnosticMs.toFixed(3)} | ${pair.addedMs.toFixed(3)} |`);
+    rows.push("", "These fresh Flarex pairs alternate quiet/diagnostic order and calibrate the resource observer. They are separate business executions, not native acceptance. Timing differences include run variation and must never be subtracted to invent quiet phase timings.");
+  }
   const failures = [...report.failures, ...report.samples.flatMap(sample => sample.failures)];
   if (failures.length > 0) {
     rows.push("", "| Failure stage | Observed outcome | Ordered reason kinds | Safe tags |", "|---|---|---|---|");
@@ -88,10 +95,17 @@ function humanReport(report: RunReport): string {
       `Coordination lifetime union: ${analysis.operationContext.coordinationUnionMs.toFixed(3)} ms; simultaneous foreground leaf union: ${analysis.operationContext.concurrentLeafUnionMs.toFixed(3)} ms; unknown foreground leaf union: ${analysis.operationContext.unknownLeafUnionMs.toFixed(3)} ms. Coordination wrappers remain retained; actual child work still participates in contextual ambiguity. All ledgers and unions overlap and must not be added.`, "",
       `Driver-await union: ${analysis.wall.driverAwaitUnionMs.toFixed(3)} ms; checkout-await union: ${analysis.wall.checkoutAwaitUnionMs.toFixed(3)} ms; observed instrumentation union: ${analysis.wall.observerUnionMs.toFixed(3)} ms; observer/await overlap: ${analysis.wall.observerAwaitOverlapMs.toFixed(3)} ms; post-request observer union: ${analysis.wall.postRequestObserverUnionMs.toFixed(3)} ms. These overlapping unions must not be added.`, "",
       sample.driver !== undefined
-        ? `Actual driver exchanges: ${analysis.database.driverExchanges}; checkouts: ${analysis.database.checkouts}; transactions: ${analysis.database.transactions}; decoded JSON UTF-8 bytes: ${analysis.database.observedDecodedJsonBytes} (${analysis.database.unknownDecodedJsonByteExchanges} unknown exchanges). Operation-correlated exchanges: ${analysis.database.correlatedDriverExchanges}; uncorrelated: ${analysis.database.uncorrelatedDriverExchanges}; root-only: ${analysis.database.rootOnlyDriverExchanges}. A root-only link provides request identity without deeper operation attribution.`
+        ? `Actual driver exchanges: ${analysis.database.driverExchanges}; checkouts: ${analysis.database.checkouts}; transactions: ${analysis.database.transactions}; decoded JSON UTF-8 bytes: ${sample.driver.detail === "resources" ? "unavailable" : analysis.database.observedDecodedJsonBytes} (${analysis.database.unknownDecodedJsonByteExchanges} unknown exchanges). Operation-correlated exchanges: ${analysis.database.correlatedDriverExchanges}; uncorrelated: ${analysis.database.uncorrelatedDriverExchanges}; root-only: ${analysis.database.rootOnlyDriverExchanges}. A root-only link provides request identity without deeper operation attribution.`
         : "Database observations are unavailable in this diagnostic lane. Empty driver totals do not mean zero SQL or zero database work.", "",
       "| Owner | Attributed wall ms | Inclusive observed ms | Driver exchanges |", "|---|---:|---:|---:|");
     for (const owner of analysis.owners) rows.push(`| ${owner.owner} | ${owner.attributedWallMs.toFixed(3)} | ${owner.inclusiveObservedWallMs.toFixed(3)} | ${owner.driverExchangeCount} |`);
+    if (sample.driver?.detail === "resources") rows.push("", "Resource-only driver detail intentionally omits SQL statement counts, fingerprints, source stacks, parameter sizes and result row/byte sizes. Unknown subtotals are not zero work. Transaction intervals recognize only the core's plain bounded BEGIN/COMMIT/ROLLBACK syntax.");
+    if (analysis.operationResources.length > 0) {
+      rows.push("", "| Observed operation | Wall ms | Process CPU ms | Thread CPU ms | Event-loop idle ms | Descendant driver union ms |",
+        "|---|---:|---:|---:|---:|---:|");
+      for (const resource of analysis.operationResources) rows.push(`| ${resource.name} | ${resource.wallMs.toFixed(3)} | ${resource.processCpuMs.toFixed(3)} | ${resource.threadCpuMs?.toFixed(3) ?? "unavailable"} | ${resource.eventLoopIdleMs.toFixed(3)} | ${resource.driverAwaitUnionMs.toFixed(3)} |`);
+      rows.push("", "Operation resource brackets are inclusive and overlap nested operations. Process counters include other threads; thread counters include observer work and platform resolution. A zero CPU delta can reflect counter quantization rather than zero work. Event-loop idle and driver-await union are different observations. Driver-await union includes linked descendant submissions, not arbitrary timestamp matches; zero linked waits do not exclude database work parented to another actual lifetime. These columns must not be added or subtracted to invent transport, server CPU or exclusive owner CPU.");
+    }
     rows.push("", "| Enclosing operation context | Attributed context wall ms | Inclusive context ms | Context-linked driver exchanges |",
       "|---|---:|---:|---:|");
     for (const owner of analysis.operationContext.owners) rows.push(`| ${owner.owner} | ${owner.attributedWallMs.toFixed(3)} | ${owner.inclusiveContextWallMs.toFixed(3)} | ${owner.driverExchangeCount} |`);
@@ -134,7 +148,7 @@ function humanReport(report: RunReport): string {
     }
     if (analysis.incompleteReasons.length > 0) rows.push("", `Missing observations: ${analysis.incompleteReasons.join(", ")}.`);
   }
-  rows.push("", "Effect spans report elapsed work including awaits. Driver waits do not establish server execution, lock time, network cost or scheduler CPU. Decoded JSON bytes do not measure wire traffic or heap allocation. CPU/GC/allocation evidence appears only in CPU mode; server counters and sampled waits appear only in server mode. Empty evidence in other lanes means unavailable. The platform clock precision is unknown. Observed instrumentation intervals cover collector callbacks; Effect context wrapping and all instrumentation cost are not fully measured. Diagnostic and quiet requests are separate; observed instrumentation cost is disclosed and never subtracted to invent quiet latency. Server calibration shares the declared server instrumentation settings; it is not an uninstrumented PostgreSQL baseline.", "",
+  rows.push("", "Effect spans report elapsed work including awaits. Driver waits do not establish server execution, lock time, network cost or scheduler CPU. Decoded JSON bytes do not measure wire traffic or heap allocation. CPU profiles, GC and allocation evidence appear only in CPU mode; coarse operation CPU counters appear in resources mode. Server counters and sampled waits appear only in server mode. Empty evidence in other lanes means unavailable. The platform clock precision is unknown. Observed instrumentation intervals cover collector callbacks; Effect context wrapping and all instrumentation cost are not fully measured. Diagnostic and quiet requests are separate; observed instrumentation cost is disclosed and never subtracted to invent quiet latency. Server calibration shares the declared server instrumentation settings; it is not an uninstrumented PostgreSQL baseline.", "",
     "| Gate | Result | Detail |", "|---|---|---|");
   for (const gate of report.gates) rows.push(`| ${gate.name} | ${gate.passed ? "passed" : "failed"} | ${gate.detail} |`);
   rows.push("", `Command setup: ${report.setupMs.toFixed(3)} ms. Cleanup: ${report.cleanup} (${report.cleanupMs.toFixed(3)} ms).`, "");

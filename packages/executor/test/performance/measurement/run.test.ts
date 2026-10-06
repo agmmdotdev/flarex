@@ -18,6 +18,10 @@ describe("measurement public configuration boundary", () => {
     await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode: "cpu",
       samples: 100, warmups: 5, outputDirectory: "unused" })).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
   });
+  it("reserves a fresh quiet execution for each resource sample", async () => {
+    await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode: "resources",
+      samples: 51, warmups: 5, outputDirectory: "unused" })).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
+  });
   it("fails closed for a comparison without a matched native graph", async () => {
     // Exercise the runtime Schema against foreign input without weakening the public type.
     const input = JSON.parse('{"selection":{"scenario":"product-update"},"size":"small","outputDirectory":"unused"}');

@@ -1,0 +1,1854 @@
+{
+  "runId": "7477afd2-8246-489d-a0a6-c21ebf6b7327",
+  "scenario": "medusa-workflow",
+  "execution": "complete",
+  "acceptance": "notEvaluated",
+  "sources": {
+    "before": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+    "after": "a76699a0fafbced15d3536f0d980f732bc013be28f133903221524de182d6e01",
+    "files": 2592
+  },
+  "sampling": {
+    "requestedSamples": 3,
+    "warmups": 5,
+    "size": "small",
+    "scenario": "medusa-workflow",
+    "driver": "postgres",
+    "pairOrder": "alternating"
+  },
+  "cleanup": "completed",
+  "environment": {
+    "before": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": null
+    },
+    "after": {
+      "flarex": {
+        "driver": "postgres",
+        "control": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        },
+        "target": {
+          "postgresVersion": "18.3",
+          "role": "flarex_read_redesign_logical",
+          "superuser": false,
+          "bypassRls": false,
+          "createDb": false,
+          "createRole": false,
+          "synchronousCommit": "on",
+          "fsync": "on",
+          "fullPageWrites": "on",
+          "statementTracking": "none",
+          "autoExplainMinDuration": "-1"
+        }
+      },
+      "native": null
+    }
+  },
+  "observer": {
+    "pairs": 3,
+    "quietMedianMs": 306.6929000000018,
+    "diagnosticMedianMs": 396.6183999999994,
+    "differenceMedianMs": 63.58660000000236,
+    "differenceP95Ms": 97.83239999999932,
+    "differencesMs": [
+      97.83239999999932,
+      63.58660000000236,
+      -26.519499999994878
+    ]
+  },
+  "diagnostic": {
+    "samples": 3,
+    "rootMedianMs": 394.2066999999952,
+    "driverUnionMedianMs": 136.71240000004036,
+    "checkoutUnionMedianMs": 0.2734000000054948,
+    "observerUnionMedianMs": 29.38730000016949,
+    "strictUnknownMedianMs": 288.77600000011444,
+    "strictAmbiguousMedianMs": 27.803399999873363,
+    "contextUnknownMedianMs": 0.24050000000715954,
+    "contextAmbiguousMedianMs": 85.65339999995922,
+    "unknownLeaves": [
+      {
+        "name": "MedusaWorkflow.frame",
+        "medianMs": 122.97460000000865,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.withCommittedOwnerRow",
+        "medianMs": 16.197200000016892,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.operation",
+        "medianMs": 10.322199999987788,
+        "samples": 3
+      },
+      {
+        "name": "OwnedPromise.run",
+        "medianMs": 9.060000000004948,
+        "samples": 3
+      },
+      {
+        "name": "LogicalSearchBuild.inspectDefinitions",
+        "medianMs": 8.607000000003609,
+        "samples": 3
+      },
+      {
+        "name": "LogicalStorageReadiness.inspectIndexes",
+        "medianMs": 8.540899999970861,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.requireScopeUuid",
+        "medianMs": 7.483199999973294,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.withService",
+        "medianMs": 7.215399999979127,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocumentMaterialization.enter",
+        "medianMs": 7.194599999987986,
+        "samples": 3
+      },
+      {
+        "name": "FlarexValue.canonicalizeV1",
+        "medianMs": 6.757300000026589,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.runTransaction",
+        "medianMs": 6.611299999996845,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildState.readRequiredEnabled",
+        "medianMs": 6.041000000004715,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.executeAndDecodeRange",
+        "medianMs": 5.792099999998754,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.enter",
+        "medianMs": 5.3848000000361935,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.loadSelected",
+        "medianMs": 5.275499999988824,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.captureValue",
+        "medianMs": 5.139699999999721,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.withSlots",
+        "medianMs": 4.804400000000896,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationTaskCatalogSnapshot.captureRows",
+        "medianMs": 4.105399999993097,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockExecutionAuthority",
+        "medianMs": 4.0636000000013155,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveLocatedTrustedById",
+        "medianMs": 3.6719000000084634,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.reserveBundle",
+        "medianMs": 3.662799999990966,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveSplit",
+        "medianMs": 3.651899999989837,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.authenticateStoredColdEvidence",
+        "medianMs": 3.5586999999941327,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildState.isSnapshotCovered",
+        "medianMs": 3.4948000000731554,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.checkContext",
+        "medianMs": 3.4587000000174157,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.compileRelationalRead",
+        "medianMs": 3.4323000000076718,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.validateNextUnique",
+        "medianMs": 3.424299999998766,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.readRows",
+        "medianMs": 3.27369999999064,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockForDataAccess",
+        "medianMs": 3.177399999993213,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.authenticateBundle",
+        "medianMs": 3.044000000001688,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.loadPhysicalBuildRows",
+        "medianMs": 2.861299999996845,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.resolve",
+        "medianMs": 2.7295000000158325,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.loadStoredColdEvidence",
+        "medianMs": 2.531199999997625,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readSelectedEvidence",
+        "medianMs": 2.4800000000177533,
+        "samples": 3
+      },
+      {
+        "name": "InstallationLifecycle.readGate",
+        "medianMs": 2.4554000000061933,
+        "samples": 3
+      },
+      {
+        "name": "PostgresPhysicalSession.initialTransaction",
+        "medianMs": 2.3583999999973457,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveAtTarget",
+        "medianMs": 2.2809000000124797,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.decodeState",
+        "medianMs": 2.2027000000089174,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.invokeParticipant",
+        "medianMs": 2.1595999999844935,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.acceptOriginalOwners",
+        "medianMs": 2.1313999999911175,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.hashBytes",
+        "medianMs": 2.0727999999871827,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.inspectBuildReadiness",
+        "medianMs": 1.994700000017474,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.readTableWriteFrontiers",
+        "medianMs": 1.9579999999987194,
+        "samples": 3
+      },
+      {
+        "name": "Commerce.checkedValue",
+        "medianMs": 1.7606000000232598,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.decodeStoredManifest",
+        "medianMs": 1.6504000000059023,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.loadStoredAuthority",
+        "medianMs": 1.6486000000077183,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.locateUnique",
+        "medianMs": 1.5803999999625375,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.prepareSlotRead",
+        "medianMs": 1.577400000016496,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readHeadRecord",
+        "medianMs": 1.5674000000071828,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchema.capturePrivateCanonicalValue",
+        "medianMs": 1.357400000008056,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.requireStableInitializationReceipt",
+        "medianMs": 1.3182999999989988,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.nested",
+        "medianMs": 1.2936999999947147,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.resolveId",
+        "medianMs": 1.2664999999760767,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readCoherentInOwnedTransaction",
+        "medianMs": 1.2554999999920256,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.scanCurrentInTransaction",
+        "medianMs": 1.2246000000086497,
+        "samples": 3
+      },
+      {
+        "name": "PhysicalDefinitionLifecycle.validateReadinessInTransaction",
+        "medianMs": 1.2212999999901513,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.hasCoverage",
+        "medianMs": 1.199800000009418,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readInOwnedTransaction",
+        "medianMs": 1.1895000000004075,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationSchemaAuthority.readPublished",
+        "medianMs": 1.1007000000026892,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.findRelated",
+        "medianMs": 1.090699999993376,
+        "samples": 3
+      },
+      {
+        "name": "LogicalRelationalAdmission.require",
+        "medianMs": 1.087500000052387,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readSchemaForHead",
+        "medianMs": 1.0561000000088825,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.decodeStoredColdReceipt",
+        "medianMs": 1.054100000008475,
+        "samples": 3
+      },
+      {
+        "name": "CommittedPointOutcome.executeStatement",
+        "medianMs": 1.0535999999992782,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinitions.listSetMembers",
+        "medianMs": 0.9873999999981606,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.requireAuthorizationRevocationEpochInTransaction",
+        "medianMs": 0.9544999999998254,
+        "samples": 3
+      },
+      {
+        "name": "FrameworkSchema.verifyStoredPrivateCanonicalValue",
+        "medianMs": 0.9448999999949592,
+        "samples": 3
+      },
+      {
+        "name": "AppDocument.decodeCanonicalEvidenceV1",
+        "medianMs": 0.9357999999992899,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.readBoundedCurrentSet",
+        "medianMs": 0.9323000000003958,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.replaceRows",
+        "medianMs": 0.9016999999876134,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.activitySnapshot",
+        "medianMs": 0.8917999999903259,
+        "samples": 3
+      },
+      {
+        "name": "MedusaRead.execute",
+        "medianMs": 0.8736000000135391,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.corroborateManifestJson",
+        "medianMs": 0.8526999999958207,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.authenticateStoredAuthority",
+        "medianMs": 0.8494000000064261,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.insertRecord",
+        "medianMs": 0.8215999999883934,
+        "samples": 3
+      },
+      {
+        "name": "PricingRepository.find",
+        "medianMs": 0.7968000000037136,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.apply",
+        "medianMs": 0.7860000000146101,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationTaskCatalogSnapshot.reconstruct",
+        "medianMs": 0.7805000000080327,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.hashClaim",
+        "medianMs": 0.7625000000043656,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.withValidatedBindingBasis",
+        "medianMs": 0.7327000000004773,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.relationalTable",
+        "medianMs": 0.7085999999835622,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetClosure.read",
+        "medianMs": 0.6994000000122469,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.prepareCapturedRows",
+        "medianMs": 0.6849000000147498,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.readRows",
+        "medianMs": 0.6713999999992666,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.prepareContribution",
+        "medianMs": 0.6621999999842956,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.retain",
+        "medianMs": 0.6560000000026776,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.populateTree",
+        "medianMs": 0.6445000000021537,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.executeRequest",
+        "medianMs": 0.6265000000057626,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildState.readCoverageContext",
+        "medianMs": 0.6197999999931199,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.getByIdWithOriginal",
+        "medianMs": 0.5922999999966123,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readCandidate",
+        "medianMs": 0.5898999999990338,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.readRelationRows",
+        "medianMs": 0.5789999999906286,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.readSchemaBinding",
+        "medianMs": 0.5587000000014086,
+        "samples": 3
+      },
+      {
+        "name": "PhysicalDefinitionLifecycle.prepareReadiness",
+        "medianMs": 0.5343999999968219,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.captureOrdinaryWriteRows",
+        "medianMs": 0.5296999999991385,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildReconciliation.loadPublishedRequirements",
+        "medianMs": 0.5282000000006519,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetClosure.readControl",
+        "medianMs": 0.5203000000037719,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.validateFrame",
+        "medianMs": 0.5165999999953783,
+        "samples": 3
+      },
+      {
+        "name": "DataBinding.restoreValue",
+        "medianMs": 0.49500000000261934,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexEntries.sha256",
+        "medianMs": 0.4870000000082655,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.populateRelations",
+        "medianMs": 0.47989999998389976,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.loadPhysicalReadiness",
+        "medianMs": 0.46240000001125736,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.callActivity",
+        "medianMs": 0.46039999998902204,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.validateContribution",
+        "medianMs": 0.4463000000177999,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.loadPriorDocuments",
+        "medianMs": 0.4347999999881722,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.decodeRow",
+        "medianMs": 0.43250000000261934,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.load",
+        "medianMs": 0.42460000001301523,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.hydratePendingSeeds",
+        "medianMs": 0.42060000000492437,
+        "samples": 3
+      },
+      {
+        "name": "CommerceRequest.identityEvidence",
+        "medianMs": 0.3955000000059954,
+        "samples": 3
+      },
+      {
+        "name": "LinkRepository.find",
+        "medianMs": 0.3937000000005355,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.lowerRoot",
+        "medianMs": 0.3933000000033644,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readActiveReferences",
+        "medianMs": 0.39209999999729916,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.authenticateSlotRead",
+        "medianMs": 0.3738000000012107,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.decodeRevisionRow",
+        "medianMs": 0.3732999999920139,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.selectById",
+        "medianMs": 0.36890000000130385,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.captureSelected",
+        "medianMs": 0.35629999999218853,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.plan",
+        "medianMs": 0.35029999999824213,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildReconciliation.readRequirements",
+        "medianMs": 0.34879999999975553,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.make",
+        "medianMs": 0.345999999983178,
+        "samples": 3
+      },
+      {
+        "name": "CommerceCommit.finalize",
+        "medianMs": 0.34300000000803266,
+        "samples": 3
+      },
+      {
+        "name": "CommerceRepository.select",
+        "medianMs": 0.34149999997316627,
+        "samples": 3
+      },
+      {
+        "name": "PricingEvents.captureLogical",
+        "medianMs": 0.3138999999864609,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decode",
+        "medianMs": 0.30909999999857973,
+        "samples": 3
+      },
+      {
+        "name": "MedusaRead.window",
+        "medianMs": 0.3088999999963562,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.capture",
+        "medianMs": 0.3062999999965541,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.validateStoredIssuedReadiness",
+        "medianMs": 0.2996999999813852,
+        "samples": 3
+      },
+      {
+        "name": "CommerceCommit.publishAtoms",
+        "medianMs": 0.2978999999904772,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.validateModuleCall",
+        "medianMs": 0.2965000000112923,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.readBaseInTransaction",
+        "medianMs": 0.2912000000142143,
+        "samples": 3
+      },
+      {
+        "name": "CommerceEvents.invoke",
+        "medianMs": 0.28170000000682194,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.find",
+        "medianMs": 0.2802000000010594,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.readIndexRange",
+        "medianMs": 0.27830000000540167,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.changeRows",
+        "medianMs": 0.26880000001983717,
+        "samples": 3
+      },
+      {
+        "name": "LocalGraph.query",
+        "medianMs": 0.26829999999608845,
+        "samples": 3
+      },
+      {
+        "name": "LogicalSourceAdmission.checkBinding",
+        "medianMs": 0.2680000000036671,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.readRelation",
+        "medianMs": 0.2604000000137603,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.readIndexPage",
+        "medianMs": 0.2572000000072876,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.observe",
+        "medianMs": 0.25510000000940636,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.projectActivity",
+        "medianMs": 0.24940000000060536,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.updateRelated",
+        "medianMs": 0.24880000000121072,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.callParticipant",
+        "medianMs": 0.2485000000015134,
+        "samples": 3
+      },
+      {
+        "name": "LogicalStorageReadiness.inspect",
+        "medianMs": 0.24459999998362036,
+        "samples": 3
+      },
+      {
+        "name": "DataBinding.verifyLogicalSchema",
+        "medianMs": 0.2427999999927124,
+        "samples": 3
+      },
+      {
+        "name": "medusa-workflow",
+        "medianMs": 0.24050000000715954,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockForSnapshotRead",
+        "medianMs": 0.24020000001473818,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readCheckedSchemaForHead",
+        "medianMs": 0.2375999999931082,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.admitNext",
+        "medianMs": 0.23460000000341097,
+        "samples": 3
+      },
+      {
+        "name": "InstallationLifecycle.lockCurrent",
+        "medianMs": 0.22209999998449348,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.decodeExactNumeric",
+        "medianMs": 0.21910000000934815,
+        "samples": 3
+      },
+      {
+        "name": "CommerceModule.use",
+        "medianMs": 0.21370000000752043,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.readCapturedSlotOrdinal",
+        "medianMs": 0.21169999999256106,
+        "samples": 3
+      },
+      {
+        "name": "PrivateSha256V1.digest",
+        "medianMs": 0.21070000000327127,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.runNative",
+        "medianMs": 0.20509999999922002,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeRow",
+        "medianMs": 0.19770000001881272,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.insert",
+        "medianMs": 0.19550000000162981,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.readCheckedCoherentForShare",
+        "medianMs": 0.19109999999636784,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.captureActive",
+        "medianMs": 0.19039999999949941,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.validateBindingBasisOwned",
+        "medianMs": 0.18790000000444707,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationTaskCatalogSnapshot.loadInTransaction",
+        "medianMs": 0.1872999999905005,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.run",
+        "medianMs": 0.1829000000070664,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readPreparedSelectedHead",
+        "medianMs": 0.18149999999877764,
+        "samples": 3
+      },
+      {
+        "name": "CommerceRequest.lock",
+        "medianMs": 0.1782999999995809,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSet.canonicalize",
+        "medianMs": 0.17309999999997672,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.store",
+        "medianMs": 0.17099999998754356,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.captureNode",
+        "medianMs": 0.16629999999713618,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.makeWorking",
+        "medianMs": 0.16270000000076834,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.materializeContribution",
+        "medianMs": 0.16049999999813735,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.relatedReadInput",
+        "medianMs": 0.15799999999580905,
+        "samples": 3
+      },
+      {
+        "name": "CommittedPointOutcome.resolve",
+        "medianMs": 0.15399999999499414,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationTaskCatalogSnapshot.authenticateCapturedRows",
+        "medianMs": 0.1534999999930733,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.acceptUniqueKeyPairs",
+        "medianMs": 0.1529999999984284,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.project",
+        "medianMs": 0.15119999999296851,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.decodeRow",
+        "medianMs": 0.1496999999944819,
+        "samples": 3
+      },
+      {
+        "name": "LinkEvents.captureLogical",
+        "medianMs": 0.14510000000154832,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.decodeStoredDefinition",
+        "medianMs": 0.1444000000046799,
+        "samples": 3
+      },
+      {
+        "name": "Product.validateNativeCall",
+        "medianMs": 0.13750000001164153,
+        "samples": 3
+      },
+      {
+        "name": "PricingRepository.createGraph",
+        "medianMs": 0.13489999999728752,
+        "samples": 3
+      },
+      {
+        "name": "PricingCommand.prepare",
+        "medianMs": 0.13379999999597203,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.requireInitialization",
+        "medianMs": 0.13179999999556458,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.restoreHeadRecord",
+        "medianMs": 0.13100000000849832,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.moduleEvent",
+        "medianMs": 0.1304999999993015,
+        "samples": 3
+      },
+      {
+        "name": "CommitEvents.digest",
+        "medianMs": 0.12810000000172295,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.closeContributions",
+        "medianMs": 0.125,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationDocument.loadPriorState",
+        "medianMs": 0.11940000002505258,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeActivation",
+        "medianMs": 0.11890000000130385,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.prepareRequestEvidence",
+        "medianMs": 0.11560000001190929,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintBuild.readTableFrontiers",
+        "medianMs": 0.11310000000230502,
+        "samples": 3
+      },
+      {
+        "name": "ScopeAuthority.resolveLocatedMetadata",
+        "medianMs": 0.11099999999714782,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.listRequiredDefinitions",
+        "medianMs": 0.1091999999989639,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.inspectActivity",
+        "medianMs": 0.10820000000967411,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.consumeIndexRanges",
+        "medianMs": 0.10790000000270084,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeCandidateWithLanes",
+        "medianMs": 0.10680000000138534,
+        "samples": 3
+      },
+      {
+        "name": "VariantPricingLink.command",
+        "medianMs": 0.1058000000048196,
+        "samples": 3
+      },
+      {
+        "name": "IndexBuildState.readCoverageTableFrontiers",
+        "medianMs": 0.10400000000663567,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.projectEvidence",
+        "medianMs": 0.10099999999511056,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.acceptPreparedCatalog",
+        "medianMs": 0.09909999999945285,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readSelectedHead",
+        "medianMs": 0.09780000000318978,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.decodeCapturedPublishedPoint",
+        "medianMs": 0.09769999999116408,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.capture",
+        "medianMs": 0.09569999999803258,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationReadiness.validateStoredForActivationInTransaction",
+        "medianMs": 0.09459999999671709,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalCall",
+        "medianMs": 0.09459999999671709,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.inspectEligibilityWithLockedClock",
+        "medianMs": 0.09419999999227002,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationBindingProjection.withEvidenceInTransaction",
+        "medianMs": 0.08920000000216532,
+        "samples": 3
+      },
+      {
+        "name": "LogicalRelationalAdmission.withTransaction",
+        "medianMs": 0.08829999998852145,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.selectCandidates",
+        "medianMs": 0.08739999998942949,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.consumeIndexPages",
+        "medianMs": 0.08649999999033753,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.close",
+        "medianMs": 0.0859000000054948,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.withAdmissions",
+        "medianMs": 0.08109999999578577,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.consumeSlots",
+        "medianMs": 0.08060000000841683,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.attempt",
+        "medianMs": 0.07940000000235159,
+        "samples": 3
+      },
+      {
+        "name": "MedusaAdapter.encodeExactNumeric",
+        "medianMs": 0.07699999999749707,
+        "samples": 3
+      },
+      {
+        "name": "CommerceCommit.prepareAtomic",
+        "medianMs": 0.07699999999749707,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.readBindingActiveHead",
+        "medianMs": 0.07500000000436557,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.selectModuleEvent",
+        "medianMs": 0.07439999999769498,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.decodeSchemaBinding",
+        "medianMs": 0.07409999999799766,
+        "samples": 3
+      },
+      {
+        "name": "PricingEvents.validateLogicalCreate",
+        "medianMs": 0.07390000001032604,
+        "samples": 3
+      },
+      {
+        "name": "Workflow.runAtomic",
+        "medianMs": 0.07360000000335276,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.readBoundedPublishedCurrentSet",
+        "medianMs": 0.07309999999415595,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueKeys.requireScopeAuthority",
+        "medianMs": 0.07150000000547152,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.readInput",
+        "medianMs": 0.06999999999970896,
+        "samples": 3
+      },
+      {
+        "name": "LinkEvents.validateLogicalCall",
+        "medianMs": 0.06859999999142019,
+        "samples": 3
+      },
+      {
+        "name": "AppIndexDefinitions.listSchemaVersionBindings",
+        "medianMs": 0.06819999999424908,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.updateTagsBySelector",
+        "medianMs": 0.06709999999293359,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.consume",
+        "medianMs": 0.0661000000036438,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.captureRequest",
+        "medianMs": 0.06469999999535503,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.run",
+        "medianMs": 0.06440000000293367,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.decodeActiveReferences",
+        "medianMs": 0.06400000000576256,
+        "samples": 3
+      },
+      {
+        "name": "BoundedRequest.makeLifetime",
+        "medianMs": 0.06229999999777647,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.capture",
+        "medianMs": 0.0603999999948428,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.relatedCreateInput",
+        "medianMs": 0.05880000000615837,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.requireCurrentReadLimits",
+        "medianMs": 0.05769999999029096,
+        "samples": 3
+      },
+      {
+        "name": "RelationalSession.postgres",
+        "medianMs": 0.05500000000029104,
+        "samples": 3
+      },
+      {
+        "name": "pricingCount",
+        "medianMs": 0.05489999999554129,
+        "samples": 3
+      },
+      {
+        "name": "CommerceEvents.created",
+        "medianMs": 0.053800000008777715,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.relatedListInput",
+        "medianMs": 0.05300000000715954,
+        "samples": 3
+      },
+      {
+        "name": "linkCreate",
+        "medianMs": 0.052700000000186265,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.replaceRows",
+        "medianMs": 0.05269999999291031,
+        "samples": 3
+      },
+      {
+        "name": "ProductAdapter.validateGraphLink",
+        "medianMs": 0.04809999999997672,
+        "samples": 3
+      },
+      {
+        "name": "AppRows.consumeTableWriteFrontiers",
+        "medianMs": 0.04760000000533182,
+        "samples": 3
+      },
+      {
+        "name": "LogicalCommerce.admitFactPage",
+        "medianMs": 0.04750000000058208,
+        "samples": 3
+      },
+      {
+        "name": "LogicalStorageReadiness.requireCatalog",
+        "medianMs": 0.047200000008160714,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.readById",
+        "medianMs": 0.047200000000884756,
+        "samples": 3
+      },
+      {
+        "name": "linkCount",
+        "medianMs": 0.046999999991385266,
+        "samples": 3
+      },
+      {
+        "name": "pricingCreate",
+        "medianMs": 0.046900000001187436,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.close",
+        "medianMs": 0.04689999999391148,
+        "samples": 3
+      },
+      {
+        "name": "productCreatevariant",
+        "medianMs": 0.045700000002398156,
+        "samples": 3
+      },
+      {
+        "name": "productVariantcount",
+        "medianMs": 0.045499999992898665,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.readHead",
+        "medianMs": 0.04469999999855645,
+        "samples": 3
+      },
+      {
+        "name": "LogicalDocuments.checkRemovedRelationalKeys",
+        "medianMs": 0.0441999999966356,
+        "samples": 3
+      },
+      {
+        "name": "productTaglist",
+        "medianMs": 0.04320000000006985,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalVariantCreate",
+        "medianMs": 0.04230000000097789,
+        "samples": 3
+      },
+      {
+        "name": "productcount",
+        "medianMs": 0.042199999996228144,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActiveHead.retainCoherentPreparation",
+        "medianMs": 0.04160000000410946,
+        "samples": 3
+      },
+      {
+        "name": "ProductTagWorkflow.validateEvents",
+        "medianMs": 0.04099999999743886,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.prepareCatalog",
+        "medianMs": 0.04019999999582069,
+        "samples": 3
+      },
+      {
+        "name": "DataBindingRepository.requireSelectedPreparation",
+        "medianMs": 0.038899999992281664,
+        "samples": 3
+      },
+      {
+        "name": "AtomicEvents.consume",
+        "medianMs": 0.03670000000420259,
+        "samples": 3
+      },
+      {
+        "name": "ProductTagWorkflow.returnedIds",
+        "medianMs": 0.03629999999975553,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintDefinitions.decodeSetMembers",
+        "medianMs": 0.036099999997531995,
+        "samples": 3
+      },
+      {
+        "name": "RelationalSession.run",
+        "medianMs": 0.035499999998137355,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.prepareBindingSelection",
+        "medianMs": 0.033300000010058284,
+        "samples": 3
+      },
+      {
+        "name": "PointCommitTransaction.loadUniqueConstraintEligibilityForReadiness",
+        "medianMs": 0.03310000000783475,
+        "samples": 3
+      },
+      {
+        "name": "ScopeClock.lockForOrdinaryWrite",
+        "medianMs": 0.032100000011269,
+        "samples": 3
+      },
+      {
+        "name": "ApplicationActivation.prepareLegacyBinding",
+        "medianMs": 0.031599999994796235,
+        "samples": 3
+      },
+      {
+        "name": "SchemaVersionArtifacts.getById",
+        "medianMs": 0.030700000002980232,
+        "samples": 3
+      },
+      {
+        "name": "RelationalRequest.recover",
+        "medianMs": 0.02990000000136206,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalEntity",
+        "medianMs": 0.0298999999940861,
+        "samples": 3
+      },
+      {
+        "name": "CommerceEvents.rows",
+        "medianMs": 0.02779999999620486,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.loadEligibilityWithClockLock",
+        "medianMs": 0.026400000002468005,
+        "samples": 3
+      },
+      {
+        "name": "MedusaWorkflow.execute",
+        "medianMs": 0.02569999999832362,
+        "samples": 3
+      },
+      {
+        "name": "MedusaGraph.selectValues",
+        "medianMs": 0.02569999999832362,
+        "samples": 3
+      },
+      {
+        "name": "ProductEvents.validateLogicalTagCall",
+        "medianMs": 0.0253999999986263,
+        "samples": 3
+      },
+      {
+        "name": "ProductTagWorkflow.validateComposition",
+        "medianMs": 0.02500000000873115,
+        "samples": 3
+      },
+      {
+        "name": "AppUniqueConstraintSetBuild.loadEligibilityForReadiness",
+        "medianMs": 0.022499999999126885,
+        "samples": 3
+      },
+      {
+        "name": "AtomicCommerce.openMissingContributions",
+        "medianMs": 0.015099999996891711,
+        "samples": 3
+      }
+    ]
+  },
+  "operations": [
+    {
+      "name": "medusa-workflow",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 394.2066999999952,
+      "processCpuMs": 312,
+      "threadCpuMs": 281,
+      "eventLoopIdleMs": 99.33079999999973,
+      "eventLoopActiveMs": 294.6065999983075,
+      "driverAwaitUnionMs": 136.71240000004036,
+      "driverExchangeCount": 252
+    },
+    {
+      "name": "native Medusa workflow",
+      "samples": 3,
+      "count": 1,
+      "wallMs": 393.25420000000304,
+      "processCpuMs": 312,
+      "threadCpuMs": 281,
+      "eventLoopIdleMs": 99.33079999999973,
+      "eventLoopActiveMs": 293.9241999952319,
+      "driverAwaitUnionMs": 136.71240000004036,
+      "driverExchangeCount": 252
+    },
+    {
+      "name": "LogicalDocuments.readRelationalSelection",
+      "samples": 3,
+      "count": 27,
+      "wallMs": 54.433800000013434,
+      "processCpuMs": 94,
+      "threadCpuMs": 79,
+      "eventLoopIdleMs": 11.620600000002014,
+      "eventLoopActiveMs": 43.1769999853168,
+      "driverAwaitUnionMs": 16.652800000010757,
+      "driverExchangeCount": 26
+    },
+    {
+      "name": "LogicalDocuments.collectSelections",
+      "samples": 3,
+      "count": 55,
+      "wallMs": 46.1594000000041,
+      "processCpuMs": 63,
+      "threadCpuMs": 63,
+      "eventLoopIdleMs": 12.200900000003458,
+      "eventLoopActiveMs": 33.77980003091943,
+      "driverAwaitUnionMs": 17.51310000000376,
+      "driverExchangeCount": 28
+    },
+    {
+      "name": "LogicalDocuments.relationalChange",
+      "samples": 3,
+      "count": 6,
+      "wallMs": 23.287899999995716,
+      "processCpuMs": 31,
+      "threadCpuMs": 31,
+      "eventLoopIdleMs": 5.332200000000739,
+      "eventLoopActiveMs": 17.98930000333712,
+      "driverAwaitUnionMs": 6.684600000000501,
+      "driverExchangeCount": 10
+    },
+    {
+      "name": "LogicalDocuments.validateContribution",
+      "samples": 3,
+      "count": 3,
+      "wallMs": 16.915300000007846,
+      "processCpuMs": 16,
+      "threadCpuMs": 16,
+      "eventLoopIdleMs": 5.905100000003586,
+      "eventLoopActiveMs": 10.19639998531784,
+      "driverAwaitUnionMs": 6.688300000001618,
+      "driverExchangeCount": 6
+    },
+    {
+      "name": "LogicalDocuments.compileRelationalRead",
+      "samples": 3,
+      "count": 27,
+      "wallMs": 3.4323000000076718,
+      "processCpuMs": 0,
+      "threadCpuMs": 0,
+      "eventLoopIdleMs": 0,
+      "eventLoopActiveMs": 3.4442999809980392,
+      "driverAwaitUnionMs": 0,
+      "driverExchangeCount": 0
+    }
+  ],
+  "databaseOperations": [
+    {
+      "name": "LogicalDocumentMaterialization.lower",
+      "medianAwaitSumMs": 38.698000000011234,
+      "medianExchanges": 24
+    },
+    {
+      "name": "AppUniqueKeys.withCommittedOwnerRow",
+      "medianAwaitSumMs": 10.706700000002456,
+      "medianExchanges": 12
+    },
+    {
+      "name": "LogicalSearchBuild.inspectDefinitions",
+      "medianAwaitSumMs": 6.977800000007846,
+      "medianExchanges": 6
+    },
+    {
+      "name": "OwnedPromise.run",
+      "medianAwaitSumMs": 6.694799999997485,
+      "medianExchanges": 9
+    },
+    {
+      "name": "AppIndexEntries.requireScopeUuid",
+      "medianAwaitSumMs": 6.0882000000056,
+      "medianExchanges": 9
+    },
+    {
+      "name": "AppIndexEntries.executeAndDecodeRange",
+      "medianAwaitSumMs": 4.168900000004214,
+      "medianExchanges": 9
+    },
+    {
+      "name": "ApplicationActivation.runTransaction",
+      "medianAwaitSumMs": 4.093600000007427,
+      "medianExchanges": 15
+    },
+    {
+      "name": "AppIndexEntries.consumeCurrentPages",
+      "medianAwaitSumMs": 3.7634000000034575,
+      "medianExchanges": 3
+    },
+    {
+      "name": "LogicalDocumentMaterialization.enter",
+      "medianAwaitSumMs": 3.3707000000067637,
+      "medianExchanges": 6
+    },
+    {
+      "name": "AppUniqueKeys.withSlots",
+      "medianAwaitSumMs": 2.9248999999981606,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ApplicationTaskCatalogSnapshot.captureRows",
+      "medianAwaitSumMs": 2.644700000004377,
+      "medianExchanges": 9
+    },
+    {
+      "name": "IndexBuildState.readRequiredEnabled",
+      "medianAwaitSumMs": 2.629799999987881,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ScopeClock.lockExecutionAuthority",
+      "medianAwaitSumMs": 2.4333000000042375,
+      "medianExchanges": 8
+    },
+    {
+      "name": "ScopeAuthority.resolveLocatedTrustedById",
+      "medianAwaitSumMs": 2.3795999999929336,
+      "medianExchanges": 12
+    },
+    {
+      "name": "ApplicationReadiness.reserveBundle",
+      "medianAwaitSumMs": 2.3733999999967637,
+      "medianExchanges": 6
+    },
+    {
+      "name": "AppRows.readRows",
+      "medianAwaitSumMs": 2.2374000000054366,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ScopeAuthority.resolveSplit",
+      "medianAwaitSumMs": 2.1419000000096275,
+      "medianExchanges": 12
+    },
+    {
+      "name": "AppUniqueConstraintBuild.loadSelected",
+      "medianAwaitSumMs": 2.13020000000688,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ScopeClock.lockForDataAccess",
+      "medianAwaitSumMs": 1.7069999999948777,
+      "medianExchanges": 7
+    },
+    {
+      "name": "InstallationLifecycle.readGate",
+      "medianAwaitSumMs": 1.6865000000034343,
+      "medianExchanges": 6
+    },
+    {
+      "name": "ApplicationReadiness.loadStoredColdEvidence",
+      "medianAwaitSumMs": 1.5943999999944936,
+      "medianExchanges": 6
+    },
+    {
+      "name": "ApplicationReadiness.loadPhysicalBuildRows",
+      "medianAwaitSumMs": 1.4390999999959604,
+      "medianExchanges": 3
+    },
+    {
+      "name": "DataBindingRepository.readSelectedEvidence",
+      "medianAwaitSumMs": 1.4184000000022934,
+      "medianExchanges": 3
+    },
+    {
+      "name": "AppUniqueKeys.acceptOriginalOwners",
+      "medianAwaitSumMs": 1.3865000000077998,
+      "medianExchanges": 3
+    },
+    {
+      "name": "LogicalDocumentMaterialization.prepareDelta",
+      "medianAwaitSumMs": 1.3689999999987776,
+      "medianExchanges": 3
+    },
+    {
+      "name": "AppRows.readTableWriteFrontiers",
+      "medianAwaitSumMs": 1.3127000000022235,
+      "medianExchanges": 3
+    },
+    {
+      "name": "PostgresPhysicalSession.initialTransaction",
+      "medianAwaitSumMs": 1.2819999999992433,
+      "medianExchanges": 5
+    },
+    {
+      "name": "ScopeAuthority.resolveAtTarget",
+      "medianAwaitSumMs": 1.012800000004063,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ApplicationReadiness.loadStoredAuthority",
+      "medianAwaitSumMs": 0.9587000000028638,
+      "medianExchanges": 3
+    },
+    {
+      "name": "DataBindingRepository.readHeadRecord",
+      "medianAwaitSumMs": 0.9435000000012224,
+      "medianExchanges": 4
+    },
+    {
+      "name": "LogicalCommerce.requireStableInitializationReceipt",
+      "medianAwaitSumMs": 0.7875999999960186,
+      "medianExchanges": 3
+    },
+    {
+      "name": "CommittedPointOutcome.executeStatement",
+      "medianAwaitSumMs": 0.7505000000019209,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationActiveHead.readInOwnedTransaction",
+      "medianAwaitSumMs": 0.7182000000029802,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ApplicationActiveHead.readCoherentInOwnedTransaction",
+      "medianAwaitSumMs": 0.6903000000020256,
+      "medianExchanges": 3
+    },
+    {
+      "name": "PhysicalDefinitionLifecycle.validateReadinessInTransaction",
+      "medianAwaitSumMs": 0.6863999999986845,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ApplicationReadiness.authenticateBundle",
+      "medianAwaitSumMs": 0.6679999999978463,
+      "medianExchanges": 3
+    },
+    {
+      "name": "ApplicationActiveHead.readSchemaForHead",
+      "medianAwaitSumMs": 0.6215000000083819,
+      "medianExchanges": 3
+    },
+    {
+      "name": "AppUniqueConstraintDefinitions.listSetMembers",
+      "medianAwaitSumMs": 0.5938000000023749,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ScopeClock.requireAuthorizationRevocationEpochInTransaction",
+      "medianAwaitSumMs": 0.5905999999959022,
+      "medianExchanges": 3
+    },
+    {
+      "name": "LogicalDocuments.withCandidateSelection",
+      "medianAwaitSumMs": 0.5711000000010245,
+      "medianExchanges": 3
+    },
+    {
+      "name": "SchemaVersionArtifacts.corroborateManifestJson",
+      "medianAwaitSumMs": 0.5230999999985215,
+      "medianExchanges": 2
+    },
+    {
+      "name": "AppIndexDefinitions.readRows",
+      "medianAwaitSumMs": 0.4513999999908265,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationSchemaAuthority.readPublished",
+      "medianAwaitSumMs": 0.3685999999943306,
+      "medianExchanges": 2
+    },
+    {
+      "name": "SchemaVersionArtifacts.getByIdWithOriginal",
+      "medianAwaitSumMs": 0.3627000000051339,
+      "medianExchanges": 1
+    },
+    {
+      "name": "DataBindingRepository.readCandidate",
+      "medianAwaitSumMs": 0.35280000000057044,
+      "medianExchanges": 1
+    },
+    {
+      "name": "AppUniqueConstraintSetClosure.read",
+      "medianAwaitSumMs": 0.3485000000000582,
+      "medianExchanges": 2
+    },
+    {
+      "name": "PhysicalDefinitionLifecycle.prepareReadiness",
+      "medianAwaitSumMs": 0.29249999999592546,
+      "medianExchanges": 2
+    },
+    {
+      "name": "AppUniqueConstraintSetClosure.readControl",
+      "medianAwaitSumMs": 0.28919999999925494,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ApplicationDocument.loadPriorDocuments",
+      "medianAwaitSumMs": 0.275099999998929,
+      "medianExchanges": 1
+    },
+    {
+      "name": "IndexBuildReconciliation.loadPublishedRequirements",
+      "medianAwaitSumMs": 0.27199999999720603,
+      "medianExchanges": 2
+    },
+    {
+      "name": "ScopeClock.captureOrdinaryWriteRows",
+      "medianAwaitSumMs": 0.27070000000094296,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationReadiness.readSchemaBinding",
+      "medianAwaitSumMs": 0.25940000000264263,
+      "medianExchanges": 1
+    },
+    {
+      "name": "ApplicationReadiness.prepareCapturedRows",
+      "medianAwaitSumMs": 0.258800000003248,
+      "medianExchanges": 2
+    },
+    {
+      "name": "SchemaVersionArtifacts.selectById",
+      "medianAwaitSumMs": 0.2312000000019907,
+      "medianExchanges": 1
+    },
+    {
+      "name": "DataBindingRepository.readActiveReferences",
+      "medianAwaitSumMs": 0.22179999999934807,
+      "medianExchanges": 1
+    },
+    {
+      "name": "CommerceRequest.lock",
+      "medianAwaitSumMs": 0.12060000000201399,
+      "medianExchanges": 1
+    }
+  ]
+}

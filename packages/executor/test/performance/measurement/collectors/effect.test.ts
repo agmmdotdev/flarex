@@ -1,9 +1,77 @@
 import { Cause, Clock, Deferred, Effect, Exit, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
-import { observePointCommitPublicationEffect } from "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
+import { observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
 import { createEffectMeasurementCollector } from "./effect";
 
 describe("diagnostic Effect measurement collector", () => {
+  it("brackets native publication phases and rejects backwards resource readings", async () => {
+    let tick = 0;
+    let reads = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++, readResources: () => {
+      reads++;
+      return { process: { user: reads === 3 ? 0 : reads * 1000, system: 0 }, thread: null,
+        eventLoop: { idle: reads, active: reads, utilization: 0.5 } };
+    } });
+    const observation = collector.publicationObservation();
+    const original = { id: "original business value" };
+    expect(await collector.runRequest("request", () => observePointCommitPublicationPromise(observation,
+      "lowering", () => Promise.resolve(original)))).toBe(original);
+    const phase = collector.records().find(event => event.kind === "phase" && event.name === "publication.lowering");
+    expect(phase).not.toHaveProperty("resources");
+    expect(collector.status().failureCount).toBe(1);
+    expect(collector.records().find(event => event.kind === "effectSpan" && event.name === "request"))
+      .toMatchObject({ resources: { process: { user: 3000, system: 0 } } });
+  });
+  it("brackets coarse resources and leaves internal counter observations absent", async () => {
+    let tick = 0;
+    let reads = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++, readResources: () => {
+      reads++;
+      return { process: { user: reads * 1000, system: 0 }, thread: null,
+        eventLoop: { idle: reads, active: reads, utilization: 0.5 } };
+    } });
+    const internal = Effect.fn("unknown internal operation")(() => Effect.succeed(7));
+    expect(await collector.runRequest("request", () => collector.binding.withPhase("native Product operation", () =>
+      Effect.runPromise(collector.binding.provide(internal()))))).toBe(7);
+    expect(reads).toBe(4);
+    const records = collector.records();
+    const root = records.find(event => event.kind === "effectSpan" && event.name === "request");
+    const phase = records.find(event => event.kind === "phase" && event.name === "native Product operation");
+    expect(root).toMatchObject({ resources: { process: { user: 3000, system: 0 }, thread: null,
+      eventLoop: { idle: 3, active: 3, utilization: 0.5 } } });
+    expect(phase).toMatchObject({ resources: { process: { user: 1000, system: 0 } } });
+    expect(records.find(event => event.kind === "effectSpan" && event.name === "unknown internal operation"))
+      .not.toHaveProperty("resources");
+    if (root?.kind !== "effectSpan" || root.resources === undefined) throw new Error("Missing root counters");
+    Object.assign(root.resources.process, { user: 0 });
+    expect(collector.records().find(event => event.id === root.id)).toMatchObject({ resources: { process: { user: 3000 } } });
+    expect(collector.status()).toMatchObject({ lostContextEvents: 0, failureCount: 0 });
+  });
+
+  it("contains foreign counter faults without changing original business outcomes", async () => {
+    let tick = 0;
+    const original = { _tag: "OriginalRefusal" };
+    const collector = createEffectMeasurementCollector({ now: () => tick++, readResources: () => {
+      throw new Error("counter reader failed");
+    } });
+    await expect(collector.runRequest("request", async () => { throw original; })).rejects.toBe(original);
+    expect(collector.status().failureCount).toBeGreaterThan(0);
+    expect(collector.records().every(event => !("resources" in event))).toBe(true);
+  });
+
+  it("assigns inspected finite capture names without assigning unknown names", async () => {
+    let tick = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++ });
+    const capture = Effect.fn("FiniteStorageCapture.run")(() => Effect.succeed(1));
+    const unknown = Effect.fn("Uninspected.run")(() => Effect.succeed(2));
+    await collector.runRequest("request", () => Effect.runPromise(collector.binding.provide(
+      capture().pipe(Effect.andThen(unknown())))));
+    expect(collector.records().find(event => event.kind === "effectSpan" && event.name === "FiniteStorageCapture.run"))
+      .toMatchObject({ owner: "logicalReadCapture" });
+    expect(collector.records().find(event => event.kind === "effectSpan" && event.name === "Uninspected.run"))
+      .toMatchObject({ owner: null });
+  });
+
   it("supplies tracing to publication's genuine independent runtime without an outer binding", async () => {
     let tick = 0;
     const collector = createEffectMeasurementCollector({ now: () => tick++ });

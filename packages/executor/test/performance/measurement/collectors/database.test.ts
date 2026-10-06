@@ -6,7 +6,7 @@ import { databaseEvents } from "./database";
 
 const phasePath = ["invocation", "publication"];
 const record: TraceInvocationRecord = {
-  id: "synthetic-request", mode: "recon", startedAtMs: 1025, durationMs: 100, outcome: "ok",
+  id: "synthetic-request", mode: "recon", detail: "full", startedAtMs: 1025, durationMs: 100, outcome: "ok",
   spans: [{ id: 0, parentId: null, name: "invocation", startMs: 0, endMs: 100,
     inclusiveMs: 100, exclusiveMs: 100, complete: true }],
   dispatchGroups: [], checkoutGroups: [], transactionGroups: [],

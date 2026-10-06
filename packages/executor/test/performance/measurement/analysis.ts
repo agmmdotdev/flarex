@@ -48,6 +48,7 @@ export interface MeasurementAnalysis {
       driverExchangeCount: number }>[] }>;
   readonly databaseOperations: readonly Readonly<{ name: string | null; contextOwners: readonly string[];
     driverExchangeCount: number; awaitSumMs: number }>[];
+  readonly operationResources: ReturnType<typeof operationResources>;
   readonly wall: Readonly<{ rootMs: number; partitionMs: number; phaseLedgerMs: number; waitLedgerMs: number;
     reconciliationErrorMs: number; roundingToleranceMs: number; driverAwaitUnionMs: number;
     checkoutAwaitUnionMs: number; observerUnionMs: number; observerAwaitOverlapMs: number;
@@ -92,6 +93,34 @@ function observerUnion(intervals: readonly Readonly<{ startMs: number; endMs: nu
     end = Math.max(end, interval.endMs);
   }
   return total;
+}
+
+/** Inclusive counter brackets and descendant driver unions are separate
+ * observations. Neither thread CPU nor residual wall is exclusive owner CPU. */
+function operationResources(evidence: MeasurementEvidence) {
+  const byId = new Map(evidence.events.map(event => [event.id, event]));
+  return evidence.events.flatMap(event => {
+    if ((event.kind !== "phase" && event.kind !== "effectSpan") || event.resources === undefined || event.endMs === null) return [];
+    const endMs = event.endMs;
+    const drivers = evidence.events.filter(driver => {
+      if (driver.kind !== "driverAwait") return false;
+      let parent = driver.parentId;
+      while (parent !== null) {
+        if (parent === event.id) return true;
+        parent = byId.get(parent)?.parentId ?? null;
+      }
+      return false;
+    });
+    const driverAwaitUnionMs = observerUnion(drivers.flatMap(driver => driver.kind !== "driverAwait" || driver.endMs === null ? [] :
+      [{ startMs: Math.max(event.startMs, driver.startMs), endMs: Math.min(endMs, driver.endMs) }]));
+    const counters = event.resources;
+    return [{ id: event.id, name: event.name, owner: event.owner, wallMs: endMs - event.startMs,
+      counterWindowMs: counters.window.endMonotonicMs - counters.window.startMonotonicMs,
+      processCpuMs: (counters.process.user + counters.process.system) / 1000,
+      threadCpuMs: counters.thread === null ? null : (counters.thread.user + counters.thread.system) / 1000,
+      eventLoopIdleMs: counters.eventLoop.idle, eventLoopActiveMs: counters.eventLoop.active,
+      driverExchangeCount: drivers.length, driverAwaitUnionMs }];
+  });
 }
 
 /** A deterministic endpoint sweep. Overlapping observations survive in each
@@ -336,6 +365,7 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
       owners: [...contextOwners.values()].toSorted((a, b) => b.attributedWallMs - a.attributedWallMs || a.owner.localeCompare(b.owner)) },
     databaseOperations: [...databaseOperations.values()].toSorted((a, b) => b.driverExchangeCount - a.driverExchangeCount
       || (a.name ?? "").localeCompare(b.name ?? "")),
+    operationResources: operationResources(evidence),
     owners: [...ownerRows.values()].toSorted((a, b) => b.attributedWallMs - a.attributedWallMs || a.owner.localeCompare(b.owner)),
     work: [...workRows.values()], database });
 }

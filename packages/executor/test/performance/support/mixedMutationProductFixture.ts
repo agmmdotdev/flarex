@@ -745,10 +745,12 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         const raw = await runPhase(input.executionHost === undefined ? "portable runtime execution" : "Worker execution", () => fixture.runExecution(
           input.applicationSource?.(seed) ?? applicationSource));
         if (workerConstructionMilliseconds === null) throw new Error("Missing fresh Worker readiness");
-        const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
-          result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
-        const decodedResult = decodePointMutationExactRuntimeResultV1Effect(success.result.result);
-        const returnedValue = (await Effect.runPromise(diagnostics === undefined ? decodedResult : diagnostics.provide(decodedResult))).value;
+        const returnedValue = (await runPhase("runtime result validation", () => {
+          const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
+            result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
+          const decodedResult = decodePointMutationExactRuntimeResultV1Effect(success.result.result);
+          return Effect.runPromise(diagnostics === undefined ? decodedResult : diagnostics.provide(decodedResult));
+        })).value;
         const preparePublication = async () => {
           if (publicationServer === undefined) return fixture.preparePublication(returnedValue);
           await publicationServer.begin("preparationAndFinishing");
@@ -773,7 +775,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
           workerConstructionMilliseconds, canonicalResultBytes, publication,
           attemptPhases: Object.freeze(attemptPhases.map(phase => Object.freeze(phase))) });
       } finally {
-        try { await fixture.close(); }
+        try { await runPhase("complete call cleanup", () => fixture.close()); }
         catch (cause) {
           if (cleanupFailures === undefined) throw cause;
           // Only the opted-in benchmark retains disposal failure separately;

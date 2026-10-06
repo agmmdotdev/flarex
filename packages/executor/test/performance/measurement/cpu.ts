@@ -66,6 +66,10 @@ const Memory = Schema.Struct({ atMonotonicMs: Nonnegative, rss: Nonnegative, hea
   heapUsed: Nonnegative, external: Nonnegative, arrayBuffers: Nonnegative, usedHeapSize: Nonnegative,
   heapSizeLimit: Nonnegative, mallocedMemory: Nonnegative });
 const Elu = Schema.Struct({ idle: Nonnegative, active: Nonnegative, utilization: Nonnegative });
+export const ResourceReadingSchema = Schema.Struct({ process: Counter, thread: Schema.NullOr(Counter), eventLoop: Elu });
+export const ResourceCountersSchema = Schema.Struct({ ...ResourceReadingSchema.fields, window: Window });
+export type ResourceReading = typeof ResourceReadingSchema.Type;
+export type ResourceCounters = typeof ResourceCountersSchema.Type;
 const FaultStage = Schema.Literals(["conflict", "connect", "cpuEnable", "cpuInterval", "cpuStart", "heapEnable",
   "heapStart", "gcStart", "beforeCounters", "afterCounters", "cpuStop", "heapStop", "cpuDecode", "heapDecode",
   "gcDelivery", "gcDecode", "gcDisconnect", "disconnect", "duration", "clock", "exportBound"]);
@@ -80,8 +84,7 @@ export const CpuEvidenceSchema = Schema.Struct({
   callWindow: Schema.NullOr(Window), cpuStartCommand: Schema.NullOr(Window), cpuStopCommand: Schema.NullOr(Window),
   allocationWindow: Schema.NullOr(Window), cpuProfile: Schema.NullOr(CpuProfileSchema),
   allocationProfile: Schema.NullOr(AllocationProfileSchema),
-  counters: Schema.NullOr(Schema.Struct({ window: Window, process: Counter, thread: Schema.NullOr(Counter),
-    eventLoop: Elu })),
+  counters: Schema.NullOr(ResourceCountersSchema),
   memory: Schema.Struct({ before: Schema.NullOr(Memory), after: Schema.NullOr(Memory) }),
   gc: Schema.Struct({ supported: Schema.Boolean,
     events: Schema.Array(Schema.Struct({ startMonotonicMs: Nonnegative, durationMs: Nonnegative,
