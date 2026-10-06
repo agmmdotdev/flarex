@@ -1,7 +1,10 @@
 # Measurement SDK Design
 
-Status: selected design only. The SDK operations and module layout below are
-unimplemented. Runtime development and new measurements remain paused. The
+Status: the first connected small `mixed-product` measurement SDK is implemented
+with `quiet`, `timeline`, `database` and fresh native pairs. SDK-owned Effect
+Layers collect diagnostics at the existing trusted composition boundary;
+production and quiet requests provide no measurement Layer or collectors.
+Runtime performance optimization remains paused. The
 [owning preflight](../../../../../roadmaps/mixed-mutation-core/21-core-performance-harness-preflight.md#selected-cost-attribution-successor)
 owns scope, evidence lanes, accounting, validation and cutover. Existing scenario
 expansion and native reference work retain their own owners and handoff gates.
@@ -14,7 +17,7 @@ the SDK constructs the session, collectors, observation bindings, analysis and
 report, and releases its resources. No new workspace or production package is
 selected merely to provide this boundary.
 
-The proposed call shape is:
+The first-cohort call shape is:
 
 ```ts
 import { measure, compare } from "./measurement";
@@ -29,38 +32,51 @@ await measure({
 await compare({
   selection: { scenario: "mixed-product" },
   size: "small",
-  samples: 100,
+  samples: 30,
   warmups: 5,
   outputDirectory,
 });
 ```
 
-These are design examples, not commands for current code. `measure`
+`measure`
 executes one declared quiet or diagnostic plan. `compare` owns fresh
 matched native/Flarex quiet pairs and their retained complete-request excess.
-Both reuse the existing scenario catalog, sampling policy and real business
-composition. Missing native mappings are explicit unsupported comparisons.
+Both reuse the existing mixed fixture and actual native business composition.
+The first cohort selects only small `mixed-product`; the existing catalog's
+remaining scenarios and groups retain their expansion gate. Missing native
+mappings are unsupported comparisons.
 Diagnostic mode is one discriminant, not overlapping SQL/CPU/server booleans.
-The selected modes are `quiet`, `timeline`, `database`, `cpu` and `server`.
-`compare` accepts no diagnostic mode: its timed requests are quiet. Sampling
-defaults come from the existing sampling-plan owner and are retained in the
-report. Sampling, stable sources/settings, complete comparable results and
+The complete design selects `quiet`, `timeline`, `database`, `cpu` and `server`.
+CPU and server modes are unavailable in this first cutover.
+`compare` accepts no diagnostic mode: its timed requests are quiet. Sampling defaults
+are retained in the report: one warmup and one sample for `measure`, five warmups
+and 30 fresh pairs for `compare`. The committed fixture's 40-attempt bound
+supports this acceptance minimum; the preferred 100-pair plan remains gated on
+the separate harness owner's sampling-capacity handoff. Sampling, stable
+sources/settings, complete comparable results and
 cleanup must satisfy the existing acceptance policy before `passed` is possible.
-The catalog-backed selection chooses a scenario, family or existing daily/all
-group. A multi-scenario selection has one bounded SDK session and preserves
+The later catalog-backed selection will choose a scenario, family or existing daily/all
+group. A multi-scenario selection must have one bounded SDK session and preserve
 existing family reuse/disposal; the CLI must not create a session per item.
 
 Options have one SDK-owned Schema. Inputs may use inference; callers need no
 imports for plans, sites, spans, clients, transactions, recorders or artifact
-types. The proposed result has four fields: `runId`, `execution`, `acceptance`
+types. The result has four fields: `runId`, `execution`, `acceptance`
 and `reports`. `execution` is `complete`, `failed` or `incomplete`; `acceptance`
 is `passed`, `failed` or `notEvaluated`; `reports` contains raw and human artifact
 paths. Only a genuine complete comparison can pass acceptance. A complete
 diagnostic uses `notEvaluated`. Known business failures use `failed`; missing,
-lost or unsettled required observations use `incomplete`. Preserve full original
-sample failures and cleanup outcomes in retained evidence. Invalid configuration
+lost or unsettled required observations use `incomplete`. A failed execution
+rejects with those four report/status fields and the original sample and cleanup
+causes, in order; a single failure retains its object identity. Artifacts retain
+ordered stage-specific reason kinds and safe tags rather than arbitrary messages,
+stack contents or payloads. Diagnostic tracer Exits retain actual typed failure,
+defect, interruption and combined reasons. Quiet foreign rejections remain foreign:
+the SDK cannot reconstruct Cause reasons already squashed by an existing runtime
+bridge, and installs no collector to discover them. Invalid configuration
 rejects before resources are acquired. Infrastructure failures preserve their
-original error/Cause and any partial artifact references; the SDK cannot return
+original error/Cause and any partial artifact references; combined execution,
+cleanup and persistence failures retain all original causes. The SDK cannot return
 successful artifact paths when persistence failed.
 
 ## Core Integration
@@ -154,7 +170,7 @@ bottleneck from one run.
 
 ## Internal Modules
 
-The proposed layout gives each responsibility one owner:
+The layout gives each responsibility one owner:
 
 ```text
 measurement/
@@ -183,8 +199,9 @@ interface. Historical reports retain their original formats and limitations.
 ## Useful Evidence And Precision
 
 Reports expose complete paired cost when available, ordered requests and SQL,
-checkout/transaction identities, owner work counts and byte units, CPU/GC
-diagnostics, observed server waits, observer cost, coverage gaps and failures.
+checkout/transaction identities, owner work counts and byte units, observer cost,
+coverage gaps and failures. CPU/GC diagnostics and server waits remain unavailable
+until their deferred collectors are implemented.
 Raw events remain available alongside the ranked summary. Each value states
 whether it is observed, estimated, ambiguous or unavailable.
 
@@ -195,9 +212,13 @@ exact allocation or wall attribution. Driver await is not server execution;
 decoded JSON bytes are not wire traffic or heap allocation. Collector overhead
 is measured and disclosed rather than subtracted to invent quiet latency.
 
-Start with one connected existing `mixed-product` report, not every flow and
-mode at once. A first cutover must make the current request explainable and
-validate the observation contracts before extending the matrix. The owning
+The first cutover covers one connected existing `mixed-product` report. Complete
+collection and reconciled wall accounting do not imply complete owner attribution:
+unknown and overlapping owners remain visible, and driver awaits cannot identify
+server execution, network or lock waits. Timeline-only runs collect no database
+events; their empty database totals represent an unavailable lane rather than
+zero SQL work. The [retained reports](../../../benchmarks/core-performance/measurement-sdk/README.md)
+record these limits. The owning
 preflight requires affected checks, deterministic accounting witnesses, real
 database/native lanes, both reviews, shared-file handoff, cleanup and a scoped
 commit. It grants no claim of improved core performance merely because the SDK

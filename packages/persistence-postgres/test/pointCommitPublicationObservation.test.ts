@@ -1,9 +1,33 @@
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
 import { PointCommitPublicationObservation, observePointCommitPublicationEffect,
   observePointCommitPublicationPromise, type PointCommitPublicationEvent } from "../src/pointCommitPublicationObservation";
 
 describe("point-commit publication diagnostic isolation", () => {
+  it("lets trusted composition replace Effect phase events without changing failure or channels", async () => {
+    const cause = Cause.combine(Cause.fail({ _tag: "BusinessRefusal" }), Cause.die(new Error("business defect")));
+    const events: PointCommitPublicationEvent[] = [];
+    const spans: Tracer.NativeSpan[] = [];
+    const observation = new PointCommitPublicationObservation({ detail: true, record: event => events.push(event),
+      traceEffect: (phase, work) => Effect.useSpan(`publication.${phase}`, span =>
+        Effect.provideService(work, Tracer.ParentSpan, span)) });
+    const tracer = Tracer.make({ span: options => {
+      const span = new Tracer.NativeSpan(options); spans.push(span); return span;
+    } });
+    const exit = await Effect.runPromiseExit(observePointCommitPublicationEffect(observation, "transaction",
+      Effect.failCause(cause)).pipe(Effect.provideService(Tracer.Tracer, tracer)));
+    expect(Exit.isFailure(exit) && exit.cause).toBe(cause);
+    expect(events).toEqual([]);
+    expect(spans.map(span => span.name)).toEqual(["publication.transaction"]);
+    expect(spans[0]?.status._tag).toBe("Ended");
+    const broken = new PointCommitPublicationObservation({ detail: true, record: () => undefined,
+      traceEffect: () => { throw new Error("diagnostic construction failure"); } });
+    const work = Effect.failCause(cause);
+    expect(observePointCommitPublicationEffect(broken, "transaction", work)).toBe(work);
+    const unchanged = await Effect.runPromiseExit(observePointCommitPublicationEffect(broken, "transaction", work));
+    expect(Exit.isFailure(unchanged) && unchanged.cause).toBe(cause);
+    expect(broken.status().failureCount).toBe(2);
+  });
   it("delivers detached frozen scalars and retains only bounded failure status", () => {
     const events: PointCommitPublicationEvent[] = [];
     const observation = new PointCommitPublicationObservation({ detail: true, record: event => { events.push(event); } });

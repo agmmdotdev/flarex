@@ -39,7 +39,7 @@ import { preparedFiniteEntries } from "../../../../persistence-postgres/src/sess
 import type { LogicalParticipantBorrow } from
   "@flarex/persistence-postgres/session-journal-store";
 import type { PerformanceSettlementLedger } from "./mixedMutationMeasurementContracts";
-import { traceMixedMutationEffect } from "./measurement";
+import { traceMixedMutationEffect, type MixedMutationEffectDiagnostics } from "./measurement";
 interface MixedMutationPublicationObserver {
   begin(name: string): Promise<void>;
   end(name: string): Promise<void>;
@@ -460,10 +460,13 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   cleanup.push(() => Effect.runPromise(sourceGraph.close));
   const { prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } =
     await Effect.runPromise(sourceGraph.use(Effect.succeed));
-  const prepareAttempt = async (suffix: string, validatedArgsJson?: Readonly<{ body: string }>) => {
-    const { preparedAdmission, applicationAdmission } = await Effect.runPromise(sourceGraph.use(graph =>
+  const prepareAttempt = async (suffix: string, validatedArgsJson?: Readonly<{ body: string }>,
+    diagnostics?: MixedMutationEffectDiagnostics) => {
+    const preparation = sourceGraph.use(graph =>
       Effect.fromResult(readPreparedFiniteApplicationMutationInputs(graph.preparedAdmission, admissionContext)).pipe(
-        Effect.map(applicationAdmission => ({ preparedAdmission: graph.preparedAdmission, applicationAdmission })))));
+        Effect.map(applicationAdmission => ({ preparedAdmission: graph.preparedAdmission, applicationAdmission }))));
+    const { preparedAdmission, applicationAdmission } = await Effect.runPromise(
+      diagnostics === undefined ? preparation : diagnostics.provide(preparation));
     const activationInput = await applicationMutationActivationEvidenceFixture({
       deploymentId: currency.deploymentId,
       executionAuthority: applicationAdmission.executionAuthority,
@@ -615,6 +618,7 @@ export interface MixedMutationPerformanceSeries {
   readonly readSourcePreparationUsage: () => Result.Result<Readonly<{ chargedBytes: number }>,
     PreparedHostRuntimeError>;
   readonly setTrace: (trace: MixedMutationPerformanceTrace | undefined) => void;
+  readonly setEffectDiagnostics: (diagnostics: MixedMutationEffectDiagnostics | undefined) => void;
   readonly prepareAttempt: (index: number) => Promise<void>;
   readonly runAttempt: (index: number, publicationObservation?: PointCommitPublicationObservation,
     publicationServer?: MixedMutationPublicationObserver, cleanupFailures?: unknown[]) => Promise<Readonly<{
@@ -662,6 +666,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
   const openFixtures = new Set<MixedMutationProductFixture>();
   let workerConstructionCount = 0;
   let trace: MixedMutationPerformanceTrace | undefined;
+  let diagnostics: MixedMutationEffectDiagnostics | undefined;
   let closed = false;
   try {
     if (context.initialSeed === undefined) throw new Error("Missing first mixed performance seed");
@@ -697,7 +702,8 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
       attempted.add(index);
       const attemptPhases: { phase: string; startMs: number; endMs: number }[] = [];
       const runPhase = <T>(name: string, run: () => Promise<T>): Promise<T> => {
-        const invoke = () => trace === undefined ? run() : trace.withPhase(name, run);
+        const traced = () => trace === undefined ? run() : trace.withPhase(name, run);
+        const invoke = () => diagnostics === undefined ? traced() : diagnostics.withPhase(name, traced);
         if (publicationObservation === undefined) return invoke();
         const timed = async () => {
           const startMs = globalThis.performance.now();
@@ -721,6 +727,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
           workerConstructionMilliseconds = milliseconds;
         }, onResultBytes: bytes => { canonicalResultBytes = bytes; },
         ...(publicationObservation === undefined ? {} : { publicationObservation }),
+        ...(diagnostics === undefined ? {} : { diagnostics }),
         ...(trace === undefined ? {} : { trace }) }));
       openFixtures.add(fixture);
       try {
@@ -729,8 +736,8 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         if (workerConstructionMilliseconds === null) throw new Error("Missing fresh Worker readiness");
         const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
           result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
-        const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
-          success.result.result))).value;
+        const decodedResult = decodePointMutationExactRuntimeResultV1Effect(success.result.result);
+        const returnedValue = (await Effect.runPromise(diagnostics === undefined ? decodedResult : diagnostics.provide(decodedResult))).value;
         const preparePublication = async () => {
           if (publicationServer === undefined) return fixture.preparePublication(returnedValue);
           await publicationServer.begin("preparationAndFinishing");
@@ -740,13 +747,13 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         const publicationEffect = await runPhase("finite freeze and validation",
           publicationServer === undefined ? () => fixture.preparePublication(returnedValue) : preparePublication);
         const publish = async () => {
-          if (publicationServer === undefined) return Effect.runPromise(publicationEffect);
+          if (publicationServer === undefined) return Effect.runPromise(diagnostics === undefined ? publicationEffect : diagnostics.provide(publicationEffect));
           await publicationServer.beginPublication();
-          try { return await Effect.runPromise(publicationEffect); }
+          try { return await Effect.runPromise(diagnostics === undefined ? publicationEffect : diagnostics.provide(publicationEffect)); }
           finally { await publicationServer.endPublication(); }
         };
         const publication = await runPhase("authoritative publication",
-          publicationServer === undefined ? () => Effect.runPromise(publicationEffect) : publish);
+          publicationServer === undefined ? () => Effect.runPromise(diagnostics === undefined ? publicationEffect : diagnostics.provide(publicationEffect)) : publish);
         if (publication.kind !== "published") throw new Error("Missing first committed outcome");
         if (canonicalResultBytes === null || canonicalResultBytes < 1)
           throw new Error("Missing canonical successful result byte count");
@@ -775,6 +782,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
       additionalSetupSeedingMilliseconds,
       readSourcePreparationUsage: context.readSourcePreparationUsage,
       setTrace: (next: MixedMutationPerformanceTrace | undefined) => { trace = next; },
+      setEffectDiagnostics: (next: MixedMutationEffectDiagnostics | undefined) => { diagnostics = next; },
       prepareAttempt, runAttempt,
       close: async () => {
         if (closed) return;
@@ -796,20 +804,32 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     onResultBytes: (bytes: number) => void;
     trace?: MixedMutationPerformanceTrace;
     publicationObservation?: PointCommitPublicationObservation;
+    diagnostics?: MixedMutationEffectDiagnostics;
   }>): Promise<MixedMutationProductFixture> {
   const { cleanup, currency, product, pricing, link, application,
     schemaVersionId, logicalSchemaVersionId, prepared,
     selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
     binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget } = context;
   const { seed, baseline } = seedGraph;
-  const tracePhase = <A>(name: string, run: () => Promise<A>): Promise<A> =>
-    performance?.trace === undefined ? run() : performance.trace.withPhase(name, run);
+  const provideDiagnostic = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+    performance?.diagnostics === undefined ? work : performance.diagnostics.provide(work);
+  const runEffect = <A, E>(work: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(provideDiagnostic(work));
+  const runEffectExit = <A, E>(work: Effect.Effect<A, E>): Promise<Exit.Exit<A, E>> => Effect.runPromiseExit(provideDiagnostic(work));
+  // The initial finite fiber remains alive until fixture.close joins it. Its
+  // supervisor is the request, beyond the shorter admission Promise phase.
+  const runForkEffect = <A, E>(work: Effect.Effect<A, E>): Fiber.Fiber<A, E> => Effect.runFork(
+    performance?.diagnostics === undefined ? work : performance.diagnostics.provideRequest(work));
+  const tracePhase = <A>(name: string, run: () => Promise<A>): Promise<A> => {
+    const traced = () => performance?.trace === undefined ? run() : performance.trace.withPhase(name, run);
+    return performance?.diagnostics === undefined ? traced() : performance.diagnostics.withPhase(name, traced);
+  };
   const traceEffect = <A, E>(name: string, operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
-    traceMixedMutationEffect(performance?.trace, name, operation);
+    performance?.diagnostics === undefined ? traceMixedMutationEffect(performance?.trace, name, operation)
+      : performance.diagnostics.traceEffect(name, operation);
   // Historical diagnostic label: this is stored Application admission/evidence
   // preparation, not the framework's actual-demand checked-read frontend.
   const { preparedAdmission, applicationAdmission, activationInput } = await tracePhase(
-    "stored read and source preparation", () => context.prepareAttempt(input.suffix, performance?.validatedArgsJson));
+    "stored read and source preparation", () => context.prepareAttempt(input.suffix, performance?.validatedArgsJson, performance?.diagnostics));
   const executionClaims = createPointMutationExecutionClaimVaultV1();
     const hasSqlObserver = currency.observeSql !== undefined;
     let sqlPhase = "request admission";
@@ -876,7 +896,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       for (const scope of payloadScopes) yield* Scope.close(scope, Exit.succeed(undefined));
       payloadScopes.clear();
     });
-    const initialPreparation = await Effect.runPromise(Deferred.make<Effect.Success<ReturnType<typeof store.prepareFiniteEntryEffect>>>());
+    const initialPreparation = await runEffect(Deferred.make<Effect.Success<ReturnType<typeof store.prepareFiniteEntryEffect>>>());
     const journalStore = Object.freeze({ ...store,
       prepareFiniteEntryEffect: (...args: Parameters<typeof store.prepareFiniteEntryEffect>) => Effect.suspend(() =>
         store.prepareFiniteEntryEffect(input.hooks?.transformFiniteEntrySources?.(args[0]) ?? args[0])).pipe(
@@ -886,10 +906,10 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
         store.freezeFiniteRootEffect(...args).pipe(Effect.tap(() => Effect.sync(() =>
           performance?.onResultBytes(args[1].canonicalBytes.byteLength)))),
     });
-    const syscallScope = await Effect.runPromise(Scope.make());
-    const closeSyscallScope = () => Effect.runPromise(Scope.close(syscallScope, Exit.succeed(undefined)));
+    const syscallScope = await runEffect(Scope.make());
+    const closeSyscallScope = () => runEffect(Scope.close(syscallScope, Exit.succeed(undefined)));
     cleanup.push(closeSyscallScope);
-    const syscallValidator = await Effect.runPromise(Scope.provide(syscallScope)(deriveApplicationSyscallValidator({
+    const syscallValidator = await runEffect(Scope.provide(syscallScope)(deriveApplicationSyscallValidator({
       scopeId: application.authority.scopeId, schemaVersionId, schemaManifest: applicationAdmission.schema.manifest,
     })));
     const journal = createPointMutationJournalV1(journalStore, executionClaims.admission,
@@ -935,7 +955,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
               yield* input.hooks?.beforeNative?.(method) ?? Effect.void;
               yield* input.hooks?.afterProductBorrow?.(method, borrowed, borrowedInput.rootEvaluator) ?? Effect.void;
               const beforeProductClose = input.hooks?.beforeProductClose;
-              const nativeBorrowed = beforeProductClose === undefined && performance?.trace === undefined
+              const nativeBorrowed = beforeProductClose === undefined && performance?.trace === undefined && performance?.diagnostics === undefined
                 ? borrowed : Object.freeze({ ...borrowed,
                   close: traceEffect("Product operation close", Effect.suspend(() =>
                     beforeProductClose?.(method, borrowed) ?? Effect.void).pipe(Effect.andThen(borrowed.close))) });
@@ -991,7 +1011,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           Effect.suspend(() => input.hooks?.beforeWorkflowBorrow?.() ?? Effect.void).pipe(
             Effect.andThen(traceEffect("Workflow borrow and source checks", workflowBinding.borrow(borrowedInput))),
             Effect.map(borrowed => {
-              lastBorrowedWorkflowInvoke = value => Effect.runPromise(borrowed.invoke(value));
+              lastBorrowedWorkflowInvoke = value => runEffect(borrowed.invoke(value));
               return Object.freeze({
               abort: borrowed.abort,
               currentUsage: borrowed.currentUsage,
@@ -1029,7 +1049,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       preparedAdmission, admissionContext: context.admissionContext, evidence: activationInput.evidence,
     });
     const competingPreparations = new Map<string, ReturnType<typeof context.prepareAttempt>>();
-    const connectedFiniteDependencies = await Effect.runPromise(Deferred.make<Parameters<typeof createFinitePointMutationExecution>[0]>());
+    const connectedFiniteDependencies = await runEffect(Deferred.make<Parameters<typeof createFinitePointMutationExecution>[0]>());
     let retryContextOrdinal = 0;
     const finiteLiveness = { persistence: createPointMutationExecutionClaimLivenessV1(application.sessionAuthority, {
         claimDurationMilliseconds: 60_000, leaseRenewalDurationMilliseconds: 120_000,
@@ -1054,20 +1074,20 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           keys: [activationInput.verificationKey], grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 }) },
       terminalization: createPointMutationSessionAttemptTerminalizationPersistenceV1(application.sessionAuthority),
     });
-    const initialReady = await Effect.runPromise(Deferred.make<AuthenticatedFiniteInitialEntry,
+    const initialReady = await runEffect(Deferred.make<AuthenticatedFiniteInitialEntry,
       Effect.Error<ReturnType<typeof initialExecution.executePreparedFiniteAttempt>>>());
-    const initialDone = await Effect.runPromise(Deferred.make<void>());
-    const initialFiber = Effect.runFork(initialExecution.runPreparedFiniteAttempt(finiteActivationInput,
+    const initialDone = await runEffect(Deferred.make<void>());
+    const initialFiber = runForkEffect(initialExecution.runPreparedFiniteAttempt(finiteActivationInput,
       entry => Effect.suspend(() => input.hooks?.beforeFiniteCallback?.() ?? Effect.void).pipe(
         Effect.andThen(Deferred.succeed(initialReady, entry)), Effect.andThen(Deferred.await(initialDone)))).pipe(
         Effect.onError(cause => Deferred.failCause(initialReady, cause))));
-    const activationExit = await tracePhase("finite outer entry activation", () => Effect.runPromiseExit(Deferred.await(initialReady)));
+    const activationExit = await tracePhase("finite outer entry activation", () => runEffectExit(Deferred.await(initialReady)));
     if (Exit.isFailure(activationExit)) await input.hooks?.onFinalEntryFailure?.(finalEntryTestContext, activationExit);
     const authenticatedInitialEntry = Exit.isSuccess(activationExit) ? activationExit.value
-      : await Effect.runPromise(Effect.failCause(activationExit.cause));
+      : await runEffect(Effect.failCause(activationExit.cause));
     const activation = authenticatedInitialEntry.activation;
     if (activation.status !== "created") throw new Error("Expected fresh mixed attempt");
-    const confirmed = preparedFiniteEntries.get(await Effect.runPromise(Deferred.await(initialPreparation)));
+    const confirmed = preparedFiniteEntries.get(await runEffect(Deferred.await(initialPreparation)));
     if (confirmed?.status !== "confirmed") throw new Error("Expected the original acknowledged entry issuer");
     const active = Object.freeze({ selection: authenticatedInitialEntry.applicationSelection,
       basis: Result.getOrThrow(claimApplicationActiveSelection(authenticatedInitialEntry.applicationSelection)) });
@@ -1100,11 +1120,11 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           if (typeof syscallSequence !== "string") throw new Error("Invalid point bridge sequence");
           let table = tableHandles.get(message.tableName);
           if (table === undefined) {
-            table = await Effect.runPromise(runtimeJournal.resolvePointTable(message.tableName));
+            table = await runEffect(runtimeJournal.resolvePointTable(message.tableName));
             tableHandles.set(message.tableName, table);
           }
           const runPoint = async () => {
-            const exit = await Effect.runPromiseExit(runtimeJournal.runPointOperation(table, {
+            const exit = await runEffectExit(runtimeJournal.runPointOperation(table, {
               ...operation, syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(syscallSequence)),
             }));
             if (Exit.isSuccess(exit)) return exit.value;
@@ -1113,10 +1133,9 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
             const reason = exit.cause.reasons.length === 1 ? exit.cause.reasons[0] : undefined;
             if (reason !== undefined && Cause.isFailReason(reason) &&
                 reason.error instanceof ApplicationRevisionSyscallDocumentValidationV1Error) throw reason.error;
-            return Effect.runPromise(Effect.failCause(exit.cause));
+            return runEffect(Effect.failCause(exit.cause));
           };
-          const result = performance?.trace === undefined ? await runPoint()
-            : await performance.trace.withPhase("Application point", runPoint);
+          const result = await tracePhase("Application point", runPoint);
           if (result.kind !== "completed") throw new Error(`Point operation ${result.kind}`);
           value = result.outcome;
         } else if (message.kind === "admitted") {
@@ -1136,10 +1155,8 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           if (encoded.operation.operation === "update") updateRequest = admittedInput;
           const runtimeAdmitted = runtimeJournal.runAdmittedOperation;
           if (runtimeAdmitted === undefined) throw new Error("Missing runtime admitted participant");
-          const runParticipant = () => Effect.runPromise(runtimeAdmitted(admittedInput));
-          const admittedValue = performance?.trace === undefined ? await runParticipant()
-            : await performance.trace.withPhase(
-              `${encoded.operation.participant}:${encoded.operation.operation}`, runParticipant);
+          const runParticipant = () => runEffect(runtimeAdmitted(admittedInput));
+          const admittedValue = await tracePhase(`${encoded.operation.participant}:${encoded.operation.operation}`, runParticipant);
           value = admittedValue;
           input.hooks?.afterStoreAckBeforeBridgeReply?.(encoded.operation.operation, admittedValue);
         } else throw new Error("Unsupported bridge request");
@@ -1246,7 +1263,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     if (typeof execution === "object" && execution !== null && "kind" in execution &&
       execution.kind === "error") {
       const failure = new Error(`Native runtime failed: ${JSON.stringify(execution)}\n${bridgeFailures.join("\n")}`);
-      const cleanup = await Effect.runPromiseExit(closePayloadScopes);
+      const cleanup = await runEffectExit(closePayloadScopes);
       if (Exit.isFailure(cleanup)) bridgeFailures.push(`Payload attempt scope cleanup: ${String(cleanup.cause)}`);
       throw failure;
     }
@@ -1305,7 +1322,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     uniqueConstraints,
     uniqueConstraintEligibility,
     applicationRelations: application.applicationRelations,
-    candidateSchemaWriteGuard: await Effect.runPromise(context.readCandidateSchemaWriteGuard()),
+    candidateSchemaWriteGuard: await runEffect(context.readCandidateSchemaWriteGuard()),
     logicalOperationProfiles,
     logicalParticipantEvents: [{ authority: participantAuthority,
       policy: eventPolicy.policy, selection: eventPolicy.selection },
@@ -1330,7 +1347,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           const raw = await runExecution(undefined, runnerInput);
           const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
             result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
-          const value = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
+          const value = (await runEffect(decodePointMutationExactRuntimeResultV1Effect(
             success.result.result))).value;
           retryReturnedValues.push(value);
           return value;
@@ -1341,7 +1358,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
   async function preparePublicationFromFrozen(frozen: Effect.Success<ReturnType<AuthenticatedFiniteInitialEntry["prepareFiniteCommit"]>>,
     publisherOverride: ReturnType<typeof createPointCommitPublisherPortV1> | undefined,
     withOccRetry: boolean) {
-    await tracePhase("Payload operation scopes close", () => Effect.runPromise(closePayloadScopes));
+    await tracePhase("Payload operation scopes close", () => runEffect(closePayloadScopes));
     selectedPublisher = publisherOverride ?? defaultPublisher;
     if (withOccRetry) retryExecutor = initialExecution;
     publication = Object.freeze({ frozen });
@@ -1352,7 +1369,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     publisherOverride: ReturnType<typeof createPointCommitPublisherPortV1> | undefined,
     withOccRetry: boolean) {
     sqlPhase = "freeze";
-    const frozen = await tracePhase("freeze and verify", () => Effect.runPromise(authenticatedInitialEntry.prepareFiniteCommit(returnedValue)));
+    const frozen = await tracePhase("freeze and verify", () => runEffect(authenticatedInitialEntry.prepareFiniteCommit(returnedValue)));
     return preparePublicationFromFrozen(frozen, publisherOverride, withOccRetry);
   }
   async function prepareFrozenPublication(frozen: Effect.Success<ReturnType<AuthenticatedFiniteInitialEntry["prepareFiniteCommit"]>>) {
@@ -1367,28 +1384,28 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
   }
   async function retryWholeAttempt(conflict: unknown) {
     if (retryExecutor === undefined) throw new Error("Missing OCC retry owner");
-    return Effect.runPromise(retryExecutor.retryFailedAttempt(conflict));
+    return runEffect(retryExecutor.retryFailedAttempt(conflict));
   }
   async function publish(returnedValue: unknown,
     publisherOverride?: ReturnType<typeof createPointCommitPublisherPortV1>) {
-    return Effect.runPromise(await preparePublication(returnedValue, publisherOverride));
+    return runEffect(await preparePublication(returnedValue, publisherOverride));
   }
   async function replayPublication() {
     if (publication === undefined) throw new Error("Missing authenticated frozen publication");
     sqlPhase = "publish-replay";
-    return Effect.runPromise(authenticatedInitialEntry.settleFiniteCommit(publication.frozen));
+    return runEffect(authenticatedInitialEntry.settleFiniteCommit(publication.frozen));
   }
   async function readCurrentProduct(): Promise<Json> {
-    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+    const read = await runEffect(makeCommerceHost({ ...product.hostInput,
       commands: [product.runtime.commands.retrieve] }));
     try {
-      const current = await Effect.runPromise(read.read(product.runtime.commands.retrieve, {
+      const current = await runEffect(read.read(product.runtime.commands.retrieve, {
         id: seed.productId, config: { relations: ["options.values", "tags",
           "variants.options", "images", "categories"] },
       }));
       if (!isJsonObject(current)) throw new Error("Expected native Product document");
       return current;
-    } finally { await Effect.runPromise(read.close); }
+    } finally { await runEffect(read.close); }
   }
   // Verification only: inspect committed revisions through the persistence
   // schema and canonical evidence owner, never through the tentative journal.
@@ -1407,22 +1424,22 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
   }
   async function readCurrentWorkflowPricing(variantId: string, priceSetId: string) {
     if (pricing === undefined || link === undefined) throw new Error("Missing selected workflow modules");
-    const priceReader = await Effect.runPromise(makeCommerceHost({ ...pricing.hostInput,
+    const priceReader = await runEffect(makeCommerceHost({ ...pricing.hostInput,
       commands: [pricing.runtime.retrieve] }));
     try {
-      const priceSet = await Effect.runPromise(priceReader.read(pricing.runtime.retrieve, {
+      const priceSet = await runEffect(priceReader.read(pricing.runtime.retrieve, {
         id: priceSetId, config: { relations: ["prices.price_rules"] },
       }));
-      const linkReader = await Effect.runPromise(makeCommerceHost({ ...link.hostInput,
+      const linkReader = await runEffect(makeCommerceHost({ ...link.hostInput,
         commands: [link.runtime.count] }));
       try {
-        const links = await Effect.runPromise(linkReader.read(link.runtime.count, {
+        const links = await runEffect(linkReader.read(link.runtime.count, {
           filters: { variant_id: variantId },
           config: { select: ["id", "variant_id", "price_set_id"], take: 10 },
         }));
         return { priceSet, links };
-      } finally { await Effect.runPromise(linkReader.close); }
-    } finally { await Effect.runPromise(priceReader.close); }
+      } finally { await runEffect(linkReader.close); }
+    } finally { await runEffect(priceReader.close); }
   }
 
   function standalonePayloadHostInput(compiled: NonNullable<typeof compiledPayload>, session: typeof currency.session) {
@@ -1448,7 +1465,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
 
   async function readCurrentPayloadPost(id: string): Promise<Json> {
     if (compiledPayload === undefined) throw new Error("Missing selected Payload source");
-    return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+    return runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiledPayload);
       const host = yield* runtime.bind(standalonePayloadHostInput(compiledPayload, currency.session));
       return yield* host.read(runtime.commands.findByID, { collection: "posts", id }).pipe(Effect.ensuring(host.close));
@@ -1576,7 +1593,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
         authenticated.databaseName !== primaryDatabase)
         throw new Error("Standalone Payload credential identity mismatch");
     }
-    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+    const result = await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiledPayload);
       const host = yield* makeCmsHost({ ...standalonePayloadHostInput(compiledPayload, postgresSession ?? currency.session),
         commands: [runtime.commands.create], expectedContentIdentity: compiledPayload.contentIdentity },
@@ -1638,7 +1655,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     terminalization: createPointMutationSessionAttemptTerminalizationPersistenceV1(application.sessionAuthority),
     liveness: finiteLiveness,
   } satisfies Parameters<typeof createFinitePointMutationExecution>[0];
-  await Effect.runPromise(Deferred.succeed(connectedFiniteDependencies, finiteExecutionDependencies));
+  await runEffect(Deferred.succeed(connectedFiniteDependencies, finiteExecutionDependencies));
   const makeFiniteExecution = () => createFinitePointMutationExecution(finiteExecutionDependencies);
   const attempt = authenticatedInitialEntry.journalAttempt;
   const bound = bindPointMutationOccJournal(journal, attempt);
@@ -1746,11 +1763,11 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     setSqlPhase: (phase: string) => { sqlPhase = phase; },
     close: async () => {
       try {
-        await Effect.runPromise(Deferred.succeed(initialDone, undefined));
-        await Effect.runPromise(Fiber.join(initialFiber));
+        await runEffect(Deferred.succeed(initialDone, undefined));
+        await runEffect(Fiber.join(initialFiber));
       } finally {
         await closeSyscallScope();
-        await Effect.runPromise(closePayloadScopes);
+        await runEffect(closePayloadScopes);
         if (ownsContext) {
           currency.observeSql?.(undefined);
           for (const close of cleanup.reverse()) await close();

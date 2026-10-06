@@ -113,6 +113,8 @@ describe("core performance report", () => {
       dispatchAwaitedUnionMs: 8, checkoutAwaitedUnionMs: 0, poolQueryCalls: 0,
       delegatedPoolQueryDispatches: 0, lostContextDispatches: 0, unobservedDispatches: 0,
       unknownStatementDispatches: 0, incompleteSpans: 0,
+      observerIntervals: [], observationErrors: 0, droppedObservations: 0,
+      observationLimit: 100_000, aggregationComplete: true,
     };
     const summary = sqlSummary(record);
     expect(summary.phases).toEqual(record.spans);

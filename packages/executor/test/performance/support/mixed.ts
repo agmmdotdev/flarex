@@ -4,11 +4,7 @@ import { prepareMixedMutationPerformanceSeries } from "./mixedMutationProductFix
 import type { CorePerformanceScenario } from "./scenario";
 import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import { verifyProductLaunchWorkflow } from "./workflowResult";
-
-const decodeBusiness = Schema.decodeUnknownSync(Schema.Struct({
-  updated: Schema.Struct({ id: Schema.String, title: Schema.String, handle: Schema.String, status: Schema.String }),
-  pending: Schema.Struct({ id: Schema.String, title: Schema.String }),
-}));
+import { verifyMixedProductResult } from "./mixedProductResult";
 const decodePayload = Schema.decodeUnknownSync(Schema.Struct({
   created: Schema.Struct({ id: Schema.String, title: Schema.String, score: Schema.Number, enabled: Schema.Boolean }),
   afterHook: Schema.Struct({ id: Schema.String, title: Schema.String, score: Schema.Number, enabled: Schema.Boolean }),
@@ -37,19 +33,7 @@ export async function prepareMixedScenario(name: "mixed-product" | "mixed-payloa
         async verify(result) {
           if (outcome === undefined) throw new Error("Missing settled mixed result");
           expect(result).toEqual(outcome.returnedValue);
-          expect(outcome.publication.kind).toBe("published");
-          if (outcome.publication.kind !== "published") throw new Error("Missing publication");
-          expect(outcome.publication.successfulResult.valueJson).toEqual(result);
-          expect(outcome.workerConstructionMilliseconds).toBe(0);
-          expect(outcome.sealedJournalBytes).toBeGreaterThan(0);
-          const business = decodeBusiness(outcome.returnedValue);
-          expect(business.updated).toMatchObject({ id: outcome.seed.productId, title: outcome.seed.newTitle,
-            handle: outcome.seed.newHandle, status: "published" });
-          expect(business.pending).toMatchObject({ id: outcome.seed.productId, title: outcome.seed.newTitle });
-          const committedProduct = await outcome.fixture.readCurrentProduct();
-          expect(committedProduct).toMatchObject({ id: outcome.seed.productId,
-            title: outcome.seed.newTitle, handle: outcome.seed.newHandle, status: "published" });
-          expect(await outcome.fixture.readSettlementLedger()).not.toBeNull();
+          const committedProduct = await verifyMixedProductResult(outcome, profile);
           if (name !== "mixed-product") {
             const payload = decodePayload(outcome.returnedValue);
             expect(payload.created).toMatchObject({ title: outcome.seed.newTitle, score: 0, enabled: false });
@@ -74,8 +58,7 @@ export async function prepareMixedScenario(name: "mixed-product" | "mixed-payloa
               { currency_code: "USD", amount: 50, price_rules: [] },
             ] });
             expect(persisted.links).toMatchObject([[{ variant_id: variant.id, price_set_id: priceSet.id }], 1]);
-          } else expect(Schema.decodeUnknownSync(Schema.Struct({ listed: Schema.Array(Schema.Struct({ id: Schema.String })) }))(result)
-            .listed).toEqual([expect.objectContaining({ id: outcome.seed.productId })]);
+          }
         },
         cleanup: async () => {},
       };

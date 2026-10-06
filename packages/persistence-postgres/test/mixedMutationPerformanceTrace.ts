@@ -19,6 +19,10 @@ export interface TracePhaseSpan {
 }
 
 export interface TraceDispatchRecord {
+  readonly eventId: number;
+  readonly connectionId: number;
+  readonly checkoutId: number | null;
+  readonly transactionId: number | null;
   readonly pool: TracePool;
   readonly phasePath: readonly string[];
   readonly atMs: number;
@@ -41,6 +45,9 @@ export interface TraceDispatchRecord {
 }
 
 export interface TraceCheckoutRecord {
+  readonly eventId: number;
+  readonly checkoutId: number;
+  readonly connectionId: number | null;
   readonly pool: TracePool;
   readonly phasePath: readonly string[];
   readonly atMs: number;
@@ -49,6 +56,10 @@ export interface TraceCheckoutRecord {
 }
 
 export interface TraceTransactionInterval {
+  readonly eventId: number;
+  readonly transactionId: number;
+  readonly connectionId: number;
+  readonly checkoutId: number | null;
   readonly pool: TracePool;
   readonly phasePath: readonly string[];
   readonly startMs: number;
@@ -120,6 +131,23 @@ export interface TraceInvocationRecord {
   readonly unobservedDispatches: number;
   readonly unknownStatementDispatches: number;
   readonly incompleteSpans: number;
+  readonly observerIntervals: readonly TraceObserverInterval[];
+  readonly observationErrors: number;
+  readonly droppedObservations: number;
+  /** Maximum retained raw records and observer intervals per invocation. */
+  readonly observationLimit: number;
+  /** Groups and wait unions are unavailable if finalization failed. */
+  readonly aggregationComplete: boolean;
+}
+
+export interface TraceObserverInterval {
+  readonly eventId: number;
+  readonly kind: "preparation" | "input-sizing" | "fingerprinting" | "source-stack" | "result-sizing" | "event-recording" | "finalization";
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly durationMs: number;
+  readonly dispatchEventId: number | null;
+  readonly outcome: "ok" | "error";
 }
 
 export interface TraceFingerprintOwner {
@@ -164,6 +192,14 @@ interface MutableInvocation {
   readonly dispatches: TraceDispatchRecord[];
   readonly checkouts: TraceCheckoutRecord[];
   readonly transactions: TraceTransactionInterval[];
+  readonly observerIntervals: TraceObserverInterval[];
+  readonly clients: WeakMap<PoolClient, { connectionId: number; checkoutId: number | null }>;
+  nextEventId: number;
+  nextConnectionId: number;
+  nextTransactionId: number;
+  observationErrors: number;
+  droppedObservations: number;
+  retainedObservations: number;
   poolQueryCalls: number;
   delegatedPoolQueryDispatches: number;
   lostContextDispatches: number;
@@ -177,10 +213,14 @@ interface TraceContext {
 }
 
 interface ActiveTransaction {
+  readonly eventId: number;
+  readonly transactionId: number;
+  readonly connectionId: number;
+  readonly checkoutId: number | null;
   readonly invocation: MutableInvocation;
   readonly pool: TracePool;
   readonly phasePath: readonly string[];
-  readonly start: number;
+  start: number;
 }
 
 interface MutableOwnerSite {
@@ -506,7 +546,11 @@ function stackFrames(): readonly string[] {
     .slice(0, 8);
 }
 
-export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPool: Pool; targetPool: Pool }>): MixedMutationPerformanceTrace {
+export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPool: Pool; targetPool: Pool;
+  observationLimit?: number }>): MixedMutationPerformanceTrace {
+  const observationLimit = input.observationLimit ?? 100_000;
+  if (!Number.isSafeInteger(observationLimit) || observationLimit < 1)
+    throw new Error("Trace observationLimit must be a positive safe integer.");
   const storage = new AsyncLocalStorage<TraceContext>();
   const records: TraceInvocationRecord[] = [];
   const owners = new Map<string, MutableOwnerGroup>();
@@ -520,8 +564,40 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
   let closed = false;
   let inFlight = 0;
 
+  function retain<T>(invocation: MutableInvocation, destination: T[], value: T): void {
+    if (invocation.retainedObservations >= observationLimit) { invocation.droppedObservations++; return; }
+    invocation.retainedObservations++;
+    destination.push(value);
+  }
+
+  // This diagnostic boundary deliberately contains foreign getters/serializers and
+  // recording faults. It never encloses the driver call or a business callback.
+  function observe<T>(invocation: MutableInvocation, kind: TraceObserverInterval["kind"],
+    dispatchEventId: number | null, fallback: T, work: () => T): T {
+    const start = performance.now();
+    const eventId = invocation.nextEventId++;
+    const result = Result.try({ try: work, catch: () => undefined });
+    const end = performance.now();
+    const outcome = Result.isSuccess(result) ? "ok" : "error";
+    if (outcome === "error") invocation.observationErrors++;
+    retain(invocation, invocation.observerIntervals, { eventId, kind,
+      startMs: elapsed(invocation.start, start), endMs: elapsed(invocation.start, end),
+      durationMs: elapsed(start, end), dispatchEventId, outcome });
+    return Result.getOrElse(result, () => fallback);
+  }
+
+  function clientIdentity(invocation: MutableInvocation, client: PoolClient): { connectionId: number; checkoutId: number | null } {
+    const prior = invocation.clients.get(client);
+    if (prior !== undefined) return prior;
+    const identity = { connectionId: invocation.nextConnectionId++, checkoutId: null };
+    invocation.clients.set(client, identity);
+    return identity;
+  }
+
   function parsedSql(value: unknown): ReturnType<typeof structuralSql> {
-    const text = typeof value === "string" ? value : isRecord(value) && typeof value.text === "string" ? value.text : null;
+    const descriptor = isRecord(value) ? Object.getOwnPropertyDescriptor(value, "text") : undefined;
+    const text = typeof value === "string" ? value
+      : descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string" ? descriptor.value : null;
     if (text === null) return null;
     const key = createHash("sha256").update(text).digest("hex");
     if (sqlCache.has(key)) return sqlCache.get(key) ?? null;
@@ -548,7 +624,6 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
 
     function wrapClient(client: PoolClient): void {
       if (wrappedClients.has(client)) return;
-      wrappedClients.add(client);
       const originalQuery = client.query;
       // SAFETY: pg query overloads share this runtime argument and return protocol.
       const tracedQuery = function (this: PoolClient, ...args: unknown[]): unknown {
@@ -562,19 +637,27 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           return result;
         }
         const invocation = context.invocation;
-        const sql = parsedSql(args[0]);
+        const preparationStart = performance.now();
+        const preparationEventId = invocation.nextEventId++;
+        const eventId = invocation.nextEventId++;
+        const identity = clientIdentity(invocation, client);
         const path = phasePath(invocation, context.span);
+        const sql = observe(invocation, "fingerprinting", eventId, null, () => parsedSql(args[0]));
+        const sizes = observe<ReturnType<typeof dispatchInputSizes>>(invocation, "input-sizing", eventId, {
+          parameterCount: null, scalarParameterBytes: null, unknownEncodingParameters: null, sqlUtf8Bytes: null,
+        }, () => dispatchInputSizes(args));
         const record: MutableDispatchRecord = {
+          eventId, ...identity, transactionId: activeTransactions.get(client)?.transactionId ?? null,
           pool: poolName, phasePath: path, atMs: 0, awaitedMs: null,
           outcome: "unobserved", fingerprint: sql?.fingerprint ?? null, template: sql?.template ?? null,
           statementCount: sql?.statementCount ?? null, transactionAction: sql?.transactionAction ?? null,
           delegatedPoolQuery: context.delegatedPoolQuery,
-          returnedRowCount: null, decodedResultJsonUtf8Bytes: null,
-          ...dispatchInputSizes(args),
+          returnedRowCount: null, decodedResultJsonUtf8Bytes: null, ...sizes,
         };
-        invocation.dispatches.push(record);
-        if (context.delegatedPoolQuery) invocation.delegatedPoolQueryDispatches++;
-        if (invocation.mode === "recon" && sql !== null) {
+        const frames = invocation.mode === "recon" && sql !== null
+          ? context.reconFrames ?? observe(invocation, "source-stack", eventId, [], stackFrames) : undefined;
+        const recordOwner = (): void => {
+          if (frames === undefined || sql === null) return;
           const key = JSON.stringify([poolName, sql.fingerprint, path]);
           let group = owners.get(key);
           if (group === undefined) {
@@ -583,7 +666,6 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
             owners.set(key, group);
           }
           group.observedDispatches++;
-          const frames = context.reconFrames ?? stackFrames();
           const siteId = createHash("sha256").update(frames.join("\n")).digest("hex");
           let site = group.sites.get(siteId);
           if (site === undefined) {
@@ -592,7 +674,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
             group.sites.set(siteId, site);
           }
           site.dispatchCount++;
-        }
+        };
         const action = record.transactionAction;
         const callbackIndex = typeof args[args.length - 1] === "function" ? args.length - 1 : -1;
         let finished = false;
@@ -603,22 +685,31 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           const end = performance.now();
           record.awaitedMs = elapsed(start, end);
           record.outcome = outcome;
-          if (outcome === "ok") Object.assign(record, decodedQueryResultSizes(result));
-          if (action === "begin" && outcome === "error") {
-            activeTransactions.delete(client);
-            activeTransactionClients.delete(client);
-          }
-          if (action === "commit" || action === "rollback") {
-            const active = activeTransactions.get(client);
-            if (active !== undefined) {
-              active.invocation.transactions.push({ pool: active.pool, phasePath: active.phasePath,
-                startMs: elapsed(active.invocation.start, active.start), endMs: elapsed(active.invocation.start, end),
-                durationMs: elapsed(active.start, end),
-                outcome: outcome === "ok" ? action : action === "commit" ? "commit-error" : "rollback-error" });
+          observe(invocation, "event-recording", eventId, undefined, () => {
+            if (outcome === "ok") Object.assign(record,
+              observe(invocation, "result-sizing", eventId, {}, () => {
+                const sizes = decodedQueryResultSizes(result);
+                if (sizes.decodedResultJsonUtf8Bytes === null) throw new Error("Decoded result size unavailable.");
+                return sizes;
+              }));
+            if (action === "begin" && outcome === "error") {
               activeTransactions.delete(client);
               activeTransactionClients.delete(client);
             }
-          }
+            if (action === "commit" || action === "rollback") {
+              const active = activeTransactions.get(client);
+              if (active !== undefined) {
+                retain(active.invocation, active.invocation.transactions, { eventId: active.eventId,
+                  transactionId: active.transactionId, connectionId: active.connectionId, checkoutId: active.checkoutId,
+                  pool: active.pool, phasePath: active.phasePath,
+                  startMs: elapsed(active.invocation.start, active.start), endMs: elapsed(active.invocation.start, end),
+                  durationMs: elapsed(active.start, end),
+                  outcome: outcome === "ok" ? action : action === "commit" ? "commit-error" : "rollback-error" });
+                activeTransactions.delete(client);
+                activeTransactionClients.delete(client);
+              }
+            }
+          });
         };
         if (callbackIndex >= 0) {
           const callback = args[callbackIndex];
@@ -630,36 +721,76 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
             };
           }
         }
-        try {
-          // The timed interval starts at driver submission, after trace preparation.
-          start = performance.now();
-          record.atMs = elapsed(invocation.start, start);
+        {
+          const priorTransaction = activeTransactions.get(client);
+          let begun: ActiveTransaction | undefined;
           if (action === "begin") {
-            activeTransactions.set(client, { invocation, pool: poolName, phasePath: path, start });
+            const transactionId = invocation.nextTransactionId++;
+            record.transactionId = transactionId;
+            begun = { eventId: invocation.nextEventId++, transactionId, ...identity,
+              invocation, pool: poolName, phasePath: path, start: 0 };
+            activeTransactions.set(client, begun);
             activeTransactionClients.add(client);
           }
-          const result = Reflect.apply(originalQuery, this, args);
+          const preparationEnd = performance.now();
+          retain(invocation, invocation.observerIntervals, { eventId: preparationEventId, kind: "preparation",
+            startMs: elapsed(invocation.start, preparationStart), endMs: elapsed(invocation.start, preparationEnd),
+            durationMs: elapsed(preparationStart, preparationEnd), dispatchEventId: eventId, outcome: "ok" });
+          let result: unknown;
+          try {
+            // One monotonic origin, immediately at the actual driver boundary.
+            start = performance.now();
+            record.atMs = elapsed(invocation.start, start);
+            if (begun !== undefined) begun.start = start;
+            result = Reflect.apply(originalQuery, this, args);
+          }
+          catch (error) {
+            // pg synchronous argument validation has not submitted a dispatch.
+            if (!finished && action === "begin") {
+              if (priorTransaction === undefined) {
+                activeTransactions.delete(client);
+                activeTransactionClients.delete(client);
+              } else activeTransactions.set(client, priorTransaction);
+            }
+            if (finished) observe(invocation, "event-recording", eventId, undefined,
+              () => retain(invocation, invocation.dispatches, record));
+            throw error;
+          }
+          observe(invocation, "event-recording", eventId, undefined, () => {
+            retain(invocation, invocation.dispatches, record);
+            if (context.delegatedPoolQuery) invocation.delegatedPoolQueryDispatches++;
+            recordOwner();
+          });
           if (callbackIndex < 0 && isPromiseLike(result)) {
             void result.then(value => finish("ok", value), () => finish("error"));
           }
           return result;
-        } catch (error) {
-          finish("error");
-          throw error;
         }
       } as typeof client.query;
       restoreOwnMethod(client, "query", tracedQuery);
+      wrappedClients.add(client);
     }
 
     // SAFETY: This test-only wrapper preserves both pg connect overloads and their original result form.
     const tracedConnect = function (this: Pool, callback?: ConnectCallback): Promise<PoolClient> | void {
       const context = storage.getStore();
+      const eventId = context === undefined ? null : context.invocation.nextEventId++;
       const start = performance.now();
       const finish = (outcome: "ok" | "error", client?: PoolClient): void => {
-        if (client !== undefined) wrapClient(client);
-        if (context !== undefined) context.invocation.checkouts.push({ pool: poolName,
-          phasePath: phasePath(context.invocation, context.span), atMs: elapsed(context.invocation.start, start),
-          awaitedMs: elapsed(start, performance.now()), outcome });
+        const end = performance.now();
+        if (context === undefined) {
+          if (client !== undefined) Result.try({ try: () => wrapClient(client), catch: () => undefined });
+          return;
+        }
+        observe(context.invocation, "event-recording", null, undefined, () => {
+          const identity = client === undefined ? null : clientIdentity(context.invocation, client);
+          if (identity !== null) identity.checkoutId = eventId ?? null;
+          if (client !== undefined) observe(context.invocation, "preparation", null, undefined, () => wrapClient(client));
+          retain(context.invocation, context.invocation.checkouts, { eventId: eventId ?? 0, checkoutId: eventId ?? 0,
+            connectionId: identity?.connectionId ?? null, pool: poolName,
+            phasePath: phasePath(context.invocation, context.span), atMs: elapsed(context.invocation.start, start),
+            awaitedMs: elapsed(start, end), outcome });
+        });
       };
       if (callback !== undefined) {
         Reflect.apply(originalConnect, this, [(error: Error | undefined, client: PoolClient | undefined,
@@ -689,7 +820,8 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
       if (context === undefined) return Reflect.apply(originalPoolQuery, this, args);
       context.invocation.poolQueryCalls++;
       // Capture the source callsite before pg-pool's internal callback frames.
-      const reconFrames = context.invocation.mode === "recon" ? stackFrames() : undefined;
+      const reconFrames = context.invocation.mode === "recon"
+        ? observe(context.invocation, "source-stack", null, [], stackFrames) : undefined;
       return storage.run({ ...context, delegatedPoolQuery: true,
         ...(reconFrames === undefined ? {} : { reconFrames }) },
         () => Reflect.apply(originalPoolQuery, this, args));
@@ -711,7 +843,8 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
       const root: MutableSpan = { id: 0, parentId: null, name: "invocation", start };
       const invocation: MutableInvocation = { id: details.id, mode: details.mode, start, spans: [root],
         dispatches: [], checkouts: [], transactions: [], poolQueryCalls: 0, delegatedPoolQueryDispatches: 0,
-        lostContextDispatches: 0 };
+        lostContextDispatches: 0, observerIntervals: [], clients: new WeakMap(), nextEventId: 0,
+        nextConnectionId: 0, nextTransactionId: 0, observationErrors: 0, droppedObservations: 0, retainedObservations: 0 };
       inFlight++;
       activeInvocations.add(invocation);
       let outcome: TraceInvocationRecord["outcome"] = "ok";
@@ -721,36 +854,59 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
         outcome = "error";
         throw error;
       } finally {
-        root.end = performance.now();
+        const end = performance.now();
+        root.end = end;
         activeInvocations.delete(invocation);
         inFlight--;
+        const finalized = observe(invocation, "finalization", null, null, () => {
         for (const client of activeTransactionClients) {
           const active = activeTransactions.get(client);
           if (active?.invocation !== invocation) continue;
-          invocation.transactions.push({ pool: active.pool, phasePath: active.phasePath,
-            startMs: elapsed(start, active.start), endMs: elapsed(start, root.end),
-            durationMs: elapsed(active.start, root.end), outcome: "open-at-end" });
+          retain(invocation, invocation.transactions, { eventId: active.eventId, transactionId: active.transactionId,
+            connectionId: active.connectionId, checkoutId: active.checkoutId, pool: active.pool, phasePath: active.phasePath,
+            startMs: elapsed(start, active.start), endMs: elapsed(start, end),
+            durationMs: elapsed(active.start, end), outcome: "open-at-end" });
           activeTransactions.delete(client);
           activeTransactionClients.delete(client);
         }
-        const spans = finishSpans(invocation, root.end);
+        const spans = finishSpans(invocation, end);
         const dispatchAwaitedUnionMs = intervalUnion(invocation.dispatches.flatMap(dispatch => dispatch.awaitedMs === null
           ? [] : [{ start: dispatch.atMs, end: dispatch.atMs + dispatch.awaitedMs }]));
         const checkoutAwaitedUnionMs = intervalUnion(invocation.checkouts.map(checkout => ({
           start: checkout.atMs, end: checkout.atMs + checkout.awaitedMs,
         })));
-        records.push({ id: invocation.id, mode: invocation.mode, startedAtMs: invocation.start, durationMs: elapsed(start, root.end), outcome,
+        return { id: invocation.id, mode: invocation.mode, startedAtMs: invocation.start, durationMs: elapsed(start, end), outcome,
           spans, dispatchGroups: dispatchGroups(invocation.dispatches), checkoutGroups: checkoutGroups(invocation.checkouts),
           transactionGroups: transactionGroups(invocation.transactions),
-          dispatches: invocation.mode === "recon" ? [...invocation.dispatches] : [],
-          checkouts: invocation.mode === "recon" ? [...invocation.checkouts] : [],
-          transactions: invocation.mode === "recon" ? [...invocation.transactions] : [],
+          dispatches: invocation.mode === "recon" ? invocation.dispatches.toSorted((a, b) => a.eventId - b.eventId) : [],
+          checkouts: invocation.mode === "recon" ? invocation.checkouts.toSorted((a, b) => a.eventId - b.eventId) : [],
+          transactions: invocation.mode === "recon" ? invocation.transactions.toSorted((a, b) => a.eventId - b.eventId) : [],
           dispatchAwaitedUnionMs, checkoutAwaitedUnionMs, poolQueryCalls: invocation.poolQueryCalls,
           delegatedPoolQueryDispatches: invocation.delegatedPoolQueryDispatches,
           lostContextDispatches: invocation.lostContextDispatches,
           unobservedDispatches: invocation.dispatches.filter(dispatch => dispatch.outcome === "unobserved").length,
           unknownStatementDispatches: invocation.dispatches.filter(dispatch => dispatch.statementCount === null).length,
-          incompleteSpans: spans.filter(span => !span.complete).length });
+          incompleteSpans: spans.filter(span => !span.complete).length };
+        });
+        // Finalization is observed after request settlement and therefore can lie
+        // beyond durationMs. It is retained separately instead of extending wall.
+        const retained = finalized ?? {
+          id: invocation.id, mode: invocation.mode, startedAtMs: invocation.start, durationMs: elapsed(start, end),
+          outcome, spans: [], dispatchGroups: [], checkoutGroups: [], transactionGroups: [],
+          dispatches: invocation.mode === "recon" ? [...invocation.dispatches] : [],
+          checkouts: invocation.mode === "recon" ? [...invocation.checkouts] : [],
+          transactions: invocation.mode === "recon" ? [...invocation.transactions] : [],
+          dispatchAwaitedUnionMs: 0, checkoutAwaitedUnionMs: 0, poolQueryCalls: invocation.poolQueryCalls,
+          delegatedPoolQueryDispatches: invocation.delegatedPoolQueryDispatches,
+          lostContextDispatches: invocation.lostContextDispatches,
+          unobservedDispatches: invocation.dispatches.filter(dispatch => dispatch.outcome === "unobserved").length,
+          unknownStatementDispatches: invocation.dispatches.filter(dispatch => dispatch.statementCount === null).length,
+          incompleteSpans: invocation.spans.length,
+        };
+        records.push({ ...retained,
+          observerIntervals: invocation.observerIntervals.toSorted((a, b) => a.eventId - b.eventId),
+          observationErrors: invocation.observationErrors, droppedObservations: invocation.droppedObservations,
+          observationLimit, aggregationComplete: finalized !== null });
       }
     },
     async withPhase<T>(name: string, run: () => Promise<T>): Promise<T> {

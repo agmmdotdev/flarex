@@ -1,5 +1,14 @@
-import { Effect, Exit } from "effect";
+import { Context, Effect, Exit, Tracer } from "effect";
 import type { MixedMutationPerformanceTrace, TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+
+/** Test composition capability. It decorates existing runtimes, without owning
+ * business services, clocks, resources or settlement. Quiet callers omit it. */
+export interface MixedMutationEffectDiagnostics {
+  provide<A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
+  provideRequest<A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
+  traceEffect<A, E, R>(name: string, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
+  withPhase<A>(name: string, run: () => Promise<A>): Promise<A>;
+}
 
 /** Diagnostic runtime boundary: the child owns the ALS phase until its entire
  * Exit, including uninterruptible cleanup, has completed. */
@@ -9,10 +18,14 @@ export function traceMixedMutationEffect<A, E>(
   operation: Effect.Effect<A, E>,
 ): Effect.Effect<A, E> {
   if (trace === undefined) return operation;
-  return Effect.suspend(() => {
+  return Effect.withFiber(fiber => {
+    // This is an existing independent runtime, not a structured child fiber.
+    // Carry only tracing capabilities; never move business services or Clock.
+    let tracing = Context.make(Tracer.Tracer, Context.get(fiber.context, Tracer.Tracer));
+    if (fiber.currentSpan !== undefined) tracing = Context.add(tracing, Tracer.ParentSpan, fiber.currentSpan);
     let completion: Promise<Exit.Exit<A, E>> | undefined;
     return Effect.uninterruptibleMask(restore => restore(Effect.promise(signal => {
-      completion = trace.withPhase(name, () => Effect.runPromiseExit(operation, { signal }));
+      completion = trace.withPhase(name, () => Effect.runPromiseExitWith(tracing)(operation, { signal }));
       return completion;
     })).pipe(Effect.onInterrupt(() => {
       const pending = completion;

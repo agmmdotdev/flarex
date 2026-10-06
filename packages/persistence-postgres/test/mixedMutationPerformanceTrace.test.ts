@@ -1,11 +1,171 @@
 import { AsyncResource } from "node:async_hooks";
-import { Pool } from "pg";
+import { Client, Pool, type PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 import { createMixedMutationPerformanceTrace, decodedQueryResultSizes, structuralSql } from "./mixedMutationPerformanceTrace";
 import { postgresUrl } from "./postgresHelpers";
 
 async function traceFromFirstSite(pool: Pool): Promise<void> { await pool.query("select $1::int as value", [1]); }
 async function traceFromSecondSite(pool: Pool): Promise<void> { await pool.query("select $1::int as value", [2]); }
+
+function fakeDriver() {
+  const pool = new Pool();
+  const client: PoolClient = Object.assign(new Client(), { release: () => undefined });
+  const validationError = new Error("Original synchronous validation failure");
+  const driverError = new Error("Original driver rejection");
+  let result: unknown = { rows: [{ value: 7 }] };
+  let lastPromise: Promise<unknown> | undefined;
+  let submitted = 0;
+  const callbackReturn = { originalDriverReturn: true };
+  Object.defineProperty(client, "query", { configurable: true, writable: true,
+    value: function (...args: unknown[]) {
+      if (args[0] === "sync-invalid") throw validationError;
+      submitted++;
+      const callback = args.at(-1);
+      const failed = args[0] === "async-invalid";
+      if (typeof callback === "function") {
+        queueMicrotask(() => Reflect.apply(callback, client, [failed ? driverError : null, failed ? undefined : result]));
+        return callbackReturn;
+      }
+      lastPromise = failed ? Promise.reject(driverError) : Promise.resolve(result);
+      return lastPromise;
+    } });
+  Object.defineProperty(pool, "connect", { configurable: true, writable: true,
+    value: (callback?: (error: Error | undefined, acquired: PoolClient, release: () => void) => void) => {
+      if (callback !== undefined) { queueMicrotask(() => callback(undefined, client, client.release)); return; }
+      return Promise.resolve(client);
+    } });
+  return { pool, client, validationError, driverError, callbackReturn,
+    result: (value: unknown) => { result = value; },
+    lastPromise: () => lastPromise, submitted: () => submitted };
+}
+
+describe("mixed mutation performance trace driver contract", () => {
+  it("retains actual connection, checkout and transaction identities with ordered observer intervals", async () => {
+    const driver = fakeDriver();
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool });
+    try {
+      await trace.withInvocation({ id: "identities", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        await client.query("begin");
+        const promise = client.query("select 7");
+        expect(promise).toBe(driver.lastPromise());
+        expect(await promise).toEqual({ rows: [{ value: 7 }] });
+        await client.query("commit");
+        client.release();
+        const reused = await driver.pool.connect();
+        await reused.query("select 7");
+        reused.release();
+      });
+      const record = trace.records()[0];
+      expect(record?.observationErrors).toBe(0);
+      expect(record?.droppedObservations).toBe(0);
+      expect(record?.dispatches).toHaveLength(4);
+      expect(record?.checkouts).toHaveLength(2);
+      const [firstCheckout, secondCheckout] = record?.checkouts ?? [];
+      expect(firstCheckout?.connectionId).toBe(secondCheckout?.connectionId);
+      expect(firstCheckout?.checkoutId).not.toBe(secondCheckout?.checkoutId);
+      const [begin, select, commit, outside] = record?.dispatches ?? [];
+      expect(begin?.transactionId).not.toBeNull();
+      expect(select?.transactionId).toBe(begin?.transactionId);
+      expect(commit?.transactionId).toBe(begin?.transactionId);
+      expect(outside?.transactionId).toBeNull();
+      expect(outside?.checkoutId).toBe(secondCheckout?.checkoutId);
+      expect(record?.transactions).toMatchObject([{ transactionId: begin?.transactionId,
+        connectionId: firstCheckout?.connectionId, checkoutId: firstCheckout?.checkoutId, outcome: "commit" }]);
+      const events = [...record?.dispatches ?? [], ...record?.checkouts ?? [],
+        ...record?.transactions ?? [], ...record?.observerIntervals ?? []];
+      expect(new Set(events.map(event => event.eventId)).size).toBe(events.length);
+      expect(record?.dispatches.map(event => event.eventId)).toEqual(record?.dispatches.map(event => event.eventId).toSorted((a, b) => a - b));
+      expect(record?.observerIntervals.every(event => event.endMs >= event.startMs && event.durationMs >= 0)).toBe(true);
+      expect(new Set(record?.observerIntervals.map(event => event.kind))).toEqual(new Set([
+        "preparation", "fingerprinting", "input-sizing", "source-stack", "result-sizing", "event-recording", "finalization",
+      ]));
+      const finalization = record?.observerIntervals.find(event => event.kind === "finalization");
+      expect(finalization?.startMs).toBeGreaterThanOrEqual(record?.durationMs ?? Infinity);
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+
+  it("preserves callback reentry, synchronous validation and the original Promise rejection", async () => {
+    const driver = fakeDriver();
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool });
+    try {
+      await trace.withInvocation({ id: "outcomes", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        expect(() => client.query("sync-invalid")).toThrow(driver.validationError);
+        const failed = client.query("async-invalid");
+        expect(failed).toBe(driver.lastPromise());
+        await expect(failed).rejects.toBe(driver.driverError);
+        await new Promise<void>((resolve, reject) => {
+          const returned = client.query("select 7", (error, value) => {
+            if (error) { reject(error); return; }
+            expect(value).toEqual({ rows: [{ value: 7 }] });
+            void trace.withPhase("callback-reentry", async () => { await client.query("select 8"); })
+              .then(() => resolve(), reject);
+          });
+          expect(returned).toBe(driver.callbackReturn);
+        });
+      });
+      const record = trace.records()[0];
+      expect(driver.submitted()).toBe(3);
+      expect(record?.dispatches).toHaveLength(3);
+      expect(record?.dispatches.map(dispatch => dispatch.outcome)).toEqual(["error", "ok", "ok"]);
+      expect(record?.dispatches.at(-1)?.phasePath).toContain("callback-reentry");
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+
+  it("contains foreign observation faults and reports bounded dropped evidence without changing success", async () => {
+    const driver = fakeDriver();
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool,
+      observationLimit: 5 });
+    const row = { toJSON: () => { throw new Error("Foreign sizing failure"); } };
+    const originalResult = { rows: [row] };
+    driver.result(originalResult);
+    try {
+      const result = await trace.withInvocation({ id: "faults", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        const config = new Proxy({ text: "select 7" }, { getOwnPropertyDescriptor: () => { throw new Error("Foreign input inspection failure"); } });
+        return client.query(config);
+      });
+      expect(result).toBe(originalResult);
+      const record = trace.records()[0];
+      expect(record?.outcome).toBe("ok");
+      expect(record?.observationErrors).toBeGreaterThanOrEqual(3);
+      expect(record?.droppedObservations).toBeGreaterThan(0);
+      expect(record?.observationLimit).toBe(5);
+      expect((record?.dispatches.length ?? 0) + (record?.checkouts.length ?? 0)
+        + (record?.transactions.length ?? 0) + (record?.observerIntervals.length ?? 0)).toBe(5);
+      expect(driver.submitted()).toBe(1);
+      const parameters = new Proxy([1], { getOwnPropertyDescriptor: () => { throw new Error("Foreign parameter inspection failure"); } });
+      await expect(trace.withInvocation({ id: "fault-and-rejection", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        return client.query("async-invalid", parameters);
+      })).rejects.toBe(driver.driverError);
+      const failed = trace.records()[1];
+      expect(failed?.outcome).toBe("error");
+      expect(failed?.observationErrors).toBeGreaterThan(0);
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+
+  it("reports repeated client installation faults while preserving the acquired client and its query", async () => {
+    const driver = fakeDriver();
+    Object.defineProperty(driver.client, "query", { configurable: false, writable: false });
+    const original = driver.client.query;
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool });
+    try {
+      for (const id of ["first-install-fault", "second-install-fault"]) {
+        const value = await trace.withInvocation({ id, mode: "recon" }, async () => {
+          const client = await driver.pool.connect();
+          expect(client).toBe(driver.client);
+          return client.query("select 7");
+        });
+        expect(value).toEqual({ rows: [{ value: 7 }] });
+      }
+      expect(driver.client.query).toBe(original);
+      expect(trace.records().map(record => record.observationErrors)).toEqual([1, 1]);
+      expect(trace.records().every(record => record.outcome === "ok")).toBe(true);
+    } finally { trace.close(); await driver.pool.end(); }
+  });
+});
 
 describe("mixed mutation performance trace SQL structure", () => {
   it("measures decoded result rows independently from wire bytes without changing values", () => {

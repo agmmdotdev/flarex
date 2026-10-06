@@ -31,17 +31,27 @@ export type PointCommitPublicationEvent = Readonly<{
   counts: Readonly<Partial<Record<PointCommitPublicationMetric, number>>>;
 }>;
 
+/** A trusted diagnostic composition may replace phase delivery with Effect's
+ * injected tracer. It must retain the work's channels and cannot own settlement. */
+export interface PointCommitPublicationEffectDecorator {
+  <Value, Failure, Requirements>(phase: PointCommitPublicationPhase,
+    work: Effect.Effect<Value, Failure, Requirements>): Effect.Effect<Value, Failure, Requirements>;
+}
+
 /** One test observation. Delivery faults are diagnosed after the real owner
  * settles, so an observer cannot change business failure, interruption or COMMIT. */
 export class PointCommitPublicationObservation {
   readonly detail: boolean;
   private readonly deliver: (event: PointCommitPublicationEvent) => void;
+  private readonly traceEffect: PointCommitPublicationEffectDecorator | undefined;
   private failureCount = 0;
   private firstFailure: unknown;
 
-  constructor(input: Readonly<{ detail: boolean; record: (event: PointCommitPublicationEvent) => void }>) {
+  constructor(input: Readonly<{ detail: boolean; record: (event: PointCommitPublicationEvent) => void;
+    traceEffect?: PointCommitPublicationEffectDecorator }>) {
     this.detail = input.detail;
     this.deliver = input.record;
+    this.traceEffect = input.traceEffect;
   }
 
   record(event: PointCommitPublicationEvent): void {
@@ -52,10 +62,19 @@ export class PointCommitPublicationObservation {
     // The catch encloses only the foreign diagnostic callback. Business and
     // observation construction remain outside this rejection boundary.
     try { this.deliver(detached); }
-    catch (cause) {
-      if (this.failureCount === 0) this.firstFailure = cause;
-      this.failureCount = Math.min(Number.MAX_SAFE_INTEGER, this.failureCount + 1);
-    }
+    catch (cause) { this.recordFailure(cause); }
+  }
+
+  decorateEffect<Value, Failure, Requirements>(phase: PointCommitPublicationPhase,
+    work: Effect.Effect<Value, Failure, Requirements>): Effect.Effect<Value, Failure, Requirements> | undefined {
+    if (this.traceEffect === undefined) return undefined;
+    try { return this.traceEffect(phase, work); }
+    catch (cause) { this.recordFailure(cause); return work; }
+  }
+
+  private recordFailure(cause: unknown): void {
+    if (this.failureCount === 0) this.firstFailure = cause;
+    this.failureCount = Math.min(Number.MAX_SAFE_INTEGER, this.failureCount + 1);
   }
 
   status(): Readonly<{ failureCount: number }> {
@@ -73,6 +92,8 @@ export function observePointCommitPublicationEffect<Value, Failure, Requirements
   work: Effect.Effect<Value, Failure, Requirements>,
 ): Effect.Effect<Value, Failure, Requirements> {
   if (observation === undefined) return work;
+  const decorated = observation.decorateEffect(phase, work);
+  if (decorated !== undefined) return decorated;
   return Effect.sync(() => observation.record({ kind: "phase", phase, edge: "begin" })).pipe(
     Effect.andThen(work),
     Effect.ensuring(Effect.sync(() => observation.record({ kind: "phase", phase, edge: "end" }))),

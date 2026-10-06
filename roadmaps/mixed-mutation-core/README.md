@@ -133,10 +133,13 @@ The [direct measurement ledger](../../packages/executor/benchmarks/core-performa
 owns observations and the remaining harness costs.
 The selected [cost-attribution successor](./21-core-performance-harness-preflight.md#selected-cost-attribution-successor)
 extends those existing owners with ordered raw evidence, disjoint wall accounting,
-explicit observer cost, owner work counts and fresh native pairing. It records a
-small typed API and ownership design; implementation and new benchmark runs
-remain paused. More scenario coverage or grouped SQL totals alone cannot explain
-the remaining complete-request latency.
+explicit observer cost, owner work counts and fresh native pairing. Its first
+small `mixed-product` SDK cutover is implemented for quiet/timeline/database
+diagnostics and fresh native construction. CPU/server modes and catalog expansion
+remain deferred, and runtime optimization remains paused. Reconciled collection
+still exposes substantial unknown and ambiguous owner time; more scenario
+coverage or grouped SQL totals alone cannot explain the remaining complete-request
+latency.
 Its [dedicated measurement SDK](../../packages/executor/test/performance/measurement/README.md)
 has one entry point for measurement and comparison; construction, artifact types
 and Node collectors stay out of production core modules.

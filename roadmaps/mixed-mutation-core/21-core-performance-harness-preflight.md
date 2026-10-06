@@ -26,8 +26,10 @@ so removing Worker transport alone does not explain their harness improvement.
 
 The owner selects the [cost-attribution successor](#selected-cost-attribution-successor)
 below: precise evidence for choosing core changes, with small measurement APIs
-and explicit owners. This is a recorded design, not an implemented measurement
-cutover. Runtime redesign and new benchmark runs remain paused for discussion.
+and explicit owners. Its first small `mixed-product` SDK cutover is implemented
+for quiet/timeline/database diagnostics and fresh native comparisons. Runtime
+optimization remains paused; broader measurement modes and scenario expansion
+retain their separate gates.
 
 ## Ownership And Execution Contract
 
@@ -234,13 +236,22 @@ framework capability, authority change, hosted activation or durable-data change
 | Analysis | Measurement SDK analysis module | Pure calculations over validated retained observations: interval accounting, coverage, owner costs and paired excess. |
 | Presentation | Measurement SDK report module | Render the same analysis as machine-readable evidence and a concise human report; own no calculations or acceptance policy. |
 
-Only `measure(options)` and `compare(options)` are proposed SDK
+Only `measure(options)` and `compare(options)` are public SDK
 entry operations. They own the complete measurement lifetime and return a
 retained report reference and status. Callers import neither collector factories
 nor internal event/phase/SQL/artifact types. Configuration is decoded once by
 the SDK. Scenario definitions remain with the existing scenario owner; do not
 duplicate business assembly or scenario selection inside the SDK. The CLI is a
 thin consumer. Internal trace operations below are not public SDK exports.
+
+Failed execution retains original sample and cleanup causes in a tagged SDK
+rejection carrying the same report/status fields. Persist only bounded ordered
+stage-specific reason kinds and safe tags; diagnostic tracer failures use the
+actual full Exit/Cause. A quiet foreign rejection cannot reveal reasons already
+squashed by an existing framework/runtime bridge. Do not infer them from error
+classes or install tracing in quiet calls. Preserve single original failure
+identity and every original member when request, cleanup and artifact persistence
+fail together. Missing observations remain an explicit incomplete report.
 
 Extend the existing trace's `withInvocation`, `withPhase`, scoped callback
 binding and record draining. Do not add alternative Promise/Effect wrapper
@@ -371,8 +382,28 @@ they require no parallel runtime measurement engine. Remove duplicate report
 math, schemas and observers rather than adding compatibility wrappers. Existing
 Worker integration and separate native collectors remain for their named lanes.
 
-Implementation requires affected checks, applicable core/diff/staged lint, both
+The first connected report and SDK-composed Effect Layer are implemented. The
+separate scenario expansion is frozen and uncommitted;
+preserve its owned changes. The first cohort selects small `mixed-product` only,
+with quiet/timeline/database modes and fresh native PostgreSQL pairs. CPU/server
+and catalog group expansion remain deferred. Five warmups and 30 measured pairs
+meet the existing acceptance minimum within the committed fixture's 40-attempt
+capacity; the preferred 100-pair plan waits for the sampling-capacity owner's
+committed handoff. This is a recorded bounded construction choice, not a local
+override of core limits or permission to import another chat's uncommitted APIs.
+
+Completion requires affected checks, applicable core/diff/staged lint, both
 project reviews, explicit shared-file ownership, complete cleanup and one scoped
 commit. A successful measurement-system cutover proves observation contracts,
-not a Flarex latency improvement. Runtime work and new measurements remain paused
-until this concrete design and the shared harness handoff are reconciled.
+not a Flarex latency improvement. Runtime optimization remains paused; selected
+SDK correctness and attribution measurements are authorized. Broader benchmark
+expansion retains its shared harness handoff gate.
+
+The [retained first-cohort reports](../../packages/executor/benchmarks/core-performance/measurement-sdk/README.md)
+demonstrate connected collection and fresh native construction, not latency
+acceptance. Reconciled diagnostic wall accounting retains substantial unknown
+and ambiguous owner time. CPU/GC, server execution, lock waits and transport
+remain unavailable; conservative source ownership is an explicit evidence gap.
+A complete report does not imply every bottleneck has been identified. Runtime
+work must still select a measured owner and a concrete removal hypothesis before
+new performance iterations.
