@@ -127,8 +127,8 @@ function humanReport(report: RunReport): string {
       rows.push("", `Actual plans: ${plans?.status ?? "unavailable"}.`);
       if (plans !== undefined && plans.status !== "unavailable") {
         rows.push(`Retained plans: ${plans.plans.length}; coverage ${plans.coverage}; log flush completeness ${plans.flushCompleteness}. Plan log windows are not proof of exclusive request ownership.`, "",
-          "| Observed query ID | PID / session | Plan elapsed ms | Operators |", "|---|---|---:|---|");
-        for (const plan of plans.plans.slice(0, 30)) rows.push(`| ${plan.header.queryId} | ${plan.header.backendPid} / ${plan.header.sessionId} | ${plan.durationMs.toFixed(3)} | ${plan.nodes.map(node => node.nodeType).join(", ")} |`);
+          "| Plan query ID | Logged context query ID | PID / session | Plan elapsed ms | Operators |", "|---|---|---|---:|---|");
+        for (const plan of plans.plans.slice(0, 30)) rows.push(`| ${plan.queryId ?? "unavailable"} | ${plan.header.queryId} | ${plan.header.backendPid} / ${plan.header.sessionId} | ${plan.durationMs.toFixed(3)} | ${plan.nodes.map(node => node.nodeType).join(", ")} |`);
         rows.push("", "Safe node rows/loops/cost/buffer metrics and trigger counts remain in the raw artifact. Parent/child plan durations and nested statement totals overlap; this table must not be added to request wall.");
       }
     }

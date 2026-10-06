@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MeasurementInfrastructureError, persistMeasurementReport, type RunReport } from "./report";
 import { analyzeMeasurementEvidence } from "./analysis";
 import { CPU_LIMITS, type CpuEvidence } from "./cpu";
+import { serverLimits, type ServerMeasurementEvidence } from "./server";
+import { serverPlanLimits } from "./collectors/plans";
 
 const filesystem = vi.hoisted(() => ({
   mkdir: vi.fn<typeof import("node:fs/promises").mkdir>(),
@@ -37,6 +39,30 @@ beforeEach(() => {
 });
 
 describe("measurement artifact persistence", () => {
+  it("renders true plan IDs separately from logged query context and leaves absent IDs unavailable", async () => {
+    const server: ServerMeasurementEvidence = { originMonotonicMs: 0, database: { database: "isolated", dbid: 1 },
+      root: { startMs: 0, endMs: 1 }, limits: serverLimits, status: "complete", before: null, after: null,
+      statements: [], beforeStatements: [], afterStatements: [], polls: [], missedTicks: 0, droppedRows: 0, observers: [], failures: [],
+      actualPlans: { status: "complete", coverage: "observedLogWindowOnly", flushCompleteness: "unproven", limits: serverPlanLimits,
+        window: { startOffsetBytes: 0, endOffsetBytes: 100, readBytes: 100 }, ignoredBlocks: 0, foreignDatabasePlans: 0, failures: [],
+        plans: ["9223372036854775807", null].map((queryId, ordinal) => ({ ordinal, queryId,
+          header: { backendPid: 123, database: "isolated", sessionId: "68abcdef.7b", queryId: "0" }, durationMs: 1,
+          nodes: [{ id: 0, parentId: null, nodeType: "Result", metrics: { "Actual Rows": 1, "Actual Loops": 1 } }], triggers: [] })) } };
+    const analysis = Result.getOrThrow(analyzeMeasurementEvidence({ requestId: "request",
+      clock: { id: "monotonic", unit: "milliseconds", precisionMs: null, originMonotonicMs: 0 },
+      root: { startMs: 0, endMs: 1, outcome: "success" }, events: [], postRequestObservers: [],
+      collection: { capacity: 100, droppedEvents: 0, lostContextEvents: 0, failures: [] }, server }));
+    await persistMeasurementReport(directory, { ...report(), mode: "server", samples: [{
+      id: "request", lane: "flarex", index: 0, kind: "diagnostic", requestMs: 1, seedMs: 0,
+      verificationMs: 0, cleanupMs: 0, outcome: "success", failureStage: null, failures: [], analysis, evidence: analysis.evidence,
+    }] });
+    const human = filesystem.writeFile.mock.calls[1]?.[1];
+    expect(human).toContain("| Plan query ID | Logged context query ID | PID / session |");
+    expect(human).toContain("| 9223372036854775807 | 0 | 123 / 68abcdef.7b | 1.000 | Result |");
+    expect(human).toContain("| unavailable | 0 | 123 / 68abcdef.7b | 1.000 | Result |");
+    expect(human).not.toContain("| Observed query ID |");
+  });
+
   it("exports sanitized CPU samples and retains partial profile paths on allocation export failure", async () => {
     const callFrame = { functionName: "work", scriptId: "1", url: "./packages/work.ts", lineNumber: 1, columnNumber: 0 };
     const cpu: CpuEvidence = { complete: false,

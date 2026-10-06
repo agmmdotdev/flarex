@@ -10,7 +10,8 @@ import { makeBoundedRequestLifetime, type RequestFailureReason } from "../src/bo
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import type { SessionJournalAttempt } from "../src/sessionJournalStore";
 import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
-  recordLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot } from "../src/logicalDocuments/rootEvaluator";
+  recordLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot,
+  borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot } from "../src/logicalDocuments/rootEvaluator";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
 import { runEffect } from "./effectTestRuntime";
 import { captureFiniteMetadataDependency, finiteMetadataContractKey, prepareFiniteMetadataProjection } from "../src/finiteMetadataDependencies";
@@ -186,10 +187,34 @@ it("invalidates prepared activity for work after a snapshot and preserves root t
       const closed = yield* working.close();
       expect(closed.attempts).toHaveLength(3);
       expect(closed.observedRows.map(row => row.value.name).toSorted()).toEqual(["Grace", "Lin"]);
-      const transferred = yield* Effect.fromResult(takeLogicalDocumentRootSnapshot(root));
+      const projectedGraph = root.snapshot();
+      const expectedNames = projectedGraph.observedRows.map(row => row.value.name);
+      const capsule = yield* Effect.fromResult(takeLogicalDocumentRootSnapshot(root));
+      const transferred = borrowClosedLogicalDocumentRoot(capsule, root, attempt);
+      if (transferred === undefined) throw new Error("Missing issued root transfer");
       expect(transferred.graph.changes).toHaveLength(2);
       expect(transferred.originalRows).toEqual([]);
       expect(transferred.graph.attempts[1]?.after?.canonicalBytes.some(byte => byte !== 0)).toBe(true);
+      const otherRoot = makeLogicalDocumentRootEvaluator({ attempt, scopeId, snapshotCommitSeq, attemptFence },
+        { identities: 64, workingBytes: 128_000 });
+      try {
+        expect(borrowClosedLogicalDocumentRoot({ ...capsule }, root, attempt)).toBeUndefined();
+        expect(borrowClosedLogicalDocumentRoot(capsule, otherRoot, attempt)).toBeUndefined();
+        // SAFETY: this is a distinct opaque handle used only for issuer refusal.
+        const otherAttempt = Object.freeze({}) as SessionJournalAttempt;
+        expect(consumeClosedLogicalDocumentRoot(capsule, root, otherAttempt)).toBeUndefined();
+        const projected = projectedGraph.changes[0];
+        if (projected?.kind !== "live") throw new Error("Missing retained live document");
+        projected.document.canonicalBytes.fill(0);
+        const projectedValue = projected.document.valueJson;
+        if (typeof projectedValue !== "object" || projectedValue === null) throw new Error("Missing projected document object");
+        Reflect.set(projectedValue, "name", "escaped");
+        const owned = consumeClosedLogicalDocumentRoot(capsule, root, attempt);
+        expect(owned?.graph.observedRows.map(row => row.value.name)).toEqual(expectedNames);
+        expect(owned?.graph.changes[0]?.kind === "live" && owned.graph.changes[0].document.canonicalBytes.some(byte => byte !== 0)).toBe(true);
+        expect(consumeClosedLogicalDocumentRoot(capsule, root, attempt)).toBeUndefined();
+        expect(borrowClosedLogicalDocumentRoot(capsule, root, attempt)).toBeUndefined();
+      } finally { otherRoot.close(); }
       expect(() => root.snapshot()).toThrow("closed");
       expect(() => takeLogicalDocumentRootSnapshot({ ...root })).toThrow("foreign");
       expect(() => takeLogicalDocumentRootSnapshot(root)).toThrow("closed");

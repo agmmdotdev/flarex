@@ -570,3 +570,14 @@ SQL; affected typechecks, source guards, lint, both reviews, retained raw/human
 evidence, displaced-path cleanup and scoped commits. The final report must name
 every remaining unavailable or ambiguous category. Even combined diagnostics
 cannot promise discovery of every possible future bottleneck.
+
+### Exact Actual Plan Identity
+
+Actual-plan evidence retains the direct JSON root's `Query Identifier` as a
+canonical signed-int64 decimal string, independently of the logged `%Q` context.
+The latter can name a prior or enclosing query and is not a plan identity.
+Capture the numeric token before JavaScript number rounding; reject duplicate
+root identifiers and malformed/noncanonical values. An omitted plan identifier
+is explicitly unavailable, with no header fallback. SQL text and parameters stay
+excluded. Existing archived evidence retains its original format and limitation;
+do not reinterpret its logged identifier as the plan's identifier.

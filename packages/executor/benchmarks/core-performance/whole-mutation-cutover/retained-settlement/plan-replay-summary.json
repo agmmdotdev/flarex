@@ -1,0 +1,32 @@
+{
+  "artifact": "592705ed-b789-4990-b2c8-7adfcfe961ca.json.gz",
+  "originalWindow": {
+    "startOffsetBytes": 83340566,
+    "endOffsetBytes": 90810256,
+    "readBytes": 7469690
+  },
+  "replayWindow": {
+    "startOffsetBytes": 0,
+    "endOffsetBytes": 7469690,
+    "readBytes": 7469690
+  },
+  "windowSha256": "eaca1039dae10cfbfd6da1c8ce3f9a455e4e5e93d2f40c873900622f4e14e543",
+  "status": "complete",
+  "coverage": "observedLogWindowOnly",
+  "flushCompleteness": "unproven",
+  "plans": 701,
+  "nodes": 2580,
+  "triggers": 62,
+  "ignoredBlocks": 667,
+  "foreignDatabasePlans": 0,
+  "failures": 0,
+  "absentPlanQueryIds": 0,
+  "differentPlanAndHeaderIds": 687,
+  "slowPlan": {
+    "ordinal": 606,
+    "durationMs": 36.728,
+    "queryId": "1582043952536896051",
+    "headerQueryId": "8824363535827441841"
+  },
+  "sanitization": "all retained plan/header/node/trigger keys match closed owner shapes; no SQL, parameters, expressions or relation names retained"
+}

@@ -87,6 +87,15 @@ export interface LogicalDocumentRootState {
 }
 
 const roots = new WeakMap<LogicalDocumentRootEvaluator, LogicalDocumentRootState>();
+const closedRootBrand: unique symbol = Symbol("Flarex/ClosedLogicalDocumentRoot");
+export interface ClosedLogicalDocumentRoot { readonly [closedRootBrand]: true }
+interface ClosedRootData {
+  readonly evaluator: LogicalDocumentRootEvaluator;
+  readonly pins: LogicalDocumentRootPins;
+  readonly graph: LogicalDocumentChanges;
+  readonly originalRows: readonly LiveAppRowRevisionV1[];
+}
+const closedRoots = new WeakMap<ClosedLogicalDocumentRoot, ClosedRootData>();
 const decodeAppCreationTimeResult = Schema.decodeUnknownResult(AppCreationTimeV1Schema);
 
 const sameObservation = (left: ApplicationDocumentObservation, right: ApplicationDocumentObservation): boolean => {
@@ -275,11 +284,11 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
   return evaluator;
 };
 
-// The snapshot function is private issuer evidence, never a structural method
-// on a caller-provided evaluator. Registry ingress detaches the transferred
-// graph once before retaining it. Closing revokes all working-set operations.
+// The selected evaluator, rather than a structural graph or another root for
+// the same attempt, issues this single-use transfer. Detach the owned graph once;
+// inspection projections never expose that retained canonical evidence.
 export const takeLogicalDocumentRootSnapshot = (evaluator: LogicalDocumentRootEvaluator):
-  Result.Result<Readonly<{ graph: LogicalDocumentChanges; originalRows: readonly LiveAppRowRevisionV1[] }>, LogicalDocumentRootPointFailure> => {
+  Result.Result<ClosedLogicalDocumentRoot, LogicalDocumentRootPointFailure> => {
   const state = roots.get(evaluator), snapshot = state?.ownedSnapshot;
   if (snapshot === undefined || state?.closed !== false)
     throw new Error("Logical document root evaluator is closed or foreign");
@@ -287,9 +296,27 @@ export const takeLogicalDocumentRootSnapshot = (evaluator: LogicalDocumentRootEv
   // Preserve graph-before-original verification and revoke only after both
   // succeeded. The caller retains the existing failure cleanup owner.
   return evaluator.snapshotOriginalRows().pipe(Result.map(originalRows => {
+    const ownedGraph = detachLogicalDocumentChanges(graph);
     evaluator.close();
-    return Object.freeze({ graph, originalRows });
+    const handle = Object.freeze({ [closedRootBrand]: true as const });
+    closedRoots.set(handle, { evaluator, pins: state.pins, graph: ownedGraph, originalRows });
+    return handle;
   }));
+};
+
+/** Trusted freeze checks its exact private evaluator before any promotion. */
+export const borrowClosedLogicalDocumentRoot = (handle: ClosedLogicalDocumentRoot,
+  evaluator: LogicalDocumentRootEvaluator, attempt: SessionJournalAttempt): ClosedRootData | undefined => {
+  const data = typeof handle === "object" && handle !== null ? closedRoots.get(handle) : undefined;
+  return data?.evaluator === evaluator && data.pins.attempt === attempt ? data : undefined;
+};
+
+/** Successful adoption revokes the transfer; replay retains the frozen handle. */
+export const consumeClosedLogicalDocumentRoot = (handle: ClosedLogicalDocumentRoot,
+  evaluator: LogicalDocumentRootEvaluator, attempt: SessionJournalAttempt): ClosedRootData | undefined => {
+  const data = borrowClosedLogicalDocumentRoot(handle, evaluator, attempt);
+  if (data !== undefined) closedRoots.delete(handle);
+  return data;
 };
 
 /** The trusted entry owner fixes this watermark before any native selection.

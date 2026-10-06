@@ -7,7 +7,9 @@ import type { Json } from "flarex-protocol/json";
 import type { LogicalParticipantAdmissionBundle } from "./logicalDocuments/participantAdmission";
 import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
 import { detachLogicalDocumentChanges } from "./logicalDocuments/detachChanges";
-import type { PointCommitRowIntentV1 } from "./applicationDocumentMaterialization/model";
+import type { PointCommitRowIntentV1, PreparedPointCommitRowIntentV1 } from "./applicationDocumentMaterialization/model";
+import { borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot, type ClosedLogicalDocumentRoot,
+  type LogicalDocumentRootEvaluator } from "./logicalDocuments/rootEvaluator";
 import type { CapturedFiniteMetadataReservation } from "./finiteMetadataReservation";
 import type { SessionJournalAttempt, SessionJournalAttemptStateV1, ResolvedJournalTargetV1 } from "./sessionJournalStore";
 import type { AppSchemaCandidateWriteGuardPlanningHead } from "./appSchemaCandidateValidation";
@@ -61,7 +63,9 @@ export interface FrozenFiniteAttemptData {
   readonly metadataReservation?: CapturedFiniteMetadataReservation;
 }
 
-const frozenAttempts = new WeakMap<FrozenFiniteAttempt, FrozenFiniteAttemptData>();
+export type OwnedFrozenFiniteAttemptData = Omit<FrozenFiniteAttemptData, "rowIntents"> &
+  Readonly<{ rowIntents: readonly PreparedPointCommitRowIntentV1[] }>;
+const frozenAttempts = new WeakMap<FrozenFiniteAttempt, OwnedFrozenFiniteAttemptData>();
 
 /** Exact replay routing needs only issued origin identity. It must not clone or
  * validate the provisional graph before observing a possibly committed outcome. */
@@ -72,27 +76,44 @@ export function readFrozenFiniteAttemptOrigin(handle: FrozenFiniteAttempt) {
     selector: Object.freeze({ ...data.attemptState.selector }) });
 }
 
-/** Package-internal issuance after the exact local root is irrevocably frozen. */
-export function issueFrozenFiniteAttempt(data: FrozenFiniteAttemptData): FrozenFiniteAttempt {
+/** Adopt only the selected, closed root. Complete codec values stay with their
+ * owned graph; no parallel raw intent can be promoted as canonical evidence. */
+export function issueFrozenFiniteAttempt(root: ClosedLogicalDocumentRoot, evaluator: LogicalDocumentRootEvaluator,
+  input: Omit<FrozenFiniteAttemptData, "graph" | "originalRows" | "rowIntents">): FrozenFiniteAttempt | undefined {
+  const closed = borrowClosedLogicalDocumentRoot(root, evaluator, input.attempt);
+  if (closed === undefined || closed.pins.scopeId !== input.attemptState.selector.scopeId ||
+    closed.pins.snapshotCommitSeq !== input.attemptState.snapshotToken.commitSeq ||
+    closed.pins.attemptFence !== String(input.attemptState.selector.attemptFence)) return undefined;
+  const { attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions,
+    candidatePlanningHead, anchorCapture, metadataReservation, operations, ...values } = input;
+  const rowIntents: readonly PreparedPointCommitRowIntentV1[] = Object.freeze(closed.graph.changes.map(change => {
+    const { documentId, tableId, rowId, dependency } = change;
+    return Object.freeze(change.kind === "deleted" ? { documentId, tableId, rowId, dependency, kind: "deleted" as const } :
+      { documentId, tableId, rowId, dependency, kind: "live" as const, creationTime: change.creationTime, document: change.document });
+  }));
   const handle = Object.freeze({ [frozenFiniteAttemptBrand]: true as const });
-  frozenAttempts.set(handle, detachFrozenFiniteAttemptData(data));
+  frozenAttempts.set(handle, Object.freeze({ ...structuredClone(values), graph: closed.graph, originalRows: closed.originalRows,
+    rowIntents, attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions,
+    candidatePlanningHead, anchorCapture, ...(metadataReservation === undefined ? {} : { metadataReservation }),
+    operations: detachOperations(operations) }));
+  consumeClosedLogicalDocumentRoot(root, evaluator, input.attempt);
   return handle;
 }
 
-/** Only the publication owner borrows this evidence. It performs full foreign
- * canonical acceptance before materialization and never exposes these bytes.
+/** Only the publication owner borrows this evidence. It performs complete
+ * origin and dependency acceptance before materialization and never exposes these bytes.
  * Public/validator projections below always detach from registry ownership. */
-export function readOwnedFrozenFiniteAttempt(handle: FrozenFiniteAttempt): FrozenFiniteAttemptData | undefined {
+export function readOwnedFrozenFiniteAttempt(handle: FrozenFiniteAttempt): OwnedFrozenFiniteAttemptData | undefined {
   return typeof handle === "object" && handle !== null ? frozenAttempts.get(handle) : undefined;
 }
 
 /** The pre-settlement value validator needs no graph, receipts or target
  * reconstruction. Its exact canonical bytes still detach from the issuer. */
 export function readFrozenFiniteCommitValues(handle: FrozenFiniteAttempt):
-  Pick<FrozenFiniteAttemptData, "rowIntents" | "successfulResult"> | undefined {
+  Readonly<{ rowIntents: readonly PointCommitRowIntentV1[]; successfulResult: CanonicalSuccessfulResultV1 }> | undefined {
   const data = typeof handle === "object" && handle !== null ? frozenAttempts.get(handle) : undefined;
   return data === undefined ? undefined : Object.freeze(structuredClone({
-    rowIntents: data.rowIntents, successfulResult: data.successfulResult,
+    rowIntents: projectRawRowIntents(data.rowIntents), successfulResult: data.successfulResult,
   }));
 }
 
@@ -104,12 +125,23 @@ export function readFrozenFiniteAttempt(handle: FrozenFiniteAttempt): FrozenFini
   return detachFrozenFiniteAttemptData(data);
 }
 
-function detachFrozenFiniteAttemptData(data: FrozenFiniteAttemptData): FrozenFiniteAttemptData {
-  const { attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions, candidatePlanningHead, anchorCapture, metadataReservation, operations, graph, ...values } = data;
-  return Object.freeze({ ...structuredClone(values), graph: detachLogicalDocumentChanges(graph), attempt, originalEntry, resolvedTarget, applicationMetadataProjection,
+function detachFrozenFiniteAttemptData(data: OwnedFrozenFiniteAttemptData): FrozenFiniteAttemptData {
+  const { attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions, candidatePlanningHead, anchorCapture, metadataReservation, operations, graph, rowIntents, ...values } = data;
+  return Object.freeze({ ...structuredClone({ ...values, rowIntents: projectRawRowIntents(rowIntents) }), graph: detachLogicalDocumentChanges(graph), attempt, originalEntry, resolvedTarget, applicationMetadataProjection,
     applicationPublicationDefinitions, candidatePlanningHead, anchorCapture,
     ...(metadataReservation === undefined ? {} : { metadataReservation }),
-    operations: Object.freeze(operations.map(operation => operation.kind === "participant"
+    operations: detachOperations(operations) });
+}
+
+function projectRawRowIntents(rows: readonly PreparedPointCommitRowIntentV1[]): readonly PointCommitRowIntentV1[] {
+  return rows.map(row => row.kind === "deleted" ? row : {
+    documentId: row.documentId, tableId: row.tableId, rowId: row.rowId, dependency: row.dependency, kind: "live" as const,
+    creationTime: row.creationTime, value: row.document.value, canonicalBytes: row.document.canonicalBytes,
+    semanticSizeBytes: row.document.semanticSizeBytes });
+}
+
+function detachOperations(operations: readonly FrozenFiniteOperation[]): readonly FrozenFiniteOperation[] {
+  return Object.freeze(operations.map(operation => operation.kind === "participant"
       ? Object.freeze({ ...structuredClone({ ...operation, admission: undefined }), admission: operation.admission })
-      : structuredClone(operation))) });
+      : structuredClone(operation)));
 }

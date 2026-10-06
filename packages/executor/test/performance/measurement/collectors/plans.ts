@@ -36,15 +36,16 @@ const metricNames = new Set([
 const metricName = Schema.String.check(Schema.makeFilter(value => metricNames.has(value) ? undefined : "Unknown plan metric"));
 const PlanNodeSchema = Schema.Struct({ id: count, parentId: Schema.NullOr(count), nodeType,
   metrics: Schema.Record(metricName, finite) });
+const QueryIdentifierSchema = Schema.String.check(Schema.makeFilter(value => {
+  if (!/^(?:0|-?[1-9]\d{0,18})$/.test(value)) return "Invalid query identifier decimal";
+  const integer = BigInt(value);
+  return integer >= -(1n << 63n) && integer <= (1n << 63n) - 1n ? undefined : "Query identifier exceeds signed int64";
+}));
 const HeaderSchema = Schema.Struct({ backendPid: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 2_147_483_647 })),
   database: Schema.String.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]{0,62}$/)),
   sessionId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{1,8}\.[a-f0-9]{1,8}$/)),
-  queryId: Schema.String.check(Schema.makeFilter(value => {
-    if (!/^-?(?:0|[1-9]\d{0,18})$/.test(value)) return "Invalid logged query identifier";
-    const integer = BigInt(value);
-    return integer >= -(1n << 63n) && integer <= (1n << 63n) - 1n ? undefined : "Query identifier exceeds signed int64";
-  })) });
-const ActualPlanSchema = Schema.Struct({ ordinal: count, header: HeaderSchema, durationMs: finite,
+  queryId: QueryIdentifierSchema });
+const ActualPlanSchema = Schema.Struct({ ordinal: count, header: HeaderSchema, queryId: Schema.NullOr(QueryIdentifierSchema), durationMs: finite,
   nodes: Schema.Array(PlanNodeSchema), triggers: Schema.Array(Schema.Struct({ ordinal: count, timeMs: Schema.NullOr(finite), calls: count })) });
 export const ServerPlanEvidenceSchema = Schema.Struct({ status: Schema.Literals(["complete", "incomplete"]),
   coverage: Schema.Literal("observedLogWindowOnly"), flushCompleteness: Schema.Literal("unproven"),
@@ -78,6 +79,7 @@ const decodeLimits = Schema.decodeUnknownSync(ServerPlanLimitsSchema, { onExcess
 const decodeHeader = Schema.decodeUnknownResult(HeaderSchema, { onExcessProperty: "error" });
 const decodeFinite = Schema.decodeUnknownResult(finite);
 const decodeCount = Schema.decodeUnknownResult(count);
+const decodeQueryIdentifier = Schema.decodeUnknownResult(QueryIdentifierSchema);
 const SourcePlanSchema = Schema.Struct({ Plan: Schema.Unknown, Triggers: Schema.optional(Schema.Array(Schema.Unknown)) });
 const SourceNodeSchema = Schema.StructWithRest(Schema.Struct({ "Node Type": nodeType,
   "Actual Rows": finite, "Actual Loops": finite, Plans: Schema.optional(Schema.Array(Schema.Unknown)) }), [Schema.Record(Schema.String, Schema.Unknown)]);
@@ -87,14 +89,52 @@ const decodeSourceNode = Schema.decodeUnknownResult(SourceNodeSchema);
 // only when timing is enabled. Keep the trigger and represent absent time honestly.
 const decodeTrigger = Schema.decodeUnknownResult(Schema.Struct({ Time: Schema.optional(finite), Calls: count }));
 
+/** Scan an already syntax-validated, byte-bounded JSON object. Only direct-root
+ * keys qualify; JSON.parse alone loses both integer precision and duplicate keys.
+ * This preserves one numeric token, not a second JSON grammar or plan decoder. */
+function capturePlanQueryId(raw: string): Result.Result<string | null, ServerPlanCaptureFailure> {
+  return Result.gen(function* () {
+    let depth = 0, seen = false;
+    let queryId: string | null = null;
+    for (let offset = 0; offset < raw.length;) {
+      const char = raw[offset];
+      if (char === "{" || char === "[") { depth++; offset++; continue; }
+      if (char === "}" || char === "]") { depth--; offset++; continue; }
+      if (char !== '"') { offset++; continue; }
+      const start = offset++;
+      while (offset < raw.length) {
+        if (raw[offset] === "\\") { offset += 2; continue; }
+        if (raw[offset++] === '"') break;
+      }
+      let colon = offset;
+      while (/\s/.test(raw[colon] ?? "")) colon++;
+      if (depth !== 1 || raw[colon] !== ":") continue;
+      const key = yield* Result.try({ try: (): unknown => JSON.parse(raw.slice(start, offset)),
+        catch: cause => issue("invalidPlanJson", cause) });
+      if (key !== "Query Identifier") continue;
+      if (seen) return yield* Result.fail(issue("duplicatePlanQueryId"));
+      seen = true;
+      let valueStart = colon + 1;
+      while (/\s/.test(raw[valueStart] ?? "")) valueStart++;
+      let valueEnd = valueStart;
+      while (valueEnd < raw.length && !/[\s,}]/.test(raw[valueEnd] ?? "")) valueEnd++;
+      queryId = yield* decodeQueryIdentifier(raw.slice(valueStart, valueEnd))
+        .pipe(Result.mapError(cause => issue("invalidPlanQueryId", cause)));
+    }
+    return queryId;
+  });
+}
+
 /** PostgreSQL 18 auto_explain.c emits one JSON object. elog.c prefixes the
  * message once and inserts a tab after every embedded newline. Keep SQL text,
- * expressions, names, parameters and JSON Query Identifier outside evidence. */
+ * expressions, names and parameters outside evidence; retain the plan's exact
+ * query ID separately from the backend log-prefix query context. */
 function sanitizePlan(raw: string, header: ActualPlan["header"], durationMs: number, ordinal: number,
   limits: ServerPlanLimits, retained: { nodes: number; triggers: number }): Result.Result<ActualPlan, PlanParseFailure> {
   return Result.gen(function* () {
     const json = yield* Result.try({ try: (): unknown => JSON.parse(raw), catch: cause => issue("invalidPlanJson", cause) });
     const source = yield* decodeSourcePlan(json);
+    const queryId = yield* capturePlanQueryId(raw);
     const nodes: PlanNode[] = [];
     const visit = (input: unknown, parentId: number | null, depth: number): Result.Result<void, PlanParseFailure> => Result.gen(function* () {
       if (depth > limits.maxDepth) return yield* Result.fail(issue("planDepthLimit"));
@@ -119,7 +159,7 @@ function sanitizePlan(raw: string, header: ActualPlan["header"], durationMs: num
       const trigger = yield* decodeTrigger(input).pipe(Result.mapError(cause => issue("invalidTriggerStats", cause)));
       triggers.push({ ordinal: triggers.length, timeMs: trigger.Time ?? null, calls: trigger.Calls });
     }
-    return { ordinal, header, durationMs, nodes, triggers };
+    return { ordinal, header, queryId, durationMs, nodes, triggers };
   });
 }
 

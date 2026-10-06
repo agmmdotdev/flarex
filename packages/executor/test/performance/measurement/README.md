@@ -208,10 +208,17 @@ An owned server log can be selected through
 `FLAREX_MEASUREMENT_SERVER_LOG` with the verified prefix
 `FXPLAN[%p][%d][%c][%Q]`. The SDK enables bounded actual `auto_explain` observation
 only for its target database. Plans retain safe operator/cardinality/cost/buffer
-fields and exact header query IDs; SQL text, predicates, outputs and parameters
+fields and exact direct-root plan query IDs as signed-int64 decimal strings.
+The logged header query context is retained separately and can identify a prior
+or enclosing query. Missing plan IDs are unavailable; header IDs never substitute
+for them. SQL text, predicates, outputs and parameters
 are excluded from persisted artifacts. No write is replayed through EXPLAIN.
 Without that source, actual plans are explicitly unavailable. A parsed log
 window does not prove all log output flushed or every statement was observed.
+
+CPU stack coordinates come from the executing profiler runtime. Transformed
+Vite code may report lines that differ from the authored TypeScript source;
+source paths identify owner candidates, not verified authored line coordinates.
 
 Server samples correlate PID/time candidates with driver awaits. Queue overlap,
 PID reuse, short queries and asynchronous timestamps retain ambiguity or missing

@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as valueCodec from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1,
   PointCommitConflictV1Error, PointMutationAttemptReplacementFiniteEntryError,
@@ -16,7 +17,7 @@ import { createRetainedHistoryFloorObservationPort, createRetainedHistoryFloorPi
 import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../persistence-postgres/src/transactionSessionActivation";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../persistence-postgres/test/transactionSessionActivationTestSupport";
 import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
-import { readFrozenFiniteCommitValues, readFrozenFiniteAttemptOrigin, issueFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalFiniteFreeze";
+import { readFrozenFiniteCommitValues, readFrozenFiniteAttemptOrigin, readOwnedFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalFiniteFreeze";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { CanonicalFlarexValueBytesV1Schema, FlarexValueSha256V1Schema, canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import { inspectLogicalParticipantAdmissionBundle, inspectFiniteOperationCommitAuthority } from "../../persistence-postgres/src/logicalDocuments/participantAdmission";
@@ -87,6 +88,26 @@ function replacement(fixture: Fixture) {
 }
 
 describe.each(drivers)("compact finite settlement on %s", driver => {
+  it("retains the closed root's complete canonical documents through finite preparation", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-retained-values-${driver}` });
+    try {
+      const value = await execute(fixture);
+      const frozen = await Effect.runPromise(fixture.freeze(value));
+      const projected = readFrozenFiniteAttempt(frozen);
+      if (projected === undefined) throw new Error("Missing genuine frozen projection");
+      const ids = new Set<string>(projected.rowIntents.map(row => row.documentId));
+      const canonicalize = vi.spyOn(valueCodec, "canonicalizeFlarexValueV1");
+      try {
+        expect(await Effect.runPromise(await fixture.prepareFrozenPublication(frozen))).toMatchObject({ kind: "published" });
+        const repeated = canonicalize.mock.calls.filter(([document, context]) => context === "appDocument" &&
+          typeof document === "object" && document !== null && "_id" in document && typeof document._id === "string" && ids.has(document._id));
+        expect(repeated).toEqual([]);
+      } finally { canonicalize.mockRestore(); }
+      expect(await fixture.readCurrentProduct()).toMatchObject({ title: fixture.seed.newTitle });
+      expect(readFrozenFiniteAttempt(frozen)?.rowIntents).toEqual(projected.rowIntents);
+    } finally { await fixture.close(); }
+  }, 180_000);
+
   it("replays a known outcome before checking an unissued planning capability", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-prepared-planning-${driver}` });
     try {
@@ -117,11 +138,10 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       expect(afterValueMutation?.successfulResult).toEqual(originalFrozen.successfulResult);
       expect(afterValueMutation?.originalEntry).toBe(originalFrozen.originalEntry);
       expect(readFrozenFiniteCommitValues({ ...command.frozenAttempt })).toBeUndefined();
-      // Even a trusted issuer's input stops owning these values at issuance.
-      // Mutating the ingress graph or bytes cannot change retained evidence.
+      // Every inspection projection detaches from the exact closed-root issuer.
+      // It cannot be reissued as trusted canonical evidence.
       const issuanceInput = readFrozenFiniteAttempt(command.frozenAttempt);
       if (issuanceInput === undefined) throw new Error("Missing authentic issuance projection");
-      const separatelyIssued = issueFrozenFiniteAttempt(issuanceInput);
       issuanceInput.successfulResult.canonicalBytes.fill(0);
       Reflect.set(issuanceInput.attemptState.selector, "attemptFence", 999n);
       for (const row of issuanceInput.rowIntents) if (row.kind === "live") row.canonicalBytes.fill(0);
@@ -138,7 +158,7 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
         for (const event of operation.eventIntents) if (typeof event.intent === "object" && event.intent !== null)
           Reflect.set(event.intent, "escaped", true);
       }
-      const afterIssuanceMutation = readFrozenFiniteAttempt(separatelyIssued);
+      const afterIssuanceMutation = readFrozenFiniteAttempt(command.frozenAttempt);
       expect(afterIssuanceMutation?.graph).toEqual(originalFrozen.graph);
       expect(afterIssuanceMutation?.rowIntents).toEqual(originalFrozen.rowIntents);
       expect(afterIssuanceMutation?.successfulResult).toEqual(originalFrozen.successfulResult);
@@ -363,15 +383,12 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
             throw new Error("Missing genuine final Product document");
           const invalid = yield* canonicalizeFlarexValueV1Effect({ ...original.value, title: 123 }, "appDocument").pipe(Effect.orDie);
           expect(Result.isFailure(productSource.validateDocument(original.tableId, invalid))).toBe(true);
-          // This package-internal issuer receives a canonical but invalid final
-          // native document while retaining every genuine source capability.
-          // It exercises settlement validation independently of close validation.
-          const invalidFrozen = issueFrozenFiniteAttempt({ ...frozen,
-            rowIntents: frozen.rowIntents.map(row => row.documentId !== original.documentId || row.kind !== "live" ? row : {
-              ...row, value: invalid.value, canonicalBytes: invalid.canonicalBytes, semanticSizeBytes: invalid.semanticSizeBytes,
-            }), graph: { ...frozen.graph, changes: frozen.graph.changes.map(change =>
-              change.documentId !== original.documentId || change.kind !== "live" ? change : { ...change, document: invalid }) },
-          });
+          // Test-only fault in the private retained value; public projections
+          // cannot mint a replacement frozen issuer. Native settlement must
+          // still validate its schema independently of working-set close.
+          const owned = readOwnedFrozenFiniteAttempt(command.frozenAttempt)?.rowIntents.find(row => row.documentId === original.documentId);
+          if (owned?.kind !== "live") throw new Error("Missing owned native value for fault injection");
+          Object.assign(owned.document, invalid);
           const db = fixture.currency.persistence.drizzle;
           if (damage !== "validClosures") {
             const source = damage === "currentClosure" ? productSource : laterSource;
@@ -396,7 +413,7 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
             events: await db.select().from(fxSystemCommitEvents) });
           const before = yield* Effect.promise(durable);
           const callbacks = [...fixture.nativeInvokeCount.entries()];
-          const verdict = yield* actual.publishFinite({ ...command, frozenAttempt: invalidFrozen }).pipe(Effect.result);
+          const verdict = yield* actual.publishFinite(command).pipe(Effect.result);
           expect(verdict).toMatchObject({ _tag: "Failure", failure: damage === "currentClosure"
             ? { _tag: "PointCommitStaleAuthorityV1Error", reason: "activeSchemaChanged" }
             : { _tag: "PointCommitCorruptionV1Error", reason: "rowWriteInvalid" } });
@@ -430,13 +447,10 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
             throw new Error("Missing genuine final native row");
           const oversizedKeyDocument = yield* canonicalizeFlarexValueV1Effect({ ...intent.value,
             handle: "h".repeat(3000) }, "appDocument").pipe(Effect.orDie);
-          const keyFailureCommand = { ...command, frozenAttempt: issueFrozenFiniteAttempt({ ...frozen,
-            rowIntents: frozen.rowIntents.map(row => row.documentId !== intent.documentId || row.kind !== "live" ? row : {
-              ...row, value: oversizedKeyDocument.value, canonicalBytes: oversizedKeyDocument.canonicalBytes,
-              semanticSizeBytes: oversizedKeyDocument.semanticSizeBytes,
-            }), graph: { ...frozen.graph, changes: frozen.graph.changes.map(change =>
-              change.documentId !== intent.documentId || change.kind !== "live" ? change : { ...change, document: oversizedKeyDocument }) },
-          }) };
+          const owned = readOwnedFrozenFiniteAttempt(command.frozenAttempt)?.rowIntents.find(row => row.documentId === intent.documentId);
+          if (owned?.kind !== "live") throw new Error("Missing owned native key value for fault injection");
+          Object.assign(owned.document, oversizedKeyDocument);
+          const keyFailureCommand = command;
           const db = fixture.currency.persistence.drizzle;
           const identity = and(eq(fxAppRowRevisions.scopeUuid, original.scopeUuid), eq(fxAppRowRevisions.tableId, original.tableId),
             eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(original.rowId)), eq(fxAppRowRevisions.commitSeq, original.commitSeq));

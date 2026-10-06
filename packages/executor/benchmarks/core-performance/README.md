@@ -16,6 +16,16 @@ journal and publication owners directly in Node, without a Worker or HTTP hop.
 
 ## Whole-mutation acceptance
 
+The [retained settlement and ordered proof comparison](./whole-mutation-cutover/retained-settlement/README.md)
+is the current connected finite cutover. Its 30 fresh matched quiet pairs retain
+152.02 ms added median and 177.68 ms added P95; both 5/10 ms native-relative gates
+fail. Removing repeated finite document recoding and per-tuple stored proof
+queries does not establish an accepted performance improvement. Observer-free
+CPU diagnostics show distributed CPU work and waiting, with no single proven
+cause for the quiet excess. The ledger retains predecessor/final reports,
+sanitized CPU evidence, exact plan-ID replay and populated installation upgrade
+limits. Earlier ledgers below remain historical evidence.
+
 The [ordered materialization investigation](./whole-mutation-cutover/materialization-composition/README.md)
 records 161.38 ms median, 165.98 ms P95 and 40 commands for complete mixed
 Product. Its source, harness and bounded promoted native-artifact fingerprints

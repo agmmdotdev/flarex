@@ -295,7 +295,7 @@ import { serializeLogicalParticipantDependencyEvidence, type LogicalParticipantE
 import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
 import type { LogicalDocumentBorrowView, LogicalPendingDocumentSeed, LogicalFiniteStorageCapture } from "./logicalDocuments/model";
 import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
-  recordLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot, type LogicalDocumentRootEvaluator } from
+  recordLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot, borrowClosedLogicalDocumentRoot, type LogicalDocumentRootEvaluator } from
   "./logicalDocuments/rootEvaluator";
 import {
   encodeAdmittedFrameworkOperationV1Result,
@@ -3435,8 +3435,11 @@ export function createSessionJournalStorePersistence(
       if (!bytesEqual(verifiedResult.canonicalBytes, successfulResult.canonicalBytes) || !jsonEqual(verifiedResult.valueJson, successfulResult.valueJson) ||
         verifiedResult.canonicalText !== successfulResult.canonicalText || verifiedResult.semanticSizeBytes !== successfulResult.semanticSizeBytes)
         return yield* Effect.fail(new SessionJournalSealV1Error({ reason: "canonicalResultMismatch" }));
-      const { graph, originalRows } = yield* Effect.fromResult(takeLogicalDocumentRootSnapshot(finite.evaluator))
+      const closedRoot = yield* Effect.fromResult(takeLogicalDocumentRootSnapshot(finite.evaluator))
         .pipe(Effect.mapError(cause => corruption(attemptState, "pointDependencyChangedAtSnapshot", cause)));
+      const closed = borrowClosedLogicalDocumentRoot(closedRoot, finite.evaluator, attempt);
+      if (closed === undefined) return yield* Effect.fail(corruption(attemptState, "exactAttemptPinsChanged"));
+      const { graph } = closed;
       if (graph.setNull.length > 0 || graph.referenceReplacements.length > 0)
         return yield* Effect.fail(new SessionJournalSealV1Error({ reason: "journalFailed" }));
       const operations: FrozenFiniteOperation[] = [...finite.receipts.entries()]
@@ -3449,13 +3452,6 @@ export function createSessionJournalStorePersistence(
           workCalls: receipt.completed.workCalls }) : Object.freeze({ kind: receipt.kind, sequence,
           request: requireJson(encodeStoredRequest(receipt.request)), outcome: requireJson(encodeStoredOutcome(receipt.outcome)),
           ...(receipt.kind === "point" && receipt.plan.write !== undefined ? { write: receipt.plan.write } : {}) }));
-      const rowIntents = graph.changes.map(change => {
-        const { documentId, tableId, rowId, readAt, dependency } = change;
-        return change.kind === "deleted" ? Object.freeze({ documentId, tableId, rowId, readAt, dependency,
-          kind: "deleted" as const }) : Object.freeze({ documentId, tableId, rowId, readAt, dependency,
-          kind: "live" as const, creationTime: change.creationTime, value: change.document.value,
-          canonicalBytes: change.document.canonicalBytes, semanticSizeBytes: change.document.semanticSizeBytes });
-      });
       const applicationMetadataProjection = getFiniteApplicationWriteMetadataProjection(finite.metadata, attempt);
       if (applicationMetadataProjection === null) return yield* Effect.fail(corruption(attemptState, "exactAttemptPinsChanged"));
       const applicationPublicationDefinitions = yield* Effect.fromResult(getFiniteApplicationPublicationDefinitions(finite.metadata, attempt))
@@ -3466,13 +3462,14 @@ export function createSessionJournalStorePersistence(
       // Receipts, pins and captured dependencies already belong to this closed
       // finite root. Registry ingress detaches them once; no exposed return or
       // caller input shares those retained values.
-      const frozen = issueFrozenFiniteAttempt({ attempt, originalEntry, resolvedTarget: finite.resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions, candidatePlanningHead, anchorCapture: finite.anchorCapture, attemptState, graph,
-        successfulResult: verifiedResult, rowIntents, originalRows, operations,
+      const frozen = issueFrozenFiniteAttempt(closedRoot, finite.evaluator, { attempt, originalEntry, resolvedTarget: finite.resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions, candidatePlanningHead, anchorCapture: finite.anchorCapture, attemptState,
+        successfulResult: verifiedResult, operations,
         dependencies: Object.freeze([...graph.dependencies.map(observation => observation.dependency),
           ...finite.indexRanges, ...finite.relationDependencies, ...graph.metadataDependencies ?? []]),
         applicationIndexRanges: finite.indexRanges,
         applicationRelationDependencies: finite.relationDependencies,
         metadataReservation: finite.reservation });
+      if (frozen === undefined) return yield* Effect.fail(corruption(attemptState, "exactAttemptPinsChanged"));
       finite.status = "frozen";
       discardFiniteRootEvidence(finite);
       return frozen;

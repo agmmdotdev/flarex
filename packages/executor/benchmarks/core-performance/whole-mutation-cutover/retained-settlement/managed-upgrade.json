@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "receipt": {
+    "status": "passed",
+    "scope": "controlled private reconstruction of predecessor function bodies and pending 0137 receipt",
+    "liveOldDeploymentClaim": false,
+    "seedCase": "frozen index pairs preserve enabled refusal and building same-key membership repair",
+    "seedSetupCredential": "ordinary-schema-owner",
+    "genuineManagedRuntimeVerified": true,
+    "predecessorFunctionSource": "0133_publication_domain.sql",
+    "canonicalMigration": "0137_retained_materialization_proofs",
+    "migrationHash": "06e1095041696708392bdd0250cfc70cfcd149fbac87299e8c529ea70d1425a0",
+    "originalReceiptsPreserved": 137,
+    "pending0137RestoredExactlyOnce": true,
+    "remainedDrainedUntilActualMigration": true,
+    "publicExecuteDenied": true,
+    "explicitRuntimeExecuteRetained": true,
+    "oldCapabilityRefusedAsChanged": true,
+    "freshManagedAdmission": true,
+    "generationBefore": "3",
+    "generationAfter": "5",
+    "data": {
+      "rowRevisions": 3,
+      "rowPointers": 2,
+      "indexRevisions": 1,
+      "indexPointers": 1,
+      "beforeSha256": "5d01c679f414cef8147bb0d09067a3e5dbc01d36894a20825a56f6c9fe5d3dcc",
+      "afterSha256": "5d01c679f414cef8147bb0d09067a3e5dbc01d36894a20825a56f6c9fe5d3dcc",
+      "byteIdentical": true
+    }
+  },
+  "failures": [],
+  "failureLocations": [],
+  "cleanup": "passed"
+}

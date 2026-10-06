@@ -137,7 +137,18 @@ explicit observer cost, owner work counts and fresh native pairing. Its first
 small `mixed-product` SDK cutover is extended to the adopted 25-flow catalog,
 CPU/GC/allocation diagnostics and isolated PostgreSQL server/wait observations.
 The five original small graphs have fresh native construction; extended native
-mappings remain gated. Runtime optimization remains paused. Reconciled collection
+mappings remain gated. The focused
+[retained settlement and ordered stored proofs](./24-whole-mutation-redesign-preflight.md#selected-retained-settlement-and-ordered-stored-proofs)
+replacement is implemented: one owned canonical finite graph reaches settlement,
+and each existing row/index page barrier uses an ordered joined stored proof.
+Displaced finite raw-intent retention, final-row recoding and per-tuple proof
+queries are removed. Its complete matched-native latency acceptance remains
+unmet. The
+[focused evidence](../../packages/executor/benchmarks/core-performance/whole-mutation-cutover/retained-settlement/README.md)
+retains the quiet comparison and separate attribution limits. Compact historical
+capture and publication acceptance remain the next connected design boundary;
+exact immutable pins and fresh post-wait checks retain their recorded gates.
+Broader runtime changes retain their recorded gates. Reconciled collection
 still exposes substantial unknown and ambiguous owner time; more scenario
 coverage or grouped SQL totals alone cannot explain the remaining complete-request
 latency.

@@ -40,7 +40,8 @@ import { createLocatedIndexBuildReconciliationTargetV1 } from "../src/indexBuild
 import { getScopeMetadataByDeploymentId } from "../src/scopeMetadata";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
 import { prepareAppIndexRevisionApplicationEffect, readAppIndexMembershipHeadsInTransactionEffect,
-  appendAppIndexEntryRevisionsInTransactionEffect, InvalidAppIndexEntryInputError } from "../src/appIndexEntries";
+  appendAppIndexEntryRevisionsInTransactionEffect, InvalidAppIndexEntryInputError,
+  AppIndexEntryStorageCorruptionError } from "../src/appIndexEntries";
 import { lowerAppDeveloperIndexKeyV1 } from "../src/appDeveloperIndexCommitV1";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../src/appUniqueConstraintCommitV1";
 import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
@@ -845,6 +846,64 @@ async function verifyEarlierRowRefusal(persistence: MaterializationCompositionPe
   }
 }
 
+/** Immediate RETURNING proof is a write barrier: a later same-page trigger
+ * must never replace the first row or index corruption with its own failure. */
+async function verifySamePageReturningOrder(persistence: MaterializationCompositionPersistence) {
+  for (const family of ["row", "index"] as const) {
+    const fixture = await compositionFixture(persistence, family === "row" ? 402 : 403);
+    const first = await fixture.row(0);
+    const later = await fixture.row(1);
+    const target = family === "row" ? fxAppRowRevisions : fxAppIndexEntryRevisions;
+    const targetTable = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(target))}`).sql;
+    const functionName = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.materialization_same_page_returning`).sql;
+    const corrupt = family === "row"
+      ? `NEW."${fxAppRowRevisions.creationTime.name}" := NEW."${fxAppRowRevisions.creationTime.name}" + 1;`
+      : `NEW."${fxAppIndexEntryRevisions.isTombstone.name}" := true;`;
+    await persistence.query(`create function ${functionName}() returns trigger language plpgsql as $$
+      begin
+        if NEW."${target.rowId.name}" = decode('${first.rowId}','hex') then ${corrupt}
+        elsif NEW."${target.rowId.name}" = decode('${later.rowId}','hex') then
+          raise exception 'later same-page trigger must not win';
+        end if;
+        return NEW;
+      end $$`);
+    try {
+      await persistence.query(`create trigger materialization_same_page_returning before insert on ${targetTable}
+        for each row execute function ${functionName}()`);
+      try {
+        const before = await fixture.state();
+        await admitted(fixture.database, async tx => {
+          const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+          const command = await commandForRows(tx, fixture, clock, [first, later]);
+          const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
+          const positions = [first, later].map(revision => {
+            const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(fixture.developer, revision.document, revision.creationTime));
+            if (encodedKey === null) throw new Error("Missing genuine same-page developer index key");
+            return { definition: fixture.developer, encodedKey, rowId: decodeOrderedIndexRowIdHexV1(revision.rowId) };
+          });
+          const selection = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+            { scopeId: fixture.scopeId, positions }));
+          const actions = positions.map(position => ({ kind: "live", ...position, membershipHeadEvidence: selection.evidence } as const));
+          const result = await throughCompositor(tx, () => materializeApplicationDocumentRows(tx,
+            { command, commitSeq: first.commitSeq, clock, loadedHeads: heads, intrinsicBuilds: [],
+              developerIndexActions: family === "index" ? actions : [], developerBuilds: [], uniqueKeyActions: [],
+              uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {} }))
+            .then(() => Result.succeed(undefined), (cause: unknown) => Result.fail(cause));
+          if (Result.isSuccess(result)) throw new Error("Composed materialization accepted same-page RETURNING corruption");
+          if (family === "row") {
+            if (!(result.failure instanceof AppRowStorageCorruptionError)) throw result.failure;
+            expect(result.failure.identity).toEqual({ scopeId: fixture.scopeId, tableId: first.tableId, rowId: first.rowId });
+          } else {
+            if (!(result.failure instanceof AppIndexEntryStorageCorruptionError)) throw result.failure;
+          }
+          await expect(tx.execute(sql`select 1`)).rejects.toMatchObject({ cause: { code: "25P02" } });
+        });
+        expect(await fixture.state()).toEqual(before);
+      } finally { await persistence.query(`drop trigger materialization_same_page_returning on ${targetTable}`); }
+    } finally { await persistence.query(`drop function ${functionName}()`); }
+  }
+}
+
 /** The last server page leaves its own tuple intact and changes an earlier
  * input. Catching the translated proof cannot make the transaction writable. */
 async function verifyCompositionEarlierPageProof(persistence: MaterializationCompositionPersistence) {
@@ -887,6 +946,67 @@ async function verifyCompositionEarlierPageProof(persistence: MaterializationCom
       });
       expect(await fixture.state()).toEqual(before);
     } finally { await persistence.query(`drop trigger materialization_prior_page_after on ${rowTable}`); }
+  } finally { await persistence.query(`drop function ${functionName}()`); }
+}
+
+/** A later index page changes a non-key field of an earlier revision. The
+ * invocation-wide proof must compare full tuples, not just current pointers. */
+async function verifyCompositionEarlierIndexPageProof(persistence: MaterializationCompositionPersistence) {
+  const fixture = await compositionFixture(persistence, 404);
+  const rows: AppendPreparedLiveAppRowRevisionV1Input[] = [];
+  for (let ordinal = 0; ordinal < 33; ordinal++) rows.push(await fixture.row(ordinal));
+  const first = rows[0];
+  const last = rows.at(-1);
+  if (first === undefined || last === undefined) throw new Error("Missing cross-page materialization index rows");
+  const indexTable = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxAppIndexEntryRevisions))}`).sql;
+  const functionName = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.materialization_prior_index_page_after`).sql;
+  await persistence.query(`create function ${functionName}() returns trigger language plpgsql as $$
+    begin
+      if NEW."${fxAppIndexEntryRevisions.rowId.name}" = decode('${last.rowId}','hex') then
+        update ${indexTable} set "${fxAppIndexEntryRevisions.physicalSpecSha256.name}" = decode(repeat('ff',32),'hex')
+          where "${fxAppIndexEntryRevisions.scopeUuid.name}" = NEW."${fxAppIndexEntryRevisions.scopeUuid.name}"
+            and "${fxAppIndexEntryRevisions.indexDefinitionId.name}" = NEW."${fxAppIndexEntryRevisions.indexDefinitionId.name}"
+            and "${fxAppIndexEntryRevisions.rowId.name}" = decode('${first.rowId}','hex')
+            and "${fxAppIndexEntryRevisions.commitSeq.name}" = NEW."${fxAppIndexEntryRevisions.commitSeq.name}";
+      end if;
+      return NEW;
+    end $$`);
+  try {
+    await persistence.query(`create trigger materialization_prior_index_page_after after insert on ${indexTable}
+      for each row execute function ${functionName}()`);
+    try {
+      const before = await fixture.state();
+      await admitted(fixture.database, async tx => {
+        const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+        const command = await commandForRows(tx, fixture, clock, rows);
+        const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
+        const positions = rows.map(revision => {
+          const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(fixture.developer, revision.document, revision.creationTime));
+          if (encodedKey === null) throw new Error("Missing genuine cross-page developer index key");
+          return { definition: fixture.developer, encodedKey, rowId: decodeOrderedIndexRowIdHexV1(revision.rowId) };
+        });
+        const selection = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+          { scopeId: fixture.scopeId, positions }));
+        const actions = positions.map(position => ({ kind: "live", ...position, membershipHeadEvidence: selection.evidence } as const));
+        const result = await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: first.commitSeq, clock,
+          loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: actions, developerBuilds: [],
+          uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {} }))
+          .then(() => Result.succeed(undefined), (cause: unknown) => Result.fail(cause));
+        if (Result.isSuccess(result)) throw new Error("Composed materialization accepted prior index-page corruption");
+        if (!(result.failure instanceof AppIndexEntryStorageCorruptionError)) throw result.failure;
+        expect(result.failure.reason).toBe("index revision or current membership differs after application");
+        expect(Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({
+          family: Schema.Literal("index"), pageOffset: Schema.Literal(32),
+          detail: Schema.fromJsonString(Schema.Struct({
+            reason: Schema.Literal("storedCorruption"), phase: Schema.Literal("verify"), ordinal: Schema.Literal(0),
+          })),
+        })))(applicationDomainFailureDetail(result.failure.cause, "fx_apply_app_materialization"))).toEqual({
+          family: "index", pageOffset: 32, detail: { reason: "storedCorruption", phase: "verify", ordinal: 0 },
+        });
+        await expect(tx.execute(sql`select 1`)).rejects.toMatchObject({ cause: { code: "25P02" } });
+      });
+      expect(await fixture.state()).toEqual(before);
+    } finally { await persistence.query(`drop trigger materialization_prior_index_page_after on ${indexTable}`); }
   } finally { await persistence.query(`drop function ${functionName}()`); }
 }
 
@@ -1457,9 +1577,11 @@ export const materializationCompositionCases = [
   { name: "native current membership counts actual 256 and 257 actions while accepting 384 no-op pairs", run: verifyFrozenActualIndexActionLimit },
   { name: "native private ordered-index capacity accepts 65,536 sparse pairs with zero actions and complete coverage", run: verifyNativeOrderedIndexPairCapacity },
   { name: "real row refusal precedes retained index and search preparation failures", run: verifyEarlierRowRefusal },
+  { name: "same-page row and index RETURNING corruption precedes a later trigger failure", run: verifySamePageReturningOrder },
   { name: "unique admission reads its new parent after composed row writes", run: verifyCompositionFreshUniqueParent },
   { name: "actual unique destination conflict precedes contradictory previous ownership", run: verifyCompositionUniqueRefusalOrder },
   { name: "composed text and JSON search preserve selection, build counts and earlier-page proofs", run: verifyCompositionSearchPages },
   { name: "later-page AFTER corruption verifies full earlier materialization input and aborts", run: verifyCompositionEarlierPageProof },
+  { name: "later index-page AFTER corruption verifies full earlier revision with ordinal zero and aborts", run: verifyCompositionEarlierIndexPageProof },
   { name: "awaited callbacks observe original provisional rows before index effects", run: verifyAwaitedMaterializationCallback },
 ] as const;

@@ -50,7 +50,7 @@ import { withSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceA
 import { inspectLogicalParticipantAdmissionBundle, inspectFiniteOperationCommitAuthority,
   prepareFiniteOperationCommitObservation }
   from "./logicalDocuments/participantAdmission";
-import { readOwnedFrozenFiniteAttempt, readFrozenFiniteAttemptOrigin, type FrozenFiniteAttempt, type FrozenFiniteAttemptData, type FrozenFiniteOperation } from "./sessionJournalFiniteFreeze";
+import { readOwnedFrozenFiniteAttempt, readFrozenFiniteAttemptOrigin, type FrozenFiniteAttempt, type OwnedFrozenFiniteAttemptData, type FrozenFiniteOperation } from "./sessionJournalFiniteFreeze";
 import { lockFiniteAttemptAnchorRowByIdentityInTransaction, readFiniteAttemptAnchorRow,
   lendComparedFinitePublicationAnchor,
   requireFiniteAttemptIsLive, FiniteAttemptAnchorError,
@@ -328,7 +328,7 @@ interface PreparedFiniteCommitCommand extends ApplicationDocumentMaterialization
   readonly session: PointCommitSessionScalarsV1;
   readonly scopeUuid: ScopeUuidV1;
   readonly executionClaim: TransactionExecutionClaimPinV1;
-  readonly frozen: FrozenFiniteAttemptData;
+  readonly frozen: OwnedFrozenFiniteAttemptData;
   readonly attemptedTableIds: readonly CatalogTableId[];
   readonly participantMaterialDocumentIds: ReadonlySet<string>;
   readonly indexRangeDependencies: readonly LogicalIndexRangeReadDependencyV1[];
@@ -2736,20 +2736,13 @@ const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFini
     frozen.attemptState.executionProfile !== "finiteRoot") return yield* Effect.fail(corruption("commandInvalid"));
   const dependencies = yield* Effect.fromResult(capturePointCommitDependenciesResult(
     [...frozen.graph.dependencies].toSorted((a, b) => a.tableId - b.tableId || compareRowIds(a.rowId, b.rowId)), frozen.graph.dependencies.length));
-  const capturedRows = yield* Effect.fromResult(captureRowIntentsResult(
-    [...frozen.rowIntents].toSorted((a, b) => a.tableId - b.tableId || compareRowIds(a.rowId, b.rowId))));
-  const rowIntents: PreparedPointCommitRowIntentV1[] = [];
-  for (const row of capturedRows) {
+  const rowIntents = frozen.rowIntents;
+  if (rowIntents.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1) return yield* Effect.fail(corruption("commandInvalid"));
+  yield* Effect.fromResult(requireCanonicalDependencyOrderResult(rowIntents));
+  for (const row of rowIntents) {
     if (!dependencies.some(dependency => pointDependenciesEqual(dependency, row))) return yield* Effect.fail(corruption("dependencySetInvalid"));
-    if (row.kind === "deleted") { rowIntents.push(row); continue; }
-    const document = yield* Effect.tryPromise({ try: () => canonicalizeFlarexValueV1(row.value, "appDocument"), catch: cause => cause }).pipe(
-      // The codec's declared rejection is command corruption; an unexpected
-      // foreign rejection preserves its defect identity.
-      // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: protocol - declared canonical codec rejection becomes command corruption while unexpected foreign rejection remains a defect
-      Effect.catch(cause => cause instanceof FlarexValueCodecV1Error ? Effect.fail(corruption("commandInvalid")) : Effect.die(cause)));
-    if (!bytesEqual(document.canonicalBytes, row.canonicalBytes) || document.semanticSizeBytes !== row.semanticSizeBytes ||
-      !isCanonicalDocumentForIntent(document, row)) return yield* Effect.fail(corruption("commandInvalid"));
-    rowIntents.push(Object.freeze({ ...row, document }));
+    if (row.kind === "live" && !isCanonicalDocumentForIntent(row.document, row))
+      return yield* Effect.fail(corruption("commandInvalid"));
   }
   const applicationTables = new Set<CatalogTableId>();
   const sources: FiniteCommitSource[] = [];
@@ -2819,7 +2812,7 @@ const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFini
     semanticSizeBytes: frozen.successfulResult.semanticSizeBytes, sha256Hex: frozen.successfulResult.evidence.sha256Hex,
     canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(copyBytes(frozen.successfulResult.canonicalBytes)) });
   return Object.freeze({ authorityPins, session, executionClaim, scopeUuid: scope.scopeUuid, frozen,
-    dependencies, rowIntents: Object.freeze(rowIntents), sources: Object.freeze(sources), events: Object.freeze(events),
+    dependencies, rowIntents, sources: Object.freeze(sources), events: Object.freeze(events),
     attemptedTableIds: Object.freeze([...applicationTables]),
     participantMaterialDocumentIds: new Set(rowIntents.filter(row => nativeTables.has(row.tableId)).map(row => row.documentId)),
     indexRangeDependencies: frozen.applicationIndexRanges, relationDependencies: frozen.applicationRelationDependencies,
@@ -4185,7 +4178,7 @@ function compareRowIds(left: AppRowIdHexV1, right: AppRowIdHexV1): number {
 
 function isCanonicalDocumentForIntent(
   document: CanonicalFlarexValueV1,
-  intent: Extract<PointCommitRowIntentV1, { readonly kind: "live" }>,
+  intent: Pick<PreparedLivePointCommitRowIntentV1, "documentId" | "creationTime">,
 ): boolean {
   const value = document.value;
   if (!isCanonicalFlarexRuntimeObjectV1(value)) return false;

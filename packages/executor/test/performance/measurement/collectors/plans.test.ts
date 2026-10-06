@@ -38,13 +38,17 @@ const node = (fields: Record<string, unknown> = {}) => ({ "Node Type": "Result",
   "Startup Cost": 0, "Total Cost": 0.01, "Plan Rows": 1, "Plan Width": 4, ...fields });
 const header = (db = database, queryId = "-9223372036854775808", pid = 123, sessionId = "68abcdef.7b") =>
   `FXPLAN[${pid}][${db}][${sessionId}][${queryId}]`;
+function loggedPlan(json: string, queryId = "-9223372036854775808", db = database) {
+  return `${header(db, queryId)}LOG:  duration: 1.234 ms  plan:\n\t${json.replaceAll("\n", "\n\t")}\n`;
+}
 function plan(fields: Record<string, unknown> = {}, root: Record<string, unknown> = {}, db = database,
   queryId = "-9223372036854775808") {
   // The actual PG18 stderr shape: auto_explain changes its JSON envelope to an
   // object; elog inserts a tab after each embedded newline, including the first.
-  const json = JSON.stringify({ "Query Text": "select 'private-query-value'", "Query Identifier": 9_223_372_036_854_775_807,
+  const json = JSON.stringify({ "Query Text": "select 'private-query-value'",
     Plan: node(fields), ...root }, null, 2);
-  return `${header(db, queryId)}LOG:  duration: 1.234 ms  plan:\n\t${json.replaceAll("\n", "\n\t")}\n`;
+  // Keep the PG numeric token exact; a JavaScript number rounds signed int64 max.
+  return loggedPlan(`{"Query Identifier": 9223372036854775807,${json.slice(1)}`, queryId, db);
 }
 async function fixture(limits?: Partial<ServerPlanLimits>) {
   const directory = await mkdtemp(join(tmpdir(), "flarex-plan-capture-"));
@@ -74,7 +78,7 @@ describe("bounded actual PostgreSQL plan log capture", () => {
         ignoredBlocks: 0, foreignDatabasePlans: 0, failures: [] });
       expect(evidence.plans).toHaveLength(1);
       expect(evidence.plans[0]).toMatchObject({ header: { backendPid: 123, database, sessionId: "68abcdef.7b", queryId: "-9223372036854775808" },
-        durationMs: 1.234, nodes: [
+        queryId: "9223372036854775807", durationMs: 1.234, nodes: [
           { id: 0, parentId: null, nodeType: "Aggregate", metrics: { "Shared Hit Blocks": 5 } },
           { id: 1, parentId: 0, nodeType: "Seq Scan", metrics: { "Actual Rows": 3.5, "I/O Read Time": 0.4 } },
         ], triggers: [{ ordinal: 0, timeMs: 0.25, calls: 1 }] });
@@ -87,6 +91,68 @@ describe("bounded actual PostgreSQL plan log capture", () => {
       expect(state.capture.failures()).toEqual([]);
     } finally { await state.capture.end(); await state.close(); }
   });
+
+  it("preserves literal numeric plan IDs across int64 bounds and adjacent unsafe integers independently of logged context", async () => {
+    const ids = ["-9223372036854775808", "9223372036854775807", "9007199254740992", "9007199254740993", "0"];
+    const state = await fixture();
+    try {
+      await state.capture.begin();
+      for (const id of ids) await appendFile(state.path, loggedPlan(`{"Query Identifier":${id},"Plan":${JSON.stringify(node())}}`, "0"));
+      await state.capture.end();
+      const evidence = state.capture.evidence();
+      expect(evidence.status).toBe("complete");
+      expect(evidence.plans.map(value => value.queryId)).toEqual(ids);
+      expect(evidence.plans.map(value => value.header.queryId)).toEqual(ids.map(() => "0"));
+      const restored: unknown = JSON.parse(JSON.stringify(evidence));
+      expect(Result.getOrThrow(Schema.decodeUnknownResult(ServerPlanEvidenceSchema)(restored)).plans.map(value => value.queryId)).toEqual(ids);
+    } finally { await state.capture.end(); await state.close(); }
+  });
+
+  it("recognizes escaped root keys while excluding nested IDs and field-looking private strings", async () => {
+    const state = await fixture();
+    const privateText = 'private-query ",} Query Identifier: 17 { \\ "Query Identifier":19';
+    try {
+      await state.capture.begin();
+      const root = JSON.stringify({ "Query Text": privateText, Plan: node({ "Query Identifier": 17,
+        Output: [privateText], Plans: [node({ "Query Identifier": 19 })] }),
+        Triggers: [{ Calls: 1, "Query Identifier": 23 }], Settings: { "Query Identifier": 29 } });
+      await appendFile(state.path, loggedPlan(root));
+      await appendFile(state.path, loggedPlan(`{"Query\\u0020Identifier":9007199254740993,${root.slice(1)}`));
+      await state.capture.end();
+      const evidence = state.capture.evidence();
+      expect(evidence.status).toBe("complete");
+      expect(evidence.plans.map(value => value.queryId)).toEqual([null, "9007199254740993"]);
+      expect(JSON.stringify(evidence)).not.toContain("private-");
+      expect(JSON.stringify(evidence)).not.toContain("Query Identifier");
+    } finally { await state.capture.end(); await state.close(); }
+  });
+
+  for (const token of ["null", '"private-id"', "true", "{}", "[]", "1.0", "1e3", "-0",
+    "9223372036854775808", "-9223372036854775809"]) {
+    it(`refuses invalid plan query ID token ${token} without retaining private values`, async () => {
+      const state = await fixture();
+      try {
+        await state.capture.begin();
+        await appendFile(state.path, loggedPlan(`{"Query Identifier":${token},"Plan":${JSON.stringify(node())}}`));
+        await expect(state.capture.end()).rejects.toMatchObject({ reason: "invalidPlanQueryId", cause: { _tag: "SchemaError" } });
+        expect(state.capture.evidence()).toMatchObject({ status: "incomplete", plans: [] });
+        expect(JSON.stringify(state.capture.evidence())).not.toContain("private-");
+      } finally { await state.capture.end(); await state.close(); }
+    });
+  }
+
+  for (const fields of ['"Query Identifier":1,"Query Identifier":2',
+    '"Query Identifier":1,"Query Identifier":1', '"Query Identifier":1,"Query\\u0020Identifier":2']) {
+    it(`refuses duplicate root query identity ${fields}`, async () => {
+      const state = await fixture();
+      try {
+        await state.capture.begin();
+        await appendFile(state.path, loggedPlan(`{${fields},"Plan":${JSON.stringify(node())}}`));
+        await expect(state.capture.end()).rejects.toMatchObject({ reason: "duplicatePlanQueryId" });
+        expect(state.capture.evidence()).toMatchObject({ status: "incomplete", plans: [] });
+      } finally { await state.capture.end(); await state.close(); }
+    });
+  }
 
   it("distinguishes foreign database plans and non-plan context without lending their identity or text", async () => {
     const state = await fixture();

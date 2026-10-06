@@ -1,0 +1,59 @@
+{
+  "files": {
+    "4e284633-966d-4ac6-8514-6bc406566105.json.gz": {
+      "sha256": "987d65392b56627d77bdca323dc308dae80e98d6d7127586daa5f1a54d79b0d5",
+      "originalBytes": 35995,
+      "retainedBytes": 4841
+    },
+    "4e284633-966d-4ac6-8514-6bc406566105.md": {
+      "sha256": "eb5836da41f35e37d9e9d2775230fc52414c16ca5befde43a2fe6f2809514bab",
+      "originalBytes": 8466,
+      "retainedBytes": 8466
+    },
+    "32fc88b2-e78f-4591-9915-bedbf3e3ac57.json.gz": {
+      "sha256": "558a2ec1043befc0b156319f5ba3f452c9105409286368373c3caed6d65a8976",
+      "originalBytes": 36012,
+      "retainedBytes": 4804
+    },
+    "32fc88b2-e78f-4591-9915-bedbf3e3ac57.md": {
+      "sha256": "1ff15837f0c9ab712549d8077c99b436e9f8f48433751c71b26120febc1873e5",
+      "originalBytes": 8462,
+      "retainedBytes": 8462
+    },
+    "cpu-summary.json": {
+      "sha256": "833b84df95e3673b1fa30718d05f5197b53365b29ef06920be7792d620f02bec",
+      "originalBytes": 24647,
+      "retainedBytes": 24647
+    },
+    "cpu-sample-0.json.gz": {
+      "sha256": "bc406b56eaaab038b43dc0e274b53f00ea6201fefdff0ce6a37ebb50ae89cf6a",
+      "originalBytes": 2006044,
+      "retainedBytes": 152430
+    },
+    "cpu-sample-1.json.gz": {
+      "sha256": "42c9439cf23de45bf75263e91d85e9055ca38b8c062419a842f4d7e2b51ef091",
+      "originalBytes": 2034906,
+      "retainedBytes": 154037
+    },
+    "cpu-sample-2.json.gz": {
+      "sha256": "faa9da526d89e99e3d958f4da55e950d11a486c425f678df01dad40105efaeea",
+      "originalBytes": 2034689,
+      "retainedBytes": 152837
+    },
+    "managed-upgrade.json": {
+      "sha256": "1b58ccb883dba37afb827557772c3211d48cc542d4a7f097296e62c36856396a",
+      "originalBytes": 1368,
+      "retainedBytes": 1368
+    },
+    "plan-replay-summary.json": {
+      "sha256": "0b5f794beb2b0ba21d28c175771fec0bcbcbce0cbda0315a134854ab9cc61ff7",
+      "originalBytes": 957,
+      "retainedBytes": 957
+    },
+    "plan-replay.json.gz": {
+      "sha256": "06bc5b6488ab9f40578c20f936c59a141ec594b476b5d2f6fb09f06628e414ad",
+      "originalBytes": 2701362,
+      "retainedBytes": 57819
+    }
+  }
+}

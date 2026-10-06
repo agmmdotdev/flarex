@@ -1,5 +1,11 @@
 # CPU and PostgreSQL measurement completion evidence
 
+These archived reports use the original actual-plan format: its header query ID
+is logged context, not necessarily the plan's `Query Identifier`. Current SDK
+reports retain both identities separately and preserve the plan's exact int64
+token. Do not join these historical plans to statement statistics by header ID
+alone. Profiler source line coordinates may describe transformed runtime code.
+
 These are unchanged successful reports from the 2026-10-06 measurement SDK
 completion slice. Each gzip restores the original bytes; Markdown reports are
 copied unchanged. The source directory was

@@ -2304,3 +2304,62 @@ verify the real Application/Product/Payload/workflow consumers, then perform bot
 project reviews, cleanup and connected final-source measurements. Complete matched
 native excess, stable tails, metadata scaling and cold capacity remain the final
 acceptance gates; no command budget or predicted speedup substitutes for them.
+
+### Selected Retained Settlement And Ordered Stored Proofs
+
+This connected replacement is implemented for the selected private finite
+profile. Complete native-relative latency acceptance remains unmet. Its outcome
+is one owned canonical finite document graph through settlement and
+one fresh relational row/index stored proof at each existing page barrier. The
+finite root, frozen-attempt issuer, publication preparation and installed
+Application materialization owner change together. This is an implementation
+slice of the existing redesign, not completion of native-relative acceptance.
+
+The finite working set already produces complete codec values. The displaced
+freeze retained a graph plus parallel raw intents, and publication normalized,
+encoded and hashed those values again. Structural closed-root transfer is
+replaced with an issued, attempt-bound capability. The issuer retains one detached
+graph and derives prepared row intents from that owned graph. Publication borrows
+the complete canonical values after genuine issuer/origin/dependency checks.
+Validator and inspection projections remain detached; ordinary/cold foreign
+commands retain their canonical acceptance. No caller-owned record or copied
+capability may become retained canonical evidence.
+
+The displaced installed row and index primitives reconstructed and queried each
+expected revision and pointer separately after their writes. Those loops are
+replaced with one ordered joined query over the same expected typed tuples. The first
+refusal remains the first proof ordinal. Preserve predecessor, revision RETURNING,
+pointer and page barriers; the later VOLATILE proof must observe actual AFTER
+trigger effects, including corruption of earlier pages. Sequential writes remain
+where an earlier returned-tuple refusal must outrank a later trigger exception.
+For 512 rows in 32-row pages this replaces 1,984 proof SELECTs with 16 queries
+checking the same 992 expected tuples. That is a topology claim, not a predicted
+latency result or fewer client commands.
+
+Private closed-root and frozen issuer inputs break; migrate their actual callers
+and tests and remove parallel finite intent capture/recanonicalization. Installed
+row/index function signatures remain stable but their bodies and exact
+installation attestation change in one structural migration. Drizzle owns table
+and column names. Business rows, history, anchors, journals and outcomes require
+no reset, backfill or deletion. Installation maintenance remains the migration
+and runtime privilege owner.
+
+Compact historical capture is the next connected read replacement. Exact native
+immutable frontier pins remain necessary: current anchor bytes contain only the
+snapshot/reservation. A byte-only identity shortcut would weaken existing
+request/policy drift witnesses. Do not replace these checks without their writer
+contract and durable-format cutover. This slice also leaves genuine external
+coverage proof transport, prefix representation, standalone CMS admission,
+relation population, candidate failure frames and strong-reference admission
+with their recorded owners and gates. It introduces no universal compositor.
+
+Completion requires genuine/foreign/wrong-attempt/consumed closed-root proofs,
+mutated detached canonical projections, exact final value/dependency semantics,
+same-page RETURNING-versus-trigger refusal order, existing prior-page AFTER
+corruption and row-before-index/search refusal witnesses, both PGlite and
+ordinary-role PostgreSQL, actual Application/Product/Payload/workflow consumers,
+lint, both reviews, cleanup and a scoped commit. A quiet warmed matched-native
+comparison answers whether this connected cutover reduces complete latency;
+diagnostics separately verify removed work. The complete 5 ms median / 10 ms
+P95 added-latency, stable-tail, scaling and cold-capacity gates remain open until
+they pass on final source.

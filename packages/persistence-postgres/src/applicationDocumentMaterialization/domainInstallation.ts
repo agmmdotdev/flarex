@@ -336,7 +336,7 @@ RETURNS TABLE(reason text, ordinal integer, actual_commit_seq bigint, actual_cre
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $row_batch$
 DECLARE i integer; n integer := coalesce(array_length(p_rows, 1), 0);
   expected_row ${row}; actual_row ${row}; pointer_seq bigint; predecessor_time double precision;
-  inserted_seq bigint; phase text := 'write'; proof_rows ${namespace}.fx_app_row_write[];
+  inserted_seq bigint; phase text := 'write'; proof_rows ${namespace}.fx_app_row_write[]; verification record;
 BEGIN
   IF n < 1 OR n > 32 OR n + coalesce(array_length(p_verify, 1), 0) > 512 THEN reason := 'invalidBatch'; ordinal := 0; RETURN NEXT; RETURN; END IF;
   FOR i IN 1..n LOOP
@@ -383,15 +383,19 @@ BEGIN
     END IF;
   END LOOP;
   phase := 'verify'; proof_rows := coalesce(p_verify, ARRAY[]::${namespace}.fx_app_row_write[]) || p_rows;
-  FOR i IN 1..array_length(proof_rows, 1) LOOP
-    ordinal := i - 1;
-    ${sql.join(rowColumns.map(column => sql`expected_row.${field(column.name)} := (proof_rows[i]).${field(column.name)};`), sql`\n    `)}
-    SELECT r.* INTO actual_row FROM ${row} r WHERE r.${field(fxAppRowRevisions.scopeUuid.name)} = expected_row.${field(fxAppRowRevisions.scopeUuid.name)}
-      AND r.${field(fxAppRowRevisions.tableId.name)} = expected_row.${field(fxAppRowRevisions.tableId.name)} AND r.${field(fxAppRowRevisions.rowId.name)} = expected_row.${field(fxAppRowRevisions.rowId.name)} AND r.${field(fxAppRowRevisions.commitSeq.name)} = expected_row.${field(fxAppRowRevisions.commitSeq.name)};
-    IF NOT FOUND OR actual_row IS DISTINCT FROM expected_row THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
-    SELECT c.${field(fxAppRowCurrent.commitSeq.name)} INTO pointer_seq FROM ${current} c WHERE c.${field(fxAppRowCurrent.scopeUuid.name)} = expected_row.${field(fxAppRowRevisions.scopeUuid.name)}
-      AND c.${field(fxAppRowCurrent.tableId.name)} = expected_row.${field(fxAppRowRevisions.tableId.name)} AND c.${field(fxAppRowCurrent.rowId.name)} = expected_row.${field(fxAppRowRevisions.rowId.name)};
-    IF pointer_seq IS DISTINCT FROM expected_row.${field(fxAppRowRevisions.commitSeq.name)} THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
+  -- One fresh statement observes complete revisions and pointers after every
+  -- sequential write barrier, including AFTER changes to earlier page inputs.
+  FOR verification IN SELECT proof.ordinality AS proof_ordinal,
+      r.${field(fxAppRowRevisions.commitSeq.name)} IS NOT NULL AND ${sameFields("r", "proof", rowColumns)} AS revision_matches,
+      c.${field(fxAppRowCurrent.commitSeq.name)} AS pointer_seq, proof.${field(fxAppRowRevisions.commitSeq.name)} AS expected_seq
+    FROM unnest(proof_rows) WITH ORDINALITY proof
+    LEFT JOIN ${row} r ON ${equalFields("r", "proof", [fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq])}
+    LEFT JOIN ${current} c ON c.${field(fxAppRowCurrent.scopeUuid.name)} = proof.${field(fxAppRowRevisions.scopeUuid.name)}
+      AND c.${field(fxAppRowCurrent.tableId.name)} = proof.${field(fxAppRowRevisions.tableId.name)} AND c.${field(fxAppRowCurrent.rowId.name)} = proof.${field(fxAppRowRevisions.rowId.name)}
+    ORDER BY proof.ordinality LOOP
+    ordinal := verification.proof_ordinal - 1;
+    IF NOT verification.revision_matches THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
+    IF verification.pointer_seq IS DISTINCT FROM verification.expected_seq THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
   END LOOP;
   reason := 'accepted'; ordinal := n; actual_commit_seq := NULL; actual_creation_time := NULL; RETURN NEXT;
 END;
@@ -402,7 +406,7 @@ CREATE FUNCTION ${namespace}.fx_apply_app_index_batch(p_rows ${namespace}.fx_app
 RETURNS TABLE(reason text, ordinal integer, actual_commit_seq bigint)
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $index_batch$
 DECLARE i integer; n integer := coalesce(array_length(p_rows, 1), 0); expected_row ${index}; actual_row ${index};
-  latest_row ${index}; parent_tombstone boolean; pointer_seq bigint; inserted_seq bigint; phase text := 'write'; proof_rows ${namespace}.fx_app_index_write[];
+  latest_row ${index}; parent_tombstone boolean; pointer_seq bigint; inserted_seq bigint; phase text := 'write'; proof_rows ${namespace}.fx_app_index_write[]; verification record;
 BEGIN
   IF n < 1 OR n > 32 OR n + coalesce(array_length(p_verify, 1), 0) > 4096 OR array_length(p_prior, 1) IS DISTINCT FROM n OR array_length(p_historical, 1) IS DISTINCT FROM n THEN
     reason := 'invalidBatch'; ordinal := 0; RETURN NEXT; RETURN;
@@ -456,16 +460,19 @@ BEGIN
     IF inserted_seq IS NULL THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
   END LOOP;
   phase := 'verify'; proof_rows := coalesce(p_verify, ARRAY[]::${namespace}.fx_app_index_write[]) || p_rows;
-  FOR i IN 1..array_length(proof_rows, 1) LOOP
-    ordinal := i - 1;
-    ${sql.join(indexColumns.map(column => sql`expected_row.${field(column.name)} := (proof_rows[i]).${field(column.name)};`), sql`\n    `)}
-    SELECT r.* INTO actual_row FROM ${index} r WHERE r.${field(fxAppIndexEntryRevisions.scopeUuid.name)} = expected_row.${field(fxAppIndexEntryRevisions.scopeUuid.name)}
-      AND r.${field(fxAppIndexEntryRevisions.indexDefinitionId.name)} = expected_row.${field(fxAppIndexEntryRevisions.indexDefinitionId.name)} AND r.${field(fxAppIndexEntryRevisions.encodedKey.name)} = expected_row.${field(fxAppIndexEntryRevisions.encodedKey.name)}
-      AND r.${field(fxAppIndexEntryRevisions.rowId.name)} = expected_row.${field(fxAppIndexEntryRevisions.rowId.name)} AND r.${field(fxAppIndexEntryRevisions.commitSeq.name)} = expected_row.${field(fxAppIndexEntryRevisions.commitSeq.name)};
-    IF NOT FOUND OR actual_row IS DISTINCT FROM expected_row THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
-    SELECT c.${field(fxAppIndexEntryCurrent.commitSeq.name)} INTO pointer_seq FROM ${membership} c WHERE c.${field(fxAppIndexEntryCurrent.scopeUuid.name)} = expected_row.${field(fxAppIndexEntryRevisions.scopeUuid.name)}
-      AND c.${field(fxAppIndexEntryCurrent.indexDefinitionId.name)} = expected_row.${field(fxAppIndexEntryRevisions.indexDefinitionId.name)} AND c.${field(fxAppIndexEntryCurrent.encodedKey.name)} = expected_row.${field(fxAppIndexEntryRevisions.encodedKey.name)} AND c.${field(fxAppIndexEntryCurrent.rowId.name)} = expected_row.${field(fxAppIndexEntryRevisions.rowId.name)};
-    IF pointer_seq IS DISTINCT FROM (CASE WHEN expected_row.${field(fxAppIndexEntryRevisions.isTombstone.name)} THEN NULL ELSE expected_row.${field(fxAppIndexEntryRevisions.commitSeq.name)} END) THEN
+  FOR verification IN SELECT proof.ordinality AS proof_ordinal,
+      r.${field(fxAppIndexEntryRevisions.commitSeq.name)} IS NOT NULL AND ${sameFields("r", "proof", indexColumns)} AS revision_matches,
+      c.${field(fxAppIndexEntryCurrent.commitSeq.name)} AS pointer_seq,
+      CASE WHEN proof.${field(fxAppIndexEntryRevisions.isTombstone.name)} THEN NULL ELSE proof.${field(fxAppIndexEntryRevisions.commitSeq.name)} END AS expected_seq
+    FROM unnest(proof_rows) WITH ORDINALITY proof
+    LEFT JOIN ${index} r ON ${equalFields("r", "proof", [fxAppIndexEntryRevisions.scopeUuid, fxAppIndexEntryRevisions.indexDefinitionId, fxAppIndexEntryRevisions.encodedKey, fxAppIndexEntryRevisions.rowId, fxAppIndexEntryRevisions.commitSeq])}
+    LEFT JOIN ${membership} c ON c.${field(fxAppIndexEntryCurrent.scopeUuid.name)} = proof.${field(fxAppIndexEntryRevisions.scopeUuid.name)}
+      AND c.${field(fxAppIndexEntryCurrent.indexDefinitionId.name)} = proof.${field(fxAppIndexEntryRevisions.indexDefinitionId.name)}
+      AND c.${field(fxAppIndexEntryCurrent.encodedKey.name)} = proof.${field(fxAppIndexEntryRevisions.encodedKey.name)} AND c.${field(fxAppIndexEntryCurrent.rowId.name)} = proof.${field(fxAppIndexEntryRevisions.rowId.name)}
+    ORDER BY proof.ordinality LOOP
+    ordinal := verification.proof_ordinal - 1;
+    IF NOT verification.revision_matches THEN reason := 'storedCorruption'; RETURN NEXT; RETURN; END IF;
+    IF verification.pointer_seq IS DISTINCT FROM verification.expected_seq THEN
       reason := 'storedCorruption'; RETURN NEXT; RETURN;
     END IF;
   END LOOP;
