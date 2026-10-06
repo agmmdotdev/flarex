@@ -131,6 +131,15 @@ owners. Bounded native seed-host reuse reduces fixture work. Cold readiness and
 index construction remain significant; wider slice 20 acceptance remains open.
 The [direct measurement ledger](../../packages/executor/benchmarks/core-performance/README.md)
 owns observations and the remaining harness costs.
+The selected [cost-attribution successor](./21-core-performance-harness-preflight.md#selected-cost-attribution-successor)
+extends those existing owners with ordered raw evidence, disjoint wall accounting,
+explicit observer cost, owner work counts and fresh native pairing. It records a
+small typed API and ownership design; implementation and new benchmark runs
+remain paused. More scenario coverage or grouped SQL totals alone cannot explain
+the remaining complete-request latency.
+Its [dedicated measurement SDK](../../packages/executor/test/performance/measurement/README.md)
+has one entry point for measurement and comparison; construction, artifact types
+and Node collectors stay out of production core modules.
 
 [Core performance](../core-performance/README.md) owns the standalone native-read
 replacement and reusable measurement rules. Its earlier small checked-read,

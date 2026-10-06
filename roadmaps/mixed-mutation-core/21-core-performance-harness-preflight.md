@@ -24,6 +24,11 @@ Historical full framework measurements retain their original cohorts and host
 boundary. Standalone Payload and Medusa already invoked framework hosts directly,
 so removing Worker transport alone does not explain their harness improvement.
 
+The owner selects the [cost-attribution successor](#selected-cost-attribution-successor)
+below: precise evidence for choosing core changes, with small measurement APIs
+and explicit owners. This is a recorded design, not an implemented measurement
+cutover. Runtime redesign and new benchmark runs remain paused for discussion.
+
 ## Ownership And Execution Contract
 
 - Executor test support owns complete mixed scenario composition and the direct
@@ -178,3 +183,191 @@ Validate the real rejected-then-valid operation through both transports and
 PGlite/ordinary PostgreSQL. Include earlier accepted work, unchanged rejection
 sequence/evidence, committed output and terminal-failure witnesses. Both reviews
 must inspect the staging order and exception identity before this slice closes.
+
+## Selected Cost-Attribution Successor
+
+### Outcome, Scope And Current Gaps
+
+Explain a complete request's cost, identify repeated work and database exchanges,
+and establish whether a selected core change actually removes its claimed cost.
+Extend the existing direct harness, trace and complete native-reference owners;
+do not introduce a general tracing framework, production observability package,
+metric registry or parallel benchmark engine. More observations are useful only
+when their units, owner, timing boundary and collection cost are explicit.
+
+The owner additionally selects a dedicated, test-only
+[measurement SDK folder](../../packages/executor/test/performance/measurement/README.md)
+with one public entry point. It constructs and connects collectors inside the
+measurement runner. Core modules do not import this SDK, its artifact types or
+Node tools, and do not construct measurement infrastructure. Existing narrow
+owner observation hooks are injected at the trusted fixture boundary; missing
+evidence may add a proportional hook at its real owner. No reverse dependency,
+core-wide instrumentation registry or per-owner SDK client is selected.
+
+The current persistence test trace already records nested phases, child-union
+exclusive time, query awaits, checkout awaits, transaction lifetimes, structural
+SQL fingerprints, parameter/result sizes and observation failures. Its
+reconnaissance mode retains ordered events and source owners. The committed
+direct runner uses grouped measurement mode and omits those ordered records and
+owner mappings; its SQL summary also omits checkout/transaction groups. Separate
+wait unions do not form a complete disjoint wall-time ledger. Trace preparation
+and decoded-result sizing run inside the invocation without separate observer
+accounting. The retained native reference does not run fresh comparison pairs.
+
+The graph-expansion work belongs to preflight 25,
+and native business semantics belong to [preflight 26](./26-native-business-baseline-preflight.md).
+Reconcile their actual committed handoff before modifying shared files. Preserve
+unrelated dirty work. This successor selects no runtime optimization, new
+framework capability, authority change, hosted activation or durable-data change.
+
+### Owners And Small API Contract
+
+| Responsibility | Existing owner | Selected boundary |
+| --- | --- | --- |
+| Scenario execution | Executor performance composition and measurement SDK | Select one validated plan, own setup/seeding/verification/disposal, and invoke real native or Flarex requests. |
+| Observation | Persistence test trace and existing harness CPU/server collectors | Capture immutable scalar evidence at actual boundaries; retain query/client/transaction identity and request lifetime. |
+| Analysis | Measurement SDK analysis module | Pure calculations over validated retained observations: interval accounting, coverage, owner costs and paired excess. |
+| Presentation | Measurement SDK report module | Render the same analysis as machine-readable evidence and a concise human report; own no calculations or acceptance policy. |
+
+Only `measure(options)` and `compare(options)` are proposed SDK
+entry operations. They own the complete measurement lifetime and return a
+retained report reference and status. Callers import neither collector factories
+nor internal event/phase/SQL/artifact types. Configuration is decoded once by
+the SDK. Scenario definitions remain with the existing scenario owner; do not
+duplicate business assembly or scenario selection inside the SDK. The CLI is a
+thin consumer. Internal trace operations below are not public SDK exports.
+
+Extend the existing trace's `withInvocation`, `withPhase`, scoped callback
+binding and record draining. Do not add alternative Promise/Effect wrapper
+families or a new executor. Phase identity is a typed owner/operation site;
+request, event, parent, connection, checkout and transaction identities are
+distinct. SQL fingerprints describe query structure; source-owner attribution
+is separate and may be ambiguous. Stable owners come from actual source sites
+and existing owner hooks, rather than a configurable string-matching registry.
+
+Where actual core work needs additional evidence, use one narrow synchronous
+observation sink through existing trusted fixture composition. Its events carry
+an owner/site, request identity and bounded scalar counts/durations. It cannot
+carry database authority, callbacks, full mutable working sets or new lifecycle
+decisions. Do not add a runtime bridge per measurement event, duplicate business
+logic in the harness, or introduce a second transaction/finalizer. Effect-owned
+operations preserve their requirements, evaluation order, full failure outcome,
+interruption and resource lifetime. Deliberate foreign Promise boundaries remain.
+
+One measurement-artifact Schema owns retained shapes and intrinsic validation;
+derive types from it. Existing domain codecs retain their own authority. Analysis
+is a pure total calculation with explicit invalid/incomplete evidence results.
+Capture clock/source identity once at the session boundary. Report modes and
+limits are explicit data rather than combinations of loosely related booleans.
+Missing, estimated, ambiguous and observed values are distinct; unavailable
+measurements are never zero. A failed observer retains the primary request
+outcome and marks diagnostic evidence incomplete rather than hiding either.
+
+### Evidence Lanes And Observation Cost
+
+Use separate lanes for distinct questions, sharing scenario identity and evidence
+format without presenting observations from different requests as one trace:
+
+- Quiet comparison owns actual request distributions and fresh native/Flarex
+  pairs. No query stack collection, result serialization, CPU profiler or server
+  tracing runs in its request interval.
+- Timeline/database diagnostics retain ordered raw intervals, actual source
+  ownership, checkout and transaction detail, bytes/rows and coverage failures.
+  A bounded lighter timeline mode may explain owner boundaries, but its timing
+  remains instrumented and requires its own perturbation comparison.
+- CPU diagnostics retain original profiles, actual sampling intervals, request
+  clock alignment, sampled self/inclusive stacks, GC, idle and inspector start/
+  stop. Samples estimate CPU attribution; they are not exact wall accounting.
+- Server diagnostics observe query execution and waits only through supported,
+  authorized PostgreSQL instrumentation. Retain backend/query identity, settings,
+  nesting and contention visibility. Aggregate statistics without exact request
+  correlation cannot be relabelled per-request server cost.
+
+Measure the observer's fingerprint/input work, source-stack capture, result
+sizing, event recording and finalization at their actual positions. Render and
+write reports after request settlement. Record bounded buffer capacity and any
+dropped observations; truncation makes the relevant attribution incomplete.
+Compare equivalent requests with and without each observer mode. Never subtract
+an estimated observer cost to manufacture a quiet result. Decoded JSON bytes,
+wire bytes and heap allocation remain different units.
+
+### Complete Accounting And Required Report
+
+Retain a monotonic invocation interval and ordered events before aggregation.
+A deterministic sweep of interval endpoints partitions the root wall into
+disjoint observation states. Each state records active phases, query/checkout
+awaits and observer work. Preserve overlapping phases/waits explicitly; do not
+arbitrarily choose one owner or add overlapping durations. Produce separate
+phase and wait ledgers over the same partition, never add those ledgers together.
+Their totals must reconcile to request wall within disclosed clock/rounding
+precision. Uncovered or unexplained time stays visible. Reconciled accounting
+does not establish complete semantic attribution.
+
+Every report must provide:
+
+- Complete native and Flarex distributions, paired excess when genuinely measured,
+  warmups, all failures/tails, input cardinality, semantic differences and source/
+  environment identity. Setup, imports/construction, seeding, verification,
+  request cleanup, family disposal and command-to-exit cost have explicit,
+  nonduplicated boundaries. Existing request envelopes remain comparable.
+- An ordered request timeline and disjoint wall ledger, owner attribution coverage,
+  unknown/ambiguous/overlap regions and instrumentation cost. Remaining wall
+  cannot be called CPU, network, lock wait or framework cost without evidence.
+- Each driver exchange's site, purpose, fingerprint, timing, input size and returned
+  rows/bytes, linked checkout/connection/transaction, failures and settlement.
+  Nested server statements and driver exchanges are separate counts. Driver await
+  includes scheduling/driver/server/transport work until completion; report only
+  the subparts actually observed. Retain real COMMIT and uncertain-outcome time.
+- Actual owner work counts where available: original-row retention, pending reads/
+  writes, capture/cache observations, copies, encodes/decodes, validation/hashing,
+  frozen graph construction, materialization and publication. Measure counts or
+  byte volumes at the real owner; do not create another copy to count copies.
+  Framework call/hook/child/retry boundaries retain native semantics. Ordinary
+  retained-row growth is not a substitute for executed work or allocation.
+- Aligned diagnostic CPU families, process/event-loop/GC and database wait evidence
+  when available, with collection mode and uncertainty. Link original artifacts
+  and integrity hashes. Different lanes remain different requests.
+
+### Native Pairing And Causal Decision Gate
+
+Extend the current scenario/native composition boundary to execute fresh matched
+pairs with declared ordering and pair IDs. Preserve actual framework operations,
+versions, inputs, cardinality, hooks, returned results, real acknowledgements and
+construction lifetime. Keep independent native commits and the Application SQL
+surrogate limits explicit. Compute each pair's complete request excess before
+percentiles. Preflight 26's five-millisecond added median / ten-millisecond added
+P95 and sampling policy remain unchanged. Reference-only historical numbers do
+not become pairs. Unmatched graphs retain an explicit missing-reference status.
+
+Before a runtime correction, name the responsible owner, measured repeated work,
+proposed removal and expected observable effect. Compare a pinned baseline and
+candidate under the same harness and observation mode, retain all failures and
+source/environment stability evidence, and check both the selected cost and the
+complete request. A fall in SQL count or an isolated profile stack is insufficient.
+Control the benchmark resources and disclose detected interference; do not infer
+exclusive machine resources from a single boundary snapshot. Stop repeating full
+measurements when no new hypothesis, source change or acceptance question exists.
+
+### Cutover, Validation And Completion
+
+First deliver one connected `mixed-product` attribution report using the existing
+real scenario, not a new measurement matrix. Exercise timing/interval invariants,
+overlapping work, raw event ordering, unknown owners, source changes, observer
+overhead, dropped/lost context, foreign failures, cancellation and cleanup. Pure
+interval analysis needs deterministic witnesses; real query/transaction claims
+need PGlite assembly and focused ordinary-role PostgreSQL validation. Fresh native
+pairing needs the actual native PostgreSQL implementations. Keep setup, observer
+calibration and final quiet acceptance distinct and bounded by one concrete goal.
+
+Changes to private trace/report shapes may break; migrate connected report/test
+consumers and remove displaced grouping/selection/calculation paths in the same
+slice. Historical artifacts remain immutable with their original limitations;
+they require no parallel runtime measurement engine. Remove duplicate report
+math, schemas and observers rather than adding compatibility wrappers. Existing
+Worker integration and separate native collectors remain for their named lanes.
+
+Implementation requires affected checks, applicable core/diff/staged lint, both
+project reviews, explicit shared-file ownership, complete cleanup and one scoped
+commit. A successful measurement-system cutover proves observation contracts,
+not a Flarex latency improvement. Runtime work and new measurements remain paused
+until this concrete design and the shared harness handoff are reconciled.
