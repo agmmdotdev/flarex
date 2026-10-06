@@ -10,7 +10,7 @@ const record: TraceInvocationRecord = {
   spans: [{ id: 0, parentId: null, name: "invocation", startMs: 0, endMs: 100,
     inclusiveMs: 100, exclusiveMs: 100, complete: true }],
   dispatchGroups: [], checkoutGroups: [], transactionGroups: [],
-  dispatches: [{ eventId: 2, operationId: null, pool: "target", phasePath, connectionId: 3, checkoutId: 0, transactionId: 7,
+  dispatches: [{ eventId: 2, operationId: null, backendPid: 314, pool: "target", phasePath, connectionId: 3, checkoutId: 0, transactionId: 7,
     atMs: 10, awaitedMs: 7, outcome: "ok", fingerprint: "shared-structure", template: "select ?",
     statementCount: 1, transactionAction: null, delegatedPoolQuery: false, parameterCount: 0,
     scalarParameterBytes: 0, unknownEncodingParameters: 0, sqlUtf8Bytes: 8,
@@ -47,6 +47,7 @@ describe("measurement database event translation", () => {
     const translated = databaseEvents(record, mappings, 1000, []);
     expect(translated.events).toEqual([
       { kind: "driverAwait", id: "database:2", sequence: 2, startMs: 35, endMs: 42,
+        backendPid: 314,
         owner: null, site: null, ownerCandidates: [], parentId: null,
         pool: "target", phasePath, connectionId: 3, checkoutId: 0, transactionId: 7,
         fingerprint: "shared-structure", template: "select ?", statementCount: 1,

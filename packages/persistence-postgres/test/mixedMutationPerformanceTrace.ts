@@ -1,11 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 
 export type TracePool = "control" | "target";
 export type TraceMode = "measured" | "recon";
+
+const decodeBackendPid = Schema.decodeUnknownSync(Schema.NullOr(Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: 2_147_483_647 }))));
 
 export interface TracePhaseSpan {
   readonly id: number;
@@ -22,6 +25,8 @@ export interface TraceDispatchRecord {
   readonly eventId: number;
   readonly operationId: string | null;
   readonly connectionId: number;
+  /** Actual pg BackendKeyData PID; absence is retained, never invented. */
+  readonly backendPid: number | null;
   readonly checkoutId: number | null;
   readonly transactionId: number | null;
   readonly pool: TracePool;
@@ -146,7 +151,7 @@ export interface TraceInvocationRecord {
 
 export interface TraceObserverInterval {
   readonly eventId: number;
-  readonly kind: "preparation" | "input-sizing" | "fingerprinting" | "source-stack" | "operation-correlation" | "result-sizing" | "event-recording" | "finalization";
+  readonly kind: "preparation" | "input-sizing" | "fingerprinting" | "source-stack" | "operation-correlation" | "backend-identity" | "result-sizing" | "event-recording" | "finalization";
   readonly startMs: number;
   readonly endMs: number;
   readonly durationMs: number;
@@ -669,8 +674,17 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
         const sizes = observe<ReturnType<typeof dispatchInputSizes>>(invocation, "input-sizing", eventId, {
           parameterCount: null, scalarParameterBytes: null, unknownEncodingParameters: null, sqlUtf8Bytes: null,
         }, () => dispatchInputSizes(args));
+        const backendPid = observe(invocation, "backend-identity", eventId, null, () => {
+          // pg declares processID on the client when BackendKeyData arrives.
+          // Avoid accessors and never inspect its adjacent cancellation secret.
+          const descriptor = Object.getOwnPropertyDescriptor(client, "processID");
+          if (descriptor === undefined) return null;
+          if (!("value" in descriptor)) throw new Error("Unsupported pg backend identity accessor");
+          return decodeBackendPid(descriptor.value);
+        });
         const record: MutableDispatchRecord = {
           eventId, operationId: originOperationId, ...identity, transactionId: activeTransactions.get(client)?.transactionId ?? null,
+          backendPid,
           pool: poolName, phasePath: path, atMs: 0, awaitedMs: null,
           outcome: "unobserved", fingerprint: sql?.fingerprint ?? null, template: sql?.template ?? null,
           statementCount: sql?.statementCount ?? null, transactionAction: sql?.transactionAction ?? null,

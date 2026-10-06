@@ -12,7 +12,7 @@ import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   "../../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
 import { createMigratedPGlitePersistence } from "../../../persistence-postgres/test/pgliteTestFixture";
 import { createRelationalPGliteFixture } from "../../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture } from
+import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture, type PostgresFixtureEndpoints } from
   "../../../persistence-postgres/test/postgresHelpers";
 import { createCoLocatedReadInstallationFixture } from "../../../persistence-postgres/test/postgresHelpers";
 import type { ProtectedMetadataPreparation } from
@@ -97,6 +97,7 @@ type LogicalCurrencyResource =
 
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
+  postgresEndpoints?: PostgresFixtureEndpoints;
   includeUserNameIndex?: boolean; includeProductLaunch?: boolean;
   initialUserDocuments?: ApplicationNativeMutationFixtureOptions["initialUserDocuments"];
   payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
@@ -172,6 +173,8 @@ export async function logicalCurrencyFixture(
     throw new Error("Logical Currency resource driver mismatch");
   if (options?.managedRead === true && driver !== "postgres")
     throw new Error("Managed logical Currency reads require PostgreSQL");
+  if (options?.postgresEndpoints !== undefined && driver !== "postgres")
+    throw new Error("Explicit PostgreSQL fixture endpoints require PostgreSQL");
   const pair: LogicalCurrencyResource = options?.resource ?? (driver === "pglite" ? await (async () => {
     const control = await createMigratedPGlitePersistence(registerCleanup);
     const target = await createRelationalPGliteFixture({ registerCleanup, observeQuery: text => observer?.(text),
@@ -179,31 +182,21 @@ export async function logicalCurrencyFixture(
     return { kind: "pglite" as const, control, target: target.persistence, testOwner: target.persistence, session: target.session,
       observeSql: (next: typeof observer) => { observer = next; } };
   })() : await (async () => {
-      // Unique disposable schemas have no dependency on one another. Await
-      // both provisioning jobs before propagating failure so registered
-      // cleanup can never race a still-creating sibling resource.
-      const [controlResult, targetResult] = await Promise.allSettled([
-        createFileScopedPostgresFixture().then(resource => { registerCleanup(resource.dispose); return resource; }),
-        (options?.protectedRuntime === true || options?.managedRead === true
+      // Base migration installs database-wide extensions. Complete the first
+      // installation before the second schema migrates in a fresh database.
+      const control = await createFileScopedPostgresFixture({}, {}, "ordinary", options?.postgresEndpoints);
+      registerCleanup(control.dispose);
+      const target = await (options?.protectedRuntime === true || options?.managedRead === true
           ? createActivationServingFileScopedPostgresFixture(undefined,
-            options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary").then(resource => {
+            options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary", options?.postgresEndpoints).then(resource => {
               activationResources = resource;
               registerCleanup(resource.dispose);
               return resource.serving;
             })
-          : createFileScopedPostgresFixture({}, {}, options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary")
-            .then(resource => { registerCleanup(resource.dispose); return resource; })),
-      ]);
-      if (controlResult.status === "rejected") {
-        if (targetResult.status === "rejected") throw new AggregateError([controlResult.reason, targetResult.reason],
-          "Logical Currency database provisioning failed");
-        throw controlResult.reason;
-      }
-      if (targetResult.status === "rejected") throw targetResult.reason;
-      const control = controlResult.value;
-      const target = targetResult.value;
+          : createFileScopedPostgresFixture({}, {}, options?.finiteStorageCapture === true ? "finiteCapture" : "ordinary", options?.postgresEndpoints)
+            .then(resource => { registerCleanup(resource.dispose); return resource; }));
       const managedControl = options?.managedRead === true
-        ? await createProtectedFileScopedPostgresFixture("managed", control) : undefined;
+        ? await createProtectedFileScopedPostgresFixture("managed", control, "ordinary", options?.postgresEndpoints) : undefined;
       if (managedControl !== undefined) registerCleanup(managedControl.dispose);
       let managedRead: Extract<LogicalCurrencyResource, { kind: "postgres" }>["managedRead"];
       if (options?.managedRead === true) {

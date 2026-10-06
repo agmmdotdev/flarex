@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
+import type { PostgresFixtureEndpoints } from "../../../persistence-postgres/test/postgresHelpers";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
 import { prepareProductLaunchWorkflow } from "../../src/product-launch-workflow";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
@@ -14,7 +15,9 @@ const revision = (value: string) => createHash("sha256").update(value).digest("h
 
 /** The selected independently settling host, prepared once for a measured series.
  * Seeding and output checks belong outside each invocation interval. */
-export async function prepareStandaloneProductLaunchPerformanceSeries() {
+export async function prepareStandaloneProductLaunchPerformanceSeries(input?: Readonly<{
+  driver?: "postgres" | "pglite"; postgresEndpoints?: PostgresFixtureEndpoints;
+}>) {
   const started = performance.now();
   const cleanup: Array<() => Promise<void>> = [];
   let closed = false;
@@ -29,8 +32,9 @@ export async function prepareStandaloneProductLaunchPerformanceSeries() {
       "Standalone Product launch performance fixture cleanup failed");
   };
   try {
-    const currency = await logicalCurrencyFixture("postgres", close => cleanup.push(close), {
+    const currency = await logicalCurrencyFixture(input?.driver ?? "postgres", close => cleanup.push(close), {
       includeProduct: true, includePricing: true, includeVariantPricingLink: true,
+      ...(input?.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
     });
     const product = await prepareLogicalProductHost(currency);
     const pricing = await prepareLogicalPricingHost(currency);
@@ -67,11 +71,14 @@ export async function prepareStandaloneProductLaunchPerformanceSeries() {
       runtimeConstructionMs,
       prepareSeed: (suffix: string) => seeder.seed(suffix, "launch"),
       retireLaunchedTag: seeder.retireLaunchedTag,
-      run: (seed: Awaited<ReturnType<typeof seeder.seed>>["seed"]) =>
-        Effect.runPromise(host.run(host.newRequestKey(), {
+      run: (seed: Awaited<ReturnType<typeof seeder.seed>>["seed"],
+        decorateEffect?: <A, E, R>(work: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>) => {
+        const work = host.run(host.newRequestKey(), {
           product_id: seed.productId, tag_id: seed.tagId,
           variant_title: "Launch variant", usd_amount: 50,
-        })),
+        });
+        return Effect.runPromise(decorateEffect === undefined ? work : decorateEffect(work));
+      },
       readCommittedProduct: seeder.readCommittedProduct,
       close: closeAll,
     });

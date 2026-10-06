@@ -40,6 +40,23 @@ function fakeDriver() {
 }
 
 describe("mixed mutation performance trace driver contract", () => {
+  it("captures actual BackendKeyData PID at submission without another query or accessor reads", async () => {
+    const driver = fakeDriver();
+    Object.defineProperty(driver.client, "processID", { configurable: true, value: 8123 });
+    const trace = createMixedMutationPerformanceTrace({ controlPool: driver.pool, targetPool: driver.pool });
+    try {
+      await trace.withInvocation({ id: "backend-pid", mode: "recon" }, async () => {
+        const client = await driver.pool.connect();
+        await client.query("select 7");
+        Object.defineProperty(client, "processID", { configurable: true, get: () => { throw new Error("Do not invoke PID getter"); } });
+        await client.query("select 8");
+      });
+      expect(driver.submitted()).toBe(2);
+      expect(trace.records()[0]?.dispatches.map(dispatch => dispatch.backendPid)).toEqual([8123, null]);
+      expect(trace.records()[0]?.observationErrors).toBe(1);
+      expect(JSON.stringify(trace.records())).not.toContain("secretKey");
+    } finally { trace.close(); await driver.pool.end(); }
+  });
   it("retains distinct direct operation parents for identical SQL and isolates concurrent requests", async () => {
     const driver = fakeDriver();
     const operations = new AsyncLocalStorage<string>();
@@ -226,7 +243,7 @@ describe("mixed mutation performance trace driver contract", () => {
       expect(record?.dispatches.map(event => event.eventId)).toEqual(record?.dispatches.map(event => event.eventId).toSorted((a, b) => a - b));
       expect(record?.observerIntervals.every(event => event.endMs >= event.startMs && event.durationMs >= 0)).toBe(true);
       expect(new Set(record?.observerIntervals.map(event => event.kind))).toEqual(new Set([
-        "preparation", "fingerprinting", "input-sizing", "source-stack", "result-sizing", "event-recording", "finalization",
+        "preparation", "fingerprinting", "input-sizing", "source-stack", "backend-identity", "result-sizing", "event-recording", "finalization",
       ]));
       const finalization = record?.observerIntervals.find(event => event.kind === "finalization");
       expect(finalization?.startMs).toBeGreaterThanOrEqual(record?.durationMs ?? Infinity);

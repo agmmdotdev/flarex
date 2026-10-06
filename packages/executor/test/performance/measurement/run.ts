@@ -7,27 +7,39 @@ import { analyzeMeasurementEvidence, pairedSummary } from "./analysis";
 import type { MeasurementEvent, MeasurementEvidence, MeasurementObserver } from "./artifact";
 import { databaseEvents } from "./collectors/database";
 import { createEffectMeasurementCollector } from "./collectors/effect";
+import { createCpuMeasurementCollector, assertCpuMeasurementIdle } from "./collectors/cpu";
+import { acquireServerMeasurementResource } from "./collectors/server";
 import { acquireNativeBusinessResource } from "./collectors/native";
 import { MeasurementInfrastructureError, MeasurementRunFailure, persistMeasurementReport, type RequestReport, type RunReport } from "./report";
 import { describeFailure, type FailureEvidence } from "./failure";
 import { measurementSourceDigest } from "./source";
 import { failureTokens } from "../support/measurement";
 import { createMixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
-import type { MixedMutationPerformanceSeries } from "../support/mixedMutationProductFixture";
+import type { CorePerformanceScenario } from "../support/scenario";
+import type { PreparedPerformanceFamily } from "../support/scenarioLifetime";
+import { corePerformanceScenarios } from "../support/scenarioCatalog";
+import { maxCorePerformanceSeriesSamples } from "../support/measurementPlan";
+
+const ScenarioName = Schema.Literals(corePerformanceScenarios.map(scenario => scenario.name));
+const NativeScenarioName = Schema.Literals(["payload-create", "medusa-workflow", "mixed-product", "mixed-payload", "mixed-workflow"]);
+const decodeNativeScenario = Schema.decodeUnknownSync(NativeScenarioName);
 
 const common = {
-  selection: Schema.Struct({ scenario: Schema.Literal("mixed-product") }),
-  size: Schema.Literal("small"),
+  selection: Schema.Struct({ scenario: ScenarioName }),
+  size: Schema.Literals(["small", "typical"]),
   outputDirectory: Schema.String.check(Schema.makeFilter(value => value.trim().length > 0 ? undefined : "Expected output directory")),
-  samples: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 30 }))),
+  samples: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
   warmups: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 }))),
 };
 const MeasureOptionsSchema = Schema.Struct({ ...common,
-  mode: Schema.Literals(["quiet", "timeline", "database"]),
+  mode: Schema.Literals(["quiet", "timeline", "database", "cpu", "server"]),
   driver: Schema.optional(Schema.Literals(["postgres", "pglite"])),
-}).check(Schema.makeFilter(value => value.driver === "pglite" && value.mode === "database"
-  ? "Database diagnostics require the PostgreSQL driver" : undefined));
-const CompareOptionsSchema = Schema.Struct(common);
+}).check(Schema.makeFilter(value => value.driver === "pglite" && (value.mode === "database" || value.mode === "server")
+  ? "Database/server diagnostics require the PostgreSQL driver"
+  : (value.samples ?? 1) + (value.warmups ?? 1) + (value.mode === "quiet" ? 0 : 1) > maxCorePerformanceSeriesSamples
+    ? "Selected sampling exceeds the fixture's fresh-attempt capacity" : undefined));
+const CompareOptionsSchema = Schema.Struct({ ...common,
+  selection: Schema.Struct({ scenario: NativeScenarioName }), size: Schema.Literal("small") });
 
 class InvalidMeasurementConfiguration extends Data.TaggedError("InvalidMeasurementConfiguration")<{
   readonly detail: string;
@@ -43,8 +55,9 @@ const EnvironmentSchema = Schema.Struct({ postgresVersion: Schema.String, role: 
   synchronousCommit: Schema.String, fsync: Schema.String, fullPageWrites: Schema.String,
   statementTracking: Schema.NullOr(Schema.String), autoExplainMinDuration: Schema.NullOr(Schema.String) });
 const decodeEnvironment = Schema.decodeUnknownSync(EnvironmentSchema);
-async function environment(series: MixedMutationPerformanceSeries) {
-  if (series.currency.resource.kind === "pglite") return { driver: "pglite" };
+async function environment(scenario: CorePerformanceScenario, driver: "postgres" | "pglite", mode: RunReport["mode"]) {
+  if (driver === "pglite") return { driver: "pglite" };
+  if (scenario.pools === undefined) throw new Error("PostgreSQL measurement requires actual runtime pools");
   const read = async (pool: Pool) => decodeEnvironment((await pool.query(`select
       current_setting('server_version') as "postgresVersion", current_user as role,
       rolsuper as superuser, rolbypassrls as "bypassRls", rolcreatedb as "createDb", rolcreaterole as "createRole",
@@ -53,12 +66,13 @@ async function environment(series: MixedMutationPerformanceSeries) {
       current_setting('pg_stat_statements.track', true) as "statementTracking",
       current_setting('auto_explain.log_min_duration', true) as "autoExplainMinDuration"
       from pg_roles where rolname = current_user`)).rows[0]);
-  const [control, target] = await Promise.all([read(series.currency.resource.control.pool), read(series.currency.resource.target.pool)]);
+  const [control, target] = await Promise.all([read(scenario.pools.controlPool), read(scenario.pools.targetPool)]);
   for (const settings of [control, target]) if (settings.superuser || settings.bypassRls || settings.createDb || settings.createRole ||
     settings.synchronousCommit !== "on" || settings.fsync !== "on" || settings.fullPageWrites !== "on" ||
-    (settings.statementTracking !== null && settings.statementTracking !== "none") ||
-    (settings.autoExplainMinDuration !== null && settings.autoExplainMinDuration !== "-1")) {
-    throw new Error("Measurement requires ordinary-role durable PostgreSQL settings with server diagnostics disabled");
+    (settings.statementTracking !== null && settings.statementTracking !== (mode === "server" ? "all" : "none")) ||
+    (settings.autoExplainMinDuration !== null && settings.autoExplainMinDuration !==
+      (mode === "server" && process.env.FLAREX_MEASUREMENT_SERVER_LOG ? "0" : "-1"))) {
+    throw new Error("Measurement requires ordinary-role durable PostgreSQL settings and the selected diagnostic profile");
   }
   return { driver: "postgres", control, target };
 }
@@ -107,24 +121,23 @@ function normalize(requestId: string, collector: ReturnType<typeof createEffectM
         ...(trace !== undefined && driver === undefined ? ["Missing database invocation"] : [])] } };
 }
 
-async function flarexRequest(series: MixedMutationPerformanceSeries, index: number,
-  kind: RequestReport["kind"], mode: RunReport["mode"], runId: string, retainFailure: (cause: unknown) => void): Promise<RequestReport> {
+async function flarexRequest(scenario: CorePerformanceScenario, name: typeof ScenarioName.Type, index: number,
+  kind: RequestReport["kind"], mode: RunReport["mode"], runId: string, retainFailure: (cause: unknown) => void,
+  server: Awaited<ReturnType<typeof acquireServerMeasurementResource>> | undefined): Promise<RequestReport> {
   const id = `${runId}:flarex:${index}`;
   const seedStart = performance.now();
-  await series.prepareAttempt(index);
+  const sample = await scenario.prepareSample(id, index);
   const seedMs = performance.now() - seedStart;
   const collector = kind === "diagnostic" ? createEffectMeasurementCollector({ now: () => performance.now() }) : undefined;
   let trace: ReturnType<typeof createMixedMutationPerformanceTrace> | undefined;
-  if (collector !== undefined && mode === "database") {
-    if (series.currency.resource.kind !== "postgres") throw new Error("Expected PostgreSQL diagnostic resource");
-    trace = createMixedMutationPerformanceTrace({ controlPool: series.currency.resource.control.pool,
-      targetPool: series.currency.resource.target.pool, currentOperationId: collector.currentOperationId });
+  if (collector !== undefined && (mode === "database" || mode === "server" || mode === "cpu") && scenario.pools !== undefined) {
+    trace = createMixedMutationPerformanceTrace({ ...scenario.pools, currentOperationId: collector.currentOperationId });
   }
+  const cpu = collector !== undefined && mode === "cpu" ? createCpuMeasurementCollector() : undefined;
   const observation = collector?.publicationObservation();
-  series.setTrace(trace);
-  series.setEffectDiagnostics(collector?.binding);
   let requestMs: number | null = null;
   let verificationMs = 0;
+  let cleanupMs = 0;
   let outcome: RequestReport["outcome"] = "success";
   let failureStage: string | null = null;
   const failures: FailureEvidence[] = [];
@@ -133,41 +146,66 @@ async function flarexRequest(series: MixedMutationPerformanceSeries, index: numb
   let evidence: MeasurementEvidence | undefined;
   let analysis: RequestReport["analysis"];
   let invalidEvidence: string | undefined;
-  let completed: Awaited<ReturnType<MixedMutationPerformanceSeries["runAttempt"]>> | undefined;
+  let completed: unknown;
+  let requestCompleted = false;
   try {
-    const run = () => series.runAttempt(index, observation, undefined, cleanupFailures);
-    const observed = () => collector === undefined ? run() : collector.runRequest("mixed-product", run);
-    const start = performance.now();
-    try { completed = await (trace === undefined ? observed() : trace.withInvocation({ id, mode: "recon" }, observed)); }
-    catch (cause) { outcome = "failure"; failureStage = "request"; fail("request", cause); }
-    finally { requestMs = performance.now() - start; }
-    if (completed !== undefined) {
+    scenario.setTrace?.(trace);
+    scenario.setEffectDiagnostics?.(collector?.binding);
+    const run = () => sample.run(observation, cleanupFailures);
+    const observed = () => collector === undefined ? run() : collector.runRequest(name, run);
+    const timed = async () => {
       const start = performance.now();
-      try { await (await import("../support/mixedProductResult")).verifyMixedProductResult(completed, "product"); }
+      try { return await (trace === undefined ? observed() : trace.withInvocation({ id, mode: "recon" }, observed)); }
+      finally { requestMs = performance.now() - start; }
+    };
+    try {
+      completed = await (cpu !== undefined ? cpu.capture(timed)
+        : collector !== undefined && mode === "server" && server !== undefined ? server.capture(timed) : timed());
+      requestCompleted = true;
+    }
+    catch (cause) { outcome = "failure"; failureStage = "request"; fail("request", cause); }
+    if (requestCompleted) {
+      const start = performance.now();
+      try { await sample.verify(completed); }
       catch (cause) { outcome = "failure"; failureStage = "verification"; fail("verification", cause); }
       finally { verificationMs = performance.now() - start; }
     }
     if (collector !== undefined) {
+      for (const failure of cpu?.failures() ?? []) {
+        failures.push(describeFailure(`cpu.${failure.stage}`, failure.cause)); retainFailure(failure.cause);
+      }
+      for (const cause of mode === "server" ? server?.failures() ?? [] : []) {
+        failures.push(describeFailure("serverCollector", cause)); retainFailure(cause);
+      }
       try {
         evidence = normalize(id, collector, trace);
+        if (cpu !== undefined) evidence = { ...evidence, cpu: cpu.evidence() };
+        if (mode === "server" && server !== undefined) evidence = { ...evidence, server: server.evidence() };
         if (observation !== undefined && observation.status().failureCount > 0) evidence = { ...evidence,
           collection: { ...evidence.collection, failures: [...evidence.collection.failures, "Publication observation delivery failed"] } };
         Result.match(analyzeMeasurementEvidence(evidence), {
           onSuccess: value => { analysis = value; }, onFailure: error => { invalidEvidence = error.detail; },
         });
-      } catch (cause) { invalidEvidence = failureTokens(cause).join(",") || "Diagnostic normalization failed"; }
+      } catch (cause) { invalidEvidence = failureTokens(cause).join(",") || "Diagnostic normalization failed";
+        failures.push(describeFailure("normalization", cause)); retainFailure(cause); }
     }
   } finally {
-    series.setTrace(undefined);
-    series.setEffectDiagnostics(undefined);
+    for (const detach of [() => scenario.setTrace?.(undefined), () => scenario.setEffectDiagnostics?.(undefined)]) {
+      try { detach(); } catch (cause) { invalidEvidence = "Diagnostic binding did not detach";
+        failures.push(describeFailure("diagnosticDetach", cause)); retainFailure(cause); }
+    }
     try { trace?.close(); } catch (cause) { invalidEvidence = "Database observer did not settle";
-      failures.push(describeFailure("databaseObserverClose", cause)); }
+      failures.push(describeFailure("databaseObserverClose", cause)); retainFailure(cause); }
+    const start = performance.now();
+    try { await sample.cleanup(); }
+    catch (cause) { outcome = "failure"; failureStage ??= "sampleCleanup"; fail("sampleCleanup", cause); }
+    finally { cleanupMs = performance.now() - start; }
   }
   if (cleanupFailures.length > 0) { outcome = "failure"; failureStage ??= "attemptCleanup";
     for (const cause of cleanupFailures) fail("attemptCleanup", cause); }
   const effectFailures = [...collector?.fullExits() ?? []].flatMap(([spanId, exit]) => Exit.isFailure(exit)
     ? [{ spanId, failure: describeFailure("effectSpan", exit.cause) }] : []);
-  return { id, lane: "flarex", index, kind, requestMs, seedMs, verificationMs, cleanupMs: 0,
+  return { id, lane: "flarex", index, kind, requestMs, seedMs, verificationMs, cleanupMs,
     outcome, failureStage, failures, ...(collector === undefined ? {} : { effectFailures }),
     ...(evidence === undefined ? {} : { evidence }), ...(analysis === undefined ? {} : { analysis }),
     ...(invalidEvidence === undefined ? {} : { invalidEvidence }),
@@ -175,9 +213,10 @@ async function flarexRequest(series: MixedMutationPerformanceSeries, index: numb
 }
 
 async function nativeRequest(resource: Awaited<ReturnType<typeof acquireNativeBusinessResource>>["resource"],
-  index: number, kind: "warmup" | "quiet", runId: string, retainFailure: (cause: unknown) => void): Promise<RequestReport> {
+  name: typeof NativeScenarioName.Type, index: number, kind: "warmup" | "quiet", runId: string,
+  retainFailure: (cause: unknown) => void): Promise<RequestReport> {
   const start = performance.now();
-  const sample = await resource.prepareSample("mixed-product", `${runId.slice(0, 8)}-${index}`);
+  const sample = await resource.prepareSample(name, `${runId.slice(0, 8)}-${index}`);
   const seedMs = performance.now() - start;
   let requestMs = 0, verificationMs = 0, cleanupMs = 0;
   let outcome: RequestReport["outcome"] = "success";
@@ -205,7 +244,16 @@ async function nativeRequest(resource: Awaited<ReturnType<typeof acquireNativeBu
     seedMs, verificationMs, cleanupMs, outcome, failureStage, failures };
 }
 
+let commandActive = false;
 async function run(options: typeof MeasureOptionsSchema.Type, operation: RunReport["operation"]) {
+  assertCpuMeasurementIdle();
+  if (commandActive) throw new InvalidMeasurementConfiguration({ detail: "SDK measurement commands must run sequentially" });
+  commandActive = true;
+  try { return await runOwned(options, operation); }
+  finally { commandActive = false; }
+}
+
+async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: RunReport["operation"]) {
   const runId = randomUUID();
   const samples: RequestReport[] = [];
   const pairs: RunReport["pairs"][number][] = [];
@@ -216,7 +264,14 @@ async function run(options: typeof MeasureOptionsSchema.Type, operation: RunRepo
   const requested = options.samples ?? (operation === "compare" ? 30 : 1);
   const warmups = options.warmups ?? (operation === "compare" ? 5 : 1);
   const diagnostic = options.mode !== "quiet";
-  let series: MixedMutationPerformanceSeries | undefined;
+  const driver = options.driver ?? "postgres";
+  const name = options.selection.scenario;
+  const descriptor = corePerformanceScenarios.find(scenario => scenario.name === name);
+  if (descriptor === undefined) throw new InvalidMeasurementConfiguration({ detail: "Missing selected scenario owner" });
+  const nativeName = operation === "compare" ? decodeNativeScenario(name) : undefined;
+  let family: PreparedPerformanceFamily | undefined;
+  let scenario: CorePerformanceScenario | undefined;
+  let server: Awaited<ReturnType<typeof acquireServerMeasurementResource>> | undefined;
   let native: Awaited<ReturnType<typeof acquireNativeBusinessResource>> | undefined;
   let setupMs = 0, cleanupMs = 0;
   let cleanup: RunReport["cleanup"] = "notAcquired";
@@ -227,36 +282,52 @@ async function run(options: typeof MeasureOptionsSchema.Type, operation: RunRepo
   let stage = "acquisition";
   try {
     const start = performance.now();
-    const fixture = await import("../support/mixedMutationProductFixture");
-    series = await fixture.prepareMixedMutationPerformanceSeries({ driver: options.driver ?? "postgres",
-      suffix: `sdk-${runId.slice(0, 8)}`, profile: "product", sampleCount: warmups + requested + (diagnostic ? 1 : 0) });
+    if (options.mode === "server") server = await acquireServerMeasurementResource({
+      ...(process.env.FLAREX_MEASUREMENT_SERVER_LOG === undefined ? {} : {
+        planLog: { path: resolve(process.env.FLAREX_MEASUREMENT_SERVER_LOG),
+          prefix: "FXPLAN[%p][%d][%c][%Q]" } }) });
+    const fixture = await import("../support/prepareScenario");
+    family = await fixture.prepareCorePerformanceFamily(descriptor.family, { driver, size: options.size,
+      sampleCount: warmups + requested + (diagnostic ? 1 : 0),
+      ...(server === undefined ? {} : { postgresEndpoints: server.endpoints }) });
+    scenario = family.scenario(name);
     cleanup = "failed";
-    // Check the acquired serving profiles before warming or timing requests.
-    await environment(series);
+    // Arm only after installation and fixture preparation. Existing idle
+    // sessions retire before warming so real serving sessions inherit the
+    // declared isolated diagnostic profile.
+    if (server !== undefined) {
+      if (scenario.pools === undefined) throw new Error("Server measurement requires actual runtime pools");
+      await server.arm([scenario.pools.controlPool, scenario.pools.targetPool]);
+      await server.verifyRuntimePools(scenario.pools.controlPool, scenario.pools.targetPool);
+    }
+    await environment(scenario, driver, options.mode);
     if (operation === "compare") native = await acquireNativeBusinessResource();
     setupMs = performance.now() - start;
     stage = "warmup";
     for (let index = 0; index < warmups; index++) {
-      samples.push(await flarexRequest(series, index, "warmup", "quiet", runId, retainFailure));
-      if (native !== undefined) samples.push(await nativeRequest(native.resource, index, "warmup", runId, retainFailure));
+      samples.push(await flarexRequest(scenario, name, index, "warmup", "quiet", runId, retainFailure, server));
+      if (native !== undefined && nativeName !== undefined)
+        samples.push(await nativeRequest(native.resource, nativeName, index, "warmup", runId, retainFailure));
       if (samples.some(sample => sample.outcome === "failure")) break;
     }
     stage = "sourceAndSettingsBefore";
     before = await measurementSourceDigest(native !== undefined);
-    settingsBefore = { flarex: await environment(series), native: native?.resource.settings ?? null };
+    settingsBefore = { flarex: await environment(scenario, driver, options.mode), native: native?.resource.settings ?? null };
     stage = "measurement";
     if (samples.every(sample => sample.outcome === "success")) {
-      if (diagnostic) samples.push(await flarexRequest(series, warmups, "calibration", "quiet", runId, retainFailure));
+      if (diagnostic) samples.push(await flarexRequest(scenario, name, warmups, "calibration", "quiet", runId, retainFailure, server));
       for (let position = 0; position < requested && samples.every(sample => sample.outcome === "success"); position++) {
         const index = warmups + position + (diagnostic ? 1 : 0);
-        if (native === undefined) samples.push(await flarexRequest(series, index, diagnostic ? "diagnostic" : "quiet", options.mode, runId, retainFailure));
+        if (native === undefined) samples.push(await flarexRequest(scenario, name, index,
+          diagnostic ? "diagnostic" : "quiet", options.mode, runId, retainFailure, server));
         else {
           // Alternate pair order to disclose and reduce systematic order bias.
           const requests: RequestReport[] = [];
           const lanes = position % 2 === 0 ? ["native", "flarex"] as const : ["flarex", "native"] as const;
           for (const lane of lanes) {
-            const request = lane === "native" ? await nativeRequest(native.resource, index, "quiet", runId, retainFailure)
-              : await flarexRequest(series, index, "quiet", "quiet", runId, retainFailure);
+            if (nativeName === undefined) throw new Error("Missing verified native scenario");
+            const request = lane === "native" ? await nativeRequest(native.resource, nativeName, index, "quiet", runId, retainFailure)
+              : await flarexRequest(scenario, name, index, "quiet", "quiet", runId, retainFailure, server);
             // Retain each completed lane before acquiring its partner. A later
             // preparation failure must not discard an earlier actual request.
             samples.push(request);
@@ -273,19 +344,20 @@ async function run(options: typeof MeasureOptionsSchema.Type, operation: RunRepo
     }
     stage = "sourceAndSettingsAfter";
     after = await measurementSourceDigest(native !== undefined);
-    settingsAfter = { flarex: await environment(series), native: await native?.resource.readSettings() ?? null };
+    settingsAfter = { flarex: await environment(scenario, driver, options.mode), native: await native?.resource.readSettings() ?? null };
   } catch (cause) {
     infrastructureFailed = true;
     retainFailure(cause); failures.push(describeFailure(stage, cause));
   } finally {
     const start = performance.now();
     const cleanupErrors: unknown[] = [];
-    for (const close of [native?.close, series?.close]) {
+    for (const close of [native?.close, family?.dispose, server?.close]) {
       if (close === undefined) continue;
       try { await close(); } catch (cause) { cleanupErrors.push(cause); }
     }
     cleanupMs = performance.now() - start;
-    if (series !== undefined) cleanup = cleanupErrors.length === 0 ? "completed" : "failed";
+    if (family !== undefined || server !== undefined || native !== undefined)
+      cleanup = cleanupErrors.length === 0 ? "completed" : "failed";
     if (cleanupErrors.length > 0) {
       for (const cause of cleanupErrors) { retainFailure(cause); failures.push(describeFailure("commandCleanup", cause)); }
       infrastructureFailed = true;
@@ -302,7 +374,7 @@ async function run(options: typeof MeasureOptionsSchema.Type, operation: RunRepo
     { name: "cleanup", passed: cleanup === "completed", detail: "Owned command resources drained" });
   if (operation === "compare") gates.push(
     { name: "sampling", passed: warmups >= 5 && pairs.length >= 30 && pairs.length === requested,
-      detail: `${pairs.length} fresh measured pairs, ${warmups} warmups per lane; first cohort supports 30 measured pairs` },
+      detail: `${pairs.length} fresh measured pairs, ${warmups} warmups per lane; acceptance requires at least 30 measured pairs` },
     { name: "completeRequests", passed: !failed && !incomplete, detail: "Both lanes completed and verified actual committed business results" },
     { name: "addedMedian", passed: summary !== null && summary.medianAddedMs <= 5, detail: "Paired added median must be <= 5 ms" },
     { name: "addedP95", passed: summary !== null && summary.p95AddedMs <= 10, detail: "Paired added P95 must be <= 10 ms" });
@@ -310,8 +382,9 @@ async function run(options: typeof MeasureOptionsSchema.Type, operation: RunRepo
   const acceptance: RunReport["acceptance"] = operation === "compare"
     ? execution === "complete" && gates.every(gate => gate.passed) ? "passed" : "failed" : "notEvaluated";
   const report: RunReport = { runId, operation, mode: options.mode, execution, acceptance,
-    sampling: { requestedSamples: requested, warmups, size: "small", scenario: "mixed-product",
-      driver: options.driver ?? "postgres", pairOrder: operation === "compare" ? "alternating" : "none" }, samples, pairs,
+    sampling: { requestedSamples: requested, warmups, size: options.size, scenario: name,
+      driver, pairOrder: operation === "compare" ? "alternating" : "none" },
+    ...(scenario?.workload === undefined ? {} : { workload: scenario.workload }), samples, pairs,
     pairedSummary: summary, gates, setupMs, cleanupMs, cleanup, failures,
     sources: { before: before?.digest ?? null, after: after?.digest ?? null, files: before?.files ?? 0 },
     environment: { before: settingsBefore, after: settingsAfter } };

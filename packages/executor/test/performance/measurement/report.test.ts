@@ -3,6 +3,7 @@ import { Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MeasurementInfrastructureError, persistMeasurementReport, type RunReport } from "./report";
 import { analyzeMeasurementEvidence } from "./analysis";
+import { CPU_LIMITS, type CpuEvidence } from "./cpu";
 
 const filesystem = vi.hoisted(() => ({
   mkdir: vi.fn<typeof import("node:fs/promises").mkdir>(),
@@ -36,6 +37,32 @@ beforeEach(() => {
 });
 
 describe("measurement artifact persistence", () => {
+  it("exports sanitized CPU samples and retains partial profile paths on allocation export failure", async () => {
+    const callFrame = { functionName: "work", scriptId: "1", url: "./packages/work.ts", lineNumber: 1, columnNumber: 0 };
+    const cpu: CpuEvidence = { complete: false,
+      host: { pid: 1, threadId: 0, node: "24", v8: "13", platform: "win32", exclusivity: "controlled-isolate-only", externalContention: "unavailable" },
+      limits: CPU_LIMITS, cpuIntervalMicroseconds: 1000, allocationIntervalBytes: 32768,
+      includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true,
+      callWindow: null, cpuStartCommand: null, cpuStopCommand: null, allocationWindow: null,
+      cpuProfile: { nodes: [{ id: 1, callFrame, children: [] }], samples: [1], timeDeltas: [1000], startTime: 0, endTime: 1000 },
+      allocationProfile: { nodes: [{ id: 1, parentId: null, callFrame, selfSize: 32 }], samples: [{ size: 32, nodeId: 1, ordinal: 1 }] },
+      counters: null, memory: { before: null, after: null }, gc: { supported: false, events: [], observerIntervals: [], droppedEvents: 0 },
+      timedOut: false, retainedBytes: 0, droppedFailures: 0, failures: [] };
+    const original = new Error("allocation artifact unavailable");
+    filesystem.writeFile.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined).mockRejectedValueOnce(original);
+    const failure = await persistenceFailure({ ...report(), mode: "cpu", samples: [{
+      id: "request", lane: "flarex", index: 1, kind: "diagnostic", requestMs: 1, seedMs: 0,
+      verificationMs: 0, cleanupMs: 0, outcome: "success", failureStage: null, failures: [],
+      evidence: { requestId: "request", clock: { id: "monotonic", unit: "milliseconds", precisionMs: null, originMonotonicMs: 0 },
+        root: { startMs: 0, endMs: 1, outcome: "success" }, events: [], postRequestObservers: [],
+        collection: { capacity: 1, droppedEvents: 0, lostContextEvents: 0, failures: [] }, cpu },
+    }] });
+    expect(failure.cause).toBe(original);
+    expect(failure.reports).toEqual({ raw: resolve(directory, "retained-request.json"), human: resolve(directory, "retained-request.md"),
+      profiles: [resolve(directory, "retained-request-flarex-1.cpuprofile")] });
+    expect(filesystem.writeFile.mock.calls[2]?.[1]).toBe(JSON.stringify(cpu.cpuProfile) + "\n");
+  });
   it("keeps strict attribution, enclosing context, coordination and unavailable database evidence distinct", async () => {
     const analysis = Result.getOrThrow(analyzeMeasurementEvidence({ requestId: "request",
       clock: { id: "monotonic", unit: "milliseconds", precisionMs: null, originMonotonicMs: 0 },

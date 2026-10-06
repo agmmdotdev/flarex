@@ -20,6 +20,7 @@ export function databaseEvents(record: TraceInvocationRecord, mappings: readonly
       owner: operation?.owner ?? null, site: operation?.site ?? null,
       ownerCandidates: [], parentId: dispatch.operationId,
       pool: dispatch.pool, phasePath: dispatch.phasePath, connectionId: dispatch.connectionId,
+      backendPid: dispatch.backendPid,
       checkoutId: dispatch.checkoutId, transactionId: dispatch.transactionId,
       fingerprint: dispatch.fingerprint, template: dispatch.template, statementCount: dispatch.statementCount,
       parameterCount: dispatch.parameterCount, scalarParameterBytes: dispatch.scalarParameterBytes,

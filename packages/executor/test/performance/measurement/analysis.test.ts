@@ -10,6 +10,7 @@ function phase(id: string, sequence: number, startMs: number, endMs: number | nu
 }
 function driver(id: string, sequence: number, startMs: number, endMs: number | null): Extract<MeasurementEvent, { readonly kind: "driverAwait" }> {
   return { ...interval, id, sequence, startMs, endMs, kind: "driverAwait", pool: "target", phasePath: [],
+    backendPid: null,
     connectionId: 1, checkoutId: 2, transactionId: 3, fingerprint: "structural-query", template: "SELECT id FROM rows WHERE id=$1",
     statementCount: 1, parameterCount: 1, scalarParameterBytes: 4, unknownEncodingParameters: 0, sqlUtf8Bytes: 42,
     returnedRowCount: null, decodedResultJsonUtf8Bytes: null, transactionAction: null,

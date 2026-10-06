@@ -134,9 +134,10 @@ owns observations and the remaining harness costs.
 The selected [cost-attribution successor](./21-core-performance-harness-preflight.md#selected-cost-attribution-successor)
 extends those existing owners with ordered raw evidence, disjoint wall accounting,
 explicit observer cost, owner work counts and fresh native pairing. Its first
-small `mixed-product` SDK cutover is implemented for quiet/timeline/database
-diagnostics and fresh native construction. CPU/server modes and catalog expansion
-remain deferred, and runtime optimization remains paused. Reconciled collection
+small `mixed-product` SDK cutover is extended to the adopted 25-flow catalog,
+CPU/GC/allocation diagnostics and isolated PostgreSQL server/wait observations.
+The five original small graphs have fresh native construction; extended native
+mappings remain gated. Runtime optimization remains paused. Reconciled collection
 still exposes substantial unknown and ambiguous owner time; more scenario
 coverage or grouped SQL totals alone cannot explain the remaining complete-request
 latency.

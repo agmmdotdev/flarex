@@ -8,8 +8,9 @@ export type RetrievalDatabaseIdentity = typeof RetrievalDatabaseIdentitySchema.T
 const decodeDatabaseIdentities = Schema.decodeUnknownSync(Schema.Array(RetrievalDatabaseIdentitySchema));
 const RetrievalServerStatementSchema = Schema.Struct({
   userid: IntegerCounter, dbid: IntegerCounter, queryid: Schema.String.check(Schema.isPattern(/^-?\d+$/)),
-  toplevel: Schema.Boolean, query: Schema.String,
-  calls: IntegerCounter, total_plan_time: Counter, total_exec_time: Counter,
+  toplevel: Schema.Boolean, query: Schema.NullOr(Schema.String),
+  calls: IntegerCounter, plans: IntegerCounter, stats_since: Schema.String,
+  total_plan_time: Counter, total_exec_time: Counter,
   rows: IntegerCounter, shared_blks_hit: IntegerCounter, shared_blks_read: IntegerCounter,
   shared_blks_dirtied: IntegerCounter, shared_blks_written: IntegerCounter,
   temp_blks_read: IntegerCounter, temp_blks_written: IntegerCounter,
@@ -64,6 +65,7 @@ export function requireRetrievalServerObservedCalls(database: RetrievalDatabaseI
     throw new Error(`No observed server calls for successful retrieval in ${database.database}`);
 }
 const settingNames = ["server_version", "search_path", "statement_timeout", "lock_timeout", "fsync", "synchronous_commit", "full_page_writes", "shared_preload_libraries",
+  "compute_query_id", "track_activities", "track_io_timing", "log_line_prefix", "pg_stat_statements.track_utility",
   "pg_stat_statements.track", "pg_stat_statements.track_planning", "track_functions",
   "auto_explain.log_min_duration", "auto_explain.log_nested_statements", "auto_explain.log_analyze"];
 
@@ -83,16 +85,21 @@ export async function readRetrievalRuntimeSettings(execute: (sql: string) => Pro
   return first;
 }
 
-interface RetrievalServerSnapshot {
+export interface RetrievalServerSnapshot {
   readonly info: readonly (typeof RetrievalServerInfo.Type)[];
   readonly statements: readonly RetrievalServerStatement[];
 }
 
 export async function openRetrievalServerObserver(connectionString: string,
-  databases: readonly RetrievalDatabaseIdentity[]) {
-  const client = new Client({ connectionString, application_name: "native-retrieval-diagnostics" });
-  await client.connect();
+  databases: readonly RetrievalDatabaseIdentity[], options?: Readonly<{ includeQueryText?: boolean; maxStatements?: number;
+    connectionTimeoutMs?: number; queryTimeoutMs?: number }>) {
+  const maximum = Schema.decodeUnknownSync(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100_000 })))(
+    options?.maxStatements ?? 100_000);
+  const timeout = Schema.decodeUnknownSync(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 30_000 })));
+  const client = new Client({ connectionString, application_name: "native-retrieval-diagnostics",
+    connectionTimeoutMillis: timeout(options?.connectionTimeoutMs ?? 0), query_timeout: timeout(options?.queryTimeoutMs ?? 0) });
   try {
+    await client.connect();
     const observerIdentity = await readRetrievalRuntimeSettings(async sql => (await client.query(sql)).rows);
     if (databases.some(database => database.database === observerIdentity.database || database.dbid === observerIdentity.dbid))
       throw new Error("Retrieval diagnostics must connect outside the selected isolated databases");
@@ -118,18 +125,23 @@ export async function openRetrievalServerObserver(connectionString: string,
         if (info.length !== 1) throw new Error("Missing PostgreSQL statement statistics epoch");
         const statements = decodeStatements((await client.query(
           `select s.userid::int, s.dbid::int, s.queryid::text, s.toplevel, s.query,
-            s.calls::float8, s.total_plan_time, s.total_exec_time, s.rows::float8,
+            s.calls::float8, s.plans::float8, s.stats_since::text, s.total_plan_time, s.total_exec_time, s.rows::float8,
             s.shared_blks_hit::float8, s.shared_blks_read::float8,
             s.shared_blks_dirtied::float8, s.shared_blks_written::float8,
             s.temp_blks_read::float8, s.temp_blks_written::float8
-           from pg_stat_statements s
+           from pg_stat_statements(${options?.includeQueryText !== false}) s
            where s.dbid = any($1::oid[])
-           order by s.userid, s.dbid, s.queryid, s.toplevel`, [catalog.map(database => database.dbid)])).rows);
+           order by s.userid, s.dbid, s.queryid, s.toplevel limit ${maximum + 1}`, [catalog.map(database => database.dbid)])).rows);
+        if (statements.length > maximum) throw new Error("PostgreSQL statement observation capacity exceeded");
         return { info, statements };
       },
       close: () => client.end(),
     };
-  } catch (cause) { await client.end(); throw cause; }
+  } catch (cause) {
+    try { await client.end(); }
+    catch (cleanup) { throw new AggregateError([cause, cleanup], "Retrieval observer setup and cleanup failed"); }
+    throw cause;
+  }
 }
 
 export function retrievalServerDifference(before: RetrievalServerSnapshot,
@@ -141,15 +153,18 @@ export function retrievalServerDifference(before: RetrievalServerSnapshot,
   const present = new Set(after.statements.map(key));
   if (before.statements.some(entry => !present.has(key(entry))))
     throw new Error("PostgreSQL statement statistics lost entries during retrieval interval");
-  const counters = ["calls", "total_plan_time", "total_exec_time", "rows", "shared_blks_hit", "shared_blks_read",
+  const counters = ["calls", "plans", "total_plan_time", "total_exec_time", "rows", "shared_blks_hit", "shared_blks_read",
     "shared_blks_dirtied", "shared_blks_written", "temp_blks_read", "temp_blks_written"] as const;
   return after.statements.flatMap(entry => {
     const old = previous.get(key(entry));
+    if (old !== undefined && entry.stats_since !== old.stats_since)
+      throw new Error("PostgreSQL statement statistics entry reset during retrieval interval");
     const calls = entry.calls - (old?.calls ?? 0);
     if (counters.some(counter => entry[counter] < (old?.[counter] ?? 0)))
       throw new Error("PostgreSQL statement statistics counter decreased during retrieval interval");
-    if (calls === 0) return [];
+    if (counters.every(counter => entry[counter] === (old?.[counter] ?? 0))) return [];
     return [{ ...entry, calls,
+      plans: entry.plans - (old?.plans ?? 0),
       total_plan_time: entry.total_plan_time - (old?.total_plan_time ?? 0),
       total_exec_time: entry.total_exec_time - (old?.total_exec_time ?? 0),
       rows: entry.rows - (old?.rows ?? 0),

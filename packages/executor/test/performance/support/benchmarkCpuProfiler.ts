@@ -3,9 +3,36 @@ import type { Profiler } from "node:inspector";
 
 export const CPU_SAMPLING_INTERVAL_MICROSECONDS = 100;
 
+/** Raw inspector deltas include startup, idle and GC. Frame counts are sampling
+ * observations, not exclusive CPU durations; never subtract SQL waits from them. */
+export function summarizeBenchmarkCpuProfile(profile: Profiler.Profile) {
+  const counts = new Map<number, number>();
+  for (const node of profile.samples ?? []) counts.set(node, (counts.get(node) ?? 0) + 1);
+  const deltas = profile.timeDeltas;
+  const sortedDeltas = deltas === undefined ? [] : [...deltas].sort((left, right) => left - right);
+  return {
+    startTime: profile.startTime, endTime: profile.endTime,
+    profileSpanMicroseconds: profile.endTime - profile.startTime,
+    requestedSamplingIntervalMicroseconds: CPU_SAMPLING_INTERVAL_MICROSECONDS,
+    nodeCount: profile.nodes.length, sampleCount: profile.samples?.length ?? null,
+    timeDeltaCount: deltas?.length ?? null,
+    actualTimeDeltasMicroseconds: sortedDeltas.length === 0 ? null : {
+      first: deltas?.[0], min: sortedDeltas[0], max: sortedDeltas.at(-1),
+      median: sortedDeltas[Math.ceil(sortedDeltas.length / 2) - 1],
+      sum: sortedDeltas.reduce((sum, value) => sum + value, 0),
+    },
+    sampledSelfFrames: profile.nodes.filter(node => counts.has(node.id)).map(node => ({
+      nodeId: node.id, callFrame: node.callFrame, samples: counts.get(node.id) ?? 0,
+    })).sort((left, right) => right.samples - left.samples),
+  };
+}
+
+export type BenchmarkCpuProfileEvidence = ReturnType<typeof summarizeBenchmarkCpuProfile> &
+  Readonly<{ file: string; sha256Hex: string }>;
+
 /** Benchmark-only ownership of a genuine V8 sampling session. Pending inspector
  * operations are drained before disconnect, including interrupted hook callers. */
-export class NativeReadCpuProfiler {
+export class BenchmarkCpuProfiler {
   #session: Session | undefined;
   #pending: Promise<unknown> | undefined;
   #started = false;
@@ -66,7 +93,7 @@ export class NativeReadCpuProfiler {
   }
 
   #recordFailure(stage: "start" | "stop" | "dispose", cause: unknown): Error {
-    const error = new Error(`Native read CPU profiler ${stage} failed`, { cause });
+    const error = new Error(`Benchmark CPU profiler ${stage} failed`, { cause });
     this.#failure ??= error;
     return error;
   }

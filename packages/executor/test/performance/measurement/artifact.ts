@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { CpuEvidenceSchema } from "./cpu";
+import { ServerMeasurementEvidenceSchema } from "./server";
 
 const Identity = Schema.String.check(Schema.makeFilter(value => value.length > 0 ? undefined : "Expected nonempty identity"));
 const Milliseconds = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
@@ -20,7 +22,7 @@ const OperationRole = Schema.Literals(["operation", "coordination"]);
 const DatabaseFields = {
   pool: Schema.Literals(["control", "target"]),
   phasePath: Schema.Array(Schema.String),
-  connectionId: NullableCount,
+    connectionId: NullableCount,
   checkoutId: NullableCount,
   transactionId: NullableCount,
 };
@@ -42,6 +44,7 @@ export const MeasurementEventSchema = Schema.Union([
   }).check(orderedInterval),
   Schema.Struct({
     ...IntervalFields, ...DatabaseFields, kind: Schema.Literal("driverAwait"),
+    backendPid: NullableCount,
     fingerprint: Schema.NullOr(Schema.String), template: Schema.NullOr(Schema.String),
     statementCount: NullableCount, parameterCount: NullableCount, scalarParameterBytes: NullableCount,
     unknownEncodingParameters: NullableCount, sqlUtf8Bytes: NullableCount,
@@ -72,6 +75,8 @@ export const MeasurementEvidenceSchema = Schema.Struct({
     originMonotonicMs: Milliseconds }),
   root: Schema.Struct({ startMs: Schema.Literal(0), endMs: Milliseconds, outcome: Outcome }),
   events: Schema.Array(MeasurementEventSchema),
+  cpu: Schema.optional(CpuEvidenceSchema),
+  server: Schema.optional(ServerMeasurementEvidenceSchema),
   /** Observer finalization after settlement is retained, never charged to root wall. */
   postRequestObservers: Schema.Array(MeasurementObserverSchema),
   collection: Schema.Struct({ capacity: Schema.Natural, droppedEvents: Schema.Natural,

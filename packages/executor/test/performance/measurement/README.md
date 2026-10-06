@@ -1,13 +1,15 @@
 # Measurement SDK Design
 
-Status: the first connected small `mixed-product` measurement SDK is implemented
-with `quiet`, `timeline`, `database` and fresh native pairs. SDK-owned Effect
+Status: the SDK covers the adopted 25-flow catalog with `quiet`, `timeline`,
+`database`, `cpu` and `server` diagnostics. Matched fresh native pairs cover the
+five original small graphs. SDK-owned Effect
 Layers collect diagnostics at the existing trusted composition boundary;
 production and quiet requests provide no measurement Layer or collectors.
 Runtime performance optimization remains paused. The
 [owning preflight](../../../../../roadmaps/mixed-mutation-core/21-core-performance-harness-preflight.md#selected-cost-attribution-successor)
 owns scope, evidence lanes, accounting, validation and cutover. Existing scenario
-expansion and native reference work retain their own owners and handoff gates.
+expansion is owned by this SDK delivery after the explicit handoff. Extended
+native reference work retains its declared gates.
 
 ## Public Boundary
 
@@ -17,7 +19,7 @@ the SDK constructs the session, collectors, observation bindings, analysis and
 report, and releases its resources. No new workspace or production package is
 selected merely to provide this boundary.
 
-The first-cohort call shape is:
+The call shape is:
 
 ```ts
 import { measure, compare } from "./measurement";
@@ -41,30 +43,29 @@ await compare({
 `measure`
 executes one declared quiet or diagnostic plan. `compare` owns fresh
 matched native/Flarex quiet pairs and their retained complete-request excess.
-Both reuse the existing mixed fixture and actual native business composition.
-The first cohort selects only small `mixed-product`; the existing catalog's
-remaining scenarios and groups retain their expansion gate. Missing native
-mappings are unsupported comparisons.
+Both reuse existing family fixtures and actual native business composition.
+`measure` accepts all 25 catalog names and `small` or `typical` size; each report
+retains actual workload cardinality and any fixed-size limitations. `compare`
+accepts only the five original small graphs. Missing native mappings fail before
+resource acquisition. The CLI owns existing daily/all family iteration; the SDK
+selects one declared graph per bounded command.
 Diagnostic mode is one discriminant, not overlapping SQL/CPU/server booleans.
 The complete design selects `quiet`, `timeline`, `database`, `cpu` and `server`.
-CPU and server modes are unavailable in this first cutover.
 `compare` accepts no diagnostic mode: its timed requests are quiet. Sampling defaults
 are retained in the report: one warmup and one sample for `measure`, five warmups
-and 30 fresh pairs for `compare`. The committed fixture's 40-attempt bound
-supports this acceptance minimum; the preferred 100-pair plan remains gated on
-the separate harness owner's sampling-capacity handoff. Sampling, stable
+and 30 fresh pairs for `compare`. The adopted fixture supports 105 fresh attempts:
+100 quiet pairs plus five warmups, or at most 99 diagnostics with five warmups
+and a separate calibration. This is fixture capacity, not a core budget change.
+Sampling, stable
 sources/settings, complete comparable results and
 cleanup must satisfy the existing acceptance policy before `passed` is possible.
-The later catalog-backed selection will choose a scenario, family or existing daily/all
-group. A multi-scenario selection must have one bounded SDK session and preserve
-existing family reuse/disposal; the CLI must not create a session per item.
 
 Options have one SDK-owned Schema. Inputs may use inference; callers need no
 imports for plans, sites, spans, clients, transactions, recorders or artifact
 types. The result has four fields: `runId`, `execution`, `acceptance`
 and `reports`. `execution` is `complete`, `failed` or `incomplete`; `acceptance`
 is `passed`, `failed` or `notEvaluated`; `reports` contains raw and human artifact
-paths. Only a genuine complete comparison can pass acceptance. A complete
+paths and optional sanitized profile exports. Only a genuine complete comparison can pass acceptance. A complete
 diagnostic uses `notEvaluated`. Known business failures use `failed`; missing,
 lost or unsettled required observations use `incomplete`. A failed execution
 rejects with those four report/status fields and the original sample and cleanup
@@ -172,12 +173,62 @@ bottleneck from one run.
 
 ## Internal Modules
 
+### CPU And Server Resources
+
+`cpu` owns one Node inspector session and a bounded GC observer around the
+actual request. Profiler setup/stop stays outside its request timer. It retains
+sanitized `.cpuprofile` and allocation JSON exports, exact samples/deltas,
+command windows, counters and faults. CPU clock alignment uses start/stop
+brackets and a shared monotonic-rate assumption. Allocation samples have no
+timestamps and cover the profiler window; endpoint memory is occupancy, not
+total allocation or peak memory. Sampled stack spacing is not exact scheduler
+CPU. SDK commands run sequentially; isolate exclusivity requires a controlled
+process, and external contention remains unavailable. Bounds stop observation
+without changing business settlement.
+
+`server` requires the trusted PostgreSQL provisioning endpoint. It creates a
+disposable target database and separate observer database/ordinary roles, then
+passes explicit endpoints into the existing fixture owners. Installation runs
+with plan logging disabled. After preparation the SDK arms its owned database,
+retires existing idle serving clients through the public pool API and verifies
+replacement runtime sessions before warming or timing. Busy pools fail closed.
+Administrative provisioning/cleanup has a separate 30-second budget; the default
+observer query budget is one second. It never redirects
+process environment or adds business queries. All actual execution roles,
+including SECURITY DEFINER work, contribute to statement counter deltas.
+Before/after counters, planning counts/time, execution elapsed, block counts,
+activity, wait types and blockers retain their exact database/query identities.
+The serial observer has bounded polls/rows/duration/query timeouts and joins
+before release. Effect owns internal observer/file scopes; existing public
+Promise callbacks retain their original values and rejections. Counter resets,
+eviction and collection faults invalidate the
+diagnostic rather than masquerading as a successful zero delta.
+
+An owned server log can be selected through
+`FLAREX_MEASUREMENT_SERVER_LOG` with the verified prefix
+`FXPLAN[%p][%d][%c][%Q]`. The SDK enables bounded actual `auto_explain` observation
+only for its target database. Plans retain safe operator/cardinality/cost/buffer
+fields and exact header query IDs; SQL text, predicates, outputs and parameters
+are excluded from persisted artifacts. No write is replayed through EXPLAIN.
+Without that source, actual plans are explicitly unavailable. A parsed log
+window does not prove all log output flushed or every statement was observed.
+
+Server samples correlate PID/time candidates with driver awaits. Queue overlap,
+PID reuse, short queries and asynchronous timestamps retain ambiguity or missing
+identity. Wait observations are samples, not exact lock durations. Top-level
+and nested server elapsed times overlap. Observer awaits do not capture its
+entire contention cost. Server calibration uses the same declared diagnostic
+GUCs and is not a quiet PostgreSQL baseline. Quiet `compare` installs none of
+these collectors or server settings.
+
 The layout gives each responsibility one owner:
 
 ```text
 measurement/
   index.ts           two high-level exports
   run.ts             bounded session and existing scenario composition
+  cpu.ts             scoped Node profiler acquisition and pure CPU analysis
+  server.ts          disposable PostgreSQL acquisition and pure server analysis
   artifact.ts        one observation schema and derived internal types
   analysis.ts        pure interval, attribution and pair calculations
   report.ts          rendering and post-request artifact persistence
@@ -202,8 +253,9 @@ interface. Historical reports retain their original formats and limitations.
 
 Reports expose complete paired cost when available, ordered requests and SQL,
 checkout/transaction identities, owner work counts and byte units, observer cost,
-coverage gaps and failures. CPU/GC diagnostics and server waits remain unavailable
-until their deferred collectors are implemented.
+coverage gaps and failures. The CPU lane adds sampled stacks and allocations,
+GC intervals, CPU counters, event-loop utilization and memory endpoints. The
+server lane adds isolated statement statistics and PID/query/wait samples.
 Raw events remain available alongside the ranked summary. Each value states
 whether it is observed, estimated, ambiguous or unavailable.
 
@@ -214,7 +266,7 @@ exact allocation or wall attribution. Driver await is not server execution;
 decoded JSON bytes are not wire traffic or heap allocation. Collector overhead
 is measured and disclosed rather than subtracted to invent quiet latency.
 
-The current cutover covers the existing small `mixed-product` request. Genuine
+The current cutover uses the existing family and request owners. Genuine
 framework and transaction Promise runtimes carry only the tracer and parent;
 business services, Clock and settlement stay with their existing owners. Database
 submission snapshots the actual retained operation ID, including the initiating
@@ -242,3 +294,32 @@ preflight requires affected checks, deterministic accounting witnesses, real
 database/native lanes, both reviews, shared-file handoff, cleanup and a scoped
 commit. It grants no claim of improved core performance merely because the SDK
 can collect more data.
+
+The [CPU/server completion evidence](../../../benchmarks/core-performance/measurement-diagnostics/README.md)
+retains representative reports and sanitized profiles. These are diagnostic and
+assembly proofs; native-relative acceptance remains open.
+
+## Running The SDK Proofs
+
+Run the deterministic SDK and connected-owner suite from the workspace root:
+
+```sh
+pnpm exec vitest run --config packages/executor/test/performance/measurement/vitest.config.ts
+```
+
+Actual requests are explicitly gated so this suite does not start framework or
+database fixtures by default. Set `FLAREX_MEASUREMENT_INTEGRATION` to one of
+`pglite-cpu`, `postgres-cpu`, `postgres-server`, `product-timeline`,
+`payload-database` or `postgres-compare`, then run the same command with
+`packages/executor/test/performance/measurement/run.integration.test.ts` as its
+file argument. Select one proof per process. `FLAREX_MEASUREMENT_REPORT_DIRECTORY`
+optionally selects the retained output directory.
+
+PostgreSQL proofs use the existing fixture endpoints and, for server mode, the
+trusted provisioning endpoint. Server diagnostics require PostgreSQL statement
+statistics and actual-plan observation capabilities; unsupported configuration
+fails before timing. Actual plans additionally require the owned server log
+source and exact prefix described above. These capabilities and disposable
+roles/databases belong to the diagnostic lifetime. Quiet comparisons do not
+enable them. `postgres-compare` runs one fresh Payload pair to prove assembly;
+use `compare` with its full sampling policy for acceptance.

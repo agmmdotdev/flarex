@@ -19,7 +19,10 @@ export async function measurementSourceDigest(native: boolean) {
       files.add(join(entry.parentPath, entry.name));
     }
   }
-  for (const name of ["package.json", "pnpm-lock.yaml", "tsconfig.base.json"]) files.add(join(repository, name));
+  for (const name of ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.base.json"]) files.add(join(repository, name));
+  // This SDK reuses an authored benchmark owner that the broad package source
+  // inventory deliberately excludes along with historical report files.
+  files.add(join(repository, "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts"));
   for (const file of Object.keys(require.cache)) if (file.includes(`${sep}third_party${sep}medusa${sep}`)) files.add(file);
   if (native) {
     const root = join(repository, "work/native-business-baseline/dependencies");

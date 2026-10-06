@@ -32,6 +32,13 @@ export const postgresUrl = trimToNonBlankOrNull(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
 );
 
+/** Explicit private fixture endpoints; diagnostics must not redirect process
+ * environment or a module-captured default while another fixture is alive. */
+export interface PostgresFixtureEndpoints {
+  readonly connectionString: string;
+  readonly provisioningConnectionString: string;
+}
+
 export interface HeldPostgresDeploymentLock {
   readonly client: PoolClient;
   readonly blockerPid: number;
@@ -533,8 +540,9 @@ export async function createFileScopedPostgresFixture(
   journal: Readonly<{ sameSchema?: boolean; tableName?: string }> = {},
   maintenanceSession: Readonly<{ standardConformingStrings?: "off" }> = {},
   transport: "ordinary" | "finiteCapture" = "ordinary",
+  postgresEndpoints?: PostgresFixtureEndpoints,
 ): Promise<FileScopedPostgresFixture> {
-  const connectionString = requiredPostgresUrl();
+  const connectionString = postgresEndpoints?.connectionString ?? requiredPostgresUrl();
   const schemaName = temporaryIdentifier("flarex_file_test");
   const migrationsSchema = journal.sameSchema === true ? schemaName : temporaryIdentifier("flarex_file_migrations");
   const migrationsTable = journal.tableName ?? "__drizzle_migrations";
@@ -581,6 +589,8 @@ export async function createFileScopedPostgresFixture(
       ),
     );
     await recordCleanupError(cleanupErrors, () => adminPool.end());
+    if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors],
+      "File-scoped fixture creation and cleanup failed");
     throw error;
   }
 
@@ -678,6 +688,7 @@ export async function createProtectedFileScopedPostgresFixture(
   existingOwner?: Pick<FileScopedPostgresFixture, "persistence" | "schemaName" | "migrationsSchema" | "installationTiming"> &
     Partial<Pick<FileScopedPostgresFixture, "migrationsTable">>,
   transport: "ordinary" | "finiteCapture" = "ordinary",
+  postgresEndpoints?: PostgresFixtureEndpoints,
 ): Promise<Readonly<{
   persistence: PostgresFlarexPersistence;
   protectedMetadata: ProtectedMetadataPreparation;
@@ -688,9 +699,9 @@ export async function createProtectedFileScopedPostgresFixture(
   installationTiming: Readonly<{ baseMigration: Readonly<{ migrationMs: number }>; managedSetupMs: number }>;
   dispose: () => Promise<void>;
 }>> {
-  const provisionUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL);
+  const provisionUrl = trimToNonBlankOrNull(postgresEndpoints?.provisioningConnectionString ?? process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL);
   if (provisionUrl === null) throw new Error("FLAREX_POSTGRES_PROVISIONING_DATABASE_URL is required.");
-  const ownedFixture = existingOwner === undefined ? await createFileScopedPostgresFixture() : undefined;
+  const ownedFixture = existingOwner === undefined ? await createFileScopedPostgresFixture({}, {}, "ordinary", postgresEndpoints) : undefined;
   const owner = existingOwner ?? ownedFixture;
   if (owner === undefined) throw new Error("Missing protected fixture owner");
   const provision = new Pool({ connectionString: provisionUrl });
@@ -714,7 +725,7 @@ export async function createProtectedFileScopedPostgresFixture(
       to ${quoteIdentifier(roleName)}`);
     await owner.persistence.pool.query(`grant execute on function ${quoteIdentifier(owner.schemaName)}.
       fx_lock_prepared_metadata_epoch() to ${quoteIdentifier(roleName)}`);
-    const runtimeUrl = new URL(requiredPostgresUrl());
+    const runtimeUrl = new URL(postgresEndpoints?.connectionString ?? requiredPostgresUrl());
     runtimeUrl.username = roleName;
     runtimeUrl.password = password;
     runtime = await createPostgresPersistence({
@@ -852,10 +863,11 @@ export interface ActivationServingFileScopedPostgresFixture extends ActivationSe
 export async function createActivationServingFileScopedPostgresFixture(
   existingOwner?: ActivationServingFixtureOwner,
   transport: "ordinary" | "finiteCapture" = "ordinary",
+  postgresEndpoints?: PostgresFixtureEndpoints,
 ): Promise<ActivationServingFileScopedPostgresFixture> {
-  const provisioningUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL);
+  const provisioningUrl = trimToNonBlankOrNull(postgresEndpoints?.provisioningConnectionString ?? process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL);
   if (provisioningUrl === null) throw new Error("FLAREX_POSTGRES_PROVISIONING_DATABASE_URL is required.");
-  const ownedOwner = existingOwner === undefined ? await createFileScopedPostgresFixture({}, {}, transport) : undefined;
+  const ownedOwner = existingOwner === undefined ? await createFileScopedPostgresFixture({}, {}, transport, postgresEndpoints) : undefined;
   const owner = existingOwner ?? ownedOwner;
   if (owner === undefined) throw new Error("Missing activation installation fixture owner");
   const managedStarted = performance.now();
@@ -892,7 +904,7 @@ export async function createActivationServingFileScopedPostgresFixture(
         ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(login)}`);
       await owner.persistence.query(`grant usage,select on all sequences in schema
         ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(login)}`);
-      const runtimeUrl = new URL(requiredPostgresUrl());
+      const runtimeUrl = new URL(postgresEndpoints?.connectionString ?? requiredPostgresUrl());
       runtimeUrl.username = login;
       runtimeUrl.password = password;
       const persistence = await createPostgresPersistence({ connectionString: runtimeUrl.toString(),

@@ -1,8 +1,44 @@
 import { describe, expect, it } from "vitest";
 import { readRetrievalRuntimeSettings, requireRetrievalServerObservedCalls, selectRetrievalServerDatabases,
-  verifyRetrievalServerCatalogCoverage } from "./server";
+  verifyRetrievalServerCatalogCoverage, retrievalServerDifference, type RetrievalServerStatement } from "./server";
+
+const statement: RetrievalServerStatement = { userid: 11, dbid: 12, queryid: "123", toplevel: true,
+  query: "select private-literal", stats_since: "entry-epoch", calls: 0, plans: 0,
+  total_plan_time: 0, total_exec_time: 0, rows: 0, shared_blks_hit: 0, shared_blks_read: 0,
+  shared_blks_dirtied: 0, shared_blks_written: 0, temp_blks_read: 0, temp_blks_written: 0 };
+const snapshot = (entries: readonly RetrievalServerStatement[], stats_reset = "epoch", dealloc = 0) =>
+  ({ info: [{ stats_reset, dealloc }], statements: entries });
 
 describe("native retrieval authenticated database coverage", () => {
+  it("retains separate executing-role and top-level identities for the same queryid", () => {
+    const delta = retrievalServerDifference(snapshot([
+      { ...statement, userid: 11, calls: 1 }, { ...statement, userid: 12, calls: 2 },
+      { ...statement, userid: 12, toplevel: false, calls: 3 },
+    ]), snapshot([
+      { ...statement, userid: 11, calls: 4 }, { ...statement, userid: 12, calls: 7 },
+      { ...statement, userid: 12, toplevel: false, calls: 9 },
+    ]));
+    expect(delta.map(({ userid, queryid, toplevel, calls }) => ({ userid, queryid, toplevel, calls }))).toEqual([
+      { userid: 11, queryid: "123", toplevel: true, calls: 3 },
+      { userid: 12, queryid: "123", toplevel: true, calls: 5 },
+      { userid: 12, queryid: "123", toplevel: false, calls: 6 },
+    ]);
+  });
+  it("retains planning-only failed execution rather than requiring successful calls", () => {
+    const delta = retrievalServerDifference(snapshot([statement]), snapshot([{ ...statement, plans: 1, total_plan_time: 0.7 }]));
+    expect(delta).toHaveLength(1);
+    expect(delta[0]).toMatchObject({ calls: 0, plans: 1, total_plan_time: 0.7, total_exec_time: 0 });
+  });
+  it("refuses selective reset even when counters have regrown and retains all reset guards", () => {
+    const before = snapshot([{ ...statement, calls: 2, plans: 2 }]);
+    expect(() => retrievalServerDifference(before, snapshot([{ ...statement, calls: 3, plans: 3, stats_since: "changed" }])))
+      .toThrow("entry reset");
+    expect(() => retrievalServerDifference(before, snapshot([{ ...statement, calls: 1, plans: 2 }])))
+      .toThrow("counter decreased");
+    expect(() => retrievalServerDifference(before, snapshot([], "different"))).toThrow("reset or deallocated");
+    expect(() => retrievalServerDifference(before, snapshot([], "epoch", 1))).toThrow("reset or deallocated");
+    expect(() => retrievalServerDifference(before, snapshot([]))).toThrow("lost entries");
+  });
   it("selects the catalog database spelling when a connection URL encodes its name", async () => {
     const connectionUrl = new URL("postgres://runtime@localhost/logical%20retrieval");
     const native = await readRetrievalRuntimeSettings(async () => [{

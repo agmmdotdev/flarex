@@ -123,7 +123,7 @@ describe("Medusa source-island boundary checker", () => {
     expect(check(test, resolve.replace("modules/product", "modules/currency")).length).toBeGreaterThan(0);
     expect(check(scenario, 'const path = "x"; import(path);').length).toBeGreaterThan(0);
   });
-  it("inventories only the existing publication test consumers of the authored server observer", () => {
+  it("inventories only the named publication and measurement consumers of the authored server observer", () => {
     const server = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts";
     const promotion = { ...nativeControlPromotion, files: [...nativeControlPromotion.files,
       { target: server, targetSha256: "pinned", classification: "authored" }] };
@@ -135,6 +135,12 @@ describe("Medusa source-island boundary checker", () => {
         "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
       ["packages/flarex-backend/test/support/publicationPerformanceServer.ts",
         "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+      ["packages/executor/test/performance/measurement/server.ts",
+        "../../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+      ["packages/executor/test/performance/measurement/collectors/server.ts",
+        "../../../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+      ["packages/executor/test/performance/measurement/collectors/server.test.ts",
+        "../../../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
     ];
     /** @param {string} relativePath @param {string} specifier
      * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
@@ -145,7 +151,7 @@ describe("Medusa source-island boundary checker", () => {
     for (const [relativePath, specifier] of consumers) {
       expect(check(relativePath, specifier)).toEqual([]);
       expect(check(relativePath, specifier, nativeControlPromotion).length).toBeGreaterThan(0);
-      expect(check(relativePath.replace("publicationPerformance", "adjacent"), specifier).length).toBeGreaterThan(0);
+      expect(check(relativePath.replace(/[^/]+\.ts$/, "adjacent.ts"), specifier).length).toBeGreaterThan(0);
       expect(check(relativePath.replace("/test/", "/src/"), specifier).length).toBeGreaterThan(0);
       expect(check(relativePath, specifier.replace("/server", "/observation")).length).toBeGreaterThan(0);
       expect(check(relativePath, specifier, {

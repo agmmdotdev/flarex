@@ -1,5 +1,7 @@
 import { Data, Result } from "effect";
 import { decodeMeasurementEvidence, type MeasurementEvent, type MeasurementEvidence } from "./artifact";
+import { analyzeCpuEvidence } from "./cpu";
+import { analyzeServerEvidence } from "./server";
 
 export class InvalidMeasurementEvidence extends Data.TaggedError("InvalidMeasurementEvidence")<{
   readonly reason: "invalidEvidence" | "accountingMismatch";
@@ -33,6 +35,8 @@ export interface MeasurementAnalysis {
   readonly diagnostic: "complete" | "incomplete";
   readonly incompleteReasons: readonly string[];
   readonly requestOutcome: MeasurementEvidence["root"]["outcome"];
+  readonly cpu?: ReturnType<typeof analyzeCpuEvidence>;
+  readonly server?: ReturnType<typeof analyzeServerEvidence>;
   readonly partitions: readonly MeasurementPartition[];
   /** Same root partition in two ledgers. These totals must never be added. */
   readonly phaseLedger: Readonly<Record<AttributionStatus, number>>;
@@ -310,8 +314,17 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
   if (!Number.isFinite(postRequestObserverUnionMs)) return Result.fail(new InvalidMeasurementEvidence({
     reason: "invalidEvidence", detail: "Unrepresentable post-request observer total",
   }));
+  const cpu = evidence.cpu === undefined ? undefined : analyzeCpuEvidence(evidence.cpu, {
+    startMonotonicMs: evidence.clock.originMonotonicMs,
+    endMonotonicMs: evidence.clock.originMonotonicMs + rootMs,
+  });
+  const server = evidence.server === undefined ? undefined : analyzeServerEvidence(evidence.server,
+    evidence.events.filter(event => event.kind === "driverAwait"), evidence.clock.originMonotonicMs);
+  if (cpu !== undefined && !cpu.complete) incompleteReasons.push("cpuDiagnosticIncomplete");
+  if (server !== undefined && server.status !== "complete") incompleteReasons.push("serverDiagnosticIncomplete");
   return Result.succeed({ evidence, diagnostic: incompleteReasons.length === 0 ? "complete" : "incomplete",
     incompleteReasons, requestOutcome: evidence.root.outcome, partitions, phaseLedger, waitLedger,
+    ...(cpu === undefined ? {} : { cpu }), ...(server === undefined ? {} : { server }),
     wall: { rootMs, partitionMs, phaseLedgerMs, waitLedgerMs, reconciliationErrorMs, roundingToleranceMs,
       driverAwaitUnionMs, checkoutAwaitUnionMs, observerUnionMs, observerAwaitOverlapMs, phaseOverlapMs,
       postRequestObserverUnionMs },

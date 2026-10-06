@@ -103,6 +103,12 @@ const publicationServerTestImports = new Map([
     "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
   ["packages/flarex-backend/test/support/publicationPerformanceServer.ts",
     "../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+  ["packages/executor/test/performance/measurement/server.ts",
+    "../../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+  ["packages/executor/test/performance/measurement/collectors/server.ts",
+    "../../../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
+  ["packages/executor/test/performance/measurement/collectors/server.test.ts",
+    "../../../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server"],
 ]);
 const publicationServerOwner = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts";
 const nativeRetrievalScenario = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts";

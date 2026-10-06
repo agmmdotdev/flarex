@@ -382,28 +382,27 @@ they require no parallel runtime measurement engine. Remove duplicate report
 math, schemas and observers rather than adding compatibility wrappers. Existing
 Worker integration and separate native collectors remain for their named lanes.
 
-The first connected report and SDK-composed Effect Layer are implemented. The
-separate scenario expansion is frozen and uncommitted;
-preserve its owned changes. The first cohort selects small `mixed-product` only,
-with quiet/timeline/database modes and fresh native PostgreSQL pairs. CPU/server
-and catalog group expansion remain deferred. Five warmups and 30 measured pairs
-meet the existing acceptance minimum within the committed fixture's 40-attempt
-capacity; the preferred 100-pair plan waits for the sampling-capacity owner's
-committed handoff. This is a recorded bounded construction choice, not a local
-override of core limits or permission to import another chat's uncommitted APIs.
+The first connected report and SDK-composed Effect Layer are implemented. Its
+original cohort was small `mixed-product` with quiet/timeline/database and
+30-pair capacity. The selected diagnostic completion below supersedes that
+cohort gate: the owner explicitly transfers the frozen scenario expansion here,
+including its 105-attempt fixture capacity. All 25 catalog flows are available to
+`measure`; matched native `compare` remains the original five small graphs.
+This changes fixture capacity, not core runtime budgets.
 
 Completion requires affected checks, applicable core/diff/staged lint, both
 project reviews, explicit shared-file ownership, complete cleanup and one scoped
 commit. A successful measurement-system cutover proves observation contracts,
 not a Flarex latency improvement. Runtime optimization remains paused; selected
-SDK correctness and attribution measurements are authorized. Broader benchmark
-expansion retains its shared harness handoff gate.
+SDK correctness and attribution measurements are authorized. The broader
+benchmark handoff is accepted; unrelated chats retain their unrelated work.
 
 The [retained first-cohort reports](../../packages/executor/benchmarks/core-performance/measurement-sdk/README.md)
 demonstrate connected collection and fresh native construction, not latency
 acceptance. Reconciled diagnostic wall accounting retains substantial unknown
-and ambiguous owner time. CPU/GC, server execution, lock waits and transport
-remain unavailable; conservative source ownership is an explicit evidence gap.
+and ambiguous owner time. In that first cohort, CPU/GC, server execution, lock
+waits and transport were unavailable; conservative source ownership was an
+explicit evidence gap. The diagnostic completion below extends these lanes.
 A complete report does not imply every bottleneck has been identified. Runtime
 work must still select a measured owner and a concrete removal hypothesis before
 new performance iterations.
@@ -415,7 +414,8 @@ slice restores tracing across existing framework/transaction Promise runtimes
 and correlates actual database submissions to retained operation identities.
 It remains measurement work: no core latency optimization, new framework
 capability, transaction authority, schema, durable format or hosted activation
-is selected. CPU/server modes and scenario expansion retain their deferred gates.
+is selected. Its earlier CPU/server and scenario gates are superseded by the
+selected diagnostic completion below.
 
 The first retained PostgreSQL report exposes the defect precisely. Its 40 driver
 exchanges have no operation parent; 27 lack source ownership and the remaining
@@ -484,4 +484,89 @@ and coordination remain distinct, with unknown and competing contexts visible.
 The [retained operation-context reports](../../packages/executor/benchmarks/core-performance/measurement-operation-context/README.md)
 expose deeper named framework/publication operations and their SQL links. Complete
 correlation is not complete semantic ownership or a core performance improvement.
-CPU/server evidence and the paused optimization decision remain separate gates.
+These operation-context-only reports lack CPU/server evidence; the diagnostic
+completion below owns its extension. Runtime optimization remains paused.
+
+### Selected Diagnostic Completion
+
+The owner now authorizes implementing the missing CPU/GC/allocation and
+PostgreSQL server/wait diagnostics through the same SDK, and broader workflow
+coverage to support the next core design decision. This replaces the earlier
+deferral of these diagnostic lanes. Runtime optimization, business/schema
+changes, hosted activation and arbitrary framework expansion remain separate.
+The SDK retains `measure` and `compare` as its only public entry points; diagnostic
+requests stay separate from quiet native pairs. Production imports no collector.
+
+The `cpu` lane owns one request-local Node inspector session, CPU sampling,
+sampled allocation stacks including major/minor-collected objects, asynchronous
+GC observation, process/thread CPU counters and timestamped memory endpoints.
+Start after sample preparation and stop after the actual call settles, before
+verification or artifact export. Preserve separate profiler-command brackets,
+complete call and Effect-root windows. CPU sample clocks have bracketed alignment
+and explicit uncertainty; allocation ordinals have no timestamps and remain
+window-level evidence. CPU counters are process/thread observations, sampled
+stack weights are estimates, and memory deltas are occupancy rather than total
+allocation. Do not infer exact CPU, allocations, copies or per-span allocation.
+No heap snapshots, Runtime object inspection, debugger opening or payload capture.
+
+Inspector setup, command drainage, every started-profiler stop, GC delivery drain
+and disconnect share one scoped collector lifetime. Expected setup/cleanup
+failures invalidate diagnostics without replacing the original business Cause.
+Serialize SDK diagnostic commands and refuse known conflicting profiler/debugger
+configuration; record the limit of isolate-local conflict detection and external
+contention. Bound retained nodes, samples, depth, labels, duration and exported
+bytes. Timer expiry ends observation, not business execution; V8's transient
+profile memory and timers delayed by synchronous JavaScript are not hard bounds.
+Sanitize generated/external source paths and labels at the inspector boundary.
+
+The `server` lane owns a disposable isolated PostgreSQL database, supplied through
+the existing fixture preparation owners by explicit endpoints. Provision its
+settings and a read-only observer outside timed requests; keep executing roles
+ordinary and durable. The fixture remains the schema/installation/business owner.
+Do not mutate process environment to redirect module-captured database inputs.
+Reuse existing server snapshot/plan collection responsibilities when their
+isolation and lifetime contracts fit, rather than reproducing business queries.
+The observer covers all actual executing roles, including SECURITY DEFINER work.
+No global statistics reset, synthetic write replay, EXPLAIN ANALYZE mutation or
+authority/transaction change is selected.
+
+Capture actual backend PID at driver submission without another SQL command.
+Server counter deltas retain database/user/query identities and reset/deallocation
+guards. Bounded activity/wait/blocker observations retain their sampling times,
+query identities and unavailable states. Actual backend observations may identify
+operation-overlap candidates; a SQL text, fingerprint or concurrent timestamp is
+not proof of a unique initiating operation. Parent/child server statements and
+plan timings are non-additive. Driver await, server elapsed time, sampled waits
+and network/queue residuals remain distinct evidence with explicit limitations.
+Any optional actual-plan collection has a separately validated bounded log
+source and settings; absence is unavailable, never zero. Restore/close every
+owned observer and fixture before removing its disposable database.
+
+Installation and diagnostic activation have distinct boundaries. Keep plan
+logging disabled during fixture migrations. After preparation, arm only the
+owned target database and retire the fixture's verified idle serving sessions
+through the public pool API so replacement sessions inherit the diagnostic
+defaults. Prove ordinary role, database identity and idle ownership before
+arming; busy pools fail closed. Verify effective runtime settings before warming
+or timing. No backend termination, timed SET calls or runtime limit changes are
+selected. Administrative setup/cleanup has a separate bounded 30-second budget;
+the default sampler query budget remains one second. Internal observation and
+file resources use Effect scopes; business Promise callbacks keep their original
+settlement and rejection identity.
+
+Workflow coverage reuses the real existing scenario/verification owners.
+The frozen expansion is adopted by this chat after explicit ownership
+transfer; no uncommitted dependency or broad Git staging is selected. Once
+transferred, revalidate the handed-off flows against the committed
+core, migrate SDK consumers coherently, and retain source/fixture/native limits.
+Extra scenarios without a matched native graph may be measured diagnostically
+but cannot claim paired acceptance. Future framework capabilities remain gated.
+
+Completion requires deterministic profile/counter/clock/bounds/privacy witnesses,
+original failure and partial-acquisition cleanup, conflicts and quiet absence;
+real Node profiler proof; connected PGlite and ordinary-role PostgreSQL proofs;
+actual server execution and controlled lock-wait evidence without extra business
+SQL; affected typechecks, source guards, lint, both reviews, retained raw/human
+evidence, displaced-path cleanup and scoped commits. The final report must name
+every remaining unavailable or ambiguous category. Even combined diagnostics
+cannot promise discovery of every possible future bottleneck.

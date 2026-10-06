@@ -1,56 +1,83 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { createMixedMutationPerformanceTrace } from "../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import { failureTokens, latencySummary, sqlSummary } from "./support/measurement";
-import type { CorePerformanceScenario, CorePerformanceScenarioName } from "./support/scenario";
+import type { CorePerformanceScenario } from "./support/scenario";
+import { BenchmarkCpuProfiler, summarizeBenchmarkCpuProfile, type BenchmarkCpuProfileEvidence } from "./support/benchmarkCpuProfiler";
+import { selectedCorePerformanceScenarios, type CorePerformanceFamily, type CorePerformanceSize } from "./support/scenarioCatalog";
+import { performanceFamilyLifetime } from "./support/scenarioLifetime";
+import { prepareCorePerformanceFamily } from "./support/prepareScenario";
+import { loadNativeBusinessReference, nativeBusinessComparison, quietSamplingEligible } from "./support/nativeBusinessReference";
+import { corePerformanceSamplingPlan } from "./support/measurementPlan";
 
-const names: readonly CorePerformanceScenarioName[] = ["payload-create", "medusa-workflow", "mixed-product", "mixed-payload", "mixed-workflow"];
 const selected = process.env.FLAREX_CORE_PERF_SCENARIO ?? "payload-create";
 const full = process.env.FLAREX_CORE_PERF_FULL === "1";
 const sql = process.env.FLAREX_CORE_PERF_SQL === "1";
-const plan = full ? { warmups: 3, measured: 20 } : { warmups: 1, measured: 3 };
+const cpu = process.env.FLAREX_CORE_PERF_CPU === "1";
+const smoke = process.env.FLAREX_CORE_PERF_SMOKE === "1";
+const acceptance = process.env.FLAREX_CORE_PERF_ACCEPTANCE === "1";
+const sizeInput = process.env.FLAREX_CORE_PERF_SIZE ?? "small";
+if (sizeInput !== "small" && sizeInput !== "typical") throw new Error("Unknown measurement size");
+const size: CorePerformanceSize = sizeInput;
+const plan = corePerformanceSamplingPlan({ acceptance, smoke, full });
 const enabled = process.env.FLAREX_CORE_PERF === "1";
 const decodeEnvironment = Schema.decodeUnknownSync(Schema.Struct({
   postgresVersion: Schema.String, role: Schema.String, superuser: Schema.Boolean,
   bypassRls: Schema.Boolean, createDb: Schema.Boolean, createRole: Schema.Boolean,
   synchronousCommit: Schema.String, fsync: Schema.String, fullPageWrites: Schema.String,
 }));
-const chosen = selected === "all" ? names : names.filter(name => name === selected);
+const chosen = selectedCorePerformanceScenarios(selected);
 if (enabled && chosen.length === 0) throw new Error("Unknown core performance scenario");
-
-async function loadScenario(name: CorePerformanceScenarioName) {
-  if (name === "payload-create") return (await import("./support/payloadScenario")).prepareStandalonePayloadScenario;
-  if (name === "medusa-workflow") return (await import("./support/medusaScenario")).prepareStandaloneMedusaScenario;
-  const { prepareMixedScenario } = await import("./support/mixed");
-  return () => prepareMixedScenario(name, plan.warmups + plan.measured + (sql ? 1 : 0));
-}
+if (enabled && cpu && sql) throw new Error("CPU and SQL diagnostics must run separately");
+if (enabled && smoke && (full || sql || cpu)) throw new Error("Smoke and diagnostic/acceptance plans must run separately");
+if (enabled && acceptance && (full || smoke || sql || cpu)) throw new Error("Acceptance sampling requires a separate quiet series");
+const nativeReference = enabled ? loadNativeBusinessReference() : undefined;
 
 describe.skipIf(!enabled)("direct core performance", () => {
-  for (const name of chosen) it(name, async () => {
+  const plannedUses = new Map<CorePerformanceFamily, number>();
+  for (const descriptor of chosen) plannedUses.set(descriptor.family, (plannedUses.get(descriptor.family) ?? 0) + 1);
+  const families = performanceFamilyLifetime(family => prepareCorePerformanceFamily(family, {
+    driver: "postgres", size, sampleCount: plan.warmups + plan.measured + (sql ? 1 : 0),
+  }), plannedUses);
+  afterAll(async () => {
+    const started = performance.now();
+    let failure: unknown;
+    let failed = false;
+    try { await families.close(); } catch (cause) { failure = cause; failed = true; }
+    const directory = resolve(process.env.FLAREX_CORE_PERF_REPORT_DIR ?? "work/validation/core-performance");
+    await mkdir(directory, { recursive: true });
+    await writeFile(resolve(directory, "families.json"), JSON.stringify({ runId: process.env.FLAREX_CORE_PERF_RUN_ID,
+      cleanupMs: performance.now() - started, status: failed ? "failed" : "passed",
+      failureTokens: failed ? failureTokens(failure) : [] }, null, 2) + "\n");
+    if (failed) throw failure;
+  });
+  for (const descriptor of chosen) it(descriptor.name, async () => {
+    const { name, family } = descriptor;
     const runnerStarted = performance.now();
     const measured: number[] = [];
-    const samples: Array<Readonly<{ id: string; kind: "warmup" | "measured" | "sql";
+    const directory = resolve(process.env.FLAREX_CORE_PERF_REPORT_DIR ?? "work/validation/core-performance");
+    const samples: Array<Readonly<{ id: string; kind: "warmup" | "measured" | "sql" | "cpu";
       requestMs: number | null; seedMs: number; verifyMs: number; cleanupMs: number;
-      failureStage: string | null; failureTokens: readonly string[] }>> = [];
+      failureStage: string | null; failureTokens: readonly string[];
+      cpuProfile?: BenchmarkCpuProfileEvidence | null;
+      cpuFailure?: Readonly<{ stage: string; tokens: readonly string[] }> | null }>> = [];
     let resource: CorePerformanceScenario | undefined;
     let primaryFailure: unknown;
     let failed = false;
-    let stage = "load";
-    let loadMs = 0;
+    let stage = "prepare";
     let prepareMs = 0;
     let cleanupMs = 0;
     let diagnostic: ReturnType<typeof sqlSummary> | null = null;
     let environment: ReturnType<typeof decodeEnvironment> | null = null;
     try {
-      let create: Awaited<ReturnType<typeof loadScenario>>;
-      try { create = await loadScenario(name); }
-      finally { loadMs = performance.now() - runnerStarted; }
       stage = "prepare";
       const prepareStarted = performance.now();
-      try { resource = await create(); }
+      try { resource = await families.acquire(family, name); }
       finally { prepareMs = performance.now() - prepareStarted; }
+      if (resource.pools === undefined) throw new Error("PostgreSQL measurement requires PostgreSQL pools");
       stage = "environment";
       environment = decodeEnvironment((await resource.pools.targetPool.query(`select
         current_setting('server_version') as "postgresVersion", current_user as role,
@@ -61,7 +88,7 @@ describe.skipIf(!enabled)("direct core performance", () => {
         synchronousCommit: "on", fsync: "on", fullPageWrites: "on" });
       for (let index = 0; index < plan.warmups + plan.measured + (sql ? 1 : 0); index++) {
         const quietIndex = index - (sql ? 1 : 0);
-        const kind = sql && index === 0 ? "sql" : quietIndex < plan.warmups ? "warmup" : "measured";
+        const kind = sql && index === 0 ? "sql" : quietIndex < plan.warmups ? "warmup" : cpu ? "cpu" : "measured";
         const id = `${name}-${kind}-${index}`;
         const sampleStarted = performance.now();
         stage = "seed";
@@ -73,20 +100,57 @@ describe.skipIf(!enabled)("direct core performance", () => {
         let sampleFailed = false;
         let sampleFailure: unknown;
         let failureStage: string | null = null;
+        const profiler = kind === "cpu" ? new BenchmarkCpuProfiler() : undefined;
+        let cpuProfile: BenchmarkCpuProfileEvidence | null = null;
+        let cpuFailure: Readonly<{ stage: string; tokens: readonly string[] }> | null = null;
         const trace = kind === "sql" ? createMixedMutationPerformanceTrace(resource.pools) : undefined;
         resource.setTrace?.(trace);
         try {
+          if (profiler !== undefined) {
+            stage = "cpuStart";
+            await profiler.start();
+          }
           stage = "invoke";
           const requestStarted = performance.now();
           let result: unknown;
           try { result = trace === undefined ? await sample.run() : await trace.withInvocation({ id, mode: "measured" }, sample.run); }
+          catch (cause) { sampleFailed = true; sampleFailure = cause; failureStage = stage; }
           finally { requestMs = performance.now() - requestStarted; }
+          // Inspector lifecycle and profile persistence are outside the request
+          // timer, while its raw profile retains startup/stop/idle/GC samples.
+          if (profiler !== undefined) {
+            stage = "cpuStop";
+            try {
+              const profile = await profiler.stop();
+              const file = `${id}.cpuprofile`;
+              const bytes = JSON.stringify(profile);
+              await mkdir(directory, { recursive: true });
+              await writeFile(resolve(directory, file), bytes, { flag: "wx" });
+              cpuProfile = { file, sha256Hex: createHash("sha256").update(bytes).digest("hex"),
+                ...summarizeBenchmarkCpuProfile(profile) };
+            } catch (cause) {
+              cpuFailure = { stage, tokens: failureTokens(cause) };
+              sampleFailure = sampleFailed ? new AggregateError([sampleFailure, cause], "Request and CPU profile failed") : cause;
+              sampleFailed = true; failureStage ??= stage;
+            }
+          }
+          if (sampleFailed) throw sampleFailure;
           stage = "verify";
           const verifyStarted = performance.now();
           await sample.verify(result);
           verifyMs = performance.now() - verifyStarted;
-        } catch (cause) { sampleFailed = true; sampleFailure = cause; failureStage = stage; }
+        } catch (cause) {
+          if (stage === "cpuStart") cpuFailure = { stage, tokens: failureTokens(cause) };
+          sampleFailed = true; sampleFailure = cause; failureStage ??= stage; stage = failureStage;
+        }
         finally {
+          try { await profiler?.dispose(); }
+          catch (cause) {
+            cpuFailure = { stage: cpuFailure?.stage ?? "cpuCleanup",
+              tokens: [...(cpuFailure?.tokens ?? []), ...failureTokens(cause)] };
+            sampleFailure = sampleFailed ? new AggregateError([sampleFailure, cause], "Sample and CPU cleanup failed") : cause;
+            sampleFailed = true; failureStage ??= "cpuCleanup";
+          }
           if (trace !== undefined) {
             const record = trace.records()[0];
             if (record !== undefined) diagnostic = sqlSummary(record);
@@ -100,10 +164,11 @@ describe.skipIf(!enabled)("direct core performance", () => {
             sampleFailed = true; failureStage ??= "sampleCleanup";
           } finally { sampleCleanupMs = performance.now() - cleanupStarted; }
           samples.push({ id, kind, requestMs, seedMs, verifyMs, cleanupMs: sampleCleanupMs,
-            failureStage, failureTokens: sampleFailed ? failureTokens(sampleFailure) : [] });
+            failureStage, failureTokens: sampleFailed ? failureTokens(sampleFailure) : [],
+            ...(profiler === undefined ? {} : { cpuProfile, cpuFailure }) });
         }
         if (sampleFailed) throw sampleFailure;
-        if (kind === "measured" && requestMs !== null) measured.push(requestMs);
+        if ((kind === "measured" || kind === "cpu") && requestMs !== null) measured.push(requestMs);
         if (kind === "sql") {
           stage = "sqlCoverage";
           expect(diagnostic).not.toBeNull();
@@ -120,14 +185,27 @@ describe.skipIf(!enabled)("direct core performance", () => {
         if (!failed) stage = "resourceCleanup";
         failed = true; }
       cleanupMs = performance.now() - cleanupStarted;
-      const report = { runId: process.env.FLAREX_CORE_PERF_RUN_ID ?? null, scenario: name, full, plan,
+      const latency = latencySummary(measured, full || acceptance);
+      const report = { runId: process.env.FLAREX_CORE_PERF_RUN_ID ?? null, scenario: name, full, smoke, acceptance, size, plan,
+        workload: resource?.workload ?? { flow: descriptor.flow, cardinality: null }, preparationReuse: resource?.preparationReuse,
+        measurementMode: smoke ? "smoke" : cpu ? "cpu-diagnostic" : "quiet", quietAcceptance: false,
+        quietSamplingEligible: quietSamplingEligible(plan, measured.length, failed, cpu, smoke),
+        nativeComparison: nativeReference === undefined ? null : nativeBusinessComparison(nativeReference, name, size, latency),
         status: failed ? "failed" : "passed", failureStage: failed ? stage : null,
-        failureTokens: failed ? failureTokens(primaryFailure) : [], method: "Node direct execution; fresh requests; real settlement; separate single SQL diagnostic",
+        failureTokens: failed ? failureTokens(primaryFailure) : [],
+        method: cpu ? "Node direct execution; separate prepared seeds and warmup; each complete admitted request independently CPU profiled; real settlement"
+          : "Node direct execution; fresh requests; real settlement; separate single SQL diagnostic",
+        ...(cpu ? { cpuLimitations: [
+          "Inspector perturbs request timing; these measurements are diagnostic and cannot satisfy quiet acceptance.",
+          "Raw profiles preserve original timestamps and timeDeltas, including inspector startup/stop, idle and GC.",
+          "Requested sampling interval is not the observed interval; sampled self-frame counts are not exclusive CPU time.",
+          "Profiles observe this Node isolate, not PostgreSQL server CPU; SQL subtraction cannot establish exclusive CPU attribution.",
+        ] } : {}),
         environment: { node: process.version, postgres: environment,
           revision: process.env.FLAREX_CORE_PERF_REVISION ?? null, dirty: process.env.FLAREX_CORE_PERF_DIRTY ?? null },
-        latency: latencySummary(measured, full), sql: diagnostic,
-        timings: { loadMs, prepareMs, preparation: resource?.timings ?? null, cleanupMs, runnerTotalMs: performance.now() - runnerStarted }, samples };
-      const directory = resolve(process.env.FLAREX_CORE_PERF_REPORT_DIR ?? "work/validation/core-performance");
+        latency, sql: diagnostic,
+        timings: { loadMs: null, prepareMs, preparation: resource?.preparationReuse?.reused ? null : resource?.timings ?? null,
+          cleanupMs, sharedCleanupReport: "families.json", runnerTotalMs: performance.now() - runnerStarted }, samples };
       await mkdir(directory, { recursive: true });
       await writeFile(resolve(directory, `${name}.json`), JSON.stringify(report, null, 2) + "\n");
       console.log("CORE_PERFORMANCE " + JSON.stringify(report));

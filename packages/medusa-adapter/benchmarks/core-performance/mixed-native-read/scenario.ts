@@ -16,11 +16,11 @@ import { makeNativeProductOperationDiagnostics } from "../../../../executor/test
 import { observeRetrievalPgClients, type RetrievalObservation } from "../native-retrieval/observation";
 import { readRetrievalRuntimeSettings, openRetrievalServerObserver, retrievalServerDifference,
   selectRetrievalServerDatabases, requireRetrievalServerObservedCalls } from "../native-retrieval/server";
-import { NativeReadCpuProfiler, CPU_SAMPLING_INTERVAL_MICROSECONDS } from "./cpu-profile";
+import { BenchmarkCpuProfiler, CPU_SAMPLING_INTERVAL_MICROSECONDS } from "../../../../executor/test/performance/support/benchmarkCpuProfiler";
 
 const root = fileURLToPath(new URL("../../../../../", import.meta.url));
 const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
-  "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/cpu-profile.ts",
+  "packages/executor/test/performance/support/benchmarkCpuProfiler.ts",
   "packages/flarex-backend/test/support/mixedMutationWorkerdFixture.ts",
   "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts",
   "packages/executor/test/performance/support/mixedMutationProductFixture.ts",
@@ -316,11 +316,11 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
     let operationAfter: typeof operationBefore;
     let beforeOperationBytes: number | undefined;
     let afterOperationBytes: number | undefined;
-    let finiteCpuProfiler: NativeReadCpuProfiler | undefined;
+    let finiteCpuProfiler: BenchmarkCpuProfiler | undefined;
     let cpuSample: number | undefined;
     let finiteCpuProfile: CpuProfileEvidence | null = null;
     const saveCpuProfile = async (owner: "native" | "finite", index: number,
-      profiler: NativeReadCpuProfiler): Promise<CpuProfileEvidence> => {
+      profiler: BenchmarkCpuProfiler): Promise<CpuProfileEvidence> => {
       const profile = await profiler.stop();
       if (output === undefined) throw new Error("Missing CPU profile output directory");
       const file = `${label}-cpu-${branch}-${index}-${owner}.cpuprofile`;
@@ -360,8 +360,8 @@ export async function runMixedNativeReadPerformanceScenario(native: Pick<IProduc
         _handler: async ctx => ctx.privateMixed.call("medusa.product", "retrieve", { id: ${JSON.stringify(branch === "hit" ? seed.productId : `prod_missing_${suffix}`)} }) } } };`,
     });
     // No sampling resource exists while series initialization can fail.
-    const nativeCpuProfiler = mode === "cpu" ? new NativeReadCpuProfiler() : undefined;
-    finiteCpuProfiler = mode === "cpu" ? new NativeReadCpuProfiler() : undefined;
+    const nativeCpuProfiler = mode === "cpu" ? new BenchmarkCpuProfiler() : undefined;
+    finiteCpuProfiler = mode === "cpu" ? new BenchmarkCpuProfiler() : undefined;
     const finiteSetupMs = performance.now() - setupStart;
     const nativeSeedStart = performance.now();
     try {

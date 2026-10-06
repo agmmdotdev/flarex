@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { maxCorePerformanceSeriesSamples } from "./measurementPlan";
 import { inspect } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema, Scope } from "effect";
@@ -140,6 +141,7 @@ import {
 } from "@flarex/payload-adapter/internal/testing";
 import { ApplicationRevisionSyscallDocumentValidationV1Error } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import { runMixedMutationInProcess, type MixedMutationExecutionHost } from "./mixedMutationInProcessRuntime";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
 const MixedMutationJournalMessageSchema = Schema.Struct({
   kind: Schema.String, tableName: Schema.optional(Schema.String), sequence: Schema.optional(Schema.String),
   operation: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)), frame: Schema.optional(Schema.Unknown),
@@ -330,6 +332,7 @@ export interface MixedMutationProductFixture {
 
 type MixedMutationProductFixtureInput = Readonly<{
   executionHost?: MixedMutationExecutionHost | undefined;
+  postgresEndpoints?: PostgresFixtureEndpoints;
   driver: "pglite" | "postgres"; suffix: string; hooks?: MixedMutationProductFixtureHooks;
   includeUserNameIndex?: boolean;
   initialApplicationUsers?: readonly ApplicationNativeMutationUserDocument[];
@@ -347,9 +350,11 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   initialSeedSuffix: string) {
   const cleanup: Array<() => Promise<void>> = [];
   const provisioningStart = globalThis.performance.now();
+  try {
   const currency = await logicalCurrencyFixture(input.driver, close => cleanup.push(close),
     input.resource === undefined
       ? { includeProduct: true, finiteStorageCapture: true,
+        ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
         protectedRuntime: input.driver === "postgres",
         ...(input.driver === "postgres" ? { managedRead: true as const } : {}),
         ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }),
@@ -376,10 +381,12 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   const admissionContext = Object.freeze({ deploymentId: currency.deploymentId,
     controlDb: currency.control.drizzle, authority: application.authorityPorts, schema: application.schema });
   const preparedModuleStart = globalThis.performance.now();
-  try {
   const product = await prepareLogicalProductHost(currency);
+  cleanup.push(() => Effect.runPromise(product.host.close));
   const pricing = input.workflow === true ? await prepareLogicalPricingHost(currency) : undefined;
+  if (pricing !== undefined) cleanup.push(() => Effect.runPromise(pricing.host.close));
   const link = input.workflow === true ? await prepareLogicalVariantPricingLinkHost(currency) : undefined;
+  if (link !== undefined) cleanup.push(() => Effect.runPromise(link.host.close));
   for (const member of [product, pricing, link]) {
     if (member === undefined) continue;
     await Effect.runPromise(member.host.initialize([]));
@@ -646,17 +653,21 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
   hooks?: MixedMutationProductFixtureHooks;
   executionHost?: MixedMutationExecutionHost | undefined;
   applicationSource?: (seed: ProductSeed["seed"]) => string;
+  postgresEndpoints?: PostgresFixtureEndpoints;
 }>): Promise<MixedMutationPerformanceSeries> {
-  if (!Number.isSafeInteger(input.sampleCount) || input.sampleCount < 1 || input.sampleCount > 40)
+  if (!Number.isSafeInteger(input.sampleCount) || input.sampleCount < 1 || input.sampleCount > maxCorePerformanceSeriesSamples)
     throw new Error("Invalid finite mixed performance sample count");
   const makeInput = (suffix: string): MixedMutationProductFixtureInput =>
     input.profile === "workflow"
       ? { executionHost: input.executionHost, driver: input.driver, suffix, workflow: true, payloadProfile: "success",
+        ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
         ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) }
       : input.profile === "productPayload"
         ? { executionHost: input.executionHost, driver: input.driver, suffix, payloadProfile: "success",
+            ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
             ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) }
         : { executionHost: input.executionHost, driver: input.driver, suffix,
+            ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
             ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) };
   const context = await prepareMixedMutationProductContext(makeInput(input.suffix),
     `${input.suffix}-0`);
