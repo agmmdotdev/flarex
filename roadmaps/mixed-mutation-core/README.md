@@ -145,13 +145,19 @@ Displaced finite raw-intent retention, final-row recoding and per-tuple proof
 queries are removed. Its complete matched-native latency acceptance remains
 unmet. The
 [focused evidence](../../packages/executor/benchmarks/core-performance/whole-mutation-cutover/retained-settlement/README.md)
-retains the quiet comparison and separate attribution limits. Compact historical
-capture and publication acceptance remain the next connected design boundary;
-exact immutable pins and fresh post-wait checks retain their recorded gates.
-Broader runtime changes retain their recorded gates. Reconciled collection
-still exposes substantial unknown and ambiguous owner time; more scenario
-coverage or grouped SQL totals alone cannot explain the remaining complete-request
-latency.
+retains the quiet comparison and separate attribution limits. The
+[complete attribution inventory](../../packages/executor/benchmarks/core-performance/complete-attribution/README.md)
+now locates preparation/admission, working-set execution and publication costs
+across mixed and standalone consumers. Diagnostic CPU includes observation;
+workflow waiting-frame ambiguity does not establish hidden CPU. Exact quiet
+per-owner CPU and driver/server/wait decomposition remain unavailable.
+The selected [shared execution evidence redesign](./27-shared-execution-evidence-redesign-preflight.md)
+connects retained preparation/fresh admission, owned values/ordered capture and
+prepared contributions/fresh publication. Standalone Payload and Medusa migrate
+alongside mixed callers in each affected package. CPU reduction and complete
+native-relative latency are separate acceptance obligations; runtime cutover has
+not started. Exact immutable pins, source permissions, writer/installation proof
+and fresh post-wait checks retain their recorded gates.
 Its [dedicated measurement SDK](../../packages/executor/test/performance/measurement/README.md)
 has one entry point for measurement and comparison; construction, artifact types
 and Node collectors stay out of production core modules.

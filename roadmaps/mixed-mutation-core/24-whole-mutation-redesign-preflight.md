@@ -2344,8 +2344,12 @@ and column names. Business rows, history, anchors, journals and outcomes require
 no reset, backfill or deletion. Installation maintenance remains the migration
 and runtime privilege owner.
 
-Compact historical capture is the next connected read replacement. Exact native
-immutable frontier pins remain necessary: current anchor bytes contain only the
+The [shared execution evidence redesign](./27-shared-execution-evidence-redesign-preflight.md)
+now owns the connected remaining preparation/admission, value/capture and
+publication handoffs across standalone CMS/commerce and mixed consumers, including
+CPU reduction. Its runtime cutover has not started. Compact historical capture
+is part of that replacement, rather than a separate finite-only optimization.
+Exact native immutable frontier pins remain necessary: current anchor bytes contain only the
 snapshot/reservation. A byte-only identity shortcut would weaken existing
 request/policy drift witnesses. Do not replace these checks without their writer
 contract and durable-format cutover. This slice also leaves genuine external
