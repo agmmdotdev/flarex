@@ -115,6 +115,11 @@ const mixedNativeReadConfig = "packages/medusa-adapter/vitest.mixed-native-read.
 const nativeBusinessPrefix = "packages/medusa-adapter/benchmarks/core-performance/native-business/";
 const nativeBusinessOwners = ["native.ts", "workflow.ts", "run.ts", "tsconfig.json"].map(file => nativeBusinessPrefix + file);
 const nativeBusinessImports = new Map([
+  // The test-only measurement SDK reuses the same authored native composition.
+  // This exact consumer edge inherits the complete native owner inventory gate.
+  ["packages/executor/test/performance/measurement/collectors/native.ts", new Set([
+    "../../../../../medusa-adapter/benchmarks/core-performance/native-business/native",
+  ])],
   [nativeBusinessPrefix + "native.ts", new Set([
     "core/framework/dist/deps/awilix", "core/framework/dist/utils/index", "core/modules-sdk/dist/medusa-app",
     "medusa-test-utils/dist/module-test-persistence-adapter", "medusa-test-utils/dist/database",

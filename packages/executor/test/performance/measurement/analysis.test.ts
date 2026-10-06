@@ -6,13 +6,14 @@ import { analyzeMeasurementEvidence, pairedSummary } from "./analysis";
 const interval = { owner: null, site: null, parentId: null };
 function phase(id: string, sequence: number, startMs: number, endMs: number | null,
   owner: string | null, parentId: string | null = null): Extract<MeasurementEvent, { readonly kind: "phase" }> {
-  return { ...interval, id, sequence, startMs, endMs, owner, parentId, kind: "phase", name: id };
+  return { ...interval, id, sequence, startMs, endMs, owner, parentId, kind: "phase", name: id, role: "operation" };
 }
 function driver(id: string, sequence: number, startMs: number, endMs: number | null): Extract<MeasurementEvent, { readonly kind: "driverAwait" }> {
   return { ...interval, id, sequence, startMs, endMs, kind: "driverAwait", pool: "target", phasePath: [],
     connectionId: 1, checkoutId: 2, transactionId: 3, fingerprint: "structural-query", template: "SELECT id FROM rows WHERE id=$1",
     statementCount: 1, parameterCount: 1, scalarParameterBytes: 4, unknownEncodingParameters: 0, sqlUtf8Bytes: 42,
-    returnedRowCount: null, decodedResultJsonUtf8Bytes: null, transactionAction: null, outcome: "success" };
+    returnedRowCount: null, decodedResultJsonUtf8Bytes: null, transactionAction: null,
+    sourceSiteIds: [], sourceOwnerCandidates: [], outcome: "success" };
 }
 function evidence(events: readonly MeasurementEvent[] = [], endMs = 100): MeasurementEvidence {
   return { requestId: "test-request", clock: { id: "local-monotonic", unit: "milliseconds", precisionMs: 0.001, originMonotonicMs: 1000 },
@@ -66,6 +67,100 @@ describe("measurement interval analysis", () => {
     expect(result.owners).toEqual([]);
   });
 
+  it("reports a known enclosing context without upgrading an unknown descendant's strict attribution", () => {
+    const result = successful(evidence([phase("publisher", 0, 0, 100, "publication"),
+      phase("unmapped internals", 1, 20, 80, null, "publisher")]));
+    expect(result.phaseLedger).toEqual({ attributed: 40, ambiguous: 0, unattributed: 60, observer: 0 });
+    expect(result.operationContext.ledger).toEqual({ attributed: 100, ambiguous: 0, unattributed: 0, observer: 0 });
+    expect(result.operationContext.unknownLeafUnionMs).toBe(60);
+    expect(result.operationContext.ledgerMs).toBe(100);
+    expect(result.partitions.find(partition => partition.startMs === 20)?.operationContext).toMatchObject({
+      leafIds: ["unmapped internals"], ownerCandidates: ["publication"], unknownLeafIds: ["unmapped internals"],
+    });
+  });
+
+  it("does not borrow an unrelated overlapping context for an unknown sibling", () => {
+    const result = successful(evidence([phase("known", 0, 0, 100, "publication"), phase("independent", 1, 20, 80, null)]));
+    expect(result.operationContext.ledger).toEqual({ attributed: 40, ambiguous: 60, unattributed: 0, observer: 0 });
+    expect(result.partitions.find(partition => partition.startMs === 20)?.operationContext).toMatchObject({
+      leafIds: ["known", "independent"], attribution: "ambiguous", unknownLeafIds: ["independent"],
+    });
+  });
+
+  it("retains concurrent leaf identities when their enclosing owner responsibility is the same", () => {
+    const result = successful(evidence([phase("first", 0, 0, 100, "storage"),
+      phase("second", 1, 20, 80, "storage")]));
+    expect(result.operationContext.ledger).toEqual({ attributed: 100, ambiguous: 0, unattributed: 0, observer: 0 });
+    expect(result.operationContext.concurrentLeafUnionMs).toBe(60);
+    expect(result.partitions.find(partition => partition.startMs === 20)?.operationContext).toMatchObject({
+      leafIds: ["first", "second"], ownerCandidates: ["storage"], attribution: "attributed",
+    });
+    expect(result.operationContext.owners).toEqual([
+      { owner: "storage", attributedWallMs: 100, inclusiveContextWallMs: 100, driverExchangeCount: 0 },
+    ]);
+  });
+
+  it("retains a supervisor lifetime and strict ambiguity separately from foreground context", () => {
+    const result = successful(evidence([phase("root", 0, 0, 100, null),
+      { ...phase("supervisor", 1, 5, 95, null, "root"), role: "coordination" },
+      phase("publisher", 2, 20, 80, "publication", "root")]));
+    expect(result.phaseLedger).toEqual({ attributed: 0, ambiguous: 60, unattributed: 40, observer: 0 });
+    expect(result.operationContext.ledger).toEqual({ attributed: 60, ambiguous: 0, unattributed: 40, observer: 0 });
+    expect(result.operationContext.coordinationUnionMs).toBe(90);
+    expect(result.operationContext.concurrentLeafUnionMs).toBe(0);
+    expect(result.partitions.find(partition => partition.startMs === 20)?.operationContext).toMatchObject({
+      leafIds: ["publisher"], ownerCandidates: ["publication"], coordinationIds: ["supervisor"],
+    });
+  });
+
+  it("keeps actual work beneath coordination visible as a competing foreground context", () => {
+    const result = successful(evidence([phase("root", 0, 0, 100, null),
+      { ...phase("supervisor", 1, 5, 95, "coordination owner", "root"), role: "coordination" },
+      phase("publisher", 2, 20, 80, "publication", "root"),
+      phase("heartbeat check", 3, 40, 50, null, "supervisor")]));
+    expect(result.operationContext.ledger).toEqual({ attributed: 50, ambiguous: 10, unattributed: 40, observer: 0 });
+    expect(result.operationContext.concurrentLeafUnionMs).toBe(10);
+    expect(result.partitions.find(partition => partition.startMs === 40)?.operationContext).toMatchObject({
+      leafIds: ["publisher", "heartbeat check"], ownerCandidates: ["publication"], attribution: "ambiguous",
+    });
+  });
+
+  it("does not turn a wrapper awaiting its coordination child into competing foreground work", () => {
+    const result = successful(evidence([phase("root", 0, 0, 100, null),
+      phase("waiting wrapper", 1, 0, 100, "executor", "root"),
+      { ...phase("supervisor", 2, 0, 100, null, "waiting wrapper"), role: "coordination" },
+      phase("publisher", 3, 20, 80, "publication", "root")]));
+    expect(result.operationContext.ledger).toEqual({ attributed: 60, ambiguous: 0, unattributed: 40, observer: 0 });
+    expect(result.operationContext.concurrentLeafUnionMs).toBe(0);
+    expect(result.partitions.find(partition => partition.startMs === 20)?.operationContext).toMatchObject({
+      leafIds: ["publisher"], ownerCandidates: ["publication"], coordinationIds: ["supervisor"],
+    });
+    expect(result.operationContext.owners.some(owner => owner.owner === "executor")).toBe(false);
+  });
+
+  it("correlates SQL through exact ancestry and keeps stack provenance outside semantic ownership", () => {
+    const result = successful(evidence([phase("publisher", 0, 0, 100, "publication"),
+      phase("lower body", 1, 10, 90, null, "publisher"),
+      { ...driver("query", 2, 20, 30), parentId: "lower body", sourceOwnerCandidates: ["physical proxy"] },
+      driver("unlinked", 3, 40, 50)]));
+    expect(result.database).toMatchObject({ correlatedDriverExchanges: 1, uncorrelatedDriverExchanges: 1, rootOnlyDriverExchanges: 0 });
+    expect(result.databaseOperations).toEqual([
+      { name: null, contextOwners: [], driverExchangeCount: 1, awaitSumMs: 10 },
+      { name: "lower body", contextOwners: ["publication"], driverExchangeCount: 1, awaitSumMs: 10 },
+    ]);
+    expect(result.operationContext.owners).toEqual([
+      { owner: "publication", attributedWallMs: 100, inclusiveContextWallMs: 100, driverExchangeCount: 1 },
+    ]);
+    expect(result.owners.some(owner => owner.owner === "physical proxy")).toBe(false);
+  });
+
+  it("rejects a database parent that is an observer instead of an actual operation", () => {
+    expect(Result.isFailure(analyzeMeasurementEvidence(evidence([
+      { ...interval, kind: "observer", id: "observer", sequence: 0, name: "sizing", startMs: 0, endMs: 100, outcome: "success" },
+      { ...driver("query", 1, 20, 30), parentId: "observer" },
+    ])))).toBe(true);
+  });
+
   it("retains scalar counts at sites, post-request observer cost, and zero root meaning", () => {
     const input = evidence([{ id: "rows", sequence: 0, kind: "work", atMs: 20, owner: "storage", site: "hydrate",
       parentId: null, metric: "retainedRows", unit: "count", value: 5 },
@@ -98,7 +193,7 @@ describe("measurement interval analysis", () => {
 
   it("retains full Effect completion categories and concurrent observed span identities", () => {
     const effectSpan: MeasurementEvent = { ...interval, id: "effect", sequence: 0, startMs: 0, endMs: 100,
-      owner: "journal", site: "Journal.freeze", kind: "effectSpan", name: "Journal.freeze", traceId: "trace",
+      owner: "journal", site: "Journal.freeze", kind: "effectSpan", name: "Journal.freeze", role: "operation", traceId: "trace",
       spanId: "span", fiberId: "fiber-1", effectStartNanos: "100", effectEndNanos: "200",
       outcome: "mixed", cause: "Fail + Interrupt" };
     const result = successful(evidence([effectSpan]));

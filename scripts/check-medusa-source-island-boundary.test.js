@@ -32,6 +32,39 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("admits only the exact measurement SDK collector's inventoried native business import", () => {
+    const prefix = "packages/medusa-adapter/benchmarks/core-performance/native-business/";
+    const owners = ["native.ts", "workflow.ts", "run.ts", "tsconfig.json"].map(file => prefix + file);
+    const promotion = { ...nativeControlPromotion, files: [...nativeControlPromotion.files,
+      ...owners.map(target => ({ target, targetSha256: "pinned", classification: "authored" }))] };
+    const consumer = "packages/executor/test/performance/measurement/collectors/native.ts";
+    const specifier = "../../../../../medusa-adapter/benchmarks/core-performance/native-business/native";
+    /** @param {string} relativePath @param {string} selectedSpecifier
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (relativePath, selectedSpecifier, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected,
+      rootSources: [{ relativePath, text: `const { prepareNativeBusiness } = await import(${JSON.stringify(selectedSpecifier)});` }],
+    }).errors;
+    expect(check(consumer, specifier)).toEqual([]);
+    expect(check(consumer.replace("/native.ts", "/adjacent.ts"), specifier).length).toBeGreaterThan(0);
+    expect(check("packages/executor/src/native.ts",
+      "../../medusa-adapter/benchmarks/core-performance/native-business/native").length).toBeGreaterThan(0);
+    for (const alternative of [specifier + ".ts", specifier.replace("/native-business/native", "/native-business/workflow"),
+      specifier.replace("/native-business/native", "/native-business/./native"),
+      "../../../../../medusa-adapter/src/currency-service",
+      "../../../../../third_party/medusa/upstream/packages/core/framework/dist/utils/index.js"]) {
+      expect(check(consumer, alternative).length).toBeGreaterThan(0);
+    }
+    expect(check(consumer, specifier, nativeControlPromotion).length).toBeGreaterThan(0);
+    for (const missing of owners) {
+      expect(check(consumer, specifier, { ...promotion,
+        files: promotion.files.filter(file => file.target !== missing) }).length).toBeGreaterThan(0);
+      expect(check(consumer, specifier, { ...promotion,
+        files: promotion.files.map(file => file.target === missing
+          ? { ...file, classification: "testHarnessPort" } : file) }).length).toBeGreaterThan(0);
+    }
+  });
+
   it("confines complete native business imports and loader use to the inventoried benchmark", () => {
     const prefix = "packages/medusa-adapter/benchmarks/core-performance/native-business/";
     const owners = ["native.ts", "workflow.ts", "run.ts", "tsconfig.json"].map(file => prefix + file);

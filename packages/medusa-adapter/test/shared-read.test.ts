@@ -54,7 +54,7 @@ describe("shared Medusa read compilation and execution", () => {
       store, resources: defaultCommerceResources,
       table: manager => lifetime.operation(manager, "currency-budget", "read", Effect.sync(() => { acquisitions++; return store; })),
     }, "currency-budget", lifetime.context, unused, unused);
-    const owner = makeCommercePromiseOwner();
+    const owner = await Effect.runPromise(makeCommercePromiseOwner());
     const repository = currencyRepository(ctx, owner);
     const read = () => withCount
       ? repository.findAndCount({ where: {}, options: { fields: ["code"] } }, { manager: ctx.manager })

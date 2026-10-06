@@ -20,6 +20,7 @@ export interface TracePhaseSpan {
 
 export interface TraceDispatchRecord {
   readonly eventId: number;
+  readonly operationId: string | null;
   readonly connectionId: number;
   readonly checkoutId: number | null;
   readonly transactionId: number | null;
@@ -46,6 +47,7 @@ export interface TraceDispatchRecord {
 
 export interface TraceCheckoutRecord {
   readonly eventId: number;
+  readonly operationId: string | null;
   readonly checkoutId: number;
   readonly connectionId: number | null;
   readonly pool: TracePool;
@@ -128,6 +130,8 @@ export interface TraceInvocationRecord {
   readonly delegatedPoolQueryDispatches: number;
   /** Acquired-client dispatches lacking this invocation's ALS context while it was active. */
   readonly lostContextDispatches: number;
+  readonly operationCorrelation: "disabled" | "enabled";
+  readonly lostOperationContexts: number;
   readonly unobservedDispatches: number;
   readonly unknownStatementDispatches: number;
   readonly incompleteSpans: number;
@@ -142,7 +146,7 @@ export interface TraceInvocationRecord {
 
 export interface TraceObserverInterval {
   readonly eventId: number;
-  readonly kind: "preparation" | "input-sizing" | "fingerprinting" | "source-stack" | "result-sizing" | "event-recording" | "finalization";
+  readonly kind: "preparation" | "input-sizing" | "fingerprinting" | "source-stack" | "operation-correlation" | "result-sizing" | "event-recording" | "finalization";
   readonly startMs: number;
   readonly endMs: number;
   readonly durationMs: number;
@@ -203,12 +207,14 @@ interface MutableInvocation {
   poolQueryCalls: number;
   delegatedPoolQueryDispatches: number;
   lostContextDispatches: number;
+  lostOperationContexts: number;
 }
 
 interface TraceContext {
   readonly invocation: MutableInvocation;
   readonly span: MutableSpan;
   readonly delegatedPoolQuery: boolean;
+  readonly operationId?: string | null | undefined;
   readonly reconFrames?: readonly string[] | undefined;
 }
 
@@ -547,7 +553,7 @@ function stackFrames(): readonly string[] {
 }
 
 export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPool: Pool; targetPool: Pool;
-  observationLimit?: number }>): MixedMutationPerformanceTrace {
+  observationLimit?: number; currentOperationId?: () => string | null }>): MixedMutationPerformanceTrace {
   const observationLimit = input.observationLimit ?? 100_000;
   if (!Number.isSafeInteger(observationLimit) || observationLimit < 1)
     throw new Error("Trace observationLimit must be a positive safe integer.");
@@ -592,6 +598,22 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
     const identity = { connectionId: invocation.nextConnectionId++, checkoutId: null };
     invocation.clients.set(client, identity);
     return identity;
+  }
+
+  function operationId(context: TraceContext, dispatchEventId: number | null, retainDelegation = true): string | null {
+    if (input.currentOperationId === undefined) return null;
+    if (retainDelegation && context.delegatedPoolQuery) return context.operationId ?? null;
+    return observe(context.invocation, "operation-correlation", dispatchEventId, null, () => {
+      const identity = input.currentOperationId?.();
+      if (identity === null) return null;
+      if (typeof identity !== "string" || identity.length === 0)
+        throw new Error("Operation correlation reader returned an invalid identity.");
+      return identity;
+    });
+  }
+
+  function recordOperationLoss(invocation: MutableInvocation, identity: string | null): void {
+    if (input.currentOperationId !== undefined && identity === null) invocation.lostOperationContexts++;
   }
 
   function parsedSql(value: unknown): ReturnType<typeof structuralSql> {
@@ -640,6 +662,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
         const preparationStart = performance.now();
         const preparationEventId = invocation.nextEventId++;
         const eventId = invocation.nextEventId++;
+        const originOperationId = operationId(context, eventId);
         const identity = clientIdentity(invocation, client);
         const path = phasePath(invocation, context.span);
         const sql = observe(invocation, "fingerprinting", eventId, null, () => parsedSql(args[0]));
@@ -647,7 +670,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           parameterCount: null, scalarParameterBytes: null, unknownEncodingParameters: null, sqlUtf8Bytes: null,
         }, () => dispatchInputSizes(args));
         const record: MutableDispatchRecord = {
-          eventId, ...identity, transactionId: activeTransactions.get(client)?.transactionId ?? null,
+          eventId, operationId: originOperationId, ...identity, transactionId: activeTransactions.get(client)?.transactionId ?? null,
           pool: poolName, phasePath: path, atMs: 0, awaitedMs: null,
           outcome: "unobserved", fingerprint: sql?.fingerprint ?? null, template: sql?.template ?? null,
           statementCount: sql?.statementCount ?? null, transactionAction: sql?.transactionAction ?? null,
@@ -752,12 +775,15 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
                 activeTransactionClients.delete(client);
               } else activeTransactions.set(client, priorTransaction);
             }
-            if (finished) observe(invocation, "event-recording", eventId, undefined,
-              () => retain(invocation, invocation.dispatches, record));
+            if (finished) observe(invocation, "event-recording", eventId, undefined, () => {
+              retain(invocation, invocation.dispatches, record);
+              recordOperationLoss(invocation, originOperationId);
+            });
             throw error;
           }
           observe(invocation, "event-recording", eventId, undefined, () => {
             retain(invocation, invocation.dispatches, record);
+            recordOperationLoss(invocation, originOperationId);
             if (context.delegatedPoolQuery) invocation.delegatedPoolQueryDispatches++;
             recordOwner();
           });
@@ -775,6 +801,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
     const tracedConnect = function (this: Pool, callback?: ConnectCallback): Promise<PoolClient> | void {
       const context = storage.getStore();
       const eventId = context === undefined ? null : context.invocation.nextEventId++;
+      const originOperationId = context === undefined ? null : operationId(context, null);
       const start = performance.now();
       const finish = (outcome: "ok" | "error", client?: PoolClient): void => {
         const end = performance.now();
@@ -786,7 +813,8 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           const identity = client === undefined ? null : clientIdentity(context.invocation, client);
           if (identity !== null) identity.checkoutId = eventId ?? null;
           if (client !== undefined) observe(context.invocation, "preparation", null, undefined, () => wrapClient(client));
-          retain(context.invocation, context.invocation.checkouts, { eventId: eventId ?? 0, checkoutId: eventId ?? 0,
+          recordOperationLoss(context.invocation, originOperationId);
+          retain(context.invocation, context.invocation.checkouts, { eventId: eventId ?? 0, operationId: originOperationId, checkoutId: eventId ?? 0,
             connectionId: identity?.connectionId ?? null, pool: poolName,
             phasePath: phasePath(context.invocation, context.span), atMs: elapsed(context.invocation.start, start),
             awaitedMs: elapsed(start, end), outcome });
@@ -819,10 +847,11 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
       const context = storage.getStore();
       if (context === undefined) return Reflect.apply(originalPoolQuery, this, args);
       context.invocation.poolQueryCalls++;
+      const originOperationId = operationId(context, null, false);
       // Capture the source callsite before pg-pool's internal callback frames.
       const reconFrames = context.invocation.mode === "recon"
         ? observe(context.invocation, "source-stack", null, [], stackFrames) : undefined;
-      return storage.run({ ...context, delegatedPoolQuery: true,
+      return storage.run({ ...context, delegatedPoolQuery: true, operationId: originOperationId,
         ...(reconFrames === undefined ? {} : { reconFrames }) },
         () => Reflect.apply(originalPoolQuery, this, args));
     } as typeof pool.query;
@@ -843,7 +872,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
       const root: MutableSpan = { id: 0, parentId: null, name: "invocation", start };
       const invocation: MutableInvocation = { id: details.id, mode: details.mode, start, spans: [root],
         dispatches: [], checkouts: [], transactions: [], poolQueryCalls: 0, delegatedPoolQueryDispatches: 0,
-        lostContextDispatches: 0, observerIntervals: [], clients: new WeakMap(), nextEventId: 0,
+        lostContextDispatches: 0, lostOperationContexts: 0, observerIntervals: [], clients: new WeakMap(), nextEventId: 0,
         nextConnectionId: 0, nextTransactionId: 0, observationErrors: 0, droppedObservations: 0, retainedObservations: 0 };
       inFlight++;
       activeInvocations.add(invocation);
@@ -904,6 +933,8 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           incompleteSpans: invocation.spans.length,
         };
         records.push({ ...retained,
+          operationCorrelation: input.currentOperationId === undefined ? "disabled" : "enabled",
+          lostOperationContexts: invocation.lostOperationContexts,
           observerIntervals: invocation.observerIntervals.toSorted((a, b) => a.eventId - b.eventId),
           observationErrors: invocation.observationErrors, droppedObservations: invocation.droppedObservations,
           observationLimit, aggregationComplete: finalized !== null });
@@ -938,6 +969,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
       if (closed) return;
       if (inFlight !== 0) throw new Error("Cannot close trace while an invocation is active.");
       for (const restore of restores.toReversed()) restore();
+      storage.disable();
       closed = true;
     },
   };

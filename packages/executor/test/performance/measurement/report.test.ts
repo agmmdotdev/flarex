@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
+import { Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MeasurementInfrastructureError, persistMeasurementReport, type RunReport } from "./report";
+import { analyzeMeasurementEvidence } from "./analysis";
 
 const filesystem = vi.hoisted(() => ({
   mkdir: vi.fn<typeof import("node:fs/promises").mkdir>(),
@@ -34,6 +36,32 @@ beforeEach(() => {
 });
 
 describe("measurement artifact persistence", () => {
+  it("keeps strict attribution, enclosing context, coordination and unavailable database evidence distinct", async () => {
+    const analysis = Result.getOrThrow(analyzeMeasurementEvidence({ requestId: "request",
+      clock: { id: "monotonic", unit: "milliseconds", precisionMs: null, originMonotonicMs: 0 },
+      root: { startMs: 0, endMs: 10, outcome: "success" }, postRequestObservers: [],
+      collection: { capacity: 100, droppedEvents: 0, lostContextEvents: 0, failures: [] },
+      events: [
+        { kind: "phase", id: "publisher", sequence: 0, name: "publisher", role: "operation", startMs: 0, endMs: 10,
+          owner: "publication", site: "publisher", parentId: null },
+        { kind: "phase", id: "supervisor", sequence: 1, name: "supervisor", role: "coordination", startMs: 0, endMs: 10,
+          owner: null, site: "supervisor", parentId: null },
+        { kind: "phase", id: "unknown", sequence: 2, name: "lower body", role: "operation", startMs: 1, endMs: 9,
+          owner: null, site: "lower body", parentId: "publisher" },
+      ] }));
+    await persistMeasurementReport(directory, { ...report(), mode: "timeline", samples: [{
+      id: "request", lane: "flarex", index: 0, kind: "diagnostic", requestMs: 11, seedMs: 1,
+      verificationMs: 1, cleanupMs: 0, outcome: "success", failureStage: null, failures: [], analysis,
+    }] });
+    const human = filesystem.writeFile.mock.calls[1]?.[1];
+    expect(human).toContain("Strict deepest-operation wall: attributed 0.000 ms; ambiguous 2.000 ms; unattributed 8.000 ms");
+    expect(human).toContain("Enclosing operation-context wall: attributed 10.000 ms");
+    expect(human).toContain("Coordination lifetime union: 10.000 ms");
+    expect(human).toContain("Database observations are unavailable");
+    expect(human).not.toContain("Actual driver exchanges: 0");
+    expect(human).toContain("not deepest-operation ownership or CPU cost");
+  });
+
   it("retains only the successfully written raw path when the human write fails", async () => {
     const original = new Error("human artifact storage unavailable");
     filesystem.writeFile.mockResolvedValueOnce(undefined).mockRejectedValueOnce(original);

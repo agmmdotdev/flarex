@@ -297,7 +297,7 @@ describe("prepared commerce module definitions", () => {
   it("keeps the image alias allowed operations explicit and preserves receivers", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const root = yield* fixture;
-      const owner = yield* Effect.acquireRelease(Effect.sync(makeCommercePromiseOwner), owner => owner.close);
+      const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
       const repository = libraryProfile().profile.bind(root, owner).baseRepository;
       repository.upsert = async function () {
         expect(this).toBe(repository);

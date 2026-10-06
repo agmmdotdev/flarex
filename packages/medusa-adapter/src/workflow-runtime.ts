@@ -11,7 +11,7 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
   definition: PreparedWorkflow, ctx: AtomicCommerceContext, input: unknown,
   bind: (owner: CommercePromiseOwner) => WorkflowContainer,
 ) {
-  const owner = makeCommercePromiseOwner();
+  const owner = yield* makeCommercePromiseOwner();
   return yield* Effect.suspend(() => executeWorkflow(definition, input, {
     checkpoint: ctx.checkpoint,
     capture: value => captureWorkflowValue(ctx, value),

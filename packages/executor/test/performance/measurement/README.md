@@ -98,8 +98,10 @@ boundaries and selected synchronous work through the contract below. Hooks carry
 domain-owned scalar evidence and are supplied by trusted fixture composition.
 The SDK converts this evidence into its private artifact shape. That conversion
 is observation translation, not another business or authority path. A core module
-should not construct a measurement client, register metric names, assemble
-tracing contexts or import the SDK's event types.
+should not construct a measurement client, register metric names, assemble SDK
+event contexts or import the SDK's event types. Existing Promise runtime bridges
+may carry the injected tracer and parent in a minimal Effect Context; they do not
+construct collectors or transfer business capabilities.
 
 No singleton, ambient cross-request recorder or per-owner SDK instance is
 selected. Correlation, buffering, timing and observer-cost accounting stay inside
@@ -212,12 +214,29 @@ exact allocation or wall attribution. Driver await is not server execution;
 decoded JSON bytes are not wire traffic or heap allocation. Collector overhead
 is measured and disclosed rather than subtracted to invent quiet latency.
 
-The first cutover covers one connected existing `mixed-product` report. Complete
-collection and reconciled wall accounting do not imply complete owner attribution:
-unknown and overlapping owners remain visible, and driver awaits cannot identify
-server execution, network or lock waits. Timeline-only runs collect no database
-events; their empty database totals represent an unavailable lane rather than
-zero SQL work. The [retained reports](../../../benchmarks/core-performance/measurement-sdk/README.md)
+The current cutover covers the existing small `mixed-product` request. Genuine
+framework and transaction Promise runtimes carry only the tracer and parent;
+business services, Clock and settlement stay with their existing owners. Database
+submission snapshots the actual retained operation ID, including the initiating
+pool-query context through checkout delegation. Source frames and source-owner
+candidates remain provenance, never a guessed semantic owner. Missing operation
+contexts invalidate collection rather than silently reverting to stack ownership.
+
+Reports retain two separate attribution ledgers. Strict deepest-operation wall
+keeps unknown children and concurrent coordination ambiguous. Enclosing operation
+context follows actual ancestry to the nearest known owner, while retaining each
+unknown leaf and competing context. The supervisor's coordination lifetime stays
+visible separately; its actual child work still participates. A wrapper waiting
+for that supervisor remains an ancestor. Context establishes responsibility, not
+exclusive execution, CPU cost or deepest-operation ownership. These ledgers and
+overlapping unions must never be added.
+
+Complete collection and reconciled wall accounting do not imply complete owner
+attribution, and driver awaits cannot identify server execution, network or lock
+waits. Timeline-only runs collect no database events; their empty database totals
+represent an unavailable lane rather than zero SQL work. The
+[first retained reports](../../../benchmarks/core-performance/measurement-sdk/README.md)
+and [operation-context reports](../../../benchmarks/core-performance/measurement-operation-context/README.md)
 record these limits. The owning
 preflight requires affected checks, deterministic accounting witnesses, real
 database/native lanes, both reviews, shared-file handoff, cleanup and a scoped

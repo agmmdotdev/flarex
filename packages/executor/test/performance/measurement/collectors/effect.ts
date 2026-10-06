@@ -50,6 +50,10 @@ const boundaryOwners = new Map<string, string>([
   ["LogicalDocumentMaterialization.completeBatch", "logicalMaterialization"],
 ]);
 const boundaryOwner = (name: string) => boundaryOwners.get(name) ?? null;
+// This named operation owns fork/race/join and the fixture's initialDone wait.
+// Its interval remains evidence; it is not a foreground execution frontier.
+const operationRole = (name: string): SpanRecord["role"] =>
+  name === "PointMutationExecutionLiveness.supervise" ? "coordination" : "operation";
 
 export function classifyMeasurementExit(exit: Exit.Exit<unknown, unknown>): SpanRecord["outcome"] {
   if (Exit.isSuccess(exit)) return "success";
@@ -74,6 +78,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
   const observerIntervals: MeasurementObserver[] = [];
   const exits = new Map<string, Exit.Exit<unknown, unknown>>();
   const identities = new WeakMap<Tracer.AnySpan, string>();
+  const retainedIds = new Set<string>();
   const nativePhases = new Map<string, PhaseRecord[]>();
   let sequence = 0;
   let droppedEvents = 0;
@@ -101,6 +106,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
   const append = (event: MeasurementEvent) => {
     if (closed || events.length + observerIntervals.length >= capacity) { droppedEvents++; return false; }
     positions.set(event, events.length);
+    retainedIds.add(event.id);
     events.push(event);
     return true;
   };
@@ -123,7 +129,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
       const span = new Tracer.NativeSpan(options);
       const id = `effect:${span.spanId}`;
       identities.set(span, id);
-      const record: SpanRecord = { kind: "effectSpan", id, sequence: sequence++, name: options.name,
+      const record: SpanRecord = { kind: "effectSpan", id, sequence: sequence++, name: options.name, role: operationRole(options.name),
         startMs, endMs: null, owner: boundaryOwner(options.name),
         site: options.name, parentId: parentId(Option.getOrUndefined(options.parent)),
         spanId: span.spanId, traceId: span.traceId, fiberId: context.getStore()?.fiberId ?? null,
@@ -187,7 +193,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
     const id = `effect-phase:${ordinal}`;
     const parent = Tracer.externalSpan({ spanId: id, traceId: outer?.parent?.traceId ?? "unbound" });
     identities.set(parent, id);
-    const record: PhaseRecord = { kind: "phase", id, sequence: ordinal, name, startMs, endMs: null,
+    const record: PhaseRecord = { kind: "phase", id, sequence: ordinal, name, role: "operation", startMs, endMs: null,
       owner: boundaryOwner(name), site: name, parentId: parentId(outer?.parent) };
     const retained = append(record);
     observer(startMs, "Promise phase creation");
@@ -216,7 +222,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
       if (event.edge === "begin") {
         const ordinal = sequence++;
         const record: PhaseRecord = { kind: "phase", id: `publication-phase:${ordinal}`, sequence: ordinal,
-          name: `publication.${event.phase}`, startMs, endMs: null, owner: "pointCommitPublication",
+          name: `publication.${event.phase}`, role: "operation", startMs, endMs: null, owner: "pointCommitPublication",
           site: event.phase, parentId: parentId(parent) };
         if (append(record)) stack.push(record);
         nativePhases.set(event.phase, stack);
@@ -242,8 +248,18 @@ export function createEffectMeasurementCollector(input: Readonly<{
   const binding: MixedMutationEffectDiagnostics = { provide, provideRequest, traceEffect, withPhase };
   return {
     layer, binding,
+    /** Read at the actual driver boundary. Retained IDs belong only to this
+     * request; a dropped, foreign or closed span cannot become a SQL parent. */
+    currentOperationId: (): string | null => {
+      const current = context.getStore()?.parent;
+      const id = current === undefined ? undefined : identities.get(current);
+      if (!closed && id !== undefined && retainedIds.has(id)) return id;
+      // The driver collector counts each consumed missing correlation once.
+      // Dropped spans and escaped completions retain their own collector losses.
+      return null;
+    },
     publicationObservation: () => new PointCommitPublicationObservation({ detail: true, record: recordPublication,
-      traceEffect: (phase, work) => traceEffect(`publication.${phase}`, work, "pointCommitPublication") }),
+      traceEffect: (phase, work) => provide(traceEffect(`publication.${phase}`, work, "pointCommitPublication")) }),
     async runRequest<A>(name: string, run: () => Promise<A>): Promise<A> {
       if (started) throw new Error("Effect measurement collector is single-request");
       started = true;

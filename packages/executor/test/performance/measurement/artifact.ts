@@ -16,6 +16,7 @@ const IntervalFields = {
   ownerCandidates: Schema.optional(Schema.Array(Identity)),
 };
 const Outcome = Schema.Literals(["success", "failure", "typedFailure", "defect", "interruption", "mixed", "unknown"]);
+const OperationRole = Schema.Literals(["operation", "coordination"]);
 const DatabaseFields = {
   pool: Schema.Literals(["control", "target"]),
   phasePath: Schema.Array(Schema.String),
@@ -32,9 +33,9 @@ export const MeasurementObserverSchema = Schema.Struct({
 }).check(orderedInterval);
 
 export const MeasurementEventSchema = Schema.Union([
-  Schema.Struct({ ...IntervalFields, kind: Schema.Literal("phase"), name: Identity }).check(orderedInterval),
+  Schema.Struct({ ...IntervalFields, kind: Schema.Literal("phase"), name: Identity, role: OperationRole }).check(orderedInterval),
   Schema.Struct({
-    ...IntervalFields, kind: Schema.Literal("effectSpan"), name: Identity,
+    ...IntervalFields, kind: Schema.Literal("effectSpan"), name: Identity, role: OperationRole,
     traceId: NullableIdentity, spanId: Identity, fiberId: NullableIdentity,
     effectStartNanos: Schema.NullOr(Schema.String), effectEndNanos: Schema.NullOr(Schema.String),
     outcome: Outcome, cause: Schema.NullOr(Schema.String),
@@ -46,7 +47,8 @@ export const MeasurementEventSchema = Schema.Union([
     unknownEncodingParameters: NullableCount, sqlUtf8Bytes: NullableCount,
     returnedRowCount: NullableCount, decodedResultJsonUtf8Bytes: NullableCount,
     transactionAction: Schema.NullOr(Schema.Literals(["begin", "commit", "rollback"])),
-    sourceFrames: Schema.optional(Schema.Array(Schema.String)), outcome: Outcome,
+    sourceFrames: Schema.optional(Schema.Array(Schema.String)),
+    sourceSiteIds: Schema.Array(Identity), sourceOwnerCandidates: Schema.Array(Identity), outcome: Outcome,
   }).check(orderedInterval),
   Schema.Struct({ ...IntervalFields, ...DatabaseFields, kind: Schema.Literal("checkoutAwait"), outcome: Outcome }).check(orderedInterval),
   Schema.Struct({
@@ -93,6 +95,10 @@ export const MeasurementEvidenceSchema = Schema.Struct({
     previousStart = start;
     if (start > evidence.root.endMs || (end !== null && end > evidence.root.endMs)) return `Event outside request root: ${event.id}`;
     if (event.parentId !== null && !requestEvents.has(event.parentId)) return `Missing request parent event: ${event.id}`;
+    if ((event.kind === "driverAwait" || event.kind === "checkoutAwait") && event.parentId !== null) {
+      const operation = requestEvents.get(event.parentId);
+      if (operation?.kind !== "phase" && operation?.kind !== "effectSpan") return `Database parent is not an operation: ${event.id}`;
+    }
     if (event.parentId === event.id) return `Self-parent event: ${event.id}`;
     const visited = new Set([event.id]);
     let parentId = event.parentId;

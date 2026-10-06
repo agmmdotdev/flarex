@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Context, Effect, Exit, Tracer } from "effect";
 import { acquireInstallationAdmission, closeInstallationAdmission, lockInstallationForCurrentTransaction,
   type PreparedInstallation } from "./installationLifecycle";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -29,11 +29,15 @@ export function runEffectTransactionSettlement<Value, Failure, SettlementFailure
   body: (tx: Tx) => Effect.Effect<Value, Failure>,
   settlementFailure: (cause: unknown) => SettlementFailure,
 ): Effect.Effect<Value, Failure | SettlementFailure> {
-  return Effect.suspend(() => {
+  return Effect.withFiber(fiber => {
+    const tracerContext = Context.make(Tracer.Tracer, Context.get(fiber.context, Tracer.Tracer));
+    const tracingContext = fiber.currentSpan === undefined ? tracerContext
+      : Context.add(tracerContext, Tracer.ParentSpan, fiber.currentSpan);
+    const runPromiseExit = Effect.runPromiseExitWith(tracingContext);
     let callbackCause: Cause.Cause<Failure | SettlementFailure> | undefined;
     const rollback = new Error(rollbackMessage);
     const transaction = start(async tx => {
-      const exit = await Effect.runPromiseExit(Effect.suspend(() => body(tx)));
+      const exit = await runPromiseExit(Effect.suspend(() => body(tx)));
       if (Exit.isFailure(exit)) {
         callbackCause = exit.cause;
         throw rollback;

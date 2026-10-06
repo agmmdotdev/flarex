@@ -8,7 +8,7 @@ export const withCommerceService = Effect.fn("MedusaAdapter.withService")(functi
   ctx: CommerceCommandContext, compose: (owner: CommercePromiseOwner) => Service,
   work: (service: Service) => Promise<unknown>,
 ) {
-  const owner = makeCommercePromiseOwner();
+  const owner = yield* makeCommercePromiseOwner();
   return yield* Effect.gen(function* () {
     const value = yield* Effect.tryPromise({
       try: signal => owner.callback(() => work(compose(owner)), signal),

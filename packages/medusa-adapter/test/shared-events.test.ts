@@ -12,7 +12,7 @@ import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/bound
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
 
 const fixture = Effect.gen(function* () {
-  const owner = yield* Effect.acquireRelease(Effect.sync(makeCommercePromiseOwner), owner => owner.close);
+  const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
   return { owner, events: commerceMutationEvents(owner) };
 });
 type Receipt = { event: Parameters<ModulePersistenceMutationService["interceptEntityMutationEvents"]>[0]; args: ModulePersistenceMutationEventArgs; context: Context };

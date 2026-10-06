@@ -1,7 +1,7 @@
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { TraceFingerprintOwner, TraceInvocationRecord } from "../../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
-import { MeasurementEventSchema, MeasurementObserverSchema } from "../artifact";
+import { MeasurementEventSchema, MeasurementObserverSchema, type MeasurementEvent } from "../artifact";
 import { databaseEvents } from "./database";
 
 const phasePath = ["invocation", "publication"];
@@ -10,12 +10,12 @@ const record: TraceInvocationRecord = {
   spans: [{ id: 0, parentId: null, name: "invocation", startMs: 0, endMs: 100,
     inclusiveMs: 100, exclusiveMs: 100, complete: true }],
   dispatchGroups: [], checkoutGroups: [], transactionGroups: [],
-  dispatches: [{ eventId: 2, pool: "target", phasePath, connectionId: 3, checkoutId: 0, transactionId: 7,
+  dispatches: [{ eventId: 2, operationId: null, pool: "target", phasePath, connectionId: 3, checkoutId: 0, transactionId: 7,
     atMs: 10, awaitedMs: 7, outcome: "ok", fingerprint: "shared-structure", template: "select ?",
     statementCount: 1, transactionAction: null, delegatedPoolQuery: false, parameterCount: 0,
     scalarParameterBytes: 0, unknownEncodingParameters: 0, sqlUtf8Bytes: 8,
     returnedRowCount: null, decodedResultJsonUtf8Bytes: null }],
-  checkouts: [{ eventId: 0, checkoutId: 0, connectionId: 3, pool: "target", phasePath,
+  checkouts: [{ eventId: 0, operationId: null, checkoutId: 0, connectionId: 3, pool: "target", phasePath,
     atMs: 2, awaitedMs: 3, outcome: "ok" }],
   transactions: [{ eventId: 1, transactionId: 7, connectionId: 3, checkoutId: 0, pool: "target", phasePath,
     startMs: 8, endMs: 98, durationMs: 90, outcome: "commit" }],
@@ -25,6 +25,7 @@ const record: TraceInvocationRecord = {
   ],
   dispatchAwaitedUnionMs: 7, checkoutAwaitedUnionMs: 3, poolQueryCalls: 0, delegatedPoolQueryDispatches: 0,
   lostContextDispatches: 0, unobservedDispatches: 0, unknownStatementDispatches: 0, incompleteSpans: 0,
+  operationCorrelation: "enabled", lostOperationContexts: 2,
   observationErrors: 0, droppedObservations: 0, observationLimit: 100, aggregationComplete: true,
 };
 const mappings: readonly TraceFingerprintOwner[] = [
@@ -43,15 +44,16 @@ const mappings: readonly TraceFingerprintOwner[] = [
 describe("measurement database event translation", () => {
   it("aligns invocation intervals to the root and preserves identities, unknown sizes and ambiguous source owners", () => {
     const before = structuredClone(record);
-    const translated = databaseEvents(record, mappings, 1000);
+    const translated = databaseEvents(record, mappings, 1000, []);
     expect(translated.events).toEqual([
       { kind: "driverAwait", id: "database:2", sequence: 2, startMs: 35, endMs: 42,
-        owner: null, site: null, ownerCandidates: ["payload", "storage"], parentId: null,
+        owner: null, site: null, ownerCandidates: [], parentId: null,
         pool: "target", phasePath, connectionId: 3, checkoutId: 0, transactionId: 7,
         fingerprint: "shared-structure", template: "select ?", statementCount: 1,
         parameterCount: 0, scalarParameterBytes: 0, unknownEncodingParameters: 0, sqlUtf8Bytes: 8,
         returnedRowCount: null, decodedResultJsonUtf8Bytes: null, transactionAction: null,
-        sourceFrames: ["payload.ts:10", "storage.ts:20"], outcome: "success" },
+        sourceFrames: ["payload.ts:10", "storage.ts:20"], sourceSiteIds: ["payload-site", "storage-site"],
+        sourceOwnerCandidates: ["payload", "storage"], outcome: "success" },
       { kind: "checkoutAwait", id: "database:0", sequence: 0, startMs: 27, endMs: 30,
         owner: null, site: null, parentId: null, pool: "target", phasePath, connectionId: 3,
         checkoutId: 0, transactionId: null, outcome: "success" },
@@ -83,7 +85,7 @@ describe("measurement database event translation", () => {
       observerIntervals: record.observerIntervals.map(observer => ({ ...observer, outcome: "error" })),
       observationErrors: 2, unobservedDispatches: 1,
     };
-    const translated = databaseEvents(incomplete, [], 1000);
+    const translated = databaseEvents(incomplete, [], 1000, []);
     expect(translated.events.find(event => event.kind === "driverAwait")).toMatchObject({
       startMs: 35, endMs: null, outcome: "unknown", owner: null, site: null, ownerCandidates: [],
       returnedRowCount: null, decodedResultJsonUtf8Bytes: null,
@@ -95,5 +97,47 @@ describe("measurement database event translation", () => {
       startMs: 33, endMs: null, transactionId: 7, settlement: "open-at-end",
     });
     expect(translated.observers.every(observer => observer.outcome === "failure")).toBe(true);
+  });
+
+  it("correlates identical SQL with each actual operation and never infers ownership from source stacks", () => {
+    const operations: MeasurementEvent[] = [
+      { kind: "phase", role: "operation", id: "first-operation", sequence: 0, name: "first", startMs: 0,
+        endMs: 100, owner: "logicalReadCapture", site: "first-operation-site", parentId: null },
+      { kind: "phase", role: "operation", id: "second-operation", sequence: 1, name: "second", startMs: 0,
+        endMs: 100, owner: null, site: "second-operation-site", parentId: null },
+    ];
+    const correlated: TraceInvocationRecord = { ...record, lostOperationContexts: 0,
+      dispatches: [
+        ...record.dispatches.map(dispatch => ({ ...dispatch, operationId: "first-operation" })),
+        ...record.dispatches.map(dispatch => ({ ...dispatch, eventId: 5, operationId: "second-operation" })),
+      ],
+      checkouts: record.checkouts.map(checkout => ({ ...checkout, operationId: "first-operation" })),
+    };
+    const translated = databaseEvents(correlated, mappings, 1000, operations);
+    expect(translated.events.filter(event => event.kind === "driverAwait")).toMatchObject([
+      { parentId: "first-operation", owner: "logicalReadCapture", site: "first-operation-site", ownerCandidates: [],
+        sourceSiteIds: ["payload-site", "storage-site"], sourceOwnerCandidates: ["payload", "storage"] },
+      { parentId: "second-operation", owner: null, site: "second-operation-site", ownerCandidates: [],
+        sourceSiteIds: ["payload-site", "storage-site"], sourceOwnerCandidates: ["payload", "storage"] },
+    ]);
+    expect(translated.events.find(event => event.kind === "checkoutAwait")).toMatchObject({
+      parentId: "first-operation", owner: "logicalReadCapture", site: "first-operation-site",
+    });
+    expect(translated.events.find(event => event.kind === "transaction")?.parentId).toBeNull();
+  });
+
+  it("retains missing or foreign parent identities for artifact validation instead of guessing a replacement", () => {
+    const dangling: TraceInvocationRecord = { ...record,
+      dispatches: record.dispatches.map(dispatch => ({ ...dispatch, operationId: "unretained-or-foreign-operation" })),
+      checkouts: record.checkouts.map(checkout => ({ ...checkout, operationId: "missing-checkout-operation" })),
+    };
+    const translated = databaseEvents(dangling, mappings, 1000, []);
+    expect(translated.events.find(event => event.kind === "driverAwait")).toMatchObject({
+      parentId: "unretained-or-foreign-operation", owner: null, site: null, ownerCandidates: [],
+      sourceOwnerCandidates: ["payload", "storage"],
+    });
+    expect(translated.events.find(event => event.kind === "checkoutAwait")).toMatchObject({
+      parentId: "missing-checkout-operation", owner: null, site: null,
+    });
   });
 });

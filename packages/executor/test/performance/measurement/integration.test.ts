@@ -30,6 +30,11 @@ describe.skipIf(process.env.FLAREX_MEASUREMENT_INTEGRATION !== "1")("measurement
     expect(analysis.diagnostic).toBe("complete");
     expect(analysis.evidence.events.some(event => event.kind === "work")).toBe(true);
     expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.parentId !== null)).toBe(true);
+    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "LogicalDocuments.relationalFind")).toBe(true);
+    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "publication.materializationWrites")).toBe(true);
+    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.applyPreparedMaterializationBlock")).toBe(true);
+    expect(analysis.operationContext.coordinationUnionMs).toBeGreaterThan(0);
+    expect(analysis.operationContext.ledgerMs).toBeCloseTo(analysis.wall.rootMs, 8);
   });
 
   it.skipIf(process.env.FLAREX_MEASUREMENT_POSTGRES !== "1")("reconciles one ordinary-role PostgreSQL request and fresh native pair", async () => {
@@ -40,10 +45,17 @@ describe.skipIf(process.env.FLAREX_MEASUREMENT_INTEGRATION !== "1")("measurement
     const sample = raw.samples.find(sample => sample.kind === "diagnostic");
     const analysis = Result.getOrThrow(analyzeMeasurementEvidence(sample?.evidence));
     expect(analysis.diagnostic).toBe("complete");
-    expect(analysis.database.driverExchanges).toBeGreaterThan(0);
+    expect(analysis.database.driverExchanges).toBe(40);
+    expect(analysis.database.correlatedDriverExchanges).toBe(40);
+    expect(analysis.database.uncorrelatedDriverExchanges).toBe(0);
     expect(analysis.database.transactions).toBe(2);
     expect(analysis.wall.driverAwaitUnionMs).toBeGreaterThan(0);
     expect(analysis.evidence.events.some(event => event.kind === "driverAwait" && event.transactionId !== null)).toBe(true);
+    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "LogicalDocuments.relationalFind")).toBe(true);
+    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "publication.materializationWrites")).toBe(true);
+    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.applyPreparedMaterializationBlock")).toBe(true);
+    expect(analysis.databaseOperations.some(operation => operation.name !== null && operation.name !== "mixed-product")).toBe(true);
+    expect(analysis.operationContext.ledgerMs).toBeCloseTo(analysis.wall.rootMs, 8);
     const comparison = await compare({ selection: { scenario: "mixed-product" }, size: "small", warmups: 0,
       samples: 1, outputDirectory: directory });
     const paired = envelope(JSON.parse(await readFile(comparison.reports.raw, "utf8")));

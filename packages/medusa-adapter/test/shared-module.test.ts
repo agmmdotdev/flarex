@@ -15,7 +15,7 @@ const Edition = model.define("Edition", { serial: model.text().primaryKey() });
 const bindVolumeService = prepareCommerceInternalService(Volume);
 const preparedLibrary = Result.getOrThrow(prepareCommerceModule({ name: "library", models: [Volume, Edition] }));
 const fixture = Effect.gen(function* () {
-  const owner = yield* Effect.acquireRelease(Effect.sync(makeCommercePromiseOwner), owner => owner.close);
+  const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
   const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(reason => commerceError(reason), commerceLimits, {}, {}, "module-construction", "read"), lifetime => lifetime.close);
   const unused = () => Effect.fail(commerceError("unsupportedProfile"));
   const root = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,

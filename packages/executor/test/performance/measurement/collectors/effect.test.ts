@@ -4,6 +4,48 @@ import { observePointCommitPublicationEffect } from "../../../../../persistence-
 import { createEffectMeasurementCollector } from "./effect";
 
 describe("diagnostic Effect measurement collector", () => {
+  it("supplies tracing to publication's genuine independent runtime without an outer binding", async () => {
+    let tick = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++ });
+    const observation = collector.publicationObservation();
+    const original = Cause.combine(Cause.fail({ _tag: "Refused" }), Cause.die(new Error("original defect")));
+    const exit = await collector.runRequest("request", () => collector.binding.withPhase("authoritative publication", () =>
+      Effect.runPromiseExit(observePointCommitPublicationEffect(observation, "transaction", Effect.failCause(original)))));
+    const phase = collector.records().find(event => event.kind === "phase" && event.name === "authoritative publication");
+    const span = collector.records().find(event => event.kind === "effectSpan" && event.name === "publication.transaction");
+    expect(span).toMatchObject({ parentId: phase?.id, owner: "pointCommitPublication", role: "operation", outcome: "mixed" });
+    expect(Exit.isFailure(exit) && exit.cause).toBe(original);
+    expect(collector.status()).toMatchObject({ lostContextEvents: 0, droppedEvents: 0, failureCount: 0 });
+  });
+
+  it("reads exact retained operations across concurrent fibers and isolated request collectors", async () => {
+    const first = createEffectMeasurementCollector({ now: () => performance.now() });
+    const second = createEffectMeasurementCollector({ now: () => performance.now() });
+    const read = Effect.fn("initiating operation")(() => Effect.sleep("1 millis").pipe(
+      Effect.andThen(Effect.sync(() => first.currentOperationId()))));
+    const [firstIds, secondId] = await Promise.all([
+      first.runRequest("first", () => Effect.runPromise(first.binding.provide(Effect.all([read(), read()], { concurrency: 2 })))),
+      second.runRequest("second", () => second.binding.withPhase("native Promise operation", async () => second.currentOperationId())),
+    ]);
+    const actual = first.records().filter(event => event.kind === "effectSpan" && event.name === "initiating operation");
+    expect(firstIds).toHaveLength(2);
+    expect(new Set(firstIds).size).toBe(2);
+    expect(firstIds.every(id => actual.some(event => event.id === id))).toBe(true);
+    expect(second.records().some(event => event.id === secondId && event.kind === "phase")).toBe(true);
+    expect(first.records().some(event => event.id === secondId)).toBe(false);
+    expect(first.status().lostContextEvents).toBe(0);
+    expect(second.status().lostContextEvents).toBe(0);
+  });
+
+  it("does not expose dropped or closed operations as database parents", async () => {
+    let tick = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++, capacity: 2 });
+    const child = Effect.fn("dropped operation")(() => Effect.sync(() => collector.currentOperationId()));
+    expect(await collector.runRequest("request", () => Effect.runPromise(collector.binding.provide(child())))).toBeNull();
+    expect(collector.status().droppedEvents).toBeGreaterThan(0);
+    expect(collector.currentOperationId()).toBeNull();
+  });
+
   it("parents an explicitly request-owned fiber to the root beyond its shorter admission phase", async () => {
     let tick = 0;
     const collector = createEffectMeasurementCollector({ now: () => tick++ });

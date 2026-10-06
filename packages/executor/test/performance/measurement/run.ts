@@ -78,7 +78,7 @@ function normalize(requestId: string, collector: ReturnType<typeof createEffectM
     startMs: event.startMs - origin, endMs: event.endMs === null ? null : event.endMs - origin }));
   const driver = trace?.records()[0];
   if (driver !== undefined) {
-    const normalized = databaseEvents(driver, trace?.ownerMappings() ?? [], origin);
+    const normalized = databaseEvents(driver, trace?.ownerMappings() ?? [], origin, events);
     events.push(...normalized.events);
     observers.push(...normalized.observers);
   }
@@ -101,7 +101,7 @@ function normalize(requestId: string, collector: ReturnType<typeof createEffectM
       .map((event, sequence) => ({ ...event, sequence: events.length + sequence })),
     collection: { capacity: status.capacity + (driver?.observationLimit ?? 0),
       droppedEvents: status.droppedEvents + (driver?.droppedObservations ?? 0),
-      lostContextEvents: status.lostContextEvents + (driver?.lostContextDispatches ?? 0),
+      lostContextEvents: status.lostContextEvents + (driver?.lostContextDispatches ?? 0) + (driver?.lostOperationContexts ?? 0),
       failures: [...status.failures, ...(driver?.observationErrors ? ["Database observation failed"] : []),
         ...(driver?.aggregationComplete === false ? ["Database trace finalization failed"] : []),
         ...(trace !== undefined && driver === undefined ? ["Missing database invocation"] : [])] } };
@@ -118,7 +118,7 @@ async function flarexRequest(series: MixedMutationPerformanceSeries, index: numb
   if (collector !== undefined && mode === "database") {
     if (series.currency.resource.kind !== "postgres") throw new Error("Expected PostgreSQL diagnostic resource");
     trace = createMixedMutationPerformanceTrace({ controlPool: series.currency.resource.control.pool,
-      targetPool: series.currency.resource.target.pool });
+      targetPool: series.currency.resource.target.pool, currentOperationId: collector.currentOperationId });
   }
   const observation = collector?.publicationObservation();
   series.setTrace(trace);

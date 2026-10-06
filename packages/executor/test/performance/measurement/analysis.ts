@@ -7,6 +7,7 @@ export class InvalidMeasurementEvidence extends Data.TaggedError("InvalidMeasure
 }> {}
 
 type IntervalEvent = Exclude<MeasurementEvent, { readonly kind: "work" }>;
+type OperationEvent = Extract<MeasurementEvent, { readonly kind: "phase" | "effectSpan" }>;
 export type AttributionStatus = "attributed" | "ambiguous" | "unattributed" | "observer";
 export interface MeasurementPartition {
   readonly startMs: number;
@@ -23,6 +24,8 @@ export interface MeasurementPartition {
   readonly driverWaiting: boolean;
   readonly checkoutWaiting: boolean;
   readonly observerActive: boolean;
+  readonly operationContext: Readonly<{ leafIds: readonly string[]; ownerCandidates: readonly string[];
+    attribution: AttributionStatus; unknownLeafIds: readonly string[]; coordinationIds: readonly string[] }>;
 }
 
 export interface MeasurementAnalysis {
@@ -34,6 +37,13 @@ export interface MeasurementAnalysis {
   /** Same root partition in two ledgers. These totals must never be added. */
   readonly phaseLedger: Readonly<Record<AttributionStatus, number>>;
   readonly waitLedger: Readonly<{ driverOnlyMs: number; checkoutOnlyMs: number; bothMs: number; neitherMs: number }>;
+  /** Enclosing responsibility from actual ancestry; never deepest-cost attribution. */
+  readonly operationContext: Readonly<{ ledger: Readonly<Record<AttributionStatus, number>>;
+    ledgerMs: number; coordinationUnionMs: number; concurrentLeafUnionMs: number; unknownLeafUnionMs: number;
+    owners: readonly Readonly<{ owner: string; attributedWallMs: number; inclusiveContextWallMs: number;
+      driverExchangeCount: number }>[] }>;
+  readonly databaseOperations: readonly Readonly<{ name: string | null; contextOwners: readonly string[];
+    driverExchangeCount: number; awaitSumMs: number }>[];
   readonly wall: Readonly<{ rootMs: number; partitionMs: number; phaseLedgerMs: number; waitLedgerMs: number;
     reconciliationErrorMs: number; roundingToleranceMs: number; driverAwaitUnionMs: number;
     checkoutAwaitUnionMs: number; observerUnionMs: number; observerAwaitOverlapMs: number;
@@ -46,8 +56,27 @@ export interface MeasurementAnalysis {
   readonly work: readonly Readonly<{ owner: string | null; site: string | null; metric: string;
     unit: "count" | "bytes" | "milliseconds"; value: number; eventCount: number }>[];
   readonly database: Readonly<{ driverExchanges: number; checkouts: number; transactions: number;
+    correlatedDriverExchanges: number; uncorrelatedDriverExchanges: number; rootOnlyDriverExchanges: number;
     observedStatements: number; unknownStatementExchanges: number; observedReturnedRows: number;
     unknownRowExchanges: number; observedDecodedJsonBytes: number; unknownDecodedJsonByteExchanges: number }>;
+}
+
+function nearestOperationOwners(event: MeasurementEvent, events: ReadonlyMap<string, MeasurementEvent>): readonly string[] {
+  let current: MeasurementEvent | undefined = event;
+  while (current !== undefined) {
+    if ((current.kind === "phase" || current.kind === "effectSpan") && current.role === "operation") {
+      const owners = new Set(current.ownerCandidates ?? []);
+      if (current.owner !== null) owners.add(current.owner);
+      if (owners.size > 0) return [...owners].toSorted();
+    }
+    current = current.parentId === null ? undefined : events.get(current.parentId);
+  }
+  return [];
+}
+
+function attributionOf(candidates: ReadonlySet<string>, unknownOwner: boolean, observerOnly: boolean): AttributionStatus {
+  return candidates.size > 1 || (candidates.size > 0 && unknownOwner) ? "ambiguous"
+    : candidates.size === 1 ? "attributed" : observerOnly ? "observer" : "unattributed";
 }
 
 function observerUnion(intervals: readonly Readonly<{ startMs: number; endMs: number | null }>[]): number {
@@ -65,6 +94,7 @@ function observerUnion(intervals: readonly Readonly<{ startMs: number; endMs: nu
  * state; no duration is subtracted from instrumented wall to invent CPU cost. */
 function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalysis, InvalidMeasurementEvidence> {
   const intervals = evidence.events.filter((event): event is IntervalEvent => event.kind !== "work");
+  const eventsById = new Map(evidence.events.map(event => [event.id, event]));
   const parents = new Map(evidence.events.map(event => [event.id, event.parentId]));
   const starts = new Map<number, IntervalEvent[]>();
   const ends = new Map<number, IntervalEvent[]>();
@@ -85,6 +115,16 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
   const active = new Map<string, IntervalEvent>();
   const partitions: MeasurementPartition[] = [];
   const phaseLedger = { attributed: 0, ambiguous: 0, unattributed: 0, observer: 0 };
+  const contextLedger = { attributed: 0, ambiguous: 0, unattributed: 0, observer: 0 };
+  const contextOwners = new Map<string, { owner: string; attributedWallMs: number; inclusiveContextWallMs: number;
+    driverExchangeCount: number }>();
+  const contextOwnerRow = (owner: string) => {
+    const prior = contextOwners.get(owner);
+    if (prior !== undefined) return prior;
+    const row = { owner, attributedWallMs: 0, inclusiveContextWallMs: 0, driverExchangeCount: 0 };
+    contextOwners.set(owner, row);
+    return row;
+  };
   const waitLedger = { driverOnlyMs: 0, checkoutOnlyMs: 0, bothMs: 0, neitherMs: 0 };
   const ownerRows = new Map<string, { owner: string; attributedWallMs: number; inclusiveObservedWallMs: number;
     phaseCount: number; spanCount: number; driverExchangeCount: number; workEventCount: number }>();
@@ -101,6 +141,9 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
   let observerUnionMs = 0;
   let observerAwaitOverlapMs = 0;
   let phaseOverlapMs = 0;
+  let coordinationUnionMs = 0;
+  let concurrentLeafUnionMs = 0;
+  let unknownLeafUnionMs = 0;
   for (let index = 0; index < ordered.length - 1; index++) {
     const start = ordered[index];
     const end = ordered[index + 1];
@@ -134,14 +177,39 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
     const driverWaiting = drivers.length > 0;
     const checkoutWaiting = checkouts.length > 0;
     const observerActive = observers.length > 0;
-    const attribution: AttributionStatus = candidates.size > 1 || (candidates.size > 0 && unknownOwner)
-      ? "ambiguous" : candidates.size === 1 ? "attributed" : observerActive && leaves.length === 0 ? "observer" : "unattributed";
+    const attribution = attributionOf(candidates, unknownOwner, observerActive && leaves.length === 0);
+    // A wrapper awaiting an active coordination child remains an ancestor,
+    // not a new foreground leaf merely because that child has a lifetime role.
+    const foregroundLeaves = leaves.filter((event): event is OperationEvent => event.role === "operation");
+    const contextualCandidates = new Set<string>();
+    let unresolvedContext = false;
+    for (const event of foregroundLeaves) {
+      const owners = nearestOperationOwners(event, eventsById);
+      if (owners.length === 0) unresolvedContext = true;
+      for (const owner of owners) contextualCandidates.add(owner);
+    }
+    const contextualAttribution = attributionOf(contextualCandidates, unresolvedContext,
+      observerActive && foregroundLeaves.length === 0);
+    const unknownLeaves = foregroundLeaves.filter(event => event.owner === null && (event.ownerCandidates?.length ?? 0) === 0);
+    const coordination = operations.filter(event => event.role === "coordination");
+    contextLedger[contextualAttribution] += duration;
+    if (coordination.length > 0) coordinationUnionMs += duration;
+    if (foregroundLeaves.length > 1) concurrentLeafUnionMs += duration;
+    if (unknownLeaves.length > 0) unknownLeafUnionMs += duration;
+    for (const owner of contextualCandidates) {
+      const row = contextOwnerRow(owner);
+      row.inclusiveContextWallMs += duration;
+      if (contextualAttribution === "attributed") row.attributedWallMs += duration;
+    }
     partitions.push({ startMs: start, endMs: end, durationMs: duration,
       phaseIds: phases.map(event => event.id), spanIds: spans.map(event => event.id),
       driverAwaitIds: drivers.map(event => event.id), checkoutAwaitIds: checkouts.map(event => event.id),
       transactionIds: records.filter(event => event.kind === "transaction").map(event => event.id),
       observerIds: observers.map(event => event.id), ownerCandidates: [...candidates].toSorted(),
-      attribution, driverWaiting, checkoutWaiting, observerActive });
+      attribution, driverWaiting, checkoutWaiting, observerActive,
+      operationContext: { leafIds: foregroundLeaves.map(event => event.id), ownerCandidates: [...contextualCandidates].toSorted(),
+        attribution: contextualAttribution, unknownLeafIds: unknownLeaves.map(event => event.id),
+        coordinationIds: coordination.map(event => event.id) } });
     phaseLedger[attribution] += duration;
     if (driverWaiting && checkoutWaiting) waitLedger.bothMs += duration;
     else if (driverWaiting) waitLedger.driverOnlyMs += duration;
@@ -159,8 +227,11 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
   const workRows = new Map<string, { owner: string | null; site: string | null; metric: string;
     unit: "count" | "bytes" | "milliseconds"; value: number; eventCount: number }>();
   const database = { driverExchanges: 0, checkouts: 0, transactions: 0, observedStatements: 0,
+    correlatedDriverExchanges: 0, uncorrelatedDriverExchanges: 0, rootOnlyDriverExchanges: 0,
     unknownStatementExchanges: 0, observedReturnedRows: 0, unknownRowExchanges: 0,
     observedDecodedJsonBytes: 0, unknownDecodedJsonByteExchanges: 0 };
+  const databaseOperations = new Map<string, { name: string | null; contextOwners: readonly string[];
+    driverExchangeCount: number; awaitSumMs: number }>();
   for (const event of evidence.events) {
     if (event.owner !== null) {
       const row = ownerRow(event.owner);
@@ -183,6 +254,23 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
     if (event.kind === "transaction") database.transactions++;
     if (event.kind === "driverAwait") {
       database.driverExchanges++;
+      const operation = event.parentId === null ? undefined : eventsById.get(event.parentId);
+      const name = operation?.kind === "phase" || operation?.kind === "effectSpan" ? operation.name : null;
+      if (operation === undefined) database.uncorrelatedDriverExchanges++;
+      else {
+        database.correlatedDriverExchanges++;
+        if (operation.parentId === null) database.rootOnlyDriverExchanges++;
+      }
+      const owners = nearestOperationOwners(event, eventsById);
+      for (const owner of owners) contextOwnerRow(owner).driverExchangeCount++;
+      const operationKey = JSON.stringify([name, owners]);
+      const row = databaseOperations.get(operationKey) ?? { name, contextOwners: owners, driverExchangeCount: 0, awaitSumMs: 0 };
+      row.driverExchangeCount++;
+      if (event.endMs !== null) row.awaitSumMs += event.endMs - event.startMs;
+      if (!Number.isFinite(row.awaitSumMs)) return Result.fail(new InvalidMeasurementEvidence({
+        reason: "invalidEvidence", detail: "Unrepresentable database operation await total",
+      }));
+      databaseOperations.set(operationKey, row);
       if (event.statementCount === null) database.unknownStatementExchanges++;
       else database.observedStatements += event.statementCount;
       if (event.returnedRowCount === null) database.unknownRowExchanges++;
@@ -209,10 +297,12 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
   const partitionMs = partitions.reduce((sum, partition) => sum + partition.durationMs, 0);
   const phaseLedgerMs = Object.values(phaseLedger).reduce((sum, value) => sum + value, 0);
   const waitLedgerMs = Object.values(waitLedger).reduce((sum, value) => sum + value, 0);
+  const contextLedgerMs = Object.values(contextLedger).reduce((sum, value) => sum + value, 0);
   // Only floating-point accumulation is tolerated. Clock precision is disclosed
   // separately and must not conceal missing intervals or unmatched accounting.
   const roundingToleranceMs = Number.EPSILON * Math.max(1, rootMs) * Math.max(1, partitions.length) * 8;
-  const reconciliationErrorMs = Math.max(Math.abs(rootMs - partitionMs), Math.abs(rootMs - phaseLedgerMs), Math.abs(rootMs - waitLedgerMs));
+  const reconciliationErrorMs = Math.max(Math.abs(rootMs - partitionMs), Math.abs(rootMs - phaseLedgerMs),
+    Math.abs(rootMs - waitLedgerMs), Math.abs(rootMs - contextLedgerMs));
   if (reconciliationErrorMs > roundingToleranceMs) return Result.fail(new InvalidMeasurementEvidence({
     reason: "accountingMismatch", detail: `Root accounting differs by ${reconciliationErrorMs} ms`,
   }));
@@ -228,6 +318,11 @@ function analyze(evidence: MeasurementEvidence): Result.Result<MeasurementAnalys
     coverage: { attributedMs: phaseLedger.attributed, ambiguousMs: phaseLedger.ambiguous,
       unattributedMs: phaseLedger.unattributed, observerOnlyMs: phaseLedger.observer,
       attributedFraction: rootMs === 0 ? null : phaseLedger.attributed / rootMs },
+    operationContext: { ledger: contextLedger, ledgerMs: contextLedgerMs, coordinationUnionMs,
+      concurrentLeafUnionMs, unknownLeafUnionMs,
+      owners: [...contextOwners.values()].toSorted((a, b) => b.attributedWallMs - a.attributedWallMs || a.owner.localeCompare(b.owner)) },
+    databaseOperations: [...databaseOperations.values()].toSorted((a, b) => b.driverExchangeCount - a.driverExchangeCount
+      || (a.name ?? "").localeCompare(b.name ?? "")),
     owners: [...ownerRows.values()].toSorted((a, b) => b.attributedWallMs - a.attributedWallMs || a.owner.localeCompare(b.owner)),
     work: [...workRows.values()], database });
 }

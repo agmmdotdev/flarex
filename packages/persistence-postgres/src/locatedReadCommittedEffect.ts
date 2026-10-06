@@ -1,5 +1,5 @@
 import { closeExactAttemptScopeClockObservation } from "./scopeClock";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Context, Effect, Exit, Tracer } from "effect";
 
 import type { AppRowTransaction } from "./appRows";
 import {
@@ -51,11 +51,14 @@ export const runLocatedReadCommittedEffect = Effect.fn(
   Value,
   Failure | LocatedReadCommittedTransactionFailureV1
 > {
-  return Effect.suspend((): Effect.Effect<
+  return Effect.withFiber((fiber): Effect.Effect<
     Value,
     Failure | LocatedReadCommittedTransactionFailureV1
   > => {
-    const started = startLocatedRead(target, options.rollbackMessage, body);
+    const tracerContext = Context.make(Tracer.Tracer, Context.get(fiber.context, Tracer.Tracer));
+    const tracingContext = fiber.currentSpan === undefined ? tracerContext
+      : Context.add(tracerContext, Tracer.ParentSpan, fiber.currentSpan);
+    const started = startLocatedRead(target, options.rollbackMessage, body, tracingContext);
     const settled = Effect.uninterruptible(Effect.exit(Effect.tryPromise({
       try: () => started.promise,
       catch: (cause): unknown => cause,
@@ -108,11 +111,12 @@ function startLocatedRead<Value, Failure>(
   target: LocatedReadCommittedAttemptTargetV1,
   rollbackMessage: string,
   body: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
+  tracingContext: Context.Context<never>,
 ): StartedRead<Value, Failure> {
   const rollbackSignal = new Error(rollbackMessage);
   let callbackCause: Cause.Cause<Failure> | undefined;
   const promise = target[RUN_LOCATED_READ_COMMITTED_V1](async tx => {
-    const exit = await Effect.runPromiseExit(body(tx).pipe(Effect.ensuring(
+    const exit = await Effect.runPromiseExitWith(tracingContext)(body(tx).pipe(Effect.ensuring(
       Effect.sync(() => closeExactAttemptScopeClockObservation(tx)),
     )));
     if (Exit.isSuccess(exit)) return exit.value;

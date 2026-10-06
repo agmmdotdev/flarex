@@ -30,6 +30,11 @@
       "targetSha256": "abe759abe5c3850433152b2b86ce658f4b7f1aa32a8e296de65fab34f61b35f4"
     },
     {
+      "target": "packages/medusa-adapter/test/commerce-promise-owner.test.ts",
+      "classification": "authored",
+      "targetSha256": "4227f94d7c582034c7cc7f5aa8f3dcb6818b47c4165f6d1201f3726d40245412"
+    },
+    {
       "target": "packages/medusa-adapter/test/link-storage.test.ts",
       "classification": "authored",
       "targetSha256": "b144080e55409a3811fd358ebfb3a49d3db07ae0aac78ac55100203708edae05"
@@ -567,7 +572,7 @@
     {
       "target": "packages/medusa-adapter/src/commerce-promise-owner.ts",
       "classification": "authored",
-      "targetSha256": "830a06ab52e68ce49199da8b1a891b801014e545c999c4f20014928e415e3695"
+      "targetSha256": "cebe08cb69c26d0bdd0956cd87ed8c7a87e247b2dbb3e8f94c473c0224498d93"
     },
     {
       "target": "packages/medusa-adapter/src/commerce-relation-filter.ts",
@@ -587,7 +592,7 @@
     {
       "target": "packages/medusa-adapter/src/commerce-service-bridge.ts",
       "classification": "authored",
-      "targetSha256": "11b14199d9a35f245f9bb4fc15ad9cd8b8836e311915c586cb15ce56aad90571"
+      "targetSha256": "26719f55e088493067193af898caa57f0717709be086098ded1f862b9da7fc03"
     },
     {
       "target": "packages/medusa-adapter/src/currency-contract.ts",
@@ -882,7 +887,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow-runtime.ts",
       "classification": "authored",
-      "targetSha256": "1520d4c7205a9fcc66096fcb11c6897cb2a2e7c3d2c28c8656ad0b0754b35d37"
+      "targetSha256": "0ca91db68a43bc826260ff6a67d8e27f07cf5cd5b4006a9ffb949db4e09eb79d"
     },
     {
       "target": "packages/medusa-adapter/src/workflow-value.ts",
@@ -977,7 +982,7 @@
     {
       "target": "packages/medusa-adapter/test/module-definition.test.ts",
       "classification": "authored",
-      "targetSha256": "134570095e21d98f135b1b03d649a5a985077f18f9bb442f7ce1e0737a93552e"
+      "targetSha256": "8b65217423cb555897140be41af90aa003db145a254f9e98e81847bc6c454e6e"
     },
     {
       "target": "packages/medusa-adapter/test/participant-event-selection.test.ts",
@@ -1082,7 +1087,7 @@
     {
       "target": "packages/medusa-adapter/test/shared-events.test.ts",
       "classification": "authored",
-      "targetSha256": "4421624491858c6ff8456eb268ff9576c301cbedeed84084067eb884226c162e"
+      "targetSha256": "e9925b4253428f1a624db419e3aa9db78623db1f829e86ff378a275554a29025"
     },
     {
       "target": "packages/medusa-adapter/test/shared-graph.test.ts",
@@ -1092,12 +1097,12 @@
     {
       "target": "packages/medusa-adapter/test/shared-module.test.ts",
       "classification": "authored",
-      "targetSha256": "460263294c34abc2ebb1e4d437be9981926ec8a205c3513e700e6555ce1f93e6"
+      "targetSha256": "e810fb1ea663b901970009b475349538eef7978cc55187780d5feac7f752cf4d"
     },
     {
       "target": "packages/medusa-adapter/test/shared-read.test.ts",
       "classification": "authored",
-      "targetSha256": "0149a2db899c85007774f4e97e99574974bb2d3c458fc40045762b124a3e59c6"
+      "targetSha256": "8e175202476103bf2802d0fbf9aeb3ec6c3a3c3a402b86b08dbfe134c4970895"
     },
     {
       "target": "packages/medusa-adapter/test/shared-schema.test.ts",
@@ -4426,7 +4431,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "cb45c52a77b9e095c81790084720c127c096d33a519f14b4b47ff75322bd8158"
+      "targetSha256": "c56f10349dc9d15b47d1ce1c3b577cdb5d5aab157f8dc81658d0362cdcace9c6"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -5067,7 +5072,7 @@
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-managed-read.postgres.test.ts",
-      "targetSha256": "b7ed2e63d94a51a9f293b44319220260d2aa01fd0699b6d3ca7a58b98f9f8ce9",
+      "targetSha256": "ec22fe10c5239bdce2a8eb099c858bb9c2abcb211b95773eea4b5b94f0a02441",
       "classification": "authored"
     },
     {
@@ -5077,12 +5082,12 @@
     },
     {
       "target": "packages/medusa-adapter/test/installationBackfill.postgres.test.ts",
-      "targetSha256": "779c77911e1f9c01b798ea78bd01f097f7eedfa3da2667de44f2009fa6b6f02b",
+      "targetSha256": "e4caa9edd0d31da3398f12a74573573cf23b216d9836a5d7139e031c975a5bab",
       "classification": "authored"
     },
     {
       "target": "packages/medusa-adapter/test/installationCoLocation.postgres.test.ts",
-      "targetSha256": "46e4a51547e6254f86927dd0c238a5d2e17c33e8386295206f3c4a160c9328cb",
+      "targetSha256": "26d1d48a470987142f11470856638b8dbd5b4bb77e84ba4bc5fc192ce5ebfa5f",
       "classification": "authored"
     },
     {

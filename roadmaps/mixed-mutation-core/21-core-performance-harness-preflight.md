@@ -407,3 +407,81 @@ remain unavailable; conservative source ownership is an explicit evidence gap.
 A complete report does not imply every bottleneck has been identified. Runtime
 work must still select a measured owner and a concrete removal hypothesis before
 new performance iterations.
+
+### Selected Operation-Context Continuation
+
+The owner authorizes continuing the measurement system. The next connected
+slice restores tracing across existing framework/transaction Promise runtimes
+and correlates actual database submissions to retained operation identities.
+It remains measurement work: no core latency optimization, new framework
+capability, transaction authority, schema, durable format or hosted activation
+is selected. CPU/server modes and scenario expansion retain their deferred gates.
+
+The first retained PostgreSQL report exposes the defect precisely. Its 40 driver
+exchanges have no operation parent; 27 lack source ownership and the remaining
+13 identify the physical-session query proxy. Source stacks cannot reconstruct
+asynchronous operation ownership. Medusa DAL construction, located read bodies
+and publication transaction bodies start independent Effect runtimes without
+the enclosing tracer/parent. Existing named relational operations therefore
+disappear from the collected request. The publication observation decorator
+also needs to supply its tracer at its actual independent runtime boundary.
+
+The existing owners remain responsible:
+
+- Medusa's Promise owner captures only the injected tracer and current parent
+  inside its owning Effect. Its service/workflow consumers acquire that factory
+  through Effect; cancellation, sticky refusal, pending tracking and close/join
+  stay with the same owner. The private synchronous factory contract breaks;
+  migrate its two runtime callers and four test callers without a wrapper.
+- Persistence's existing Effect transaction and located-read callback bridges
+  carry the same minimal tracing Context into their existing runtimes. Do not
+  transfer business services, Clock, transaction capabilities or another Scope.
+  Preserve callback Cause identity, rollback signals, cleanup and settlement.
+- The SDK's publication decorator supplies the collector tracer and enclosing
+  parent. Core modules continue to import no SDK or artifact types.
+- The existing persistence test trace snapshots one synchronous request-local
+  operation identity at pool submission/direct-client query and checkout entry.
+  Pool delegation retains the initiating snapshot rather than sampling a later
+  pg callback. The SDK binds that reader, translates retained identities after
+  settlement, and keeps source provenance separate from semantic ownership.
+  Transaction lifetime is not parented to a shorter BEGIN operation.
+
+No new telemetry service, global registry, SQL classifier, per-query runtime
+bridge or configurable owner map is selected. Missing, dropped, foreign or
+escaped operation contexts remain explicit gaps or invalid/incomplete evidence;
+never assign them by overlapping timestamps or a generic callsite.
+
+The request supervisor's span is a coordination lifetime: it forks and joins
+the body/heartbeat while the fixture body awaits completion. Keep its interval
+and the current conservative deepest-operation ledger. Add a separately named
+nearest-known operation-context summary, retaining unknown descendants and
+coordination overlap. That summary establishes enclosing responsibility, not
+CPU, exclusive execution cost or deepest-operation ownership. Concurrent
+foreground leaves with different known owners, or known and unresolved contexts,
+remain ambiguous. Concurrent leaves with the same known owner retain all their
+identities and overlap while establishing that owner's enclosing responsibility.
+Do not upgrade strict coverage merely by
+discarding unknown children or a waiting supervisor.
+
+Completion requires direct-parent correlation tests through same-SQL operations,
+pool delegation, concurrent fibers and isolated requests; observer faults,
+missing parents and original Promise/callback/error semantics; original full
+Cause and joined-cleanup tests for changed bridges; and deterministic witnesses
+distinguishing strict attribution, contextual responsibility and coordination.
+One connected PGlite diagnostic and one ordinary-role PostgreSQL diagnostic must
+expose existing relational/transaction-body spans and link real driver exchanges
+without extra business SQL or lost context. Keep quiet collector absence and
+the actual committed Application/Product checks. Retain the new raw/human
+evidence, run affected typechecks, source-boundary guards, lint and both reviews,
+remove displaced construction and commit one scoped slice. Existing historical
+reports remain immutable; unrelated uncommitted harness expansion is excluded.
+
+This continuation is implemented. The private Medusa factory's callers use its
+owning Effect; existing persistence callbacks and publication retain tracing
+through their actual runtimes. Driver observations carry exact operation parents
+and separate source provenance. Strict attribution, enclosing owner responsibility
+and coordination remain distinct, with unknown and competing contexts visible.
+The [retained operation-context reports](../../packages/executor/benchmarks/core-performance/measurement-operation-context/README.md)
+expose deeper named framework/publication operations and their SQL links. Complete
+correlation is not complete semantic ownership or a core performance improvement.
+CPU/server evidence and the paused optimization decision remain separate gates.
