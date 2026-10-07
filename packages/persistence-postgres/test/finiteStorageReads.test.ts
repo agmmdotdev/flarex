@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { ScopeIdSchema, CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
@@ -95,6 +95,25 @@ describe("fixed historical storage primitives", () => {
         rowId: new Uint8Array(0), get scopeUuid() { throw new Error("later column must remain deferred"); } }],
       cause => cause, () => Effect.void)));
     expect(corruption).toMatchObject({ _tag: "Failure", failure: { _tag: "AppRowStorageCorruptionError" } });
+  });
+
+  it("keeps row consumption lazy and stops after interruption before later row access", async () => {
+    const prepared = await runEffect(prepareAppRowsSnapshotReadEffect({ scopeId, tableId: decodeCatalogTableId(1),
+      rowIds: ids.slice(0, 2), snapshotCommitSeq: CommitSeqSchema.make(1n) }));
+    let consumed = 0, finalized = 0, observedLater = false;
+    const rows = [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: false, bodyWithheld: false },
+      { get ordinal() { observedLater = true; throw new Error("Interrupted consumer must stop before later row access"); } }];
+    const work = consumeCapturedAppRowsAtSnapshotEffect(prepared, rows, cause => cause, () => Effect.suspend(() => {
+      consumed++;
+      return Effect.interrupt.pipe(Effect.ensuring(Effect.sync(() => { finalized++; })));
+    }));
+    expect(consumed).toBe(0);
+    const exit = await runEffect(Effect.exit(work));
+    if (!Exit.isFailure(exit)) throw new Error("Expected row-consumer interruption");
+    expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    expect(consumed).toBe(1);
+    expect(finalized).toBe(1);
+    expect(observedLater).toBe(false);
   });
 
   it("rejects oversized ownership groups before touching withheld metadata bodies", async () => {

@@ -80,6 +80,7 @@ interface CheckedOutConnection {
   ) => Promise<QueryResult<Row>>;
   readonly closeWorkFence: () => void;
   readonly hasPendingWork: () => boolean;
+  readonly settledDrain: () => CheckedOutConnectionDrain | undefined;
   readonly drain: () => Promise<CheckedOutConnectionDrain>;
   readonly observeTransportEnd: () => Promise<void> | undefined;
   readonly workFailure: () => CheckedOutConnectionWorkFailure | undefined;
@@ -1001,7 +1002,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
             });
           }),
           Effect.sleep(Duration.millis(remainingMilliseconds)).pipe(
-            Effect.andThen(deadlineResourceFailure(deadline, "acquire")),
+            Effect.andThen(() => deadlineResourceFailure(deadline, "acquire")),
           ),
         ),
       ),
@@ -1045,13 +1046,15 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
 
     const trackPromiseLike = (promise: PromiseLike<unknown>): void => {
       const mirror = Promise.resolve(promise).then(
-        () => undefined,
+        () => {
+          pending.delete(mirror);
+        },
         (cause) => {
           trackedWorkFailure ??= Object.freeze({ cause });
+          pending.delete(mirror);
         },
       );
       pending.add(mirror);
-      void mirror.then(() => pending.delete(mirror));
     };
     const trackPromise = <Value,>(promise: Promise<Value>): Promise<Value> => {
       trackPromiseLike(promise);
@@ -1078,6 +1081,10 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       },
     });
     const { database, transaction } = composition.access(trackedClient);
+    const drainVerdict = (): CheckedOutConnectionDrain =>
+      trackedWorkFailure === undefined
+        ? Object.freeze({ kind: "settled" })
+        : Object.freeze({ kind: "failed", cause: trackedWorkFailure.cause });
 
     return {
       client,
@@ -1116,13 +1123,16 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         workFenceOpen = false;
       },
       hasPendingWork: () => pending.size > 0,
+      // Connection-error projection stays with the existing lifecycle phases.
+      settledDrain: () =>
+        workFenceOpen || pending.size > 0 || observedConnectionError !== undefined
+          ? undefined
+          : drainVerdict(),
       drain: async () => {
         while (pending.size > 0) {
           await Promise.all(pending);
         }
-        return trackedWorkFailure === undefined
-          ? Object.freeze({ kind: "settled" })
-          : Object.freeze({ kind: "failed", cause: trackedWorkFailure.cause });
+        return drainVerdict();
       },
       observeTransportEnd: () =>
         hasTransport
@@ -1222,7 +1232,16 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     deadline: PhysicalDeadline,
     phase: "read" | "callback",
   ): Effect.Effect<CheckedOutConnectionDrain, ResourceIssue, never> {
-    return runBoundedPromiseEffect(deadline, phase, () => connection.drain());
+    return remainingResourceMilliseconds(deadline, phase).pipe(
+      Effect.flatMap((remainingMilliseconds) => {
+        const settled = connection.settledDrain();
+        return settled === undefined
+          ? boundedPromiseRaceEffect(
+              deadline, phase, remainingMilliseconds, () => connection.drain(),
+            )
+          : Effect.succeed(settled);
+      }),
+    );
   };
 
   function checkedOutConnectionDrainCause(
@@ -1259,43 +1278,57 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
   ): Effect.Effect<Value, ResourceIssue, never> {
     return remainingResourceMilliseconds(deadline, phase).pipe(
       Effect.flatMap((remainingMilliseconds) =>
-        Effect.raceFirst(
-          Effect.callback<Value, ResourceIssue>((resume) => {
-            const operationController = new AbortController();
-            let completed = false;
-            const finish = (
-              effect: Effect.Effect<Value, ResourceIssue, never>,
-            ) => {
-              if (completed) return;
-              completed = true;
-              resume(effect);
-            };
-
-            let promise: Promise<Value>;
-            try {
-              const started = start(operationController.signal);
-              promise =
-                connection === undefined
-                  ? started
-                  : connection.trackPromise(started);
-            } catch (cause) {
-              finish(Effect.fail(resourceIssue(phase, cause)));
-              return Effect.void;
-            }
-            void promise.then(
-              (value) => finish(Effect.succeed(value)),
-              (cause) => finish(Effect.fail(resourceIssue(phase, cause))),
-            );
-
-            return Effect.sync(() => {
-              completed = true;
-              operationController.abort();
-            });
-          }),
-          Effect.sleep(Duration.millis(remainingMilliseconds)).pipe(
-            Effect.andThen(deadlineResourceFailure(deadline, phase)),
-          ),
+        boundedPromiseRaceEffect(
+          deadline, phase, remainingMilliseconds, start, connection,
         ),
+      ),
+    );
+  };
+
+  // Reuse the freshly checked budget after drain's synchronous snapshot; ordinary
+  // Promise operations obtain that budget through runBoundedPromiseEffect.
+  const boundedPromiseRaceEffect = function boundedPromiseRaceEffect<Value>(
+    deadline: PhysicalDeadline,
+    phase: PhysicalSessionPhase,
+    remainingMilliseconds: number,
+    start: (signal: AbortSignal) => Promise<Value>,
+    connection?: CheckedOutConnection,
+  ): Effect.Effect<Value, ResourceIssue, never> {
+    return Effect.raceFirst(
+      Effect.callback<Value, ResourceIssue>((resume) => {
+        const operationController = new AbortController();
+        let completed = false;
+        const finish = (
+          effect: Effect.Effect<Value, ResourceIssue, never>,
+        ) => {
+          if (completed) return;
+          completed = true;
+          resume(effect);
+        };
+
+        let promise: Promise<Value>;
+        try {
+          const started = start(operationController.signal);
+          promise =
+            connection === undefined
+              ? started
+              : connection.trackPromise(started);
+        } catch (cause) {
+          finish(Effect.fail(resourceIssue(phase, cause)));
+          return Effect.void;
+        }
+        void promise.then(
+          (value) => finish(Effect.succeed(value)),
+          (cause) => finish(Effect.fail(resourceIssue(phase, cause))),
+        );
+
+        return Effect.sync(() => {
+          completed = true;
+          operationController.abort();
+        });
+      }),
+      Effect.sleep(Duration.millis(remainingMilliseconds)).pipe(
+        Effect.andThen(() => deadlineResourceFailure(deadline, phase)),
       ),
     );
   };

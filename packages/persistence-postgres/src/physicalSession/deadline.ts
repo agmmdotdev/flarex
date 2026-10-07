@@ -96,19 +96,21 @@ export function makePhysicalDeadlineOperations<DeadlineIssue>(
     deadline: PhysicalDeadline,
     phase: PhysicalSessionPhase,
   ): Effect.Effect<never, DeadlineIssue, never> {
-    const state = deadlineStates.get(deadline);
-    return state === undefined
-      ? Effect.die(
-          errors.invariant({
-            reason: "invalidDeadline",
-          }),
-        )
-      : Effect.fail(
-          errors.deadline({
-            deadlineKind: state.kind,
-            phase,
-          }),
-        );
+    return Effect.suspend(() => {
+      const state = deadlineStates.get(deadline);
+      return state === undefined
+        ? Effect.die(
+            errors.invariant({
+              reason: "invalidDeadline",
+            }),
+          )
+        : Effect.fail(
+            errors.deadline({
+              deadlineKind: state.kind,
+              phase,
+            }),
+          );
+    });
   };
 
   const requireKind = (

@@ -624,14 +624,16 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     return charged;
   };
   const charge = (bytes: number) => Effect.fromResult(chargeResult(bytes));
-  const observe = Effect.fn("LogicalDocuments.observe")(function* (
+  // Owned observation and hydration are synchronous Result folds. Their lazy
+  // consumers remain Effect boundaries; per-row diagnostic stacks add no owner.
+  const observeResult = (
     tableId: CatalogTableId, rowId: AppRowIdHexV1, base: AppRowRevisionV1 | null,
     readAt = scanned.get(tableId) ?? state.snapshotCommitSeq ?? state.clock.lastCommitSeq,
-  ) {
+  ): Result.Result<void, Failure> => Result.gen(function* () {
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
     if (dependencies.has(documentId)) return;
-    if (dependencies.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
-    yield* charge(128);
+    if (dependencies.size >= limits.identities) return yield* Result.fail(error("limitExceeded"));
+    yield* chargeResult(128);
     const observed: PointCommitDependencyV1["dependency"]["observed"] = base?.kind === "live"
       ? Object.freeze({ kind: "present", revisionCommitSeq: base.commitSeq })
       : Object.freeze({ kind: "missing", basis: base === null
@@ -640,6 +642,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     dependencies.set(documentId, Object.freeze({ documentId, tableId, rowId, readAt,
       dependency: Object.freeze({ kind: "appRowPoint", documentId, observed }) }));
   });
+  const observe = (...input: Parameters<typeof observeResult>) =>
+    Effect.suspend(() => Effect.fromResult(observeResult(...input)));
   const captureFields = (input: unknown) => Result.gen(function* () {
     const captured = yield* capturePrivateJsonData(input, Math.min(limits.documentBytes, lifetime.remainingBytes()), error);
     if (!isJsonObject(captured.value) || Object.keys(captured.value).some(key => key.startsWith("_"))) {
@@ -658,38 +662,42 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     );
   const currentRowFailure = (cause: ReadAppRowError) => error(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
     ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause);
-  const hydrateCurrentBase = Effect.fn("LogicalDocuments.hydrateCurrentBase")(function* (
+  const hydrateCurrentBaseResult = (
     table: LogicalDocumentTable, base: AppRowRevisionV1, readAt: CommitSeq,
-  ) {
+  ): Result.Result<void, Failure> => Result.gen(function* () {
     const tableId = table.tableId, documentId = appDocumentIdV1FromRowIdentity(base);
     const alreadyObserved = dependencies.has(documentId);
-    yield* observe(tableId, base.rowId, base, readAt);
+    yield* observeResult(tableId, base.rowId, base, readAt);
     // A later scan must not replace a cached absence with a newly committed
     // row. Settlement detects the conflicting dependency; reads stay repeatable.
     if (alreadyObserved || rows.has(documentId)) return;
-    if (rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
-    yield* charge(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
+    if (rows.size >= limits.identities) return yield* Result.fail(error("limitExceeded"));
+    yield* chargeResult(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
     rows.set(documentId, { tableId, tableName: table.logicalName, rowId: base.rowId, documentId, base,
       creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [] });
   });
-  const hydrateSnapshotBase = Effect.fn("LogicalDocuments.hydrateSnapshotBase")(function* (
+  const hydrateCurrentBase = (...input: Parameters<typeof hydrateCurrentBaseResult>) =>
+    Effect.suspend(() => Effect.fromResult(hydrateCurrentBaseResult(...input)));
+  const hydrateSnapshotBaseResult = (
     table: LogicalDocumentTable, selectedRowId: AppRowIdHexV1, base: AppRowReadResultV1,
     loadedBytes?: { value: number },
-  ) {
+  ): Result.Result<void, Failure> => Result.gen(function* () {
     const documentId = appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId: selectedRowId });
-    yield* observe(table.tableId, selectedRowId, base.kind === "missing" ? null : base, state.snapshotCommitSeq);
+    yield* observeResult(table.tableId, selectedRowId, base.kind === "missing" ? null : base, state.snapshotCommitSeq);
     if (base.kind === "missing" || dependencies.has(documentId) && rows.has(documentId)) return;
     const bytes = base.kind === "live" ? base.document.canonicalBytes.byteLength : 0;
     if (loadedBytes !== undefined) loadedBytes.value += bytes;
     if ((loadedBytes?.value ?? bytes) > Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()) ||
-      bytes > limits.documentBytes) return yield* Effect.fail(error("limitExceeded"));
+      bytes > limits.documentBytes) return yield* Result.fail(error("limitExceeded"));
     // The existing row envelope charge includes the retained revision scalars;
     // finite originals/base/current share this already charged document.
-    yield* charge(128 + bytes);
+    yield* chargeResult(128 + bytes);
     rows.set(documentId, { tableId: table.tableId, tableName: table.logicalName, rowId: selectedRowId, documentId, base,
       creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [],
       ...(root !== undefined && base.kind === "live" ? { originalRevision: base } : {}) });
   });
+  const hydrateSnapshotBase = (...input: Parameters<typeof hydrateSnapshotBaseResult>) =>
+    Effect.suspend(() => Effect.fromResult(hydrateSnapshotBaseResult(...input)));
   const readBaseInTransaction = Effect.fn("LogicalDocuments.readBaseInTransaction")(function* (
     tx: FlarexMetadataTransaction, tableId: CatalogTableId, rowId?: AppRowIdHexV1,
     rowIds?: readonly AppRowIdHexV1[],
@@ -760,7 +768,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       scanned.set(tableId, capture.commitSeq);
     }
   });
-  const readFiniteBase = Effect.fn("LogicalDocuments.readFiniteBase")(function* (tableId: CatalogTableId,
+  // Finite read mechanics stay lazy beneath the public document operation and
+  // named capture; nested helper stacks/spans repeat that ownership per batch.
+  const readFiniteBase = Effect.fnUntraced(function* (tableId: CatalogTableId,
     selected: readonly AppRowIdHexV1[]): Effect.fn.Return<void, Failure> {
     if (finiteProfile === undefined || state.snapshotCommitSeq === undefined)
       return yield* Effect.fail(error("invalidAuthority"));
@@ -787,7 +797,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       cause => error(cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause),
       (rowId, base) => hydrateSnapshotBase(table, rowId, base, loadedBytes));
   });
-  const readFiniteIndexPage = Effect.fn("LogicalDocuments.readFiniteIndexPage")(function* (
+  const readFiniteIndexPage = Effect.fnUntraced(function* (
     selection: Pick<LogicalIndexPageRead, "definition" | "bounds" | "after">, limit: number,
   ) {
     if (finiteProfile === undefined || state.snapshotCommitSeq === undefined)
@@ -802,7 +812,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     return yield* decodeCapturedAppIndexSnapshotPageEffect(captured.prepared, captured.rawRows).pipe(
       Effect.mapError(cause => error(logicalIndexReadFailureReason(cause), cause)));
   });
-  const readFiniteIndexRows = Effect.fn("LogicalDocuments.readFiniteIndexRows")(function* (
+  const readFiniteIndexRows = Effect.fnUntraced(function* (
     selection: Pick<LogicalIndexRead, "definition" | "bounds">, tableId: CatalogTableId, limit: number, maximumHydratedOwners?: 1,
   ) {
     if (finiteProfile === undefined || state.snapshotCommitSeq === undefined)
@@ -1105,7 +1115,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const withUniqueValidation = Effect.fn("LogicalDocuments.validateUnique")(function* <Value>(
     pending: PendingDocument, document: CanonicalFlarexValueV1, consume: Effect.Effect<Value, Failure>,
   ): Effect.fn.Return<Value, Failure> {
-    const validateNext = Effect.fn("LogicalDocuments.validateNextUnique")(function* (position: number): Effect.fn.Return<Value, Failure> {
+    // Recursion retains each borrowed frontier until its continuation settles;
+    // the named validateUnique operation already owns this repeated local fold.
+    const validateNext = Effect.fnUntraced(function* (position: number): Effect.fn.Return<Value, Failure> {
       const definition = uniqueForTable(pending.tableId)[position];
       if (definition === undefined) return yield* consume;
       if (definition.tableId !== pending.tableId) return yield* validateNext(position + 1);
@@ -1455,7 +1467,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
             ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) },
           exactPoint: { columns: selection.columns, ...(selection.nullColumn === undefined ? {} : { nullColumn: selection.nullColumn }) },
         });
-      const collectSelections = Effect.fn("LogicalDocuments.collectSelections")(function* (position: number): Effect.fn.Return<void, Failure> {
+      // Keep recursive selection consumption inside the borrowed frontier. A
+      // caller stack/span for every selection repeats relational read ownership.
+      const collectSelections = Effect.fnUntraced(function* (position: number): Effect.fn.Return<void, Failure> {
         const selection = selections[position];
         if (selection === undefined) return;
         return yield* withCandidateSelection(tableName, selection.where, true,

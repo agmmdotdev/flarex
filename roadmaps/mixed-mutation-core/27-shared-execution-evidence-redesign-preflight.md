@@ -1,5 +1,77 @@
 # Shared execution evidence redesign
 
+## Selected storage execution composition
+
+Status: implemented connected composition; native-relative acceptance remains
+unmet. The finite comparison shows lower quiet mixed-product latency without a
+demonstrated reduction in paired thread CPU. Retain this partial improvement;
+do not treat structural simplification as completion of the performance goal.
+The root CPU attribution in
+[the measurement preflight](./21-core-performance-harness-preflight.md#selected-root-cpu-attribution)
+selects the working-set, finite capture, journal and physical-session execution
+path. Repeated internal diagnostic construction occurs beneath named operations;
+successful physical calls also construct errors for deadline branches that never
+win. These are source-established removable mechanics, not exact removable CPU.
+
+Retain the public document, journal, capture and physical-session boundaries.
+Replace nested per-row and recursive diagnostic wrappers with lazy internal
+composition beneath those boundaries. Combine synchronous observation, charging
+and hydration only where the existing lazy consumer preserves row order,
+short-circuit failure, interruption and charge-before-retain behavior. Capture
+preparation and acceptance stay within the existing named operation;
+non-ownership captures need one named capture operation rather than an outer
+ownership-named wrapper. Ownership keeps its original pre-acquisition validation,
+checkout ownership, successor captures and final fences. Journal planning and
+metadata recording remain inside their current public operation and sticky
+failure owner. This deliberately retires redundant private diagnostic frames;
+affected timeline consumers must follow retained semantic operations rather than
+depend on helper names. No public API, stored bytes, schema or data reset changes.
+
+The physical owner constructs timeout refusals only when their timer branch
+executes. Preserve the absolute authenticated deadline, exact error kind/phase,
+race policy and interruption cleanup. Its callback Promise bridge is retained:
+callback finalizers can require quarantine to occur first, so a direct joined
+Effect timeout could block before quarantine. Track, cancel, drain and complete
+the callback Cause under the existing resource budget. This is a genuine lifetime
+boundary; it is not a resourceful runtime reconstructed on every call.
+After the work fence closes, an already-settled drain consumes the same fresh
+deadline check and returns the exact sticky work verdict directly. Pending work
+keeps bounded waiting and quarantine. The existing Promise tracker removes its
+pending entry in its settlement handler instead of scheduling a second cleanup
+reaction; first refusal and drain visibility remain ordered together.
+
+Do not cache live capture acceptance, merge independent commits, alter fresh
+authority or dependency recording, remove required checks, or turn recursively
+borrowed selection/frontier lifetimes into an outer eager loop. The selected
+plain/Result or untraced internal factories must preserve lazy evaluation and
+unexpected defects; blanket removal of Effect supervision is rejected.
+
+The root owns the preflight, measurements and Git. Disjoint workers own the
+working-set/capture/journal and physical/deadline edits plus directly affected
+witnesses. Preserve the earlier dirty baseline and stage only this incremental
+replacement. Remove the replaced wrappers rather than add a second execution
+path. Existing ownership, byte/identity limits, uncached authority refusal,
+first-row failure, rollback, uncertain outcome, cancellation, drain and complete
+Cause witnesses remain correctness gates on PGlite and ordinary PostgreSQL.
+
+Measurement is finite and answers whether this connected composition changes
+complete mixed-product cost. Retain the preceding five root CPU profiles as
+candidate evidence; run ten quiet native/Flarex pairs and five minimal-counter
+pairs before and after, with five warmups per engine in each lane. Add five
+alternating quiet/root-profiled pairs after implementation to check the selected
+stacks. This reserves 115 new business calls, all retained, without implicit
+retries or an automatic five-graph profiling matrix. Quiet latency, paired thread
+CPU, process CPU, sampling uncertainty and observation perturbation remain
+separate. The focused objective is a lower complete quiet median and lower paired
+thread CPU at the available counter resolution, without a new correctness or
+tail regression; unresolved or adverse results require a truthful disposition.
+The existing complete native-relative latency/CPU gates remain unchanged and
+unmet until their declared complete campaign passes. This internal composition
+cut does not change transaction/lifetime contracts or finish the group milestone;
+standalone and connected consumer correctness still run before both reviews,
+cleanup and one scoped commit. Exceptional quiet workflow stalls remain a
+separate unresolved attribution question.
+
 Status: selected redesign plan; runtime cutover has not started. This is the
 focused successor within the [foundation plan](./14-execution-redesign-roadmap.md#connected-packages),
 covering CPU work and database exchanges together. The standing core-redesign

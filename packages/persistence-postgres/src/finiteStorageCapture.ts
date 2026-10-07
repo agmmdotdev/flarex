@@ -629,10 +629,10 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         case "retirement": return Object.freeze({ kind: "retirement" as const, retired: false });
       }
     });
-    const runPublic = Effect.fn("FiniteStorageCapture.acceptOwnership")(function* (input: ExactRunningAttemptKernelInputV1,
-      operation: FiniteStorageCaptureOperation) {
+    type CaptureValue = Effect.Success<ReturnType<typeof run>>;
+    const runOwnership = Effect.fn("FiniteStorageCapture.acceptOwnership")(function* (input: ExactRunningAttemptKernelInputV1,
+      operation: Extract<FiniteStorageCaptureOperation, { kind: "ownership" }>) {
       const value = yield* run(input, operation);
-      if (operation.kind !== "ownership") return value;
       if (value.kind !== "ownership") return yield* Effect.die("Ownership capture kind changed");
       const mapOwnershipFailure = (cause: ApplicationWriteOwnershipError) => refused(
         cause.reason === "resourceFailure" ? "resourceFailure" : "storedCorruption", cause);
@@ -680,7 +680,12 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       return Object.freeze({ kind: "ownership" as const, denied: Result.isFailure(verdict) });
     });
     const capture: FiniteStorageCaptureTarget[typeof CAPTURE_FINITE_STORAGE] = (input, operation) =>
-      runPublic(input, operation).pipe(Effect.map(value => {
+      // Inspect the operation only when evaluated. Non-ownership captures keep
+      // one named capture boundary rather than an ownership orchestration span.
+      Effect.suspend((): Effect.Effect<CaptureValue | Effect.Success<ReturnType<typeof runOwnership>>, FiniteStorageCaptureError> => {
+        const selected: FiniteStorageCaptureOperation = operation;
+        return selected.kind === "ownership" ? runOwnership(input, selected) : run(input, selected);
+      }).pipe(Effect.map(value => {
         // SAFETY: run's exhaustive named operation switch returns exactly the same discriminant.
         return value as FiniteStorageCaptureEnvelopes[typeof operation.kind];
       }));

@@ -6,6 +6,7 @@ import { Client, Pool, type PoolClient } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { makePhysicalDeadlineOperations } from "../src/physicalSession/deadline";
 import { makePhysicalSessionAccess } from "../src/physicalSession/drizzle";
+import { makePhysicalConnectionIdentity } from "../src/physicalSession/model";
 import {
   physicalSessionErrors,
   PhysicalSessionDeadlineIssue,
@@ -23,12 +24,156 @@ import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogC
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { runEffect } from "./effectTestRuntime";
 import { createFileScopedPostgresFixture } from "./postgresHelpers";
+import type { FlarexMetadataDatabase } from "../src/deployments";
 
 const deadlines = makePhysicalDeadlineOperations(physicalSessionErrors);
 const postgresUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_DATABASE_URL);
 const artifactDeadlines = makePhysicalDeadlineOperations(
   catalogControlPhysicalErrors,
 );
+
+it.each(["read", "initial", "recovery"] as const)(
+  "constructs a %s deadline refusal only when its failure branch executes",
+  async kind => {
+    const deadlineError = vi.fn(physicalSessionErrors.deadline);
+    const lazyDeadlines = makePhysicalDeadlineOperations({
+      ...physicalSessionErrors,
+      deadline: deadlineError,
+    });
+    const phase = kind === "read" ? "read" : "callback";
+    const deadline = await runEffect(lazyDeadlines.start(kind, 1000));
+    const failure = lazyDeadlines.fail(deadline, phase);
+    expect(deadlineError).not.toHaveBeenCalled();
+
+    const exit = await runEffect(Effect.exit(failure));
+    expect(deadlineError).toHaveBeenCalledExactlyOnceWith({ deadlineKind: kind, phase });
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const reason = exit.cause.reasons[0];
+      expect(reason && Cause.isFailReason(reason) ? reason.error : undefined)
+        .toBe(deadlineError.mock.results[0]?.value);
+    }
+  },
+);
+
+it.each(["read", "initial", "recovery"] as const)(
+  "finishes successful %s operations without constructing timeout errors",
+  async profile => {
+    const { pool, release, statements } = physicalSessionWitnessPool();
+    const deadlineError = vi.fn(physicalSessionErrors.deadline);
+    const resourceError = vi.fn(physicalSessionErrors.resource);
+    const physical = makePostgresPhysicalSessionDriver(pool, {
+      access: makePhysicalSessionAccess(flarexSchema),
+      errors: { ...physicalSessionErrors, deadline: deadlineError, resource: resourceError },
+    });
+    const result = await runEffect(Effect.gen(function* () {
+      const deadline = yield* deadlines.start(profile, 1000);
+      const work = () => Effect.succeed("accepted");
+      if (profile === "read") return yield* physical.runReadEffect({ deadline }, work);
+      if (profile === "initial") return yield* physical.runInitialTransactionEffect({
+        isolationLevel: "read committed", deadline, lockTimeoutMilliseconds: 500,
+        recoveryTimeoutMilliseconds: 1000,
+      }, effect => effect, work);
+      return yield* physical.runRecoveryTransactionEffect({
+        deadline, lockTimeoutMilliseconds: 500,
+        excludedConnectionIdentity: makePhysicalConnectionIdentity(),
+      }, work);
+    }));
+    expect(result).toEqual(profile === "read" ? "accepted" : { kind: "committed", value: "accepted" });
+    expect(deadlineError).not.toHaveBeenCalled();
+    expect(resourceError).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledExactlyOnceWith(false);
+    if (profile !== "read") expect(statements.at(-1)).toBe("commit");
+  },
+);
+
+it.each(["read", "initial", "recovery"] as const)(
+  "retains the first already-settled caught query rejection in %s",
+  async profile => {
+    const firstFailure = new Error("first caught query rejection");
+    const secondFailure = new Error("second caught query rejection");
+    const { pool, release, statements } = physicalSessionWitnessPool(new Map([
+      ["select first_rejection", firstFailure], ["select second_rejection", secondFailure],
+    ]));
+    const physical = makePostgresPhysicalSessionDriver(pool, {
+      access: makePhysicalSessionAccess(flarexSchema), errors: physicalSessionErrors,
+    });
+    const cause = await runEffect(Effect.gen(function* () {
+      const deadline = yield* deadlines.start(profile, 1000);
+      const work = (database: FlarexMetadataDatabase) =>
+        Effect.tryPromise({
+          try: async () => {
+            await Promise.resolve(database.execute(sql`select first_rejection`)).catch(error => {
+              expect(error).toMatchObject({ cause: firstFailure });
+            });
+            await Promise.resolve(database.execute(sql`select second_rejection`)).catch(error => {
+              expect(error).toMatchObject({ cause: secondFailure });
+            });
+            return "caught both";
+          },
+          catch: cause => new PhysicalSessionResourceIssue({ phase: "callback", cause }),
+        });
+      if (profile === "read") {
+        const exit = yield* Effect.exit(physical.runReadEffect({ deadline }, work));
+        if (Exit.isSuccess(exit)) throw new Error("Expected sticky read refusal");
+        return exit.cause;
+      }
+      if (profile === "initial") {
+        const settlement = yield* physical.runInitialTransactionEffect({
+          isolationLevel: "read committed", deadline, lockTimeoutMilliseconds: 500,
+          recoveryTimeoutMilliseconds: 1000,
+        }, effect => effect, work);
+        if (settlement.kind !== "notCommitted") throw new Error("Expected sticky initial refusal");
+        return settlement.cause;
+      }
+      const settlement = yield* physical.runRecoveryTransactionEffect({
+        deadline, lockTimeoutMilliseconds: 500,
+        excludedConnectionIdentity: makePhysicalConnectionIdentity(),
+      }, work);
+      if (settlement.kind !== "unresolved" || settlement.resolution.kind !== "lifecycle")
+        throw new Error("Expected sticky recovery refusal");
+      return settlement.resolution.cause;
+    }));
+    expect(cause.reasons).toHaveLength(1);
+    const reason = cause.reasons[0];
+    const issue = reason && Cause.isFailReason(reason) ? reason.error : undefined;
+    expect(issue).toBeInstanceOf(PhysicalSessionResourceIssue);
+    if (issue instanceof PhysicalSessionResourceIssue) {
+      expect(issue.phase).toBe(profile === "read" ? "read" : "callback");
+      expect(issue.cause).toBe(firstFailure);
+    }
+    expect(statements).toContain("select first_rejection");
+    expect(statements).toContain("select second_rejection");
+    expect(statements).not.toContain("commit");
+    if (profile !== "read") expect(statements.at(-1)).toBe("rollback");
+    expect(release).toHaveBeenCalledExactlyOnceWith(profile === "read");
+  },
+);
+
+function physicalSessionWitnessPool(failures: ReadonlyMap<string, Error> = new Map()) {
+  const release = vi.fn();
+  const statements: string[] = [];
+  const client: PoolClient = Object.assign(new Client(), { release });
+  Object.defineProperty(client, "query", {
+    // The callback's tracked client Proxy substitutes its query method.
+    configurable: true,
+    value: (statement: string | Readonly<{ text: string }>) => {
+      const text = typeof statement === "string" ? statement : statement.text;
+      statements.push(text);
+      const failure = failures.get(text);
+      if (failure !== undefined) return Promise.reject(failure);
+      const rows = text === "show statement_timeout" ? [{ statement_timeout: "0" }] : [];
+      return Promise.resolve({
+        command: text === "commit" ? "COMMIT" : text === "rollback" ? "ROLLBACK" : "SELECT",
+        rows, rowCount: rows.length, fields: [], oid: 0,
+      });
+    },
+  });
+  const pool: PhysicalPostgresPool = {
+    connect: callback => callback(undefined, client, release),
+  };
+  return { pool, release, statements };
+}
 
 it("shares deadline mechanics while preserving each owner's error projection", async () => {
   const [core, artifact] = await runEffect(

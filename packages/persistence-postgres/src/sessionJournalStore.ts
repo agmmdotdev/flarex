@@ -4964,9 +4964,9 @@ type FinitePointOperationContext = Readonly<{ kind: "storage"; capture: LogicalF
 
 /** One evaluator owns both fresh storage observations and already observed work.
  * No transaction or clock is manufactured for local tentative operations. */
-const runFinitePointOperationEffect = Effect.fn(
-  "SessionJournalStore.runFinitePointOperation",
-)(function* (
+// The public journal operation owns diagnostics and sticky failure. This finite
+// evaluator is a repeated private stage; retain its lazy in-flight/finalizer fold.
+const runFinitePointOperationEffect = Effect.fnUntraced(function* (
   frontier: FinitePointOperationContext,
   table: PinnedPointTableStateV1,
   request: SessionJournalStoredPointRequest,
@@ -7034,7 +7034,9 @@ const planFreshPointOperationEffect = Effect.fn("SessionJournalStore.planFreshPo
     return yield* planReadPointOperationEffect(table, request, rowId => readLogicalPointEffect(tx, context, table, rowId));
   });
 
-const planFinitePointOperationEffect = Effect.fn("SessionJournalStore.planFinitePointOperation")(function* (
+// Planning remains lazy beneath the named journal operation and genuine capture;
+// each finite point does not need another caller stack or diagnostic span.
+const planFinitePointOperationEffect = Effect.fnUntraced(function* (
   capture: LogicalFiniteStorageCapture<FiniteStorageCaptureError>, context: FiniteEntryAttemptKernelContext,
   table: PinnedPointTableStateV1, request: SessionJournalStoredPointRequest, randomUuid: () => string,
   finite: FiniteRootAttemptState,
@@ -9027,7 +9029,9 @@ const recordFiniteExecutionMetadataEffect = Effect.fn("SessionJournal.recordFini
     }
   });
 
-const recordFiniteApplicationDemandMetadataEffect = Effect.fn("SessionJournal.recordFiniteApplicationDemandMetadata")(
+// Repeated demand bookkeeping belongs to its public journal operation. Keep
+// exact dependency/failure order without a private diagnostic caller stack.
+const recordFiniteApplicationDemandMetadataEffect = Effect.fnUntraced(
   function* (attempt: SessionJournalAttemptStateV1, finite: FiniteRootAttemptState, tableId: CatalogTableId,
     write: boolean, indexDefinitionId?: CatalogIndexDefinitionId) {
     const projection = getFiniteAttemptMetadataProjection(finite.metadata, finite.handle);
