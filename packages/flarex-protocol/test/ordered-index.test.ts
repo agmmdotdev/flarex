@@ -4,7 +4,8 @@ import {
   decodeSchemaManifestAppIndexFieldPath,
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
 } from "flarex-protocol/schema-manifest";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { canonicalizeAppIndexPhysicalSpecV1 } from "../src/index-definition";
 
 import {
   APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
@@ -182,6 +183,147 @@ describe("ordered index physical contract v1", () => {
     expect(Object.isFrozen(decoded.orderedFields)).toBe(true);
     expect(Object.isFrozen(decoded.orderedFields[0])).toBe(true);
     expect(Object.isFrozen(decoded.tieBreaker)).toBe(true);
+  });
+
+  it("keeps explicit public decoding detached even for an issued specification", () => {
+    const issued = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("status"));
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      const throwing = decodeAppOrderedIndexPhysicalSpecV1(issued);
+      const result = Result.getOrThrow(decodeAppOrderedIndexPhysicalSpecV1Result(issued));
+      expect(clone).toHaveBeenCalledTimes(2);
+      for (const decoded of [throwing, result]) {
+        expect(decoded).toEqual(issued);
+        expect(decoded).not.toBe(issued);
+        expect(decoded.orderedFields).not.toBe(issued.orderedFields);
+        expect(decoded.orderedFields[0]).not.toBe(issued.orderedFields[0]);
+        expect(decoded.tieBreaker).not.toBe(issued.tieBreaker);
+        expect(Object.isFrozen(decoded)).toBe(true);
+        expect(Object.isFrozen(decoded.orderedFields[0])).toBe(true);
+        expect(Object.isFrozen(decoded.tieBreaker)).toBe(true);
+      }
+      expect(throwing).not.toBe(result);
+    } finally { clone.mockRestore(); }
+  });
+
+  it("consumes issued developer and intrinsic specs without repeating metadata snapshots", () => {
+    const developer = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("status"));
+    const fromResult = Result.getOrThrow(decodeAppOrderedIndexPhysicalSpecV1Result(developer));
+    const cases = [
+      { spec: developer, values: [stringValue("active"), orderedIndexCreationTimeV1(1)] },
+      { spec: fromResult, values: [stringValue("active"), orderedIndexCreationTimeV1(1)] },
+      { spec: APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1, values: [orderedIndexCreationTimeV1(1)] },
+      { spec: APP_BY_ID_PHYSICAL_SPEC_V1, values: [] },
+    ];
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      for (const { spec, values } of cases) {
+        clone.mockClear();
+        const encodedKey = encodeAppOrderedIndexKeyV1({ spec, values });
+        const decoded = decodeAppOrderedIndexKeyV1({ spec, encodedKey });
+        expect(decoded).toEqual(values);
+        expect(Object.isFrozen(decoded)).toBe(true);
+        expect(compileAppOrderedIndexBoundsV1({ spec, expressions: [] })).toEqual({});
+        // Decoded changing tuple values still receive their owned snapshot.
+        // The immutable specification does not receive another one.
+        expect(clone.mock.calls.map(([value]) => Array.isArray(value))).toEqual([true]);
+      }
+    } finally { clone.mockRestore(); }
+  });
+
+  it("retains full preparation for raw, spread and foreign deeply frozen copies", () => {
+    const issued = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("status"));
+    const raw = structuredClone(issued);
+    const spread = { ...issued };
+    const foreignFrozen = Object.freeze({ ...issued,
+      orderedFields: Object.freeze(issued.orderedFields.map(field => Object.freeze({ ...field }))),
+      tieBreaker: Object.freeze({ ...issued.tieBreaker }),
+    });
+    const values = [stringValue("active"), orderedIndexCreationTimeV1(1)];
+    const expectedKey = encodeAppOrderedIndexKeyV1({ spec: issued, values });
+    const expression = { op: "eq" as const, field: requiredField(issued, 0), value: values[0]! };
+    const expectedBounds = compileAppOrderedIndexBoundsV1({ spec: issued, expressions: [expression] });
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      for (const spec of [raw, spread, foreignFrozen]) {
+        clone.mockClear();
+        expect(encodeAppOrderedIndexKeyV1({ spec, values })).toBe(expectedKey);
+        expect(decodeAppOrderedIndexKeyV1({ spec, encodedKey: expectedKey })).toEqual(values);
+        expect(compileAppOrderedIndexBoundsV1({ spec, expressions: [expression] })).toEqual(expectedBounds);
+        expect(clone.mock.calls.map(([value]) => Array.isArray(value))).toEqual([false, false, true, false]);
+      }
+    } finally { clone.mockRestore(); }
+    expect(Object.isFrozen(raw)).toBe(false);
+    expect(Object.isFrozen(spread)).toBe(false);
+  });
+
+  it("revalidates mutable source inputs after each consumption and refuses malformed frozen copies", () => {
+    const issued = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("status"));
+    const values = [stringValue("active"), orderedIndexCreationTimeV1(1)];
+    const encodedKey = encodeAppOrderedIndexKeyV1({ spec: issued, values });
+    const consumers: ReadonlyArray<(spec: AppOrderedIndexPhysicalSpecV1) => unknown> = [
+      spec => encodeAppOrderedIndexKeyV1({ spec, values }),
+      spec => decodeAppOrderedIndexKeyV1({ spec, encodedKey }),
+      spec => compileAppOrderedIndexBoundsV1({ spec, expressions: [] }),
+    ];
+    for (const consume of consumers) {
+      const raw = { ...issued, orderedFields: issued.orderedFields.map(field => ({ ...field })) };
+      expect(() => consume(raw)).not.toThrow();
+      raw.orderedFields.pop();
+      expect(() => consume(raw)).toThrow();
+      const malformed = Object.freeze({ ...issued,
+        orderedFields: Object.freeze([requiredField(issued, 0)]),
+      });
+      expect(() => consume(malformed)).toThrow();
+    }
+    // A late field is still part of the strict specification contract.
+    const widened = Object.freeze({ ...issued, callerPhysicalName: "foreign" });
+    for (const consume of consumers) expect(() => consume(widened)).toThrow();
+  });
+
+  it("preserves changing component, key and bound checks for the same issued specification", () => {
+    const spec = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("status"));
+    const values = [stringValue("active"), orderedIndexCreationTimeV1(1)];
+    const encodedKey = encodeAppOrderedIndexKeyV1({ spec, values });
+    expect(decodeAppOrderedIndexKeyV1({ spec, encodedKey })).toEqual(values);
+    values.pop();
+    expect(() => encodeAppOrderedIndexKeyV1({ spec, values })).toThrow(OrderedIndexCodecV1InputError);
+    expect(() => encodeAppOrderedIndexKeyV1({ spec, values: [stringValue("active"), ORDERED_INDEX_NULL_V1] }))
+      .toThrow(OrderedIndexCodecV1InputError);
+    expect(() => decodeAppOrderedIndexKeyV1({ spec, encodedKey: decodeOrderedIndexKeyBytesHexV1(`${encodedKey}03`) }))
+      .toThrow(InvalidEncodedOrderedIndexKeyV1Error);
+    expect(() => compileAppOrderedIndexBoundsV1({ spec, expressions: [
+      { op: "eq", field: requiredField(spec, 1), value: orderedIndexCreationTimeV1(1) },
+    ] })).toThrow(InvalidOrderedIndexRangeV1Error);
+    let accessorReads = 0;
+    const accessor = { kind: "string" as const, get value() { accessorReads++; return "active"; } };
+    expect(() => encodeAppOrderedIndexKeyV1({ spec, values: [accessor, orderedIndexCreationTimeV1(1)] }))
+      .toThrow(OrderedIndexCodecV1InputError);
+    expect(() => compileAppOrderedIndexBoundsV1({ spec, expressions: [
+      { op: "eq", field: requiredField(spec, 0), value: accessor },
+    ] })).toThrow(OrderedIndexCodecV1InputError);
+    expect(accessorReads).toBe(0);
+  });
+
+  it("uses the canonical definition issuer's retained spec without changing identity or digest", async () => {
+    const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+      lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("status")),
+    );
+    const retained = canonical.physicalSpec;
+    const values = [stringValue("active"), orderedIndexCreationTimeV1(1)];
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      const encodedKey = encodeAppOrderedIndexKeyV1({ spec: retained, values });
+      expect(decodeAppOrderedIndexKeyV1({ spec: retained, encodedKey })).toEqual(values);
+      compileAppOrderedIndexBoundsV1({ spec: retained, expressions: [
+        { op: "eq", field: requiredField(retained, 0), value: values[0]! },
+      ] });
+      expect(clone.mock.calls.map(([value]) => Array.isArray(value))).toEqual([true]);
+      expect(canonical.physicalSpec).toBe(retained);
+    } finally { clone.mockRestore(); }
+    const replay = await canonicalizeAppIndexPhysicalSpecV1(retained);
+    expect(replay).toEqual(canonical);
+    expect(replay.physicalSpec).not.toBe(retained);
   });
 
   it("keeps encoded-key and row-identity types nominally distinct", () => {

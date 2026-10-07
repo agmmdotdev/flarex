@@ -371,6 +371,10 @@ const SEPARATE_ROW_ID_TIE_BREAKER = Object.freeze({
   byteLength: ORDERED_INDEX_ROW_ID_BYTES_V1,
 } as const);
 
+// Only this decoder's detached, deeply frozen outputs may skip preparation.
+// Identity carries immutable protocol data provenance, never storage authority.
+const issuedPhysicalSpecs = new WeakSet<object>();
+
 export function decodeAppOrderedIndexPhysicalSpecV1(
   value: unknown,
 ): AppOrderedIndexPhysicalSpecV1 {
@@ -383,8 +387,18 @@ export function decodeAppOrderedIndexPhysicalSpecV1Result(
   value: unknown,
 ): Result.Result<AppOrderedIndexPhysicalSpecV1, Schema.SchemaError> {
   return decodeAppOrderedIndexPhysicalSpecV1ShapeResult(value).pipe(
-    Result.map(snapshotDecodedProtocolPlainData),
+    Result.map(decoded => {
+      const snapshot = snapshotDecodedProtocolPlainData(decoded);
+      issuedPhysicalSpecs.add(snapshot);
+      return snapshot;
+    }),
   );
+}
+
+function consumeAppOrderedIndexPhysicalSpecV1(
+  spec: AppOrderedIndexPhysicalSpecV1,
+): AppOrderedIndexPhysicalSpecV1 {
+  return issuedPhysicalSpecs.has(spec) ? spec : decodeAppOrderedIndexPhysicalSpecV1(spec);
 }
 
 export function lowerAppDeveloperOrderedIndexPhysicalSpecV1(
@@ -674,7 +688,7 @@ export function encodeAppOrderedIndexKeyV1(input: {
   readonly spec: AppOrderedIndexPhysicalSpecV1;
   readonly values: ReadonlyArray<OrderedIndexComponentV1>;
 }): OrderedIndexKeyHexV1 {
-  const spec = decodeAppOrderedIndexPhysicalSpecV1(input.spec);
+  const spec = consumeAppOrderedIndexPhysicalSpecV1(input.spec);
   validateCanonicalArrayShape(
     input.values,
     "$values",
@@ -753,7 +767,7 @@ export function decodeAppOrderedIndexKeyV1(input: {
   readonly spec: AppOrderedIndexPhysicalSpecV1;
   readonly encodedKey: OrderedIndexKeyBytesHexV1;
 }): ReadonlyArray<OrderedIndexComponentV1> {
-  const spec = decodeAppOrderedIndexPhysicalSpecV1(input.spec);
+  const spec = consumeAppOrderedIndexPhysicalSpecV1(input.spec);
   const values = decodeOrderedIndexComponentsV1(
     input.encodedKey,
     spec.orderedFields.length,
@@ -796,7 +810,7 @@ export function compileAppOrderedIndexBoundsV1(input: {
   readonly spec: AppOrderedIndexPhysicalSpecV1;
   readonly expressions: ReadonlyArray<OrderedIndexRangeExpressionV1>;
 }): OrderedIndexBoundsV1 {
-  const spec = decodeAppOrderedIndexPhysicalSpecV1(input.spec);
+  const spec = consumeAppOrderedIndexPhysicalSpecV1(input.spec);
   validateCanonicalArrayShape(
     input.expressions,
     "$expressions",

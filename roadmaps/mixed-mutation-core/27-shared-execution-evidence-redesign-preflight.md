@@ -224,6 +224,63 @@ overhead. Diagnostic profiles only answer a concrete remaining owner question.
 Per-request allocation attribution remains a separate observation with an exact
 call window; retained memory is bounded even when allocation sampling is absent.
 
+## Issued ordered-index specification consumption
+
+Status: **implemented, reviewed and component-validated.** Exact locally issued
+specifications now avoid repeated static decoding and snapshotting in their three
+consumers. Equivalent dynamic validation and current-membership behavior remain
+supported on both database drivers. The retained-spec component uses less elapsed
+and batch CPU time; this temporal result does not quantify complete workflow
+savings or close the failed native latency gates. The protocol-only correction
+is independent of the unfinished transaction cutovers and follows the existing
+component delivery loop.
+
+The physical-spec decoder already produces detached, deeply frozen metadata.
+Canonical index definition issuance and located definitions retain that object.
+Previously, key encoding, stored-key decoding and bounds compilation invoked
+the complete spec decoder again for every operation. Existing sampled profiles
+locate repeated spec decoding, cloning and freezing on these actual paths;
+sample counts neither quantify quiet milliseconds nor establish dominance.
+
+Keep the existing protocol decoder as the issuer. Register only its successfully
+decoded, detached, deeply frozen output in a module-private weak identity set.
+The three spec consumers may use that exact issued object directly. Raw inputs,
+spreads, structured copies and foreign frozen objects still follow the complete
+decoder. Explicit public decoding continues producing a distinct detached
+snapshot even when passed a previously issued object. Weak identity membership
+retains no additional metadata lifetime and grants no catalog, scope, admission,
+installation or transaction authority.
+
+The affected consumers are developer/intrinsic key materialization, index query
+bounds, append capture and stored membership acceptance. Preserve all changing
+component/value/creation-time checks, canonical encoding and reencoding, key and
+bound size limits, field order, malformed-key refusals, digest comparisons and
+fresh admission/readiness/storage proofs. Source inputs never acquire issued
+status. Initialize identity ownership before the module's static intrinsic specs
+are decoded. No API, wire bytes, schema, durable data, grants, transaction or host
+lifetime changes are selected. Do not trust `Object.isFrozen`, cache by structure
+or digest, short-circuit public decoding or modify persistence authority.
+
+The coherent cutover belongs to `flarex-protocol/ordered-index`; persistence
+consumers keep their existing contracts. Replace the three repeated spec
+preparations at that owner and remove their displaced work in the same change.
+Prove equivalent issued/raw/copied behavior, canonical-issuer handoff, continued
+public detachment, mutable raw-input revalidation, malformed late fields,
+accessors and dynamic data/key/bound refusals. An allocation witness must
+distinguish eliminated immutable-spec snapshots from still-required dynamic
+value snapshots. Preserve the full ordered-index and index-definition witnesses
+and affected current-membership proofs on PGlite and ordinary-role PostgreSQL.
+
+Record a focused before/after component experiment using actual retained specs
+and the same key/bounds workload, with unchanged warmup/sample and batch policy.
+Use standard elapsed and CPU counters without a collector in the measured body;
+keep raw samples, source/harness fingerprints, counter-resolution limits and
+setup separate. This is a temporal component comparison, not a native business
+reference or exclusive whole-root attribution. Both reviews, affected strict
+checks/lint/source guards and cleanup remain required. Full five-graph native
+comparisons remain at connected milestones; do not repeat them automatically for
+this pure metadata-owner iteration or claim their prior failed gates pass.
+
 ## Breaking contracts, data and completion
 
 | Current contract | Disposition and cutover |
