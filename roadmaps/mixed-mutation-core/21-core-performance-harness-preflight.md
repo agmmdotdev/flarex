@@ -648,3 +648,81 @@ required semantics, measured repeated mechanics, affected owners and remaining
 uncertainty. This investigation does not claim knowledge of every possible
 future bottleneck or authorize speculative performance changes merely to improve
 an isolated helper.
+
+#### Selected Root CPU Attribution
+
+Implemented private SDK contract. Root observation separates inspector CPU/GC evidence from full Effect,
+driver and publication observation. `measure({ mode: "cpu", observation:
+"root", ... })` profiles the existing complete `sample.run` call without an
+Effect collector, primitive-evaluation hook, driver trace, publication observer
+or heap sampling. Default CPU diagnostics retain their existing full detail.
+The CPU collector owns its genuine call window independently; reports retain
+raw CPU evidence, analysis and profiler faults even when Effect normalization
+is absent or fails. No synthetic span, per-owner CPU attribution or replacement
+business execution path is introduced.
+
+The collector accepts `allocations: false`. Its evidence records whether
+allocation sampling was enabled; disabled configuration, profiles and windows
+are explicitly absent. Analysis distinguishes intentionally disabled allocation
+evidence from failed capture, and only requires heap evidence when enabled.
+This changes the private CPU artifact contract: current producers, fixtures,
+analysis and rendering migrate together. Historical saved artifacts remain
+retained investigation records; no durable application data or execution
+protocol changes. Existing real failure, interruption, bounded profiler stop,
+resource exclusivity, committed readback and joined cleanup semantics remain
+requirements.
+
+Root CPU diagnostics use the existing alternating quiet/diagnostic Flarex pair
+policy. Five warmups and five pairs consume exactly fifteen fresh attempts;
+there is no extra hidden calibration call. The comparison retains both real
+calls and discloses observer effects without subtracting them or claiming
+native acceptance. Profiler acquisition and release are outside the timed
+business call, while their actual capture boundaries remain in raw evidence.
+Inspector sampling and GC observation still perturb execution; sampled stack
+weights, process CPU and overlapping GC intervals do not establish exact
+exclusive function CPU, scheduler delay or PostgreSQL CPU.
+
+Use Application + Product as the primary graph. Rank actual retained sampled
+stacks against current source, distinguish required business/settlement work
+from repeated immutable reconstruction and orchestration, and select a core
+owner only when demonstrated whole-call cost supports a substantial change.
+Allow at most one targeted refinement, with thirty-five fresh attempts as the
+total campaign bound. Investigate exceptional mixed-workflow stalls as a
+separate named question; quiet artifacts cannot retrospectively supply missing
+CPU, GC or server evidence. The five-graph suite remains a group milestone
+after an evidenced core change, rather than the default loop for this SDK slice.
+
+Completion requires deterministic disabled-heap and independent-evidence
+proofs, real inspector lifecycle and failure preservation, proportional SDK
+typechecking/lint, ordinary-role PostgreSQL complete-call diagnostics, both
+reviews, retained raw artifacts and a scoped commit. Earlier unrelated dirty
+core changes remain outside this slice and outside its review and commit.
+
+The focused SDK type project uses the promoted framework's actual portable
+declaration. The upstream comparison island has the same package name/version
+but a different export facade, so an undifferentiated type graph can select
+the wrong declaration owner. This verification binding follows the adapter's
+runtime package junction; it introduces no runtime redirect or stub and does
+not promote the independently gated native island.
+
+Root diagnostics show meaningful execution-thread CPU alongside idle intervals;
+idle does not identify a database, network or lock owner. Current source and
+sampled synchronous ancestry identify repeated `Effect.fn` invocation machinery:
+even unnamed functions capture a diagnostic Error and install `CurrentStackFrame`
+regardless of tracer enablement. These invocations are spread across physical
+sessions, finite captures, logical working sets and the journal. Successful
+physical calls also construct timeout refusal Errors while building race
+branches. Disabling spans therefore does not eliminate all diagnostic
+construction. Small clone, encoding and timeout helpers alone do not explain
+the complete native-relative gap.
+
+The next focused investigation is the connected working-set, capture and
+physical-session composition: establish which repeated construction can move to
+its lifetime owner or become failure-only, then test its complete-call effect.
+Preserve fresh authority, exact captured dependencies, cancellation/deadline
+behavior, first failure, joined callback cleanup and framework-owned business
+semantics. Sample spacing and synchronous stack association are candidate
+evidence, not exact component CPU or predicted quiet savings. Unbound async
+Effect work, ambiguous boundary samples and exceptional quiet stalls remain
+explicit gaps. This selects an owner investigation, not a broad rewrite or a
+claim that the native-latency gate has passed.

@@ -8,6 +8,7 @@ import type { MeasurementEvent, MeasurementEvidence, MeasurementObserver } from 
 import { databaseEvents } from "./collectors/database";
 import { createEffectMeasurementCollector } from "./collectors/effect";
 import { createCpuMeasurementCollector, assertCpuMeasurementIdle, readNodeResourceCounters } from "./collectors/cpu";
+import { analyzeCpuEvidence } from "./cpu";
 import { acquireServerMeasurementResource } from "./collectors/server";
 import { acquireNativeBusinessResource } from "./collectors/native";
 import { MeasurementInfrastructureError, MeasurementRunFailure, persistMeasurementReport, type RequestReport, type RunReport } from "./report";
@@ -34,10 +35,13 @@ const common = {
 const MeasureOptionsSchema = Schema.Struct({ ...common,
   mode: Schema.Literals(["quiet", "timeline", "resources", "database", "cpu", "server"]),
   driver: Schema.optional(Schema.Literals(["postgres", "pglite"])),
-}).check(Schema.makeFilter(value => value.driver === "pglite" && (value.mode === "database" || value.mode === "server")
+  observation: Schema.optional(Schema.Literal("root")),
+}).check(Schema.makeFilter(value => value.observation === "root" && value.mode !== "cpu"
+  ? "Root observation requires CPU mode"
+  : value.driver === "pglite" && (value.mode === "database" || value.mode === "server")
   ? "Database/server diagnostics require the PostgreSQL driver"
-  : (value.samples ?? 1) * (value.mode === "resources" ? 2 : 1) + (value.warmups ?? 1) +
-    (value.mode === "quiet" || value.mode === "resources" ? 0 : 1) > maxCorePerformanceSeriesSamples
+  : (value.samples ?? 1) * (value.mode === "resources" || value.observation === "root" ? 2 : 1) + (value.warmups ?? 1) +
+    (value.mode === "quiet" || value.mode === "resources" || value.observation === "root" ? 0 : 1) > maxCorePerformanceSeriesSamples
     ? "Selected sampling exceeds the fixture's fresh-attempt capacity" : undefined));
 const CompareOptionsSchema = Schema.Struct({ ...common,
   selection: Schema.Struct({ scenario: NativeScenarioName }), size: Schema.Literal("small") });
@@ -124,19 +128,22 @@ function normalize(requestId: string, collector: ReturnType<typeof createEffectM
 
 async function flarexRequest(scenario: CorePerformanceScenario, name: typeof ScenarioName.Type, index: number,
   kind: RequestReport["kind"], mode: RunReport["mode"], runId: string, retainFailure: (cause: unknown) => void,
-  server: Awaited<ReturnType<typeof acquireServerMeasurementResource>> | undefined): Promise<RequestReport> {
+  server: Awaited<ReturnType<typeof acquireServerMeasurementResource>> | undefined,
+  selectedObservation?: "root"): Promise<RequestReport> {
   const id = `${runId}:flarex:${index}`;
   const seedStart = performance.now();
   const sample = await scenario.prepareSample(id, index);
   const seedMs = performance.now() - seedStart;
-  const collector = kind === "diagnostic" ? createEffectMeasurementCollector({ now: () => performance.now(),
+  const rootCpu = mode === "cpu" && selectedObservation === "root";
+  const collector = kind === "diagnostic" && !rootCpu ? createEffectMeasurementCollector({ now: () => performance.now(),
     ...(mode === "resources" ? { readResources: readNodeResourceCounters } : {}) }) : undefined;
   let trace: ReturnType<typeof createMixedMutationPerformanceTrace> | undefined;
   if (collector !== undefined && (mode === "resources" || mode === "database" || mode === "server" || mode === "cpu") && scenario.pools !== undefined) {
     trace = createMixedMutationPerformanceTrace({ ...scenario.pools, currentOperationId: collector.currentOperationId,
       detail: mode === "database" ? "full" : "resources" });
   }
-  const cpu = collector !== undefined && mode === "cpu" ? createCpuMeasurementCollector() : undefined;
+  const cpu = kind === "diagnostic" && mode === "cpu"
+    ? rootCpu ? createCpuMeasurementCollector({ allocations: false }) : createCpuMeasurementCollector() : undefined;
   const observation = collector?.publicationObservation();
   let requestMs: number | null = null;
   let verificationMs = 0;
@@ -148,6 +155,8 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
   const cleanupFailures: unknown[] = [];
   let evidence: MeasurementEvidence | undefined;
   let analysis: RequestReport["analysis"];
+  let cpuEvidence: RequestReport["cpuEvidence"];
+  let cpuAnalysis: RequestReport["cpuAnalysis"];
   let invalidEvidence: string | undefined;
   let completed: unknown;
   let requestCompleted = false;
@@ -173,16 +182,21 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
       catch (cause) { outcome = "failure"; failureStage = "verification"; fail("verification", cause); }
       finally { verificationMs = performance.now() - start; }
     }
-    if (collector !== undefined) {
-      for (const failure of cpu?.failures() ?? []) {
+    if (cpu !== undefined) {
+      try { cpuEvidence = cpu.evidence(); }
+      catch (cause) { invalidEvidence = "CPU diagnostic analysis failed";
+        failures.push(describeFailure("cpuAnalysis", cause)); retainFailure(cause); }
+      for (const failure of cpu.failures()) {
         failures.push(describeFailure(`cpu.${failure.stage}`, failure.cause)); retainFailure(failure.cause);
       }
+    }
+    if (collector !== undefined) {
       for (const cause of mode === "server" ? server?.failures() ?? [] : []) {
         failures.push(describeFailure("serverCollector", cause)); retainFailure(cause);
       }
       try {
         evidence = normalize(id, collector, trace);
-        if (cpu !== undefined) evidence = { ...evidence, cpu: cpu.evidence() };
+        if (cpuEvidence !== undefined) evidence = { ...evidence, cpu: cpuEvidence };
         if (mode === "server" && server !== undefined) evidence = { ...evidence, server: server.evidence() };
         if (observation !== undefined && observation.status().failureCount > 0) evidence = { ...evidence,
           collection: { ...evidence.collection, failures: [...evidence.collection.failures, "Publication observation delivery failed"] } };
@@ -191,6 +205,11 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
         });
       } catch (cause) { invalidEvidence = failureTokens(cause).join(",") || "Diagnostic normalization failed";
         failures.push(describeFailure("normalization", cause)); retainFailure(cause); }
+    }
+    if (cpuEvidence !== undefined && analysis?.cpu === undefined) {
+      try { cpuAnalysis = analyzeCpuEvidence(cpuEvidence); }
+      catch (cause) { invalidEvidence = "CPU diagnostic analysis failed";
+        failures.push(describeFailure("cpuAnalysis", cause)); retainFailure(cause); }
     }
   } finally {
     for (const detach of [() => scenario.setTrace?.(undefined), () => scenario.setEffectDiagnostics?.(undefined)]) {
@@ -211,6 +230,8 @@ async function flarexRequest(scenario: CorePerformanceScenario, name: typeof Sce
   return { id, lane: "flarex", index, kind, requestMs, seedMs, verificationMs, cleanupMs,
     outcome, failureStage, failures, ...(collector === undefined ? {} : { effectFailures }),
     ...(evidence === undefined ? {} : { evidence }), ...(analysis === undefined ? {} : { analysis }),
+    ...(cpuEvidence === undefined || evidence?.cpu !== undefined ? {} : { cpuEvidence }),
+    ...(cpuAnalysis === undefined || analysis?.cpu !== undefined ? {} : { cpuAnalysis }),
     ...(invalidEvidence === undefined ? {} : { invalidEvidence }),
     ...(trace?.records()[0] === undefined ? {} : { driver: trace.records()[0] }) };
 }
@@ -267,6 +288,8 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   const requested = options.samples ?? (operation === "compare" ? 30 : 1);
   const warmups = options.warmups ?? (operation === "compare" ? 5 : 1);
   const diagnostic = options.mode !== "quiet";
+  const rootCpu = options.mode === "cpu" && options.observation === "root";
+  const pairedDiagnostic = options.mode === "resources" || rootCpu;
   const driver = options.driver ?? "postgres";
   const name = options.selection.scenario;
   const descriptor = corePerformanceScenarios.find(scenario => scenario.name === name);
@@ -292,8 +315,8 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
           prefix: "FXPLAN[%p][%d][%c][%Q]" } }) });
     const fixture = await import("../support/prepareScenario");
     family = await fixture.prepareCorePerformanceFamily(descriptor.family, { driver, size: options.size,
-      sampleCount: warmups + requested * (options.mode === "resources" ? 2 : 1) +
-        (diagnostic && options.mode !== "resources" ? 1 : 0),
+      sampleCount: warmups + requested * (pairedDiagnostic ? 2 : 1) +
+        (diagnostic && !pairedDiagnostic ? 1 : 0),
       ...(server === undefined ? {} : { postgresEndpoints: server.endpoints }) });
     scenario = family.scenario(name);
     cleanup = "failed";
@@ -320,15 +343,15 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
     settingsBefore = { flarex: await environment(scenario, driver, options.mode), native: native?.resource.settings ?? null };
     stage = "measurement";
     if (samples.every(sample => sample.outcome === "success")) {
-      if (diagnostic && options.mode !== "resources") samples.push(await flarexRequest(scenario, name, warmups, "calibration", "quiet", runId, retainFailure, server));
+      if (diagnostic && !pairedDiagnostic) samples.push(await flarexRequest(scenario, name, warmups, "calibration", "quiet", runId, retainFailure, server));
       for (let position = 0; position < requested && samples.every(sample => sample.outcome === "success"); position++) {
-        if (options.mode === "resources") {
+        if (pairedDiagnostic) {
           const requests: RequestReport[] = [];
           const kinds = position % 2 === 0 ? ["calibration", "diagnostic"] as const : ["diagnostic", "calibration"] as const;
           for (const kind of kinds) {
             const index = warmups + position * 2 + requests.length;
             const request = await flarexRequest(scenario, name, index, kind,
-              kind === "calibration" ? "quiet" : "resources", runId, retainFailure, server);
+              kind === "calibration" ? "quiet" : options.mode, runId, retainFailure, server, options.observation);
             samples.push(request); requests.push(request);
             if (request.outcome === "failure") break;
           }
@@ -388,7 +411,8 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   const summary = Result.getOrThrow(pairedSummary(pairs));
   const failed = infrastructureFailed || samples.some(sample => sample.outcome === "failure");
   const incomplete = samples.some(sample => sample.kind === "diagnostic" &&
-    (sample.invalidEvidence !== undefined || sample.analysis?.diagnostic !== "complete"));
+    (rootCpu ? sample.invalidEvidence !== undefined || sample.cpuAnalysis?.complete !== true
+      : sample.invalidEvidence !== undefined || sample.analysis?.diagnostic !== "complete"));
   const stableSources = before !== undefined && after !== undefined && before.digest === after.digest;
   const stableSettings = settingsBefore !== null && settingsAfter !== null && JSON.stringify(settingsBefore) === JSON.stringify(settingsAfter);
   gates.push({ name: "sourceStability", passed: stableSources, detail: "Authored package code, locks and loaded native sources remain stable" },
@@ -404,10 +428,11 @@ async function runOwned(options: typeof MeasureOptionsSchema.Type, operation: Ru
   const acceptance: RunReport["acceptance"] = operation === "compare"
     ? execution === "complete" && gates.every(gate => gate.passed) ? "passed" : "failed" : "notEvaluated";
   const report: RunReport = { runId, operation, mode: options.mode, execution, acceptance,
+    ...(rootCpu ? { observation: { selection: "root", timeline: "unavailable", driver: "unavailable" } } : {}),
     sampling: { requestedSamples: requested, warmups, size: options.size, scenario: name,
-      driver, pairOrder: operation === "compare" || options.mode === "resources" ? "alternating" : "none" },
+      driver, pairOrder: operation === "compare" || pairedDiagnostic ? "alternating" : "none" },
     ...(scenario?.workload === undefined ? {} : { workload: scenario.workload }), samples, pairs,
-    ...(options.mode === "resources" ? { observerPairs } : {}),
+    ...(pairedDiagnostic ? { observerPairs } : {}),
     pairedSummary: summary, gates, setupMs, cleanupMs, cleanup, failures,
     sources: { before: before?.digest ?? null, after: after?.digest ?? null, files: before?.files ?? 0 },
     environment: { before: settingsBefore, after: settingsAfter } };

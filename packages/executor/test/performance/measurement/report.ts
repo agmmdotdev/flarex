@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { Data } from "effect";
 import type { MeasurementAnalysis } from "./analysis";
 import type { MeasurementEvidence } from "./artifact";
+import type { CpuEvidence, analyzeCpuEvidence } from "./cpu";
 import type { FailureEvidence } from "./failure";
 import type { TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import type { CorePerformanceScenario } from "../support/scenario";
@@ -23,6 +24,9 @@ export interface RequestReport {
   readonly effectFailures?: readonly Readonly<{ spanId: string; failure: FailureEvidence }>[];
   readonly evidence?: MeasurementEvidence;
   readonly analysis?: MeasurementAnalysis;
+  /** CPU capture survives timeline normalization failure and root-only selection. */
+  readonly cpuEvidence?: CpuEvidence;
+  readonly cpuAnalysis?: ReturnType<typeof analyzeCpuEvidence>;
   readonly invalidEvidence?: string;
   readonly driver?: TraceInvocationRecord;
 }
@@ -31,6 +35,8 @@ export interface RunReport {
   readonly runId: string;
   readonly operation: "measure" | "compare";
   readonly mode: "quiet" | "timeline" | "resources" | "database" | "cpu" | "server";
+  readonly observation?: Readonly<{ selection: "root";
+    timeline: "unavailable"; driver: "unavailable" }>;
   readonly execution: "complete" | "failed" | "incomplete";
   readonly acceptance: "passed" | "failed" | "notEvaluated";
   readonly sampling: Readonly<{ requestedSamples: number; warmups: number; size: CorePerformanceSize;
@@ -63,18 +69,40 @@ export class MeasurementRunFailure extends Data.TaggedError("MeasurementRunFailu
   readonly reports: Readonly<{ raw: string; human: string; profiles?: readonly string[] }>;
 }> { override readonly message = "Measurement execution failed; retained reports are available"; }
 
+function appendCpuReport(rows: string[], cpu: ReturnType<typeof analyzeCpuEvidence>): void {
+  rows.push("", `CPU collection: ${cpu.complete ? "complete" : "incomplete"}. Clock alignment: ${cpu.alignment.status}; offset uncertainty ${cpu.alignment.uncertaintyMs?.toFixed(3) ?? "unavailable"} ms. Root samples: ${cpu.definitelyInsideSamples} inside, ${cpu.boundaryAmbiguousSamples} boundary-ambiguous, ${cpu.outsideSamples} outside.`, "",
+    "| Sampled source frame | Self samples | Inclusive samples | Sampled elapsed spacing ms |", "|---|---:|---:|---:|");
+  for (const frame of cpu.sampledFrames.slice(0, 30)) rows.push(`| ${frame.callFrame.url}:${frame.callFrame.lineNumber + 1} ${frame.callFrame.functionName} | ${frame.selfSamples} | ${frame.inclusiveSamples} | ${frame.sampledElapsedWeightMs.toFixed(3)} |`);
+  rows.push("", `GC root overlap: ${cpu.gc.summedRootOverlapMs?.toFixed(3) ?? "unavailable"} ms in ${cpu.gc.intervals.length} observed intervals.`, "",
+    cpu.allocationAvailability === "disabled"
+      ? "Allocation sampling: disabled. HeapProfiler acquisition and allocation profiles are unavailable in this selection; omitted samples do not mean zero allocation."
+      : `Allocation estimate: ${cpu.allocations?.estimatedBytes ?? "unavailable"} bytes across the entire profiler window; ${cpu.allocations?.sampleCount ?? "unavailable"} allocation samples. Allocation samples have order but no timestamps, so they cannot be assigned exactly to request phases.`, "",
+    `Process CPU counters: user ${cpu.counters?.process.user ?? "unavailable"} µs, system ${cpu.counters?.process.system ?? "unavailable"} µs. Thread counters: user ${cpu.counters?.thread?.user ?? "unavailable"} µs, system ${cpu.counters?.thread?.system ?? "unavailable"} µs. Counter windows are retained separately from call and profiler command windows; profiler acquisition and stop are outside these counter reads.`, "",
+    `Event-loop active ${cpu.counters?.eventLoop.active.toFixed(3) ?? "unavailable"} ms, idle ${cpu.counters?.eventLoop.idle.toFixed(3) ?? "unavailable"} ms. Heap occupancy delta ${cpu.memoryOccupancyDeltaBytes?.heapUsed ?? "unavailable"} bytes; RSS delta ${cpu.memoryOccupancyDeltaBytes?.rss ?? "unavailable"} bytes. Endpoint occupancy is neither total allocation nor peak memory.`, "",
+    "Sampled stack spacing is elapsed weighting, not exact scheduler CPU. Inclusive samples overlap. GC and process counters belong to the controlled Node isolate/process; external contention and exact request causality remain unavailable. Full sanitized profiles, samples, deltas, windows and failures are retained in the raw artifact.");
+  if (cpu.allocations !== null) {
+    rows.push("", "| Allocation source frame | Estimated self bytes |", "|---|---:|");
+    for (const frame of cpu.allocations.frames.slice(0, 20)) rows.push(`| ${frame.callFrame.url}:${frame.callFrame.lineNumber + 1} ${frame.callFrame.functionName} | ${frame.selfSize} |`);
+  }
+}
+
 function humanReport(report: RunReport): string {
   const rows = [`# ${report.sampling.scenario} measurement ${report.runId}`, "",
     `Execution: **${report.execution}**. Acceptance: **${report.acceptance}**. Mode: ${report.mode}.`, "",
     `This measures the selected ${report.sampling.size} graph: ${report.workload?.flow ?? report.sampling.scenario}. Setup, seeding, verification and command cleanup are outside request timers. Flarex's existing attempt finalizers remain inside its complete call.`, "",
-    "Matched native references run independently committed framework calls; Application portions use a SQL surrogate. They do not provide Flarex's atomic mixed publication, Application OCC, revision history or durable outcome. Paired excess is a business-reference comparison, not an equal-guarantee engine comparison.", "",
-    "| Request | Lane | Kind | Complete call ms | Outcome |", "|---|---|---|---:|---|"];
+    "Matched native references run independently committed framework calls; Application portions use a SQL surrogate. They do not provide Flarex's atomic mixed publication, Application OCC, revision history or durable outcome. Paired excess is a business-reference comparison, not an equal-guarantee engine comparison."];
+  if (report.observation !== undefined) rows.push("",
+    `CPU observation: ${report.observation.selection}. Full operation timeline: ${report.observation.timeline}. Driver detail: ${report.observation.driver}.`);
+  if (report.mode === "cpu" && report.observation?.selection === "root") rows.push("",
+    "Root CPU/GC capture surrounds the genuine scenario call and attempt finalizers. Effect tracing and its context hook, SQL tracing, publication observation and heap sampling are absent. Profile setup and stop occur outside the timed call; profiler start/stop command windows remain in raw CPU evidence. Other acquisition and release cost is unavailable. Fixture preparation, verification and sample/command cleanup are outside capture.");
+  rows.push("", "| Request | Lane | Kind | Complete call ms | Outcome |", "|---|---|---|---:|---|");
   for (const sample of report.samples) rows.push(`| ${sample.id} | ${sample.lane} | ${sample.kind} | ${sample.requestMs?.toFixed(3) ?? "unavailable"} | ${sample.outcome} |`);
   if (report.observerPairs !== undefined) {
-    rows.push("", "| Observer pair | Quiet Flarex ms | Resource diagnostic ms | Observed difference ms |",
+    rows.push("", `| Observer pair | Quiet Flarex ms | ${report.mode === "cpu" ? "Root CPU" : "Resource"} diagnostic ms | Observed difference ms |`,
       "|---|---:|---:|---:|");
     for (const pair of report.observerPairs) rows.push(`| ${pair.index} | ${pair.quietMs.toFixed(3)} | ${pair.diagnosticMs.toFixed(3)} | ${pair.addedMs.toFixed(3)} |`);
-    rows.push("", "These fresh Flarex pairs alternate quiet/diagnostic order and calibrate the resource observer. They are separate business executions, not native acceptance. Timing differences include run variation and must never be subtracted to invent quiet phase timings.");
+    rows.push("", "These fresh Flarex pairs alternate quiet/diagnostic order and calibrate the selected observer. They are separate business executions, not native acceptance. Timing differences include run variation and must never be subtracted to invent quiet phase timings.");
+    if (report.mode === "cpu") rows.push("", "The pair difference discloses profiling perturbation during the actual call. Inspector acquisition and profiler stop are outside this timed difference; profiler start/stop command windows remain in raw evidence without measuring all setup and release cost.");
   }
   const failures = [...report.failures, ...report.samples.flatMap(sample => sample.failures)];
   if (failures.length > 0) {
@@ -86,6 +114,12 @@ function humanReport(report: RunReport): string {
   for (const sample of report.samples) {
     const analysis = sample.analysis;
     if (sample.invalidEvidence !== undefined) rows.push("", `Diagnostic ${sample.id} is invalid: ${sample.invalidEvidence}`);
+    const cpu = analysis?.cpu ?? sample.cpuAnalysis;
+    if (cpu !== undefined && analysis === undefined) {
+      rows.push("", `## CPU diagnostic ${sample.id}`, "",
+        "CPU analysis uses the collector's genuine call window. Timeline and driver accounting are unavailable for this sample; omitted observations do not establish zero work.");
+      appendCpuReport(rows, cpu);
+    }
     if (analysis === undefined) continue;
     rows.push("", `## Diagnostic ${sample.id}`, "",
       `Accounting root: ${analysis.wall.rootMs.toFixed(3)} ms; complete SDK call: ${sample.requestMs?.toFixed(3) ?? "unavailable"} ms. The root is the observed request span; adapter entry/exit and post-request trace finalization remain separately visible.`, "",
@@ -116,20 +150,7 @@ function humanReport(report: RunReport): string {
     }
     rows.push("", "| Owner / site | Work | Unit | Observed total |", "|---|---|---|---:|");
     for (const work of analysis.work) rows.push(`| ${work.owner ?? "unattributed"} / ${work.site ?? "unknown"} | ${work.metric} | ${work.unit} | ${work.value} |`);
-    if (analysis.cpu !== undefined) {
-      const cpu = analysis.cpu;
-      rows.push("", `CPU collection: ${cpu.complete ? "complete" : "incomplete"}. Clock alignment: ${cpu.alignment.status}; offset uncertainty ${cpu.alignment.uncertaintyMs?.toFixed(3) ?? "unavailable"} ms. Root samples: ${cpu.definitelyInsideSamples} inside, ${cpu.boundaryAmbiguousSamples} boundary-ambiguous, ${cpu.outsideSamples} outside.`, "",
-        "| Sampled source frame | Self samples | Inclusive samples | Sampled elapsed spacing ms |", "|---|---:|---:|---:|");
-      for (const frame of cpu.sampledFrames.slice(0, 30)) rows.push(`| ${frame.callFrame.url}:${frame.callFrame.lineNumber + 1} ${frame.callFrame.functionName} | ${frame.selfSamples} | ${frame.inclusiveSamples} | ${frame.sampledElapsedWeightMs.toFixed(3)} |`);
-      rows.push("", `GC root overlap: ${cpu.gc.summedRootOverlapMs?.toFixed(3) ?? "unavailable"} ms in ${cpu.gc.intervals.length} observed intervals. Allocation estimate: ${cpu.allocations?.estimatedBytes ?? "unavailable"} bytes across the entire profiler window; ${cpu.allocations?.sampleCount ?? "unavailable"} allocation samples. Allocation samples have order but no timestamps, so they cannot be assigned exactly to request phases.`, "",
-        `Process CPU counters: user ${cpu.counters?.process.user ?? "unavailable"} µs, system ${cpu.counters?.process.system ?? "unavailable"} µs. Thread counters: user ${cpu.counters?.thread?.user ?? "unavailable"} µs, system ${cpu.counters?.thread?.system ?? "unavailable"} µs. Counter windows include profiler boundaries.`, "",
-        `Event-loop active ${cpu.counters?.eventLoop.active.toFixed(3) ?? "unavailable"} ms, idle ${cpu.counters?.eventLoop.idle.toFixed(3) ?? "unavailable"} ms. Heap occupancy delta ${cpu.memoryOccupancyDeltaBytes?.heapUsed ?? "unavailable"} bytes; RSS delta ${cpu.memoryOccupancyDeltaBytes?.rss ?? "unavailable"} bytes. Endpoint occupancy is neither total allocation nor peak memory.`, "",
-        "Sampled stack spacing is elapsed weighting, not exact scheduler CPU. Inclusive samples overlap. GC and process counters belong to the controlled Node isolate/process; external contention and exact request causality remain unavailable. Full sanitized profiles, samples, deltas, windows and failures are retained in the raw artifact.");
-      if (cpu.allocations !== null) {
-        rows.push("", "| Allocation source frame | Estimated self bytes |", "|---|---:|");
-        for (const frame of cpu.allocations.frames.slice(0, 20)) rows.push(`| ${frame.callFrame.url}:${frame.callFrame.lineNumber + 1} ${frame.callFrame.functionName} | ${frame.selfSize} |`);
-      }
-    }
+    if (cpu !== undefined) appendCpuReport(rows, cpu);
     if (analysis.server !== undefined) {
       const server = analysis.server;
       rows.push("", `PostgreSQL collection: ${server.status}. Top-level calls ${server.topLevel.calls}, plans ${server.topLevel.plans}, planning ${server.topLevel.planningMs.toFixed(3)} ms, execution ${server.topLevel.executionMs.toFixed(3)} ms. Nested calls ${server.nested.calls}, plans ${server.nested.plans}, planning ${server.nested.planningMs.toFixed(3)} ms, execution ${server.nested.executionMs.toFixed(3)} ms. Top-level and nested elapsed totals overlap and must not be added.`, "",
@@ -169,7 +190,7 @@ export async function persistMeasurementReport(directory: string, report: RunRep
     await writeFile(human, humanReport(report), { flag: "wx" });
     reports.human = human;
     for (const sample of report.samples) {
-      const cpu = sample.evidence?.cpu;
+      const cpu = sample.cpuEvidence ?? sample.evidence?.cpu;
       if (cpu === undefined) continue;
       for (const [extension, profile] of [["cpuprofile", cpu.cpuProfile],
         ["allocation.json", cpu.allocationProfile]] as const) {

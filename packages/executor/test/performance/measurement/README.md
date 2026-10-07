@@ -211,6 +211,27 @@ CPU. SDK commands run sequentially; isolate exclusivity requires a controlled
 process, and external contention remains unavailable. Bounds stop observation
 without changing business settlement.
 
+For CPU/GC stacks without full tracing or heap sampling, use
+`measure({ mode: "cpu", observation: "root", driver: "postgres", selection:
+{ scenario: "mixed-product" }, size: "small", warmups: 5, samples: 5,
+outputDirectory: "work/measurements/root-cpu" })`. This profiles the same actual
+business call with no Effect collector/context hook, SQL trace or publication
+observer. Raw CPU evidence and its genuine call-window analysis are retained
+independently of timeline normalization. Timeline, driver totals and allocation
+evidence are explicitly unavailable; disabled heap sampling is distinct from a
+failed enabled capture. The default CPU mode keeps its full observers and heap
+sampling.
+
+Root CPU uses alternating fresh quiet/diagnostic Flarex pairs. The example
+consumes exactly fifteen calls including warmups. `observerPairs` retains the
+actual call differences; these are diagnostic perturbation and variation, never
+subtracted to invent quiet timings or treated as native acceptance. Profiler
+setup/stop remains outside the business-call timer, so the pair difference does
+not include all observer acquisition/release cost. Raw command and call windows
+retain those boundaries. Inspector and GC observation still perturb execution;
+this mode cannot retrospectively explain a separate quiet stall or establish
+exclusive owner CPU.
+
 `server` requires the trusted PostgreSQL provisioning endpoint. It creates a
 disposable target database and separate observer database/ordinary roles, then
 passes explicit endpoints into the existing fixture owners. Installation runs
@@ -338,6 +359,18 @@ original profiles. Quiet phase CPU and PostgreSQL CPU remain unavailable; these
 reports identify replacement boundaries without claiming a runtime speedup.
 
 ## Running The SDK Proofs
+
+Typecheck the SDK against its actual promoted framework declaration owner:
+
+```sh
+pnpm exec tsc -p packages/executor/test/performance/measurement/tsconfig.json
+```
+
+The promoted framework and the native comparison island share a package name
+and version but have different portable exports. The focused type project binds
+the SDK's portable import to the promoted declaration used by its actual
+adapter runtime. It adds no runtime alias or helper stub; native-island
+compatibility remains subject to its separate owner checks.
 
 Run the deterministic SDK and connected-owner suite from the workspace root:
 

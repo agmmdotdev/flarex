@@ -16,7 +16,7 @@ function evidence(): CpuEvidence {
     arrayBuffers: 100, usedHeapSize: 100, heapSizeLimit: 100, mallocedMemory: 100 };
   return { complete: true, host: { pid: 1, threadId: 0, node: "24", v8: "13", platform: "win32",
     exclusivity: "controlled-isolate-only", externalContention: "unavailable" }, limits: CPU_LIMITS,
-    cpuIntervalMicroseconds: 1_000, allocationIntervalBytes: 32_768, includeObjectsCollectedByMajorGC: true,
+    cpuIntervalMicroseconds: 1_000, allocationSampling: "enabled", allocationIntervalBytes: 32_768, includeObjectsCollectedByMajorGC: true,
     includeObjectsCollectedByMinorGC: true, callWindow: { startMonotonicMs: 12, endMonotonicMs: 20 },
     cpuStartCommand: { startMonotonicMs: 10, endMonotonicMs: 12 },
     cpuStopCommand: { startMonotonicMs: 20, endMonotonicMs: 22 },
@@ -37,8 +37,36 @@ describe("CPU evidence and pure analysis", () => {
     expect(analyzed.sampledFrames.find(item => item.nodeId === 2)).toMatchObject({ selfSamples: 1, sampledElapsedWeightMs: 2 });
     expect(analyzed.counters?.process.user).toBe(20_000); // More CPU microseconds than the 6ms root is valid.
     expect(analyzed.allocations).toMatchObject({ scope: "entire-profiler-window", estimatedBytes: 4_096, sampleCount: 1 });
+    expect(analyzed.allocationAvailability).toBe("available");
     expect(analyzed.gc.intervals[0]).toMatchObject({ intersectionMs: 2, crossesRoot: true });
     expect(analyzed.memoryOccupancyDeltaBytes?.heapUsed).toBe(-20);
+  });
+
+  it("distinguishes disabled allocation sampling from an incomplete enabled capture", () => {
+    const disabled: CpuEvidence = { ...evidence(), allocationSampling: "disabled", allocationIntervalBytes: null,
+      includeObjectsCollectedByMajorGC: null, includeObjectsCollectedByMinorGC: null,
+      allocationWindow: null, allocationProfile: null };
+    const analyzed = analyzeCpuEvidence(Result.getOrThrow(decodeCpuEvidence(disabled)));
+    expect(analyzed).toMatchObject({ complete: true, rootWindow: disabled.callWindow,
+      allocationSampling: "disabled", allocationAvailability: "disabled", allocations: null });
+    expect(analyzed.gc.summedRootOverlapMs).toBe(3);
+    const unavailable = analyzeCpuEvidence(Result.getOrThrow(decodeCpuEvidence({ ...evidence(), complete: false, allocationProfile: null })));
+    expect(unavailable).toMatchObject({ complete: false, allocationSampling: "enabled",
+      allocationAvailability: "capture-unavailable", allocations: null });
+    expect(Result.isFailure(decodeCpuEvidence({ ...evidence(), allocationProfile: null }))).toBe(true);
+    expect(Result.isFailure(decodeCpuEvidence({ ...disabled, failures: ["cpuStop"] }))).toBe(true);
+  });
+
+  it("rejects contradictory disabled allocation settings and artifacts", () => {
+    const disabled: CpuEvidence = { ...evidence(), allocationSampling: "disabled", allocationIntervalBytes: null,
+      includeObjectsCollectedByMajorGC: null, includeObjectsCollectedByMinorGC: null,
+      allocationWindow: null, allocationProfile: null };
+    const enabled = evidence();
+    for (const field of ["allocationIntervalBytes", "includeObjectsCollectedByMajorGC", "includeObjectsCollectedByMinorGC",
+      "allocationWindow", "allocationProfile"] as const) {
+      expect(Result.isFailure(decodeCpuEvidence({ ...disabled, [field]: enabled[field] }))).toBe(true);
+    }
+    expect(Result.isFailure(decodeCpuEvidence({ ...enabled, complete: false, allocationIntervalBytes: null }))).toBe(true);
   });
 
   it("does not invent alignment or attribution for inconsistent brackets or missing sample deltas", () => {

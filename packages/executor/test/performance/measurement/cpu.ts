@@ -79,8 +79,10 @@ export const CpuEvidenceSchema = Schema.Struct({
     exclusivity: Schema.Literal("controlled-isolate-only"), externalContention: Schema.Literal("unavailable") }),
   limits: Schema.Struct({ nodes: Schema.Natural, samples: Schema.Natural, depth: Schema.Natural, label: Schema.Natural,
     exportBytes: Schema.Natural, durationMs: Nonnegative, gcEvents: Schema.Natural, failures: Schema.Natural }),
-  cpuIntervalMicroseconds: Schema.Natural, allocationIntervalBytes: Schema.Natural,
-  includeObjectsCollectedByMajorGC: Schema.Literal(true), includeObjectsCollectedByMinorGC: Schema.Literal(true),
+  cpuIntervalMicroseconds: Schema.Natural, allocationSampling: Schema.Literals(["enabled", "disabled"]),
+  allocationIntervalBytes: Schema.NullOr(Schema.Natural),
+  includeObjectsCollectedByMajorGC: Schema.NullOr(Schema.Literal(true)),
+  includeObjectsCollectedByMinorGC: Schema.NullOr(Schema.Literal(true)),
   callWindow: Schema.NullOr(Window), cpuStartCommand: Schema.NullOr(Window), cpuStopCommand: Schema.NullOr(Window),
   allocationWindow: Schema.NullOr(Window), cpuProfile: Schema.NullOr(CpuProfileSchema),
   allocationProfile: Schema.NullOr(AllocationProfileSchema),
@@ -96,9 +98,17 @@ export const CpuEvidenceSchema = Schema.Struct({
 }).check(Schema.makeFilter(evidence => {
   if (evidence.retainedBytes > CPU_LIMITS.exportBytes) return "CPU evidence exceeds export bound";
   if (evidence.limits.durationMs > CPU_LIMITS.durationMs) return "CPU duration exceeds collector bound";
+  if (evidence.allocationSampling === "disabled" && (evidence.allocationIntervalBytes !== null ||
+    evidence.includeObjectsCollectedByMajorGC !== null || evidence.includeObjectsCollectedByMinorGC !== null ||
+    evidence.allocationWindow !== null || evidence.allocationProfile !== null))
+    return "Disabled allocation sampling cannot contain settings or artifacts";
+  if (evidence.allocationSampling === "enabled" && (evidence.allocationIntervalBytes === null ||
+    evidence.includeObjectsCollectedByMajorGC === null || evidence.includeObjectsCollectedByMinorGC === null))
+    return "Enabled allocation sampling requires its settings";
   if (evidence.complete && (evidence.failures.length > 0 || evidence.droppedFailures > 0 || evidence.timedOut ||
-    evidence.gc.droppedEvents > 0 || !evidence.gc.supported || evidence.cpuProfile === null || evidence.allocationProfile === null ||
-    evidence.callWindow === null || evidence.cpuStartCommand === null || evidence.cpuStopCommand === null || evidence.allocationWindow === null ||
+    evidence.gc.droppedEvents > 0 || !evidence.gc.supported || evidence.cpuProfile === null ||
+    evidence.callWindow === null || evidence.cpuStartCommand === null || evidence.cpuStopCommand === null ||
+    (evidence.allocationSampling === "enabled" && (evidence.allocationProfile === null || evidence.allocationWindow === null)) ||
     evidence.counters === null || evidence.memory.before === null || evidence.memory.after === null))
     return "Complete CPU evidence requires settled available collectors without faults";
   return undefined;
@@ -255,6 +265,8 @@ export function analyzeCpuEvidence(evidence: CpuEvidence, root: CpuWindow | null
       event.startMonotonicMs + event.durationMs > root.startMonotonicMs &&
       (event.startMonotonicMs < root.startMonotonicMs || event.startMonotonicMs + event.durationMs > root.endMonotonicMs) }));
   const deltas = profile?.timeDeltas?.toSorted((a, b) => a - b) ?? [];
+  const allocationAvailability: "available" | "disabled" | "capture-unavailable" = evidence.allocationSampling === "disabled"
+    ? "disabled" : evidence.allocationProfile === null ? "capture-unavailable" : "available";
   return { complete: evidence.complete && aligned && profile?.samples !== null && profile?.timeDeltas !== null,
     alignment: { status: aligned ? "bracketed-estimate" : "unavailable", offsetLowMs: low, offsetHighMs: high,
       uncertaintyMs: aligned && low !== null && high !== null ? high - low : null, assumption: "shared-monotonic-rate" },
@@ -262,6 +274,7 @@ export function analyzeCpuEvidence(evidence: CpuEvidence, root: CpuWindow | null
     actualSamplingDeltasMicroseconds: deltas.length === 0 ? null : { min: deltas[0], max: deltas.at(-1),
       median: deltas[Math.floor(deltas.length / 2)], sum: deltas.reduce((a, b) => a + b, 0) },
     sampledFrames: [...frames.values()].filter(frame => frame.inclusiveSamples > 0).toSorted((a, b) => b.selfSamples - a.selfSamples),
+    allocationSampling: evidence.allocationSampling, allocationAvailability,
     allocations: evidence.allocationProfile === null ? null : { scope: "entire-profiler-window", window: evidence.allocationWindow,
       estimatedBytes: evidence.allocationProfile.nodes.reduce((sum, node) => sum + node.selfSize, 0),
       sampleCount: evidence.allocationProfile.samples.length,

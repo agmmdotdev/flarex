@@ -15,19 +15,33 @@ const boundary = vi.hoisted(() => {
   const reports: RunReport[] = [];
   const state: { prepareFailure: unknown; requestFailure: unknown; sampleCleanupFailure: unknown;
     familyCleanupFailure: unknown; nativeCleanupFailure: unknown; effect: unknown; trace: unknown;
-    returnValue: unknown; committed: number; cpuFailure: unknown; clearFailure: unknown } = {
+    returnValue: unknown; committed: number; cpuFailure: unknown; clearFailure: unknown;
+    normalizationFailure: boolean; requestFailureIndex: number | null } = {
     prepareFailure: undefined, requestFailure: undefined, sampleCleanupFailure: undefined,
     familyCleanupFailure: undefined, nativeCleanupFailure: undefined, effect: undefined, trace: undefined,
     returnValue: undefined, committed: 0, cpuFailure: undefined, clearFailure: undefined,
+    normalizationFailure: false, requestFailureIndex: null,
   };
   return { events, bindings, requests, reports, state,
-    prepareFamily: vi.fn(), native: vi.fn(), source: vi.fn(), persist: vi.fn(), cpu: vi.fn(), idle: vi.fn() };
+    prepareFamily: vi.fn(), native: vi.fn(), source: vi.fn(), persist: vi.fn(), cpu: vi.fn(), idle: vi.fn(),
+    effectCollector: vi.fn() };
 });
 vi.mock("../support/prepareScenario", () => ({ prepareCorePerformanceFamily: boundary.prepareFamily }));
 vi.mock("./collectors/native", () => ({ acquireNativeBusinessResource: boundary.native }));
 vi.mock("./source", () => ({ measurementSourceDigest: boundary.source }));
 vi.mock("./collectors/cpu", async importOriginal => ({ ...await importOriginal<typeof import("./collectors/cpu")>(),
   createCpuMeasurementCollector: boundary.cpu, assertCpuMeasurementIdle: boundary.idle }));
+vi.mock("./collectors/effect", async importOriginal => {
+  const original = await importOriginal<typeof import("./collectors/effect")>();
+  return { ...original, createEffectMeasurementCollector: (...args: Parameters<typeof original.createEffectMeasurementCollector>) => {
+    boundary.effectCollector();
+    const collector = original.createEffectMeasurementCollector(...args);
+    return { ...collector, records: () => {
+      if (boundary.state.normalizationFailure) throw new Error("private normalization failure");
+      return collector.records();
+    } };
+  } };
+});
 vi.mock("./report", async importOriginal => ({ ...await importOriginal<typeof import("./report")>(), persistMeasurementReport: boundary.persist }));
 
 const outputDirectory = resolve("unused-sdk-lifecycle");
@@ -48,7 +62,8 @@ const prepareSample = vi.fn<CorePerformanceScenario["prepareSample"]>(async (_id
     boundary.events.push(`run:${index}`);
     boundary.requests.push({ lane: "flarex", index, effect: boundary.state.effect !== undefined,
       trace: boundary.state.trace !== undefined, publication: observation !== undefined });
-    if (boundary.state.requestFailure !== undefined) throw boundary.state.requestFailure;
+    if (boundary.state.requestFailure !== undefined && (boundary.state.requestFailureIndex === null || boundary.state.requestFailureIndex === index))
+      throw boundary.state.requestFailure;
     boundary.state.committed++;
     return boundary.state.returnValue;
   } };
@@ -101,12 +116,31 @@ const native = {
 };
 const emptyCpu = (): CpuEvidence => ({ complete: false,
   host: { pid: 1, threadId: 0, node: "24", v8: "13", platform: "win32", exclusivity: "controlled-isolate-only", externalContention: "unavailable" },
-  limits: CPU_LIMITS, cpuIntervalMicroseconds: 1_000, allocationIntervalBytes: 32_768,
+  limits: CPU_LIMITS, cpuIntervalMicroseconds: 1_000, allocationSampling: "enabled", allocationIntervalBytes: 32_768,
   includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true,
   callWindow: null, cpuStartCommand: null, cpuStopCommand: null, allocationWindow: null,
   cpuProfile: null, allocationProfile: null, counters: null, memory: { before: null, after: null },
   gc: { supported: true, droppedEvents: 0, events: [], observerIntervals: [] }, timedOut: false,
   retainedBytes: 0, droppedFailures: 0, failures: ["cpuStop"] });
+
+const rootCpuEvidence = (): CpuEvidence => ({ ...emptyCpu(), complete: true, failures: [], allocationSampling: "disabled",
+  allocationIntervalBytes: null, includeObjectsCollectedByMajorGC: null, includeObjectsCollectedByMinorGC: null,
+  callWindow: { startMonotonicMs: 10, endMonotonicMs: 12 },
+  cpuStartCommand: { startMonotonicMs: 10, endMonotonicMs: 10 },
+  cpuStopCommand: { startMonotonicMs: 12, endMonotonicMs: 12 },
+  cpuProfile: { nodes: [{ id: 1, callFrame: { functionName: "business", scriptId: "1", url: "./packages/business.ts", lineNumber: 0, columnNumber: 0 }, children: [] }],
+    samples: [1, 1], timeDeltas: [1_000, 1_000], startTime: 10_000, endTime: 12_000 },
+  counters: { window: { startMonotonicMs: 10, endMonotonicMs: 12 }, process: { user: 1_000, system: 0 }, thread: null,
+    eventLoop: { active: 2, idle: 0, utilization: 1 } },
+  memory: { before: { atMonotonicMs: 10, rss: 1, heapTotal: 1, heapUsed: 1, external: 0, arrayBuffers: 0,
+    usedHeapSize: 1, heapSizeLimit: 1, mallocedMemory: 0 },
+    after: { atMonotonicMs: 12, rss: 1, heapTotal: 1, heapUsed: 1, external: 0, arrayBuffers: 0,
+      usedHeapSize: 1, heapSizeLimit: 1, mallocedMemory: 0 } } });
+
+const fullCpuEvidence = (): CpuEvidence => ({ ...rootCpuEvidence(), allocationSampling: "enabled", allocationIntervalBytes: 32_768,
+  includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true,
+  allocationWindow: { startMonotonicMs: 10, endMonotonicMs: 12 }, allocationProfile: { nodes: [{ id: 1, parentId: null, selfSize: 0,
+    callFrame: { functionName: "business", scriptId: "1", url: "./packages/business.ts", lineNumber: 0, columnNumber: 0 } }], samples: [] } });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -114,6 +148,7 @@ beforeEach(() => {
   Object.assign(boundary.state, { prepareFailure: undefined, requestFailure: undefined, sampleCleanupFailure: undefined,
     familyCleanupFailure: undefined, nativeCleanupFailure: undefined, effect: undefined, trace: undefined,
     returnValue: undefined, committed: 0, cpuFailure: undefined, clearFailure: undefined });
+  Object.assign(boundary.state, { normalizationFailure: false, requestFailureIndex: null });
   boundary.prepareFamily.mockResolvedValue(family);
   boundary.native.mockResolvedValue(native);
   boundary.source.mockResolvedValue({ digest: "stable-source", files: 3 });
@@ -121,10 +156,11 @@ beforeEach(() => {
     boundary.events.push("persist"); boundary.reports.push(report);
     return { raw: resolve(outputDirectory, `${report.runId}.json`), human: resolve(outputDirectory, `${report.runId}.md`) };
   });
-  boundary.cpu.mockImplementation(() => ({
+  boundary.cpu.mockImplementation((input?: { allocations?: boolean }) => ({
     capture: async <A>(invoke: () => Promise<A>): Promise<A> => { boundary.events.push("cpuStart");
       try { return await invoke(); } finally { boundary.events.push("cpuStop"); } },
-    evidence: emptyCpu,
+    evidence: () => input?.allocations === false ? { ...rootCpuEvidence(),
+      ...(boundary.state.cpuFailure === undefined ? {} : { complete: false, failures: ["cpuStop"] as const }) } : emptyCpu(),
     failures: () => boundary.state.cpuFailure === undefined ? [] : [{ stage: "cpuStop", cause: boundary.state.cpuFailure }],
   }));
 });
@@ -138,6 +174,91 @@ const quiet = { mode: "quiet", driver: "pglite", size: "small", warmups: 0, samp
   Omit<Parameters<typeof measure>[0], "selection">;
 
 describe("measurement SDK family and sample lifecycle", () => {
+  it("alternates fresh root CPU/GC pairs without constructing timeline, SQL, publication or heap observers", async () => {
+    const result = await measure({ ...quiet, driver: "postgres", mode: "cpu", observation: "root", warmups: 5, samples: 5,
+      selection: { scenario: "mixed-product" } });
+    expect(result).toMatchObject({ execution: "complete", acceptance: "notEvaluated" });
+    expect(boundary.prepareFamily).toHaveBeenCalledExactlyOnceWith("mixed-product", { driver: "postgres", size: "small", sampleCount: 15 });
+    expect(boundary.effectCollector).not.toHaveBeenCalled();
+    expect(boundary.native).not.toHaveBeenCalled();
+    expect(boundary.cpu).toHaveBeenCalledTimes(5);
+    expect(boundary.cpu.mock.calls.every(([input]) => input?.allocations === false)).toBe(true);
+    expect(boundary.requests).toHaveLength(15);
+    expect(boundary.requests.every(request => !request.effect && !request.trace && !request.publication)).toBe(true);
+    expect(setTrace.mock.calls.every(([trace]) => trace === undefined)).toBe(true);
+    expect(setEffect.mock.calls.every(([binding]) => binding === undefined)).toBe(true);
+    const report = boundary.reports[0];
+    expect(report).toMatchObject({ mode: "cpu", observation: { selection: "root", timeline: "unavailable", driver: "unavailable" },
+      sampling: { requestedSamples: 5, warmups: 5, pairOrder: "alternating" }, pairs: [], pairedSummary: null });
+    expect(report?.samples.map(sample => sample.kind)).toEqual([
+      "warmup", "warmup", "warmup", "warmup", "warmup", "calibration", "diagnostic", "diagnostic", "calibration",
+      "calibration", "diagnostic", "diagnostic", "calibration", "calibration", "diagnostic",
+    ]);
+    expect(report?.observerPairs).toHaveLength(5);
+    const diagnostic = report?.samples.find(sample => sample.kind === "diagnostic");
+    expect(diagnostic).toMatchObject({ cpuEvidence: { allocationSampling: "disabled", callWindow: rootCpuEvidence().callWindow },
+      cpuAnalysis: { complete: true, rootWindow: rootCpuEvidence().callWindow, allocationAvailability: "disabled", allocations: null } });
+    expect(diagnostic).not.toHaveProperty("evidence"); expect(diagnostic).not.toHaveProperty("analysis");
+    expect(diagnostic).not.toHaveProperty("effectFailures"); expect(diagnostic).not.toHaveProperty("driver");
+    expect(verify).toHaveBeenCalledTimes(15); expect(cleanup).toHaveBeenCalledTimes(15);
+    expect(boundary.events.lastIndexOf("cpuStop")).toBeLessThan(boundary.events.lastIndexOf("verify"));
+    expect(boundary.events.lastIndexOf("sampleCleanup")).toBeLessThan(boundary.events.indexOf("familyDispose"));
+  });
+
+  it("retains root CPU observer faults while verifying successful business execution", async () => {
+    const fault = new Error("private CPU stop failure");
+    boundary.state.cpuFailure = fault;
+    const result = await measure({ ...quiet, mode: "cpu", observation: "root", selection: { scenario: "mixed-product" } });
+    expect(result).toMatchObject({ execution: "incomplete", acceptance: "notEvaluated" });
+    const diagnostic = boundary.reports[0]?.samples.find(sample => sample.kind === "diagnostic");
+    expect(diagnostic).toMatchObject({ outcome: "success", failureStage: null, cpuEvidence: { complete: false }, cpuAnalysis: { complete: false },
+      failures: [{ stage: "cpu.cpuStop" }] });
+    expect(boundary.state.committed).toBe(2); expect(verify).toHaveBeenCalledTimes(2); expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves a root CPU request rejection by identity and drains capture before sample disposal", async () => {
+    const original = { _tag: "Refused" };
+    boundary.state.requestFailure = original; boundary.state.requestFailureIndex = 1;
+    const result = await rejection(() => measure({ ...quiet, mode: "cpu", observation: "root", samples: 2,
+      selection: { scenario: "mixed-product" } }));
+    expect(result.cause).toBe(original);
+    expect(boundary.reports[0]?.samples).toMatchObject([{ kind: "calibration", outcome: "success" },
+      { kind: "diagnostic", outcome: "failure", cpuEvidence: { callWindow: rootCpuEvidence().callWindow } }]);
+    expect(boundary.reports[0]?.observerPairs).toEqual([]); expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(family.dispose).toHaveBeenCalledOnce(); expect(boundary.cpu).toHaveBeenCalledOnce();
+    expect(boundary.events.indexOf("cpuStop")).toBeLessThan(boundary.events.lastIndexOf("sampleCleanup"));
+  });
+
+  it("retains CPU profiles and observer faults independently when full timeline normalization fails", async () => {
+    boundary.state.normalizationFailure = true;
+    boundary.state.cpuFailure = new Error("private stop fault");
+    boundary.cpu.mockImplementationOnce(() => ({ capture: async <A>(invoke: () => Promise<A>) => invoke(),
+      evidence: fullCpuEvidence, failures: () => [{ stage: "cpuStop", cause: boundary.state.cpuFailure }] }));
+    const result = await measure({ ...quiet, mode: "cpu", selection: { scenario: "mixed-product" } });
+    expect(result.execution).toBe("incomplete");
+    const diagnostic = boundary.reports[0]?.samples.find(sample => sample.kind === "diagnostic");
+    expect(diagnostic?.cpuEvidence?.cpuProfile).toEqual(rootCpuEvidence().cpuProfile);
+    expect(diagnostic?.cpuAnalysis?.rootWindow).toEqual(rootCpuEvidence().callWindow);
+    expect(diagnostic?.failures.map(failure => failure.stage)).toEqual(["cpu.cpuStop", "normalization"]);
+    expect(diagnostic).not.toHaveProperty("evidence"); expect(diagnostic?.invalidEvidence).toBeDefined();
+    expect(verify).toHaveBeenCalledTimes(2); expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps successful full CPU capture in its existing timeline contract without duplicating profiles or analysis", async () => {
+    boundary.cpu.mockImplementationOnce(() => ({ capture: async <A>(invoke: () => Promise<A>) => invoke(),
+      evidence: fullCpuEvidence, failures: () => [] }));
+    const result = await measure({ ...quiet, mode: "cpu", selection: { scenario: "mixed-product" } });
+    const diagnostic = boundary.reports[0]?.samples.find(sample => sample.kind === "diagnostic");
+    expect(diagnostic?.invalidEvidence).toBeUndefined();
+    expect(diagnostic?.analysis?.incompleteReasons).toEqual([]);
+    expect(result.execution).toBe("complete");
+    expect(diagnostic?.evidence?.cpu?.cpuProfile).toEqual(fullCpuEvidence().cpuProfile);
+    expect(diagnostic?.analysis?.cpu).toBeDefined();
+    expect(diagnostic).not.toHaveProperty("cpuEvidence"); expect(diagnostic).not.toHaveProperty("cpuAnalysis");
+    expect(boundary.effectCollector).toHaveBeenCalledOnce();
+    expect(boundary.requests.at(-1)).toMatchObject({ effect: true, publication: true });
+    expect(boundary.cpu).toHaveBeenCalledExactlyOnceWith();
+  });
   it("alternates fresh quiet/resource pairs without constructing a profiler", async () => {
     await measure({ ...quiet, mode: "resources", warmups: 1, samples: 3,
       selection: { scenario: "mixed-product" } });

@@ -66,8 +66,9 @@ export function assertCpuMeasurementIdle(): void {
 }
 
 export function createCpuMeasurementCollector(input: { readonly runtime?: CpuCollectorRuntime; readonly sourceRoot?: string;
-  readonly durationMs?: number } = {}) {
+  readonly durationMs?: number; readonly allocations?: boolean } = {}) {
   const runtime = input.runtime ?? live;
+  const allocations = input.allocations ?? true;
   const durationMs = input.durationMs ?? CPU_LIMITS.durationMs;
   if (!Number.isFinite(durationMs) || durationMs < 1 || durationMs > CPU_LIMITS.durationMs)
     throw new RangeError("CPU diagnostic duration must be between 1 and 30000 milliseconds");
@@ -86,8 +87,10 @@ export function createCpuMeasurementCollector(input: { readonly runtime?: CpuCol
     complete: false, host: { pid: process.pid, threadId, node: process.versions.node, v8: process.versions.v8,
       platform: process.platform, exclusivity: "controlled-isolate-only", externalContention: "unavailable" },
     limits: { ...CPU_LIMITS, durationMs }, cpuIntervalMicroseconds: CPU_INTERVAL_MICROSECONDS,
-    allocationIntervalBytes: ALLOCATION_INTERVAL_BYTES, includeObjectsCollectedByMajorGC: true,
-    includeObjectsCollectedByMinorGC: true, callWindow: null, cpuStartCommand: null, cpuStopCommand: null,
+    allocationSampling: allocations ? "enabled" : "disabled",
+    allocationIntervalBytes: allocations ? ALLOCATION_INTERVAL_BYTES : null,
+    includeObjectsCollectedByMajorGC: allocations ? true : null,
+    includeObjectsCollectedByMinorGC: allocations ? true : null, callWindow: null, cpuStartCommand: null, cpuStopCommand: null,
     allocationWindow: null, cpuProfile: null, allocationProfile: null, counters: null,
     memory: { before: null, after: null }, gc: { supported: runtime.gcSupported, events: [], droppedEvents: 0, observerIntervals: [] },
     timedOut: false, retainedBytes: 0, droppedFailures: 0, failures: [],
@@ -184,11 +187,13 @@ export function createCpuMeasurementCollector(input: { readonly runtime?: CpuCol
       cpuAttempted = true; // A rejected transport cannot prove start did not happen.
       await command("cpuStart", "Profiler.start");
       state = { ...state, cpuStartCommand: { startMonotonicMs: start, endMonotonicMs: now() } };
-      await command("heapEnable", "HeapProfiler.enable");
-      allocationStarted = now();
-      heapAttempted = true;
-      await command("heapStart", "HeapProfiler.startSampling", { samplingInterval: ALLOCATION_INTERVAL_BYTES,
-        includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+      if (allocations) {
+        await command("heapEnable", "HeapProfiler.enable");
+        allocationStarted = now();
+        heapAttempted = true;
+        await command("heapStart", "HeapProfiler.startSampling", { samplingInterval: ALLOCATION_INTERVAL_BYTES,
+          includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+      }
     }
     if (runtime.gcSupported) {
       try { observer = runtime.gcObserver(receiveGc); observer.observe(); } catch (cause) { fault("gcStart", cause); }
@@ -265,7 +270,7 @@ export function createCpuMeasurementCollector(input: { readonly runtime?: CpuCol
     evidence(): CpuEvidence {
       if (!settled) throw new Error("CPU evidence requested before collector settlement");
       let result = { ...state, complete: faults.length === 0 && state.droppedFailures === 0 && !state.timedOut && state.gc.droppedEvents === 0 &&
-        state.cpuProfile !== null && state.allocationProfile !== null && state.gc.supported && state.counters !== null &&
+        state.cpuProfile !== null && (!allocations || state.allocationProfile !== null) && state.gc.supported && state.counters !== null &&
         state.memory.before !== null && state.memory.after !== null };
       // Profiles returned by V8 have transient memory outside this retention/export bound.
       const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");

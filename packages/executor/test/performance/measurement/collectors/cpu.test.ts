@@ -55,6 +55,7 @@ describe("request-local CPU measurement collector", () => {
       includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
     const evidence = collector.evidence();
     expect(evidence.complete).toBe(true);
+    expect(evidence.allocationSampling).toBe("enabled");
     expect(evidence.gc.events).toHaveLength(2);
     expect(evidence.counters?.process).toEqual({ user: 1_000, system: 500 });
     expect(evidence.counters?.thread).toEqual({ user: 500, system: 100 });
@@ -63,6 +64,71 @@ describe("request-local CPU measurement collector", () => {
     expect(collector.failures()).toEqual([]);
     expect(evidence.retainedBytes).toBe(Buffer.byteLength(JSON.stringify(evidence), "utf8"));
     expect(() => assertCpuMeasurementIdle()).not.toThrow();
+  });
+
+  it("captures CPU, GC and request counters with allocation sampling explicitly disabled", async () => {
+    const state = fixture(), collector = createCpuMeasurementCollector({ runtime: state.runtime, allocations: false });
+    expect(await collector.capture(async () => { state.calls.push("invoke"); return 7; })).toBe(7);
+    const evidence = collector.evidence();
+    expect(evidence).toMatchObject({ complete: true, allocationSampling: "disabled", allocationIntervalBytes: null,
+      includeObjectsCollectedByMajorGC: null, includeObjectsCollectedByMinorGC: null,
+      allocationWindow: null, allocationProfile: null });
+    expect(evidence.cpuProfile).not.toBeNull();
+    expect(evidence.callWindow).not.toBeNull();
+    expect(evidence.counters).not.toBeNull();
+    expect(evidence.memory.before).not.toBeNull();
+    expect(evidence.memory.after).not.toBeNull();
+    expect(evidence.gc.events).toHaveLength(2);
+    expect(state.calls.some(method => method.startsWith("HeapProfiler."))).toBe(false);
+    expect(state.calls.filter(method => method === "invoke")).toHaveLength(1);
+    expect(state.calls.indexOf("Profiler.stop")).toBeGreaterThan(state.calls.indexOf("invoke"));
+    expect(state.calls.indexOf("gcRecords")).toBeLessThan(state.calls.indexOf("gcDisconnect"));
+    expect(state.calls.at(-1)).toBe("disconnect");
+    expect(analyzeCpuEvidence(evidence)).toMatchObject({ allocationSampling: "disabled",
+      allocationAvailability: "disabled", allocations: null, rootWindow: evidence.callWindow });
+    expect(collector.failures()).toEqual([]);
+    expect(evidence.retainedBytes).toBe(Buffer.byteLength(JSON.stringify(evidence), "utf8"));
+    expect(() => assertCpuMeasurementIdle()).not.toThrow();
+  });
+
+  it("preserves the business Cause and independent CPU/GC cleanup faults with allocations disabled", async () => {
+    const state = fixture(), original = Cause.combine(
+      Cause.combine(Cause.fail({ _tag: "Refused" }), Cause.die(new Error("defect"))), Cause.interrupt(12));
+    const cpuStop = new Error("CPU stop fault"), gc = new Error("GC disconnect fault"), session = new Error("disconnect fault");
+    state.errors.set("Profiler.stop", cpuStop); state.errors.set("gcDisconnect", gc); state.errors.set("disconnect", session);
+    const collector = createCpuMeasurementCollector({ runtime: state.runtime, allocations: false });
+    const rejected = await collector.capture(async () => { throw original; }).catch((cause: unknown) => cause);
+    expect(rejected).toBe(original);
+    expect(collector.failures().map(failure => failure.cause)).toEqual([cpuStop, gc, session]);
+    expect(collector.evidence()).toMatchObject({ complete: false, allocationSampling: "disabled",
+      failures: ["cpuStop", "gcDisconnect", "disconnect"] });
+    expect(state.calls.some(method => method.startsWith("HeapProfiler."))).toBe(false);
+    expect(() => assertCpuMeasurementIdle()).not.toThrow();
+  });
+
+  it.each(["connect", "Profiler.enable", "Profiler.setSamplingInterval", "Profiler.start", "gcObserve", "gcDrain"])(
+    "keeps a real %s fault incomplete when allocations are disabled", async method => {
+      const state = fixture(), failure = new Error(method);
+      state.errors.set(method, failure);
+      const collector = createCpuMeasurementCollector({ runtime: state.runtime, allocations: false });
+      expect(await collector.capture(async () => "business-result")).toBe("business-result");
+      expect(collector.evidence().complete).toBe(false);
+      expect(collector.failures().some(fault => fault.cause === failure)).toBe(true);
+      expect(state.calls.some(value => value.startsWith("HeapProfiler."))).toBe(false);
+      expect(state.calls).toContain("gcDisconnect");
+      expect(state.calls.at(-1)).toBe("disconnect");
+      expect(() => assertCpuMeasurementIdle()).not.toThrow();
+    });
+
+  it.each([1, 2])("retains request counter read %s faults without allocations", async failedRead => {
+    const state = fixture(), failure = new Error("counter read fault");
+    let reads = 0;
+    const collector = createCpuMeasurementCollector({ allocations: false, runtime: { ...state.runtime,
+      counters: () => { if (++reads === failedRead) throw failure; return state.runtime.counters(); } } });
+    await collector.capture(async () => undefined);
+    expect(collector.evidence().complete).toBe(false);
+    expect(collector.failures()).toEqual([{ stage: failedRead === 1 ? "beforeCounters" : "afterCounters", cause: failure }]);
+    expect(state.calls.at(-1)).toBe("disconnect");
   });
 
   it("keeps original business Cause identity and every independent cleanup failure", async () => {
@@ -94,14 +160,14 @@ describe("request-local CPU measurement collector", () => {
       }
     });
 
-  it("makes missing/malformed profiles incomplete and still releases both profiler domains", async () => {
+  it.each([true, false])("keeps malformed CPU and enabled allocation profiles incomplete (allocations: %s)", async allocations => {
     const state = fixture();
     state.cpuProfile.samples = [99];
     state.heapProfile.samples = [{ size: 4_096, nodeId: 99, ordinal: 1 }];
-    const collector = createCpuMeasurementCollector({ runtime: state.runtime });
+    const collector = createCpuMeasurementCollector({ runtime: state.runtime, allocations });
     await collector.capture(async () => undefined);
     expect(collector.evidence()).toMatchObject({ complete: false, cpuProfile: null, allocationProfile: null,
-      failures: ["cpuDecode", "heapDecode"] });
+      failures: allocations ? ["cpuDecode", "heapDecode"] : ["cpuDecode"] });
     expect(state.calls.at(-1)).toBe("disconnect");
   });
 
@@ -120,21 +186,21 @@ describe("request-local CPU measurement collector", () => {
     expect(invoke).toHaveBeenCalledOnce();
   });
 
-  it("stops on a bounded observation deadline while allowing the business request to settle", async () => {
+  it.each([true, false])("stops on a bounded deadline while the request settles (allocations: %s)", async allocations => {
     const state = fixture();
-    const collector = createCpuMeasurementCollector({ runtime: state.runtime, durationMs: 1 });
+    const collector = createCpuMeasurementCollector({ runtime: state.runtime, durationMs: 1, allocations });
     const result = await collector.capture(() => new Promise<number>(resolve => setTimeout(() => resolve(5), 10)));
     expect(result).toBe(5);
     expect(collector.evidence()).toMatchObject({ complete: false, timedOut: true, failures: ["duration"] });
     expect(state.calls.filter(method => method === "Profiler.stop")).toHaveLength(1);
-    expect(state.calls.filter(method => method === "HeapProfiler.stopSampling")).toHaveLength(1);
+    expect(state.calls.filter(method => method === "HeapProfiler.stopSampling")).toHaveLength(allocations ? 1 : 0);
   });
 
-  it("reports unavailable GC separately and does not create a collector for plain quiet work", async () => {
+  it.each([true, false])("reports unavailable GC separately from quiet work (allocations: %s)", async allocations => {
     const state = fixture(), before = [...state.calls];
     await Promise.resolve("quiet");
     expect(state.calls).toEqual(before);
-    const collector = createCpuMeasurementCollector({ runtime: { ...state.runtime, gcSupported: false } });
+    const collector = createCpuMeasurementCollector({ runtime: { ...state.runtime, gcSupported: false }, allocations });
     await collector.capture(async () => undefined);
     expect(collector.evidence()).toMatchObject({ complete: false, gc: { supported: false, events: [] } });
     expect(state.calls).not.toContain("gcObserve");

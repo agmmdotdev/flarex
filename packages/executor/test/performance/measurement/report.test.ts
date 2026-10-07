@@ -3,7 +3,7 @@ import { Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MeasurementInfrastructureError, persistMeasurementReport, type RunReport } from "./report";
 import { analyzeMeasurementEvidence } from "./analysis";
-import { CPU_LIMITS, type CpuEvidence } from "./cpu";
+import { analyzeCpuEvidence, CPU_LIMITS, type CpuEvidence } from "./cpu";
 import { serverLimits, type ServerMeasurementEvidence } from "./server";
 import { serverPlanLimits } from "./collectors/plans";
 
@@ -39,6 +39,40 @@ beforeEach(() => {
 });
 
 describe("measurement artifact persistence", () => {
+  it("exports standalone root CPU profiles and discloses disabled allocation and absent timeline accounting", async () => {
+    const cpu: CpuEvidence = { complete: false,
+      host: { pid: 1, threadId: 0, node: "24", v8: "13", platform: "win32", exclusivity: "controlled-isolate-only", externalContention: "unavailable" },
+      limits: CPU_LIMITS, cpuIntervalMicroseconds: 1000, allocationSampling: "disabled", allocationIntervalBytes: null,
+      includeObjectsCollectedByMajorGC: null, includeObjectsCollectedByMinorGC: null,
+      callWindow: { startMonotonicMs: 10, endMonotonicMs: 12 }, cpuStartCommand: null, cpuStopCommand: null, allocationWindow: null,
+      cpuProfile: { nodes: [{ id: 1, callFrame: { functionName: "work", scriptId: "1", url: "./packages/work.ts", lineNumber: 1, columnNumber: 0 }, children: [] }],
+        samples: [1], timeDeltas: [1000], startTime: 10000, endTime: 12000 },
+      allocationProfile: null, counters: null, memory: { before: null, after: null },
+      gc: { supported: true, events: [], observerIntervals: [], droppedEvents: 0 }, timedOut: false,
+      retainedBytes: 0, droppedFailures: 0, failures: ["cpuStop"] };
+    const input: RunReport = { ...report(), mode: "cpu", observation: { selection: "root", timeline: "unavailable", driver: "unavailable" },
+      observerPairs: [{ index: 0, quietMs: 1, diagnosticMs: 2, addedMs: 1 }], samples: [{
+      id: "root", lane: "flarex", index: 1, kind: "diagnostic", requestMs: 2, seedMs: 0,
+      verificationMs: 0, cleanupMs: 0, outcome: "success", failureStage: null, failures: [],
+      cpuEvidence: cpu, cpuAnalysis: analyzeCpuEvidence(cpu),
+    }] };
+    const paths = await persistMeasurementReport(directory, input);
+    expect(paths.profiles).toEqual([resolve(directory, "retained-request-flarex-1.cpuprofile")]);
+    expect(filesystem.writeFile).toHaveBeenCalledTimes(3);
+    expect(filesystem.writeFile.mock.calls[2]?.[1]).toBe(JSON.stringify(cpu.cpuProfile) + "\n");
+    const raw = filesystem.writeFile.mock.calls[0]?.[1], human = filesystem.writeFile.mock.calls[1]?.[1];
+    expect(raw).toBe(JSON.stringify(input, null, 2) + "\n");
+    expect(human).toContain("CPU observation: root. Full operation timeline: unavailable. Driver detail: unavailable.");
+    expect(human).toContain("Allocation sampling: disabled");
+    expect(human).toContain("Effect tracing and its context hook, SQL tracing, publication observation and heap sampling are absent");
+    expect(human).toContain("| Observer pair | Quiet Flarex ms | Root CPU diagnostic ms |");
+    expect(human).toContain("outside this timed difference");
+    expect(human).toContain("separate business executions, not native acceptance");
+    expect(human).toContain("never be subtracted");
+    expect(human).not.toContain("Strict deepest-operation wall");
+    expect(human).not.toContain("Driver-await union: 0");
+  });
+
   it("renders true plan IDs separately from logged query context and leaves absent IDs unavailable", async () => {
     const server: ServerMeasurementEvidence = { originMonotonicMs: 0, database: { database: "isolated", dbid: 1 },
       root: { startMs: 0, endMs: 1 }, limits: serverLimits, status: "complete", before: null, after: null,
@@ -67,7 +101,7 @@ describe("measurement artifact persistence", () => {
     const callFrame = { functionName: "work", scriptId: "1", url: "./packages/work.ts", lineNumber: 1, columnNumber: 0 };
     const cpu: CpuEvidence = { complete: false,
       host: { pid: 1, threadId: 0, node: "24", v8: "13", platform: "win32", exclusivity: "controlled-isolate-only", externalContention: "unavailable" },
-      limits: CPU_LIMITS, cpuIntervalMicroseconds: 1000, allocationIntervalBytes: 32768,
+      limits: CPU_LIMITS, cpuIntervalMicroseconds: 1000, allocationSampling: "enabled", allocationIntervalBytes: 32768,
       includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true,
       callWindow: null, cpuStartCommand: null, cpuStopCommand: null, allocationWindow: null,
       cpuProfile: { nodes: [{ id: 1, callFrame, children: [] }], samples: [1], timeDeltas: [1000], startTime: 0, endTime: 1000 },
