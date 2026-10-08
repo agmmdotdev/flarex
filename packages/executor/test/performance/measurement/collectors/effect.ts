@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { Cause, Effect, Exit, Layer, Option, Result, Schema, Tracer } from "effect";
 import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from
   "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
+import { PhysicalSessionObservation } from "../../../../../persistence-postgres/src/physicalSession/observation";
 import type { MeasurementEvent, MeasurementObserver } from "../artifact";
 import { ResourceCountersSchema, ResourceReadingSchema, type ResourceReading } from "../cpu";
 import { failureTokens, type MixedMutationEffectDiagnostics } from "../../support/measurement";
@@ -62,6 +63,10 @@ const boundaryOwners = new Map<string, string>([
   ["ApplicationMutationSessionActivation.enterFiniteInTransaction", "finiteExecution"],
   ["PointCommitTransaction.prepareFiniteCommand", "finiteCommitPreparation"],
   ["PostgresPhysicalSession.implicitRead", "physicalDatabase"],
+  ["PostgresPhysicalSession.drain", "physicalSession"],
+  ["PostgresPhysicalSession.release", "physicalSession"],
+  ["PostgresPhysicalSession.cancel", "physicalSession"],
+  ["PostgresPhysicalSession.quarantine", "physicalSession"],
   ["PointCommitTransaction.publishFinite", "pointCommitPublication"],
   ["ApplicationDocument.applyPreparedMaterializationBlock", "logicalMaterialization"],
   ["AppIndexEntries.consumeCurrentPages", "applicationIndexes"],
@@ -213,7 +218,8 @@ export function createEffectMeasurementCollector(input: Readonly<{
           const resources = resourceEnd(resourcesBefore);
           const completed: SpanRecord = { ...record, endMs, effectEndNanos: endTime.toString(),
             ...(resources === undefined ? {} : { resources }),
-            outcome: classifyMeasurementExit(exit), cause,
+            outcome: Exit.isSuccess(exit) && span.attributes.get("measurement.failureAsData") === true
+              ? "failure" : classifyMeasurementExit(exit), cause,
             owner: typeof span.attributes.get("measurement.owner") === "string"
               ? String(span.attributes.get("measurement.owner")) : record.owner,
             fiberId: typeof span.attributes.get("measurement.fiberId") === "string"
@@ -243,12 +249,18 @@ export function createEffectMeasurementCollector(input: Readonly<{
   // RC.112 withSpan/withParentSpan add Cause stack-frame annotations even with
   // captureStackTrace=false. useSpan owns the same native lifetime without
   // rewriting the business Cause; provide only its ParentSpan capability.
-  const traceEffect = <A, E, R>(name: string, work: Effect.Effect<A, E, R>, owner?: string): Effect.Effect<A, E, R> => {
+  const traceEffect = <A, E, R>(name: string, work: Effect.Effect<A, E, R>, owner?: string,
+    isFailure?: (value: A) => boolean): Effect.Effect<A, E, R> => {
     if (closed) return work;
     return Effect.withFiber(fiber => Effect.useSpan(name, {
       attributes: { "measurement.fiberId": String(fiber.id),
         ...(owner === undefined ? {} : { "measurement.owner": owner }) },
-    }, span => Effect.provideService(work, Tracer.ParentSpan, span)));
+    }, span => Effect.provideService(isFailure === undefined ? work : work.pipe(Effect.tap(value => Effect.sync(() => {
+      // The predicate is supplied by the physical owner. Foreign diagnostic
+      // faults invalidate evidence after settlement without replacing its Exit.
+      try { if (isFailure(value)) span.attribute("measurement.failureAsData", true); }
+      catch (cause) { fault(cause); }
+    }))), Tracer.ParentSpan, span)));
   };
   const withPhase = <A>(name: string, run: () => Promise<A>): Promise<A> => {
     if (closed) return run();
@@ -320,7 +332,9 @@ export function createEffectMeasurementCollector(input: Readonly<{
     }
     observer(startMs, "Publication scalar delivery");
   };
-  const binding: MixedMutationEffectDiagnostics = { provide, provideRequest, traceEffect, withPhase };
+  const physicalSessionObservation = new PhysicalSessionObservation({ record: () => {},
+    traceEffect: (phase, work, isFailure) => traceEffect(`PostgresPhysicalSession.${phase}`, work, "physicalSession", isFailure) });
+  const binding: MixedMutationEffectDiagnostics = { provide, provideRequest, traceEffect, withPhase, physicalSessionObservation };
   return {
     layer, binding,
     /** Read at the actual driver boundary. Retained IDs belong only to this
@@ -358,9 +372,13 @@ export function createEffectMeasurementCollector(input: Readonly<{
       ? { ...event, resources: structuredClone(event.resources) } : { ...event }),
     observers: () => observerIntervals.map(event => ({ ...event })),
     fullExits: () => new Map(exits),
-    status: () => ({ capacity, droppedEvents, lostContextEvents, failureCount,
-      failures: failureCount === 0 ? [] : ["Effect diagnostic collector failed"],
+    status: () => ({ capacity, droppedEvents, lostContextEvents,
+      failureCount: Math.min(Number.MAX_SAFE_INTEGER, failureCount + physicalSessionObservation.status().failureCount),
+      failures: failureCount + physicalSessionObservation.status().failureCount === 0 ? [] : ["Effect diagnostic collector failed"],
       rootId, originMonotonicMs, closed }),
-    assertHealthy: () => { if (failureCount !== 0) throw new Error("Effect diagnostic collector failed", { cause: firstFailure }); },
+    assertHealthy: () => {
+      if (failureCount !== 0) throw new Error("Effect diagnostic collector failed", { cause: firstFailure });
+      physicalSessionObservation.assertHealthy();
+    },
   };
 }

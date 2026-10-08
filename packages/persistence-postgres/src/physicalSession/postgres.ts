@@ -8,6 +8,7 @@ import {
 } from "pg";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { observePhysicalSessionEffect, type PhysicalSessionObservation } from "./observation";
 import {
   makePhysicalDeadlineOperations,
   type PhysicalDeadline,
@@ -36,6 +37,8 @@ export interface PhysicalPostgresPool {
 }
 
 export interface PostgresPhysicalSessionOptions {
+  /** A retained driver resolves the current request's trusted diagnostic binding. */
+  readonly observation?: () => PhysicalSessionObservation | undefined;
   readonly lifecycleFault?: (
     input: Readonly<{
       readonly phase: PhysicalSessionPhase;
@@ -47,6 +50,7 @@ export interface PostgresPhysicalSessionOptions {
 }
 
 interface NormalizedPostgresPhysicalSessionOptions {
+  readonly observation: PostgresPhysicalSessionOptions["observation"];
   readonly lifecycleFault: PostgresPhysicalSessionOptions["lifecycleFault"];
   readonly quarantineDrainTimeoutMilliseconds: number;
 }
@@ -97,6 +101,10 @@ type ReleaseResult =
 type QuarantineResult =
   | Readonly<{ readonly kind: "confirmed" }>
   | Readonly<{ readonly kind: "failed"; readonly cause: unknown }>;
+
+const drainFailed = (drain: CheckedOutConnectionDrain): boolean => drain.kind === "failed";
+const releaseFailed = (release: ReleaseResult): boolean => release.kind === "failed";
+const quarantineFailed = (quarantine: QuarantineResult): boolean => quarantine.kind === "failed";
 
 const DEFAULT_QUARANTINE_DRAIN_TIMEOUT_MILLISECONDS = 5_000;
 const MAXIMUM_QUARANTINE_DRAIN_TIMEOUT_MILLISECONDS = 60_000;
@@ -296,7 +304,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
 
             connection.closeWorkFence();
             const drain = yield* Effect.exit(
-              runDrainEffect(connection, input.deadline, "read"),
+              runDrainEffect(connection, input.deadline, "read", options),
             );
             if (Exit.isFailure(drain)) {
               const boundaryCause = Exit.isFailure(callback.value)
@@ -481,7 +489,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         if (Exit.isFailure(callback)) {
           connection.closeWorkFence();
           const callbackDrain = yield* Effect.exit(
-            runDrainEffect(connection, input.deadline, "callback"),
+            runDrainEffect(connection, input.deadline, "callback", options),
           );
           if (Exit.isFailure(callbackDrain)) {
             const trackedWorkCause = checkedOutConnectionCurrentWorkCause(
@@ -547,7 +555,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
 
         connection.closeWorkFence();
         const drain = yield* Effect.exit(
-          runDrainEffect(connection, input.deadline, "callback"),
+          runDrainEffect(connection, input.deadline, "callback", options),
         );
         if (Exit.isFailure(drain)) {
           const trackedWorkCause = checkedOutConnectionCurrentWorkCause(
@@ -742,7 +750,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         if (Exit.isFailure(callback)) {
           connection.closeWorkFence();
           const callbackDrain = yield* Effect.exit(
-            runDrainEffect(connection, input.deadline, "callback"),
+            runDrainEffect(connection, input.deadline, "callback", options),
           );
           if (Exit.isFailure(callbackDrain)) {
             const trackedWorkCause = checkedOutConnectionCurrentWorkCause(
@@ -820,7 +828,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
 
         connection.closeWorkFence();
         const drain = yield* Effect.exit(
-          runDrainEffect(connection, input.deadline, "callback"),
+          runDrainEffect(connection, input.deadline, "callback", options),
         );
         if (Exit.isFailure(drain)) {
           const trackedWorkCause = checkedOutConnectionCurrentWorkCause(
@@ -1231,8 +1239,9 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     connection: CheckedOutConnection,
     deadline: PhysicalDeadline,
     phase: "read" | "callback",
+    options: NormalizedPostgresPhysicalSessionOptions,
   ): Effect.Effect<CheckedOutConnectionDrain, ResourceIssue, never> {
-    return remainingResourceMilliseconds(deadline, phase).pipe(
+    return observePhysicalSessionEffect(options.observation?.(), "drain", remainingResourceMilliseconds(deadline, phase).pipe(
       Effect.flatMap((remainingMilliseconds) => {
         const settled = connection.settledDrain();
         return settled === undefined
@@ -1241,7 +1250,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
             )
           : Effect.succeed(settled);
       }),
-    );
+    ), drainFailed);
   };
 
   function checkedOutConnectionDrainCause(
@@ -1386,7 +1395,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     phase: "release" | "quarantine",
     options: NormalizedPostgresPhysicalSessionOptions,
   ): Effect.Effect<ReleaseResult, never, never> {
-    return Effect.sync(() => {
+    return observePhysicalSessionEffect(options.observation?.(), "release", Effect.sync(() => {
       if (connection.isReleased()) {
         return Object.freeze({
           kind: "failed",
@@ -1427,10 +1436,18 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
             kind: "failed",
             cause: aggregateCauses(causes, `PostgreSQL ${phase} failed.`),
           });
-    });
+    }), releaseFailed);
   };
 
-  const quarantineConnectionEffect = Effect.fn(
+  const quarantineConnectionEffect = (
+    connection: CheckedOutConnection,
+    options: NormalizedPostgresPhysicalSessionOptions,
+  ): Effect.Effect<QuarantineResult> => observePhysicalSessionEffect(
+    options.observation?.(), "quarantine", quarantineWorkEffect(connection, options),
+    quarantineFailed,
+  );
+
+  const quarantineWorkEffect = Effect.fn(
     "PostgresPhysicalSession.quarantineConnection",
   )(function* (
     connection: CheckedOutConnection,
@@ -1450,7 +1467,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       cancellationClientConfig !== undefined;
     const cancellation = canAuthenticateCancellation
       ? yield* Effect.exit(
-          Effect.uninterruptible(
+          observePhysicalSessionEffect(options.observation?.(), "cancel", Effect.uninterruptible(
             Effect.tryPromise({
               try: () =>
                 sendPostgresCancelRequest(
@@ -1460,7 +1477,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
                 ),
               catch: (cause) => cause,
             }),
-          ),
+          )),
         )
       : undefined;
     const cancellationConfirmed =
@@ -1480,7 +1497,8 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         : undefined;
     const drain = yield* boundedQuarantineDrainExitEffect(
       connection,
-      remainingPlatformMilliseconds(quarantineExpiresAt),
+      quarantineExpiresAt,
+      options,
     );
     const release =
       earlyRelease ??
@@ -1531,13 +1549,27 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
   const boundedQuarantineDrainExitEffect =
     function boundedQuarantineDrainExitEffect(
       connection: CheckedOutConnection,
-      timeoutMilliseconds: number,
+      quarantineExpiresAt: number,
+      options: NormalizedPostgresPhysicalSessionOptions,
     ): Effect.Effect<Exit.Exit<void, unknown>, never, never> {
-      return boundedPlatformPromiseExitEffect(
-        connection.drain().then(() => undefined),
-        timeoutMilliseconds,
-        "PostgreSQL quarantine drain did not settle after exact-client destruction.",
-      );
+      const observation = options.observation?.();
+      if (observation === undefined) {
+        const timeoutMilliseconds = remainingPlatformMilliseconds(quarantineExpiresAt);
+        return boundedPlatformPromiseExitEffect(
+          connection.drain().then(() => undefined), timeoutMilliseconds,
+          "PostgreSQL quarantine drain did not settle after exact-client destruction.",
+        );
+      }
+      // Observation starts before the actual foreign await; quiet execution keeps
+      // the original platform Promise boundary with one remaining-time check.
+      // Refresh the absolute budget after diagnostic startup, at the await itself.
+      return observePhysicalSessionEffect(observation, "drain", Effect.suspend(() => {
+        const timeoutMilliseconds = remainingPlatformMilliseconds(quarantineExpiresAt);
+        return boundedPlatformPromiseExitEffect(
+          connection.drain().then(() => undefined), timeoutMilliseconds,
+          "PostgreSQL quarantine drain did not settle after exact-client destruction.",
+        );
+      }), Exit.isFailure);
     };
 
   function sendPostgresCancelRequest(
@@ -2237,6 +2269,7 @@ function normalizePostgresPhysicalSessionOptions(
   }
   const lifecycleFault = options.lifecycleFault;
   return Object.freeze({
+    observation: options.observation,
     lifecycleFault,
     quarantineDrainTimeoutMilliseconds: timeout,
   });

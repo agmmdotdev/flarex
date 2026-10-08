@@ -1,9 +1,11 @@
 import { Context, Effect, Exit, Tracer } from "effect";
+import type { PhysicalSessionObservation } from "../../../../persistence-postgres/src/physicalSession/observation";
 import type { MixedMutationPerformanceTrace, TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 
 /** Test composition capability. It decorates existing runtimes, without owning
  * business services, clocks, resources or settlement. Quiet callers omit it. */
 export interface MixedMutationEffectDiagnostics {
+  readonly physicalSessionObservation?: PhysicalSessionObservation;
   provide<A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
   provideRequest<A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
   traceEffect<A, E, R>(name: string, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;

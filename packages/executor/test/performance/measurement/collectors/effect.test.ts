@@ -2,8 +2,119 @@ import { Cause, Clock, Deferred, Effect, Exit, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 import { observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
 import { createEffectMeasurementCollector } from "./effect";
+import { observePhysicalSessionEffect, PhysicalSessionObservation } from "../../../../../persistence-postgres/src/physicalSession/observation";
 
 describe("diagnostic Effect measurement collector", () => {
+  it("parents physical work at evaluation and classifies owner refusals without changing success Exits", async () => {
+    let tick = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++ });
+    const refused = { status: "failed" as const };
+    const work = observePhysicalSessionEffect(collector.binding.physicalSessionObservation, "drain",
+      Effect.succeed(refused), value => value.status === "failed");
+    const exit = await collector.runRequest("request", () => Effect.runPromiseExit(collector.binding.provide(
+      collector.binding.traceEffect("native Product operation", work))));
+    expect(Exit.isSuccess(exit) && exit.value).toBe(refused);
+    const records = collector.records();
+    const native = records.find(event => event.kind === "effectSpan" && event.name === "native Product operation");
+    const physical = records.find(event => event.kind === "effectSpan" && event.name === "PostgresPhysicalSession.drain");
+    expect(physical).toMatchObject({ parentId: native?.id, owner: "physicalSession", outcome: "failure", cause: null });
+    if (physical === undefined) throw new Error("Missing physical span");
+    expect(collector.fullExits().get(physical.id)).toBe(exit);
+    expect(collector.status()).toMatchObject({ lostContextEvents: 0, failureCount: 0 });
+  });
+
+  it("preserves every physical failure reason and waits for interrupted cleanup before span completion", async () => {
+    let tick = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++ });
+    const original = Cause.combine(Cause.fail({ _tag: "Refused" }), Cause.die(new Error("private physical failure")));
+    const begun = Effect.runSync(Deferred.make<void>());
+    const cleanupBegun = Effect.runSync(Deferred.make<void>());
+    const finishCleanup = Effect.runSync(Deferred.make<void>());
+    let cleanupComplete = false;
+    await collector.runRequest("request", async () => {
+      const combined = await Effect.runPromiseExit(collector.binding.provide(observePhysicalSessionEffect(
+        collector.binding.physicalSessionObservation, "release", Effect.failCause(original))));
+      expect(Exit.isFailure(combined) && combined.cause).toBe(original);
+      const fiber = Effect.runFork(collector.binding.provide(observePhysicalSessionEffect(
+        collector.binding.physicalSessionObservation, "drain", Deferred.succeed(begun, undefined).pipe(
+          Effect.andThen(Effect.never), Effect.ensuring(Deferred.succeed(cleanupBegun, undefined).pipe(
+            Effect.andThen(Deferred.await(finishCleanup)), Effect.andThen(Effect.sync(() => { cleanupComplete = true; }))))))));
+      await Effect.runPromise(Deferred.await(begun));
+      const interruption = Effect.runPromise(Fiber.interrupt(fiber));
+      await Effect.runPromise(Deferred.await(cleanupBegun));
+      const pending = collector.records().find(event => event.kind === "effectSpan" && event.name === "PostgresPhysicalSession.drain");
+      expect(pending?.kind !== "work" && pending?.endMs).toBeNull();
+      expect(cleanupComplete).toBe(false);
+      await Effect.runPromise(Deferred.succeed(finishCleanup, undefined));
+      await interruption;
+      const interrupted = await Effect.runPromise(Fiber.await(fiber));
+      expect(Exit.isFailure(interrupted) && Cause.hasInterrupts(interrupted.cause)).toBe(true);
+      expect(cleanupComplete).toBe(true);
+    });
+    const physical = collector.records().filter(event => event.kind === "effectSpan" && event.owner === "physicalSession");
+    expect(physical.map(event => event.kind === "effectSpan" && event.outcome)).toEqual(["mixed", "interruption"]);
+    expect(physical.every(event => event.kind !== "work" && event.endMs !== null)).toBe(true);
+    expect(JSON.stringify(physical)).not.toContain("private physical failure");
+  });
+
+  it("retains nested quarantine and cancellation intervals as inclusive evidence", async () => {
+    let tick = 0, resourceReads = 0;
+    const collector = createEffectMeasurementCollector({ now: () => tick++, readResources: () => {
+      resourceReads++;
+      return { process: { user: resourceReads, system: 0 }, thread: null,
+        eventLoop: { idle: resourceReads, active: 0, utilization: 0 } };
+    } });
+    const observation = collector.binding.physicalSessionObservation;
+    await collector.runRequest("request", () => Effect.runPromise(collector.binding.provide(observePhysicalSessionEffect(
+      observation, "quarantine", observePhysicalSessionEffect(observation, "cancel", Effect.void)))));
+    const records = collector.records();
+    const quarantine = records.find(event => event.kind === "effectSpan" && event.name === "PostgresPhysicalSession.quarantine");
+    const cancel = records.find(event => event.kind === "effectSpan" && event.name === "PostgresPhysicalSession.cancel");
+    if (quarantine?.kind !== "effectSpan" || cancel?.kind !== "effectSpan") throw new Error("Missing physical intervals");
+    expect(cancel.parentId).toBe(quarantine.id);
+    expect(cancel.startMs).toBeGreaterThan(quarantine.startMs);
+    expect(cancel.endMs).toBeLessThan(quarantine.endMs!);
+    expect([cancel.outcome, quarantine.outcome]).toEqual(["success", "success"]);
+    expect(cancel).not.toHaveProperty("resources");
+    expect(quarantine).not.toHaveProperty("resources");
+    expect(resourceReads).toBe(2);
+  });
+
+  it("settles business outcomes before diagnosing physical predicate, clock and sink faults", async () => {
+    let tick = 0;
+    const fault = new Error("physical diagnostic fault");
+    const collector = createEffectMeasurementCollector({ now: () => tick++ });
+    const value = { status: "released" };
+    expect(await collector.runRequest("request", () => Effect.runPromise(collector.binding.provide(observePhysicalSessionEffect(
+      collector.binding.physicalSessionObservation, "release", Effect.succeed(value), () => { throw fault; }))))).toBe(value);
+    expect(collector.status().failureCount).toBe(1);
+    expect(() => collector.assertHealthy()).toThrow(expect.objectContaining({ cause: fault }));
+    const sink = new PhysicalSessionObservation({ record: () => { throw fault; } });
+    const original = Cause.combine(Cause.fail("refusal"), Cause.die("cleanup"));
+    const exit = await Effect.runPromiseExit(observePhysicalSessionEffect(sink, "drain", Effect.failCause(original)));
+    expect(Exit.isFailure(exit) && exit.cause).toBe(original);
+    expect(sink.status().failureCount).toBeGreaterThan(0);
+    expect(() => sink.assertHealthy()).toThrow(expect.objectContaining({ cause: fault }));
+    const faultyClock = createEffectMeasurementCollector({ now: () => { throw fault; } });
+    expect(await faultyClock.runRequest("request", () => Effect.runPromise(faultyClock.binding.provide(
+      observePhysicalSessionEffect(faultyClock.binding.physicalSessionObservation, "release", Effect.succeed(value)))))).toBe(value);
+    expect(() => faultyClock.assertHealthy()).toThrow(expect.objectContaining({ cause: fault }));
+  });
+
+  it("keeps quiet and closed physical work identical without timing or predicate evaluation", async () => {
+    let clocks = 0, predicates = 0;
+    const work = Effect.succeed(7);
+    expect(observePhysicalSessionEffect(undefined, "drain", work, () => { predicates++; return true; })).toBe(work);
+    expect(predicates).toBe(0);
+    const collector = createEffectMeasurementCollector({ now: () => clocks++ });
+    await collector.runRequest("request", async () => 1);
+    const before = clocks;
+    expect(observePhysicalSessionEffect(collector.binding.physicalSessionObservation, "release", work,
+      () => { predicates++; return true; })).toBe(work);
+    expect(clocks).toBe(before);
+    expect(predicates).toBe(0);
+  });
+
   it("brackets native publication phases and rejects backwards resource readings", async () => {
     let tick = 0;
     let reads = 0;

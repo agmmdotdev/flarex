@@ -1,5 +1,61 @@
 # Direct Core Performance Harness
 
+## Selected physical capture attribution
+
+Status: implemented bounded physical capture attribution. The selected storage
+composition delivered a partial quiet-latency improvement without demonstrating
+lower paired thread CPU. The next question is whether Product relational reads
+concentrate cost in metadata/dependency computation or the physical capture
+lifecycle. Existing operation counters, checkout and SQL intervals remain the
+starting evidence; nested intervals are not exclusive component CPU.
+
+Extend the physical-session owner with an optional diagnostic observer for its
+existing drain, release, authenticated cancellation and quarantine operations.
+The SDK constructs the observation and supplies monotonic timing, bounded event
+storage, actual parentage and scalar outcome classification. A retained target
+resolves the current request binding; it neither retains a request collector nor
+rebuilds a driver per sample. Production omits the option; quiet requests return
+the original work before diagnostic timing/events/wrappers. Keep observers away
+from clients, cancellation credentials and raw Causes. Do not repurpose the
+fault-injection callback or publication phase vocabulary.
+
+Preserve lazy execution, complete Fail/Die/interruption outcomes, resource
+budgets, first refusal, cleanup order and exact-client release/quarantine.
+Returned failure verdicts remain distinguishable from successful Effect exits.
+Diagnostic callback failures invalidate evidence after business settlement and
+cannot change its Cause or settlement. Reuse existing SDK event and observer
+owners; no new measurement engine, database protocol, schema, authority,
+framework business behavior or durable format is selected. New timing cannot
+establish server execution, locks or network cost within a query await.
+
+Validation covers disabled observation, parentage, success/failure as data,
+observer faults, interruption/finalizer completion and nested quarantine/cancel
+intervals, plus affected strict checks, lint, both reviews and focused PGlite
+and ordinary-role PostgreSQL physical regressions. Preserve the preceding dirty
+baseline; the root owns measurements and a scoped incremental commit.
+
+The finite campaign is exactly fifteen mixed-product business calls through
+existing resources/default observation: five quiet warmups followed by five
+alternating quiet/resource pairs. All samples, source identity, diagnostic
+perturbation, overlap and attribution gaps remain visible. No calibration
+request, retry, extra scenario or automatic acceptance matrix is added. Stop
+after this batch and report owner costs, unresolved gaps and the next concrete
+replacement candidate. Native-relative acceptance stays unmet; this diagnostic
+slice does not authorize another runtime optimization before that discussion.
+
+The physical owner and SDK now distinguish ordinary drain/release work from
+the enclosing read/capture and driver-await intervals, while preserving current
+request lookup, quiet identity, failure-as-data and complete cleanup outcomes.
+Normal cleanup is a small part of the selected successful Product graph; the
+larger remaining responsibility is read/capture execution and publication.
+Read compilation and metadata consumption alone do not explain that cost.
+Diagnostic CPU brackets remain inclusive and platform-quantized; query awaits
+still combine driver, server, lock and transport behavior. Statement counts are
+unavailable in resources mode, and successful samples do not measure cancellation
+or quarantine cost. Native-relative acceptance and standalone coverage remain
+open. The next discussion should select a complete read/capture simplification
+from this evidence, with a semantic inventory before reducing captures or awaits.
+
 ## Status And Outcome
 
 Implemented for the bounded five-scenario graph. The daily measurement loop uses

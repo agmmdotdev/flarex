@@ -1,5 +1,6 @@
 import type { ApplicationActivationTargetProfile } from "../../../persistence-postgres/src/applicationReadiness";
 import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../../persistence-postgres/src/postgres";
+import type { PhysicalSessionObservation } from "../../../persistence-postgres/src/physicalSession/observation";
 import { isLocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/transactionSessionAttemptKernel";
 import { Effect, Result } from "effect";
 import { prepareLogicalSchemaCandidate, readPreparedLogicalSchemaCandidate } from "../../../analysis/src/logicalSchemaCandidate";
@@ -97,6 +98,7 @@ type LogicalCurrencyResource =
 
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
+  physicalSessionObservation?: () => PhysicalSessionObservation | undefined;
   postgresEndpoints?: PostgresFixtureEndpoints;
   includeUserNameIndex?: boolean; includeProductLaunch?: boolean;
   initialUserDocuments?: ApplicationNativeMutationFixtureOptions["initialUserDocuments"];
@@ -223,7 +225,8 @@ export async function logicalCurrencyFixture(
       const activationProfile = activationResources === undefined ? undefined : (() => {
         const activationTarget = createPostgresLocatedPointMutationSessionActivationTargetV1(activationResources.activation.persistence,
           { kind: "database_per_scope", databaseKey: "logical_currency_target", schemaName: target.schemaName },
-          { directInstallation: activationResources.activation.installation });
+          { directInstallation: activationResources.activation.installation,
+            ...(options?.physicalSessionObservation === undefined ? {} : { physicalSessionObservation: options.physicalSessionObservation }) });
         if (!isLocatedReadCommittedAttemptTargetV1(activationTarget)) throw new Error("Missing genuine activation runner");
         return { kind: "installed" as const, installation: activationResources.pair, target: activationTarget };
       })();
@@ -254,6 +257,7 @@ export async function logicalCurrencyFixture(
     pair.activationProfile?.kind === "installed" && pair.managedRead === undefined
       ? await Effect.runPromise(prepareProtectedMetadata(target.drizzle)) : pair.protectedMetadata;
   const applicationOptions = {
+    ...(options?.physicalSessionObservation === undefined ? {} : { physicalSessionObservation: options.physicalSessionObservation }),
     ...(pair.kind === "postgres" && pair.activationProfile !== undefined ? { activationProfile: pair.activationProfile } : {}),
     runtimeHostIdentity: options?.readinessRuntimeHostIdentity ?? "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
     ...(managedInstallationSetup === undefined || managedControlProtection === undefined ? {} :

@@ -116,6 +116,25 @@ bridge per event, database command, transaction or settling capability.
 
 ## Effect Measurement Layers
 
+Physical capture diagnostics use an optional `PhysicalSessionObservation`
+constructed by the request's Effect collector. The retained target resolves the
+current binding through the existing fixture diagnostic setter; it retains no
+request collector and creates no driver per sample. An absent binding returns
+the original work before diagnostic timing, events or wrappers.
+
+`PostgresPhysicalSession.drain`, `.release`, `.cancel` and `.quarantine` reuse
+the SDK's Effect spans with owner `physicalSession`, the actual parent at
+evaluation, and complete Exit completion including finalizers. An owner-supplied
+typed predicate classifies a returned refusal as scalar outcome `failure` while
+retaining its genuine successful Exit and null Cause. Actual typed failures,
+defects, interruption and combined Causes retain their existing classifications.
+Foreign predicate, clock or observation faults invalidate evidence only after
+business settlement through the collector's health check. These intervals are
+inclusive: nested cancellation and quarantine must not be summed as exclusive
+component CPU. Query await timing still cannot separate server, lock or network
+cost. Default resource diagnostics keep these short lifecycle spans as wall
+intervals; CPU counters remain on the existing coarse operation brackets.
+
 Use the installed Effect tracer as the shared injected tracing capability.
 The SDK constructs a private measurement Layer and provides it once at the
 trusted diagnostic composition boundary. Reuse `Tracer.Tracer`, named

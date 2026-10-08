@@ -52,6 +52,7 @@ import { makePostgresPhysicalSessionDriver } from "./physicalSession/postgres";
 import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
 import { FiniteStorageCaptureError } from "./finiteStorageCapture";
 import { physicalSessionErrors } from "./physicalSession/errors";
+import type { PhysicalSessionObservation } from "./physicalSession/observation";
 import {
   createLocatedTaskSystemRunAttemptTargetV1,
   type LocatedTaskSystemRunAttemptTargetV1,
@@ -169,13 +170,17 @@ export function createPostgresLocatedScopeAuthorizationEpochTarget(
 export function createPostgresLocatedPointMutationSessionActivationTargetV1(
   persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
   physicalLocator: ScopePhysicalLocator,
-  options: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
+  options: LocatedPointMutationSessionActivationTargetOptionsV1 & Readonly<{
+    /** Source-private diagnostics resolved per request by the retained physical driver. */
+    physicalSessionObservation?: () => PhysicalSessionObservation | undefined;
+  }> = {},
 ): LocatedScopeClockReader {
+  const { physicalSessionObservation, ...activationOptions } = options;
   return createLocatedPointMutationSessionActivationTargetV1(
     persistence.drizzle,
     physicalLocator,
     {
-      ...options,
+      ...activationOptions,
       [FINITE_STORAGE_CAPTURE_DRIVER]: makePostgresPhysicalSessionDriver(persistence.pool, {
         access: physicalSessionAccess,
         errors: {
@@ -184,7 +189,7 @@ export function createPostgresLocatedPointMutationSessionActivationTargetV1(
           invariant: physicalSessionErrors.invariant,
           cleanup: physicalSessionErrors.cleanup,
         },
-      }),
+      }, physicalSessionObservation === undefined ? {} : { observation: physicalSessionObservation }),
       [LOCATED_READ_COMMITTED_RUNNER_V1]:
         createPostgresLocatedReadCommittedTransactionRunnerV1(
           persistence.pool,

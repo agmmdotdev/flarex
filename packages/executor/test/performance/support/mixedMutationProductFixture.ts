@@ -347,13 +347,14 @@ Readonly<{ workflow?: never; workflowIds?: never; payloadProfile?: MixedPayloadP
 }> }>);
 
 async function prepareMixedMutationProductContext(input: MixedMutationProductFixtureInput,
-  initialSeedSuffix: string) {
+  initialSeedSuffix: string, currentDiagnostics?: () => MixedMutationEffectDiagnostics | undefined) {
   const cleanup: Array<() => Promise<void>> = [];
   const provisioningStart = globalThis.performance.now();
   try {
   const currency = await logicalCurrencyFixture(input.driver, close => cleanup.push(close),
     input.resource === undefined
       ? { includeProduct: true, finiteStorageCapture: true,
+        ...(currentDiagnostics === undefined ? {} : { physicalSessionObservation: () => currentDiagnostics()?.physicalSessionObservation }),
         ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
         protectedRuntime: input.driver === "postgres",
         ...(input.driver === "postgres" ? { managedRead: true as const } : {}),
@@ -367,6 +368,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         ...(input.fixtureIdentity === undefined ? {} :
         { fixtureIdentity: input.fixtureIdentity }) }
       : { includeProduct: true, finiteStorageCapture: true, resource: input.resource, fixtureIdentity: input.fixtureIdentity,
+        ...(currentDiagnostics === undefined ? {} : { physicalSessionObservation: () => currentDiagnostics()?.physicalSessionObservation }),
         protectedRuntime: input.driver === "postgres",
         ...(input.driver === "postgres" ? { managedRead: true as const } : {}),
         ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }),
@@ -669,15 +671,15 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
         : { executionHost: input.executionHost, driver: input.driver, suffix,
             ...(input.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
             ...(input.readMetadataScale === undefined ? {} : { readMetadataScale: input.readMetadataScale }) };
+  let diagnostics: MixedMutationEffectDiagnostics | undefined;
   const context = await prepareMixedMutationProductContext(makeInput(input.suffix),
-    `${input.suffix}-0`);
+    `${input.suffix}-0`, () => diagnostics);
   const seeded = new Map<number, ProductSeed>();
   const attempted = new Set<number>();
   const completed = new Set<number>();
   const openFixtures = new Set<MixedMutationProductFixture>();
   let workerConstructionCount = 0;
   let trace: MixedMutationPerformanceTrace | undefined;
-  let diagnostics: MixedMutationEffectDiagnostics | undefined;
   let closed = false;
   try {
     if (context.initialSeed === undefined) throw new Error("Missing first mixed performance seed");

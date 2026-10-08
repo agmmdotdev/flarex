@@ -1,4 +1,5 @@
 import type { ApplicationActivationTargetProfile } from "../../src/applicationReadiness";
+import type { PhysicalSessionObservation } from "../../src/physicalSession/observation";
 import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../../src/scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../src/transactionSessionAttemptKernel";
 import { webcrypto } from "node:crypto";
@@ -183,6 +184,8 @@ export interface ApplicationNativeMutationUserDocument {
 }
 
 export interface ApplicationNativeMutationFixtureOptions {
+  /** Test diagnostics resolved by the retained target for the current request. */
+  readonly physicalSessionObservation?: () => PhysicalSessionObservation | undefined;
   readonly activationProfile?: ApplicationActivationTargetProfile;
   readonly managedInstallation?: Readonly<{ installation: PreparedCoLocatedReadInstallation;
     controlProtection: ProtectedMetadataPreparation }>;
@@ -416,7 +419,10 @@ export function createApplicationNativeMutationPostgresFixture(
       createPostgresLocatedPointMutationSessionActivationTargetV1(
         persistence.target,
         locator,
-        options.managedInstallation === undefined ? {} : { managedInstallation: options.managedInstallation },
+        {
+          ...(options.managedInstallation === undefined ? {} : { managedInstallation: options.managedInstallation }),
+          ...(options.physicalSessionObservation === undefined ? {} : { physicalSessionObservation: options.physicalSessionObservation }),
+        },
       ),
     locateEpoch: locator =>
       createPostgresLocatedScopeAuthorizationEpochTarget(
@@ -438,7 +444,10 @@ export function createApplicationNativeMutationMixedFixture(options: Application
     locateClock: locator => "pool" in target ? createPostgresLocatedSplitScopeClockTarget(target, locator)
       : createPGliteLocatedSplitScopeClockTarget(target, locator),
     locateSession: locator => "pool" in target ? createPostgresLocatedPointMutationSessionActivationTargetV1(target, locator,
-      options.managedInstallation === undefined ? {} : { managedInstallation: options.managedInstallation })
+      {
+        ...(options.managedInstallation === undefined ? {} : { managedInstallation: options.managedInstallation }),
+        ...(options.physicalSessionObservation === undefined ? {} : { physicalSessionObservation: options.physicalSessionObservation }),
+      })
       : createPGliteLocatedPointMutationSessionActivationTargetV1(target, locator),
     locateEpoch: locator => "pool" in target ? createPostgresLocatedScopeAuthorizationEpochTarget(target, locator)
       : createPGliteLocatedScopeAuthorizationEpochTarget(target, locator),

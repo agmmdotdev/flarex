@@ -25,11 +25,52 @@ import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { runEffect } from "./effectTestRuntime";
 import { createFileScopedPostgresFixture } from "./postgresHelpers";
 import type { FlarexMetadataDatabase } from "../src/deployments";
+import { PhysicalSessionObservation, type PhysicalSessionObservationEvent } from "../src/physicalSession/observation";
 
 const deadlines = makePhysicalDeadlineOperations(physicalSessionErrors);
 const postgresUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_DATABASE_URL);
 const artifactDeadlines = makePhysicalDeadlineOperations(
   catalogControlPhysicalErrors,
+);
+
+it.each(["read", "initial", "recovery"] as const)(
+  "resolves the current observation on a retained %s physical driver",
+  async profile => {
+    const { pool, release } = physicalSessionWitnessPool();
+    let current: PhysicalSessionObservation | undefined;
+    const physical = makePostgresPhysicalSessionDriver(pool, {
+      access: makePhysicalSessionAccess(flarexSchema), errors: physicalSessionErrors,
+    }, { observation: () => current });
+    const run = () => runEffect(Effect.gen(function* () {
+      const deadline = yield* deadlines.start(profile, 1000);
+      const work = () => Effect.succeed("accepted");
+      if (profile === "read") return yield* physical.runReadEffect({ deadline }, work);
+      if (profile === "initial") return yield* physical.runInitialTransactionEffect({
+        isolationLevel: "read committed", deadline, lockTimeoutMilliseconds: 500,
+        recoveryTimeoutMilliseconds: 1000,
+      }, effect => effect, work);
+      return yield* physical.runRecoveryTransactionEffect({
+        deadline, lockTimeoutMilliseconds: 500, excludedConnectionIdentity: makePhysicalConnectionIdentity(),
+      }, work);
+    }));
+    const quiet = await run();
+    const firstEvents: PhysicalSessionObservationEvent[] = [];
+    current = new PhysicalSessionObservation({ record: event => { firstEvents.push(event); } });
+    expect(await run()).toEqual(quiet);
+    const secondEvents: PhysicalSessionObservationEvent[] = [];
+    current = new PhysicalSessionObservation({ record: event => { secondEvents.push(event); } });
+    expect(await run()).toEqual(quiet);
+    expect(firstEvents).toEqual([
+      { kind: "phase", phase: "drain", edge: "begin" },
+      { kind: "phase", phase: "drain", edge: "end", outcome: "success" },
+      { kind: "phase", phase: "release", edge: "begin" },
+      { kind: "phase", phase: "release", edge: "end", outcome: "success" },
+    ]);
+    expect(secondEvents).toEqual(firstEvents);
+    expect(release).toHaveBeenCalledTimes(3);
+    expect(release.mock.calls.every(([destroy]) => destroy === false)).toBe(true);
+    current.assertHealthy();
+  },
 );
 
 it.each(["read", "initial", "recovery"] as const)(
@@ -95,9 +136,11 @@ it.each(["read", "initial", "recovery"] as const)(
     const { pool, release, statements } = physicalSessionWitnessPool(new Map([
       ["select first_rejection", firstFailure], ["select second_rejection", secondFailure],
     ]));
+    const events: PhysicalSessionObservationEvent[] = [];
+    const observation = new PhysicalSessionObservation({ record: event => { events.push(event); } });
     const physical = makePostgresPhysicalSessionDriver(pool, {
       access: makePhysicalSessionAccess(flarexSchema), errors: physicalSessionErrors,
-    });
+    }, { observation: () => observation });
     const cause = await runEffect(Effect.gen(function* () {
       const deadline = yield* deadlines.start(profile, 1000);
       const work = (database: FlarexMetadataDatabase) =>
@@ -147,6 +190,16 @@ it.each(["read", "initial", "recovery"] as const)(
     expect(statements).not.toContain("commit");
     if (profile !== "read") expect(statements.at(-1)).toBe("rollback");
     expect(release).toHaveBeenCalledExactlyOnceWith(profile === "read");
+    expect(events.find(event => event.phase === "drain" && event.edge === "end")?.outcome).toBe("failure");
+    if (profile === "read") expect(events.slice(2)).toEqual([
+      { kind: "phase", phase: "quarantine", edge: "begin" },
+      { kind: "phase", phase: "drain", edge: "begin" },
+      { kind: "phase", phase: "drain", edge: "end", outcome: "success" },
+      { kind: "phase", phase: "release", edge: "begin" },
+      { kind: "phase", phase: "release", edge: "end", outcome: "success" },
+      { kind: "phase", phase: "quarantine", edge: "end", outcome: "success" },
+    ]);
+    observation.assertHealthy();
   },
 );
 
@@ -386,6 +439,8 @@ describePostgres("physical session owner composition", () => {
     const pool = new Pool({ connectionString: postgresUrl ?? undefined, max: 1, statement_timeout: 30_000 });
     const observer = new Pool({ connectionString: postgresUrl ?? undefined, max: 1 });
     const phases: string[] = [];
+    const observationEvents: PhysicalSessionObservationEvent[] = [];
+    const observation = new PhysicalSessionObservation({ record: event => { observationEvents.push(event); } });
     let ownerPid: number | undefined;
     const access = makePhysicalSessionAccess(flarexSchema);
     const physical = makePostgresPhysicalSessionDriver(pool, {
@@ -395,7 +450,7 @@ describePostgres("physical session owner composition", () => {
         ownerPid = pid;
         return access(client);
       }, errors: physicalSessionErrors,
-    }, { lifecycleFault: ({ phase, edge }) => phases.push(`${phase}:${edge}`) });
+    }, { lifecycleFault: ({ phase, edge }) => phases.push(`${phase}:${edge}`), observation: () => observation });
     try {
       const exit = await runEffect(Effect.gen(function* () {
         const started = yield* Deferred.make<void>();
@@ -423,6 +478,17 @@ describePostgres("physical session owner composition", () => {
       }).pipe(Effect.scoped));
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) expect(exit.cause.reasons.some(Cause.isInterruptReason)).toBe(true);
+      expect(observationEvents).toEqual([
+        { kind: "phase", phase: "quarantine", edge: "begin" },
+        { kind: "phase", phase: "cancel", edge: "begin" },
+        { kind: "phase", phase: "cancel", edge: "end", outcome: "success" },
+        { kind: "phase", phase: "drain", edge: "begin" },
+        { kind: "phase", phase: "drain", edge: "end", outcome: "success" },
+        { kind: "phase", phase: "release", edge: "begin" },
+        { kind: "phase", phase: "release", edge: "end", outcome: "success" },
+        { kind: "phase", phase: "quarantine", edge: "end", outcome: "success" },
+      ]);
+      observation.assertHealthy();
       expect(phases).toContain("quarantine:after");
       expect(phases.at(-1)).toBe("quarantine:after");
       expect(pool.totalCount - pool.idleCount).toBe(0);
