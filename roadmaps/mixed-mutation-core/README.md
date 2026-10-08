@@ -161,6 +161,11 @@ and fresh post-wait checks retain their recorded gates.
 Its [dedicated measurement SDK](../../packages/executor/test/performance/measurement/README.md)
 has one entry point for measurement and comparison; construction, artifact types
 and Node collectors stay out of production core modules.
+The [historical capture result handoff preflight](./27-shared-execution-evidence-redesign-preflight.md#historical-capture-result-handoff-preflight)
+is design-only. It identifies repeated client projection while retaining fused
+membership/hydration, original-snapshot dependencies and fresh capture authority.
+A bounded server-attribution step precedes any SQL redesign; client replacement
+and its latency benefit remain unimplemented and unmeasured.
 
 [Core performance](../core-performance/README.md) owns the standalone native-read
 replacement and reusable measurement rules. Its earlier small checked-read,

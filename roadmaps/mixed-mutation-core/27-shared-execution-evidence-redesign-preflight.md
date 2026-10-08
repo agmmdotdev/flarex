@@ -1,5 +1,208 @@
 # Shared execution evidence redesign
 
+## Historical capture result handoff preflight
+
+Status: design preflight complete; the replacement and its performance validation
+have not started. The next bounded evidence step is historical capture server
+attribution. The concrete client replacement candidate is an operation-specific
+header/storage handoff in the existing finite capture owner. Neither source
+inspection nor driver-await timing establishes its removable latency.
+
+### Evidence, outcome and limits
+
+The retained Product diagnostic identifies six candidate captures and three
+historical unique-owner captures beneath relational selection. A fourth unique
+capture belongs to write validation, outside that nine. These are distinct real
+demands, not demonstrated duplicates. Ordinary physical drain/release is a small
+part of the successful graph; query awaits still combine server, lock, transport,
+queue and client work. Resources mode retained no statement templates, statement
+counts, row counts or result-byte sizing. It cannot retrospectively supply them.
+
+The current owner already retains SQL, positional fields, native Drizzle decoders
+and statement names by genuine database/installation identity. Root-owned row,
+unique and index observations already avoid repeat storage requests. Historical
+`indexRows` already materializes membership and hydrates its uncached original
+rows in one submission. Rebuilding those caches or promising fewer exchanges is
+not the selected direction.
+
+The remaining source-established repetition is in
+[`finiteStorageCapture.ts`](../../packages/persistence-postgres/src/finiteStorageCapture.ts):
+`compileCaptureResultMapper` restores every slot of a generic query row. The
+current `indexRows` projection has 125 positional columns, including first-row
+authority/build/frontier groups and both index and document fields. Conditional
+header slots are null on later rows, yet each row still receives their assignments
+and group objects. Other slots legitimately repeat: full-artifact metadata epochs
+and the inactive `exists=false` projection. `accept` then filters/maps raw rows and
+splits prefixed index/document
+fields through `Object.entries` and `Object.fromEntries`. This is concrete client
+assembly work; its magnitude is unmeasured.
+
+The recommended connected replacement delivers the same accepted public capture
+envelopes through one retained per-operation projection, removing the repeated
+assembly. It does not select a historical SQL, index, locking or authority
+redesign. A server-owner change requires the bounded evidence below first.
+Standalone read tuning remains paused at its separate owner checkpoint.
+
+### Contract and actual owners
+
+- The finite capture compiler retains the existing SQL, aliases, column order,
+  named statement identity, parameters and cache lifetime initially. Compile a
+  header descriptor and operation-specific storage descriptor from the actual
+  Drizzle projection and its native decoders. Its per-profile/per-operation
+  layout distinguishes first-row-only fields, valid repeats and storage fields.
+  Decode the first header once and each present storage record once into the
+  existing consumer shape. `indexRows`
+  partitions its real group discriminator directly into index and document
+  arrays; it does not restore a combined prefixed record and regroup it later.
+  Keep this pure transport assembly with its existing issuer, not a new service,
+  query compositor, generic utility or SDK type hierarchy. Do not duplicate
+  table/column names or replace real Drizzle mapping with handwritten coercions.
+- Canonical capture acceptance still owns reason and replacement-frontier
+  validation, database time, serving sequence, retained floor, demanded build/
+  maintenance and metadata-epoch agreement. Working-set consumers still validate
+  complete membership/lookahead before canonical row bodies, charge before
+  retention and preserve ordered failure and interruption. Native conversion of
+  present supported scalar values retains its current transport boundary and
+  Cause; no new broad catch, speculative decode or re-execution is introduced.
+- Public `FiniteStorageCaptureEnvelopes` and their working-set and journal
+  consumers keep their contracts. Migrate all installed finite operation shapes,
+  including point rows, index pages, identity/time/retirement and ownership
+  manifest/closure siblings, through the replacement in one coherent slice.
+  The separate foreign-control epoch/catalog mapper retains its real current
+  callers and separate snapshot contract; it is not a fallback finite mapper.
+  Remove generic whole-row restoration and raw regrouping from finite captures,
+  with no dual finite path or compatibility wrapper.
+- SQL functions, installation proof, grants, source-demand issuers, physical
+  checkout/deadline/cancel/drain/release owners and outer settlement are retained.
+  Every real capture still freshly accepts genuine source/method/table/definition
+  demand, installation/placement, scope/session/claim/fence, original snapshot,
+  revocation/deadlines, history retention and selected mutable readiness. Post-wait
+  time and serving observations remain fresh internal commands. No transaction
+  spans a framework callback and no accepted live verdict is cached.
+
+Historical unique selection must retain its matching developer-index membership,
+at-most-one owner, original row and canonical key agreement, including absence.
+Current unique slots cannot reconstruct a moved historical owner. Preserve
+negative index/unique observations, exact page gaps/EOF, tombstone versus missing
+row evidence, pending overlays and original dependencies through final OCC. The
+checked-in Convex `TransactionReadSet` and index-range reader record missing
+documents and consumed/empty intervals; that supports these semantics, not
+Flarex-specific installation or fencing choreography.
+
+### Breaks, cleanup and rejected alternatives
+
+The private positional result handoff changes. It is nondurable and has no public
+developer or framework contract. No document/index history, attempt anchor,
+outcome/recovery bytes, SQL signature, migration, data reset or durable deletion
+is needed for this candidate. Ordinary and durable profiles retain their genuine
+contracts; Application, Product/workflow and Payload finite consumers receive
+the same accepted envelopes and require connected regressions.
+
+Malformed transport is an explicit private contract tightening. Today later
+header values are ignored after transport mapping, and unknown index/document
+groups can be dropped by filtering. The replacement refuses non-null values in
+later first-row-only slots, invalid presence/group markers and populated inactive
+body slots as `storedCorruption`. Valid repeated epoch/constant fields follow the
+compiled profile's layout; they are not required to be null. For storage-producing
+results, layout refusal follows the existing first-header reason/frontier/time/
+readiness/epoch acceptance and precedes storage envelopes. Retirement retains its
+earlier conclusive terminal-reason return after replacement-frontier validation;
+it does not require accepted time/build/epoch evidence to return `retired=true`.
+Earlier authority refusal retains priority; unsupported layouts do not receive
+an old-error-precedence guarantee.
+Supported native scalar-conversion failures retain execute-owned `resourceFailure`
+and the original Cause before canonical authority/layout acceptance. Do not
+introduce a fallback decoder to imitate malformed layouts.
+No returned rows remains `invalidAuthority`; a left-join sentinel remains a real
+header with no storage; empty membership retains its negative witness.
+
+Reject replacing historical selection with current slots, caching readiness or
+permission, eager relation prefetch, batching distinct demands without an ordered
+failure/resource proof, and widening a transaction across business execution.
+Also reject shortening/reencoding the SQL projection in this first client
+candidate: it would mix wire/server changes with allocation changes before actual
+server plans are attributed. A query count or large function body alone cannot
+choose a server redesign. No host pooling or compute-lifecycle change is selected.
+
+### Bounded server evidence before a SQL decision
+
+Reuse the existing measurement SDK server resource and capture collectors; their
+statement deltas, planning, nested execution, bounded actual plans and PID/wait
+sampling already exist. The missing work is a focused seeded fixture/runner, not
+another measurement framework. Do not use the full `mixed-product` mutation
+runner to answer an isolated historical-read question.
+SDK orchestration owns resource/collector construction, arming, observation,
+report/export and cleanup. The fixture supplies seeded read-owner callbacks and
+actual serving pools, without constructing collectors in core or fixture code.
+
+Freeze the nine retained demand instances and their actual compiled shape/name,
+owner and ancestry. Preserve differing bounds/cardinality cases when deduplicating
+shapes for analysis. Prepare equivalent bounded revision/index history, installed
+metadata and genuine fresh finite authority through existing fixture owners
+outside observation. Invoke actual uncached read/capture owners; a cache hit is
+not a capture measurement, and saved expired pins cannot be replayed.
+
+The diagnostic budget is two serial passes of nine inputs: at most eighteen
+capture executions, zero complete business graphs, zero native calls and no
+automatic retries. Complete evidence requires all eighteen actual uncached
+submissions with fresh pins verified per execution. A cache hit or missing capture
+cannot replace an input; early stops remain incomplete. First observed use and the
+second pass stay separate. Claim
+backend warmth only with actual PID/session continuity and named-query reuse.
+Per-input windows retain top-level and nested planning/execution separately,
+exact direct-root plan IDs, operators/cardinality/buffers and sampled waits.
+Capture the complete installed envelope, not only its inner historical function.
+Retain trusted shape details locally; exported plans omit SQL, predicates and
+parameters. No business write is replayed through EXPLAIN. Before the first
+capture, require a verified owned bounded log source with the exact
+`FXPLAN[%p][%d][%c][%Q]` prefix. Keep existing limits: 25 ms polls, 1,200 polls,
+128 rows per poll, 20,000 statements, a 30-second observation window, one-second
+observer queries, 8 MiB log windows, 512 KiB per plan and 4,096 plans. Missing
+expected plan evidence is unavailable/incomplete, never zero work. Plan coverage
+refers only to parsed observed-window bytes; asynchronous flush completeness
+remains unproven.
+
+Source/settings drift, unexpected shapes/counts, foreign activity, wrong serving
+role, expired/refused authority, reset/evicted statistics, collection/log capacity
+faults, incomplete required plan evidence, result mismatch or failed cleanup stop
+the campaign with partial evidence. Do not expand the budget or restart it.
+Join observers, close fixture pools and remove only the owned generated database/
+roles, including both target and observer databases and their roles. Retain reset,
+deallocation and entry-epoch guards. Report then stop. Server elapsed intervals
+overlap, sampled absence is not
+zero lock cost, and driver minus server elapsed is not network time. Exact client
+CPU, queue and transport attribution remains unavailable unless separately proved.
+
+### Connected implementation and acceptance gates
+
+The evidence report chooses the next owner: client projection, an evidenced server
+access/plan correction, or an explicit unresolved attribution gap. It must state
+what is measured and what remains hypothetical before changing runtime behavior.
+The client projection is a justified cleaner contract, not a promise of a large
+latency gain. A materially different SQL/installation/authority or durable-data
+decision requires its own recorded contract before implementation.
+
+For the projection candidate, add focused supported-envelope and malformed-layout
+witnesses: sentinel/empty/index-only/row-only/mixed results, cached-owner
+exclusions, null versus absent fields, moved historical unique owners, duplicate/
+lookahead body withholding, valid repeated installed/full-artifact profile fields,
+conclusive retirement
+headers/replacement frontiers, and competing converter/authority/layout/body
+failures.
+Preserve existing lazy first-failure, byte-budget, ownership/control-epoch,
+rollback-only, actual post-lock expiry/fresh-serving, interruption and complete
+cleanup-Cause witnesses. Validate genuine captures in PGlite and ordinary-role
+PostgreSQL, plus connected Application, Product/workflow and Payload regressions,
+affected strict checks, lint/source guards and both final-diff reviews.
+
+Use one frozen before/after component comparison to decide actual allocation/CPU
+and quiet-latency benefit; define its call budget before running it. Complete
+mixed/native acceptance remains its distinct group milestone with unchanged
+added-latency gates. Reduced allocation, successful correctness and performance
+acceptance are separate verdicts. Migrate all affected private consumers, remove
+displaced finite assembly, preserve unrelated dirty work and make one scoped
+commit; do not turn helpers or repeated measurements into separate goal turns.
+
 ## Selected storage execution composition
 
 Status: implemented connected composition; native-relative acceptance remains

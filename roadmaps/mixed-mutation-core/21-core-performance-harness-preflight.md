@@ -53,8 +53,11 @@ Diagnostic CPU brackets remain inclusive and platform-quantized; query awaits
 still combine driver, server, lock and transport behavior. Statement counts are
 unavailable in resources mode, and successful samples do not measure cancellation
 or quarantine cost. Native-relative acceptance and standalone coverage remain
-open. The next discussion should select a complete read/capture simplification
-from this evidence, with a semantic inventory before reducing captures or awaits.
+open. The [historical capture handoff preflight](./27-shared-execution-evidence-redesign-preflight.md#historical-capture-result-handoff-preflight)
+now records the semantic inventory, repeated client projection and finite server
+attribution step. Its runtime replacement and performance validation have not
+started; the completed physical campaign does not establish a server bottleneck
+or removable capture count.
 
 ## Status And Outcome
 
