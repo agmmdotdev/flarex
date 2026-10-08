@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import { captureDriverDecoder, compileFiniteCaptureResultMapper, type CaptureProjectionField } from "./finiteStorageCaptureProjection";
 import { Data, Effect, Result, Schema } from "effect";
-import { getTableName, is, SQL, sql } from "drizzle-orm";
+import { getTableName, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-definition";
@@ -223,40 +224,16 @@ const rowColumns = [["ordinal","integer"],["requestedRowId","bytea"],["rowPresen
 const indexColumns = [["ordinal","integer"],["tableIdText","text"],["keyCodecVersionText","text"],["physicalSpecSha256","bytea"],["encodedKeyBytes","bytea"],["keySha256","bytea"],["rowIdBytes","bytea"],["commitSeqText","text"],["isTombstone","boolean"]] as const;
 const parameter = (name: string) => sql`${sql.placeholder(name)}`;
 
-/** The pinned SQL-only capture projection has no Column joins to nullify. Select
- * each genuine decoder once; requests still execute through the real session. */
-type FixedCaptureMappedRow = Record<string, unknown> & Partial<Record<"build" | "uniqueBuild" | "indexMaintenance" | "uniqueMaintenance" | "frontier" | "raw", Record<string, unknown>>>;
-function compileCaptureResultMapper<T>(fields: readonly Readonly<{ path: readonly string[]; field: SQL }>[]) {
-  const assignments = fields.map(({ path, field }, index) => {
-    if (!is(field, SQL) || path.length < 1 || path.length > 2)
-      throw new Error("Invalid fixed finite capture projection");
-    const decoder: unknown = Reflect.get(field, "decoder");
-    if (decoder === null || typeof decoder !== "object")
-      throw new Error("Missing fixed finite capture SQL decoder");
-    const method: unknown = Reflect.get(decoder, "mapFromDriverValue");
-    if (typeof method !== "function") throw new Error("Invalid fixed finite capture SQL decoder");
-    const decodeDriverValue = method.bind(decoder);
-    const decode = (value: unknown): unknown => value === null ? null : decodeDriverValue(value);
-    const name = path[path.length - 1]!;
-    if (path.length === 1) return (result: FixedCaptureMappedRow, row: unknown[]) => {
-      result[name] = decode(row[index]);
-    };
-    const group = path[0]!;
-    if (group !== "build" && group !== "uniqueBuild" && group !== "indexMaintenance" && group !== "uniqueMaintenance" && group !== "frontier" && group !== "raw")
-      throw new Error("Invalid fixed finite capture projection group");
-    return (result: FixedCaptureMappedRow, row: unknown[]) => {
-      // Preserve field/group insertion order and all-null group objects.
-      let target = result[group];
-      if (target === undefined) { target = {}; result[group] = target; }
-      target[name] = decode(row[index]);
-    };
+/** Separate foreign-control catalog projection has no finite capture header. */
+function compileControlResultMapper<T>(fields: readonly CaptureProjectionField[]) {
+  const slots = fields.map(({ path, field }, index) => {
+    if (path.length !== 1) throw new Error("Invalid control catalog projection");
+    return { index, name: path[0]!, decode: captureDriverDecoder(field) };
   });
-  // SAFETY: This restores only the declared Drizzle positional projection type;
-  // the fixed slots above preserve its shape. Existing canonical owners still
-  // validate every driver value before it is consumed.
+  // SAFETY: This restores the declared flat Drizzle catalog projection only.
   return (rows: unknown[][]): T => rows.map(row => {
-    const result: FixedCaptureMappedRow = {};
-    for (const assign of assignments) assign(result, row);
+    const result: Record<string, unknown> = {};
+    for (const slot of slots) result[slot.name] = slot.decode(row[slot.index]);
     return result;
   }) as T;
 }
@@ -388,7 +365,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
     // SQL names are shared; every execution binds fresh pins and checks state.
     const statementName = `fx_finite_${createHash("sha256").update(statement.sql).digest("hex").slice(0, 40)}`;
     return Object.freeze({ statement: Object.freeze(statement), statementName, orderedFields,
-      mapResult: compileCaptureResultMapper<typeof query._.result>(orderedFields) });
+      mapResult: compileFiniteCaptureResultMapper<Omit<typeof query._.result[number], "storagePresent" | "raw">>(orderedFields, { indexRows: kind === "indexRows", historicalIdentity: kind === "historicalIdentity", fullArtifact: installed === undefined }) });
   };
   const shapes = new Map<InternalCaptureOperation["kind"], ReturnType<typeof compile>>();
   for (const kind of ["rows", "indexPage", "indexRows", "ownership", "historicalIdentity", "transactionTime", "retirement",
@@ -422,8 +399,8 @@ function compileControlCapturePlan(controlDb: FlarexMetadataDatabase) {
   const orderedClosure = Object.entries(raw).map(([name, field]) => ({ path: [name], field }));
   return Object.freeze({ epochStatement: Object.freeze(epoch.toSQL()), epochFields: orderedEpoch,
     closureStatement: Object.freeze(closure.toSQL()), closureFields: orderedClosure,
-    mapEpochResult: compileCaptureResultMapper<typeof epoch._.result>(orderedEpoch),
-    mapClosureResult: compileCaptureResultMapper<typeof closure._.result>(orderedClosure) });
+    mapEpochResult: compileControlResultMapper<typeof epoch._.result>(orderedEpoch),
+    mapClosureResult: compileControlResultMapper<typeof closure._.result>(orderedClosure) });
 }
 
 // Full-artifact control compilation also retains no transaction or live epoch.
@@ -578,7 +555,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         { deadline: yield* deadlines.start("read", 30_000) }, execute) :
         yield* runEffectTransaction(work => database.transaction(work), "Finite named capture failed", execute,
           cause => refused("resourceFailure", cause));
-      const first = result[0];
+      const first = result.header;
       if (first === undefined) return yield* Effect.fail(refused("invalidAuthority"));
       const reason = yield* decodeReason(first.reason).pipe(Effect.mapError(cause => refused("storedCorruption", cause)));
       if (reason === "attemptReplaced") yield* readFiniteAttemptAnchorRow(first.frontier).pipe(
@@ -601,10 +578,11 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         if (retained === undefined) return yield* Effect.fail(refused("invalidAuthority"));
         yield* acceptDemandBuildEvidence(input, selected?.definition, tableId, unique, retained.basis, first, expected);
       }
-      const rawRows = Object.freeze(result.filter(row => row.storagePresent).map(row => row.raw));
       const observedEpoch = Object.freeze({ target: first.targetMetadataEpoch, control: first.controlMetadataEpoch });
       if (metadataEpoch !== undefined && (observedEpoch.target !== metadataEpoch.target || observedEpoch.control !== metadataEpoch.control))
         return yield* Effect.fail(refused("invalidAuthority"));
+      if (result.layoutFailure !== undefined) return yield* Effect.fail(refused("storedCorruption", result.layoutFailure));
+      const rawRows = result.rawRows;
       switch (operation.kind) {
         case "rows": {
           if (rows === undefined) return yield* Effect.die("Prepared rows missing");
@@ -616,10 +594,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         }
         case "indexRows": {
           if (index === undefined) return yield* Effect.die("Prepared index missing");
-          const project = (group: "index" | "row") => Object.freeze(rawRows.filter(row => row.captureGroup === group).map(row =>
-            Object.freeze(Object.fromEntries(Object.entries(row).filter(([name]) => name.startsWith(group + "_")).map(([name, value]) =>
-              [name.slice(group.length + 1), value])))));
-          return Object.freeze({ kind: "indexRows" as const, prepared: index, rawIndexRows: project("index"), rawRows: project("row") });
+          return Object.freeze({ kind: "indexRows" as const, prepared: index, rawIndexRows: result.rawIndexRows, rawRows });
         }
         case "transactionTime": return Object.freeze({ kind: "transactionTime" as const, timestamp: first.transactionTimestamp });
         case "historicalIdentity": return Object.freeze({ kind: "historicalIdentity" as const, exists: first.exists });

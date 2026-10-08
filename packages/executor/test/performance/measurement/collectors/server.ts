@@ -22,6 +22,8 @@ export const serverProvisioningTimeoutMs = 30_000;
 const decodeSample = Schema.decodeUnknownEffect(Schema.Struct({ serverAt: Schema.String,
   activities: Schema.Array(ServerActivitySchema) }));
 const decodeLimits = Schema.decodeUnknownSync(ServerLimitsSchema);
+const decodeCaptureOptions = Schema.decodeUnknownSync(Schema.Struct({ initialObservation: Schema.Literal("required") }),
+  { onExcessProperty: "error" });
 const ordinaryRole = Schema.decodeUnknownEffect(Schema.Struct({ superuser: Schema.Boolean,
   bypassRls: Schema.Boolean, createDb: Schema.Boolean, createRole: Schema.Boolean }));
 const decodeProvisioningRole = Schema.decodeUnknownEffect(Schema.Struct({ role: Schema.String }));
@@ -119,7 +121,8 @@ export function createServerMeasurementCapture(input: Readonly<{
   return {
     evidence: () => lastEvidence,
     failures: () => originalFailures,
-    async capture<Value>(run: () => Promise<Value>): Promise<Value> {
+    async capture<Value>(run: () => Promise<Value>, options?: Readonly<{ initialObservation: "required" }>): Promise<Value> {
+      const initialObservation = options === undefined ? undefined : decodeCaptureOptions(options).initialObservation;
       if (running) throw new ServerMeasurementFailure({ stage: "concurrentCapture" });
       running = true;
       lastEvidence = undefined;
@@ -144,6 +147,7 @@ export function createServerMeasurementCapture(input: Readonly<{
       const stop = new AbortController();
       const scope = Effect.runSync(Scope.make());
       let rootStart = 0, rootEnd = 0;
+      let planBeginAttempted = false;
       let statements: ServerMeasurementEvidence["statements"] = [];
       const poll = Effect.fn("serverActivitySampler")(function* () {
           let next = rootStart;
@@ -197,13 +201,20 @@ export function createServerMeasurementCapture(input: Readonly<{
         yield* Scope.addFinalizer(scope, Effect.gen(function* () {
           stop.abort();
           after = yield* observed("serverSnapshotAfter", diagnostic("serverSnapshotAfter", input.snapshot));
-          if (input.plans !== undefined) {
+          if (input.plans !== undefined && (initialObservation !== "required" || planBeginAttempted)) {
             yield* observed("serverPlanEnd", diagnostic("serverPlanEnd", input.plans.end));
             for (const cause of input.plans.failures()) if (!failures.includes(cause)) fail("serverPlanObservation", cause);
           }
         }));
         before = yield* observed("serverSnapshotBefore", diagnostic("serverSnapshotBefore", input.snapshot));
-        if (input.plans !== undefined) yield* observed("serverPlanBegin", diagnostic("serverPlanBegin", input.plans.begin));
+        if (initialObservation === "required" && before === undefined && failures.length === 0)
+          fail("serverSnapshotBefore", new ServerMeasurementFailure({ stage: "missingInitialSnapshot" }));
+        if (initialObservation === "required" && (before === undefined || failures.length > 0)) return;
+        if (input.plans !== undefined) {
+          planBeginAttempted = true;
+          yield* observed("serverPlanBegin", diagnostic("serverPlanBegin", input.plans.begin));
+        }
+        if (initialObservation === "required" && failures.length > 0) return;
         rootStart = now();
         const loop = yield* Effect.forkIn(poll(), scope, { startImmediately: true });
         // Added after forkIn: cooperative stop/join runs before its automatic
@@ -216,6 +227,12 @@ export function createServerMeasurementCapture(input: Readonly<{
       try {
         const started = await Effect.runPromiseExit(begin());
         for (const cause of exitFailures(started)) fail("serverCaptureBegin", cause);
+        // Read-only diagnostics require their initial evidence before spending
+        // an execution. Business diagnostics retain the existing best-effort mode.
+        if (initialObservation === "required" && (before === undefined || failures.length > 0)) {
+          rootEnd = rootStart;
+          throw new ServerMeasurementFailure({ stage: "initialObservationRequired" });
+        }
         // Return/throw the original callback value unchanged. Diagnostics are
         // retained separately in finally and cannot replace the business Cause.
         try { return await run(); }
@@ -247,7 +264,7 @@ export function createServerMeasurementCapture(input: Readonly<{
  * The fixture remains the schema, installation and business resource owner. */
 export async function acquireServerMeasurementResource(options?: Readonly<{
   provisioningConnectionString?: string; limits?: ServerLimits;
-  planLog?: ServerPlanLogSource;
+  planLog?: ServerPlanLogSource; planLogContinuity?: "required";
 }>) {
   const limits = decodeLimits(options?.limits ?? serverLimits);
   const provisioningUrl = options?.provisioningConnectionString ?? process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL?.trim();
@@ -361,7 +378,8 @@ export async function acquireServerMeasurementResource(options?: Readonly<{
       from pg_stat_activity where datid=$1 and backend_type='client backend' order by pid limit ${limits.maxRows + 1}
     ) selected), '[]'::json) as activities`;
     const ownedObserver = observer;
-    const plans = options?.planLog === undefined ? undefined : createServerPlanCapture({ database, source: options.planLog });
+    const plans = options?.planLog === undefined ? undefined : createServerPlanCapture({ database, source: options.planLog,
+      ...(options.planLogContinuity === undefined ? {} : { continuity: options.planLogContinuity }) });
     capture = createServerMeasurementCapture({ database: identity, limits, ...(plans === undefined ? {} : { plans }), snapshot: () => ownedObserver.snapshot(),
       sample: async () => (await actualSampler.query(activitySql, [identity.dbid])).rows[0] });
     const endpoints: PostgresFixtureEndpoints = { connectionString: url(database, owner, password),
@@ -423,11 +441,11 @@ export async function acquireServerMeasurementResource(options?: Readonly<{
           return Promise.reject(new ServerMeasurementFailure({ stage: "invalidArmingState" }));
         return arming.arm(runtimePools);
       },
-      capture<Value>(run: () => Promise<Value>): Promise<Value> {
+      capture<Value>(run: () => Promise<Value>, captureOptions?: Readonly<{ initialObservation: "required" }>): Promise<Value> {
         if (closing !== undefined) return Promise.reject(new ServerMeasurementFailure({ stage: "closedResource" }));
         if (arming.profile().state !== "armed") return Promise.reject(new ServerMeasurementFailure({ stage: "unarmedResource" }));
         if (activeCapture !== undefined) return Promise.reject(new ServerMeasurementFailure({ stage: "concurrentCapture" }));
-        const request = resourceCapture.capture(run);
+        const request = resourceCapture.capture(run, captureOptions);
         activeCapture = request;
         const settled = () => { if (activeCapture === request) activeCapture = undefined; };
         void request.then(settled, settled);

@@ -26,7 +26,7 @@ import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicatio
 import { claimApplicationActiveSelection } from "../../../../persistence-postgres/src/applicationActivation";
 import { prepareLogicalRelationalAdmission } from
   "../../../../persistence-postgres/src/logicalDocuments/relationalAdmission";
-import { prepareLogicalStorageReadiness } from
+import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from
   "../../../../persistence-postgres/src/logicalStorageReadiness";
 import { createApplicationMutationSessionActivationPersistenceV1,
   createPointMutationExecutionClaimAcquisitionV1,
@@ -241,6 +241,11 @@ export interface MixedMutationProductFixture {
     current: () => MixedPayloadConformanceRuntime | undefined }>;
   readonly seed: ProductSeed["seed"];
   readonly baseline: ProductSeed["baseline"];
+  /** The retained native setup catalog; consumers must not recapture metadata. */
+  readonly seedGraph: ProductSeed;
+  readonly logicalSourceCatalog: PreparedLogicalStorageCatalog;
+  readonly setupTimings: Readonly<{ provisioningMilliseconds: number;
+    preparedModuleMilliseconds: number; initialSeedingMilliseconds: number }>;
   readonly application: CurrencyFixture["application"];
   readonly active: Pick<Effect.Success<ReturnType<CurrencyFixture["application"]["activation"]["readActive"]>>, "selection" | "basis">;
   readonly activation: CreatedActivation;
@@ -464,10 +469,10 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
       }),
     });
   const workflowSelections = workflowBinding?.sources.map(source => source.prepared) ?? [];
-  return { candidateSchemaWriteGuard, preparedAdmission, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections };
+  return { candidateSchemaWriteGuard, preparedAdmission, sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections };
   })));
   cleanup.push(() => Effect.runPromise(sourceGraph.close));
-  const { prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } =
+  const { sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } =
     await Effect.runPromise(sourceGraph.use(Effect.succeed));
   const prepareAttempt = async (suffix: string, validatedArgsJson?: Readonly<{ body: string }>,
     diagnostics?: MixedMutationEffectDiagnostics) => {
@@ -511,7 +516,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     throw new Error("Missing target PostgreSQL application_name");
   return { cleanup, currency, product, pricing, link, application, admissionContext, prepareAttempt, reconstructApplicationAdmission,
     initialSeed,
-    schemaVersionId, logicalSchemaVersionId, prepared,
+    schemaVersionId, logicalSchemaVersionId, sourceCatalog, prepared,
     selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
     binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget,
     readSourcePreparationUsage: sourceGraph.readUsage,
@@ -534,6 +539,38 @@ async function closeMixedMutationResources(resources: readonly (() => Promise<vo
   }
   if (failures.length > 0) throw new AggregateError(failures, "Mixed mutation fixture cleanup failed");
 }
+
+/** The genuine initial owner drains before its scopes and optional owned
+ * context. A failed release never skips a later release or replaces its cause. */
+export async function closeMixedMutationFixture(input: Readonly<{
+  signalInitial: () => Promise<void>;
+  joinInitial: () => Promise<void>;
+  closeSyscallScope: () => Promise<void>;
+  closePayloadScopes: () => Promise<void>;
+  ownsContext: boolean;
+  context: Readonly<{ detachSqlObserver: () => void; resources: readonly (() => Promise<void>)[] }>;
+}>): Promise<void> {
+  const context = input.ownsContext ? input.context : undefined;
+  await closeMixedMutationResources([
+    input.signalInitial, input.joinInitial, input.closeSyscallScope, input.closePayloadScopes,
+    ...(context === undefined ? [] : [async () => { context.detachSqlObserver(); },
+      ...context.resources.toReversed()]),
+  ]);
+}
+
+/** Payload scope finalization owns every complete Exit. Preserve failure,
+ * defect and interruption while attempting all scopes in registration order. */
+export const closeMixedMutationPayloadScopes = Effect.fn("MixedFixture.closePayloadScopes")(function* (
+  scopes: Set<Scope.Scope>,
+) {
+  let failure: Cause.Cause<never> | undefined;
+  for (const scope of scopes) {
+    const exit = yield* Effect.exit(Scope.close(scope, Exit.succeed(undefined)));
+    if (Exit.isFailure(exit)) failure = failure === undefined ? exit.cause : Cause.combine(failure, exit.cause);
+  }
+  scopes.clear();
+  if (failure !== undefined) return yield* Effect.failCause(failure);
+}, Effect.uninterruptible);
 
 async function closeMixedMutationResourcesAfterFailure(resources: readonly (() => Promise<void>)[],
   cause: unknown): Promise<never> {
@@ -907,10 +944,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       if ("observations" in constructed) payloadRuntimeHistory.push(constructed);
       return runtime;
     });
-    const closePayloadScopes = Effect.gen(function* () {
-      for (const scope of payloadScopes) yield* Scope.close(scope, Exit.succeed(undefined));
-      payloadScopes.clear();
-    });
+    const closePayloadScopes = closeMixedMutationPayloadScopes(payloadScopes);
     const initialPreparation = await runEffect(Deferred.make<Effect.Success<ReturnType<typeof store.prepareFiniteEntryEffect>>>());
     const journalStore = Object.freeze({ ...store,
       prepareFiniteEntryEffect: (...args: Parameters<typeof store.prepareFiniteEntryEffect>) => Effect.suspend(() =>
@@ -1683,7 +1717,11 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       profile: selectedPayload.profile, runtimeHistory: payloadRuntimeHistory,
       current: () => payloadRuntimeHistory.at(-1),
     }) }),
-    seed, baseline, application, active, activation, prepared, binding,
+    seed, baseline, seedGraph, logicalSourceCatalog: context.sourceCatalog, setupTimings: Object.freeze({
+      provisioningMilliseconds: context.provisioningMilliseconds,
+      preparedModuleMilliseconds: context.preparedModuleMilliseconds,
+      initialSeedingMilliseconds: context.initialSeedingMilliseconds,
+    }), application, active, activation, prepared, binding,
     reconstructApplicationAdmission: context.reconstructApplicationAdmission,
     replayFiniteActivation: () => activationPort.withFiniteStart(finiteActivationInput, activated => Effect.succeed(inspectActivatedPointMutationSessionV1(activated))),
     activateCompetingFiniteRequest: suffix => Effect.gen(function* () {
@@ -1776,18 +1814,17 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     getOpenTransactionDepth: () => openTransactionDepth,
     getTransactionCounts: () => ({ beginCount, settleCount }),
     setSqlPhase: (phase: string) => { sqlPhase = phase; },
-    close: async () => {
-      try {
-        await runEffect(Deferred.succeed(initialDone, undefined));
-        await runEffect(Fiber.join(initialFiber));
-      } finally {
-        await closeSyscallScope();
-        await runEffect(closePayloadScopes);
-        if (ownsContext) {
-          currency.observeSql?.(undefined);
-          for (const close of cleanup.reverse()) await close();
-        }
-      }
-    },
+    close: () => closeMixedMutationFixture({
+      signalInitial: async () => { await runEffect(Deferred.succeed(initialDone, undefined)); },
+      joinInitial: async () => { await runEffect(Fiber.join(initialFiber)); },
+      closeSyscallScope,
+      closePayloadScopes: () => runEffect(closePayloadScopes),
+      ownsContext, context: {
+        detachSqlObserver: () => currency.observeSql?.(undefined),
+        // The local syscall scope already has its explicit release above. Its
+        // setup-failure registration must not execute it a second time here.
+        resources: cleanup.filter(close => close !== closeSyscallScope),
+      },
+    }),
   };
 }

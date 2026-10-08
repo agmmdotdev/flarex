@@ -1,4 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
+import { is, SQL } from "drizzle-orm";
+import { compileFiniteCaptureResultMapper, type CaptureProjectionField } from "../src/finiteStorageCaptureProjection";
 import { drizzle as nodeDrizzle } from "drizzle-orm/node-postgres";
 import { NodePgPreparedQuery } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
@@ -67,6 +69,108 @@ async function installationFixture() {
 }
 
 describe("database-owned finite storage preparation", () => {
+  it("decodes all ten actual installed and full-artifact projections into one header and final bodies, refusing malformed layouts", async () => {
+    const fixture = await installationFixture();
+    const kinds = ["rows", "indexPage", "indexRows", "ownership", "historicalIdentity", "transactionTime", "retirement",
+      "ownershipPolicyManifest", "ownershipUniqueClosure", "ownershipFence"] as const;
+    try {
+      const installation = await fixture.pair();
+      for (const profile of [{ kind: "fullArtifact" } as const,
+        { kind: "installed", installation, driver: constructionDriver } as const]) {
+        const select = vi.spyOn(fixture.database, "select");
+        try {
+          Result.getOrThrow(bindFiniteStorageCaptureOwner(fixture.database, locator, profile));
+          expect(select).toHaveBeenCalledTimes(kinds.length);
+          for (const [ordinal, [selection]] of select.mock.calls.entries()) {
+            const kind = kinds[ordinal]!;
+            const fields: CaptureProjectionField[] = [];
+            const flatten = (value: unknown, path: readonly string[]) => {
+              if (is(value, SQL)) fields.push({ path, field: value });
+              else {
+                if (value === null || typeof value !== "object") throw new Error("Invalid actual capture selection");
+                for (const [name, field] of Object.entries(value)) flatten(field, [...path, name]);
+              }
+            };
+            flatten(selection, []);
+            const index = (...path: string[]) => {
+              const result = fields.findIndex(field => field.path.length === path.length && field.path.every((name, offset) => name === path[offset]));
+              if (result < 0) throw new Error("Missing actual capture field: " + path.join("."));
+              return result;
+            };
+            const layout = { indexRows: kind === "indexRows", historicalIdentity: kind === "historicalIdentity", fullArtifact: profile.kind === "fullArtifact" };
+            const mapper = compileFiniteCaptureResultMapper<Record<string, unknown>>(fields, layout);
+            const first: unknown[] = fields.map(() => null);
+            first[index("reason")] = "accepted";
+            first[index("databaseNow")] = "10";
+            first[index("servingCommitSeq")] = "2";
+            first[index("retainedFloor")] = "0";
+            first[index("build", "startCommitSeq")] = "7";
+            first[index("targetMetadataEpoch")] = "9";
+            first[index("controlMetadataEpoch")] = "8";
+            first[index("storagePresent")] = true;
+            first[index("transactionTimestamp")] = "2026-10-08 00:00:00+00";
+            first[index("exists")] = layout.historicalIdentity;
+            const bodyOrdinal = layout.indexRows ? index("raw", "index_ordinal") :
+              fields.findIndex(field => field.path[0] === "raw" && field.path[1] === "ordinal");
+            if (bodyOrdinal >= 0) first[bodyOrdinal] = 1;
+            if (layout.indexRows) first[index("raw", "captureGroup")] = "index";
+            const later: unknown[] = fields.map(() => null);
+            later[index("storagePresent")] = true;
+            later[index("exists")] = layout.historicalIdentity;
+            if (layout.fullArtifact) {
+              later[index("targetMetadataEpoch")] = "9";
+              later[index("controlMetadataEpoch")] = "8";
+            }
+            if (layout.indexRows) {
+              later[index("raw", "captureGroup")] = "row";
+              later[index("raw", "row_ordinal")] = 1;
+              later[index("raw", "row_rowPresent")] = true;
+            } else if (bodyOrdinal >= 0) later[bodyOrdinal] = 2;
+            const accepted = mapper([first, later]);
+            expect(accepted.layoutFailure, profile.kind + ":" + kind).toBeUndefined();
+            expect(accepted.header).toMatchObject({ reason: "accepted", build: { startCommitSeq: 7n },
+              uniqueBuild: { scopeId: null }, indexMaintenance: { scopeId: null }, uniqueMaintenance: { scopeId: null }, frontier: { scopeUuid: null } });
+            expect(accepted.rawIndexRows).toHaveLength(layout.indexRows ? 1 : 0);
+            expect(accepted.rawRows).toHaveLength(layout.indexRows ? 1 : 2);
+            if (layout.indexRows) {
+              expect(accepted.rawIndexRows[0]).toHaveProperty("ordinal", 1);
+              expect(accepted.rawRows[0]).toHaveProperty("rowPresent", true);
+              expect(Object.keys(accepted.rawIndexRows[0]!)).toEqual(fields.filter(field => field.path[0] === "raw" && field.path[1]?.startsWith("index_"))
+                .map(field => field.path[1]!.slice(6)));
+              expect(Object.keys(accepted.rawRows[0]!)).toEqual(fields.filter(field => field.path[0] === "raw" && field.path[1]?.startsWith("row_"))
+                .map(field => field.path[1]!.slice(4)));
+            }
+            const sentinel = [...first];
+            sentinel[index("storagePresent")] = false;
+            for (const [offset, field] of fields.entries()) if (field.path[0] === "raw") sentinel[offset] = null;
+            expect(mapper([sentinel])).toMatchObject({ layoutFailure: undefined, rawRows: [], rawIndexRows: [] });
+            expect(mapper([])).toMatchObject({ header: undefined, layoutFailure: undefined, rawRows: [], rawIndexRows: [] });
+            const assertMalformed = (row: unknown[], previous?: unknown[]) =>
+              expect(mapper(previous === undefined ? [row] : [previous, row]).layoutFailure, profile.kind + ":" + kind).toBeDefined();
+            assertMalformed([...first, null]);
+            assertMalformed(first.slice(0, -1));
+            assertMalformed(later.slice(0, index("build", "startCommitSeq")), first);
+            for (const marker of [undefined, null, "true", 1]) {
+              const changed = [...first]; changed[index("storagePresent")] = marker; assertMalformed(changed);
+            }
+            const repeatedHeader = [...later]; repeatedHeader[index("reason")] = "accepted"; assertMalformed(repeatedHeader, first);
+            const changedEpoch = [...later]; changedEpoch[index("targetMetadataEpoch")] = "changed"; assertMalformed(changedEpoch, first);
+            const inactive = [...sentinel];
+            inactive[fields.findIndex(field => field.path[0] === "raw" && field.path[1] !== "captureGroup")] = 1;
+            assertMalformed(inactive);
+            if (layout.indexRows) {
+              const changed = [...first]; changed[index("raw", "captureGroup")] = "unknown"; assertMalformed(changed);
+              const inactiveRow = [...first]; inactiveRow[index("raw", "row_ordinal")] = 1; assertMalformed(inactiveRow);
+              const inactiveIndex = [...later]; inactiveIndex[index("raw", "index_ordinal")] = 1; assertMalformed(inactiveIndex, first);
+            }
+            const nativeFailure = [...first]; nativeFailure[index("build", "startCommitSeq")] = "invalid bigint";
+            expect(() => mapper([nativeFailure])).toThrow(SyntaxError);
+          }
+        } finally { select.mockRestore(); }
+      }
+    } finally { await fixture.client.close(); }
+  });
+
   it("reuses actual compilation across repeated located-target construction and isolates exact database/locator identity", () => {
     const database = nodeDrizzle.mock({ schema: flarexSchema });
     const select = vi.spyOn(database, "select");

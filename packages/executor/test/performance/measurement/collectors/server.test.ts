@@ -112,6 +112,68 @@ describe("post-preparation server arming", () => {
 });
 
 describe("owned server capture", () => {
+  it("refuses malformed observation selection before opening a capture", async () => {
+    const snapshots = vi.fn(async () => snapshot);
+    const read = vi.fn(async () => 7);
+    const collector = createServerMeasurementCapture({ database, snapshot: snapshots, sample });
+    await expect(Reflect.apply(collector.capture, collector, [read, { initialObservation: "optional" }])).rejects.toBeDefined();
+    expect(read).not.toHaveBeenCalled();
+    expect(snapshots).not.toHaveBeenCalled();
+    expect(await collector.capture(read, { initialObservation: "required" })).toBe(7);
+  });
+  it("skips the required read after an initial snapshot failure and waits for final observation cleanup", async () => {
+    const original = new Error("initial snapshot failed");
+    let snapshots = 0;
+    let finishCleanup: (() => void) | undefined;
+    const after = new Promise<RetrievalServerSnapshot>(resolve => { finishCleanup = () => resolve(snapshot); });
+    const sampler = vi.fn(sample);
+    const read = vi.fn(async () => 7);
+    const collector = createServerMeasurementCapture({ database, sample: sampler,
+      snapshot: async () => { if (++snapshots === 1) throw original; return after; } });
+    let settled = false;
+    const capture = collector.capture(read, { initialObservation: "required" }).finally(() => { settled = true; });
+    const rejected = expect(capture).rejects.toMatchObject({ stage: "initialObservationRequired" });
+    await delay(2);
+    expect(read).not.toHaveBeenCalled();
+    expect(sampler).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+    finishCleanup?.();
+    await rejected;
+    expect(snapshots).toBe(2);
+    expect(collector.failures()).toEqual([original]);
+    expect(collector.evidence()?.status).toBe("incomplete");
+    expect(collector.evidence()?.observers.map(value => value.name)).toEqual(["serverSnapshotBefore", "serverSnapshotAfter"]);
+    expect(Schema.decodeUnknownResult(ServerMeasurementEvidenceSchema)(collector.evidence())._tag).toBe("Success");
+  });
+  it("skips the required read after a failed plan begin and closes its plan window without retry", async () => {
+    const plans = createServerPlanCapture({ database: database.database,
+      source: { path: join(tmpdir(), `missing-required-plan-${randomUUID()}.log`), prefix: SERVER_PLAN_LOG_PREFIX } });
+    const begin = vi.spyOn(plans, "begin");
+    const end = vi.spyOn(plans, "end");
+    const sampler = vi.fn(sample);
+    const read = vi.fn(async () => 7);
+    const collector = createServerMeasurementCapture({ database, snapshot: async () => snapshot, sample: sampler, plans });
+    await expect(collector.capture(read, { initialObservation: "required" })).rejects.toMatchObject({ stage: "initialObservationRequired" });
+    expect(read).not.toHaveBeenCalled();
+    expect(sampler).not.toHaveBeenCalled();
+    expect(begin).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1);
+    expect(collector.failures()).toContain(plans.failures()[0]);
+    expect(collector.evidence()?.status).toBe("incomplete");
+    expect(collector.evidence()?.actualPlans.status).toBe("incomplete");
+    expect(Schema.decodeUnknownResult(ServerMeasurementEvidenceSchema)(collector.evidence())._tag).toBe("Success");
+  });
+  it("keeps default business diagnostics best effort after an initial snapshot failure", async () => {
+    const original = new Error("initial snapshot failed");
+    let snapshots = 0;
+    const read = vi.fn(async () => 7);
+    const collector = createServerMeasurementCapture({ database, sample,
+      snapshot: async () => { if (++snapshots === 1) throw original; return snapshot; } });
+    expect(await collector.capture(read)).toBe(7);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(collector.failures()).toContain(original);
+    expect(collector.evidence()?.status).toBe("incomplete");
+  });
   it("retains original business failure when the optional plan source is unavailable", async () => {
     const business = new Error("original business failure");
     const plans = createServerPlanCapture({ database: database.database,

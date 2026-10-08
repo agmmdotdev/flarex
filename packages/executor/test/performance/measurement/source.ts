@@ -8,7 +8,7 @@ const repository = fileURLToPath(new URL("../../../../../", import.meta.url));
 const require = createRequire(import.meta.url);
 
 /** Source stability evidence, outside request timers. Inventory authored package
- * code, dependency locks and the actual loaded native CommonJS source island. */
+ * code, dependency locks and the actual loaded Medusa CommonJS sources. */
 export async function measurementSourceDigest(native: boolean) {
   const files = new Set<string>();
   const packages = join(repository, "packages");
@@ -23,7 +23,12 @@ export async function measurementSourceDigest(native: boolean) {
   // This SDK reuses an authored benchmark owner that the broad package source
   // inventory deliberately excludes along with historical report files.
   files.add(join(repository, "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts"));
-  for (const file of Object.keys(require.cache)) if (file.includes(`${sep}third_party${sep}medusa${sep}`)) files.add(file);
+  // Promoted workspace packages execute their compiled output through CommonJS
+  // links. Authored inventory excludes dist, so retain the loaded output too.
+  for (const file of Object.keys(require.cache)) {
+    if (file.includes(`${sep}third_party${sep}medusa${sep}`) ||
+      /^packages\/medusa-[^/]+\/dist\//.test(relative(repository, file).replaceAll("\\", "/"))) files.add(file);
+  }
   if (native) {
     const root = join(repository, "work/native-business-baseline/dependencies");
     for (const name of ["package.json", "package-lock.json"]) files.add(join(root, name));

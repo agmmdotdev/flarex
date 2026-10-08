@@ -76,6 +76,7 @@ const rejection = <E>(cause: Cause.Cause<E>): E | Cause.Cause<E> => {
   return cause.reasons.length === 1 && first !== undefined && Cause.isFailReason(first) ? first.error : cause;
 };
 const decodeLimits = Schema.decodeUnknownSync(ServerPlanLimitsSchema, { onExcessProperty: "error" });
+const decodeContinuity = Schema.decodeUnknownSync(Schema.UndefinedOr(Schema.Literal("required")));
 const decodeHeader = Schema.decodeUnknownResult(HeaderSchema, { onExcessProperty: "error" });
 const decodeFinite = Schema.decodeUnknownResult(finite);
 const decodeCount = Schema.decodeUnknownResult(count);
@@ -181,8 +182,9 @@ const readExactly = Effect.fn("ServerPlanCapture.readExactly")(function* (file: 
  * business rejection. Completeness refers only to parsed bytes, never flushing
  * or the coverage of statements, failed executions, utilities or other files. */
 export function createServerPlanCapture(input: Readonly<{ database: string; source: ServerPlanLogSource;
-  limits?: Partial<ServerPlanLimits> }>) {
+  limits?: Partial<ServerPlanLimits>; continuity?: "required" }>) {
   const limits = decodeLimits({ ...serverPlanLimits, ...input.limits });
+  const continuity = decodeContinuity(input.continuity);
   let state: "new" | "opening" | "open" | "ending" | "closed" = "new";
   let windowScope: Scope.Closeable | undefined;
   let closeFailure: ServerPlanCaptureFailure | undefined;
@@ -190,6 +192,8 @@ export function createServerPlanCapture(input: Readonly<{ database: string; sour
   let identity: Stats | undefined;
   let anchor: Buffer | undefined;
   let anchorOffset = 0;
+  let campaign: Readonly<{ identity: Stats; endOffsetBytes: number; anchorOffset: number; anchor: Buffer }> | undefined;
+  let campaignFailure: Cause.Cause<PlanParseFailure> | undefined;
   let startOffsetBytes: number | null = null, endOffsetBytes: number | null = null, readBytes = 0;
   let ignoredBlocks = 0, foreignDatabasePlans = 0;
   const plans: ActualPlan[] = [];
@@ -275,6 +279,12 @@ export function createServerPlanCapture(input: Readonly<{ database: string; sour
     identity = yield* fileOperation("logFileStatFailed", () => owned.stat());
     if (!sameFile(pathIdentity, identity) || !identity.isFile() || !Number.isSafeInteger(identity.size))
       return yield* Effect.fail(issue("logSourceChanged"));
+    if (continuity === "required" && campaign !== undefined) {
+      if (!sameFile(campaign.identity, identity)) return yield* Effect.fail(issue("logSourceChangedAcrossWindows"));
+      if (identity.size < campaign.endOffsetBytes) return yield* Effect.fail(issue("logTruncatedAcrossWindows"));
+      const previousAnchor = yield* readExactly(owned, campaign.anchorOffset, campaign.anchor.length);
+      if (!campaign.anchor.equals(previousAnchor)) return yield* Effect.fail(issue("logAnchorChangedAcrossWindows"));
+    }
     startOffsetBytes = identity.size;
     anchorOffset = Math.max(0, identity.size - 256);
     anchor = yield* readExactly(owned, anchorOffset, identity.size - anchorOffset);
@@ -302,11 +312,17 @@ export function createServerPlanCapture(input: Readonly<{ database: string; sour
     const text = yield* Effect.try({ try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
       catch: cause => issue("invalidLogEncoding", cause) });
     yield* Effect.fromResult(parseWindow(text));
+    if (continuity === "required") {
+      const previousOffset = Math.max(0, endOffsetBytes - 256);
+      const previousAnchor = yield* readExactly(owned, previousOffset, endOffsetBytes - previousOffset);
+      campaign = { identity: initial, endOffsetBytes, anchorOffset: previousOffset, anchor: previousAnchor };
+    }
   });
   const beginWindow = Effect.fn("ServerPlanCapture.beginWindow")(function* (): Effect.fn.Return<void, PlanParseFailure> {
     if (state !== "new" && state !== "closed") {
       const cause = issue("concurrentPlanCapture"); fail("planLogBegin", cause); return yield* Effect.fail(cause);
     }
+    if (continuity === "required" && campaignFailure !== undefined) return yield* Effect.failCause(campaignFailure);
     plans.length = 0; failures.length = 0; failureEvidence.length = 0;
     ignoredBlocks = 0; foreignDatabasePlans = 0;
     startOffsetBytes = null; endOffsetBytes = null; readBytes = 0;
@@ -316,6 +332,7 @@ export function createServerPlanCapture(input: Readonly<{ database: string; sour
     windowScope = scope;
     const acquired = yield* Effect.exit(Scope.provide(acquireWindow(), scope));
     if (Exit.isFailure(acquired)) {
+      if (continuity === "required") campaignFailure = acquired.cause;
       fail("planLogBegin", rejection(acquired.cause));
       const closed = yield* Effect.exit(closeWindow(scope, acquired));
       recordClose(closed); resetClosed();
@@ -331,8 +348,10 @@ export function createServerPlanCapture(input: Readonly<{ database: string; sour
     }
     state = "ending";
     const read = yield* Effect.exit(readWindow(file, identity, startOffsetBytes, anchor));
+    if (continuity === "required" && Exit.isFailure(read)) campaignFailure = read.cause;
     if (Exit.isFailure(read)) fail("planLogEnd", rejection(read.cause));
     const closed = yield* Effect.exit(closeWindow(windowScope, read));
+    if (continuity === "required" && Exit.isFailure(closed)) campaignFailure ??= closed.cause;
     recordClose(closed); resetClosed();
     if (Exit.isFailure(read)) return yield* Effect.failCause(read.cause);
     if (Exit.isFailure(closed)) return yield* Effect.failCause(closed.cause);

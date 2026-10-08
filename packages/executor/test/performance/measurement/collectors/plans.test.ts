@@ -1,9 +1,10 @@
 import { Result, Schema } from "effect";
-import { appendFile, mkdtemp, rename, rm, writeFile, type FileHandle } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rename, rm, writeFile, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createServerPlanCapture, SERVER_PLAN_LOG_PREFIX, ServerPlanEvidenceSchema, type ServerPlanLimits } from "./plans";
+import { createServerMeasurementCapture } from "./server";
 
 const fileBoundary = vi.hoisted(() => {
   const state: { closeFailure: Error | undefined; closeGate: Promise<void> | undefined;
@@ -50,15 +51,51 @@ function plan(fields: Record<string, unknown> = {}, root: Record<string, unknown
   // Keep the PG numeric token exact; a JavaScript number rounds signed int64 max.
   return loggedPlan(`{"Query Identifier": 9223372036854775807,${json.slice(1)}`, queryId, db);
 }
-async function fixture(limits?: Partial<ServerPlanLimits>) {
+async function fixture(limits?: Partial<ServerPlanLimits>, continuity?: "required") {
   const directory = await mkdtemp(join(tmpdir(), "flarex-plan-capture-"));
   const path = join(directory, "postgres.log");
   await writeFile(path, `${header()}LOG:  prior query outside capture\n`);
-  return { path, directory, capture: createServerPlanCapture({ database, source: { path, prefix: SERVER_PLAN_LOG_PREFIX }, ...(limits === undefined ? {} : { limits }) }),
+  return { path, directory, capture: createServerPlanCapture({ database, source: { path, prefix: SERVER_PLAN_LOG_PREFIX },
+    ...(limits === undefined ? {} : { limits }), ...(continuity === undefined ? {} : { continuity }) }),
     close: () => rm(directory, { recursive: true, force: true }) };
 }
 
 describe("bounded actual PostgreSQL plan log capture", () => {
+  it("retains campaign continuity across append-only gaps without counting their plans", async () => {
+    const state = await fixture(undefined, "required");
+    try {
+      await state.capture.begin(); await appendFile(state.path, plan()); await state.capture.end();
+      const firstEnd = state.capture.evidence().window.endOffsetBytes;
+      await appendFile(state.path, plan());
+      await state.capture.begin(); await appendFile(state.path, plan()); await state.capture.end();
+      expect(state.capture.evidence().status).toBe("complete");
+      expect(state.capture.evidence().plans).toHaveLength(1);
+      expect(state.capture.evidence().window.startOffsetBytes).toBeGreaterThan(firstEnd ?? 0);
+    } finally { await state.capture.end(); await state.close(); }
+  });
+  for (const action of ["truncate", "rewrite", "replace"] as const) {
+    it(`refuses ${action} between campaign windows before the next actual read`, async () => {
+      const state = await fixture(undefined, "required");
+      try {
+        await state.capture.begin(); await appendFile(state.path, plan()); await state.capture.end();
+        const previous = await readFile(state.path, "utf8");
+        if (action === "replace") {
+          await rename(state.path, join(state.directory, "old.log")); await writeFile(state.path, previous);
+        } else await writeFile(state.path, action === "truncate" ? "" : previous.slice(0, -2) + "!\n");
+        const read = vi.fn(async () => 7);
+        const snapshot = { info: [{ stats_reset: "epoch", dealloc: 0 }], statements: [] };
+        const collector = createServerMeasurementCapture({ database: { database, dbid: 1 }, plans: state.capture,
+          snapshot: async () => snapshot, sample: async () => ({ serverAt: "time", activities: [] }) });
+        await expect(collector.capture(read, { initialObservation: "required" })).rejects.toMatchObject({ stage: "initialObservationRequired" });
+        expect(read).not.toHaveBeenCalled();
+        expect(state.capture.evidence().status).toBe("incomplete");
+        const opened = fileBoundary.opened.length;
+        await writeFile(state.path, previous);
+        await expect(state.capture.begin()).rejects.toBeDefined();
+        expect(fileBoundary.opened).toHaveLength(opened);
+      } finally { await state.capture.end(); await state.close(); }
+    });
+  }
   it("reads only appended real-format plans and retains exact signed IDs with whitelisted metrics", async () => {
     const state = await fixture();
     try {

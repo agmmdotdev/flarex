@@ -45,6 +45,7 @@ export async function finiteApplicationMetadataScenario(persistence: PGliteFlare
   options: Readonly<{ ownershipSuccessor?: true; controlPersistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
     activationProfile?: ApplicationActivationTargetProfile;
     sessionTargetOptions?: NonNullable<Parameters<typeof cmsHostFixture>[1]>["sessionTargetOptions"];
+    observeOwnershipOperation?: (phase: "accepted" | "corrupt", work: () => Promise<void>) => Promise<void>;
     afterMetadata?: (entry: Readonly<{ context: FiniteEntryAttemptKernelContext;
       finiteApplicationReadDemand: FiniteApplicationStorageDemand;
       authorityPorts: Awaited<ReturnType<typeof createApplicationNativeMutationMixedFixture>>["authorityPorts"];
@@ -178,8 +179,12 @@ export async function finiteApplicationMetadataScenario(persistence: PGliteFlare
         try {
           const write = () => runEffect(store.runPointOperationEffect(audit, { kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
             fields: { title: "original unmanaged write" } }, validator));
-          expect(await (trace === undefined ? write() : trace.withInvocation({ id: "finite-ownership", mode: "recon" }, write)))
-            .toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
+          const observeWrite = async () => {
+            expect(await (trace === undefined ? write() : trace.withInvocation({ id: "finite-ownership", mode: "recon" }, write)))
+              .toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
+          };
+          if (options.observeOwnershipOperation === undefined) await observeWrite();
+          else await options.observeOwnershipOperation("accepted", observeWrite);
           expect(uuidCalls).toBe(beforeUuid + 1);
           if (controlQueries !== undefined) expect(controlQueries.mock.instances.some(query =>
             query instanceof PglitePreparedQuery && query.getQuery().sql.includes("fx_read_application_ownership_unique_closure"))).toBe(true);
@@ -194,9 +199,13 @@ export async function finiteApplicationMetadataScenario(persistence: PGliteFlare
           // Deliberate control-owner corruption: the original finite anchor and admission remain untouched.
           await control.drizzle.update(fxControlSchemaVersionUniqueConstraintSets).set({ definitionSetSha256: new Uint8Array(32) }).where(closureIdentity);
           const beforeRejectedUuid = uuidCalls;
-          expect(await runEffectFailure(store.runPointOperationEffect(audit, { kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
-            fields: { title: "corrupt closure must refuse" } }, validator))).toMatchObject({ _tag: "SessionJournalPersistenceV1Error",
-              cause: { _tag: "FiniteStorageCaptureError", reason: "storedCorruption" } });
+          const observeRefusal = async () => {
+            expect(await runEffectFailure(store.runPointOperationEffect(audit, { kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+              fields: { title: "corrupt closure must refuse" } }, validator))).toMatchObject({ _tag: "SessionJournalPersistenceV1Error",
+                cause: { _tag: "FiniteStorageCaptureError", reason: "storedCorruption" } });
+          };
+          if (options.observeOwnershipOperation === undefined) await observeRefusal();
+          else await options.observeOwnershipOperation("corrupt", observeRefusal);
           expect(uuidCalls).toBe(beforeRejectedUuid);
         } finally {
           await control.drizzle.update(fxControlSchemaVersionUniqueConstraintSets).set({ definitionSetSha256: closure.definitionSetSha256 }).where(closureIdentity);

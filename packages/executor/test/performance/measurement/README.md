@@ -15,7 +15,7 @@ native reference work retains its declared gates.
 ## Public Boundary
 
 This folder owns a test-only SDK for collecting and explaining real core cost.
-One `index.ts` exposes two high-level operations. The caller selects the question;
+One `index.ts` exposes the high-level operations. The caller selects the question;
 the SDK constructs the session, collectors, observation bindings, analysis and
 report, and releases its resources. No new workspace or production package is
 selected merely to provide this boundary.
@@ -64,9 +64,38 @@ Sampling, stable
 sources/settings, complete comparable results and
 cleanup must satisfy the existing acceptance policy before `passed` is possible.
 
-Options have one SDK-owned Schema. Inputs may use inference; callers need no
+`diagnoseHistoricalCaptures` is the focused server diagnostic selected by the
+[historical capture preflight](../../../../../roadmaps/mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#historical-capture-result-handoff-preflight).
+The SDK constructs its existing Product seed fixture, genuine admitted read
+scope, server resource, submission observer and reports. It accepts only an
+output directory, the optional provisioning connection string and a verified
+absolute plan-log path with the required prefix. Its fixed budget is two serial
+passes of nine source-equivalent uncached reads, at most eighteen captures, with
+no retry or measured complete business/native graph. The first pass records the
+real compiler demands; the second invokes those original capture operations
+inside the same open admitted scope. Checked initial observation faults skip
+the read. Source/settings drift, nonselected activity, incomplete required
+plans and cleanup failures stop the campaign and retain partial artifacts.
+First-use and second-pass server planning/execution remain separate; overlapping
+top-level and nested times are never added. This diagnostic does not evaluate
+native latency acceptance or establish exact client CPU/transport cost.
+The earlier instrumented campaign retained eighteen complete input windows but
+failed final close because its fixture sealed inside the active deadline wrapper.
+The fixture now completes that wrapper before checking and closing the same
+borrow; its isolated eighteen-capture execution completes with zero changes or
+events. A separate corrected strict diagnostic completes all eighteen windows
+and cleanup; the earlier failed artifact remains incomplete. The source
+fingerprint includes already-loaded promoted Medusa compiled modules alongside
+authored sources and the upstream island, so compiled execution drift invalidates
+the evidence. Diagnostic arming, pool verification and the source baseline run
+through the existing prepared-context callback before initial finite admission
+starts its lease supervisor. Renewal remains enabled at its normal interval;
+overlap inside a measured window still invalidates that isolated capture.
+The owning preflight preserves the bounded stop/no-retry gate.
+
+The `measure` and `compare` options share one SDK-owned Schema. Inputs may use inference; callers need no
 imports for plans, sites, spans, clients, transactions, recorders or artifact
-types. The result has four fields: `runId`, `execution`, `acceptance`
+types. Their result has four fields: `runId`, `execution`, `acceptance`
 and `reports`. `execution` is `complete`, `failed` or `incomplete`; `acceptance`
 is `passed`, `failed` or `notEvaluated`; `reports` contains raw and human artifact
 paths and optional sanitized profile exports. Only a genuine complete comparison can pass acceptance. A complete
@@ -83,6 +112,17 @@ rejects before resources are acquired. Infrastructure failures preserve their
 original error/Cause and any partial artifact references; combined execution,
 cleanup and persistence failures retain all original causes. The SDK cannot return
 successful artifact paths when persistence failed.
+
+The focused historical diagnostic has its own bounded options contract and
+returns `{ runId, status, reports }`; `status` is `complete` or `incomplete`.
+It evaluates evidence completeness without a native acceptance verdict.
+An incomplete run rejects with `HistoricalCaptureRunFailure`, retaining the
+original causes and raw/human partial report paths. Artifact persistence failure
+retains available partial paths through the existing infrastructure error.
+If construction fails before the fixture hands off its resources, cleanup is
+`unverified`: the SDK preserves the constructor's complete cause without guessing
+whether its internal releases succeeded. Explicit owned release failures report
+`failed`; a complete run requires completed cleanup.
 
 ## Core Integration
 

@@ -2,11 +2,105 @@
 
 ## Historical capture result handoff preflight
 
-Status: design preflight complete; the replacement and its performance validation
-have not started. The next bounded evidence step is historical capture server
-attribution. The concrete client replacement candidate is an operation-specific
-header/storage handoff in the existing finite capture owner. Neither source
-inspection nor driver-await timing establishes its removable latency.
+Status: the client projection replacement and fixture close correction are
+implemented and connected correctness validation passes. The finite capture owner
+now supplies one header and final storage bodies. The isolated client comparison
+shows approximately 0.20 ms saved per nine-demand batch; this is much smaller than
+the request latency still under investigation. Complete native-relative acceptance
+remains unmet. The earlier incomplete instrumented campaign remains retained.
+The corrected fixture completes a separate eighteen-window strict diagnostic.
+Delivery must validate the replacement against the committed inline ownership
+and installation topology, rather than importing the preceding unfinished
+cutovers. The private result handoff does not require those topology changes.
+
+The owner authorizes closing this delivery: audit the exact prerequisite hunks,
+resolve the committed capture/test boundary without importing unrelated lifecycle
+or failed publication work, and validate the actual commit checkpoint. One final
+strict instrumented run is selected on the corrected frozen source: two serial
+passes of nine original demands, at most eighteen capture submissions, zero
+automatic retries and no additional native/business graph. Preserve the earlier
+failed campaign and use separate artifacts. Its result must include successful
+read-root close, stable sources/settings, complete windows and cleanup. This
+completion work does not select a SQL/cardinality change or lower the complete
+native-relative latency gates. Executing-source proof includes already-loaded
+promoted Medusa compiled modules as well as authored packages and the existing
+upstream source island. Their contents must participate in the source fingerprint;
+an unchanged authored source inventory alone does not prove compiled stability.
+Final committed-topology validation uses a separate eighteen-capture diagnostic
+after the source and setup-lifetime corrections. Retain failed earlier artifacts;
+there is no automatic retry.
+
+The SDK arms diagnostics, verifies the actual runtime pools and fingerprints the
+loaded source island through the existing fixture preparation callback, after
+native module/seed preparation and before initial finite admission starts its
+lease supervisor. Diagnostic preparation must not consume that active lifetime.
+The real renewal interval and database checks remain unchanged. If a measured
+read window itself overlaps renewal or any other nonselected submission, the
+diagnostic still fails closed. The retained committed-topology failure shows
+seventeen clean windows and a final window containing the genuine renewal
+transaction followed by its successful capture; it is not evidence of extra
+capture SQL or permission to exclude renewal from a complete request measurement.
+Construction failure before resource handoff reports cleanup as unverified and
+retains the original complete cause; the SDK must not certify releases it could
+not observe. Explicit owned release failure still reports failed cleanup.
+
+### Current evidence disposition
+
+The implementation comparison is bounded before execution: one ordinary-role
+PostgreSQL fixture with server diagnostics disabled supplies two passes of the
+nine genuine captures, at most eighteen target capture submissions. Test-local
+projection parity observation validates the handoff; it is not a fully quiet
+request comparison. The fixture validates successful close and retains
+the actual driver arrays and compiled Drizzle fields in local memory. The frozen
+preceding mapper and its raw-envelope assembly are compared with the replacement
+on those same arrays: three warmup rounds and twelve alternating paired rounds,
+each processing 1,000 nine-demand batches. Report elapsed and process CPU per
+batch, distributions and structural object counts. This isolates client projection;
+it does not estimate transport or claim a complete-request latency improvement.
+Setup, database execution and diagnostics are outside that timed comparison.
+Existing genuine PGlite and ordinary-role PostgreSQL correctness lanes, connected
+consumer regressions and both final reviews remain required. SQL/cardinality
+changes and a full mixed/native campaign remain outside this slice.
+
+The isolated first and second passes each contain nine genuine target commands
+and 173 nested server calls. All inputs reuse one retained named statement and
+structural template on one observed backend. First-input initialization differs
+from first use of each logical demand; the latter does not mean nine cold SQL
+templates. Second-pass root server planning remains observed despite named reuse.
+All eighteen input windows of the earlier instrumented campaign pass their
+source/settings, submission, plan-ID and continuity checks; that campaign's final
+read-root settlement does not pass. Its artifact retains that failure.
+
+The earlier fixture closed its borrow inside `withinDeadline`; the bounded
+lifetime's seal correctly refused that active-call overlap.
+The normal Product consumer completes deadline-wrapped native/read work before
+checking and closing the borrow. The fixture now returns both passes and their
+result validation from the deadline body, then performs its final check and single
+close. Its isolated ordinary-role execution completes all eighteen captures and
+aborts the read root with zero changes or events. It retains the same admitted
+borrow, normal deadline, capture closures and abort/discard cleanup. The corrected
+strict diagnostic also completes the read-root close and cleanup. No automatic
+diagnostic rerun is selected.
+
+The retained instrumented server windows distinguish initial envelope cost,
+repeated outer planning and nested SQL execution. They do not establish quiet
+request latency, exact client CPU, transport cost, asynchronous log-flush
+completeness or removable allocation cost. The corrected isolated fixture proves the
+close topology separately. The final committed-topology diagnostic must retain
+the complete executing-source fingerprint. Production performance acceptance
+remains a separate gate.
+
+The observed outer plan has a source-established cardinality mismatch: the
+single-row placement and accepted-capture headers are `RETURNS TABLE` functions
+without explicit `ROWS` declarations, each estimated at 1,000 rows despite one
+actual row. Their multiplication with the storage append estimate produces an
+outer estimate of two billion rows for two or four actual records. All observed
+inputs share the same 59-node envelope; retained node/statistics evidence shows
+small actual outputs and no disk/temp traffic. This establishes a planner-contract
+candidate, not its latency contribution, an index defect or a selected SQL
+replacement. Node timing/function tracking are disabled and server instrumentation
+cost remains inseparable in these windows. Keep that candidate distinct from the
+existing client projection work until a focused decision uses complete evidence.
 
 ### Evidence, outcome and limits
 
@@ -25,17 +119,20 @@ unique and index observations already avoid repeat storage requests. Historical
 rows in one submission. Rebuilding those caches or promising fewer exchanges is
 not the selected direction.
 
-The remaining source-established repetition is in
+The displaced source-established repetition was in
 [`finiteStorageCapture.ts`](../../packages/persistence-postgres/src/finiteStorageCapture.ts):
-`compileCaptureResultMapper` restores every slot of a generic query row. The
-current `indexRows` projection has 125 positional columns, including first-row
+the generic result mapper restored every slot of a query row. The
+genuine `indexRows` projection has 138 positional columns, including first-row
 authority/build/frontier groups and both index and document fields. Conditional
 header slots are null on later rows, yet each row still receives their assignments
 and group objects. Other slots legitimately repeat: full-artifact metadata epochs
-and the inactive `exists=false` projection. `accept` then filters/maps raw rows and
-splits prefixed index/document
+and the inactive `exists=false` projection. Acceptance then filtered/mapped raw rows and
+split prefixed index/document
 fields through `Object.entries` and `Object.fromEntries`. This is concrete client
-assembly work; its magnitude is unmeasured.
+assembly work. On the same actual second-pass arrays, median nine-demand projection
+elapsed falls from approximately 0.259 ms to 0.056 ms and process CPU from 0.266 ms
+to 0.062 ms. These component measurements exclude database execution, transport,
+canonical acceptance and setup; they cannot establish request latency savings.
 
 The recommended connected replacement delivers the same accepted public capture
 envelopes through one retained per-operation projection, removing the repeated
@@ -134,16 +231,26 @@ runner to answer an isolated historical-read question.
 SDK orchestration owns resource/collector construction, arming, observation,
 report/export and cleanup. The fixture supplies seeded read-owner callbacks and
 actual serving pools, without constructing collectors in core or fixture code.
+Its checked initial observation skips the read if counters or log-window
+acquisition fails. SDK collection faults remain diagnostic evidence and cancel
+the owned isolated read program; they are not forged storage refusals or defects.
+Actual capture failure/defect/interruption Causes retain their original owner.
 
-Freeze the nine retained demand instances and their actual compiled shape/name,
-owner and ancestry. Preserve differing bounds/cardinality cases when deduplicating
-shapes for analysis. Prepare equivalent bounded revision/index history, installed
+The resources trace did not retain literal parameters. Freeze nine newly seeded,
+source-equivalent demand instances and their actual compiled shape/name, owner
+and ancestry; do not claim literal replay of the previous trace. Their first
+observed pass uses the real borrowed working-set selection and records its actual
+capture operations. The second pass repeats those operations through the same
+genuine capture closure while that admitted scope remains open, avoiding local
+observation-cache hits. Preserve differing bounds/cardinality cases when
+deduplicating shapes for analysis. Prepare equivalent bounded revision/index history, installed
 metadata and genuine fresh finite authority through existing fixture owners
 outside observation. Invoke actual uncached read/capture owners; a cache hit is
 not a capture measurement, and saved expired pins cannot be replayed.
 
 The diagnostic budget is two serial passes of nine inputs: at most eighteen
-capture executions, zero complete business graphs, zero native calls and no
+capture executions, zero complete measured business graphs, zero measured native
+or native-comparison calls and no
 automatic retries. Complete evidence requires all eighteen actual uncached
 submissions with fresh pins verified per execution. A cache hit or missing capture
 cannot replace an input; early stops remain incomplete. First observed use and the
@@ -161,6 +268,20 @@ observer queries, 8 MiB log windows, 512 KiB per plan and 4,096 plans. Missing
 expected plan evidence is unavailable/incomplete, never zero work. Plan coverage
 refers only to parsed observed-window bytes; asynchronous flush completeness
 remains unproven.
+
+Each selected installed capture submits exactly one underlying target command;
+its nested functions are server executions. Reject any additional target or
+control command in that window, including activity on a reused capture PID.
+The existing plan owner retains log identity, offset and a bounded anchor across
+windows, refusing replacement, truncation or anchor changes before the next read.
+
+Reuse the existing Product fixture's untimed seed owner: native Tag, Category and
+Product creation plus populated retrieval. Report these setup calls separately;
+do not execute the mixed business runner for admission or demand derivation.
+One genuine admitted borrow owns both passes and its normal close/abort. Preserve
+the real claim/lease, command deadline and supervisor renewal; never mute liveness
+or raise deadlines for observation. Renewal or other nonselected activity within
+an observed window invalidates that window and stops this campaign.
 
 Source/settings drift, unexpected shapes/counts, foreign activity, wrong serving
 role, expired/refused authority, reset/evicted statistics, collection/log capacity
