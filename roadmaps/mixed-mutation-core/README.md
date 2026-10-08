@@ -446,17 +446,18 @@ subagent, including workers, explorers and both standing reviewers, with model
 The relevant numbered preflights own their implemented private scopes.
 
 The [foundation plan](./14-execution-redesign-roadmap.md#selected-foundation-replacement)
-owns the next mixed packages. The [component-first method](../core-performance/README.md)
-still avoids automatic full end-to-end measurement after every local edit.
-Each package delivers an evidenced real owner change with
-affected consumer correctness, proportional PGlite/ordinary-role PostgreSQL,
-both reviews, cleanup and commit. Setup/authentication costs remain reported and
-every actual fresh check remains included. Declared group milestones,
-cross-component/lifecycle contract changes and whole-goal acceptance retain full
-mixed performance integration measurements; an owner improvement does not
-automatically trigger the full graph benchmark. Bounded connected correctness
-remains required during implementation. Connected packages are serial; inactive documents and
-conditional host work do not approve a fixed runtime remedy.
+owns the connected mixed outcomes. The [performance delivery policy](../core-performance/README.md#delivery-policy)
+requires substantial complete-request improvement against matched native graphs.
+A cutover may cross preparation, admission, capture, working-set, execution and
+settlement owners; do not divide it into independently delivered helper or
+component optimizations. Local attribution and focused checks are internal steps.
+Each connected outcome includes affected consumer correctness, proportional
+PGlite/ordinary-role PostgreSQL, both final reviews, cleanup and a coherent commit.
+Setup/authentication costs remain visible and every actual fresh check is included.
+Complete matched mixed and standalone measurements assess connected delivery and
+whole-goal acceptance; do not run them after every internal edit or replace them
+with a small component saving. Serialize dependent changes, preserve unrelated
+work and retain explicit host, capability and durable-data gates.
 
 The design note owns architecture; this README owns domain status, package order
 and remaining cross-package gates. Create `NN-topic-preflight.md` when a

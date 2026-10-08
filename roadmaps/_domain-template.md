@@ -51,5 +51,6 @@ preserving obsolete prototype architecture.
 
 ## Next Correctness Gates
 
-List the smallest ordered outcomes required to advance the domain. Define
-observable exit criteria rather than commit-sized activity logs.
+List complete, coherent outcomes required to advance the domain. Scope them by
+behavior and required evidence, without minimum-task or file-count targets.
+Define observable exit criteria rather than commit-sized activity logs.

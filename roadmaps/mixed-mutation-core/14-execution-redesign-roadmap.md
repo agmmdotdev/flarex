@@ -66,10 +66,11 @@ after commit, making resource locks into OCC, broadening automatic retries or
 removing durable seal. The finite seal replacement is explicitly selected in
 slice 24; framework retry/lock expansion retains its separate admission gates.
 
-### Architecture First, Small Optimizations Afterward
+### Connected Redesign And Complete Performance Acceptance
 
-Complete the selected connected architecture replacement before starting a
-separate sequence of small performance optimizations. Admission, attempt-owned
+Complete the selected connected architecture replacement against the full native
+performance outcome. Do not substitute a sequence of small isolated improvements
+for a large connected redesign. Admission, attempt-owned
 metadata and snapshot, demanded readiness, contribution, settlement and recovery
 must have explicit owners and lifetimes; migrate affected consumers and remove
 displaced choreography within their coherent delivery slices. Existing package
@@ -93,10 +94,11 @@ required decisions explicitly, and follow their delivery gates.
 Report architectural cutover and performance acceptance separately. Architectural
 completion requires connected consumer and failure/recovery proofs, both reviews
 and retirement of displaced paths; it does not claim that latency targets pass.
-After that cutover, select and measure small optimizations against the resulting
-architecture. Keep all fixed performance gates and failed measurements visible;
-this ordering does not waive acceptance or authorize an unapproved durability
-change.
+If substantial complete-request excess remains, select the next connected
+replacement from its measured cost owners and continue redesigning the pipeline.
+Small optimizations may support that outcome, but they are not separate goal
+deliverables. Keep fixed gates and failed measurements visible; no delivery
+ordering waives acceptance or authorizes an unexplained durability change.
 
 ### Responsibility And Lifetime
 
@@ -432,16 +434,15 @@ The final latency targets govern whole-successor acceptance.
 
 Functional delivery and whole-goal performance acceptance are separate: green
 correctness checks and lower SQL counts do not satisfy the latency goal.
-Within the connected foundation packages, the [component method](../core-performance/README.md)
-compares real component structure under its declared construction and demand
-policy, with pre-existing setup separately reported and complete authentication/
-fresh checks preserved. The first checked-read iteration compares first and
-successive selection demands within an already prepared attempt; it makes no
-cold/warm host or amortization-equivalence claim. Full mixed traced/untraced
-comparisons occur at declared group milestones, cross-component/lifecycle
-contract changes and whole-goal acceptance.
-An owner improvement with unchanged SQL does not itself require the full graph
-benchmark; bounded connected consumer correctness remains required each iteration.
+Within the connected foundation packages, the [performance delivery policy](../core-performance/README.md#delivery-policy)
+selects substantial redesigns from complete matched native latency, CPU and SQL
+evidence. Scope may span the costly owners and consumers required for the result.
+Component experiments are internal attribution tools, not separate deliveries;
+unchanged SQL or a faster helper cannot close the performance goal. Preserve
+complete authentication and fresh checks, and report pre-existing setup separately.
+Full matched traced/untraced comparisons assess connected cutovers and whole-goal
+acceptance. Focused correctness and diagnostic checks support internal changes;
+do not repeat the complete campaign after every edit.
 Integration comparisons retain unchanged graphs,
 inputs, workload effects, deadlines, recovery and exclusion policy.
 If a target is blocked by attributable host cost, record that separately and

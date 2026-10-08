@@ -81,12 +81,12 @@ checks. New Medusa integration, unrelated capability expansion and silent
 durable-data deletion are outside this standing approval. Keep deferred work
 within its recorded gates.
 
-Execute this goal in medium-sized slices that deliver a connected core behavior
-across its owners and affected consumers. Do not make individual helpers, test
-matrices, documentation updates or minor SQL reductions separate goal turns.
-Use the finite remaining-work plan linked from the owning roadmap; measurements
-must answer a concrete implementation or acceptance question. Keep transaction
-cutovers coherent rather than increasing scope to meet an arbitrary file count.
+Deliver substantial connected redesigns across the owners and consumers needed
+to reach the selected outcome. Do not cap work by component, file count or slice
+size. Helpers, test matrices, diagnostic campaigns and minor SQL reductions are
+internal steps, not completed performance deliverables or separate goal turns.
+Use the owning remaining-work plan; measurements must resolve a concrete design
+decision or assess the complete outcome. Keep transaction cutovers coherent.
 
 For the selected [complete standalone read redesign](roadmaps/core-performance/standalone-read-redesign-preflight.md),
 the owner authorizes a connected replacement of read preparation, query-required
@@ -102,21 +102,26 @@ complete native latency/scaling gates supersede the old standalone 400 ms gate
 for this work. Passing an individual component does not finish the slice.
 Frozen failed publication changes remain separate from its clean baseline.
 
-For other work in the owner-authorized performance program, follow
-[core component performance](roadmaps/core-performance/README.md): iterate on one
-real core component with a focused baseline, owner attribution, selected core
-optimization, affected correctness proofs, component measurements, both reviews,
-cleanup and a scoped commit. Report pre-existing setup separately while retaining
-complete authentication, liveness and every actual fresh check. This
-component-first loop supersedes an automatic full mixed end-to-end measurement
-after every local performance iteration. Full integration measurements remain
-required at declared group milestones, cross-component or lifecycle contract
-changes and whole-goal acceptance, not after each owner improvement.
-PGlite/ordinary-role PostgreSQL obligations and connected
-consumer regressions still apply proportionally. Checked reads are first;
-publication, initial admission and seal groups are prepared but inactive, and
-host lifecycle changes remain conditional and unapproved. Root orchestration,
-disjoint worker edits, read-only reviews and Git ownership remain unchanged.
+For the owner-authorized performance program, follow
+[core performance](roadmaps/core-performance/README.md). The deliverable is a
+substantial connected redesign measured against complete matched native business
+graphs. Select scope from the actual latency, CPU and SQL cost multipliers; cross
+preparation, admission, readiness, execution and settlement owners when the
+replacement requires it. Component experiments support attribution and design;
+they do not justify ending delivery after a small isolated improvement. Continue
+through consumer migration, displaced-path removal, correctness validation, both
+reviews and a coherent commit. Report remaining complete-request excess honestly
+and retain the fixed native-relative acceptance gates. A failed gate requires
+correction of the responsible design, not a smaller substitute goal.
+
+Keep complete authentication, liveness and every actual fresh check, with setup
+cost separately visible. Run complete matched integration measurements for the
+connected cutover and final acceptance, not after every internal edit. PGlite,
+ordinary-role PostgreSQL and affected standalone/mixed consumer proofs remain
+required. Earlier component ordering does not constrain an approved connected
+redesign. New host lifecycle, public capabilities and durable-data disposition
+retain their explicit approval gates. Root orchestration, disjoint worker edits,
+read-only reviews and Git ownership remain unchanged.
 
 The owner also grants standing approval for the successor
 [shared-storage completion goal](roadmaps/shared-logical-storage/03-completion-plan.md).

@@ -7,8 +7,9 @@ the CMS command concurrency and native/commerce admission cutovers are implement
 Prepared-host lifetime is bounded; immediate fresh integrity verification is
 selected instead of protected-root replacement. Connected acceptance and retirement
 are recorded in [their disposition](./70-connected-execution-acceptance.md).
-The owner grants standing approval and requests medium-sized,
-connected implementation slices.
+The owner grants standing approval for complete connected implementation
+outcomes, without artificial size limits. This predecessor's completed contract
+status does not close the successor [core performance goal](../core-performance/README.md).
 
 ## Scope And Delivery
 

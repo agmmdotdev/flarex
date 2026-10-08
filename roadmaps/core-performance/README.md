@@ -1,14 +1,34 @@
 # Core Performance
 
-Status: **the local standalone-read implementation and consumer cutover are
-complete; performance tuning is paused at the owner's accepted measurements.**
+Status: **substantial connected mutation performance redesign is active;
+complete native-relative acceptance remains unmet.** The local standalone-read
+implementation and consumer cutover are complete; its separate read-tuning pause
+remains in place. Standalone mutations are part of the active connected redesign.
 The installation interlock, query-required preparation and independent direct
 read capabilities are implemented. The full latency/scaling targets below remain
 unproven; accepting current latency does not claim those targets were met.
 The [execution architecture roadmap](../execution-architecture/README.md) owns
 the connected organization and its remaining composition work.
 
-## First Big Slice
+## Delivery Policy
+
+Deliver large connected redesigns against complete matched native business graphs.
+Scope follows the measured architectural cost multipliers and affected contracts,
+including cross-owner private breaking changes when required. Preparation,
+admission, readiness, working sets, execution and settlement may need one coherent
+replacement. Component experiments and helper improvements are internal steps;
+they are not independent performance deliverables. Do not stop at a small local
+saving while substantial complete-request overhead remains.
+
+Continue through real consumer migration, removal of displaced choreography,
+correctness proofs, final reviews and a coherent commit. Use paired complete-root
+latency and CPU excess to assess results; SQL/protocol counts explain the remaining
+work rather than substitute for native-relative acceptance. Do not lower existing
+gates, claim an unmeasured saving or repeatedly benchmark changes that cannot
+close the measured gap. Record a concrete replacement and its failure/data
+disposition before changing runtime authority or durability.
+
+## Implemented Standalone Read Replacement
 
 [Standalone read execution and installation lifecycle](./standalone-read-redesign-preflight.md)
 owns the executable scope, explicit mechanism changes, owner/caller migration,
@@ -78,7 +98,7 @@ baseline until connected cutover:
 | [Read construction](./read-admission-construction-preflight.md), [fresh Application acceptance](./fresh-application-acceptance-preflight.md) | Delivered bounded improvements; current full-readiness/attestation contracts are explicitly replaced only for named callers by the selected first slice. |
 | [Publication attribution](./02-publication-preflight.md) | Historical owner evidence retained; complete server matrix invalid/partial. |
 | [Publication source proof](./publication-source-proof-preflight.md) | Reviewed candidate failed performance, remains unaccepted and separate; further correction experiment withdrawn. |
-| [Initial request admission](./03-request-admission-preflight.md), [seal](./04-seal-verification-preflight.md) | Later finite/mutation components, inactive; they do not precede the new read slice. |
+| [Initial request admission](./03-request-admission-preflight.md), [seal](./04-seal-verification-preflight.md) | Historical component plans; they do not prescribe the active redesign's ordering. Current selected mutation contracts belong to the mixed foundation plan and its focused preflights. |
 | [Host lifecycle](./05-host-lifecycle-preflight.md) | New pooling/compute/runtime-host lifecycle remains conditional; bounded metadata reuse under the existing host owner is included in the read slice. |
 
 The clean committed documentation handoff excludes the staged failed publication
@@ -120,8 +140,11 @@ bounded resources, cancellation and one settlement owner. Current orchestration,
 source breadth and structural-check frequency are not fixed invariants.
 Do not hold SQL across untrusted callbacks or treat cached metadata as admission.
 
-Subsequent selected work will extend proven primitives into actual Application
-and mixed consumers, then examine finite freeze/settlement/recovery separately.
+The [mixed foundation plan](../mixed-mutation-core/14-execution-redesign-roadmap.md)
+and [shared execution evidence preflight](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md)
+own the active connected mutation replacement. Select its remaining scope from
+complete-request evidence, including initial construction and final settlement
+when required; do not impose a component-by-component delivery sequence.
 The [deferred finite proposal](./orchestration-target-design.md#deferred-finite-proposal)
 remains a proposal and cannot impose its journal/claims on standalone reads.
 Public developer APIs, broad framework expansion, general schema evolution,

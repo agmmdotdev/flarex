@@ -26,8 +26,11 @@ capability. This is a workstream within the existing shared transaction core,
 not another runtime or metadata authority.
 
 The [remaining implementation plan](./62-core-completion-plan.md) groups the
-selected gates into connected work packages. It governs the medium-sized goal
-cadence and completion inventory; the existing CE evidence below remains valid.
+selected gates into connected work packages. It owns the selected completion
+inventory; the existing CE evidence below remains valid. Delivery size follows
+the complete behavioral outcome, without an artificial component or size cap.
+The successor [core performance program](../core-performance/README.md) owns
+remaining complete native-relative performance acceptance.
 Do not reopen completed proofs or expand reference coverage without a concrete
 replacement-contract or acceptance question.
 

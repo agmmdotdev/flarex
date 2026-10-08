@@ -1,5 +1,24 @@
 # Shared execution evidence redesign
 
+## Active Delivery Direction
+
+The owner selects substantial connected performance redesign and authorizes
+continued implementation under the standing core approval. The earlier capture
+projection's approximately 0.20 ms saving is retained diagnostic evidence; it is
+not the requested result and does not justify another independent helper delivery.
+The former component delivery loop and stop-for-discussion instruction below are
+superseded. Continue with the dominant complete-request cost multipliers across
+their actual owners, including necessary private breaking changes, migrated real
+standalone/mixed mutation consumers and removal of displaced choreography.
+
+Record the concrete connected replacement, authoritative writer/lifetime contracts
+and durable-data disposition before runtime changes. Use existing complete matched
+native latency and CPU gates, with SQL/protocol counts explaining cost. Local
+experiments support the implementation; they do not close the goal. Preserve
+fresh authority, framework lifecycle, Postgres settlement, rollback/cancellation,
+uncertain-outcome recovery, both driver proofs and both final reviews. The
+separate standalone-read tuning pause and unrelated capability/host gates remain.
+
 ## Historical capture result handoff preflight
 
 Status: the client projection replacement and fixture close correction are
@@ -627,9 +646,9 @@ specifications now avoid repeated static decoding and snapshotting in their thre
 consumers. Equivalent dynamic validation and current-membership behavior remain
 supported on both database drivers. The retained-spec component uses less elapsed
 and batch CPU time; this temporal result does not quantify complete workflow
-savings or close the failed native latency gates. The protocol-only correction
-is independent of the unfinished transaction cutovers and follows the existing
-component delivery loop.
+savings or close the failed native latency gates. This protocol-only result is
+retained historical diagnostic evidence. Its independent component delivery
+cadence is superseded by the active connected redesign policy.
 
 The physical-spec decoder already produces detached, deeply frozen metadata.
 Canonical index definition issuance and located definitions retain that object.
@@ -673,9 +692,10 @@ Use standard elapsed and CPU counters without a collector in the measured body;
 keep raw samples, source/harness fingerprints, counter-resolution limits and
 setup separate. This is a temporal component comparison, not a native business
 reference or exclusive whole-root attribution. Both reviews, affected strict
-checks/lint/source guards and cleanup remain required. Full five-graph native
-comparisons remain at connected milestones; do not repeat them automatically for
-this pure metadata-owner iteration or claim their prior failed gates pass.
+checks/lint/source guards and cleanup remain required. This historical component
+experiment does not define future delivery size. Complete five-graph native
+comparisons assess the connected redesign, without repetition after every internal
+edit; the prior failed gates remain unmet.
 
 ## Breaking contracts, data and completion
 

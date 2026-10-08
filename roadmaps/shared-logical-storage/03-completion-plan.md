@@ -13,8 +13,8 @@ reporting refactor progress; storage migration is not its completion criterion.
 Complete shared logical storage and structural installation/evolution ownership
 for Application, Payload and existing Medusa consumers. Keep their execution
 profiles and business behavior distinct. Correct shared owners, migrate consumers,
-preserve behavioral coverage and remove displaced paths within each medium-sized
-slice. Record preflights and material decisions; do not wait for repeat approval.
+preserve behavioral coverage and remove displaced paths within each complete
+connected cutover. Scope follows the outcome, without an artificial size cap. Record preflights and material decisions; do not wait for repeat approval.
 
 New unrelated framework capabilities, general populated-data conversion/upgrade
 orchestration, developer APIs and hosted activation remain outside this goal.

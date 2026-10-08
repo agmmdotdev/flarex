@@ -317,8 +317,10 @@ group and explain materially different findings before proceeding.
 
 Evidence may combine entry construction with another group or leave it unchanged.
 Do not start it solely because it appears in this table. The terminal change
-requires a full integration milestone because it changes cross-component lifecycle;
-ordinary local component iterations still follow the component-first roadmap.
+requires a full integration milestone because it changes cross-component lifecycle.
+The [connected delivery policy](./README.md#delivery-policy) governs the remaining
+work; local component experiments support the redesign rather than define its
+delivery size.
 
 ## Measurement, validation and discussion gates
 

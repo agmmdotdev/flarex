@@ -246,12 +246,12 @@ initial overfetch and its outliers remain preserved in the
 [second iteration evidence](../../packages/flarex-backend/benchmarks/core-performance/checked-reads/dispatch-composition/README.md).
 Miss medians are higher in the small paired comparison, so no latency improvement
 or whole-request acceptance is established. Delivery is structural transport only.
-The mandatory next design gate is
-[orchestration simplification](./orchestration-simplification-preflight.md),
-before another minor iteration or publication. Group 1 remains active;
-publication, admission and seal groups remain inactive and host changes conditional.
-This post-current decision supersedes automatic continuation through the prior
-prepared group order; the reassessment's runtime choices remain evidence-pending.
+This is retained structural evidence, not the active delivery sequence.
+The [orchestration reassessment](./orchestration-simplification-preflight.md)
+and subsequent connected replacements supersede the former group ordering.
+The [current delivery policy](./README.md#delivery-policy) governs substantial
+connected redesign; component measurements alone cannot complete performance.
+Host and public-capability decisions retain their actual approval gates.
 
 ## Compatibility, Migration And Cleanup
 
@@ -282,5 +282,6 @@ group milestone, cross-component or lifecycle contract
 change triggers the mixed performance integration checkpoint. Bounded connected
 consumer correctness remains required each iteration; an immutable compilation
 improvement with unchanged SQL does not alone require a full 208-sample run.
-Completion requires the real owner optimization, migrated consumer proof,
-cleanup and agreed component budget. Whole latency acceptance remains separate.
+The historical component result retains its migrated consumer proof, cleanup and
+measured limits. It does not prescribe independent component deliveries for the
+active redesign or satisfy complete native-relative acceptance.
