@@ -1,7 +1,12 @@
-import { chargeHostPreparation } from "./preparedHostRuntime";
+import { captureHostPreparationLifetime, chargeHostPreparation, registerHostPreparationDisposal,
+  type PreparedHostPreparationLifetime } from "./preparedHostRuntime";
+import { authenticateProtectedReadinessMetadataPair, readProtectedReadinessCatalogIdentity,
+  type ProtectedReadinessCatalogIdentity, type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
 import { chargeRelationReadinessPreparation } from "./applicationRelationReadiness/Repository";
 import { chargePhysicalDefinitionPreparation } from "./physicalDefinitionLifecycle";
-import { chargeUniqueConstraintPreparation } from "./appUniqueConstraintSetBuildV1";
+import { locatePublishedAppIndexDefinitionsEffect, type LocatedAppIndexDefinitionV1 } from "./appIndexDefinitions";
+import { chargeUniqueConstraintPreparation, lendPreparedAppUniqueConstraintDefinitions,
+  validatePreparedAppUniqueConstraintCatalog } from "./appUniqueConstraintSetBuildV1";
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -33,7 +38,7 @@ import {
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
-import { Data, Effect, Result } from "effect";
+import { Cause, Data, Effect, Result } from "effect";
 import { appSchemaCandidateManifestSha256HexV1FromBytes } from
   "flarex-protocol/internal/app-schema-candidate-validation-v1";
 import { encodeCanonicalJson, isJson, type Json } from "flarex-protocol/json";
@@ -67,6 +72,7 @@ import {
 import {
   ApplicationRelationSemanticValidationAttemptFenceSchema,
   getPreparedApplicationRelationReadinessDefinitions,
+  lendPreparedApplicationRelationReadinessDefinitions,
   prepareApplicationRelationReadinessFromSchema,
   hasApplicationRelationReadinessComposition,
   hasApplicationRelationSetReadinessEvidenceAuthority,
@@ -373,7 +379,19 @@ interface FoldRepositoryState {
 
 const preparedActiveReadBrand: unique symbol = Symbol("PreparedApplicationRelationActiveRead");
 export interface PreparedApplicationRelationActiveRead { readonly [preparedActiveReadBrand]: true }
-const preparedActiveReads = new WeakMap<object, Readonly<{ repository: FoldRepositoryState; prepared: PreparedActiveFold }>>();
+export interface ApplicationRelationReadinessProtection {
+  readonly target: ProtectedTargetMetadataEvidence;
+  readonly control: ProtectedTargetMetadataEvidence;
+}
+interface PreparedActiveReadState {
+  readonly repository: FoldRepositoryState;
+  readonly prepared: PreparedActiveFold;
+  readonly lifetime: PreparedHostPreparationLifetime | undefined;
+  readonly controlIdentity: ProtectedReadinessCatalogIdentity;
+  retained: Readonly<{ targetToken: ProtectedTargetMetadataEvidence["token"]; controlToken: ProtectedTargetMetadataEvidence["token"];
+    validated: ValidatedPreparedFold; replay: StoredRelationReadinessReplay }> | undefined;
+}
+const preparedActiveReads = new WeakMap<object, PreparedActiveReadState>();
 
 /** Captured planning data only. This does not issue readiness or execution authority. */
 export const readPreparedApplicationRelationInputs = Effect.fn("ApplicationRelationReadinessFold.readPreparedInputs")(
@@ -382,6 +400,32 @@ export const readPreparedApplicationRelationInputs = Effect.fn("ApplicationRelat
     if (state === undefined || state.repository.context.controlDb !== controlDb) return yield* failureForOperation("validate", "invalidComposition");
     return { schema: state.prepared.schema, manifest: structuredClone(state.prepared.bundle.manifest) };
   },
+);
+
+/** Trusted generation construction borrows original immutable inputs. The
+ * detached public reader above keeps its separate value-ownership contract. */
+export interface ApplicationRelationPreparationInputs {
+  readonly schema: ApplicationRelationSchemaAuthority;
+  readonly manifest: ApplicationManifestWithRelations;
+  readonly authority: ApplicationReadinessAuthority;
+  readonly indexes: readonly LocatedAppIndexDefinitionV1[];
+  readonly unique: Effect.Success<ReturnType<typeof lendPreparedAppUniqueConstraintDefinitions>>;
+  readonly relations: NonNullable<ReturnType<typeof lendPreparedApplicationRelationReadinessDefinitions>>;
+}
+export const lendPreparedApplicationRelationInputs = Effect.fn("ApplicationRelationReadinessFold.lendPreparedInputs")(
+  function* (input: PreparedApplicationRelationActiveRead, controlDb: FlarexMetadataDatabase): Effect.fn.Return<
+    ApplicationRelationPreparationInputs, InternalApplicationRelationReadinessFoldError> {
+    const state = preparedActiveReads.get(input);
+    if (state === undefined || state.repository.context.controlDb !== controlDb)
+      return yield* failure("invalidComposition");
+    const relations = lendPreparedApplicationRelationReadinessDefinitions(state.repository.context.relations,
+      state.prepared.relations, controlDb);
+    if (relations === null) return yield* failure("invalidComposition");
+    const unique = yield* lendPreparedAppUniqueConstraintDefinitions(state.prepared.uniquePreparation, controlDb).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => failureValue("invalidComposition", false, error)))));
+    return Object.freeze({ schema: state.prepared.schema, manifest: state.prepared.bundle.manifest,
+      authority: state.prepared.bundle.authority, indexes: state.prepared.indexes, unique, relations });
+  }, Effect.mapError(error => exposeFoldIssue("validate", error)),
 );
 
 /** Only immutable closed unique membership; no active head or serving verdict. */
@@ -421,9 +465,39 @@ export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelati
 );
 
 export const acceptPreparedApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.acceptPreparedActiveRead")(
-  function* (prepared: PreparedApplicationRelationActiveRead, tx: AppRowTransaction, clock: ScopeClockRecord) {
+  function* (prepared: PreparedApplicationRelationActiveRead, tx: AppRowTransaction, clock: ScopeClockRecord,
+    protection?: ApplicationRelationReadinessProtection) {
     const state = preparedActiveReads.get(prepared);
     if (state === undefined) return yield* failure("invalidComposition");
+    yield* Effect.fromResult(state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+      Effect.mapError(cause => failureValue("invalidComposition", false, cause)));
+    if (protection !== undefined) yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(
+      tx, protection.target, protection.control)).pipe(
+        Effect.mapError(cause => failureValue(cause.reason === "changed" ? "authorityChanged" : "invalidComposition", false, cause)));
+    if (protection !== undefined && (!hasLocatedReadCommittedTargetDatabaseV1(state.prepared.target, protection.target.database) ||
+      protection.control.epoch.databaseName !== state.controlIdentity.databaseName ||
+      protection.control.epoch.namespaceOid !== state.controlIdentity.namespaceOid))
+      return yield* failure("invalidComposition");
+    if (protection !== undefined && state.retained !== undefined) {
+      const retained = state.retained;
+      if (retained.targetToken !== protection.target.token ||
+        retained.controlToken !== protection.control.token)
+        return yield* failure("invalidComposition");
+      const current = retained.validated.prepared;
+      yield* requireExactAuthority(current.bundle.authority, clock);
+      const unique = yield* acceptPreparedPointCommitUniqueConstraintSet(state.repository.context.pointCommit,
+        state.prepared.uniquePreparation, tx, current.bundle.authority, clock);
+      if (unique.status === "not_ready" || !bytesEqualFullScan(
+        yield* digestCanonicalJson(appUniqueConstraintEligibilityFrame(unique)), current.uniqueSha256))
+        return yield* failure("authorityChanged");
+      const physical = yield* validateApplicationPhysicalReadinessInTransactionEffect(tx, current.bundle.authority,
+        current.requirements, state.repository.context.physicalDefinitionLifecycle, current.physicalLifecycle, clock);
+      if (physical.status === "not_ready" || !bytesEqualFullScan(physical.physicalReadinessSha256,
+        retained.validated.physical.physicalReadinessSha256) ||
+        BigInt(retained.validated.relations.receipt.frontierCommitSeq) > clock.lastCommitSeq)
+        return yield* failure("authorityChanged");
+      return yield* issueActiveReadBasis(state.repository, retained.validated, retained.replay);
+    }
     const current = Object.freeze({ ...state.prepared, ownershipBudget: new ApplicationWriteOwnershipHistoryBudget() });
     yield* requireExactAuthority(current.bundle.authority, clock);
     // Fresh read-only catalog observations before issuing prepared admission;
@@ -439,17 +513,44 @@ export const acceptPreparedApplicationRelationActiveRead = Effect.fn("Applicatio
     );
     const controlDb = state.repository.context.controlDb;
     const catalog = hasLocatedReadCommittedTargetDatabaseV1(current.target, controlDb) ? tx : undefined;
+    yield* validatePreparedAppUniqueConstraintCatalog(current.uniquePreparation, controlDb, catalog);
     const validated = yield* validatePreparedFoldInTransaction(tx, current, state.repository.context, clock, "storedActive", catalog);
     if ("status" in validated) return yield* failure("authorityChanged");
     const replay = yield* loadStoredRelationReadinessReplay(tx, validated.prepared, validated);
-    const ready = issueReadyResult("active", "replayed", state.repository, validated.prepared,
-      replay.readinessSha256, replay.readinessBytes, validated.relations, replay.readyAt, validated.writeOwnership);
-    const issued = issuedReadyResults.get(ready);
-    const definitions = getPreparedApplicationRelationReadinessDefinitions(state.repository.context.relations, current.relations);
-    if (issued === undefined || definitions === null) return yield* failure("invalidComposition");
-    return yield* relationActivationBasis(issued, definitions);
+    if (protection !== undefined) {
+      // The existing generation owns this lazy canonical payload and its charge.
+      // A failed accepting tail cannot make another epoch use the retained proof.
+      yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, protection.target, protection.control)).pipe(
+        Effect.mapError(cause => failureValue(cause.reason === "changed" ? "authorityChanged" : "invalidComposition", false, cause)));
+      // Concurrent cold borrowers may complete the same canonical proof. The
+      // generation installs and charges the first complete payload once.
+      if (state.retained === undefined) {
+        yield* Effect.fromResult(state.lifetime?.charge({ readinessBytes: replay.readinessBytes,
+          readinessSha256: replay.readinessSha256, relationBytes: validated.relations.canonicalBytes,
+          relationSha256: validated.relations.sha256, physicalSha256: validated.physical.physicalReadinessSha256,
+          uniqueSha256: validated.prepared.uniqueSha256,
+          ownershipBytes: validated.writeOwnership?.canonicalBytes ?? null }) ?? Result.succeed(undefined)).pipe(
+            Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
+        state.retained = Object.freeze({ targetToken: protection.target.token, controlToken: protection.control.token, validated, replay });
+      } else if (state.retained.targetToken !== protection.target.token ||
+        state.retained.controlToken !== protection.control.token ||
+        !bytesEqualFullScan(state.retained.replay.readinessBytes, replay.readinessBytes)) {
+        return yield* failure("authorityChanged");
+      }
+    }
+    return yield* issueActiveReadBasis(state.repository, validated, replay);
   }, Effect.mapError(error => exposeFoldIssue("validate", error)),
 );
+
+const issueActiveReadBasis = Effect.fnUntraced(function* (repository: FoldRepositoryState,
+  validated: ValidatedPreparedFold, replay: StoredRelationReadinessReplay) {
+  const ready = yield* issueReadyResult("active", "replayed", repository, validated.prepared,
+    replay.readinessSha256, replay.readinessBytes, validated.relations, replay.readyAt, validated.writeOwnership);
+  const issued = issuedReadyResults.get(ready);
+  const definitions = getPreparedApplicationRelationReadinessDefinitions(repository.context.relations, validated.prepared.relations);
+  if (issued === undefined || definitions === null) return yield* failure("invalidComposition");
+  return yield* relationActivationBasis(issued, definitions);
+});
 
 interface ApplicationRelationSetReadinessEvidenceSnapshot {
   readonly receipt: ApplicationRelationSetReadinessEvidence["receipt"];
@@ -553,7 +654,9 @@ export function makeApplicationRelationReadinessFoldRepository(
           state,
           preparation.target,
         ),
-      );
+      ).pipe(Effect.tap(result => result.status === "ready" ? registerHostPreparationDisposal(() => {
+        issuedReadyResults.delete(result);
+      }).pipe(Effect.mapError(cause => failureValue("resourceFailure", false, cause))) : Effect.void));
     },
   );
   const readReadyOperation = Effect.fn(
@@ -582,7 +685,9 @@ export function makeApplicationRelationReadinessFoldRepository(
         state,
         preparation.target,
       ),
-    );
+    ).pipe(Effect.tap(result => result.status === "ready" ? registerHostPreparationDisposal(() => {
+      issuedReadyResults.delete(result);
+    }).pipe(Effect.mapError(cause => failureValue("resourceFailure", false, cause))) : Effect.void));
   });
   const readActiveReadyOperation = Effect.fn(
     "ApplicationRelationReadinessFold.readActiveReady",
@@ -610,14 +715,22 @@ export function makeApplicationRelationReadinessFoldRepository(
         state,
         preparation.target,
       ),
-    );
+    ).pipe(Effect.tap(result => result.status === "ready" ? registerHostPreparationDisposal(() => {
+      issuedReadyResults.delete(result);
+    }).pipe(Effect.mapError(cause => failureValue("resourceFailure", false, cause))) : Effect.void));
   });
   const prepareActiveOperation = Effect.fn("ApplicationRelationReadinessFold.prepareActiveInputs")(
     function* (input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string }) {
       const preparation = yield* prepareActiveFold(input, captured, compositionIsExact);
       if ("status" in preparation) return yield* failure("authorityChanged");
       const token: PreparedApplicationRelationActiveRead = Object.freeze({ [preparedActiveReadBrand]: true as const });
-      preparedActiveReads.set(token, Object.freeze({ repository: state, prepared: preparation.prepared }));
+      const controlIdentity = yield* readProtectedReadinessCatalogIdentity(captured.controlDb).pipe(
+        Effect.mapError(cause => failureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "invalidComposition", false, cause)));
+      yield* chargeHostPreparation(controlIdentity).pipe(Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
+      preparedActiveReads.set(token, { repository: state, prepared: preparation.prepared,
+        lifetime: yield* captureHostPreparationLifetime(), controlIdentity, retained: undefined });
+      yield* registerHostPreparationDisposal(() => { preparedActiveReads.delete(token); }).pipe(
+        Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
       return token;
     }, Effect.mapError(error => exposeFoldIssue("readReady", error)),
   );
@@ -880,6 +993,7 @@ interface PreparedActiveFold extends PreparedFoldInputs {
   readonly kind: "planning";
   readonly target: LocatedReadCommittedAttemptTargetV1;
   readonly uniquePreparation: AppUniqueConstraintSetPreparation;
+  readonly indexes: readonly LocatedAppIndexDefinitionV1[];
 }
 
 type PreparedCandidateValidation =
@@ -1071,13 +1185,17 @@ const prepareActiveFold = Effect.fn("ApplicationRelationReadinessFold.preparePla
     }, context.controlDb, context.authority);
     if (unique.status === "not_ready") return notReady(inputs.bundle.revision.revisionId, uniqueNotReadyReason(unique.reason));
     const definitions = yield* prepareFoldDefinitions(context, inputs);
+    const indexes = yield* locatePublishedAppIndexDefinitionsEffect(context.controlDb, inputs.requirements, inputs.bundle.authority.scopeId).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error instanceof InvalidIndexBuildReconciliationInputV1Error
+        ? failureValue("invalidComposition", false, error) : error))));
     const prepared: PreparedActiveFold = Object.freeze({ kind: "planning", ownershipBudget: new ApplicationWriteOwnershipHistoryBudget(),
       target: inputs.target, bundle: inputs.bundle, schema: inputs.schema, requirements: inputs.requirements,
-      uniquePreparation: unique.preparation, ...definitions });
+      uniquePreparation: unique.preparation, indexes, ...definitions });
     yield* Effect.gen(function* () {
       yield* chargeHostPreparation({ bundle: prepared.bundle, schema: prepared.schema,
         requirements: { ...prepared.requirements }, coldReceiptSetSha256: prepared.coldReceiptSetSha256 });
       yield* chargeUniqueConstraintPreparation(prepared.uniquePreparation);
+      yield* chargeHostPreparation(indexes.map(definition => ({ ...definition, createdAt: definition.createdAt.getTime() })));
       yield* chargePhysicalDefinitionPreparation(prepared.physicalLifecycle);
       yield* chargeRelationReadinessPreparation(prepared.relations);
     }).pipe(Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
@@ -1731,7 +1849,7 @@ const settleInTransaction = Effect.fn(
       readinessBytes,
       readyAt,
     );
-    return issueReadyResult(
+    return yield* issueReadyResult(
       "prepared",
       inserted.disposition,
       repositoryState,
@@ -1774,7 +1892,7 @@ const readReadyInTransaction = Effect.fn(
     prepared,
     validated,
   );
-  return issueReadyResult(
+  return yield* issueReadyResult(
     "stored",
     "replayed",
     repositoryState,
@@ -1817,7 +1935,7 @@ const readActiveReadyInTransaction = Effect.fn(
     prepared,
     validated,
   );
-  return issueReadyResult(
+  return yield* issueReadyResult(
     "active",
     "replayed",
     repositoryState,
@@ -1881,7 +1999,7 @@ const loadStoredRelationReadinessReplay = Effect.fn(
   });
 });
 
-function issueReadyResult(
+const issueReadyResult = Effect.fn("ApplicationRelationReadinessFold.issueReadyResult")(function (
   kind: IssuedReadyResultState["kind"],
   disposition: "inserted" | "replayed",
   repositoryState: FoldRepositoryState,
@@ -1891,10 +2009,11 @@ function issueReadyResult(
   relationEvidence: ApplicationRelationSetReadinessEvidenceSnapshot,
   readyAt: Date,
   writeOwnership: CanonicalApplicationWriteOwnership | null,
-): Extract<
+): Effect.Effect<Extract<
   ApplicationRelationReadinessFoldResult,
   { readonly status: "ready" }
-> {
+>, ApplicationRelationReadinessFoldIssue> {
+  return Effect.sync(() => {
   const stableReadinessSha256 = copyBytes(readinessSha256);
   const stableReadinessBytes = copyBytes(readinessBytes);
   const stableRelationEvidence = snapshotRelationEvidence(relationEvidence);
@@ -1928,7 +2047,8 @@ function issueReadyResult(
     readyAt: new Date(stableReadyAtMillis),
   }));
   return result;
-}
+  });
+});
 
 function snapshotRelationEvidence(
   evidence: ApplicationRelationSetReadinessEvidenceSnapshot,

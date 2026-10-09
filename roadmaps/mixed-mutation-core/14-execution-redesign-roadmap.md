@@ -1,6 +1,11 @@
 # Mixed execution redesign
 
-Status: **slices 15–17 and 19 delivered for the existing private profiles with their stage cost gates passed; final mixed latency targets remain unmet.**
+Status: **the connected core performance replacement is in implementation;
+complete native-relative latency targets remain unmet.**
+The current [shared execution replacement](./27-shared-execution-evidence-redesign-preflight.md)
+joins ordinary generation/entry, relation-owned CMS mechanics, finite scalar
+storage acceptance, root-owned contribution and fixed publication stages.
+Existing component and profile milestones below do not complete this outcome.
 The private finite Application/Product/Payload/workflow profile is implemented.
 Its mixed latency targets remain unmet. This document selects the connected
 redesign sequence. Delivered 15 owns target protection under existing full
@@ -146,7 +151,7 @@ mixed performance or complete installation correctness.
 | --- | --- | --- |
 | 1. [Finite read/metadata contract](./23-finite-execution-contract-preflight.md), architectural cutover delivered | Attempt-fixed authenticated metadata, demanded original-snapshot serving, consumed semantic metadata OCC, separate live authority and commit sequencing. | Existing private consumer migration and architectural proofs are delivered. Fixed native, complete-request and mixed numerical gates remain open; no terminal durability change is claimed. |
 | 2. [Whole finite mutation replacement](./24-whole-mutation-redesign-preflight.md), selected for implementation | Replace repeated entry correlation and Application/native pending representations; freeze once; resolve complete current write maintenance once per distinct touched table; connect one final acceptance and recovery. | Recovery semantics are selected. Migrate entry, evaluator/views, executor, persistence, retention and actual consumers together; inventory/drain old durable obligations, prove both database lanes, review, remove displaced finite paths and commit one complete slice. |
-| 3. [Shared execution evidence redesign](./27-shared-execution-evidence-redesign-preflight.md), selected plan; runtime cutover not started | Replace repeated preparation/admission, trusted value/capture transport and ordinary/finite contribution preparation across standalone Payload, standalone Medusa and mixed execution. | Its three connected packages own concrete writer/issuer contracts, private breaks, consumer migration/removal, CPU and database work, both-lane correctness and complete native-relative acceptance. Keep source-specific permissions and actual profile settlement. |
+| 3. [Shared execution evidence redesign](./27-shared-execution-evidence-redesign-preflight.md), connected runtime cutover in progress; complete acceptance unmet | Replace repeated preparation/admission, trusted value/capture transport and ordinary/finite contribution preparation across standalone Payload, standalone Medusa and mixed execution. Continue through current protected preparation, scoped Payload attempt ownership and shared scalar placement in entry/renewal/settlement. | Concrete writer/issuer contracts, private breaks, consumer migration/removal, CPU and database work, both-lane correctness and complete native-relative acceptance govern completion. Keep source-specific permissions and actual profile settlement; component gains do not finish delivery. |
 | 4. Integrated acceptance and retirement | Prove complete mixed and standalone latency/CPU against actual native demand at the final graph, including concurrency/retry cost and retained direct/durable profiles. | Meet the declared package and whole-request gates, audit displaced APIs/formats/readers and their real remaining obligations, and reconcile capability status. This is final acceptance, not permission to defer package cleanup. |
 
 Each package includes its implementation choices, measurements and tests. A helper,

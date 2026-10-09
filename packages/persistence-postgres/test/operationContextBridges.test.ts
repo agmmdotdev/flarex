@@ -1,6 +1,7 @@
-import { Cause, Clock, Context, Effect, Exit, Option, Tracer } from "effect";
+import { Cause, Clock, Context, Effect, Exit, Option, References, Tracer } from "effect";
+import { ExecutionDiagnostics, observeExecution, type ExecutionDiagnosticPolicy } from "../src/executionDiagnostics/operation";
 import { describe, expect, it } from "vitest";
-import { runEffectTransactionSettlement } from "../src/effectTransaction";
+import { awaitEffectTransactionSettlement, runEffectTransactionSettlement } from "../src/effectTransaction";
 import { runLocatedReadCommittedEffect } from "../src/locatedReadCommittedEffect";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { LocatedReadCommittedTransactionFailureV1, RUN_LOCATED_READ_COMMITTED_V1,
@@ -42,8 +43,39 @@ function tracing() {
   return { spans, tracer };
 }
 const settleError = (cause: unknown) => new Error("transaction settlement failed", { cause });
+const diagnosticPolicy: ExecutionDiagnosticPolicy = {
+  observe: (name, work) => Effect.useSpan(name, {}, span => Effect.provideService(work, Tracer.ParentSpan, span)),
+};
 
 describe("persistence Promise callback tracing context", () => {
+  it.each(["typed", "compound", "foreign"] as const)("drains interrupted construction retaining its %s rejection", async kind => {
+    const failure = new Error("construction failure");
+    const defect = new TypeError("construction cleanup defect");
+    const transported = kind === "typed" ? Cause.fail(failure) : kind === "compound"
+      ? Cause.combine(Cause.fail(failure), Cause.die(defect)) : defect;
+    let reject: (cause: unknown) => void = () => { throw new Error("Missing construction rejection"); };
+    const pending = new Promise<void>((_resolve, rejectPromise) => { reject = rejectPromise; });
+    const controller = new AbortController();
+    const events: string[] = [];
+    let completed = false;
+    const result = Effect.runPromiseExit(awaitEffectTransactionSettlement(pending,
+      cause => Cause.isCause(cause) && Cause.hasInterruptsOnly(cause)).pipe(
+      Effect.ensuring(Effect.sync(() => { events.push("cleanup"); }))), { signal: controller.signal })
+      .then(exit => { completed = true; events.push("exit"); return exit; });
+    controller.abort();
+    expect(completed).toBe(false);
+    events.push("constructor-settled");
+    reject(transported);
+    const exit = await result;
+    if (Exit.isSuccess(exit)) throw new Error("Expected construction interruption and failure");
+    expect(exit.cause.reasons.some(Cause.isInterruptReason)).toBe(true);
+    expect(exit.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error))
+      .toEqual(kind === "foreign" ? [] : [failure]);
+    expect(exit.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect))
+      .toEqual(kind === "typed" ? [] : [defect]);
+    expect(events).toEqual(["constructor-settled", "cleanup", "exit"]);
+  });
+
   it.each(["transaction", "locatedRead"] as const)(
     "continues only tracer and parent through %s with concurrent request isolation", async kind => {
       const request = async (name: string) => {
@@ -53,12 +85,15 @@ describe("persistence Promise callback tracing context", () => {
           expect(Context.get(fiber.context, Tracer.Tracer)).toBe(trace.tracer);
           expect(Context.getOption(fiber.context, Unrelated)).toEqual(Option.none());
           expect(Context.get(fiber.context, Clock.Clock)).not.toBe(clock);
+          expect(Context.getOption(fiber.context, ExecutionDiagnostics)).toEqual(Option.some(diagnosticPolicy));
+          expect(Context.get(fiber.context, References.TracerTimingEnabled)).toBe(false);
           return name;
-        })).pipe(Effect.withSpan("callback-body"));
+        }));
         const effect = kind === "transaction"
-          ? runEffectTransactionSettlement(start, "transaction rollback", body, settleError)
-          : runLocatedReadCommittedEffect(target(), options, body);
+          ? runEffectTransactionSettlement(start, "transaction rollback", transaction => observeExecution("callback-body", body(transaction)), settleError)
+          : runLocatedReadCommittedEffect(target(), options, transaction => observeExecution("callback-body", body(transaction)));
         expect(await Effect.runPromise(effect.pipe(Effect.withSpan(name),
+          Effect.provideService(ExecutionDiagnostics, diagnosticPolicy), Effect.withTracerTiming(false),
           Effect.provideService(Tracer.Tracer, trace.tracer), Effect.provideService(Clock.Clock, clock),
           Effect.provideService(Unrelated, { secret: name })))).toBe(name);
         const root = trace.spans.find(span => span.name === name);
@@ -79,11 +114,13 @@ describe("persistence Promise callback tracing context", () => {
   );
 
   it.each(["transaction", "locatedRead"] as const)("keeps quiet tracing absence in %s", async kind => {
-    const body = () => Effect.succeed("without collector");
+    const trace = tracing();
+    const body = () => observeExecution("quiet-body", Effect.succeed("without collector"));
     const effect = kind === "transaction"
       ? runEffectTransactionSettlement(start, "rollback", body, settleError)
       : runLocatedReadCommittedEffect(target(), options, body);
-    expect(await Effect.runPromise(effect)).toBe("without collector");
+    expect(await Effect.runPromise(effect.pipe(Effect.provideService(Tracer.Tracer, trace.tracer)))).toBe("without collector");
+    expect(trace.spans).toEqual([]);
   });
 
   it.each(["transaction", "locatedRead"] as const)("preserves original full callback Causes in %s", async kind => {
@@ -93,17 +130,17 @@ describe("persistence Promise callback tracing context", () => {
       Cause.combine(Cause.fail(failure), Cause.interrupt(718))]) {
       const trace = tracing();
       let callbackCause: Cause.Cause<Error> | undefined;
-      const body = () => Effect.failCause(cause).pipe(Effect.withSpan("failing-body"),
+      const body = () => observeExecution("failing-body", Effect.failCause(cause)).pipe(
         Effect.tapCause(original => Effect.sync(() => { callbackCause = original; })));
       const effect = kind === "transaction"
         ? runEffectTransactionSettlement(start, "exact rollback marker", body, settleError)
         : runLocatedReadCommittedEffect(target(), options, body);
-      const exit = await Effect.runPromiseExit(effect.pipe(Effect.withSpan("request"),
+      const exit = await Effect.runPromiseExit(observeExecution("request", effect).pipe(
+        Effect.provideService(ExecutionDiagnostics, diagnosticPolicy),
         Effect.provideService(Tracer.Tracer, trace.tracer)));
       if (Exit.isSuccess(exit)) throw new Error("Expected original callback failure");
-      // Effect may rebuild the Cause container while annotating named spans;
-      // the complete callback reasons and their payload identities must survive.
-      expect(exit.cause).toEqual(callbackCause);
+      // Optional SDK observation adds no Cause annotations or reason rewrites.
+      expect(exit.cause).toBe(callbackCause);
       expect(exit.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error)).toEqual([failure]);
       expect(exit.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect))
         .toEqual(cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect));

@@ -1,9 +1,9 @@
-import { Effect, Schema } from "effect";
-import { hasApplicationBindingComposition } from "../applicationActivation";
+import { Effect, Result, Schema } from "effect";
+import { hasApplicationBindingComposition, type ApplicationBindingInput } from "../applicationActivation";
 import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
 import { hasRelationalSessionDatabase } from "../relationalTransaction/session";
-import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
-import type { ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import { captureExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
 import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfiguration";
@@ -18,6 +18,7 @@ import {
   captureAtomicCommerceParticipants,
   isCommerceDefinitionName,
   type AtomicCommerceParticipantInput,
+  type CapturedAtomicCommerceParticipants,
 } from "./participants";
 import { admitParticipantEvents, captureAtomicCommerceEvents, isCommerceDerivedIdEventContract,
   prepareAtomicCommerceEvents, type AtomicCommerceEvents } from "./events";
@@ -66,12 +67,31 @@ export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
   readonly owner: object;
 }
 
-/** Prepare one deployment selection; request state is constructed only at run. */
-export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prepareConfiguration")(function* <
+/** Input ownership precedes the original generation's authority or catalog I/O.
+ * These command and resource selections carry no prepared storage authority. */
+export interface CapturedAtomicCommerceConfiguration<Failure> extends Omit<CommerceHostConfiguration<Failure>,
+  "identityAndAccessPolicy" | "hostRuntime" | "authority"> {
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  readonly allowed: ReadonlySet<AtomicCommerceCommand>;
+  readonly names: readonly string[];
+  readonly capturedMembers: CapturedAtomicCommerceParticipants;
+  readonly eventInput: ReturnType<typeof captureAtomicCommerceEvents> | undefined;
+  readonly policy: Result.Result.Success<ReturnType<typeof captureCommerceJsonData>>;
+  readonly selectedCallLimit: number | undefined;
+  readonly selectedByteLimit: number | undefined;
+  readonly selectedEventLimit: number | undefined;
+  readonly selectedCommandMs: number | undefined;
+  readonly callLimit: number;
+  readonly byteLimit: number;
+  readonly eventLimit: number;
+  readonly commandMs: number;
+}
+
+export const captureAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.captureConfiguration")(function* <
   Failure,
 >(
   input: AtomicCommerceHostInput<Failure>,
-): Effect.fn.Return<PreparedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
+): Effect.fn.Return<CapturedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
   const { database, session, target, deploymentId, scopeId, application } = input;
   if (
     !hasRelationalSessionDatabase(session, database) ||
@@ -112,12 +132,39 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   }
   const policy = yield* Effect.fromResult(policyInput);
   const capturedMembers = yield* Effect.fromResult(participantInput);
-  const logicalLocation = capturedMembers.some(member => member.kind === "logical")
-    ? yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority)
-      .pipe(Effect.mapError(projectCommerceRequestFailure))
-    : undefined;
+  yield* chargeHostPreparation({ names: [...names], policy: policy.value,
+    requestSelection: { selectedCallLimit: selectedCallLimit ?? null, selectedByteLimit: selectedByteLimit ?? null,
+      selectedEventLimit: selectedEventLimit ?? null, selectedCommandMs: selectedCommandMs ?? null },
+    participants: capturedMembers.map(member => ({
+      commandCount: member.commands.length, derivedIdEvent: member.derivedIdEvent ?? null,
+      events: Result.isSuccess(member.events) ? { contracts: member.events.success?.contracts.length ?? 0 } : null,
+      ...(member.kind === "logical" ? {
+        logical: Result.isSuccess(member.logical) ? { schemaVersionId: member.logical.success.schemaVersionId,
+          source: member.logical.success.source, initialization: member.logical.success.initialization } : null,
+        resources: member.resources !== undefined && Result.isSuccess(member.resources) ? member.resources.success : null,
+      } : { installation: Result.isSuccess(member.reference) ? member.reference.success.value : null }),
+    })),
+    events: eventInput !== undefined && Result.isSuccess(eventInput) ? {
+      subscribers: eventInput.success.subscribers, producerRevision: eventInput.success.producerRevision,
+      definitionCount: eventInput.success.definitions.length,
+    } : null }).pipe(Effect.mapError(projectCommerceRequestFailure));
+  return Object.freeze({ database, session, target, deploymentId, scopeId, application, authority, allowed,
+    names: Object.freeze([...names]), capturedMembers, eventInput, policy,
+    selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs, callLimit, byteLimit, eventLimit, commandMs });
+});
+
+/** All storage preparations belong to the original current generation. */
+export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prepareConfiguration")(function* <Failure>(
+  captured: CapturedAtomicCommerceConfiguration<Failure>, binding: ApplicationBindingInput,
+  currentAuthority: TrustedScopeAuthority,
+): Effect.fn.Return<PreparedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
+  const { database, session, target, deploymentId, scopeId, application, authority, allowed, names,
+    capturedMembers, eventInput, policy, selectedCallLimit, selectedByteLimit, selectedEventLimit, selectedCommandMs,
+    callLimit, byteLimit, eventLimit, commandMs } = captured;
+  if (currentAuthority.deploymentId !== deploymentId || currentAuthority.scopeId !== scopeId)
+    return yield* Effect.fail(commerceError("invalidAuthority"));
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
-    logicalLocation === undefined ? undefined : { deploymentId, scopeId: logicalLocation.authority.scopeId }, { kind: "standalone" });
+    { deploymentId, scopeId: currentAuthority.scopeId }, { kind: "standalone", application: binding });
   if (commandMs > commerceLimits.commandMs && members.some(member => member.kind !== "logical"))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const eventPolicy = eventInput === undefined ? undefined : yield* prepareAtomicCommerceEvents(yield* Effect.fromResult(eventInput));

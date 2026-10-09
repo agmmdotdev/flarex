@@ -100,7 +100,7 @@ const compareFiniteMetadata = Effect.fn("FiniteMetadata.compareCurrent")(functio
 ) {
   if (expected.length === 0) return;
   const [row] = yield* runDrizzleStatementEffect(tx.select({ verdict: sql<unknown>`fx_compare_finite_metadata(
-    ${scopeId}::text, ${watermark?.toString() ?? null}::bigint, ${JSON.stringify(expected)}::jsonb)` }).from(sql`(values (1)) as metadata_comparison`),
+    ${scopeId}::text, ${watermark?.toString() ?? null}::bigint, ${encodeFiniteMetadataComparison(expected)}::jsonb)` }).from(sql`(values (1)) as metadata_comparison`),
   cause => failure("resourceFailure", cause));
   return yield* Effect.fromResult(acceptFiniteMetadataComparisonVerdict(row?.verdict, expected, watermark));
 });
@@ -122,8 +122,49 @@ interface ProjectionState {
   readonly semanticBytes: ReadonlyMap<string, Uint8Array>;
   readonly owners: readonly FiniteMetadataOwner[];
   readonly tables: ReadonlyMap<CatalogTableId, Readonly<{ namespace: FiniteMetadataOwner["namespace"]; ownerKey: string; localName: string }>>;
+  readonly entryExpected: readonly FiniteMetadataComparisonExpected[];
+  readonly entryByIdentity: ReadonlyMap<string, FiniteMetadataComparisonExpected>;
+  readonly writeClosures: ReadonlyMap<CatalogTableId, FiniteMetadataComparisonExpected>;
+  readonly ownedExpected: readonly FiniteMetadataComparisonExpected[];
 }
 const projections = new WeakMap<PreparedFiniteMetadataProjection, ProjectionState>();
+const encodedExpectations = new WeakMap<FiniteMetadataComparisonExpected, string>();
+/** Only exact immutable tuples issued here retain their encoding. Dynamic
+ * negative observations are encoded anew; no structural equality grants reuse. */
+export const encodeFiniteMetadataComparison = (expected: readonly FiniteMetadataComparisonExpected[]): string =>
+  `[${expected.map(member => encodedExpectations.get(member) ?? JSON.stringify(member)).join(",")}]`;
+type ProjectionInputState = Omit<ProjectionState, "entryExpected" | "entryByIdentity" | "writeClosures" | "ownedExpected">;
+function compileProjectionComparisons(state: ProjectionInputState): ProjectionState {
+  const entryExpected = Object.freeze([...state.contracts.values()].map(contract => {
+    const expected = Object.freeze({ namespace: contract.namespace, ownerKey: contract.ownerKey,
+      contractKey: contract.contractKey, present: true, semanticSha256Hex: contract.semanticSha256Hex });
+    encodedExpectations.set(expected, JSON.stringify(expected));
+    return expected;
+  }));
+  const writeClosures = new Map<CatalogTableId, FiniteMetadataComparisonExpected>();
+  for (const [tableId, table] of state.tables) {
+    const key = { namespace: table.namespace, ownerKey: table.ownerKey,
+      contractKey: finiteMetadataContractKey("writeClosure", table.localName) };
+    const identity = logicalMetadataDependencyIdentity(key);
+    const contract = state.contracts.get(identity), bytes = state.semanticBytes.get(identity);
+    if (contract === undefined || bytes === undefined) continue;
+    const expected = Object.freeze({ ...key, present: true, semanticSha256Hex: contract.semanticSha256Hex,
+      semanticBytesHex: encodeBytesToLowercaseHex(bytes) });
+    encodedExpectations.set(expected, JSON.stringify(expected));
+    writeClosures.set(tableId, expected);
+  }
+  return { ...state, entryExpected, writeClosures,
+    entryByIdentity: new Map(entryExpected.map(expected => [logicalMetadataDependencyIdentity(expected), expected])),
+    ownedExpected: Object.freeze([...entryExpected, ...writeClosures.values()]) };
+}
+/** Existing issuer disposal removes every retained comparison along with its
+ * authenticated projection; escaped inert tuple data cannot restore authority. */
+export function disposeFiniteMetadataProjection(projection: PreparedFiniteMetadataProjection): void {
+  const state = projections.get(projection);
+  if (state === undefined) return;
+  for (const expected of state.ownedExpected) encodedExpectations.delete(expected);
+  projections.delete(projection);
+}
 /** Immutable catalog semantics consumed by metadata projection. Physical build
  * location/readiness belongs to the existing admission owner. */
 export type FiniteMetadataIndexSemantics = Pick<LocatedAppIndexDefinitionV1,
@@ -283,7 +324,7 @@ export const prepareFiniteMetadataProjection = Effect.fn("FiniteMetadata.prepare
   for (const group of input.application?.groups ?? []) yield* add(applicationOwner, finiteMetadataContractKey("executionGroup", group.group), group.semantic);
   // SAFETY: only this private issuer can lend retained authenticated semantics.
   const projection = Object.freeze({}) as PreparedFiniteMetadataProjection;
-  projections.set(projection, { contracts, semanticBytes, owners: Object.freeze([...owners.values()]), tables });
+  projections.set(projection, compileProjectionComparisons({ contracts, semanticBytes, owners: Object.freeze([...owners.values()]), tables }));
   return projection;
 });
 
@@ -297,17 +338,18 @@ export const prepareFiniteMetadataEntryComparison = (projection: PreparedFiniteM
   Result.Result<readonly FiniteMetadataComparisonExpected[], FiniteMetadataError> => {
   const state = projections.get(projection);
   if (state === undefined || state.contracts.size === 0) return Result.fail(failure("invalidProjection"));
-  return Result.succeed(Object.freeze([...state.contracts.values()].map(contract => Object.freeze({
-    namespace: contract.namespace, ownerKey: contract.ownerKey, contractKey: contract.contractKey,
-    present: true, semanticSha256Hex: contract.semanticSha256Hex,
-  }))));
+  return Result.succeed(state.entryExpected);
 };
 /** The preparation owner charges the actual retained canonical bytes once. */
 export function readFiniteMetadataProjectionPreparationPayload(projection: PreparedFiniteMetadataProjection) {
   const state = projections.get(projection);
   if (state === undefined) return Result.fail(failure("invalidProjection"));
   return Result.succeed(Object.freeze({ contracts: structuredClone([...state.contracts.entries()]), owners: structuredClone(state.owners),
-    tables: structuredClone([...state.tables.entries()]), semanticBytes: [...state.semanticBytes.entries()].map(([identity, bytes]) =>
+    tables: structuredClone([...state.tables.entries()]), comparisons: {
+      entry: state.entryExpected, writeClosures: [...state.writeClosures.entries()],
+      encoded: state.ownedExpected.map(expected =>
+        encodedExpectations.get(expected) ?? JSON.stringify(expected)),
+    }, semanticBytes: [...state.semanticBytes.entries()].map(([identity, bytes]) =>
       Object.freeze({ identity, bytes: copyBytes(bytes) })) }));
 }
 /** Compose authenticated owner projections without lending a second issuer. */
@@ -315,6 +357,8 @@ const mergeAuthenticatedMetadataProjections = (inputs: readonly PreparedFiniteMe
   Result.Result<PreparedFiniteMetadataProjection, FiniteMetadataError> => {
   const contracts = new Map<string, FiniteMetadataContract>();
   const semanticBytes = new Map<string, Uint8Array>();
+  const entryByIdentity = new Map<string, FiniteMetadataComparisonExpected>();
+  const writeClosures = new Map<CatalogTableId, FiniteMetadataComparisonExpected>();
   const owners = new Map<string, FiniteMetadataOwner>();
   const tables = new Map<CatalogTableId, ProjectionState["tables"] extends ReadonlyMap<CatalogTableId, infer Value> ? Value : never>();
   for (const input of inputs) {
@@ -328,6 +372,9 @@ const mergeAuthenticatedMetadataProjections = (inputs: readonly PreparedFiniteMe
       const bytes = state.semanticBytes.get(identity);
       if (bytes === undefined) return Result.fail(failure("invalidProjection"));
       semanticBytes.set(identity, bytes);
+      const expected = state.entryByIdentity.get(identity);
+      if (expected === undefined) return Result.fail(failure("invalidProjection"));
+      entryByIdentity.set(identity, expected);
     }
     for (const owner of state.owners) owners.set(canonical([owner.namespace, owner.ownerKey]), owner);
     if (includeTableRouting) for (const [tableId, table] of state.tables) {
@@ -335,12 +382,15 @@ const mergeAuthenticatedMetadataProjections = (inputs: readonly PreparedFiniteMe
       if (prior !== undefined && (prior.namespace !== table.namespace || prior.ownerKey !== table.ownerKey || prior.localName !== table.localName))
         return Result.fail(failure("invalidProjection"));
       tables.set(tableId, table);
+      const expected = state.writeClosures.get(tableId);
+      if (expected !== undefined) writeClosures.set(tableId, expected);
     }
   }
   if (contracts.size === 0) return Result.fail(failure("invalidProjection"));
   // SAFETY: the private registry authenticates every composed projection.
   const projection = Object.freeze({}) as PreparedFiniteMetadataProjection;
-  projections.set(projection, { contracts, semanticBytes, owners: Object.freeze([...owners.values()]), tables });
+  projections.set(projection, { contracts, semanticBytes, owners: Object.freeze([...owners.values()]), tables,
+    entryByIdentity, entryExpected: Object.freeze([...entryByIdentity.values()]), writeClosures, ownedExpected: Object.freeze([]) });
   return Result.succeed(projection);
 };
 export const mergeFiniteMetadataProjections = (inputs: readonly PreparedFiniteMetadataProjection[]) =>
@@ -356,10 +406,13 @@ export const getFiniteMetadataProjectionSource = (projection: PreparedFiniteMeta
   if (owners.length !== 1) return null;
   // SAFETY: a subprojection preserves its original authenticated semantic issuer.
   const selected = Object.freeze({}) as PreparedFiniteMetadataProjection;
+  const entryByIdentity = new Map([...state.entryByIdentity].filter(([, expected]) => expected.ownerKey === sourceKey));
   projections.set(selected, { owners: Object.freeze(owners),
     contracts: new Map([...state.contracts].filter(([, contract]) => contract.ownerKey === sourceKey)),
     semanticBytes: new Map([...state.semanticBytes].filter(([identity]) => state.contracts.get(identity)?.ownerKey === sourceKey)),
-    tables: new Map([...state.tables].filter(([, table]) => table.ownerKey === sourceKey)) });
+    tables: new Map([...state.tables].filter(([, table]) => table.ownerKey === sourceKey)),
+    entryByIdentity, entryExpected: Object.freeze([...entryByIdentity.values()]), ownedExpected: Object.freeze([]),
+    writeClosures: new Map([...state.writeClosures].filter(([, expected]) => expected.ownerKey === sourceKey)) });
   return selected;
 };
 export const finiteMetadataTableKey = (projection: PreparedFiniteMetadataProjection, tableId: CatalogTableId, kind: "table" | "writeClosure") => {
@@ -390,24 +443,18 @@ export function prepareFiniteTableWriteClosureComparison(projection: PreparedFin
 ): Result.Result<FiniteTableWriteClosureComparison, FiniteMetadataError> {
   const state = projections.get(projection);
   if (state === undefined) return Result.fail(failure("invalidProjection"));
-  const selected: { key: LogicalMetadataKey; semanticSha256Hex: string; semanticBytes: Uint8Array }[] = [];
+  const selected: FiniteMetadataComparisonExpected[] = [];
   let invalidProjection = false;
   for (const tableId of new Set(tableIds)) {
-    const key = finiteMetadataTableKey(projection, tableId, "writeClosure");
-    if (key === null) { invalidProjection = true; break; }
-    const identity = logicalMetadataDependencyIdentity(key);
-    const contract = state.contracts.get(identity), bytes = state.semanticBytes.get(identity);
-    if (contract === undefined || bytes === undefined) { invalidProjection = true; break; }
-    selected.push({ key, semanticSha256Hex: contract.semanticSha256Hex, semanticBytes: bytes });
+    const expected = state.writeClosures.get(tableId);
+    if (expected === undefined) { invalidProjection = true; break; }
+    selected.push(expected);
   }
   // An invalid later selector cannot preempt an earlier actual SQL refusal.
   // Fully authentic input still performs one comparison per bounded batch.
   const pages: (readonly FiniteMetadataComparisonExpected[])[] = [];
   for (let offset = 0; offset < selected.length; offset += MAX_COMMIT_METADATA_READ_DEPENDENCIES)
-    pages.push(selected.slice(offset, offset + MAX_COMMIT_METADATA_READ_DEPENDENCIES).map(closure => ({
-      ...closure.key, present: true, semanticSha256Hex: closure.semanticSha256Hex,
-      semanticBytesHex: encodeBytesToLowercaseHex(closure.semanticBytes),
-    })));
+    pages.push(Object.freeze(selected.slice(offset, offset + MAX_COMMIT_METADATA_READ_DEPENDENCIES)));
   return Result.succeed(Object.freeze({ pages: Object.freeze(pages), invalidProjection }));
 }
 const decodeComparisonPages = Schema.decodeUnknownResult(Schema.Array(Schema.Unknown));

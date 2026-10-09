@@ -3,7 +3,8 @@ import { Effect, Exit, Schema, Scope } from "effect";
 import { expect } from "vitest";
 import { count } from "drizzle-orm";
 import { fxSystemCommits } from "../../../../persistence-postgres/src/schema";
-import { compilePayloadLatencyCollections, preparePayloadLatencyRuntime } from "../../../../persistence-postgres/test/payloadLatencyFixture";
+import { compilePayloadLatencyCollections, createProtectedPayloadLatencyResource,
+  preparePayloadLatencyRuntime } from "../../../../persistence-postgres/test/payloadLatencyFixture";
 import { cmsHostFixture } from "../../../../persistence-postgres/test/cmsHostFixture";
 import { policyManifestFixture } from "../../../../persistence-postgres/test/applicationWritePolicyFixture";
 import { payloadRelationManifest } from "../../../../persistence-postgres/test/payloadRelationFixture";
@@ -37,7 +38,7 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
   postgresEndpoints?: PostgresFixtureEndpoints) {
   const relations = profile !== "scalar";
   const started = performance.now();
-  const resource = await acquirePayloadResource(driver, postgresEndpoints);
+  const resource = await acquirePayloadResource(driver, profile, postgresEndpoints);
   const persistence = resource.persistence;
   const session = resource.session;
   const scope = await Effect.runPromise(Scope.make());
@@ -70,7 +71,8 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
     return {
       dispose, prepareSample,
       scenario(name: CorePerformanceScenarioName): CorePerformanceScenario {
-        return { timings, ...("pool" in persistence ? { pools: { controlPool: persistence.pool, targetPool: persistence.pool } } : {}), dispose,
+        return { timings, ...("pool" in persistence ? { pools: {
+          controlPool: resource.protectedPayload?.control.persistence.pool ?? persistence.pool, targetPool: persistence.pool } } : {}), dispose,
           workload: { flow: name, cardinality: { roots: 1, relatedTargets: relations ? width : 0,
             }, limitations: relations ? ["Fixed fresh-install self-relation/join conformance profile; both fields and default joins are present."] : [] },
           setEffectDiagnostics: next => { diagnostics = next; },
@@ -168,7 +170,8 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
     }
 
     async function prepareHost() {
-      if (profile === "scalar" && "pool" in persistence) return preparePayloadLatencyRuntime(persistence, scope);
+      if (profile === "scalar" && "pool" in persistence) return preparePayloadLatencyRuntime(
+        resource.protectedPayload?.owner.persistence ?? persistence, scope, resource.protectedPayload);
       const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
       if (schemaName === undefined) throw new Error("Missing fixture namespace");
       const compiled = relations ? undefined : await Effect.runPromise(compilePayloadLatencyCollections());
@@ -209,10 +212,30 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
   }
 }
 
-async function acquirePayloadResource(driver: "pglite" | "postgres", postgresEndpoints?: PostgresFixtureEndpoints) {
+async function acquirePayloadResource(driver: "pglite" | "postgres", profile: "scalar" | "one" | "many" | "joins",
+  postgresEndpoints?: PostgresFixtureEndpoints) {
   if (driver === "postgres") {
     const resource = await createFileScopedPostgresFixture({}, {}, "ordinary", postgresEndpoints);
+    if (profile === "scalar") {
+      try {
+        const protectedPayload = await createProtectedPayloadLatencyResource(resource, postgresEndpoints);
+        return { persistence: protectedPayload.persistence, session: protectedPayload.session, protectedPayload,
+          installation: { migrationMs: protectedPayload.installationTiming.baseMigration.migrationMs,
+            managedSetupMs: protectedPayload.installationTiming.managedSetupMs,
+            coLocatedSetupMs: protectedPayload.installationTiming.coLocatedSetupMs },
+          async dispose() {
+            const failures: unknown[] = [];
+            try { await protectedPayload.dispose(); } catch (cause) { failures.push(cause); }
+            try { await resource.dispose(); } catch (cause) { failures.push(cause); }
+            if (failures.length > 0) throw new AggregateError(failures, "Payload resource cleanup failed");
+          } };
+      } catch (cause) {
+        try { await resource.dispose(); } catch (cleanupCause) { throw new AggregateError([cause, cleanupCause], "Payload resource setup failed"); }
+        throw cause;
+      }
+    }
     return { persistence: resource.persistence, session: makePostgresRelationalSession(resource.persistence), dispose: resource.dispose,
+      protectedPayload: undefined,
       installation: { migrationMs: resource.installationTiming.baseMigration.migrationMs } };
   }
   if (postgresEndpoints !== undefined) throw new Error("PostgreSQL endpoints require the PostgreSQL driver");
@@ -225,7 +248,8 @@ async function acquirePayloadResource(driver: "pglite" | "postgres", postgresEnd
   };
   try {
     const resource = await createRelationalPGliteFixture({ registerCleanup: release => { releases.push(release); } });
-    return { persistence: resource.persistence, session: resource.session, dispose, installation: undefined };
+    return { persistence: resource.persistence, session: resource.session, dispose, installation: undefined,
+      protectedPayload: undefined };
   } catch (cause) {
     try { await dispose(); } catch (cleanupCause) { throw new AggregateError([cause, cleanupCause], "PGlite acquisition and cleanup failed"); }
     throw cause;

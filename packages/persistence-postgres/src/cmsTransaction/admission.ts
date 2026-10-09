@@ -1,4 +1,4 @@
-import { chargeHostPreparation } from "../preparedHostRuntime";
+import { chargeHostPreparation, captureHostPreparationLifetime, type PreparedHostPreparationLifetime } from "../preparedHostRuntime";
 import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
@@ -9,18 +9,13 @@ import { lockScopeClockForShareInTransactionEffect } from "../scopeClock";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
-import { Effect, Option, Schema } from "effect";
-import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
-import { MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
+import { Effect, Option, Schema, Result } from "effect";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../appDeveloperIndexCommitV1";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
-import { MAX_RECONCILED_DEFINITIONS } from "../indexBuildReconciliation";
-import { captureApplicationWritePolicyData, PayloadConfigurationSchema, type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
-import type { ApplicationBindingInput, ApplicationBindingSelectionReader, AcceptedApplicationBinding } from "../applicationActivation";
-import { prepareApplicationBindingSelection, readApplicationBindingPreparationInputs, withAcceptedApplicationBinding, hasApplicationBindingComposition } from "../applicationActivation";
+import { captureApplicationWritePolicyData, PayloadConfigurationSchema, type PayloadConfiguration, type ApplicationWritePolicyError } from "@flarex/analysis/internal/application-write-policy";
+import type { ApplicationBindingInput, AcceptedApplicationBinding, ApplicationBindingObservation } from "../applicationActivation";
+import { lendApplicationBindingPreparationInputs, withAcceptedApplicationBinding } from "../applicationActivation";
 import { type ApplicationRelationSchemaAuthority } from "../applicationRelationSchemaAuthority";
 import { readAcceptedApplicationBindingProjection } from "../applicationBindingProjection";
 import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
@@ -32,16 +27,33 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority, ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
-import { cmsError } from "./model";
+import { cmsError, type CmsTransactionError } from "./model";
+import { prepareLogicalWriteMechanics } from "../logicalDocuments/workingSet";
+import type { PreparedLogicalDocumentWriteMechanics, LogicalDocumentTable } from "../logicalDocuments/model";
+import { issueApplicationRevisionSyscallValidatorStateV1, sessionPinnedSyscallValidatorState,
+  revokeApplicationRevisionSyscallValidatorStateV1, type ApplicationRevisionSyscallValidatorV1 } from "../applicationRevisionSyscallValidatorStateV1";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 
 declare const admissionBrand: unique symbol;
 export interface CmsAdmission { readonly [admissionBrand]: true }
-export interface PreparedCmsApplication {
+declare const cmsPreparationBrand: unique symbol;
+export interface PreparedCmsApplication { readonly [cmsPreparationBrand]: true }
+export interface PreparedCmsApplicationState {
+  readonly lifetime: PreparedHostPreparationLifetime;
+  readonly controlDb: FlarexMetadataDatabase;
+  readonly scopeId: ScopeId;
   readonly configuration: PayloadConfiguration;
   readonly selection: ApplicationBindingInput;
   readonly schema: ApplicationRelationSchemaAuthority;
   readonly uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[];
   readonly indexDefinitions: readonly LocatedAppIndexDefinitionV1[];
+  readonly intrinsicDefinitions: readonly LocatedAppIndexDefinitionV1[];
+  readonly relations: Readonly<{ port: import("../applicationRelationCommit").ApplicationRelationCommitPort;
+    definitions: import("../applicationRelationCommit").LocatedApplicationRelationDefinitionSet }>;
+  readonly tables: readonly LogicalDocumentTable[];
+  readonly tableIds: ReadonlySet<CatalogTableId>;
+  readonly validator: ApplicationRevisionSyscallValidatorV1;
+  readonly writeMechanics: PreparedLogicalDocumentWriteMechanics;
 }
 export interface CmsAdmissionState {
   readonly binding: AcceptedApplicationBinding;
@@ -53,15 +65,19 @@ export interface CmsAdmissionState {
   readonly frame: DataBindingSetFrame;
   readonly head: DataBindingHeadToken;
   readonly preferenceAvailability: InstallationRuntimeData | null;
+  readonly preparation: PreparedCmsApplicationState;
 }
 export interface PreparedCmsPreferences {
   readonly target: FrameworkSchemaTarget;
   readonly installation: PreparedInstallationRuntime;
 }
 const admissions = new WeakMap<object, CmsAdmissionState>();
-const prepared = new WeakSet<object>();
+const prepared = new WeakMap<PreparedCmsApplication, PreparedCmsApplicationState>();
+const disposeCmsPreparation = (token: PreparedCmsApplication, validator: ApplicationRevisionSyscallValidatorV1) => () => {
+  prepared.delete(token);
+  revokeApplicationRevisionSyscallValidatorStateV1(validator);
+};
 const isPayloadConfiguration = Schema.is(PayloadConfigurationSchema);
-const decodeDeploymentId = Schema.decodeUnknownEffect(TransactionGrantDeploymentIdV1Schema);
 
 function cmsClockMatches(authority: TrustedScopeAuthority, clock: ScopeClockRecord): boolean {
   return clock.scopeId === authority.scopeId && clock.storageGeneration === authority.storageGeneration &&
@@ -93,15 +109,18 @@ export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences"
 
 /** Host-owned revision preparation, never a live admission verdict. Control
  * evidence is captured before opening any request's target data transaction. */
-export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function* <Failure>(
-  application: ApplicationBindingSelectionReader<Failure>,
-  authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
+export type CmsApplicationPreparationError = CmsTransactionError | ApplicationWritePolicyError |
+  Effect.Error<ReturnType<typeof lendApplicationBindingPreparationInputs>>;
+export const prepareCmsApplicationFromBinding = Effect.fn("CmsAdmission.prepare")(function* (
+  selection: ApplicationBindingInput,
   controlDb: FlarexMetadataDatabase,
   deploymentId: string, selectedScopeId: ScopeId,
-) {
-  if (!hasApplicationBindingComposition(application, authority)) return yield* Effect.fail(cmsError("invalidAuthority"));
-  const selection = yield* prepareApplicationBindingSelection(application);
-  const { schema, manifest, scopeId } = yield* readApplicationBindingPreparationInputs(selection, controlDb);
+): Effect.fn.Return<PreparedCmsApplication, CmsApplicationPreparationError> {
+  const lifetime = yield* captureHostPreparationLifetime();
+  if (lifetime === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+  yield* Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause => cmsError("closed", cause)));
+  const { schema, manifest, authority, indexes, unique, relations } = yield* lendApplicationBindingPreparationInputs(selection, controlDb);
+  const scopeId = authority.scopeId;
   if (scopeId !== selectedScopeId) return yield* Effect.fail(cmsError("invalidAuthority"));
   if (schema.deploymentId !== deploymentId || schema.writePolicy === null || schema.relations.length > 2) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
@@ -113,31 +132,36 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
   const configuration = yield* Effect.fromResult(captureApplicationWritePolicyData(manifest.schema.writePolicies.configuration));
   if (!isPayloadConfiguration(configuration)) return yield* Effect.fail(cmsError("invalidAuthority"));
   yield* chargeHostPreparation(configuration).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
-  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId));
-  const deployment = yield* decodeDeploymentId(schema.deploymentId);
-  // Retained schema selection uses the closed-set bound. The separate command
-  // materializer applies its mutation budget to actual row/key transitions.
-  const uniqueDefinitions = yield* createAppUniqueConstraintDefinitionPortV1(controlDb).locate({
-    deploymentId: deployment, scopeId: scope.scopeId, schemaVersionId: schema.schemaVersionId,
-    tableIds: schema.writePolicy.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId),
-    maximumDefinitions: MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
-  });
-  if (uniqueDefinitions === null) return yield* Effect.fail(cmsError("invalidAuthority"));
-  // Date is metadata here; account its value without admitting class instances
-  // into the prepared-host payload contract.
-  yield* chargeHostPreparation(uniqueDefinitions.map(definition => ({ ...definition, createdAt: definition.createdAt.getTime() })))
-    .pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
-  const indexDefinitions = yield* createAppDeveloperIndexDefinitionPortV1(controlDb).locate({
-    deploymentId: deployment, scopeId: scope.scopeId, schemaVersionId: schema.schemaVersionId,
-    tableIds: schema.writePolicy.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId),
-    maximumDefinitions: MAX_RECONCILED_DEFINITIONS,
-  });
-  if (indexDefinitions === null) return yield* Effect.fail(cmsError("invalidAuthority"));
-  yield* chargeHostPreparation(indexDefinitions.map(definition => ({ ...definition, createdAt: definition.createdAt.getTime() })))
-    .pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
-  const value: PreparedCmsApplication = Object.freeze({ selection, schema, configuration, uniqueDefinitions, indexDefinitions });
-  prepared.add(value);
+  const selected = new Set(schema.writePolicy.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId));
+  const uniqueDefinitions = Object.freeze(unique.filter(definition => selected.has(definition.tableId)));
+  const indexDefinitions = Object.freeze(indexes.filter(definition => definition.access.kind === "developer" && selected.has(definition.access.tableId)));
+  const intrinsicDefinitions = Object.freeze(indexes.filter(definition => definition.access.kind === "by_creation_time" && selected.has(definition.access.tableId)));
+  const tables = Object.freeze(schema.tables.filter(table => selected.has(table.tableId)));
+  const writeMechanics = yield* prepareLogicalWriteMechanics({ tables, indexes: indexDefinitions, unique: uniqueDefinitions }, cmsError);
+  const validatorState = sessionPinnedSyscallValidatorState({ scopeId, schemaVersionId: schema.schemaVersionId,
+    schemaManifest: schema.manifest });
+  yield* chargeHostPreparation({ validatorTables: [...validatorState.tablesByName.values()],
+    selectedTableIds: [...selected], indexes: indexDefinitions.map(definition => definition.indexDefinitionId),
+    intrinsic: intrinsicDefinitions.map(definition => definition.indexDefinitionId),
+    unique: uniqueDefinitions.map(definition => definition.uniqueConstraintDefinitionId) }).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
+  const validator = yield* Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(validatorState));
+  // SAFETY: this original preparation issuer authenticates the inert identity.
+  const value = Object.freeze({}) as PreparedCmsApplication;
+  prepared.set(value, Object.freeze({ selection, schema, configuration, uniqueDefinitions, indexDefinitions, intrinsicDefinitions,
+    controlDb, scopeId, lifetime, relations, tables, tableIds: selected, validator, writeMechanics }));
+  const dispose = disposeCmsPreparation(value, validator);
+  const registered = lifetime.onDispose(dispose);
+  if (Result.isFailure(registered)) dispose();
+  yield* Effect.fromResult(registered).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
   return value;
+});
+
+/** The existing issuer lends payload only while its actual generation lives. */
+export const requirePreparedCmsApplication = Effect.fn("CmsAdmission.requirePreparation")(function* (token: PreparedCmsApplication) {
+  const state = prepared.get(token);
+  if (state === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+  yield* Effect.fromResult(state.lifetime.checkOpen()).pipe(Effect.mapError(cause => cmsError("closed", cause)));
+  return state;
 });
 
 /** Called by the private host only after locking and authenticating the scope clock. */
@@ -148,10 +172,12 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   clock: ScopeClockRecord,
   work: (admission: CmsAdmission) => Effect.Effect<Value, Failure, Requirements>,
   preferences?: PreparedCmsPreferences,
-  accepted?: AcceptedApplicationBinding,
+  observation?: ApplicationBindingObservation,
 ) {
-  if (!prepared.has(application) || !cmsClockMatches(authority, clock)) return yield* Effect.fail(cmsError("invalidAuthority"));
-  return yield* withAcceptedApplicationBinding(application.selection, tx, clock, binding => Effect.gen(function* () {
+  const preparation = yield* requirePreparedCmsApplication(application);
+  if (!cmsClockMatches(authority, clock) || preparation.scopeId !== authority.scopeId)
+    return yield* Effect.fail(cmsError("invalidAuthority"));
+  return yield* withAcceptedApplicationBinding(preparation.selection, tx, clock, binding => Effect.gen(function* () {
     const projection = yield* readAcceptedApplicationBindingProjection(binding, tx, clock);
     const head = yield* readBindingHead(tx, authority, "share");
     if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
@@ -164,7 +190,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
       projection.readiness.kind !== "policy" || projection.readiness.relationCount > 2) {
       return yield* Effect.fail(cmsError("unsupportedProfile"));
     }
-    const schema = application.schema;
+    const schema = preparation.schema;
     if (schema.schemaVersionId !== projection.schemaVersionId || schema.applicationSchemaSha256 !== projection.applicationSchemaSha256 ||
       schema.schemaManifestSha256 !== projection.schemaManifestSha256 ||
       schema.manifestSchemaBindingSha256 !== projection.readiness.manifestSchemaBindingSha256 ||
@@ -185,10 +211,11 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     }
     // SAFETY: authority resides exclusively in this live, transaction-bound registry.
     const token = Object.freeze({}) as CmsAdmission;
-    admissions.set(token, Object.freeze({ binding, tx, authority, clock, schema, frame, preferenceAvailability, configuration: application.configuration,
+    admissions.set(token, Object.freeze({ binding, tx, authority, clock, schema, frame, preferenceAvailability,
+      configuration: preparation.configuration, preparation,
       head: Object.freeze({ sequence: head.value.frame.sequence, sha256: head.value.sha256 }) }));
     return yield* Effect.suspend(() => work(token)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(token))));
-  }), accepted);
+  }), observation);
 });
 
 export const requireCmsAdmission = Effect.fn("CmsAdmission.require")(function* (

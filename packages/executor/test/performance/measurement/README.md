@@ -1,7 +1,7 @@
 # Measurement SDK Design
 
 Status: the SDK covers the adopted 25-flow catalog with `quiet`, `timeline`,
-`resources`, `database`, `cpu` and `server` diagnostics. Matched fresh native pairs cover the
+`root-counters`, `resources`, `database`, `cpu` and `server` diagnostics. Matched fresh native pairs cover the
 five original small graphs. SDK-owned Effect
 Layers collect diagnostics at the existing trusted composition boundary;
 production and quiet requests provide no measurement Layer or collectors.
@@ -43,7 +43,7 @@ await compare({
 
 `measure`
 executes one declared quiet or diagnostic plan. `compare` owns fresh
-matched native/Flarex quiet pairs and their retained complete-request excess.
+matched native/Flarex pairs and their retained complete-request excess.
 Both reuse existing family fixtures and actual native business composition.
 `measure` accepts all 25 catalog names and `small` or `typical` size; each report
 retains actual workload cardinality and any fixed-size limitations. `compare`
@@ -51,12 +51,15 @@ accepts only the five original small graphs. Missing native mappings fail before
 resource acquisition. The CLI owns existing daily/all family iteration; the SDK
 selects one declared graph per bounded command.
 Diagnostic mode is one discriminant, not overlapping SQL/CPU/server booleans.
-The complete design selects `quiet`, `timeline`, `resources`, `database`, `cpu` and `server`.
-`compare` accepts no diagnostic mode: its timed requests are quiet. Sampling defaults
+The complete design selects `quiet`, `root-counters`, `timeline`, `resources`, `database`, `cpu` and `server`.
+`compare` accepts an optional `mode: "quiet" | "root-counters"`, defaulting to quiet.
+Only fully quiet comparisons evaluate elapsed acceptance. Sampling defaults
 are retained in the report: one warmup and one sample for `measure`, five warmups
 and 30 fresh pairs for `compare`. The adopted fixture supports 105 fresh attempts:
 100 quiet pairs plus five warmups, or at most 99 diagnostics with five warmups
-and a separate calibration. Resource mode reserves two fresh attempts per sample
+and a separate calibration. Root counters allow 100 complete observed pairs plus
+five quiet warmups; their back-to-back counter calibration does not consume a
+business attempt. Resource mode reserves two fresh attempts per sample
 and alternates quiet/diagnostic order after its warmups. Its `observerPairs`
 calibrate observation using separate Flarex executions; they are not native
 acceptance pairs. This is fixture capacity, not a core budget change.
@@ -238,12 +241,88 @@ bottleneck from one run.
 
 ### CPU And Server Resources
 
+`root-counters` adds exactly two readings through the existing Node resource
+adapter around `sample.run()` on native and Flarex calls. Flarex's real attempt
+finalizers remain inside that call. Fixture setup, seeding, verification, sample
+disposal, command cleanup, sanitization and report/readback remain outside.
+No Effect tracer, SQL/publication observer, inspector, heap or GC collector is
+constructed in this lane; it adds no production-core imports. The existing
+Promise boundary retains business return values, rejected Causes/Exits and
+cancellation ownership. Either reader failing still allows actual execution and
+the other read; it invalidates evidence without replacing the business outcome.
+
+Each request's `rootCounters` retains Schema-checked absolute process/thread
+readings, deltas, actual call wall window and both acquisition wall windows.
+Thread counters can be unavailable (`null`) while process evidence remains valid.
+Counter units are microseconds, but actual platform counter resolution and wall
+clock precision remain explicitly unknown. Zero CPU deltas can be quantization;
+they cannot resolve a budget below counter granularity. Process counters include
+other threads and background work; external contention is unavailable. Control
+sibling/background work when using this lane.
+
+The command retains eight synchronous back-to-back pairs in
+`counterCalibration`, outside business calls. They disclose adapter/clock cost
+and observed quantization without claiming precise platform resolution or
+subtracting that cost. `compare` alternates fresh complete native/Flarex calls,
+retains every completed side even if partner acquisition fails and records
+signed user/system/total excess in `cpuPairs`. Process and optional thread CPU
+remain separate; no nested sums, event-loop CPU inference or traced-overhead
+subtraction is performed. Counter-observed elapsed pairs are retained as
+observations and never evaluate fully quiet elapsed acceptance. This mode uses
+`acceptance: "notEvaluated"`; a CPU budget is declared by the owning preflight
+from actual complete matched evidence and its resolution limits.
+
 `resources` records coarse operation wall time, process/thread CPU deltas and
 event-loop counters through the SDK's existing tracer. It retains exact driver
 submission/completion, operation parentage, checkout, backend PID, outcomes and
 plain transaction controls. It performs no SQL fingerprinting, stack capture,
 parameter/result sizing, heap sampling, inspector work or server logging.
 Unavailable sizes and statement counts remain unavailable rather than zero.
+`measure({ mode: "resources", observation: "owners", ... })` selects root,
+native and a bounded set of existing coarse owner counter brackets. The default
+resources lane retains its existing full span and driver observation. The selected
+lane installs no tracer primitive-evaluation context hook, SQL trace, inspector,
+allocation or GC observer. Unselected spans retain their normal Effect lifetime
+without collector records or counter reads. Existing Promise phases and actual
+Effect parent chains preserve selected ancestry through omitted spans; independent
+async bridges require their existing explicit parent propagation. Fiber identity
+can remain unavailable.
+
+The exact selected core producers are
+`ApplicationRelationReadinessFold.validatePreparedInTransaction`,
+`ApplicationRelationReadinessFold.validateProtectedReplay`,
+`ApplicationBindingProjection.readAccepted`, `InstallationRuntime.accept`,
+`ApplicationActivation.prepareBindingSelection`,
+`ApplicationReadiness.validateStoredIssuedReadiness`,
+`ApplicationReadiness.authenticateInstalled`, `ApplicationReadiness.readReady`,
+`ScopeAuthority.resolveLocatedTrustedById`, `CmsCommit.finalize`, `CmsCommit.publishOutcome` and
+`PointCommitTransaction.publishFinite`, plus `AtomicCommerce.attempt`,
+`AtomicCommerce.executeRequest`, `DataBinding.verifyLogicalSchema`,
+`LogicalStorageReadiness.inspect`, `LogicalCommerce.make`, `Workflow.runAtomic`,
+`MedusaWorkflow.runNative`, `AtomicCommerce.closeContributions` and
+`CommerceCommit.finalize`, alongside existing native/outer fixture
+phases and coarse publication publisher/transaction/durablePublication phases.
+These are inclusive envelopes; an admission wrapper can include business work
+and publication. Atomic/workflow envelopes retain their actual nesting, including
+the outer `native Medusa workflow` fixture phase. Logical binding/readiness spans
+observe discrete initial acceptance; `LogicalCommerce.make` counts actual
+participant working-set construction, not each module invocation. Callback-bearing
+admissions wrappers and per-step/per-row spans remain unselected. The legacy Medusa
+path's full binding preparation and stored-readiness validations retain their own
+producer spans; their nested costs remain inclusive. Counts of installed
+authentication and canonical `readReady` spans distinguish renewal checks from
+canonical preparation or epoch-change reproof. Actual parentage places a
+canonical span under its preparation or authentication caller; an authentication
+count alone does not establish that reproof ran. Nested CPU windows overlap and
+must not be added or treated as exclusive costs. The report records resolved observation selection and explicitly
+unavailable full timeline and driver detail. Selected samples retain the existing
+Schema-checked events and only the analyzer's integrity/resource projection;
+unavailable database totals, driver unions and deepest/context ledgers are absent.
+Missing selected observations and counter faults invalidate diagnostics without
+replacing business values, Causes or cleanup. Existing alternating quiet/resource
+pairs disclose perturbation; selected counters are not quiet or exclusive CPU and
+must not be summed. This diagnostic selects an owner correction; it is not an
+acceptance result.
 `database` retains full driver detail; `cpu` and `server` use resource-only
 driver detail to avoid unrelated observer work.
 
@@ -371,6 +450,12 @@ server lane adds isolated statement statistics and PID/query/wait samples.
 Raw events remain available alongside the ranked summary. Each value states
 whether it is observed, estimated, ambiguous or unavailable.
 
+Database event counts describe submitted driver statements and exchanges. An
+installed publication routine can execute several internal SQL statements within
+one exchange; reducing exchanges does not prove that internal SQL or server CPU
+fell. Use the server lane's nested statement statistics for that distinction and
+complete quiet requests for the latency result.
+
 Quiet results and each diagnostic lane remain separate requests. Disjoint wall
 accounting reconciles each diagnostic to its own root interval, retains overlaps
 and unexplained time, and does not label residual wall as CPU. Sampling is not
@@ -436,6 +521,13 @@ Run the deterministic SDK and connected-owner suite from the workspace root:
 ```sh
 pnpm exec vitest run --config packages/executor/test/performance/measurement/vitest.config.ts
 ```
+
+The connected mixed-request observer proof in `integration.test.ts` uses
+`FLAREX_MEASUREMENT_INTEGRATION=1`; additionally set
+`FLAREX_MEASUREMENT_POSTGRES=1` and the actual PostgreSQL fixture endpoints to
+exercise both databases. It checks the replacement acceptance/materialization
+producers, actual driver correlation and complete request accounting. A default
+SDK run that skips these fixtures does not prove the connected observer path.
 
 Actual requests are explicitly gated so this suite does not start framework or
 database fixtures by default. Set `FLAREX_MEASUREMENT_INTEGRATION` to one of

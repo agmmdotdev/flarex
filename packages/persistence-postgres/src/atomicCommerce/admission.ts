@@ -6,7 +6,7 @@ import { commerceBindings, bindingInstallationReference } from "../frameworkSche
 import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
-import type { ApplicationBindingInput } from "../applicationActivation";
+import type { ApplicationBindingInput, ApplicationBindingObservation } from "../applicationActivation";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../scopeClock";
@@ -26,6 +26,7 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction,
   authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   work: (admissions: readonly AtomicCommerceAdmission[]) => Effect.Effect<Value, CommerceTransactionError>,
+  observation?: ApplicationBindingObservation,
 ): Effect.fn.Return<Value, CommerceTransactionError> {
   const current = yield* readBindingHead(tx, authority, "none").pipe(Effect.mapError(projectCommerceRequestFailure));
   if (Option.isNone(current)) return yield* Effect.fail(commerceError("bindingChanged"));
@@ -40,18 +41,19 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
   }))) return yield* Effect.fail(commerceError("bindingChanged"));
   const visit = Effect.fn("AtomicCommerce.admitNext")(function* (
     index: number, admitted: readonly AtomicCommerceAdmission[], logicalTables: ReadonlySet<CatalogTableId>,
+    currentObservation?: ApplicationBindingObservation,
   ): Effect.fn.Return<Value, CommerceTransactionError> {
     const member = members[index];
     if (member === undefined) return yield* work(admitted);
     if (member.kind === "logical") return yield* member.prepared.withAdmission(selection, tx, authority, clock,
-      admission => Effect.gen(function* () {
+      (admission, accepted) => Effect.gen(function* () {
         const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
         if (state.tables.some(table => logicalTables.has(table.tableId)))
           return yield* Effect.fail(commerceError("unsupportedProfile"));
         yield* requireLogicalCommerceInitialization(admission, tx, member.descriptor.initialization);
         return yield* visit(index + 1, [...admitted, { kind: "logical", admission }],
-          new Set([...logicalTables, ...state.tables.map(table => table.tableId)]));
-      })).pipe(
+          new Set([...logicalTables, ...state.tables.map(table => table.tableId)]), accepted);
+      }), currentObservation).pipe(
         Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
     const group = [member];
     let next = index + 1;
@@ -64,8 +66,8 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
       next++;
     }
     return yield* withCommerceInstallationAdmissions(group.map(value => value.profile), target, member.reference, selection, tx, authority, clock, false, member.prepared,
-      admissions => visit(next, [...admitted, ...admissions.map(admission => ({ kind: "physical" as const, admission }))], logicalTables)).pipe(
+      (admissions, accepted) => visit(next, [...admitted, ...admissions.map(admission => ({ kind: "physical" as const, admission }))], logicalTables, accepted), currentObservation).pipe(
         Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
   });
-  return yield* visit(0, [], new Set());
+  return yield* visit(0, [], new Set(), observation);
 });

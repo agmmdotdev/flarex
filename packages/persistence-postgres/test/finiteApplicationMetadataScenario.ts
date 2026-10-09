@@ -1,3 +1,4 @@
+import { isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 import { createHash, randomUUID } from "node:crypto";
 import { Effect, Exit, Result, Scope, Tracer } from "effect";
 import { expect, vi } from "vitest";
@@ -6,7 +7,8 @@ import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analys
 import { createMixedMutationPerformanceTrace } from "./mixedMutationPerformanceTrace";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { captureFiniteApplicationMetadata, inspectFiniteApplicationMetadata, prepareRetainedApplicationBindingSelection,
-  readCapturedFiniteApplicationMetadata, type AcceptedApplicationBinding, type FiniteApplicationMetadata } from "../src/applicationActivation";
+  readCapturedFiniteApplicationMetadata, readFiniteApplicationStorageCaptureMetadata,
+  type AcceptedApplicationBinding, type FiniteApplicationMetadata } from "../src/applicationActivation";
 import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs,
   withPreparedFiniteApplicationMutationAdmissionInTransaction } from "../src/applicationMutationAdmission";
 import { withApplicationBindingEvidenceInTransaction } from "../src/applicationBindingProjection";
@@ -60,7 +62,7 @@ export async function finiteApplicationMetadataScenario(persistence: PGliteFlare
       maximumValidatorNodes: 32, maximumValidatorDepth: 8, maximumValidatorStringUtf8Bytes: 1024 },
     programInput: { format: "flarex.declarative-program/v1", version: 1,
       schema: { tables: [{ logicalName: "audit", definition: { kind: "appDocument", definitionVersion: 1,
-        documentType: { type: "object", value: { title: { fieldType: { type: "string" }, optional: false } } } } }], indexes: [] },
+        documentType: { type: "object", value: { title: { fieldType: { type: "string" }, optional: false }, bytes: { fieldType: { type: "bytes" }, optional: true } } } } }], indexes: [] },
       modules: [{ modulePath: "functions", functions: [{ exportName: "write", kind: "mutation", visibility: "public",
         argsValidator: { type: "any" }, returnsValidator: null }] }] },
     materializationBudgetInput: { maximumModules: 1, maximumEntryBindings: 1, maximumSourceBytes: 4096,
@@ -134,16 +136,56 @@ export async function finiteApplicationMetadataScenario(persistence: PGliteFlare
       const selector = inspectFiniteApplicationMetadata(metadata, root);
       if (selector === null) throw new Error("Missing reservation selector");
       const detached = Result.getOrThrow(readCapturedFiniteApplicationMetadata(metadata, root));
+      const captureProjection = Result.getOrThrow(readFiniteApplicationStorageCaptureMetadata(metadata, root));
+      expect(Object.isFrozen(captureProjection)).toBe(true);
+      expect(Result.getOrThrow(readFiniteApplicationStorageCaptureMetadata(metadata, root))).toBe(captureProjection);
       detached.basis.headSha256.fill(0); detached.basis.activationSha256.fill(0);
       expect(inspectFiniteApplicationMetadata(metadata, root)).toEqual(selector);
-      for (const [input, attempt] of [[new Proxy(metadata, {}), root], [metadata, new Proxy(root, {})]] as const)
+      expect(Result.getOrThrow(readFiniteApplicationStorageCaptureMetadata(metadata, root))).toBe(captureProjection);
+      expect(captureProjection.headSha256).toBe(selector.headSha256);
+      for (const [input, attempt] of [[new Proxy(metadata, {}), root], [metadata, new Proxy(root, {})]] as const) {
         expect(Result.isFailure(readCapturedFiniteApplicationMetadata(input, attempt))).toBe(true);
+        expect(Result.isFailure(readFiniteApplicationStorageCaptureMetadata(input, attempt))).toBe(true);
+      }
       const spans: string[] = [];
       const tracer = Tracer.make({ span(span) { spans.push(span.name); return new Tracer.NativeSpan(span); } });
       const first = await runEffect(Effect.fromResult(readCapturedFiniteApplicationMetadata(metadata, root)).pipe(Effect.provideService(Tracer.Tracer, tracer)));
       expect(first.basis.deploymentId).toBe(deploymentId);
       expect(inspectFiniteApplicationMetadata(metadata, root)?.schemaVersionId).toBe(prepared.basis.schemaVersionId);
       expect(spans).not.toContain("ApplicationActivation.readLegacyTransaction");
+      if (!options.ownershipSuccessor) {
+        const audit = await runEffect(store.resolvePointTableEffect(root, "audit"));
+        const validator = await runEffect(Scope.provide(deriveApplicationSyscallValidator({ scopeId: anchor.scopeId,
+          schemaVersionId: prepared.basis.schemaVersionId, schemaManifest: confirmed.schemaManifest }), scope));
+        const request = { kind: "insert" as const, syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { title: "owned", bytes: new Uint8Array([1, 2, 3]).buffer } };
+        const inserted = await runEffect(store.runPointOperationEffect(audit, request, validator));
+        if (inserted.kind !== "completed" || inserted.outcome.kind !== "inserted") throw new Error("Missing finite insert");
+        const documentId = inserted.outcome.documentId;
+        const tamper = (document: CanonicalFlarexRuntimeValueV1) => {
+          if (!isCanonicalFlarexRuntimeObjectV1(document) || !(document.bytes instanceof ArrayBuffer))
+            throw new Error("Missing detached finite document bytes");
+          new Uint8Array(document.bytes).fill(0);
+          Reflect.set(document, "title", "escaped");
+        };
+        tamper(inserted.outcome.document);
+        new Uint8Array(request.fields.bytes).fill(9);
+        const get = { kind: "get" as const, syscallSequence: CommitSyscallSequenceV1Schema.make(2n), documentId };
+        const first = await runEffect(store.runPointOperationEffect(audit, get, validator));
+        expect(first).toMatchObject({ kind: "completed", delivery: "executed",
+          outcome: { kind: "present", document: { title: "owned", bytes: new Uint8Array([1, 2, 3]).buffer } } });
+        if (first.kind !== "completed" || first.outcome.kind !== "present") throw new Error("Missing finite read");
+        tamper(first.outcome.document);
+        const replay = await runEffect(store.runPointOperationEffect(audit, get, validator));
+        expect(replay).toMatchObject({ kind: "completed", delivery: "replayed",
+          outcome: { kind: "present", document: { title: "owned", bytes: new Uint8Array([1, 2, 3]).buffer } } });
+        if (replay.kind !== "completed" || replay.outcome.kind !== "present") throw new Error("Missing finite replay");
+        tamper(replay.outcome.document);
+        expect(await runEffect(store.runPointOperationEffect(audit,
+          { ...get, syscallSequence: CommitSyscallSequenceV1Schema.make(3n) }, validator)))
+          .toMatchObject({ kind: "completed", outcome: { kind: "present",
+            document: { title: "owned", bytes: new Uint8Array([1, 2, 3]).buffer } } });
+      }
       if (options.ownershipSuccessor) {
         const prior = await runEffect(application.activation.readActive());
         const policy = await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration);
@@ -218,6 +260,7 @@ export async function finiteApplicationMetadataScenario(persistence: PGliteFlare
       }
       await runEffect(bindingHost.close);
       expect(Result.isFailure(readCapturedFiniteApplicationMetadata(metadata, root))).toBe(true);
+      expect(Result.isFailure(readFiniteApplicationStorageCaptureMetadata(metadata, root))).toBe(true);
     } finally { await runEffect(bindingHost.close); }
   } finally { await runEffect(closeHost); await runEffect(Scope.close(scope, Exit.succeed(undefined))); await loader.dispose(); }
 }

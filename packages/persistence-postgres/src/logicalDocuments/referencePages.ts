@@ -334,7 +334,7 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
     const associateRow = desired.has(key);
     if (!associateRow && native[input.sourceColumn] !== input.targetKey) continue;
     const selectedRow = Object.freeze({ key, rowId: change.rowId,
-      commitSeq: change.dependency.observed.kind === "present" ? change.dependency.observed.revisionCommitSeq : null });
+      commitSeq: change.dependency.kind === "appRowPoint" && change.dependency.observed.kind === "present" ? change.dependency.observed.revisionCommitSeq : null });
     (associateRow ? associate : detach).push(selectedRow);
     const updated = yield* Effect.fromResult(policy.normalize({ [input.sourceColumn]: associateRow ? input.targetKey : null }, native,
       timestamp.toISOString()).pipe(Result.mapError(cause => input.error("storedCorruption", cause))));

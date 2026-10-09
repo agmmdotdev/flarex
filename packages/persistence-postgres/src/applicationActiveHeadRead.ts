@@ -33,8 +33,9 @@ import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuar
   authenticateProtectedTargetMetadataSnapshot,
   type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
 import type { PreparedHostPreparationCharge } from "./preparedHostRuntime";
-import type { ApplicationActiveSelectionBasis } from "./applicationActivation";
+import type { ApplicationActiveSelectionBasis, ApplicationBindingObservation } from "./applicationActivation";
 import { readFiniteEntryApplicationObservation, type FiniteEntryObservation } from "./finiteEntryObservation";
+import { observeExecution } from "./executionDiagnostics/operation";
 
 const UTF8 = new TextEncoder();
 const MAX_FRAME_BYTES = 1_048_576;
@@ -150,7 +151,8 @@ export const decodeCapturedApplicationActivationRowEffect = Effect.fn("Applicati
 });
 
 declare const checkedActiveHeadBrand: unique symbol;
-/** A positive, locked observation issued only by the active-head reader. */
+/** A locked head observation. The original issuer records whether complete
+ * activation coherence has been established; this handle alone is not readiness. */
 export interface CheckedApplicationActiveHead {
   readonly [checkedActiveHeadBrand]: true;
 }
@@ -158,11 +160,30 @@ export interface CheckedApplicationActiveHead {
 type CheckedActiveHeadState = {
   readonly tx: AppRowTransaction;
   readonly clock: ScopeClockRecord;
-  readonly active: CoherentApplicationActiveHead;
+  readonly head: DecodedApplicationActiveHead;
+  active?: CoherentApplicationActiveHead;
   schema?: Effect.Success<ReturnType<typeof readApplicationSchemaForHeadForShareInTransactionEffect>>;
   preparation?: ApplicationActiveHeadPreparationState;
 };
-const checkedActiveHeads = new WeakMap<CheckedApplicationActiveHead, CheckedActiveHeadState>();
+const checkedActiveHeads = new WeakMap<object, CheckedActiveHeadState>();
+
+export function isCheckedApplicationActiveHead(observation: ApplicationBindingObservation): observation is CheckedApplicationActiveHead {
+  return checkedActiveHeads.has(observation);
+}
+
+/** Ordinary entry owns only the head lock/decoder. Activation restoration stays
+ * at the original accepting source's readiness position. */
+export const readCheckedApplicationActiveHeadForShareInTransactionEffect = Effect.fnUntraced(function* (
+  tx: AppRowTransaction, clock: ScopeClockRecord, onIssued: (checked: CheckedApplicationActiveHead) => void,
+) {
+  const head = yield* readApplicationActiveHeadInTransaction(tx, clock.scopeId, true);
+  if (head === null) return null;
+  // SAFETY: membership and the private phase are established only by this issuer.
+  const checked = Object.freeze({}) as CheckedApplicationActiveHead;
+  checkedActiveHeads.set(checked, { tx, clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) }, head: structuredClone(head) });
+  onIssued(checked);
+  return Object.freeze({ head, checked });
+}, work => observeExecution("ApplicationActiveHead.readCheckedHeadForShare", work));
 
 declare const preparedHeadStructureBrand: unique symbol;
 export interface PreparedApplicationActiveHeadStructure { readonly [preparedHeadStructureBrand]: true }
@@ -213,6 +234,7 @@ export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect
   checkedActiveHeads.set(checked, {
     tx,
     clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) },
+    head: structuredClone(active.head),
     // The issuer's copy cannot be changed through the validated basis or a coverage context.
     active: structuredClone(active),
     ...(matchingPreparation === undefined ? {} : { preparation: matchingPreparation }),
@@ -228,6 +250,17 @@ export function readCheckedApplicationActiveHead(
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
 ): Result.Result<"refresh" | CoherentApplicationActiveHead, ApplicationActiveHeadStateError> {
+  return Result.gen(function* () {
+    const state = yield* readCheckedActiveHeadState(checked, tx, clock);
+    if (state === "refresh") return "refresh" as const;
+    if (state.active === undefined)
+      return yield* Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }));
+    return structuredClone(state.active);
+  });
+}
+
+function readCheckedActiveHeadState(checked: CheckedApplicationActiveHead, tx: AppRowTransaction,
+  clock: ScopeClockRecord): Result.Result<"refresh" | CheckedActiveHeadState, ApplicationActiveHeadStateError> {
   const state = checkedActiveHeads.get(checked);
   if (state === undefined || state.tx !== tx || state.clock.scopeId !== clock.scopeId ||
     state.clock.storageGeneration !== clock.storageGeneration ||
@@ -241,8 +274,30 @@ export function readCheckedApplicationActiveHead(
   if (state.clock.lastCommitSeq !== clock.lastCommitSeq ||
     state.clock.oldestAvailableCommitSeq !== clock.oldestAvailableCommitSeq ||
     state.clock.updatedAt.getTime() !== clock.updatedAt.getTime()) return Result.succeed("refresh");
-  return Result.succeed(structuredClone(state.active));
+  return Result.succeed(state);
 }
+
+/** Completion authenticates the same transaction/clock loan and uses its exact
+ * decoded locked head, without a second head query or an early activation read. */
+export const completeCheckedApplicationActiveHeadInTransactionEffect = Effect.fnUntraced(function* (
+  checked: CheckedApplicationActiveHead, tx: AppRowTransaction, clock: ScopeClockRecord,
+  prepared?: PreparedApplicationActiveHeadStructure,
+) {
+  const state = yield* Effect.fromResult(readCheckedActiveHeadState(checked, tx, clock));
+  if (state === "refresh") return "refresh" as const;
+  if (state.active === undefined) {
+    const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx) ? undefined : preparedHeadStructures.get(prepared);
+    if (prepared !== undefined && hasProtectedMetadataFinalGuardScope(tx) && preparation === undefined) return yield* storedState();
+    if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
+      preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
+      Effect.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })));
+    const active = yield* readCoherentApplicationActiveHeadInTransaction(tx, clock.scopeId, true, preparation, undefined, state.head);
+    if (active === null) return yield* storedState(state.head.revisionId);
+    state.active = structuredClone(active);
+    if (preparation !== undefined && preparedHeadMatchesSelection(active.head, preparation)) state.preparation = preparation;
+  }
+  return structuredClone(state.active);
+}, work => observeExecution("ApplicationActiveHead.completeCheckedHead", work));
 
 export function releaseCheckedApplicationActiveHead(checked: CheckedApplicationActiveHead | undefined): void {
   if (checked !== undefined) checkedActiveHeads.delete(checked);
@@ -494,9 +549,8 @@ export const readCoherentApplicationActiveHeadInTransactionEffect = Effect.fn(
   scopeId: TrustedScopeAuthority["scopeId"],
 ) => readCoherentApplicationActiveHeadInTransaction(tx, scopeId, false));
 
-const readApplicationActiveHeadInTransaction = Effect.fn(
-  "ApplicationActiveHead.readInOwnedTransaction",
-)(function* (
+// The SDK diagnostic policy observes this stable shared operation explicitly.
+const readApplicationActiveHeadInTransaction = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   scopeId: TrustedScopeAuthority["scopeId"],
   lockForShare: boolean,
@@ -515,22 +569,21 @@ const readApplicationActiveHeadInTransaction = Effect.fn(
   return head.scopeId === scopeId
     ? head
     : yield* storedState(head.revisionId);
-});
+}, work => observeExecution("ApplicationActiveHead.readInOwnedTransaction", work));
 
-const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
-  "ApplicationActiveHead.readCoherentInOwnedTransaction",
-)(function* (
+const readCoherentApplicationActiveHeadInTransaction = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   scopeId: TrustedScopeAuthority["scopeId"],
   lockForShare: boolean,
   preparation?: ApplicationActiveHeadPreparationState,
   capturedHead?: Readonly<{ row: typeof fxSystemApplicationActiveHeads.$inferSelect | null }>,
+  decodedHead?: DecodedApplicationActiveHead,
 ): Effect.fn.Return<
   CoherentApplicationActiveHead | null,
   ApplicationActiveHeadStateError
 > {
-  const head = capturedHead === undefined ? yield* readApplicationActiveHeadInTransaction(tx, scopeId, lockForShare)
-    : capturedHead.row === null ? null : yield* decodeApplicationActiveHeadRowEffect(capturedHead.row);
+  const head = decodedHead ?? (capturedHead === undefined ? yield* readApplicationActiveHeadInTransaction(tx, scopeId, lockForShare)
+    : capturedHead.row === null ? null : yield* decodeApplicationActiveHeadRowEffect(capturedHead.row));
   if (head === null) return null;
   if (head.scopeId !== scopeId) return yield* storedState(head.revisionId);
   // Preserve the owning Application selection's concurrent-head failure order.
@@ -559,7 +612,7 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
   }
   yield* retainCoherentApplicationHeadPreparation(tx, head, activation, preparation);
   return Object.freeze({ head, activation });
-});
+}, work => observeExecution("ApplicationActiveHead.readCoherentInOwnedTransaction", work));
 
 export const decodeApplicationMaterializationObservation = Effect.fn("ApplicationActiveHead.decodeMaterializationObservation")(
   function* (tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"], captured: Readonly<{

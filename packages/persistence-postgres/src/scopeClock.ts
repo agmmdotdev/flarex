@@ -136,8 +136,8 @@ export const lockScopeExecutionAuthorityInTransactionEffect = Effect.fn("ScopeCl
       new ScopeClockCorruptionError(scopeId, "execution authority is invalid", { cause }))));
   });
 
-/** Issued only by the exact-running kernel after its live checks, while its
- * stronger clock lock is held. This observation never crosses transactions. */
+/** Issued by the exact-running kernel or native writer clock owner after live
+ * row checks, while its stronger lock is held. It never crosses transactions. */
 const exactAttemptClockObservations = new WeakMap<FlarexMetadataTransaction, Readonly<{
   clock: ScopeClockRecord;
   revocation: TransactionAuthorizationRevocationEpoch;
@@ -482,7 +482,18 @@ export const lockScopeClockForUpdateInTransactionEffect = Effect.fn(
   LockScopeClockForUpdateError
 > {
   const row = yield* lockScopeClockRowForUpdateInTransactionEffect(db, scopeId);
-  return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
+  const clock = yield* Effect.fromResult(decodeScopeClockRecordResult(row));
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(clock.scopeId)).pipe(
+    Effect.mapError(cause => new ScopeClockCorruptionError(scopeId, "scope identity does not project", { cause })));
+  const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(clock.epoch)).pipe(
+    Effect.mapError(cause => new ScopeClockCorruptionError(scopeId, "epoch identity does not project", { cause })));
+  if (row.scopeUuid !== scope.scopeUuid || row.epochUuid !== epoch.epochUuid)
+    return yield* Effect.fail(new ScopeClockCorruptionError(scopeId, "clock row identities disagree"));
+  const revocation = yield* Effect.fromResult(decodeScopeAuthorizationRevocationEpochResult(scopeId, row.authorizationRevocationEpoch));
+  // Only this public data-clock owner issues writer evidence. The private row
+  // lock also serves revocation mutations and must keep prior evidence closed.
+  openExactAttemptScopeClockObservation(db, clock, revocation, "attempt");
+  return clock;
 });
 
 const lockScopeClockRowForUpdateInTransactionEffect = Effect.fn(

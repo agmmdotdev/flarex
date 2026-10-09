@@ -21,27 +21,26 @@ import {
   type CmsTransactionError,
 } from "../src/cmsTransaction/model";
 import {
-  prepareCmsApplication,
+  prepareCmsApplicationFromBinding,
+  requirePreparedCmsApplication,
   withCmsAdmission,
   requireCmsAdmission,
 } from "../src/cmsTransaction/admission";
 import {
   prepareApplicationDocumentParticipant,
   enterApplicationDocumentParticipant,
+  readPreparedApplicationDocumentParticipant,
 } from "../src/applicationDocumentMaterialization/participant";
 import { makeCmsRequestLifetime } from "../src/cmsTransaction/lifetime";
 import { capturePrivateJsonData } from "../src/privateJsonData";
 import {
-  captureExactTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityByIdEffect,
-} from "../src/scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../src/transactionSessionAttemptKernel";
-import {
   hasRelationalSessionDatabase,
   runRelationalSession,
+  readRelationalSessionCoLocatedInstallation,
+  startRelationalRequestDeadline,
+  boundRelationalRequestDeadline,
 } from "../src/relationalTransaction/session";
 import { runWithRequestRecovery } from "../src/relationalTransaction/requestRecovery";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import { createCommittedPointOutcomeResolverV1 } from "../src/committedPointOutcome";
 import {
@@ -56,10 +55,11 @@ import {
   ce0PersistenceStep as persistenceStep,
   projectCe0CmsRequestFailure as projectFailure,
 } from "./ce0CmsReferencePersistence";
-import { prepareCe0FirstInsertMaterialization } from "./ce0FirstInsertMaterialization";
+import { prepareCe0FirstInsertMaterialization, type Ce0FirstInsertMaterializationOptions } from "./ce0FirstInsertMaterialization";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { LogicalDocumentChange } from "../src/logicalDocuments/workingSet";
 import { makeCe0FirstInsertDocuments } from "./ce0FirstInsertDocuments";
+import { prepareCurrentApplicationBinding, hasApplicationBindingComposition } from "../src/applicationActivation";
 import {
   writeCe0PublicationReference,
   advanceCe0PublicationReference,
@@ -96,7 +96,8 @@ const hash = (bytes: Uint8Array) =>
  * This incremental reference supplies no complete CE0 timing claim. */
 type ReferenceInput<Failure> = Pick<CmsHostInput<Failure>,
   "hostRuntime" | "database" | "controlDatabase" | "session" | "deploymentId" | "scopeId" |
-  "authority" | "pointCommitAuthority" | "application" | "identityAndAccessPolicy" | "materialization">;
+  "authority" | "pointCommitAuthority" | "application" | "identityAndAccessPolicy" | "materialization"> &
+  Readonly<{ referenceMaterialization?: Ce0FirstInsertMaterializationOptions }>;
 
 export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(function* <Failure>(input: ReferenceInput<Failure>) {
   const measurement = { executions: 0 };
@@ -124,10 +125,10 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
     } = input;
     if (!hasRelationalSessionDatabase(session, database))
       return yield* Effect.fail(cmsError("invalidAuthority"));
-    const compositionAuthority = input.authority;
-    const authority =
-      captureExactTrustedScopeAuthorityResolutionPorts(compositionAuthority);
+    if (!hasApplicationBindingComposition(application, input.authority))
+      return yield* Effect.fail(cmsError("invalidAuthority"));
     const options = Object.freeze({ ...input.materialization });
+    const referenceOptions = Object.freeze({ ...input.referenceMaterialization });
     const identity = yield* Effect.fromResult(
       capturePrivateJsonData(
         input.identityAndAccessPolicy,
@@ -144,9 +145,19 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
     yield* chargeHostPreparation({ deploymentId, identityDigest, commands: ["measuredInsert"] })
       .pipe(Effect.mapError(projectFailure));
     const owner = Object.freeze({ hostId: Symbol("ce0.cms.reference") });
-    const prepared = yield* prepareCmsApplication(
-      application, compositionAuthority, controlDatabase, deploymentId, scopeId,
-    ).pipe(Effect.mapError(projectFailure));
+    const currentPreparation = yield* prepareCurrentApplicationBinding(application, database, (selection, context) => Effect.gen(function* () {
+      const prepared = yield* prepareCmsApplicationFromBinding(selection, controlDatabase, deploymentId, scopeId);
+      const preparation = yield* requirePreparedCmsApplication(prepared);
+      if (preparation.schema.relations.length !== 0 || context.planningHead === undefined)
+        return yield* Effect.fail(cmsError("unsupportedProfile"));
+      const participant = yield* prepareApplicationDocumentParticipant(preparation.schema, controlDatabase, context.authority,
+        pointCommitAuthority, options, [...preparation.tableIds], { intrinsic: preparation.intrinsicDefinitions, developer: preparation.indexDefinitions,
+          unique: preparation.uniqueDefinitions, relations: preparation.relations, planningHead: context.planningHead }).pipe(
+        Effect.catchTag("LogicalDocumentMaterializationError", error => Effect.fail(cmsError(error.reason, error.cause))));
+      const participantState = yield* readPreparedApplicationDocumentParticipant(participant);
+      return { prepared, participant, participantState };
+    }), { installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)),
+      candidateIssuer: pointCommitAuthority });
     const run = Effect.fn("Ce0CmsReference.run")(function* (
       requestKey: string,
       args: Json,
@@ -169,49 +180,24 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
       const requestIdentity = Object.freeze({
         requestId: Symbol("ce0.cms.request"),
       });
+      const deadline = yield* startRelationalRequestDeadline(cmsLimits.commandMs).pipe(Effect.mapError(projectFailure));
       const attempt = Effect.fn("Ce0CmsReference.attempt")(function* (
         recoverOnly: boolean,
       ) {
-        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
-          { deploymentId, scopeId },
-          authority,
-        );
-        if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
-          return yield* Effect.fail(cmsError("invalidAuthority"));
-        if (prepared.schema.relations.length !== 0)
-          return yield* Effect.fail(cmsError("unsupportedProfile"));
-        const participant = yield* prepareApplicationDocumentParticipant(
-          prepared.schema,
-          controlDatabase,
-          located.authority,
-          pointCommitAuthority,
-          options,
-          prepared.schema.writePolicy?.writePolicies
-            .filter((policy) => policy.owner === "payload")
-            .map((policy) => policy.tableId) ?? [],
-        ).pipe(
-          Effect.catchTag("LogicalDocumentMaterializationError", (error) =>
-            Effect.fail(cmsError(error.reason, error.cause)),
-          ),
-        );
-        return yield* runRelationalSession(session, "command", (tx) =>
-          Effect.scoped(
-            Effect.gen(function* () {
+        return yield* currentPreparation.withEntry(({ payload: { prepared, participant, participantState } }, enter) =>
+          runRelationalSession(session, "command", { enter: (tx, requireInstallation) =>
+            enter(tx, requireInstallation, Effect.gen(function* () {
               yield* runDrizzleStatementEffect(
                 tx.execute(
                   sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`,
                 ),
                 (cause) => cmsError("statementFailure", cause),
               );
-              const clock =
-                yield* lockScopeClockForOrdinaryWriteInTransactionEffect(
-                  tx,
-                  located.authority.scopeId,
-                );
+            }), ({ clock, authority: entryAuthority, checked }) => Effect.scoped(Effect.gen(function* () {
               return yield* withCmsAdmission(
                 prepared,
                 tx,
-                located.authority,
+                entryAuthority,
                 clock,
                 (admission) =>
                   Effect.gen(function* () {
@@ -224,7 +210,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                       return yield* Effect.fail(cmsError("unsupportedProfile"));
                     }
                     const scope = yield* Effect.fromResult(
-                      projectScopeIdUuidV1Result(located.authority.scopeId),
+                      projectScopeIdUuidV1Result(entryAuthority.scopeId),
                     );
                     const epoch = yield* Effect.fromResult(
                       projectScopeEpochUuidV1Result(clock.epoch),
@@ -234,7 +220,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                         domain: "flarex.private.cms-command",
                         version: 1,
                         deploymentId,
-                        scopeId: located.authority.scopeId,
+                        scopeId: entryAuthority.scopeId,
                         epoch: clock.epoch,
                         storageGeneration: clock.storageGeneration,
                         fence: clock.storageGenerationFence.toString(),
@@ -286,7 +272,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                           ? yield* enterApplicationDocumentParticipant(
                               participant,
                               tx,
-                              located.authority,
+                              entryAuthority,
                               clock,
                               state.schema,
                             ).pipe(
@@ -305,8 +291,9 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                           : yield* prepareCe0FirstInsertMaterialization(
                               tx,
                               participant,
-                              located.authority,
+                              entryAuthority,
                               clock,
+                              referenceOptions,
                             );
                       const working =
                         insertCount === 0
@@ -318,7 +305,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                               AppCreationTimeV1Schema.make(
                                 yield* Clock.currentTimeMillis,
                               ),
-                              participant.unique,
+                              participantState.unique,
                             );
                       // Match the root invocation capture and accounting.
                       const child = yield* Effect.fromResult(
@@ -455,17 +442,15 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                       );
                       return result.valueJson;
                     }).pipe(Effect.ensuring(lifetime.close));
-                  }),
+                  }), undefined, checked,
               );
-            }),
-          ),
-        );
+            })), "ordinaryWrite") }, deadline));
       });
-      return yield* runWithRequestRecovery(attempt, {
+      return yield* boundRelationalRequestDeadline(deadline, runWithRequestRecovery(attempt, {
         hasRequestKey: true,
         projectFailure,
         isDecisionUncertain: (error) => error.reason === "decisionUncertain",
-      });
+      })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
     });
     return Object.freeze({ run });
   },

@@ -9,6 +9,7 @@ import ts from "@typescript/typescript6";
  * @typedef {{
  *   namespaces: Set<string>;
  *   runPromise: Set<string>;
+ *   runPromiseWith: Set<string>;
  *   runPromiseExit: Set<string>;
  *   runPromiseExitWith: Set<string>;
  *   runSync: Set<string>;
@@ -23,6 +24,7 @@ import ts from "@typescript/typescript6";
  * @typedef {{
  *   runSyncMatches: string[];
  *   runPromiseSiteCounts: Map<string, number>;
+ *   runPromiseWithSiteCounts: Map<string, number>;
  *   runPromiseExitSiteCounts: Map<string, number>;
  *   runPromiseExitWithSiteCounts: Map<string, number>;
  *   forbiddenAliasMatches: string[];
@@ -33,6 +35,7 @@ import ts from "@typescript/typescript6";
  *   errors: string[];
  *   runSyncMatches: string[];
  *   runPromiseSiteCounts: Map<string, number>;
+ *   runPromiseWithSiteCounts: Map<string, number>;
  *   runPromiseExitSiteCounts: Map<string, number>;
  *   runPromiseExitWithSiteCounts: Map<string, number>;
  *   forbiddenAliasMatches: string[];
@@ -97,10 +100,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.executeQuerySession"), 1],
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
-  [siteKey("packages/medusa-adapter/src/commerce-promise-owner.ts", "run"), 1],
   [siteKey("packages/medusa-adapter/src/currency-service.ts", "promise"), 1],
-  [siteKey("packages/payload-adapter/src/adapter.ts", "run"), 1],
-  [siteKey("packages/payload-adapter/src/adapter.ts", "unsupported"), 1],
   [siteKey("packages/persistence-postgres/src/appSchemaPublication.ts", "runPreparedAppSchemaPublicationTransactionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/appSchemaCandidateValidation.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],
@@ -115,8 +115,6 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/physicalDefinitionLifecycle.ts", "startLocatedTransaction"), 1],
   // Each named transaction callback owns admission and closes it before returning.
   [siteKey("packages/persistence-postgres/src/commitFeed.ts", "captureCommitFeedRows"), 1],
-  // The publication Promise boundary awaits reference validation on its borrowed transaction.
-  [siteKey("packages/persistence-postgres/src/commitPublication/publication.ts", "requireScopePublicationStrongReferences"), 1],
   // Claim-for-commit, claim-batch and settle-claim are distinct transaction callbacks.
   [siteKey("packages/persistence-postgres/src/commitWakeOutbox.ts", "claimForCommit"), 1],
   [siteKey("packages/persistence-postgres/src/commitWakeOutbox.ts", "claimReadyBatch"), 1],
@@ -169,8 +167,6 @@ const allowedRunPromiseExitSites = new Map([
   [siteKey("packages/persistence-postgres/src/applicationActivation.ts", "runLocatedTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/applicationReadiness.ts", "runLocatedTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts", "runEffectInTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/effectTransaction.ts", "runEffectTransactionSettlement"), 1],
-  [siteKey("packages/persistence-postgres/src/locatedReadCommittedEffect.ts", "startLocatedRead"), 1],
   [siteKey("packages/persistence-postgres/src/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
   // Dedicated installation maintenance owns draining and page settlement.
   [siteKey("packages/persistence-postgres/src/postgresInstallationMaintenance.ts", "verifyAndPublish"), 1],
@@ -179,12 +175,27 @@ const allowedRunPromiseExitSites = new Map([
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitWithSites = new Map([
+  // Existing transaction bridges lend only the captured diagnostic policy,
+  // tracer/parent and explicit tracing flags, never business services or Clock.
+  [siteKey("packages/persistence-postgres/src/effectTransaction.ts", "runEffectTransactionSettlement"), 1],
+  [siteKey("packages/persistence-postgres/src/locatedReadCommittedEffect.ts", "startLocatedRead"), 1],
+  [siteKey("packages/persistence-postgres/src/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
   // Physical settlement lends the captured context and bounded cancellation signal.
   [siteKey("packages/persistence-postgres/src/physicalSession/postgres.ts", "runCallbackEffect"), 1],
 ]);
 
-/** @type {Array<"runPromise" | "runPromiseExit" | "runPromiseExitWith" | "runSync">} */
-const runtimeMethods = ["runPromise", "runPromiseExit", "runPromiseExitWith", "runSync"];
+/** @type {Map<string, number>} */
+const allowedRunPromiseWithSites = new Map([
+  // The native framework Promise owner preserves captured tracing and cancellation.
+  [siteKey("packages/medusa-adapter/src/commerce-promise-owner.ts", "run"), 1],
+  // These existing Payload DAL/rollback edges preserve actual invocation
+  // diagnostics and cancellation instead of starting a default runtime.
+  [siteKey("packages/payload-adapter/src/adapter.ts", "run"), 1],
+  [siteKey("packages/payload-adapter/src/adapter.ts", "unsupported"), 1],
+]);
+
+/** @type {Array<"runPromise" | "runPromiseWith" | "runPromiseExit" | "runPromiseExitWith" | "runSync">} */
+const runtimeMethods = ["runPromise", "runPromiseWith", "runPromiseExit", "runPromiseExitWith", "runSync"];
 
 if (isCliEntrypoint()) {
   const productionSourceFiles = Array.from(walk(sourceRoot))
@@ -206,6 +217,7 @@ if (isCliEntrypoint()) {
     console.log("Effect runtime boundary check passed.");
     console.log(`Production Effect.runSync occurrences: 0`);
     console.log(`Allowed production Effect.runPromise sites: ${allowedRunPromiseSites.size}`);
+    console.log(`Allowed production Effect.runPromiseWith sites: ${allowedRunPromiseWithSites.size}`);
     console.log(`Allowed production Effect.runPromiseExit sites: ${allowedRunPromiseExitSites.size}`);
     console.log(`Allowed production Effect.runPromiseExitWith sites: ${allowedRunPromiseExitWithSites.size}`);
   }
@@ -216,14 +228,17 @@ if (isCliEntrypoint()) {
  * @param {Map<string, number>} allowedSites
  * @param {Map<string, number>} allowedExitSites
  * @param {Map<string, number>} allowedExitWithSites
+ * @param {Map<string, number>} allowedWithSites
  * @returns {BoundaryReport}
  */
 export function analyzeEffectRuntimeBoundaries(sources, allowedSites = allowedRunPromiseSites,
-  allowedExitSites = allowedRunPromiseExitSites, allowedExitWithSites = allowedRunPromiseExitWithSites) {
+  allowedExitSites = allowedRunPromiseExitSites, allowedExitWithSites = allowedRunPromiseExitWithSites,
+  allowedWithSites = allowedRunPromiseWithSites) {
   /** @type {BoundaryState} */
   const state = {
     runSyncMatches: [],
     runPromiseSiteCounts: new Map(),
+    runPromiseWithSiteCounts: new Map(),
     runPromiseExitSiteCounts: new Map(),
     runPromiseExitWithSiteCounts: new Map(),
     forbiddenAliasMatches: [],
@@ -271,6 +286,7 @@ export function analyzeEffectRuntimeBoundaries(sources, allowedSites = allowedRu
   }
 
   checkSiteCounts("runPromise", state.runPromiseSiteCounts, allowedSites, errors);
+  checkSiteCounts("runPromiseWith", state.runPromiseWithSiteCounts, allowedWithSites, errors);
   checkSiteCounts("runPromiseExit", state.runPromiseExitSiteCounts, allowedExitSites, errors);
   checkSiteCounts("runPromiseExitWith", state.runPromiseExitWithSiteCounts, allowedExitWithSites, errors);
 
@@ -278,6 +294,7 @@ export function analyzeEffectRuntimeBoundaries(sources, allowedSites = allowedRu
     errors,
     runSyncMatches: state.runSyncMatches,
     runPromiseSiteCounts: state.runPromiseSiteCounts,
+    runPromiseWithSiteCounts: state.runPromiseWithSiteCounts,
     runPromiseExitSiteCounts: state.runPromiseExitSiteCounts,
     runPromiseExitWithSiteCounts: state.runPromiseExitWithSiteCounts,
     forbiddenAliasMatches: state.forbiddenAliasMatches,
@@ -423,8 +440,8 @@ function collectGeneratedTemplateBoundaries(node, ancestors, sourceFile, relativ
  * @param {BoundaryState} state
  */
 function recordPromiseCalls(node, bindings, site, state) {
-  /** @type {Array<["runPromise" | "runPromiseExit" | "runPromiseExitWith", Map<string, number>]>} */
-  const counters = [["runPromise", state.runPromiseSiteCounts], ["runPromiseExit", state.runPromiseExitSiteCounts],
+  /** @type {Array<["runPromise" | "runPromiseWith" | "runPromiseExit" | "runPromiseExitWith", Map<string, number>]>} */
+  const counters = [["runPromise", state.runPromiseSiteCounts], ["runPromiseWith", state.runPromiseWithSiteCounts], ["runPromiseExit", state.runPromiseExitSiteCounts],
     ["runPromiseExitWith", state.runPromiseExitWithSiteCounts]];
   for (const [method, counts] of counters) {
     if (isEffectRuntimeCall(node, method, bindings)) counts.set(site, (counts.get(site) ?? 0) + 1);
@@ -445,7 +462,8 @@ function collectForbiddenEffectAliases(node, sourceFile, relativePath, effectBin
     ? initializer.text
     : undefined;
   const runtimeAlias = runtimeReferenceMethod(initializer, effectBindings) !== undefined ||
-    isEffectRuntimeCall(initializer, "runPromiseExitWith", effectBindings)
+    isEffectRuntimeCall(initializer, "runPromiseExitWith", effectBindings) ||
+    isEffectRuntimeCall(initializer, "runPromiseWith", effectBindings)
     ? initializer.getText(sourceFile) : undefined;
   if (namespaceAlias === undefined && runtimeAlias === undefined) return;
   const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
@@ -466,7 +484,7 @@ function collectForbiddenEffectAliases(node, sourceFile, relativePath, effectBin
 
 /**
  * @param {ts.Node} node
- * @param {"runPromise" | "runPromiseExit" | "runPromiseExitWith" | "runSync"} methodName
+ * @param {"runPromise" | "runPromiseWith" | "runPromiseExit" | "runPromiseExitWith" | "runSync"} methodName
  * @param {EffectBindings} effectBindings
  */
 function isEffectRuntimeCall(node, methodName, effectBindings) {
@@ -483,6 +501,7 @@ function collectEffectBindings(sourceFile) {
   const bindings = {
     namespaces: new Set(),
     runPromise: new Set(),
+    runPromiseWith: new Set(),
     runPromiseExit: new Set(),
     runPromiseExitWith: new Set(),
     runSync: new Set(),
@@ -506,6 +525,7 @@ function collectEffectBindings(sourceFile) {
       const importedName = element.propertyName?.text ?? element.name.text;
       if (importedName === "Effect") bindings.namespaces.add(element.name.text);
       if (importedName === "runPromise") bindings.runPromise.add(element.name.text);
+      if (importedName === "runPromiseWith") bindings.runPromiseWith.add(element.name.text);
       if (importedName === "runPromiseExit") bindings.runPromiseExit.add(element.name.text);
       if (importedName === "runPromiseExitWith") bindings.runPromiseExitWith.add(element.name.text);
       if (importedName === "runSync") bindings.runSync.add(element.name.text);

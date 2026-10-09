@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { awaitEffectTransactionSettlement } from "../../../../persistence-postgres/src/effectTransaction";
 import { maxCorePerformanceSeriesSamples } from "./measurementPlan";
 import { inspect } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
@@ -23,7 +24,7 @@ import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from
   "../../../../persistence-postgres/src/applicationMutationAdmission";
-import { claimApplicationActiveSelection } from "../../../../persistence-postgres/src/applicationActivation";
+import { claimApplicationActiveSelection, prepareCurrentApplicationBinding, type CurrentApplicationFiniteEntry } from "../../../../persistence-postgres/src/applicationActivation";
 import { prepareLogicalRelationalAdmission } from
   "../../../../persistence-postgres/src/logicalDocuments/relationalAdmission";
 import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from
@@ -37,7 +38,7 @@ import { createPointMutationExecutionClaimLivenessV1 } from
 import { createSessionJournalStorePersistence, readFrozenFiniteAttempt } from
   "../../../../persistence-postgres/src/sessionJournalStore";
 import { preparedFiniteEntries } from "../../../../persistence-postgres/src/sessionJournalFiniteEntry";
-import type { LogicalParticipantBorrow } from
+import type { LogicalParticipantBorrow, SessionJournalAttempt } from
   "@flarex/persistence-postgres/session-journal-store";
 import type { PerformanceSettlementLedger } from "./mixedMutationMeasurementContracts";
 import { traceMixedMutationEffect, type MixedMutationEffectDiagnostics } from "./measurement";
@@ -127,7 +128,7 @@ import { CmsTransactionError } from
 import { prepareLogicalDocumentSourceAdmission } from
   "@flarex/persistence-postgres/internal/logical-document-admission";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
-import { makePayloadRuntime } from "@flarex/payload-adapter/internal/runtime";
+import { makePayloadRuntime, type PayloadAttemptRuntime } from "@flarex/payload-adapter/internal/runtime";
 import { projectPayloadParticipantFailure } from "@flarex/payload-adapter/internal/participant";
 import {
   mixedPayloadPostsCollections,
@@ -194,11 +195,14 @@ export interface MixedMutationFinalEntryTestContext {
   readonly currency: CurrencyFixture;
   readonly product: ProductFixture;
   readonly store: ReturnType<typeof createSessionJournalStorePersistence>;
+  readonly sourceCatalog: PreparedLogicalStorageCatalog;
+  readonly preparedFiniteApplication: Result.Result.Success<ReturnType<typeof readPreparedFiniteApplicationMutationInputs>>["application"];
 }
 type PricingFixture = Awaited<ReturnType<typeof prepareLogicalPricingHost>>;
 type LinkFixture = Awaited<ReturnType<typeof prepareLogicalVariantPricingLinkHost>>;
 type ProductSeed = Awaited<ReturnType<typeof seedNativeProductAttemptGraph>>;
-type MixedPayloadConformanceRuntime = Effect.Success<ReturnType<typeof makeMixedPayloadSuccessRuntime>>;
+type MixedPayloadNativeRuntime = Effect.Success<ReturnType<typeof makeMixedPayloadSuccessRuntime>>;
+type MixedPayloadConformanceRuntime = Effect.Success<ReturnType<MixedPayloadNativeRuntime["makeAttempt"]>>;
 export type MixedPayloadProfileKind = "ordinary" | "success" | "caughtFailure" | "denied" | "promisedId" |
   "foreignId" | "removedId" | "unresolvedId" | "inspection";
 const ordinaryPayloadRevision = createHash("sha256").update(
@@ -250,7 +254,7 @@ export interface MixedMutationProductFixture {
   readonly active: Pick<Effect.Success<ReturnType<CurrencyFixture["application"]["activation"]["readActive"]>>, "selection" | "basis">;
   readonly activation: CreatedActivation;
   readonly replayFiniteActivation: () => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError>;
-  readonly activateCompetingFiniteRequest: (suffix: string) => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError>;
+  readonly activateCompetingFiniteRequest: (suffix: string) => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError | PreparedHostRuntimeError>;
   /** A distinct genuine attempt over this fixture's retained context and seed. */
   readonly openCompetingFiniteFixture: (suffix: string) => Promise<MixedMutationProductFixture>;
   readonly prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>;
@@ -306,7 +310,7 @@ export interface MixedMutationProductFixture {
   readonly participantAuthority: ReturnType<Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>["createCommitAuthority"]>;
   readonly pointCommitPorts: CurrencyFixture["application"]["sessionAuthority"];
   readonly makePublisher: () => ReturnType<typeof createPointCommitPublisherPortV1>;
-  readonly reconstructApplicationAdmission: () => Promise<void>;
+  readonly preparedFiniteApplication: Result.Result.Success<ReturnType<typeof readPreparedFiniteApplicationMutationInputs>>["application"];
   readonly preparePublication: (returnedValue: unknown,
     publisherOverride?: ReturnType<typeof createPointCommitPublisherPortV1>) =>
     Promise<ReturnType<AuthenticatedFiniteInitialEntry["settleFiniteCommit"]>>;
@@ -417,18 +421,28 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
       `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}`).digest("hex");
   const compiledPayload = selectedPayload === undefined ? undefined :
     await Effect.runPromise(compilePayloadCollections(mixedPayloadPostsCollections()));
+  let retainedPayload: MixedPayloadNativeRuntime | Effect.Success<ReturnType<typeof makePayloadRuntime>> | undefined;
+  if (selectedPayload !== undefined && compiledPayload !== undefined) {
+    const nativeScope = await Effect.runPromise(Scope.make());
+    cleanup.push(() => Effect.runPromise(Scope.close(nativeScope, Exit.succeed(undefined))));
+    const construction: Effect.Effect<MixedPayloadNativeRuntime |
+      Effect.Success<ReturnType<typeof makePayloadRuntime>>, CmsTransactionError, Scope.Scope> = selectedPayload.make(compiledPayload);
+    retainedPayload = await Effect.runPromise(Scope.provide(nativeScope)(construction));
+  }
   const revision = createHash("sha256").update("mixed-product-workerd-events").digest("hex");
   const sourceGraph = await Effect.runPromise(retainPreparedHost(preparedHostTestRuntime(currency.persistence.drizzle),
     Effect.gen(function* () {
+  const current = yield* prepareCurrentApplicationBinding(application.activation, currency.persistence.drizzle,
+    originalBinding => Effect.gen(function* () {
   const candidateSchemaWriteGuard = yield* prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
     candidateValidation: application.candidateValidation, pointCommitAuthority: application.sessionAuthority,
   }, { deploymentId: currency.deploymentId, scopeId: application.authority.scopeId,
     ...(currency.managedRead === undefined ? { profile: "fullArtifactProof" as const } : { profile: "installed" as const,
       database: currency.persistence.drizzle, installation: currency.managedRead.readInstallation }) });
   const preparedAdmission = yield* prepareFiniteApplicationMutationAdmission(
-    application.activation, input.workflow === true ? "productLaunch:launch" : "users:create", admissionContext);
+    application.activation, input.workflow === true ? "productLaunch:launch" : "users:create", admissionContext, originalBinding);
   const sourceCatalog = yield* prepareLogicalStorageReadiness(sourcePorts,
-    application.uniqueConstraintEligibility, sourceLocation);
+    application.uniqueConstraintEligibility, sourceLocation, originalBinding);
   if (sourceCatalog.status !== "prepared") throw new Error("Logical source catalog is not ready");
   const sourceConstruction = Object.freeze({ kind: "prepared" as const, catalog: sourceCatalog });
   const prepared = yield* prepareLogicalRelationalAdmission(sourcePorts,
@@ -469,17 +483,25 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
       }),
     });
   const workflowSelections = workflowBinding?.sources.map(source => source.prepared) ?? [];
-  return { candidateSchemaWriteGuard, preparedAdmission, sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections };
+  return Object.freeze({ candidateSchemaWriteGuard, preparedAdmission, sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections });
+  }), { ...(currency.managedRead === undefined ? {} : { installation: currency.managedRead.readInstallation }),
+    candidateIssuer: application.sessionAuthority });
+  return current;
   })));
   cleanup.push(() => Effect.runPromise(sourceGraph.close));
   const { sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } =
-    await Effect.runPromise(sourceGraph.use(Effect.succeed));
+    await Effect.runPromise(sourceGraph.use(current => current.withEntry(graph => Effect.succeed(Result.succeed(graph.payload)))));
+  const readApplicationPreparation = sourceGraph.use(current => current.withEntry(graph => Effect.succeed(Result.succeed(graph.payload))));
+  type ApplicationPreparation = Effect.Success<typeof readApplicationPreparation>;
+  const withApplicationPreparation = <A, E, R>(work: (graph: ApplicationPreparation, entry: CurrentApplicationFiniteEntry) => Effect.Effect<A, E, R>) =>
+    sourceGraph.use(current => current.withFiniteEntry((graph, entry) => work(graph.payload, entry)));
   const prepareAttempt = async (suffix: string, validatedArgsJson?: Readonly<{ body: string }>,
-    diagnostics?: MixedMutationEffectDiagnostics) => {
-    const preparation = sourceGraph.use(graph =>
+    diagnostics?: MixedMutationEffectDiagnostics, selected?: ApplicationPreparation) => {
+    const read = (graph: ApplicationPreparation) =>
       Effect.fromResult(readPreparedFiniteApplicationMutationInputs(graph.preparedAdmission, admissionContext)).pipe(
-        Effect.map(applicationAdmission => ({ preparedAdmission: graph.preparedAdmission, applicationAdmission }))));
-    const { preparedAdmission, applicationAdmission } = await Effect.runPromise(
+        Effect.map(applicationAdmission => ({ preparedAdmission: graph.preparedAdmission, candidateSchemaWriteGuard: graph.candidateSchemaWriteGuard, applicationAdmission })));
+    const preparation = selected === undefined ? readApplicationPreparation.pipe(Effect.flatMap(read)) : read(selected);
+    const { preparedAdmission, candidateSchemaWriteGuard, applicationAdmission } = await Effect.runPromise(
       diagnostics === undefined ? preparation : diagnostics.provide(preparation));
     const activationInput = await applicationMutationActivationEvidenceFixture({
       deploymentId: currency.deploymentId,
@@ -490,19 +512,8 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
       }),
       ...(validatedArgsJson === undefined ? {} : { validatedArgsJson }),
     });
-    return { preparedAdmission, applicationAdmission, activationInput };
+    return { preparedAdmission, candidateSchemaWriteGuard, applicationAdmission, activationInput };
   };
-  const reconstructApplicationAdmission = () => Effect.runPromise(sourceGraph.reconstruct(graph => Effect.gen(function* () {
-    const preparedAdmission = yield* prepareFiniteApplicationMutationAdmission(application.activation,
-      input.workflow === true ? "productLaunch:launch" : "users:create", admissionContext);
-    const candidateSchemaWriteGuard = yield* prepareFiniteAppSchemaCandidateWriteGuardPortEffect({
-      candidateValidation: application.candidateValidation, pointCommitAuthority: application.sessionAuthority,
-    }, { deploymentId: currency.deploymentId, scopeId: application.authority.scopeId,
-      ...(currency.managedRead === undefined ? { profile: "fullArtifactProof" as const } : { profile: "installed" as const,
-        database: currency.persistence.drizzle, installation: currency.managedRead.readInstallation }) });
-    graph.preparedAdmission = preparedAdmission;
-    graph.candidateSchemaWriteGuard = candidateSchemaWriteGuard;
-  })));
   const store = createSessionJournalStorePersistence(application.sessionAuthority,
     { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       ...(input.hooks?.journalRandomUuid === undefined ? {} : { randomUuid: input.hooks.journalRandomUuid }),
@@ -514,13 +525,12 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     : undefined;
   if (pgTarget !== undefined && !pgTarget.applicationName)
     throw new Error("Missing target PostgreSQL application_name");
-  return { cleanup, currency, product, pricing, link, application, admissionContext, prepareAttempt, reconstructApplicationAdmission,
+  return { cleanup, currency, product, pricing, link, application, admissionContext, prepareAttempt, withApplicationPreparation, readApplicationPreparation,
     initialSeed,
     schemaVersionId, logicalSchemaVersionId, sourceCatalog, prepared,
-    selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
+    selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared, retainedPayload,
     binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget,
     readSourcePreparationUsage: sourceGraph.readUsage,
-    readCandidateSchemaWriteGuard: () => sourceGraph.use(graph => Effect.succeed(graph.candidateSchemaWriteGuard)),
     provisioningMilliseconds,
     initialSeedingMilliseconds,
     preparedModuleMilliseconds: globalThis.performance.now() - preparedModuleStart - initialSeedingMilliseconds };
@@ -558,7 +568,7 @@ export async function closeMixedMutationFixture(input: Readonly<{
   ]);
 }
 
-/** Payload scope finalization owns every complete Exit. Preserve failure,
+/** Payload facade scope finalization owns every complete Exit. Preserve failure,
  * defect and interruption while attempting all scopes in registration order. */
 export const closeMixedMutationPayloadScopes = Effect.fn("MixedFixture.closePayloadScopes")(function* (
   scopes: Set<Scope.Scope>,
@@ -850,22 +860,55 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
 
 async function createMixedMutationAttemptFixture(input: MixedMutationProductFixtureInput,
   context: PreparedMixedMutationProductContext, seedGraph: ProductSeed,
-  ownsContext: boolean, performance?: Readonly<{
+  ownsContext: boolean, performance?: Parameters<typeof createMixedMutationAttemptFixtureForGeneration>[4]): Promise<MixedMutationProductFixture> {
+  const ready = await Effect.runPromise(Deferred.make<MixedMutationProductFixture, unknown>());
+  const closed = await Effect.runPromise(Deferred.make<void>());
+  const construction = context.withApplicationPreparation((graph, currentEntry) => Effect.gen(function* () {
+    const localCleanup: Array<() => Promise<void>> = [];
+    // The fixture's original Promise bridge transports a full Effect Cause as
+    // such. Foreign constructor throws remain defects, including cleanup.
+    const pending = createMixedMutationAttemptFixtureForGeneration(input, context, seedGraph, false, performance,
+      graph, currentEntry, localCleanup);
+    const fixture = yield* awaitEffectTransactionSettlement(pending, cause => Cause.isCause(cause) && Cause.hasInterruptsOnly(cause))
+      .pipe(Effect.catchIf(Cause.isCause, cause => Effect.failCause(cause), cause => Effect.die(cause)),
+      Effect.onError(() => Effect.promise(() => closeMixedMutationResources(localCleanup.toReversed()))));
+    yield* Deferred.succeed(ready, fixture);
+    yield* Deferred.await(closed);
+  })).pipe(Effect.onError(cause => Deferred.failCause(ready, cause)));
+  const fiber = Effect.runFork(performance?.diagnostics === undefined ? construction : performance.diagnostics.provideRequest(construction));
+  const fixture = await Effect.runPromise(Deferred.await(ready));
+  return { ...fixture, close: () => closeMixedMutationResources([
+    fixture.close,
+    async () => { await Effect.runPromise(Deferred.succeed(closed, undefined)); },
+    async () => { await Effect.runPromise(Fiber.join(fiber)); },
+    ...(ownsContext ? [async () => { context.currency.observeSql?.(undefined); }, ...context.cleanup.toReversed()] : []),
+  ]) };
+}
+
+async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutationProductFixtureInput,
+  context: PreparedMixedMutationProductContext, seedGraph: ProductSeed,
+  ownsContext: boolean, performance: Readonly<{
     validatedArgsJson: Readonly<{ body: string }>;
     onWorkerReady: (milliseconds: number) => void;
     onResultBytes: (bytes: number) => void;
     trace?: MixedMutationPerformanceTrace;
     publicationObservation?: PointCommitPublicationObservation;
     diagnostics?: MixedMutationEffectDiagnostics;
-  }>): Promise<MixedMutationProductFixture> {
-  const { cleanup, currency, product, pricing, link, application,
-    schemaVersionId, logicalSchemaVersionId, prepared,
-    selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
-    binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget } = context;
+  }> | undefined, graph: Effect.Success<PreparedMixedMutationProductContext["readApplicationPreparation"]>,
+  currentEntry: CurrentApplicationFiniteEntry, cleanup: Array<() => Promise<void>>): Promise<MixedMutationProductFixture> {
+  const { currency, product, pricing, link, application,
+    schemaVersionId, logicalSchemaVersionId,
+    selectedPayload, payloadProfileRevision, compiledPayload, retainedPayload,
+    revision, store, pgTarget } = context;
+  const { sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } = graph;
   const { seed, baseline } = seedGraph;
   const provideDiagnostic = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
     performance?.diagnostics === undefined ? work : performance.diagnostics.provide(work);
-  const runEffect = <A, E>(work: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(provideDiagnostic(work));
+  const runEffect = async <A, E>(work: Effect.Effect<A, E>): Promise<A> => {
+    const exit = await Effect.runPromiseExit(provideDiagnostic(work));
+    if (Exit.isFailure(exit)) throw exit.cause;
+    return exit.value;
+  };
   const runEffectExit = <A, E>(work: Effect.Effect<A, E>): Promise<Exit.Exit<A, E>> => Effect.runPromiseExit(provideDiagnostic(work));
   // The initial finite fiber remains alive until fixture.close joins it. Its
   // supervisor is the request, beyond the shorter admission Promise phase.
@@ -878,10 +921,25 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
   const traceEffect = <A, E>(name: string, operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
     performance?.diagnostics === undefined ? traceMixedMutationEffect(performance?.trace, name, operation)
       : performance.diagnostics.traceEffect(name, operation);
-  // Historical diagnostic label: this is stored Application admission/evidence
-  // preparation, not the framework's actual-demand checked-read frontend.
-  const { preparedAdmission, applicationAdmission, activationInput } = await tracePhase(
-    "stored read and source preparation", () => context.prepareAttempt(input.suffix, performance?.validatedArgsJson, performance?.diagnostics));
+  type FiniteExecutionFailure = Effect.Error<ReturnType<ReturnType<typeof createFinitePointMutationExecution>["executePreparedFiniteAttempt"]>>;
+  type InitialFailure = FiniteExecutionFailure | PreparedHostRuntimeError;
+  const initialReady = await runEffect(Deferred.make<AuthenticatedFiniteInitialEntry, InitialFailure>());
+  const initialDone = await runEffect(Deferred.make<void>());
+  const preparedReady = await runEffect(Deferred.make<Awaited<ReturnType<typeof context.prepareAttempt>>, InitialFailure>());
+  const executionReady = await runEffect(Deferred.make<Effect.Effect<void, FiniteExecutionFailure>>());
+  // The existing request fiber borrows before exposing preparation and keeps
+  // that generation through final execution and the existing close handshake.
+  const initialFiber = runForkEffect(Effect.gen(function* () {
+    const preparation = yield* Effect.promise(() => tracePhase("stored read and source preparation", () =>
+      context.prepareAttempt(input.suffix, performance?.validatedArgsJson, performance?.diagnostics, graph)));
+    yield* Deferred.succeed(preparedReady, preparation);
+    const execution = yield* Deferred.await(executionReady);
+    yield* execution;
+  }).pipe(Effect.onError(cause => Deferred.failCause(preparedReady, cause).pipe(
+    Effect.andThen(Deferred.failCause(initialReady, cause))))));
+  cleanup.push(() => runEffect(Fiber.interrupt(initialFiber)).then(() => undefined));
+  const { preparedAdmission, candidateSchemaWriteGuard, applicationAdmission, activationInput } =
+    await runEffect(Deferred.await(preparedReady));
   const executionClaims = createPointMutationExecutionClaimVaultV1();
     const hasSqlObserver = currency.observeSql !== undefined;
     let sqlPhase = "request admission";
@@ -925,17 +983,16 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     const retryContexts: Array<PointMutationOccRuntimeNeutralRunnerInputV1["context"]> = [];
     const retryReturnedValues: unknown[] = [];
     const payloadRuntimeHistory: MixedPayloadConformanceRuntime[] = [];
-    const payloadRuntimes = new WeakMap<object, Effect.Success<ReturnType<typeof makePayloadRuntime>>>();
+    const payloadRuntimes = new WeakMap<SessionJournalAttempt, PayloadAttemptRuntime>();
     const payloadScopes = new Set<Scope.Scope>();
-    const ensurePayloadRuntime = Effect.fn("MixedFixture.ensurePayloadRuntime")(function* (attemptHandle: object) {
+    const ensurePayloadRuntime = Effect.fn("MixedFixture.ensurePayloadRuntime")(function* (attemptHandle: SessionJournalAttempt) {
       const existing = payloadRuntimes.get(attemptHandle);
       if (existing !== undefined) return existing;
-      if (selectedPayload === undefined || compiledPayload === undefined)
+      if (retainedPayload === undefined)
         return yield* Effect.fail(new CmsTransactionError({ reason: "invalidAuthority" }));
       const scope = yield* Scope.make();
-      const construction: Effect.Effect<MixedPayloadConformanceRuntime |
-        Effect.Success<ReturnType<typeof makePayloadRuntime>>, CmsTransactionError, Scope.Scope> =
-        selectedPayload.make(compiledPayload);
+      const construction: Effect.Effect<MixedPayloadConformanceRuntime | PayloadAttemptRuntime,
+        CmsTransactionError, Scope.Scope> = retainedPayload.makeAttempt(attemptHandle);
       const constructed = yield* Scope.provide(scope)(construction).pipe(
         Effect.onError(() => Scope.close(scope, Exit.succeed(undefined))));
       const runtime = "runtime" in constructed ? constructed.runtime : constructed;
@@ -1088,14 +1145,15 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
             }),
             Effect.mapError(mapProductInvocationFailure)),
       }])], "finiteRoot");
-    const finalEntryTestContext = Object.freeze({ currency, product, store });
+    const finalEntryTestContext = Object.freeze({ currency, product, store, sourceCatalog,
+      preparedFiniteApplication: applicationAdmission.application });
     await input.hooks?.beforeFinalEntry?.(finalEntryTestContext);
     const activationPort = createApplicationPointMutationSessionActivationV1(
       createApplicationMutationSessionActivationPersistenceV1(application.sessionAuthority,
         { leaseDurationMilliseconds: 60_000 }), executionClaims.issuer, journal);
     const finiteActivationInput = Object.freeze({
       deploymentId: activationInput.deploymentId, scopeId: activationInput.scopeId,
-      preparedAdmission, admissionContext: context.admissionContext, evidence: activationInput.evidence,
+      preparedAdmission, admissionContext: context.admissionContext, evidence: activationInput.evidence, currentEntry,
     });
     const competingPreparations = new Map<string, ReturnType<typeof context.prepareAttempt>>();
     const connectedFiniteDependencies = await runEffect(Deferred.make<Parameters<typeof createFinitePointMutationExecution>[0]>());
@@ -1116,20 +1174,19 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
         publishFinite: command => Deferred.await(connectedFiniteDependencies).pipe(Effect.flatMap(connected => connected.publisher.publishFinite(command))),
         resolveFinite: command => Deferred.await(connectedFiniteDependencies).pipe(Effect.flatMap(connected => connected.publisher.resolveFinite(command))),
       },
-      replacement: { replaceFinite: command => Deferred.await(connectedFiniteDependencies).pipe(Effect.flatMap(connected => connected.replacement.replaceFinite(command))) },
+      replacement: {
+        replaceFinite: command => Deferred.await(connectedFiniteDependencies).pipe(Effect.flatMap(connected => connected.replacement.replaceFinite(command))),
+        replaceRecoveredFinite: command => Deferred.await(connectedFiniteDependencies).pipe(Effect.flatMap(connected => connected.replacement.replaceRecoveredFinite(command))),
+      },
       runner: { run: runnerInput => Deferred.await(connectedFiniteDependencies).pipe(Effect.flatMap(connected => connected.runner.run(runnerInput))) },
       recovery: { acquisition: createPointMutationExecutionClaimAcquisitionV1(application.sessionAuthority, { durationMilliseconds: 60_000 }),
         applicationGrantKernel: createApplicationMutationGrantVerificationKernelV1({ deploymentId: activationInput.deploymentId,
           keys: [activationInput.verificationKey], grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 }) },
       terminalization: createPointMutationSessionAttemptTerminalizationPersistenceV1(application.sessionAuthority),
     });
-    const initialReady = await runEffect(Deferred.make<AuthenticatedFiniteInitialEntry,
-      Effect.Error<ReturnType<typeof initialExecution.executePreparedFiniteAttempt>>>());
-    const initialDone = await runEffect(Deferred.make<void>());
-    const initialFiber = runForkEffect(initialExecution.runPreparedFiniteAttempt(finiteActivationInput,
+    await runEffect(Deferred.succeed(executionReady, initialExecution.runPreparedFiniteAttempt(finiteActivationInput,
       entry => Effect.suspend(() => input.hooks?.beforeFiniteCallback?.() ?? Effect.void).pipe(
-        Effect.andThen(Deferred.succeed(initialReady, entry)), Effect.andThen(Deferred.await(initialDone)))).pipe(
-        Effect.onError(cause => Deferred.failCause(initialReady, cause))));
+        Effect.andThen(Deferred.succeed(initialReady, entry)), Effect.andThen(Deferred.await(initialDone))))));
     const activationExit = await tracePhase("finite outer entry activation", () => runEffectExit(Deferred.await(initialReady)));
     if (Exit.isFailure(activationExit)) await input.hooks?.onFinalEntryFailure?.(finalEntryTestContext, activationExit);
     const authenticatedInitialEntry = Exit.isSuccess(activationExit) ? activationExit.value
@@ -1313,7 +1370,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       execution.kind === "error") {
       const failure = new Error(`Native runtime failed: ${JSON.stringify(execution)}\n${bridgeFailures.join("\n")}`);
       const cleanup = await runEffectExit(closePayloadScopes);
-      if (Exit.isFailure(cleanup)) bridgeFailures.push(`Payload attempt scope cleanup: ${String(cleanup.cause)}`);
+      if (Exit.isFailure(cleanup)) bridgeFailures.push(`Payload attempt facade cleanup: ${String(cleanup.cause)}`);
       throw failure;
     }
     return execution;
@@ -1371,7 +1428,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     uniqueConstraints,
     uniqueConstraintEligibility,
     applicationRelations: application.applicationRelations,
-    candidateSchemaWriteGuard: await runEffect(context.readCandidateSchemaWriteGuard()),
+    candidateSchemaWriteGuard,
     logicalOperationProfiles,
     logicalParticipantEvents: [{ authority: participantAuthority,
       policy: eventPolicy.policy, selection: eventPolicy.selection },
@@ -1407,7 +1464,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
   async function preparePublicationFromFrozen(frozen: Effect.Success<ReturnType<AuthenticatedFiniteInitialEntry["prepareFiniteCommit"]>>,
     publisherOverride: ReturnType<typeof createPointCommitPublisherPortV1> | undefined,
     withOccRetry: boolean) {
-    await tracePhase("Payload operation scopes close", () => runEffect(closePayloadScopes));
+    await tracePhase("Payload attempt facades close", () => runEffect(closePayloadScopes));
     selectedPublisher = publisherOverride ?? defaultPublisher;
     if (withOccRetry) retryExecutor = initialExecution;
     publication = Object.freeze({ frozen });
@@ -1693,7 +1750,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     replacement: createPointMutationAttemptReplacementPortV1(application.sessionAuthority, {
       ...publisherOptions, leaseDurationMilliseconds: 120_000, executionClaimDurationMilliseconds: 60_000,
       ...(input.hooks?.afterReplacementStep === undefined ? {} : { afterReplacementStep: input.hooks?.afterReplacementStep }),
-      finiteEntry: { application: application.activation, prepareEntry: () => prepareFiniteEntry.call(journal).pipe(
+      finiteEntry: { application: applicationAdmission.application, prepareEntry: () => prepareFiniteEntry.call(journal).pipe(
         Effect.mapError(cause => new PointMutationAttemptReplacementFiniteEntryError({ cause }))) },
     }),
     activation: activationPort, contextFactory: finiteContextFactory,
@@ -1717,27 +1774,27 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       profile: selectedPayload.profile, runtimeHistory: payloadRuntimeHistory,
       current: () => payloadRuntimeHistory.at(-1),
     }) }),
-    seed, baseline, seedGraph, logicalSourceCatalog: context.sourceCatalog, setupTimings: Object.freeze({
+    seed, baseline, seedGraph, logicalSourceCatalog: sourceCatalog, setupTimings: Object.freeze({
       provisioningMilliseconds: context.provisioningMilliseconds,
       preparedModuleMilliseconds: context.preparedModuleMilliseconds,
       initialSeedingMilliseconds: context.initialSeedingMilliseconds,
     }), application, active, activation, prepared, binding,
-    reconstructApplicationAdmission: context.reconstructApplicationAdmission,
+    preparedFiniteApplication: applicationAdmission.application,
     replayFiniteActivation: () => activationPort.withFiniteStart(finiteActivationInput, activated => Effect.succeed(inspectActivatedPointMutationSessionV1(activated))),
-    activateCompetingFiniteRequest: suffix => Effect.gen(function* () {
+    activateCompetingFiniteRequest: suffix => context.withApplicationPreparation((graph, currentEntry) => Effect.gen(function* () {
       const competing = yield* Effect.promise(() => {
         let preparation = competingPreparations.get(suffix);
         if (preparation === undefined) {
-          preparation = context.prepareAttempt(suffix);
+          preparation = context.prepareAttempt(suffix, undefined, undefined, graph);
           competingPreparations.set(suffix, preparation);
         }
         return preparation;
       });
       return yield* activationPort.withFiniteStart({ deploymentId: competing.activationInput.deploymentId,
-        scopeId: competing.activationInput.scopeId, preparedAdmission: competing.preparedAdmission,
-        admissionContext: context.admissionContext, evidence: competing.activationInput.evidence },
+        scopeId: competing.activationInput.scopeId, preparedAdmission: graph.preparedAdmission,
+        admissionContext: context.admissionContext, evidence: competing.activationInput.evidence, currentEntry },
         activated => Effect.succeed(inspectActivatedPointMutationSessionV1(activated)));
-    }),
+    })),
     openCompetingFiniteFixture: suffix => createMixedMutationAttemptFixture({ ...input, suffix }, context, seedGraph, false),
     productProfileRevision: revision,
     ...(workflowBinding === undefined ? {} : { workflowBinding }),

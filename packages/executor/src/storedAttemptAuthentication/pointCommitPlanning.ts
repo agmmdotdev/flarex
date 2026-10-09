@@ -181,9 +181,13 @@ export function planPointCommitStateV1(
     const materialCandidates: OrderedPointCandidateV1[] = [];
 
     for (const point of source.points) {
-      const capturedDependency = yield* captureLogicalReadDependency(
-        point.dependency,
-      );
+      // Generated receipt obligations supply only the physical insertion guard.
+      // They never enter the observed dependency list or canonical read counts.
+      const generated = point.dependency.kind === "generatedInsertion";
+      const capturedDependency = point.dependency.kind === "generatedInsertion"
+        ? Object.freeze({ kind: "appRowPoint" as const, documentId: point.documentId,
+            observed: Object.freeze({ kind: "missing" as const, basis: Object.freeze({ kind: "noVisibleRevision" as const }) }) })
+        : yield* captureLogicalReadDependency(point.dependency);
       const dependency = Object.freeze({
         documentId: point.documentId,
         tableId: point.tableId,
@@ -195,7 +199,7 @@ export function planPointCommitStateV1(
         dependency,
         rowBytes: appRowIdHexV1ToBytes(point.rowId),
       } satisfies OrderedPointCandidateV1);
-      candidates.push(candidate);
+      if (!generated) candidates.push(candidate);
 
       const material = yield* isNetMaterialPoint(point);
       if (material) materialCandidates.push(candidate);
@@ -400,6 +404,7 @@ function isNetMaterialPoint(
     case "live":
       return Result.succeed(true);
     case "deleted": {
+      if (point.dependency.kind === "generatedInsertion") return Result.succeed(false);
       const observed: Extract<
         LogicalReadDependencyV1,
         { readonly kind: "appRowPoint" }
@@ -449,7 +454,7 @@ function captureRowIntent(
       });
     }
     case "deleted": {
-      if (point.dependency.observed.kind !== "present") {
+      if (point.dependency.kind === "generatedInsertion" || point.dependency.observed.kind !== "present") {
         return pointCommitPlannerInvariant(
           "nonMaterialDeletedPointSelected",
         );

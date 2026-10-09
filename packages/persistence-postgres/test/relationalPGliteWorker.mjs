@@ -40,7 +40,7 @@ parentPort.on("message", (message) => {
       parentPort.postMessage({
         id: message.id,
         ok: false,
-        error: { message: error.message, code: error.code },
+        error: { message: error.message, code: error.code, detail: error.detail },
       });
     }
   });

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import type { ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import type { ApplicationParticipantOptions } from "../applicationDocumentMaterialization/participant";
@@ -81,8 +81,7 @@ export const publishCurrencyAnnouncement = Effect.fn(
       signal,
     ),
   );
-  yield* publication(() =>
-    advanceScopePublicationClock(tx, contribution, kernel, materialization),
-  );
+  yield* advanceScopePublicationClock(tx, contribution, kernel, materialization)
+    .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCompositePublicationFailure))));
   return result.valueJson;
 });

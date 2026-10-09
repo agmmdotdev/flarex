@@ -12,7 +12,7 @@ import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { captureFiniteEntryObservationInTransactionEffect, closeFiniteEntryObservation,
   type FiniteEntryObservation } from "./finiteEntryObservation";
 import type { FiniteEntryAttemptKernelContext } from "./transactionSessionAttemptKernel";
-import { prepareFiniteMetadataEntryComparison, acceptFiniteMetadataEntryComparisonVerdict, submitFiniteMetadataEntryComparisonEffect,
+import { encodeFiniteMetadataComparison, prepareFiniteMetadataEntryComparison, acceptFiniteMetadataEntryComparisonVerdict, submitFiniteMetadataEntryComparisonEffect,
   type PreparedFiniteMetadataProjection } from "./finiteMetadataDependencies";
 import {
   bytesEqual,
@@ -215,6 +215,7 @@ import {
   validateApplicationExecutableActiveSelectionInTransaction,
   ApplicationActivationError,
   type ApplicationActiveSelection,
+  type CurrentApplicationFiniteEntry,
 } from "./applicationActivation";
 import {
   readPreparedFiniteApplicationMutationActivationInputs,
@@ -749,6 +750,7 @@ export interface PreparedFiniteApplicationMutationSessionActivation {
   readonly preparedAdmission: PreparedFiniteApplicationMutationAdmission;
   readonly admissionContext: ApplicationMutationAdmissionContext;
   readonly evidence: PreparedApplicationMutationSessionEvidenceV1;
+  readonly currentEntry?: CurrentApplicationFiniteEntry;
 }
 
 export type FiniteApplicationMutationSessionActivationResult = Readonly<{
@@ -1624,6 +1626,11 @@ const finiteApplicationActivationOperation = Effect.fn("ApplicationMutationSessi
     if (observation === null) return yield* Effect.fail(corruptionError(input.prepared.scopeId, "sessionRecordInvalid"));
     const finiteEntry = observation;
     openProtectedMetadataFinalGuardScope(tx);
+    return yield* Effect.gen(function* () {
+    if (operationInput.installedAuthority !== undefined)
+      yield* operationInput.installedAuthority.registerFinalGuards(tx,
+        { deploymentId: input.prepared.deploymentId, scopeId: input.prepared.scopeId }, "attempt")
+        .pipe(Effect.mapError(mapApplicationActivationTransactionError));
     return yield* withPreparedFiniteApplicationMutationAdmissionInTransaction(
       prepared.preparedAdmission, prepared.admissionContext, tx, clock.record, (accepted, binding) => Effect.gen(function* () {
       if (operationInput.managedControlProtection !== undefined)
@@ -1654,7 +1661,8 @@ const finiteApplicationActivationOperation = Effect.fn("ApplicationMutationSessi
           new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))), finiteEntry);
       capture = yield* acceptPreparedFiniteSessionJournalEntryForContinuationEffect(entry, tx, capture);
       return Object.freeze({ activation: activationResult("created", capture.context.anchor, capture.context.executionClaim), capture });
-    }), finiteEntry).pipe(Effect.ensuring(Effect.sync(() => {
+    }), finiteEntry, prepared.currentEntry);
+    }).pipe(Effect.ensuring(Effect.sync(() => {
       closeProtectedMetadataFinalGuardScope(tx);
       closeFiniteExecutionAuthorityObservation(tx);
       finiteEntryAnchorExpectations.delete(tx);
@@ -3132,7 +3140,7 @@ const completeProvisionalFiniteEntry = Effect.fn("ApplicationMutationSessionActi
     const source = guard === undefined ? sql`(values (true, null::jsonb))` : sql`(
       with metadata_check as materialized (select ${sql.identifier(schemaName)}.fx_compare_finite_metadata(
         ${scopeId}::text, ${context.scopeClock.lastMetadataSequence.toString()}::bigint,
-        ${JSON.stringify(metadata)}::jsonb) as verdict),
+        ${encodeFiniteMetadataComparison(metadata)}::jsonb) as verdict),
       epoch_check as materialized (select case when verdict->>'reason' = 'accepted'
         then (select valid from ${guard.source} as actual_epoch(valid)) else null::boolean end as valid,
         verdict from metadata_check)

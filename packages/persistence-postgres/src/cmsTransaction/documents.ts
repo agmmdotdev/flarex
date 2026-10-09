@@ -1,9 +1,7 @@
 import { Effect, Result } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
-import { deriveApplicationSyscallValidator, validateApplicationRevisionSyscallDocumentInTransactionV1 } from "../applicationRevisionSyscallValidatorV1";
-import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
-import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
+import { validateApplicationRevisionSyscallDocumentInTransactionV1 } from "../applicationRevisionSyscallValidatorV1";
 import { makeLogicalDocumentWorkingSet, type LogicalDocuments, type LogicalDocumentChanges,
   type LogicalDocumentReadTestHooks } from "../logicalDocuments/workingSet";
 import { requireLogicalDocumentSourceAdmission, type LogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
@@ -118,23 +116,22 @@ export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure"
 /** Framework admission and validation around the shared document owner. */
 export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   admission: CmsAdmission, lifetime: CmsRequestLifetime, creationTime: AppCreationTimeV1,
-  uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[], indexDefinitions: readonly LocatedAppIndexDefinitionV1[],
   testHooks?: CmsDocumentReadTestHooks,
 ) {
   const state = yield* requireCmsAdmission(admission);
-  const validator = yield* deriveApplicationSyscallValidator({ scopeId: state.authority.scopeId,
-    schemaVersionId: state.schema.schemaVersionId, schemaManifest: state.schema.manifest });
-  const managed = new Set(state.frame.payloadContent?.tables.map(table => table.tableId));
+  const preparation = state.preparation;
+  const mechanics = preparation.writeMechanics;
   const working = yield* makeLogicalDocumentWorkingSet({
     tx: state.tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
-    tables: state.schema.tables.filter(table => managed.has(table.tableId.toString())),
+    tables: mechanics.tables, writeMechanics: mechanics, searchDefinitions: mechanics.searchDefinitions,
+    ...(mechanics.relationalCapabilities === undefined ? {} : { relationalCapabilities: mechanics.relationalCapabilities }),
     limits: cmsLimits, error: cmsError,
     uniqueConflict: uniqueConstraint => new CmsTransactionError({ reason: "uniqueConflict", uniqueConstraint }),
     requireAdmission: requireCmsAdmission(admission, state.tx).pipe(Effect.asVoid),
-    validateDocument: write => validateApplicationRevisionSyscallDocumentInTransactionV1(validator, state.tx, {
+    validateDocument: write => validateApplicationRevisionSyscallDocumentInTransactionV1(preparation.validator, state.tx, {
       anchor: { scopeId: state.authority.scopeId }, executionPin: { schemaVersionId: state.schema.schemaVersionId }, scopeClock: state.clock,
     }, write).pipe(Effect.mapError(cause => cmsError("documentInvalid", cause))),
-  }, creationTime, uniqueDefinitions, indexDefinitions, testHooks);
+  }, creationTime, mechanics.unique, mechanics.indexes, testHooks);
   // SAFETY: the handle carries only this owner-registered admission and working set.
   const pendingDeletions = Object.freeze({}) as CmsPendingDeletions;
   deletionSets.set(pendingDeletions, Object.freeze({ admission, lifetime, requireDeletion: working.requirePendingDeletion }));
@@ -178,21 +175,21 @@ export const makeSourceCmsDocuments = Effect.fn("CmsDocuments.makeSource")(funct
   const working = yield* makeLogicalDocumentWorkingSet({
     tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
     tables: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.tables :
-      state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName })),
+      state.writeMechanics.tables,
     ...(readReadiness.kind === "queryRequired" ? {
       ...(readReadiness.mechanics.relationalCapabilities === undefined ? {} : {
         relationalCapabilities: readReadiness.mechanics.relationalCapabilities,
       }),
       searchDefinitions: readReadiness.mechanics.searchDefinitions,
-    } : {}),
+    } : { writeMechanics: state.writeMechanics, searchDefinitions: state.writeMechanics.searchDefinitions }),
     readReadiness,
     limits: cmsLimits, error: cmsError,
     uniqueConflict: uniqueConstraint => new CmsTransactionError({ reason: "uniqueConflict", uniqueConstraint }),
     requireAdmission,
     validateDocument: write => Effect.fromResult(state.validate(write).pipe(Result.mapError(cause =>
       cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
-  }, creationTime, state.unique,
-    readReadiness.kind === "queryRequired" ? [] : state.indexes.filter(index => index.access.kind === "developer"), testHooks);
+  }, creationTime, readReadiness.kind === "queryRequired" ? state.unique : state.writeMechanics.unique,
+    readReadiness.kind === "queryRequired" ? [] : state.writeMechanics.indexes, testHooks);
   const close = Effect.fn("CmsDocuments.closeSource")(function* () {
     const changes = yield* working.close();
     // SAFETY: this token is registered only after the admitted working set closes.

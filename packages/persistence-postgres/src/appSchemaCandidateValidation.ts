@@ -1,4 +1,5 @@
 import { readFiniteEntryPlanningObservation, type FiniteEntryObservation } from "./finiteEntryObservation";
+import { observeExecution } from "./executionDiagnostics/operation";
 import { runEffectTransaction } from "./effectTransaction";
 import { SchemaVersionArtifactPersistenceError } from "./schemaVersionArtifacts";
 import {
@@ -104,7 +105,7 @@ import {
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import { makeInstallationProtectedScopeAuthorityControlReader } from "./scopeAuthorityControlRead";
-import { captureHostPreparationLifetime } from "./preparedHostRuntime";
+import { captureHostPreparationLifetime, registerHostPreparationDisposal } from "./preparedHostRuntime";
 import { getCoLocatedReadInstallationReferencesResult, type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
 import { prepareProtectedMetadata, captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot,
   registerProtectedMetadataFinalGuard, guardProtectedMetadataEpoch, type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
@@ -737,13 +738,39 @@ export interface AppSchemaCandidateWriteGuardPlanningHead {
 }
 const candidatePlanningHeads = new WeakMap<AppSchemaCandidateWriteGuardPlanningHead,
   Readonly<{ authority: TrustedScopeAuthority; row: HeadRow | null;
-    issuer: PointMutationSessionAuthorityResolutionPortsV1 }>>();
+    issuer: PointMutationSessionAuthorityResolutionPortsV1; tx?: AppRowTransaction; decoded?: StoredAppSchemaCandidateValidationHead | null }>>();
+
+/** Fixed publication stage lends its actual locked row to this original owner. */
+export function captureAppSchemaCandidateWriteGuardLockedHead(tx: AppRowTransaction,
+  guard: AppSchemaCandidateWriteGuardPort, authority: TrustedScopeAuthority, row: HeadRow | null) {
+  const state = candidateWriteGuardStates.get(guard);
+  if (state === undefined) return Result.fail(new AppSchemaCandidateWriteGuardError({ reason: "notIssued" }));
+  const handle = Object.freeze({ [candidatePlanningHeadBrand]: true as const });
+  candidatePlanningHeads.set(handle, Object.freeze({ tx, authority: structuredClone(authority),
+    issuer: state.pointCommitAuthority, row: row === null ? null : structuredClone(row) }));
+  return Result.succeed(handle);
+}
+
+/** Exact decoded identity, including negative observation and progress/failure ABA. */
+export const readAppSchemaCandidateWriteGuardPlanningHeadIdentity = Effect.fnUntraced(
+  function* (handle: AppSchemaCandidateWriteGuardPlanningHead, issuer: PointMutationSessionAuthorityResolutionPortsV1) {
+    const captured = candidatePlanningHeads.get(handle);
+    if (captured === undefined || captured.issuer !== issuer)
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "notIssued" }));
+    const decoded = captured.decoded !== undefined ? captured.decoded : captured.row === null ? null :
+      yield* decodeHeadRowEffect(captured.row, "load").pipe(Effect.mapError(mapCandidateWriteGuardError));
+    // The decoded original replaces its raw transport; the generation retains
+    // and charges this same frame rather than a second hidden byte payload.
+    candidatePlanningHeads.set(handle, Object.freeze({ ...captured, row: null, decoded }));
+    return decoded === null ? "absent" : JSON.stringify([decoded.deploymentId, decoded.scopeId, decoded.schemaVersionId,
+      decoded.frameSha256Hex, decoded.createdAt.getTime(), decoded.updatedAt.getTime()]);
+  }, work => observeExecution("AppSchemaCandidateValidation.planningIdentity", work));
 
 /** Internal entry/seal capture. No control read, frame hashing or validator
  * compilation runs while the accepting transaction is open. Its entry/journal
  * owner releases this handle only after that transaction has committed. */
 export const captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect =
-  Effect.fn("AppSchemaCandidateValidation.capturePlanningHead")(function* (
+  Effect.fnUntraced(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority,
     issuer: PointMutationSessionAuthorityResolutionPortsV1, finiteEntry?: FiniteEntryObservation,
   ) {
@@ -760,7 +787,7 @@ export const captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect 
       row: observed === undefined ? (rows?.[0] === undefined ? null : structuredClone(rows[0])) : observed,
     }));
     return handle;
-  });
+  }, work => observeExecution("AppSchemaCandidateValidation.capturePlanningHead", work));
 
 export const prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
   Effect.fn("AppSchemaCandidateValidation.prepareCapturedWriteGuard")(function* (
@@ -776,19 +803,28 @@ export const prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
     if (state.pointCommitAuthority !== capture.issuer) {
       return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
     }
-    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
-      { deploymentId: capture.authority.deploymentId, scopeId: capture.authority.scopeId },
-      { ...state.candidateValidation.authority, ...makeInstallationProtectedScopeAuthorityControlReader(state.candidateValidation.controlDb) },
-    ).pipe(Effect.mapError(mapCandidateWriteGuardError));
-    if (!trustedAuthoritiesEqual(located.authority, capture.authority)) {
-      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
-    }
-    const head = capture.row === null ? null : yield* decodeHeadRowEffect(
+    // The original planning owner captured this exact authority under entry.
+    // Final application still authenticates the candidate and owning clock.
+    const head = capture.decoded !== undefined ? capture.decoded : capture.row === null ? null : yield* decodeHeadRowEffect(
       capture.row, "load",
     ).pipe(Effect.mapError(mapCandidateWriteGuardError));
-    return yield* prepareWriteGuardFromDecodedHeadEffect(guard, state,
+    const prepared = yield* prepareWriteGuardFromDecodedHeadEffect(guard, state,
       { deploymentId: capture.authority.deploymentId, scopeId: capture.authority.scopeId },
       capture.authority, head);
+    const allocation = yield* captureHostPreparationLifetime();
+    if (allocation !== undefined) {
+      const payload = preparedCandidateWriteGuardStates.get(prepared);
+      if (payload === undefined) return yield* Effect.die(new Error("Candidate preparation issuance was lost"));
+      const dispose = () => { preparedCandidateWriteGuardStates.delete(prepared); };
+      const registered = allocation.onDispose(dispose);
+      if (Result.isFailure(registered)) dispose();
+      yield* Effect.fromResult(registered).pipe(Effect.mapError(cause =>
+        new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch", cause })));
+      yield* Effect.fromResult(allocation.charge(JSON.stringify({ head, manifest: payload.manifest },
+        (_, value: unknown) => typeof value === "bigint" ? value.toString() : value))).pipe(Effect.mapError(cause =>
+        new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch", cause })));
+    }
+    return prepared;
   });
 
 /** The finite entry lends its issued head capture. Final acceptance rechecks
@@ -806,7 +842,7 @@ export const prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
     if (state.pointCommitAuthority !== capture.issuer || capture.authority.deploymentId !== input.deploymentId ||
       capture.authority.scopeId !== input.scopeId)
       return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
-    const head = capture.row === null ? null : yield* decodeHeadRowEffect(capture.row, "load")
+    const head = capture.decoded !== undefined ? capture.decoded : capture.row === null ? null : yield* decodeHeadRowEffect(capture.row, "load")
       .pipe(Effect.mapError(mapCandidateWriteGuardError));
     const finite = state.finite;
     if (finite === undefined || !trustedAuthoritiesEqual(finite.authority, capture.authority) ||
@@ -887,6 +923,10 @@ export const prepareFiniteAppSchemaCandidateWriteGuardPortEffect = Effect.fn(
     authority: located.authority, head: captured.head, validator: preparedState.validator, lifetime,
     ...(captured.protection === undefined ? {} : { protection: captured.protection }),
   }) }));
+  yield* registerHostPreparationDisposal(() => {
+    candidateWriteGuardStates.delete(guard);
+    preparedCandidateWriteGuardStates.delete(prepared);
+  }).pipe(Effect.mapError(cause => new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch", cause })));
   return guard;
 });
 
@@ -1406,6 +1446,7 @@ export const applyAppSchemaCandidateWriteGuardInTransactionEffect = Effect.fn(
   lockedClock: ScopeClockRecord,
   commitSeq: CommitSeq,
   liveRows: ReadonlyArray<AppSchemaCandidateWriteGuardLiveRow>,
+  lockedHead?: AppSchemaCandidateWriteGuardPlanningHead,
 ): Effect.fn.Return<
   AppSchemaCandidateWriteGuardResult,
   AppSchemaCandidateWriteGuardError
@@ -1447,11 +1488,19 @@ export const applyAppSchemaCandidateWriteGuardInTransactionEffect = Effect.fn(
         .pipe(Effect.mapError(cause => new AppSchemaCandidateWriteGuardError({ reason: "concurrentStateChange", cause })));
     }
   }
-  const current = yield* readHeadForUpdateEffect(
+  const captured = lockedHead === undefined ? undefined : candidatePlanningHeads.get(lockedHead);
+  if (lockedHead !== undefined && (captured === undefined || captured.tx !== tx ||
+    captured.issuer !== guardState.pointCommitAuthority || !trustedAuthoritiesEqual(captured.authority, authority)))
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
+  // This locked observation belongs to one lowering invocation. A failure
+  // evidence write cannot leave a reusable stale head in the same transaction.
+  if (lockedHead !== undefined) candidatePlanningHeads.delete(lockedHead);
+  const current = captured === undefined ? yield* readHeadForUpdateEffect(
     tx,
     authority.scopeId,
     "advance",
-  ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+  ).pipe(Effect.mapError(mapCandidateWriteGuardError)) : captured.decoded !== undefined ? captured.decoded : captured.row === null ? null :
+    yield* decodeHeadRowEffect(captured.row, "advance").pipe(Effect.mapError(mapCandidateWriteGuardError));
   if (current !== null) {
     yield* Effect.fromResult(requireHeadAuthorityResult(
       current,

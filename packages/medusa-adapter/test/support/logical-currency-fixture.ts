@@ -393,7 +393,8 @@ export async function logicalCurrencyFixture(
     yield* bindings.activate(dataBindingActivationRequest(reference.scopeId,
       reference.storageGeneration, "logical-currency-activate", bindingCandidate.sha256, null));
     const session = pair.kind === "postgres" ? makePostgresRelationalSession(pair.target, undefined,
-      pair.managedRead === undefined ? undefined : { kind: "managed", installation: pair.managedRead.installation }) : pair.session;
+      pair.managedRead === undefined ? undefined : { kind: "managed", installation: pair.managedRead.installation,
+        ...(managedInstallationSetup === undefined ? {} : { coLocated: managedInstallationSetup.readInstallation }) }) : pair.session;
     const hostInput = { hostRuntime: preparedHostTestRuntime(target.drizzle), database: target.drizzle,
       session, target: bindingTarget, deploymentId: application.deploymentId,
       scopeId: application.authority.scopeId,

@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 import type { ApplicationBindingInput } from "../applicationActivation";
-import { isApplicationBindingPreparation, withAcceptedApplicationBinding, type AcceptedApplicationBinding } from "../applicationActivation";
-import { readApplicationBindingProjectionInTransaction } from "../applicationBindingProjection";
+import { isApplicationBindingPreparation, withAcceptedApplicationBinding, type AcceptedApplicationBinding, type ApplicationBindingObservation } from "../applicationActivation";
+import { withApplicationBindingEvidenceInTransaction } from "../applicationBindingProjection";
 import { readAcceptedApplicationBindingProjection, type ApplicationBindingReference } from "../applicationBindingProjection";
 import { readBindingCandidate, readBindingHead, readRetainedBindingActivation } from "../frameworkSchema/binding/repository";
 import { verifyBindingApplicationReference } from "../frameworkSchema/binding/logicalSchema";
@@ -41,12 +41,13 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
   clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
   work: (admission: CommerceAdmission, binding?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+  observation?: ApplicationBindingObservation,
 ) {
   return yield* withCommerceInstallationAdmissions([profile], target, reference, selection, tx, authority, clock, bootstrap, prepared,
     (admitted, binding): Effect.Effect<Value, Failure | ReturnType<typeof commerceError>, Requirements> => {
       const admission = admitted[0];
       return admission === undefined ? Effect.fail(commerceError("invalidAuthority")) : work(admission, binding);
-    });
+    }, observation);
 });
 
 /** Several confined profiles may borrow one physical installation. This is an
@@ -56,6 +57,7 @@ export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.w
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
   clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
   work: (admissions: readonly CommerceAdmission[], binding?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+  observation?: ApplicationBindingObservation,
 ) {
   const snapshot = frameworkSchemaTargetSnapshot(target);
   if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
@@ -113,8 +115,9 @@ export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.w
   // Keep installation locks before Application acceptance. Standalone selections
   // retain their existing independent validation contract.
   if (isApplicationBindingPreparation(selection)) return yield* withAcceptedApplicationBinding(selection, tx, clock,
-    accepted => readAcceptedApplicationBindingProjection(accepted, tx, clock).pipe(Effect.flatMap(application => admit(application, accepted))));
-  return yield* readApplicationBindingProjectionInTransaction(selection, tx, clock).pipe(Effect.flatMap(application => admit(application)));
+    accepted => readAcceptedApplicationBindingProjection(accepted, tx, clock).pipe(Effect.flatMap(application => admit(application, accepted))), observation);
+  return yield* withApplicationBindingEvidenceInTransaction(selection, tx, clock,
+    (evidence, accepted) => admit(evidence.projection, accepted), observation);
 });
 
 export const requireCommerceAdmission = Effect.fn("CommerceAdmission.require")(function* (admission: CommerceAdmission) {

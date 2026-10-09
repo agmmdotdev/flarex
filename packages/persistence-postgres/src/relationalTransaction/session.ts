@@ -1,4 +1,5 @@
-import { Cause, Effect, Schema } from "effect";
+import { Cause, Effect, Result, Schema } from "effect";
+import { observeExecution } from "../executionDiagnostics/operation";
 import { FrameworkCommandMilliseconds } from "../frameworkExecutionPolicy";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -8,15 +9,16 @@ import {
   type PostgresPhysicalSessionOptions,
 } from "../physicalSession/postgres";
 import { makePhysicalSessionAccess } from "../physicalSession/drizzle";
-import { makePhysicalDeadlineOperations } from "../physicalSession/deadline";
+import { makePhysicalDeadlineOperations, type PhysicalDeadline } from "../physicalSession/deadline";
 import {
   physicalSessionErrors,
   PhysicalSessionResourceIssue,
 } from "../physicalSession/errors";
 import { flarexSchema } from "../schema";
-import { closeProtectedMetadataFinalGuardScope } from "../preparedMetadataEpoch";
+import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards, hasProtectedMetadataFinalGuardScope } from "../preparedMetadataEpoch";
 import { acquireInstallationAdmission, closeInstallationAdmission, lockInstallationForCurrentTransaction,
   requireCoLocatedInstallationAdmission, type PreparedCoLocatedReadInstallation,
+  getCoLocatedReadInstallationReferencesResult, acquireCoLocatedInstallationAdmission,
   type PreparedInstallation } from "../installationLifecycle";
 import {
   RelationalSessionError,
@@ -34,11 +36,11 @@ export interface RelationalSession {
 }
 export type RelationalSessionProfile = "command" | "snapshotRead";
 export type RelationalInstallationProfile = Readonly<{ kind: "fullProof" }> |
-  Readonly<{ kind: "managed"; installation: PreparedInstallation }>;
+  Readonly<{ kind: "managed"; installation: PreparedInstallation; coLocated?: PreparedCoLocatedReadInstallation }>;
 export type RunRelationalSession = <Value, Failure>(
   profile: RelationalSessionProfile,
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
-  commandMs?: number,
+  commandBudget?: number | PhysicalDeadline,
 ) => Effect.Effect<Value, Failure | RelationalSessionError>;
 const sessions = new WeakMap<
   object,
@@ -62,30 +64,66 @@ export function hasRelationalSessionDatabase(
 ): boolean {
   return sessions.get(session)?.database === database;
 }
-export const runRelationalSession = Effect.fn("RelationalSession.run")(
+/** Exact installed pair owned by this session, never caller-authored epochs. */
+export function readRelationalSessionCoLocatedInstallation(session: RelationalSession, database: FlarexMetadataDatabase) {
+  const state = sessions.get(session);
+  if (state === undefined || state.database !== database) return Result.fail(relationalError("invalidAuthority"));
+  const profile = state.installation;
+  if (profile.kind === "fullProof" || profile.coLocated === undefined) return Result.succeed(undefined);
+  return getCoLocatedReadInstallationReferencesResult(profile.coLocated, database).pipe(
+    Result.flatMap(refs => refs.targetInstallation === profile.installation ? Result.succeed(profile.coLocated) :
+      Result.fail(relationalError("invalidAuthority"))), Result.mapError(cause => relationalError("invalidAuthority", cause)));
+}
+const projectInstallation = (cause: unknown) => new RelationalSessionError({ reason: "resourceFailure", cause });
+
+/** One original request deadline, shared by pre-business refresh and recovery. */
+export const startRelationalRequestDeadline = (milliseconds: number) => isCommandMilliseconds(milliseconds)
+  ? physicalDeadlines.start("initial", milliseconds)
+  : Effect.fail(relationalError("invalidAuthority"));
+export const boundRelationalRequestDeadline = <Value, Failure, Requirements>(deadline: PhysicalDeadline,
+  work: Effect.Effect<Value, Failure, Requirements>) => physicalDeadlines.remaining(deadline, "callback").pipe(
+    Effect.flatMap(remaining => work.pipe(Effect.timeoutOrElse({
+      duration: remaining, orElse: () => physicalDeadlines.fail(deadline, "callback"),
+    }))));
+
+export interface OrdinaryRelationalEntryWork<Value, Failure> {
+  readonly enter: (tx: FlarexMetadataTransaction, requireInstallation: Effect.Effect<void, RelationalSessionError>) => Effect.Effect<Value, Failure | RelationalSessionError>;
+}
+
+// SDK policy owns optional named observation; this stable persistence operation
+// does not create default diagnostic spans on each ordinary request.
+export const runRelationalSession = Effect.fnUntraced(
   function* <Value, Failure>(
     session: RelationalSession,
     profile: RelationalSessionProfile,
-    work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
-    commandMs?: number,
+    work: ((tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>) | OrdinaryRelationalEntryWork<Value, Failure>,
+    commandBudget?: number | PhysicalDeadline,
     installation?: RelationalInstallationProfile,
   ) {
     const state = sessions.get(session);
     if (state === undefined)
       return yield* Effect.fail(relationalError("invalidAuthority"));
-    if (commandMs !== undefined && (profile !== "command" || !isCommandMilliseconds(commandMs)))
+    if (typeof commandBudget === "number" && (profile !== "command" || !isCommandMilliseconds(commandBudget)))
       return yield* Effect.fail(relationalError("invalidAuthority"));
     const admission = installation ?? state.installation;
-    return yield* state.run(profile, tx => (
-      admission.kind === "managed"
-        ? acquireInstallationAdmission(admission.installation, state.database, tx)
-        : lockInstallationForCurrentTransaction(tx)
-    ).pipe(
-      Effect.mapError(cause => new RelationalSessionError({ reason: "resourceFailure", cause })),
-      Effect.andThen(() => work(tx)),
-      Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))),
-    ), commandMs);
+    return yield* state.run(profile, tx => {
+      const ordinary = typeof work !== "function";
+      const requireInstallation = (
+      admission.kind === "managed" && admission.coLocated !== undefined
+        ? !ordinary
+          ? acquireCoLocatedInstallationAdmission(admission.coLocated, state.database, tx).pipe(Effect.mapError(projectInstallation))
+          : requireCoLocatedInstallationAdmission(admission.coLocated, state.database, tx).pipe(Effect.mapError(projectInstallation))
+        : (admission.kind === "managed" ? acquireInstallationAdmission(admission.installation, state.database, tx) :
+          lockInstallationForCurrentTransaction(tx)).pipe(Effect.mapError(projectInstallation))
+      );
+      return (ordinary ? work.enter(tx, requireInstallation) : requireInstallation.pipe(Effect.andThen(() => work(tx)))).pipe(
+      Effect.tap(() => hasProtectedMetadataFinalGuardScope(tx) ? flushProtectedMetadataFinalGuards(tx).pipe(
+        Effect.mapError(cause => new RelationalSessionError({ reason: "resourceFailure", cause }))) : Effect.void),
+      Effect.ensuring(Effect.sync(() => { closeProtectedMetadataFinalGuardScope(tx); closeInstallationAdmission(tx); })),
+      );
+    }, commandBudget);
   },
+  work => observeExecution("RelationalSession.run", work),
 );
 
 /** The standalone kernel combines installation entry with its bounded guard
@@ -122,18 +160,17 @@ export function makePostgresRelationalSession(
     { access, errors: physicalSessionErrors },
     testOptions,
   ).runInitialTransactionEffect;
-  const run: RunRelationalSession = Effect.fn("RelationalSession.postgres")(
-    <Value, Failure>(
+  const run: RunRelationalSession = Effect.fnUntraced(
+    function* <Value, Failure>(
       profile: RelationalSessionProfile,
       work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
-      commandMs?: number,
-    ) =>
-      Effect.uninterruptibleMask((restore) =>
+      commandBudget?: number | PhysicalDeadline,
+    ) {
+      return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const deadline = yield* physicalDeadlines.start(
-            "initial",
-            commandMs ?? relationalLimits.commandMs,
-          );
+          const deadline = typeof commandBudget === "object" ? commandBudget : yield* physicalDeadlines.start(
+            "initial", commandBudget ?? relationalLimits.commandMs);
+          yield* physicalDeadlines.requireKind(deadline, "initial");
           const result = yield* initial(
             {
               isolationLevel: profile === "snapshotRead" ? "repeatable read" : "read committed",
@@ -180,7 +217,9 @@ export function makePostgresRelationalSession(
               );
           }
         }),
-      ),
+      );
+    },
+    work => observeExecution("RelationalSession.postgres", work),
   );
   return issueRelationalSession(persistence.drizzle, run, installation);
 }

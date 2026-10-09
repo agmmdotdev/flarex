@@ -121,7 +121,8 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
       const [epochAfter] = await fixture.control.drizzle.select().from(fxSystemPreparedMetadataEpoch);
       expect(epochAfter?.generation).toBe(epochBefore.generation + 1n);
       expect(await apply(original, prepared)).toMatchObject({ _tag: "Failure", failure: { reason: "concurrentStateChange" } });
-      const reconstructed = await runEffect(retained.reconstruct(() => construct()));
+      const reconstructedGeneration = await runEffect(retained.reconstruct(() => construct()));
+      const reconstructed = await runEffect(reconstructedGeneration.use(Effect.succeed));
       expect((await runEffect(Effect.fromResult(retained.readUsage()))).chargedBytes).toBeGreaterThan(usage.chargedBytes);
       const freshPreparation = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(reconstructed, capture, selection));
       expect(await apply(reconstructed, freshPreparation)).toMatchObject({ _tag: "Success", success: { status: "unchanged" } });

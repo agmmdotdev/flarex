@@ -1,4 +1,6 @@
-import { chargeHostPreparation, PreparedHostRuntimeError } from "./preparedHostRuntime";
+import { invalidateAcceptedApplicationBindingInTransaction } from "./applicationActivation";
+import { invalidateSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceAdmission";
+import { chargeHostPreparation, registerHostPreparationDisposal, PreparedHostRuntimeError } from "./preparedHostRuntime";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -537,7 +539,8 @@ export const chargePhysicalDefinitionPreparation = Effect.fn("PhysicalDefinition
     return state === undefined ? Effect.fail(new PreparedHostRuntimeError({ reason: "invalidPayload" }))
       : chargeHostPreparation({ deploymentId: state.deploymentId, schemaVersionId: state.schemaVersionId,
         uniqueSetSha256: state.uniqueSetSha256, indexDefinitions: state.indexDefinitions,
-        authority: state.located.authority, requirements: state.requirements });
+        authority: state.located.authority, requirements: state.requirements }).pipe(
+          Effect.andThen(registerHostPreparationDisposal(() => { preparedReadinessStates.delete(prepared); })));
   },
 );
 
@@ -982,6 +985,8 @@ const transitionInTransaction = Effect.fn(
     PhysicalDefinitionLifecycleConflictError |
     PhysicalDefinitionLifecycleFaultError
 > {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   const authority = state.located.authority;
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
@@ -1109,6 +1114,8 @@ const finalizeRetirementInTransactionEffect = Effect.fn(
     PhysicalDefinitionLifecycleFaultError |
     InspectPhysicalDefinitionRetirementPinsError
 > {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   const authority = state.located.authority;
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,

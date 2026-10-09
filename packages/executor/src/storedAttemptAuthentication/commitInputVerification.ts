@@ -6,7 +6,7 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
-import type { PointCommitRowIntentV1 } from "@flarex/persistence-postgres/point-commit-transaction";
+import type { FrozenFiniteCommitValidationValues } from "@flarex/persistence-postgres/session-journal-store";
 import { hasLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthoritySource,
@@ -162,7 +162,7 @@ export type CommitInputAuthorityPinsV1 =
 type VerifiedCommitPointDependencyV1 =
   AuthenticatedStoredAttemptPointV1["dependency"];
 type VerifiedCommitPointObservedV1 =
-  VerifiedCommitPointDependencyV1["observed"];
+  Extract<VerifiedCommitPointDependencyV1, { readonly kind: "appRowPoint" }>["observed"];
 type VerifiedCommitPointMissingObservedV1 = Extract<
   VerifiedCommitPointObservedV1,
   { readonly kind: "missing" }
@@ -178,10 +178,10 @@ type VerifiedCommitWritablePointObservedV1 =
       }
     >;
 type VerifiedCommitWritablePointDependencyV1 = Readonly<
-  Omit<VerifiedCommitPointDependencyV1, "observed"> & {
+  Omit<Extract<VerifiedCommitPointDependencyV1, { readonly kind: "appRowPoint" }>, "observed"> & {
     readonly observed: VerifiedCommitWritablePointObservedV1;
   }
->;
+> | Extract<VerifiedCommitPointDependencyV1, { readonly kind: "generatedInsertion" }>;
 
 interface VerifiedCommitPointBaseV1<
   Dependency extends VerifiedCommitPointDependencyV1 =
@@ -251,8 +251,8 @@ export interface CommitInputVerificationSourceV1 {
 /** The finite graph is issuer-owned; only native Application validators are applied here. */
 export const verifyFiniteCommitValuesEffect = Effect.fn("StoredAttemptAuthentication.verifyFiniteCommitValues")(
   function* (source: Readonly<{
-    rowIntents: readonly PointCommitRowIntentV1[];
-    successfulResult: CanonicalSuccessfulResultV1;
+    rowIntents: FrozenFiniteCommitValidationValues["rowIntents"];
+    successfulResult: FrozenFiniteCommitValidationValues["successfulResult"];
     schemaManifest: SchemaManifestAppSchemaV1;
     functionValidationAuthority: CommitInputVerificationSourceV1["functionValidationAuthority"];
   }>) {
@@ -263,7 +263,7 @@ export const verifyFiniteCommitValuesEffect = Effect.fn("StoredAttemptAuthentica
       const table = tables.get(row.tableId);
       if (table === undefined || row.kind !== "live") continue;
       const fields = yield* projectDeveloperFieldsEffect({ documentId: row.documentId,
-        overlayValue: row.value, overlayCreationTime: row.creationTime }, table.logicalName);
+        overlayValue: normalizeFlarexValueJsonV1(row.valueJson).value, overlayCreationTime: row.creationTime }, table.logicalName);
       yield* Effect.fromResult(validateValidatorValueV1(table.definition.documentType, fields,
         { path: "$document", idPolicy })).pipe(Effect.mapError(error => new CommitDocumentValidationV1Error({
           documentId: row.documentId, tableName: table.logicalName, issue: { reason: "validator", issue: error.issue },
@@ -629,7 +629,7 @@ function captureVerifiedLivePoint(
 function isVerifiedCommitWritablePointDependency(
   dependency: VerifiedCommitPointDependencyV1,
 ): dependency is VerifiedCommitWritablePointDependencyV1 {
-  return dependency.observed.kind === "present" ||
+  return dependency.kind === "generatedInsertion" || dependency.observed.kind === "present" ||
     dependency.observed.basis.kind === "noVisibleRevision";
 }
 

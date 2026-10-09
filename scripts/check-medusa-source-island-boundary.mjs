@@ -90,6 +90,9 @@ const finiteContractTestImports = new Map([
   ["packages/persistence-postgres/test/finiteSourceCommitClosure.test.ts", {
     specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
+  ["packages/persistence-postgres/test/sessionJournalMultiSource.test.ts", {
+    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  }],
   ["packages/persistence-postgres/test/appSchemaCandidateValidation.postgres.test.ts", {
     specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
@@ -392,6 +395,28 @@ function admitsSelectedMedusaTestTypeImport(promotion, relativePath, specifier, 
       && file.classification === "authored");
 }
 
+/** The historical capture diagnostic must use the actual native query owner.
+ * Only these two exact imports in that test fixture are admitted; this creates
+ * no adapter export or permission for an adjacent or production consumer.
+ * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
+ * @param {string} relativePath @param {string} specifier @param {ts.Node | undefined} node */
+function admitsHistoricalCaptureImport(promotion, relativePath, specifier, node) {
+  if (relativePath !== "packages/executor/test/performance/support/historicalCaptureFixture.ts"
+    || node === undefined || !ts.isImportDeclaration(node) || node.importClause === undefined
+    || node.importClause.name !== undefined) return false;
+  const typeOnly = specifier === "../../../../medusa-adapter/src/product-runtime-metadata";
+  const value = specifier === "../../../../medusa-adapter/src/product-query";
+  if ((!typeOnly && !value) || node.importClause.isTypeOnly !== typeOnly) return false;
+  const bindings = node.importClause.namedBindings;
+  if (bindings === undefined || !ts.isNamedImports(bindings) || bindings.elements.length !== 1) return false;
+  const imported = bindings.elements[0];
+  const target = typeOnly ? "packages/medusa-adapter/src/product-runtime-metadata.ts"
+    : "packages/medusa-adapter/src/product-query.ts";
+  return imported?.name.text === (typeOnly ? "ProductRuntimeMetadata" : "findProducts")
+    && imported.propertyName === undefined && imported.isTypeOnly === false
+    && promotion?.files.some(file => file.target === target && file.classification === "authored") === true;
+}
+
 /**
  * @typedef {{ readonly relativePath: string, readonly manifest: Readonly<Record<string, unknown>> }} ManifestInput
  * @typedef {{ readonly relativePath: string, readonly text: string }} SourceInput
@@ -561,6 +586,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath, node) => {
     if (admitsNativeBusinessOwner(promotion) && nativeBusinessImports.get(relativePath)?.has(specifier)) return undefined;
+    if (admitsHistoricalCaptureImport(promotion, relativePath, specifier, node)) return undefined;
     if (admitsSelectedMedusaTestTypeImport(promotion, relativePath, specifier, node)) return undefined;
     if (admitsSelectedMixedTestImport(promotion, relativePath, specifier)) return undefined;
     if (relativePath === nativeRetrievalScenario && admitsNativeRetrievalOwner(promotion)

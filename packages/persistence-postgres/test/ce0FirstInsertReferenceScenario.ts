@@ -20,6 +20,10 @@ import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture
 import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { ce0FirstInsertExecutionScenario } from "./ce0FirstInsertExecutionScenario";
+import { getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryRevisions, fxAppUniqueKeys } from "../src/schema";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../src/installationLifecycle";
 
 const decodeDocuments = Schema.decodeUnknownSync(
   Schema.Array(
@@ -190,17 +194,23 @@ export async function ce0FirstInsertReferenceScenario(
     }
   for (const implementation of ["core", "reference"] as const)
     for (const mode of ["defect", "cancel"] as const)
-      for (const step of [
-        "rowBatchWritten",
-        "indexBatchWritten",
-        "uniquePublicationApplied",
-        "clockAdvanced",
-      ]) {
+      for (const step of implementation === "reference"
+        ? ["rowBatchWritten", "indexBatchWritten", "uniquePublicationApplied", "clockAdvanced"]
+        : ["commitHeaderWritten", "clockAdvanced"]) {
         const fault = new Error(`rollback ${implementation} after ${step}`);
         const controller = new AbortController();
         let injected = 0;
         const input = {
           ...tested.input,
+          referenceMaterialization: {
+            afterTransactionStep: async (event: { readonly step: string }) => {
+              if (event.step === step) {
+                injected++;
+                if (mode === "cancel") controller.abort();
+                else throw fault;
+              }
+            },
+          },
           materialization: {
             ...tested.input.materialization,
             afterTransactionStep: async (event: { readonly step: string }) => {
@@ -255,11 +265,65 @@ export async function ce0FirstInsertReferenceScenario(
         expect(await runEffect(core(key, args))).toEqual(value);
         expect(await tested.inventory()).toEqual(after);
       }
+  const schemaName = await persistence.drizzle.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try { return await runEffect(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
+    finally { closeInstallationAdmission(tx); }
+  });
+  const qualified = (name: string) => new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(name)}`).sql;
+  const rowCurrent = qualified(getTableName(fxAppRowCurrent));
+  const rowRevisions = qualified(getTableName(fxAppRowRevisions));
+  const indexRevisions = qualified(getTableName(fxAppIndexEntryRevisions));
+  for (const stage of ["rows", "indexes", "unique"] as const) {
+    const table = stage === "rows" ? rowCurrent : stage === "indexes" ? indexRevisions : qualified(getTableName(fxAppUniqueKeys));
+    const functionName = qualified(`ce0_core_${stage}_fault`);
+    const sentinel = `CE0 core native ${stage} prefix fault`;
+    const rowPrefix = `exists(select 1 from ${rowCurrent} c join ${rowRevisions} r
+      on r."${fxAppRowRevisions.scopeUuid.name}"=c."${fxAppRowCurrent.scopeUuid.name}"
+      and r."${fxAppRowRevisions.tableId.name}"=c."${fxAppRowCurrent.tableId.name}"
+      and r."${fxAppRowRevisions.rowId.name}"=c."${fxAppRowCurrent.rowId.name}"
+      and r."${fxAppRowRevisions.commitSeq.name}"=c."${fxAppRowCurrent.commitSeq.name}"
+      where c."${fxAppRowCurrent.scopeUuid.name}"=NEW.scope_uuid
+      and c."${fxAppRowCurrent.tableId.name}"=NEW.table_id and c."${fxAppRowCurrent.rowId.name}"=NEW.row_id)`;
+    const indexPrefix = `(select count(*) from ${indexRevisions} i join ${rowCurrent} c
+      on i."${fxAppIndexEntryRevisions.scopeUuid.name}"=c."${fxAppRowCurrent.scopeUuid.name}"
+      and i."${fxAppIndexEntryRevisions.tableId.name}"=c."${fxAppRowCurrent.tableId.name}"
+      and i."${fxAppIndexEntryRevisions.rowId.name}"=c."${fxAppRowCurrent.rowId.name}"
+      and i."${fxAppIndexEntryRevisions.commitSeq.name}"=c."${fxAppRowCurrent.commitSeq.name}"
+      where i."${fxAppIndexEntryRevisions.scopeUuid.name}"=NEW.scope_uuid
+      and i."${fxAppIndexEntryRevisions.tableId.name}"=NEW.table_id and i."${fxAppIndexEntryRevisions.rowId.name}"=NEW.row_id)=2`;
+    await persistence.query(`create function ${functionName}() returns trigger language plpgsql as $$ begin
+      if not (${rowPrefix}${stage === "unique" ? ` and ${indexPrefix}` : ""}) then
+        raise exception 'CE0 native ${stage} lacked its earlier provisional prefix'; end if;
+      raise exception '${sentinel}'; end $$`);
+    const before = await tested.inventory();
+    const key = tested.host.newRequestKey();
+    const args = { count: stage === "indexes" ? 32 : 8, prefix: `core-native-${stage}` };
+    try {
+      await persistence.query(`create trigger ce0_core_prefix_fault after insert on ${table} for each row execute function ${functionName}()`);
+      const failure = await runEffect(core(key, args).pipe(Effect.exit));
+      expect(Exit.isFailure(failure)).toBe(true);
+      if (Exit.isFailure(failure)) {
+        expect(failure.cause.reasons.every(Cause.isFailReason)).toBe(true);
+        const errors = failure.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error);
+        expect(errors.map(error => error.reason)).toEqual("pool" in persistence ? ["statementFailure", "resourceFailure"] : ["statementFailure"]);
+        for (const error of errors) expect(Cause.pretty(Cause.fail(error))).toContain(sentinel);
+      }
+      expect(await tested.inventory()).toEqual(before);
+    } finally {
+      await persistence.query(`drop trigger ce0_core_prefix_fault on ${table}`);
+      await persistence.query(`drop function ${functionName}()`);
+    }
+    const value = await runEffect(reference.run(key, args));
+    const after = await tested.verifyInsert(before, value, args.count, args.prefix);
+    expect(await runEffect(core(key, args))).toEqual(value);
+    expect(await tested.inventory()).toEqual(after);
+  }
   await ce0FirstInsertExecutionScenario(persistence, tested);
   // Actual storage-return corruption must not be mistaken for a business
   // uniqueness conflict, nor accepted just because identity and digest match.
   for (const mode of ["alter", "suppress"] as const) {
-    await persistence.query(`create function ce50_claim_fault() returns trigger language plpgsql as $$
+    await persistence.query(`create function ${qualified("ce50_claim_fault")}() returns trigger language plpgsql as $$
       begin
         ${
           mode === "suppress"
@@ -270,7 +334,7 @@ export async function ce0FirstInsertReferenceScenario(
       end $$`);
     try {
       await persistence.query(
-        "create trigger ce50_claim_fault before insert on fx_app_unique_key for each row execute function ce50_claim_fault()",
+        `create trigger ce50_claim_fault before insert on ${qualified(getTableName(fxAppUniqueKeys))} for each row execute function ${qualified("ce50_claim_fault")}()`,
       );
       try {
         for (const run of [core, reference.run]) {
@@ -287,11 +351,11 @@ export async function ce0FirstInsertReferenceScenario(
         }
       } finally {
         await persistence.query(
-          "drop trigger ce50_claim_fault on fx_app_unique_key",
+          `drop trigger ce50_claim_fault on ${qualified(getTableName(fxAppUniqueKeys))}`,
         );
       }
     } finally {
-      await persistence.query("drop function ce50_claim_fault()");
+      await persistence.query(`drop function ${qualified("ce50_claim_fault")}()`);
     }
   }
 }

@@ -13,23 +13,21 @@ import type { CmsHostInput } from "../src/cmsTransaction/host";
 import type { CmsHostTestHooks } from "../src/cmsTransaction/testSupport";
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import {
-  prepareCmsApplication,
+  prepareCmsApplicationFromBinding,
+  requirePreparedCmsApplication,
   withCmsAdmission,
   requireCmsAdmission,
 } from "../src/cmsTransaction/admission";
 import { makeCmsRequestLifetime } from "../src/cmsTransaction/lifetime";
 import { capturePrivateJsonData } from "../src/privateJsonData";
 import {
-  captureExactTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityByIdEffect,
-} from "../src/scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../src/transactionSessionAttemptKernel";
-import {
   hasRelationalSessionDatabase,
   runRelationalSession,
+  readRelationalSessionCoLocatedInstallation,
+  startRelationalRequestDeadline,
+  boundRelationalRequestDeadline,
 } from "../src/relationalTransaction/session";
 import { runWithRequestRecovery } from "../src/relationalTransaction/requestRecovery";
-import { lockScopeClockForSnapshotReadInTransactionEffect } from "../src/scopeClock";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import {
   readBoundedCurrentAppRowsInTransactionEffect,
@@ -38,6 +36,7 @@ import {
   type AppRowRevisionV1,
 } from "../src/appRows";
 import { projectCe0CmsRequestFailure } from "./ce0CmsReferencePersistence";
+import { prepareCurrentApplicationBinding, hasApplicationBindingComposition } from "../src/applicationActivation";
 
 const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String));
 const hash = makeLivePrivateSha256V1({
@@ -79,9 +78,8 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
       input;
     if (!hasRelationalSessionDatabase(session, database))
       return yield* Effect.fail(cmsError("invalidAuthority"));
-    const compositionAuthority = input.authority;
-    const authority =
-      captureExactTrustedScopeAuthorityResolutionPorts(compositionAuthority);
+    if (!hasApplicationBindingComposition(application, input.authority))
+      return yield* Effect.fail(cmsError("invalidAuthority"));
     const identity = yield* Effect.fromResult(
       capturePrivateJsonData(
         input.identityAndAccessPolicy,
@@ -97,9 +95,12 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
     yield* chargeHostPreparation({ deploymentId, commands: ["measuredReadback"] })
       .pipe(Effect.mapError(projectCe0CmsRequestFailure));
     const owner = Object.freeze({ hostId: Symbol("ce0.read.reference") });
-    const prepared = yield* prepareCmsApplication(
-      application, compositionAuthority, controlDatabase, deploymentId, scopeId,
-    ).pipe(Effect.mapError(projectCe0CmsRequestFailure));
+    const currentPreparation = yield* prepareCurrentApplicationBinding(application, database, selection => Effect.gen(function* () {
+      const prepared = yield* prepareCmsApplicationFromBinding(selection, controlDatabase, deploymentId, scopeId);
+      const preparation = yield* requirePreparedCmsApplication(prepared);
+      if (preparation.schema.relations.length !== 0) return yield* Effect.fail(cmsError("unsupportedProfile"));
+      return prepared;
+    }), { installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)) });
     const read = Effect.fn("Ce0ReadReference.read")(function* (args: Json) {
       const captured = yield* Effect.fromResult(
         capturePrivateJsonData(args, cmsLimits.commandBytes, cmsError),
@@ -108,33 +109,22 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
       const requestIdentity = Object.freeze({
         requestId: Symbol("ce0.read.request"),
       });
+      const deadline = yield* startRelationalRequestDeadline(cmsLimits.commandMs).pipe(Effect.mapError(projectCe0CmsRequestFailure));
       const attempt = Effect.gen(function* () {
-        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
-          { deploymentId, scopeId },
-          authority,
-        );
-        if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
-          return yield* Effect.fail(cmsError("invalidAuthority"));
-        if (prepared.schema.relations.length !== 0)
-          return yield* Effect.fail(cmsError("unsupportedProfile"));
-        return yield* runRelationalSession(session, "snapshotRead", (tx) =>
-          Effect.scoped(
-            Effect.gen(function* () {
+        return yield* currentPreparation.withEntry(({ payload: prepared }, enter) =>
+          runRelationalSession(session, "snapshotRead", { enter: (tx, requireInstallation) =>
+            enter(tx, requireInstallation, Effect.gen(function* () {
               yield* runDrizzleStatementEffect(
                 tx.execute(
                   sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`,
                 ),
                 (cause) => cmsError("statementFailure", cause),
               );
-              const clock =
-                yield* lockScopeClockForSnapshotReadInTransactionEffect(
-                  tx,
-                  located.authority.scopeId,
-                );
+            }), ({ clock, authority: entryAuthority, checked }) => Effect.scoped(Effect.gen(function* () {
               return yield* withCmsAdmission(
                 prepared,
                 tx,
-                located.authority,
+                entryAuthority,
                 clock,
                 (admission) =>
                   Effect.gen(function* () {
@@ -153,7 +143,7 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
                         domain: "flarex.private.cms-command",
                         version: 1,
                         deploymentId,
-                        scopeId: located.authority.scopeId,
+                        scopeId: entryAuthority.scopeId,
                         epoch: clock.epoch,
                         storageGeneration: clock.storageGeneration,
                         fence: clock.storageGenerationFence.toString(),
@@ -238,7 +228,7 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
                                   yield* readBoundedCurrentAppRowsInTransactionEffect(
                                     tx,
                                     {
-                                      scopeId: located.authority.scopeId,
+                                      scopeId: entryAuthority.scopeId,
                                       tableId: identity.tableId,
                                       minimumCommitSeq: clock.lastCommitSeq,
                                       maximumIdentities: cmsLimits.identities,
@@ -327,17 +317,15 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
                       yield* lifetime.seal;
                       return result.valueJson;
                     }).pipe(Effect.ensuring(lifetime.close));
-                  }),
+                  }), undefined, checked,
               );
-            }),
-          ),
-        );
+            }))) }, deadline));
       });
-      return yield* runWithRequestRecovery(() => attempt, {
+      return yield* boundRelationalRequestDeadline(deadline, runWithRequestRecovery(() => attempt, {
         hasRequestKey: false,
         projectFailure: projectCe0CmsRequestFailure,
         isDecisionUncertain: (error) => error.reason === "decisionUncertain",
-      });
+      }));
     });
     return Object.freeze({ read });
   },

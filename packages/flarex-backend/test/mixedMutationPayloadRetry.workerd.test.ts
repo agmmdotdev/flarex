@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as nativeRuntime from "../../payload-adapter/src/runtime/native";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { decodePointMutationExactRuntimeResultV1Effect } from
@@ -49,9 +50,23 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)("standal
 
 describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
   it("reexecutes Product, the native Payload hook and Application on a fresh attempt", async () => {
+    const lifetimes: Array<Readonly<{ initCalls: () => number; destroyCalls: () => number; restore: () => void }>> = [];
+    const makeNative = nativeRuntime.makePayloadNative;
+    const construction = vi.spyOn(nativeRuntime, "makePayloadNative").mockImplementation((...args) =>
+      makeNative(...args).pipe(Effect.tap(native => Effect.sync(() => {
+        const initialize = vi.spyOn(native.payload, "init");
+        const destroy = vi.spyOn(native.payload, "destroy");
+        lifetimes.push({ initCalls: () => initialize.mock.calls.length,
+          destroyCalls: () => destroy.mock.calls.length,
+          restore: () => { initialize.mockRestore(); destroy.mockRestore(); } });
+      }))));
+    try {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-retry-${driver}`, payloadProfile: "success" });
     try {
+      expect(lifetimes).toHaveLength(1);
+      expect(lifetimes[0]?.initCalls()).toBe(0);
+      expect(lifetimes[0]?.destroyCalls()).toBe(0);
       const raw = await fixture.runExecution();
       const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
         result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
@@ -96,7 +111,14 @@ describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
       const history = fixture.payload?.runtimeHistory;
       expect(history).toHaveLength(2);
       expect(history?.[1]).not.toBe(history?.[0]);
+      expect(history?.[1]?.runtime).not.toBe(history?.[0]?.runtime);
+      expect(history?.[1]?.payload).toBe(history?.[0]?.payload);
       expect(history?.map(runtime => runtime.observations.hookRuns())).toEqual([1, 1]);
+      expect(history?.map(runtime => runtime.observations.requests())).toEqual([4, 4]);
+      expect(history?.map(runtime => runtime.observations.dataLoaders())).toEqual([4, 4]);
+      expect(lifetimes).toHaveLength(1);
+      expect(lifetimes[0]?.initCalls()).toBe(0);
+      expect(lifetimes[0]?.destroyCalls()).toBe(0);
       expect(fixture.nativeInvokeCount.get("payload-create")).toBe(2);
       expect(fixture.nativeInvokeCount.get("update")).toBe(2);
       const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
@@ -120,11 +142,13 @@ describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
       expect(stale.result).toEqual({ kind: "stateRejected", issue: { reason: "journalFailed" } });
       expect(fixture.nativeInvokeCount.get("payload-create")).toBe(callsBeforeStale);
     } finally { await fixture.close(); }
+    expect(lifetimes[0]?.destroyCalls()).toBe(1);
+    } finally { construction.mockRestore(); for (const lifetime of lifetimes) lifetime.restore(); }
   }, 180_000);
 });
 
 describe.each(drivers)("mixed Payload historical title conflict on %s", driver => {
-    it("loses to a real standalone Payload create and retries the whole root on a fresh instance", async () => {
+    it("loses to a real standalone Payload create and retries the whole root on a fresh attempt facade", async () => {
       const fixture = await createMixedMutationProductFixture({ driver,
         suffix: `payload-standalone-title-conflict-${driver}`, payloadProfile: "success" });
       try {
@@ -159,6 +183,8 @@ describe.each(drivers)("mixed Payload historical title conflict on %s", driver =
         expect(fixture.bridgeFailures.join("\n")).toMatch(/unique/i);
         expect(fixture.payload?.runtimeHistory).toHaveLength(2);
         expect(fixture.payload?.runtimeHistory[1]).not.toBe(fixture.payload?.runtimeHistory[0]);
+        expect(fixture.payload?.runtimeHistory[1]?.runtime).not.toBe(fixture.payload?.runtimeHistory[0]?.runtime);
+        expect(fixture.payload?.runtimeHistory[1]?.payload).toBe(fixture.payload?.runtimeHistory[0]?.payload);
         expect(fixture.payload?.runtimeHistory.map(runtime => runtime.observations.hookRuns())).toEqual([1, 0]);
         const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
         const rows = await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)

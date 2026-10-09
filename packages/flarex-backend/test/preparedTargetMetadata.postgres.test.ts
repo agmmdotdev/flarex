@@ -74,7 +74,7 @@ native("protected target first-fill rollback integrity", () => {
           const issuer = yield* issuerHost.use(value => Effect.succeed(value.active));
           const lineage = yield* Effect.fromResult(readApplicationBindingTargetProtection(issuer.selection));
           if (lineage.protection === undefined || lineage.lifetime === undefined) return yield* Effect.die("Missing actual retained issuer");
-          const prepared = prepareBindingSelectedStructure(location, lineage.protection, lineage.lifetime);
+          const prepared = Result.getOrThrow(prepareBindingSelectedStructure(location, lineage.protection, lineage.lifetime));
           const guarded = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) => Effect.tryPromise({
             try: () => target.transaction(async tx => {
               openProtectedMetadataFinalGuardScope(tx);
@@ -283,7 +283,7 @@ native("protected target first-fill rollback integrity", () => {
       expect(restoredSchema).toMatchObject({ deploymentId: fixture.deploymentId });
 
       const location = { scopeId, storageGeneration: "flarexdb_v1" };
-      const bindingPreparation = prepareBindingSelectedStructure(location, protection, undefined);
+      const bindingPreparation = Result.getOrThrow(prepareBindingSelectedStructure(location, protection, undefined));
       const original = await target.transaction(tx => Effect.runPromise(readBindingSelectedEvidence(tx, location)));
       if (Option.isNone(original)) throw new Error("Missing selected logical binding");
       await expect(guarded(async tx => {
@@ -330,8 +330,8 @@ native("protected target first-fill rollback integrity", () => {
       const { protection: currentProtection } = Result.getOrThrow(readApplicationBindingTargetProtection(reselection.selection));
       if (currentProtection === undefined) throw new Error("Missing renewed readiness anchor");
       let charges = 0;
-      const headOnlyPreparation = prepareBindingSelectedStructure(location, currentProtection,
-        { charge: () => { charges++; return Result.succeed(undefined); }, checkOpen: () => Result.succeed(undefined) });
+      const headOnlyPreparation = Result.getOrThrow(prepareBindingSelectedStructure(location, currentProtection,
+        { charge: () => { charges++; return Result.succeed(undefined); }, checkOpen: () => Result.succeed(undefined) }));
       await expect(guarded(async tx => {
         await tx.update(fxSystemDataBindingHeads).set(secondHeadRow)
           .where(eq(fxSystemDataBindingHeads.scopeId, scopeId));

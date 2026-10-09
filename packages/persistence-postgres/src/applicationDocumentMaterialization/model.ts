@@ -70,21 +70,8 @@ export interface ApplicationDocumentDefinitionComposition {
 }
 
 export type ApplicationDocumentMaterializationStep =
-  | "rowBatchWriting"
-  | "rowBatchWritten"
-  | "intrinsicMembershipPreparing"
-  | "intrinsicMembershipPrepared"
-  | "tentativeRowWritten"
-  | "indexBatchWriting"
-  | "indexBatchWritten"
-  | "intrinsicIndexEntryWritten"
-  | "developerIndexEntryWritten"
-  | "uniqueKeyWritten"
-  | "uniqueKeyBatchWriting"
-  | "uniqueKeyBatchWritten"
   | "relationEdgeWritten"
-  | "relationRestrictValidated"
-  | "uniquePublicationApplied";
+  | "relationRestrictValidated";
 
 export interface ApplicationDocumentMaterializationOptions {
   readonly publicationObservation?: PointCommitPublicationObservation;
@@ -110,7 +97,7 @@ export interface ApplicationDocumentMaterializationOptions {
   ) => Promise<void>;
   readonly observeQuery?: (
     query: Readonly<{
-      readonly name: "loadRelationTargets" | "loadRowHeads" | "loadPriorDocuments";
+      readonly name: "loadRelationTargets" | "loadRowHeads" | "loadPriorDocuments" | "acceptPublication" | "applyPublication";
       readonly sql: string;
       readonly params: ReadonlyArray<unknown>;
     }>,
@@ -211,11 +198,6 @@ export interface LoadedPointCommitHeadV1 {
 }
 
 /** Driver evidence stays deferred until normal finite OCC and liveness finish. */
-export interface FinitePointCommitHeads {
-  readonly heads: readonly LoadedPointCommitHeadV1[];
-  readonly predecessorRows: readonly unknown[];
-}
-
 export type PreparedPointCommitApplicationRelationPlan = Readonly<{
   readonly port: ApplicationRelationCommitPort;
   readonly prepared: PreparedApplicationRelationCommit;
@@ -238,15 +220,6 @@ export interface PointCommitDeveloperIndexEntryActionV1 {
   readonly definition: LocatedAppIndexDefinitionV1;
   readonly encodedKey: OrderedIndexKeyHexV1;
   readonly rowId: OrderedIndexRowIdHexV1;
-}
-
-export interface PointCommitDeveloperIndexRowPlanV1 {
-  readonly definition: LocatedAppIndexDefinitionV1;
-  readonly build: IndexBuildStateRecord;
-  readonly rowId: OrderedIndexRowIdHexV1;
-  readonly priorCommitSeq: CommitSeq | null;
-  readonly priorKey: OrderedIndexKeyHexV1 | null;
-  readonly finalKey: OrderedIndexKeyHexV1 | null;
 }
 
 export interface PointCommitDeveloperIndexDocumentRequestV1 {

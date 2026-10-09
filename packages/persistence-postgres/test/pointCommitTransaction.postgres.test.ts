@@ -21,11 +21,14 @@ import {
 import { performance } from "node:perf_hooks";
 import { writeFile } from "node:fs/promises";
 import { withPostgresExecutionObservation, type PostgresExecutionPhase } from "./postgresExecutionObservation";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../src/executionDiagnostics/operation";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { fxControlSchemaVersionIndexBindings, fxControlSchemaVersionUniqueConstraintBindings } from "../src/schema";
-import { Effect, Exit, Fiber, Result, Schema } from "effect";
+import { Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
+import { publicationCoveragePhaseTrace } from "./publicationCoveragePhaseTrace";
 import type { PoolClient } from "pg";
 import {
   canonicalizeAppDocumentV1,
@@ -152,6 +155,10 @@ import {
   fxSystemCommits,
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
+  fxAppRowRevisions,
+  fxAppIndexEntryRevisions,
+  fxAppIndexEntryCurrent,
+  fxAppUniqueKeys,
 } from "../src/schema";
 import {
   createAppDeveloperIndexQueryPortV1,
@@ -198,6 +205,63 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const withPostgresPersistence = useFileScopedPostgresPersistence();
+
+const installedPublicationDiagnostics = (markPhase: (phase: PostgresExecutionPhase) => void): ExecutionDiagnosticPolicy => ({
+  observe: (name, work) => {
+    const phase = name === "ApplicationDocument.acceptPublication" ? "acceptPublication" :
+      name === "ApplicationDocument.materializeAcceptedPublication" ? "applyPublication" : undefined;
+    return phase === undefined ? work : Effect.sync(() => markPhase(phase)).pipe(
+      Effect.andThen(work), Effect.ensuring(Effect.sync(() => markPhase("resolveAndLock"))));
+  },
+});
+
+/** A scoped native trigger witnesses actual DML; it never executes a commit. */
+async function withMaterializationDmlTrigger(
+  persistence: PostgresFlarexPersistence,
+  suffix: string,
+  target: typeof fxAppRowRevisions | typeof fxAppIndexEntryRevisions | typeof fxAppIndexEntryCurrent | typeof fxAppUniqueKeys,
+  timing: "before insert" | "before insert or delete" | "before insert or update or delete" | "after insert or delete",
+  body: string,
+  run: () => Promise<void>,
+) {
+  const schema = Schema.decodeUnknownSync(Schema.Struct({ namespace: Schema.String }))(
+    (await persistence.query("select current_schema() as namespace")).rows[0]);
+  const qualified = (name: string) => new PgDialect().sqlToQuery(sql`${sql.identifier(schema.namespace)}.${sql.identifier(name)}`).sql;
+  const table = qualified(getTableName(target));
+  const functionName = qualified(`fx_test_${suffix}_function`);
+  const triggerName = `fx_test_${suffix}_trigger`;
+  await persistence.query(`create function ${functionName}() returns trigger language plpgsql as $$
+    begin ${body}
+      if TG_OP='DELETE' then return OLD; end if; return NEW;
+    end $$`);
+  try {
+    await persistence.query(`create trigger "${triggerName}" ${timing} on ${table} for each row execute function ${functionName}()`);
+    try { await run(); }
+    finally { await persistence.query(`drop trigger "${triggerName}" on ${table}`); }
+  } finally { await persistence.query(`drop function ${functionName}()`); }
+}
+
+async function withMaterializationDmlCounter(
+  persistence: PostgresFlarexPersistence, scopeUuid: string, suffix: string,
+  run: (count: () => Promise<number>) => Promise<void>,
+  beforeWrite: (schemaName: string) => string = () => "",
+  timing: "before insert" | "after insert or delete" = "after insert or delete",
+  target: typeof fxAppUniqueKeys | typeof fxAppIndexEntryRevisions = fxAppUniqueKeys,
+) {
+  const schema = Schema.decodeUnknownSync(Schema.Struct({ namespace: Schema.String }))(
+    (await persistence.query("select current_schema() as namespace")).rows[0]);
+  const sequence = new PgDialect().sqlToQuery(sql`${sql.identifier(schema.namespace)}.${sql.identifier(`fx_test_${suffix}_sequence`)}`).sql;
+  await persistence.query(`create sequence ${sequence} minvalue 1 maxvalue 1024 no cycle`);
+  try {
+    await withMaterializationDmlTrigger(persistence, suffix, target, timing,
+      `if (TG_OP='DELETE' and OLD."${target.scopeUuid.name}"='${scopeUuid}'::uuid) or
+        (TG_OP<>'DELETE' and NEW."${target.scopeUuid.name}"='${scopeUuid}'::uuid) then
+        ${beforeWrite(schema.namespace)} perform nextval('${sequence}'::regclass); end if;`, async () => run(async () => {
+        const row = (await persistence.query(`select (case when is_called then last_value else 0 end)::int as writes from ${sequence}`)).rows[0];
+        return Schema.decodeUnknownSync(Schema.Struct({ writes: Schema.Int }))(row).writes;
+      }));
+  } finally { await persistence.query(`drop sequence ${sequence}`); }
+}
 
 describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   it("keeps OCC, lowering and clock advancement inline when publication observation is absent", async () => {
@@ -354,9 +418,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "leaseLocked",
         "journalRootLocked",
         "dependenciesValidated",
-        "rowBatchWriting",
-        "rowBatchWritten",
-        "tentativeRowWritten",
         "beforeRollback",
       ]);
       expect([...queries.keys()]).toEqual([
@@ -670,11 +731,19 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           count,
         );
         const parameters: number[] = [];
+        const packetRows: number[] = [];
         let steps = 0;
         const publisher = createPublisher(persistence, {
           observeQuery: (query) => {
-            if (query.name === "writeCommitChange")
+            if (query.name === "writeCommitChange") {
               parameters.push(query.params.length);
+              expect(query.sql).toContain('"fx_write_scope_publication_rows"(');
+              const packet = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({
+                scope_uuid: Schema.String, epoch_uuid: Schema.String, commit_seq: Schema.String,
+                change_ordinal: Schema.Int, table_id: Schema.Int, row_id: Schema.String,
+              })), { onExcessProperty: "error" })(JSON.parse(String(query.params[0])));
+              packetRows.push(packet.length);
+            }
           },
           afterTransactionStep: async (event) => {
             if (event.step === "commitChangeWritten") steps += 1;
@@ -688,9 +757,10 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
             ? []
             : Array.from(
                 { length: Math.ceil(count / 500) },
-                (_, index) => Math.min(500, count - index * 500) * 6,
+                (_, index) => Math.min(500, count - index * 500),
               );
-        expect(parameters).toEqual(expectedBatches);
+        expect(packetRows).toEqual(expectedBatches);
+        expect(parameters).toEqual(expectedBatches.map(() => 2));
         expect(steps).toBe(expectedBatches.length);
         const facts = await persistence.drizzle
           .select()
@@ -724,7 +794,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         await expect(
           runEffect(publisher.publish(attempt.publicationCommand)),
         ).resolves.toMatchObject({ kind: "replayed" });
-        expect(parameters).toEqual(expectedBatches);
+        expect(packetRows).toEqual(expectedBatches);
+        expect(parameters).toEqual(expectedBatches.map(() => 2));
       });
     },
     120_000,
@@ -838,15 +909,14 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           runEffect(createPublisher(persistence, {
             ...unique,
             publicationObservation: observation,
-            afterTransactionStep: async event => {
-              if (event.step === "uniqueKeyBatchWriting" || event.step === "uniqueKeyBatchWritten")
-                markPhase(event.step);
-            },
-          }).publish(inserted.publicationCommand)),
+          }).publish(inserted.publicationCommand).pipe(
+            Effect.provideService(ExecutionDiagnostics, installedPublicationDiagnostics(markPhase)))),
         );
         expect(measured.value).toMatchObject({ kind: "published" });
-        // One native canonical-owner write proves the full selected claim set.
-        expect(measured.observation.phases.uniqueKeyBatchWriting?.queryCalls).toBe(1);
+        // Driver calls are the two installed stages; their nested native DML
+        // remains proved by actual claim counts and bounded storage witnesses.
+        expect(measured.observation.familyQueries.fx_accept_app_publication).toBe(1);
+        expect(measured.observation.familyQueries.fx_apply_app_publication).toBe(1);
         expect(events.filter(event => event.kind === "batch" && event.owner === "uniqueClaims")
           .reduce((count, event) => count + (event.kind === "batch" ? event.counts.rows ?? 0 : 0), 0)).toBe(rowCount);
         expect(events.filter(event => event.kind === "batch" && event.owner === "uniqueReleases")).toEqual([]);
@@ -932,33 +1002,17 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
               createPublisher(persistence, {
                 ...intrinsic,
                 publicationObservation: observation,
-                afterTransactionStep: async (event) => {
-                  if (
-                    event.step === "indexBatchWriting" ||
-                    event.step === "indexBatchWritten" ||
-                    event.step === "rowBatchWriting" ||
-                    event.step === "rowBatchWritten" ||
-                    event.step === "intrinsicMembershipPreparing" ||
-                    event.step === "intrinsicMembershipPrepared"
-                  )
-                    markPhase(event.step);
-                },
-              }).publish(inserted.publicationCommand),
+              }).publish(inserted.publicationCommand).pipe(
+                Effect.provideService(ExecutionDiagnostics, installedPublicationDiagnostics(markPhase))),
             );
           },
         );
         expect(measured.value).toMatchObject({ kind: "published" });
-        expect(
-          measured.observation.phases.intrinsicMembershipPreparing?.queryCalls,
-        ).toBe(1);
-        expect(measured.observation.phases.indexBatchWriting?.queryCalls).toBe(1);
-        expect(measured.observation.phases.rowBatchWriting?.queryCalls).toBe(1);
-        expect(events.filter(event => event.kind === "phase" && event.phase === "intrinsicMembership"))
-          .toEqual([{ kind: "phase", phase: "intrinsicMembership", edge: "begin" },
-            { kind: "phase", phase: "intrinsicMembership", edge: "end" }]);
+        expect(measured.observation.familyQueries.fx_accept_app_publication).toBe(1);
+        expect(measured.observation.familyQueries.fx_apply_app_publication).toBe(1);
         for (const owner of ["rowRevisions", "indexRevisions"] as const)
-          expect(events.filter(event => event.kind === "batch" && event.owner === owner)
-            .reduce((count, event) => count + (event.kind === "batch" ? event.counts.rows ?? 0 : 0), 0)).toBe(rowCount);
+          expect(events.filter(event => (event.kind === "batch" || event.kind === "counts") && event.owner === owner)
+            .reduce((count, event) => count + (event.kind === "batch" || event.kind === "counts" ? event.counts.rows ?? 0 : 0), 0)).toBe(rowCount);
         observation.assertHealthy();
         expect(
           (
@@ -990,18 +1044,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           [scopeUuid, Buffer.from(last.rowId, "hex"), new Uint8Array(32)],
         );
         const before = await durableState(persistence, scopeUuid);
-        let rowWrites = 0;
-        expect(
-          await runFailure(
-            createPublisher(persistence, {
-              ...intrinsic,
-              afterTransactionStep: async (event) => {
-                if (event.step === "tentativeRowWritten") rowWrites += 1;
-              },
-            }).publish(changed.publicationCommand),
-          ),
-        ).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
-        expect(rowWrites).toBe(0);
+        await withMaterializationDmlTrigger(persistence, "intrinsic_precedes_rows", fxAppRowRevisions, "before insert",
+          `if NEW."${fxAppRowRevisions.scopeUuid.name}"='${scopeUuid}'::uuid then
+            raise exception 'Row DML reached before prior intrinsic corruption refusal'; end if;`, async () => {
+            expect(await runFailure(createPublisher(persistence, intrinsic).publish(changed.publicationCommand)))
+              .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+          });
         expect(await durableState(persistence, scopeUuid)).toEqual(before);
       }
     });
@@ -1048,18 +1096,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
               createPublisher(persistence, {
                 ...options,
                 publicationObservation: observation,
-                afterTransactionStep: async (event) => {
-                  if (
-                    event.step === "indexBatchWriting" ||
-                    event.step === "indexBatchWritten" ||
-                    event.step === "rowBatchWriting" ||
-                    event.step === "rowBatchWritten" ||
-                    event.step === "intrinsicMembershipPreparing" ||
-                    event.step === "intrinsicMembershipPrepared"
-                  )
-                    markPhase(event.step);
-                },
-              }).publish(attempt.publicationCommand),
+              }).publish(attempt.publicationCommand).pipe(
+                Effect.provideService(ExecutionDiagnostics, installedPublicationDiagnostics(markPhase))),
             ),
         );
         expect(measured.value).toMatchObject({ kind: "published" });
@@ -1081,14 +1119,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(index.current.map((row) => row.tableId).sort()).toEqual(
           indexed ? ["1", "1", "2", "2"] : [],
         );
-        expect(
-          measured.observation.phases.intrinsicMembershipPreparing?.queryCalls ??
-            0,
-        ).toBe(indexed ? 1 : 0);
+        expect(measured.observation.familyQueries.fx_accept_app_publication).toBe(1);
+        expect(measured.observation.familyQueries.fx_apply_app_publication).toBe(1);
         for (const [owner, expected] of [["rowRevisions", 4], ["indexRevisions", indexed ? 4 : 0],
           ["indexCoverage", indexed ? 1 : 0]] as const)
-          expect(events.filter(event => event.kind === "batch" && event.owner === owner)
-            .reduce((count, event) => count + (event.kind === "batch" ? event.counts.rows ?? 0 : 0), 0)).toBe(expected);
+          expect(events.filter(event => (event.kind === "batch" || event.kind === "counts") && event.owner === owner)
+            .reduce((count, event) => count + (event.kind === "batch" || event.kind === "counts" ? event.counts.rows ?? 0 : 0), 0)).toBe(expected);
         observation.assertHealthy();
         expect(await buildState()).toEqual(indexed ? [
           { indexDefinitionId: decodeCatalogIndexDefinitionId(1), lifecycle: "enabled", coveredThroughCommitSeq: 1n },
@@ -1148,25 +1184,14 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           },
         ],
       });
-      let intrinsicWrites = 0;
-      const failure = await runFailure(
-        createPublisher(persistence, {
-          ...intrinsicOptions,
-          afterTransactionStep: (event) => {
-            if (event.step === "intrinsicIndexEntryWritten") {
-              intrinsicWrites += 1;
-              if (intrinsicWrites === 2) {
-                throw new PointCommitCorruptionV1Error({
-                  reason: "publicationInvariantInvalid",
-                });
-              }
-            }
-            return Promise.resolve();
-          },
-        }).publish(attempt.publicationCommand),
-      );
-      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
-      expect(intrinsicWrites).toBe(2);
+      await withMaterializationDmlCounter(persistence, attempt.command.sealIdentity.scopeUuid, "mixed_intrinsic_rollback", async countWrites => {
+        const fault = new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+        const failure = await runFailure(createPublisher(persistence, {
+          ...intrinsicOptions, afterTransactionStep: async event => { if (event.step === "commitHeaderWritten") throw fault; },
+        }).publish(attempt.publicationCommand));
+        expect(failure).toBe(fault);
+        expect(await countWrites()).toBe(2);
+      }, () => "", "after insert or delete", fxAppIndexEntryRevisions);
       expect(
         await intrinsicIndexState(
           persistence,
@@ -1315,18 +1340,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           patch: { category: "updated-body" },
         },
       );
-      const steps: string[] = [];
-      await runEffect(
-        createPublisher(persistence, {
-          ...options,
-          afterTransactionStep: (event) => {
-            steps.push(event.step);
-            return Promise.resolve();
-          },
-        }).publish(changed.publicationCommand),
-      );
-      expect(steps).not.toContain("intrinsicIndexEntryWritten");
-      expect(steps).not.toContain("developerIndexEntryWritten");
+      const refuseIndexDml = (target: typeof fxAppIndexEntryRevisions | typeof fxAppIndexEntryCurrent) =>
+        `if (TG_OP='DELETE' and OLD."${target.scopeUuid.name}"='${inserted.command.sealIdentity.scopeUuid}'::uuid) or
+          (TG_OP<>'DELETE' and NEW."${target.scopeUuid.name}"='${inserted.command.sealIdentity.scopeUuid}'::uuid) then
+          raise exception 'Body-only update attempted membership DML'; end if;`;
+      await withMaterializationDmlTrigger(persistence, "body_only_no_index_revision", fxAppIndexEntryRevisions,
+        "before insert or update or delete", refuseIndexDml(fxAppIndexEntryRevisions), () =>
+        withMaterializationDmlTrigger(persistence, "body_only_no_index_current", fxAppIndexEntryCurrent,
+          "before insert or update or delete", refuseIndexDml(fxAppIndexEntryCurrent), async () => {
+          await runEffect(createPublisher(persistence, options).publish(changed.publicationCommand));
+        }));
       expect(
         await readOrderedMembershipStorage(
           persistence.drizzle,
@@ -1606,25 +1629,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "developer_index_move",
         { kind: "patch", documentId, name: "moved_name" },
       );
-      let developerWrites = 0;
-      const failure = await runFailure(
-        createPublisher(persistence, {
-          ...developerOptions,
-          afterTransactionStep: (event) => {
-            if (event.step === "developerIndexEntryWritten") {
-              developerWrites += 1;
-              if (developerWrites === 2) {
-                throw new PointCommitCorruptionV1Error({
-                  reason: "publicationInvariantInvalid",
-                });
-              }
-            }
-            return Promise.resolve();
-          },
-        }).publish(moved.publicationCommand),
-      );
-      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
-      expect(developerWrites).toBe(2);
+      const beforeMoveDurable = await durableState(persistence, inserted.command.sealIdentity.scopeUuid);
+      await withMaterializationDmlCounter(persistence, inserted.command.sealIdentity.scopeUuid, "developer_move_rollback", async countWrites => {
+        const fault = new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+        const failure = await runFailure(createPublisher(persistence, {
+          ...developerOptions, afterTransactionStep: async event => { if (event.step === "commitHeaderWritten") throw fault; },
+        }).publish(moved.publicationCommand));
+        expect(failure).toBe(fault);
+        expect(await countWrites()).toBe(2);
+      }, () => "", "after insert or delete", fxAppIndexEntryRevisions);
+      expect(await durableState(persistence, inserted.command.sealIdentity.scopeUuid)).toEqual(beforeMoveDurable);
       expect(
         await developerIndexState(
           persistence,
@@ -1920,33 +1934,21 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           "select * from fx_system_unique_constraint_build where scope_id = $1",
           [scope.scopeId],
         );
-        let writes = 0;
-        const publisher = createPublisher(persistence, {
-          ...options,
-          afterTransactionStep: async (event) => {
-            if (event.step === "uniqueKeyWritten") writes += 1;
-          },
-        });
-        if (mode === "unchanged")
-          await runEffect(publisher.publish(next.publicationCommand));
-        else {
-          expect(
-            await runFailure(publisher.publish(next.publicationCommand)),
-          ).toMatchObject({
-            _tag: "PointCommitCorruptionV1Error",
-            reason: "uniqueKeyTransitionInvalid",
+        await withMaterializationDmlTrigger(persistence, "unchanged_unique_omits_dml", fxAppUniqueKeys, "before insert or delete",
+          `if (TG_OP='DELETE' and OLD."${fxAppUniqueKeys.scopeUuid.name}"='${scopeUuid}'::uuid) or
+            (TG_OP<>'DELETE' and NEW."${fxAppUniqueKeys.scopeUuid.name}"='${scopeUuid}'::uuid) then
+            raise exception 'Unchanged unique ownership attempted native DML'; end if;`, async () => {
+            const publisher = createPublisher(persistence, options);
+            if (mode === "unchanged") await runEffect(publisher.publish(next.publicationCommand));
+            else {
+              expect(await runFailure(publisher.publish(next.publicationCommand))).toMatchObject({
+                _tag: "PointCommitCorruptionV1Error", reason: "uniqueKeyTransitionInvalid",
+              });
+              expect(await durableState(persistence, scopeUuid)).toEqual(before);
+              expect((await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1",
+                [scope.scopeId])).rows).toEqual(builds.rows);
+            }
           });
-          expect(await durableState(persistence, scopeUuid)).toEqual(before);
-          expect(
-            (
-              await persistence.query(
-                "select * from fx_system_unique_constraint_build where scope_id = $1",
-                [scope.scopeId],
-              )
-            ).rows,
-          ).toEqual(builds.rows);
-        }
-        expect(writes).toBe(0);
         expect(
           (
             await persistence.query(
@@ -2064,27 +2066,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           name: "moved_unique_name",
         },
       );
-      let uniqueWrites = 0;
       await setValidatingUniqueSetBuild(persistence, scope);
       await setValidatingUniqueSetBuild(persistence, scope, 1001);
-      const failure = await runFailure(
-        createPublisher(persistence, {
-          ...uniqueOptions,
-          afterTransactionStep: (event) => {
-            if (event.step === "uniqueKeyWritten") {
-              uniqueWrites += 1;
-            }
-            if (event.step === "uniquePublicationApplied") {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
-            }
-            return Promise.resolve();
-          },
-        }).publish(moved.publicationCommand),
-      );
-      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
-      expect(uniqueWrites).toBe(2);
+      await withMaterializationDmlCounter(persistence, inserted.command.sealIdentity.scopeUuid, "unique_move_rollback", async countWrites => {
+        const fault = new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+        const failure = await runFailure(createPublisher(persistence, {
+          ...uniqueOptions, afterTransactionStep: async event => { if (event.step === "commitHeaderWritten") throw fault; },
+        }).publish(moved.publicationCommand));
+        expect(failure).toBe(fault);
+        expect(await countWrites()).toBe(2);
+      });
       expect(
         await uniqueKeyState(
           persistence,
@@ -2213,37 +2204,19 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           name: "o09b-moved",
         },
       );
-      const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
-      let uniqueWrites = 0;
-      const failure = await runFailure(
-        createPublisher(persistence, {
-          ...proofOptions,
-          afterTransactionStep: (event) => {
-            if (
-              event.step === "developerIndexEntryWritten" ||
-              event.step === "uniqueKeyWritten"
-            ) {
-              sidecarSteps.push(event.step);
-            }
-            if (event.step === "uniqueKeyWritten") {
-              uniqueWrites += 1;
-              if (uniqueWrites === 2) {
-                throw new PointCommitCorruptionV1Error({
-                  reason: "publicationInvariantInvalid",
-                });
-              }
-            }
-            return Promise.resolve();
-          },
-        }).publish(moved.publicationCommand),
-      );
-      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
-      expect(sidecarSteps).toEqual([
-        "developerIndexEntryWritten",
-        "developerIndexEntryWritten",
-        "uniqueKeyWritten",
-        "uniqueKeyWritten",
-      ]);
+      await withMaterializationDmlCounter(persistence, inserted.command.sealIdentity.scopeUuid, "combined_sidecar_rollback", async countWrites => {
+        const fault = new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+        const failure = await runFailure(createPublisher(persistence, {
+          ...proofOptions, afterTransactionStep: async event => { if (event.step === "commitHeaderWritten") throw fault; },
+        }).publish(moved.publicationCommand));
+        expect(failure).toBe(fault);
+        expect(await countWrites()).toBe(2);
+      }, schemaName => `if (select count(*) from ${new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(getTableName(fxAppIndexEntryRevisions))}`).sql} where "${fxAppIndexEntryRevisions.scopeUuid.name}"='${inserted.command.sealIdentity.scopeUuid}'::uuid
+        and "${fxAppIndexEntryRevisions.tableId.name}"=${insertIntent.tableId}
+        and "${fxAppIndexEntryRevisions.rowId.name}"=decode('${insertIntent.rowId}','hex')
+        and "${fxAppIndexEntryRevisions.indexDefinitionId.name}"<>1
+        and "${fxAppIndexEntryRevisions.commitSeq.name}"=2)<>2 then
+        raise exception 'Unique DML preceded both developer index key-move revisions'; end if;`);
       expect(
         await developerIndexState(
           persistence,
@@ -2303,7 +2276,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "o09b_unique_contention",
         true,
       );
-      const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
       const proofOptions = Object.freeze({
         ...(await prepareDeveloperIndexForPostgres(persistence, scope)),
         ...(await prepareUniqueConstraintForPostgres(persistence, scope)),
@@ -2324,6 +2296,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       const entered = deferredSignal();
       const release = deferredSignal();
+      const scopeUuid = first.command.sealIdentity.scopeUuid;
+      await withMaterializationDmlCounter(persistence, scopeUuid, "contending_developer_writes", async countIndexWrites =>
+      withMaterializationDmlCounter(persistence, scopeUuid, "contending_unique_claims", async countClaimWrites => {
       const firstPublisher = createPublisher(persistence, {
         ...proofOptions,
         afterTransactionStep: async (event) => {
@@ -2331,26 +2306,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
             entered.resolve();
             await release.promise;
           }
-          if (
-            event.step === "developerIndexEntryWritten" ||
-            event.step === "uniqueKeyWritten"
-          ) {
-            sidecarSteps.push(event.step);
-          }
         },
       });
-      const secondPublisher = createPublisher(persistence, {
-        ...proofOptions,
-        afterTransactionStep: (event) => {
-          if (
-            event.step === "developerIndexEntryWritten" ||
-            event.step === "uniqueKeyWritten"
-          ) {
-            sidecarSteps.push(event.step);
-          }
-          return Promise.resolve();
-        },
-      });
+      const secondPublisher = createPublisher(persistence, proofOptions);
       const firstPromise = runEffect(
         firstPublisher.publish(first.publicationCommand),
       );
@@ -2398,15 +2356,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       expect(fulfilled).toHaveLength(1);
       expect(rejected).toHaveLength(1);
       expect(rejected[0]?.reason).toBeInstanceOf(AppUniqueKeyConflictError);
-      expect(sidecarSteps).toEqual([
-        "developerIndexEntryWritten",
-        "uniqueKeyWritten",
-        "developerIndexEntryWritten",
-      ]);
-
-      const scopeUuid = first.command.sealIdentity.scopeUuid;
+      expect(await countIndexWrites()).toBe(2);
+      expect(await countClaimWrites()).toBe(1);
       expect(settlements[0]?.status).toBe("fulfilled");
       expect(settlements[1]?.status).toBe("rejected");
+      }, schemaName => `if not exists(select 1 from ${new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(getTableName(fxAppIndexEntryRevisions))}`).sql} i where
+        i."${fxAppIndexEntryRevisions.scopeUuid.name}"=NEW."${fxAppUniqueKeys.scopeUuid.name}"
+        and i."${fxAppIndexEntryRevisions.tableId.name}"=NEW."${fxAppUniqueKeys.tableId.name}"
+        and i."${fxAppIndexEntryRevisions.rowId.name}"=NEW."${fxAppUniqueKeys.rowId.name}") then
+        raise exception 'Unique claim attempted before its provisional developer index revision'; end if;`, "before insert"),
+        () => "", "after insert or delete", fxAppIndexEntryRevisions);
       const winnerIntent = first.command.rowIntents[0];
       if (winnerIntent?.kind !== "live") {
         throw new Error("Missing the O09-B winning document.");
@@ -3656,6 +3615,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await runEffect(
         installAppSchemaCandidateValidationEffect(candidateValidation, {
           deploymentId: scope.deploymentId,
+          scopeId: scope.scopeId,
           schemaVersionId: candidateSchemaVersionId,
         }),
       );
@@ -3670,22 +3630,26 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "candidate_guard",
       );
       let candidateFailureSteps = 0;
+      const coverageTrace=publicationCoveragePhaseTrace();
       const publisher = createPointCommitPublisherPortV1(scope.ports, {
         candidateSchemaWriteGuard: guard,
         afterTransactionStep: (event) => {
           if (event.step === "candidateSchemaValidationFailed") {
             candidateFailureSteps += 1;
+            coverageTrace.candidateFailed();
           }
           return Promise.resolve();
         },
       });
       await expect(
-        runEffect(publisher.prove(attempt.command)),
+        runEffect(publisher.prove(attempt.command).pipe(Effect.provideService(Tracer.Tracer,coverageTrace.tracer))),
       ).resolves.toEqual({ kind: "wouldCommit" });
+      coverageTrace.assertFullProof(0);
       await expect(
         runEffect(
           loadAppSchemaCandidateValidationEffect(candidateValidation, {
             deploymentId: scope.deploymentId,
+            scopeId: scope.scopeId,
             schemaVersionId: candidateSchemaVersionId,
           }),
         ),
@@ -3704,13 +3668,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "m03_b_candidate_guard_40001",
       );
       try {
+        coverageTrace.reset();
         await expect(
-          runFailure(publisher.publish(attempt.publicationCommand)),
+          runFailure(publisher.publish(attempt.publicationCommand).pipe(Effect.provideService(Tracer.Tracer,coverageTrace.tracer))),
         ).resolves.toMatchObject({
           _tag: "PointCommitConfirmedPreDecisionRollbackV1Error",
           operation: "writeCommitHeader",
           sqlState: "40001",
         });
+        coverageTrace.assertFullProof(0);
       } finally {
         await dropCommitTrigger(persistence, trigger);
       }
@@ -3718,6 +3684,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         runEffect(
           loadAppSchemaCandidateValidationEffect(candidateValidation, {
             deploymentId: scope.deploymentId,
+            scopeId: scope.scopeId,
             schemaVersionId: candidateSchemaVersionId,
           }),
         ),
@@ -3738,12 +3705,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "0",
         last_commit_seq: "0",
       });
+      coverageTrace.reset();
       await expect(
-        runEffect(publisher.publish(attempt.publicationCommand)),
+        runEffect(publisher.publish(attempt.publicationCommand).pipe(Effect.provideService(Tracer.Tracer,coverageTrace.tracer))),
       ).resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+      coverageTrace.assertFullProof(0);
       const failed = await runEffect(
         loadAppSchemaCandidateValidationEffect(candidateValidation, {
           deploymentId: scope.deploymentId,
+          scopeId: scope.scopeId,
           schemaVersionId: candidateSchemaVersionId,
         }),
       );
@@ -3772,6 +3742,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         runEffect(
           loadAppSchemaCandidateValidationEffect(candidateValidation, {
             deploymentId: scope.deploymentId,
+            scopeId: scope.scopeId,
             schemaVersionId: candidateSchemaVersionId,
           }),
         ),

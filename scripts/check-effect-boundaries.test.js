@@ -130,9 +130,9 @@ describe("Effect runtime boundary checker", () => {
     ]);
   });
 
-  describe.each(["runPromiseExit", "runPromiseExitWith"])("%s boundaries", method => {
-    const call = method === "runPromiseExitWith"
-      ? "Effect.runPromiseExitWith(context)(effect)" : "Effect.runPromiseExit(effect)";
+  describe.each(["runPromiseExit", "runPromiseExitWith", "runPromiseWith"])("%s boundaries", method => {
+    const call = method === "runPromiseExit"
+      ? "Effect.runPromiseExit(effect)" : `Effect.${method}(context)(effect)`;
     const site = `${sourcePath} :: runBoundary`;
 
     it("accepts only the exact audited variant and count", () => {
@@ -209,15 +209,15 @@ describe("Effect runtime boundary checker", () => {
     });
   });
 
-  it("rejects aliasing a contextual Exit runner returned by runPromiseExitWith", () => {
+  it.each(["runPromiseExitWith", "runPromiseWith"])("rejects aliasing a contextual runner returned by %s", method => {
     const report = analyzeExitSource(`import { Effect } from "effect";
       function runBoundary() {
-        const run = Effect.runPromiseExitWith(context);
+        const run = Effect.${method}(context);
         return run(effect);
-      }`, "runPromiseExitWith", new Map([[`${sourcePath} :: runBoundary`, 1]]));
+      }`, method, new Map([[`${sourcePath} :: runBoundary`, 1]]));
     expect(report.errors).toHaveLength(1);
     expect(report.errors[0]).toContain("must not alias Effect runtime APIs");
-    expect(report.forbiddenAliasMatches[0]).toContain("aliases Effect.runPromiseExitWith(context) as run");
+    expect(report.forbiddenAliasMatches[0]).toContain(`aliases Effect.${method}(context) as run`);
   });
 
   it.each([
@@ -331,7 +331,7 @@ describe("Effect runtime boundary checker", () => {
  * @param {Map<string, number>} [allowedSites]
  */
 function analyzeSource(text, allowedSites = new Map()) {
-  return analyzeEffectRuntimeBoundaries([{ relativePath: sourcePath, text }], allowedSites, new Map(), new Map());
+  return analyzeEffectRuntimeBoundaries([{ relativePath: sourcePath, text }], allowedSites, new Map(), new Map(), new Map());
 }
 
 /**
@@ -342,5 +342,6 @@ function analyzeSource(text, allowedSites = new Map()) {
 function analyzeExitSource(text, method, allowedSites) {
   return analyzeEffectRuntimeBoundaries([{ relativePath: sourcePath, text }], new Map(),
     method === "runPromiseExit" ? allowedSites : new Map(),
-    method === "runPromiseExitWith" ? allowedSites : new Map());
+    method === "runPromiseExitWith" ? allowedSites : new Map(),
+    method === "runPromiseWith" ? allowedSites : new Map());
 }

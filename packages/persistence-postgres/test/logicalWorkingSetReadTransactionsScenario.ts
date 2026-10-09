@@ -34,10 +34,14 @@ import { appendAppIndexEntryRevisionsInTransactionEffect, prepareAppIndexSnapsho
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import { rowsFromDriverExecuteResult } from "../src/driverExecuteResult";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { runEffect } from "./effectTestRuntime";
 
 /** A neutral two-table working-set witness shared by PGlite and ordinary PG. */
 export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetadataDatabase): Promise<void> {
+    const withInstallation = <A, E, R>(tx: FlarexMetadataTransaction, work: Effect.Effect<A, E, R>) =>
+      lockInstallationForCurrentTransaction(tx).pipe(Effect.andThen(work),
+        Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))));
     const scopeId = ScopeIdSchema.make("scope_53000000-0000-0000-0000-000000000001");
     const epoch = ScopeEpochSchema.make("epoch_53000000-0000-0000-0000-000000000002");
     const schemaVersionId = decodeCatalogSchemaVersionId("schema_working_set_reads");
@@ -87,7 +91,11 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     const largePending = await canonicalizeAppDocumentV1({ tableId: firstTable, rowId: firstRow,
       creationTime: firstTime, fields: { label: "x".repeat(2048) } });
     const append = (input: Parameters<typeof appendAppRowRevisionAndAdvanceCurrentInTransaction>[1]) =>
-      db.transaction(tx => appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, input));
+      db.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try { return await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, input); }
+        finally { closeInstallationAdmission(tx); }
+      });
     const evidence = (document: typeof original) => ({ codecVersion: document.codecVersion,
       valueJson: document.valueJson, canonicalBytes: document.canonicalBytes, sha256: document.sha256 });
     await append({ kind: "live", scopeId, tableId: firstTable, rowId: firstRow, writeEpoch: epoch,
@@ -127,8 +135,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     if (labelIndex === undefined) throw new Error("Missing label index");
     const labelKey = await runEffect(Effect.fromResult(lowerAppDeveloperIndexKeyV1(labelIndex, original, firstTime)));
     if (labelKey === null) throw new Error("Missing label membership");
-    await db.transaction(tx => runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId,
-      definition: labelIndex, encodedKey: labelKey, rowId: firstRow, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(1n) }])));
+    await db.transaction(tx => runEffect(withInstallation(tx, appendAppIndexEntryRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId,
+      definition: labelIndex, encodedKey: labelKey, rowId: firstRow, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(1n) }]))));
     const clock = await getScopeClock(db, scopeId);
     if (clock === null) throw new Error("Missing neutral working-set scope");
     const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
@@ -140,19 +148,19 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       if (active) return Effect.fail(failure("nestedAdmission"));
       admissionTransactions++;
       return runEffectTransaction<void, Error, Error, FlarexMetadataTransaction>(
-        callback => db.transaction(callback), "Neutral source admission", tx =>
+        callback => db.transaction(callback), "Neutral source admission", tx => withInstallation(tx,
         Effect.acquireUseRelease(Effect.sync(() => { active = true; }), () =>
           lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId).pipe(
             Effect.mapError(cause => failure("statementFailure", cause)),
             Effect.flatMap(() => allowed ? Effect.void : Effect.fail(failure("sourceMismatch")))),
-        () => Effect.sync(() => { active = false; })),
+        () => Effect.sync(() => { active = false; }))),
       cause => failure("statementFailure", cause));
     });
     const readTransaction = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
       Effect.suspend(() => {
         checkedReads++;
         return runEffectTransaction<A, E | Error, Error, FlarexMetadataTransaction>(
-          callback => db.transaction(callback), "Neutral checked read", tx => Effect.gen(function* () {
+          callback => db.transaction(callback), "Neutral checked read", tx => withInstallation(tx, Effect.gen(function* () {
             yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId)
               .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
             return yield* Effect.acquireUseRelease(Effect.sync(() => { active = true; }), () => Effect.gen(function* () {
@@ -160,7 +168,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
               return yield* work(tx);
             }),
               () => Effect.sync(() => { active = false; }));
-          }), cause => failure("statementFailure", cause));
+          })), cause => failure("statementFailure", cause));
       });
     const firstId = appDocumentIdV1FromRowIdentity({ tableId: firstTable, rowId: firstRow });
     const secondId = appDocumentIdV1FromRowIdentity({ tableId: secondTable, rowId: secondRow });
@@ -173,9 +181,9 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         snapshotCommitSeq: CommitSeqSchema.make(3n),
         tables: [{ tableId: firstTable, logicalName: "notes" }, { tableId: secondTable, logicalName: "labels" }],
         pendingRows: [
-          { tableId: firstTable, rowId: firstRow, observed: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) },
+          { tableId: firstTable, rowId: firstRow, evidence: { kind: "present", revisionCommitSeq: CommitSeqSchema.make(1n) },
             overlay: { kind: "live", creationTime: firstTime, document: pending } },
-          { tableId: secondTable, rowId: secondRow, observed: { kind: "missing",
+          { tableId: secondTable, rowId: secondRow, evidence: { kind: "missing",
             basis: { kind: "tombstone", revisionCommitSeq: CommitSeqSchema.make(3n) } }, overlay: { kind: "deleted" } },
         ],
         requireAdmission, validateDocument: () => Effect.void,
@@ -293,10 +301,10 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     const snapshotCommitSeq = CommitSeqSchema.make(3n);
     const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence: "working-set-root-1" };
     const root = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
-    const originalRevision = await runEffect(runEffectTransaction<AppRowReadResultV1, ReadAppRowError, Error, FlarexMetadataTransaction>(
+    const originalRevision = await runEffect(runEffectTransaction<AppRowReadResultV1, ReadAppRowError | Error, Error, FlarexMetadataTransaction>(
       callback => db.transaction(callback), "Original finite fixture revision", tx =>
-        readAppRowAtSnapshotInTransactionEffect(tx, { scopeId, tableId: firstTable, rowId: firstRow,
-          snapshotCommitSeq: CommitSeqSchema.make(1n) }), cause => failure("originalRevision", cause)));
+        withInstallation(tx, readAppRowAtSnapshotInTransactionEffect(tx, { scopeId, tableId: firstTable, rowId: firstRow,
+          snapshotCommitSeq: CommitSeqSchema.make(1n) })), cause => failure("originalRevision", cause)));
     if (originalRevision.kind !== "live") throw new Error("Missing actual original finite fixture revision");
     const seedRoot = (evaluator: typeof root, input: Readonly<{ tableId: typeof firstTable; rowId: typeof firstRow;
       observed: typeof originalObserved | { kind: "missing"; basis: { kind: "noVisibleRevision" } | { kind: "tombstone"; revisionCommitSeq: typeof snapshotCommitSeq } }; overlay: { kind: "deleted" } | { kind: "live"; creationTime: typeof firstTime; document: typeof original } }>): boolean => {
@@ -568,6 +576,51 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         indexes: mechanics.small.indexes, unique: mechanics.small.unique }, failure);
       yield* refuseFiniteConstruction(unleasedMechanics, { tables: unleasedMechanics.tables,
         searchDefinitions: unleasedMechanics.searchDefinitions }, unleasedMechanics.indexes, unleasedMechanics.unique);
+      let fullAdmissionOpen = true, fullAdmissionChecks = 0;
+      const openFull = (selected: PreparedLogicalDocumentWriteMechanics,
+        overrides: Partial<Pick<LogicalDocumentWorkingSetInput<Error>, "tables" | "relationalCapabilities" |
+          "searchDefinitions">> = {}, indexes = selected.indexes, unique = selected.unique) => Effect.gen(function* () {
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+          { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, attempt, {}, "full-prepared-mechanics", "write"),
+        resource => resource.close);
+        const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, readTransaction,
+          writeMechanics: selected, readReadiness: { kind: "full" },
+          tables: selected === forgedMechanics ? mechanics.small.tables : selected.tables,
+          ...(selected === forgedMechanics || selected.relationalCapabilities === undefined ? {} : {
+            relationalCapabilities: selected.relationalCapabilities }),
+          searchDefinitions: selected === forgedMechanics ? mechanics.small.searchDefinitions : selected.searchDefinitions,
+          requireAdmission: Effect.suspend(() => {
+            fullAdmissionChecks++;
+            return fullAdmissionOpen ? Effect.void : Effect.fail(failure("bindingChanged"));
+          }), validateDocument: () => Effect.void, error: failure, uniqueConflict: () => failure("uniqueConflict"),
+          limits: { pageRows: 8, identities: 8, documentBytes: 65_536 }, ...overrides,
+        }, firstTime, unique, indexes);
+        const id = yield* lifetime.begin(lifetime.context);
+        return { working, lifetime, id };
+      });
+      // Request-owned full mechanics are authentic without granting finite capture.
+      const full = yield* openFull(unleasedMechanics);
+      const checksAtConstruction = fullAdmissionChecks;
+      const fullInserted = yield* full.working.documents.insert(full.lifetime.context, full.id, "notes", { label: "full-pending" });
+      expect(fullAdmissionChecks).toBeGreaterThan(checksAtConstruction);
+      expect(fullInserted).toMatchObject({ label: "full-pending" });
+      const leasedFull = yield* openFull(mechanics.small);
+      const leasedInserted = yield* leasedFull.working.documents.insert(leasedFull.lifetime.context,
+        leasedFull.id, "notes", { label: "leased-pending" });
+      if (typeof leasedInserted._id !== "string") throw new Error("Missing retained full prepared identity");
+      expect(yield* leasedFull.working.documents.get(leasedFull.lifetime.context, leasedFull.id, leasedInserted._id))
+        .toMatchObject({ label: "leased-pending" });
+      if (typeof fullInserted._id !== "string") throw new Error("Missing full prepared identity");
+      fullAdmissionOpen = false;
+      let refusedInputReads = 0;
+      const refusedInput = new Proxy({}, { ownKeys() { refusedInputReads++; return []; } });
+      expect(yield* Effect.result(full.working.documents.patch(full.lifetime.context, full.id,
+        fullInserted._id, refusedInput, "notes"))).toMatchObject({ _tag: "Failure", failure: { message: "bindingChanged" } });
+      expect(refusedInputReads).toBe(0);
+      fullAdmissionOpen = true;
+      expect(yield* Effect.result(openFull(forgedMechanics, {}, mechanics.small.indexes, mechanics.small.unique)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      expect(foreignMechanicsReads).toBe(0);
       let foreignArrayReads = 0;
       const foreignArray = <Value>(values: readonly Value[]) => new Proxy([...values], {
         get(target, key, receiver) { foreignArrayReads++; return Reflect.get(target, key, receiver); },
@@ -578,6 +631,14 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       yield* refuseFiniteConstruction(mechanics.small, { searchDefinitions: foreignArray(mechanics.small.searchDefinitions) });
       yield* refuseFiniteConstruction(mechanics.small, {}, foreignArray(mechanics.small.indexes));
       yield* refuseFiniteConstruction(mechanics.small, {}, mechanics.small.indexes, foreignArray(mechanics.small.unique));
+      for (const overrides of [{ tables: foreignArray(mechanics.small.tables) },
+        { relationalCapabilities: foreignArray([]) }, { searchDefinitions: foreignArray(mechanics.small.searchDefinitions) }])
+        expect(yield* Effect.result(openFull(mechanics.small, overrides)))
+          .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      expect(yield* Effect.result(openFull(mechanics.small, {}, foreignArray(mechanics.small.indexes))))
+        .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      expect(yield* Effect.result(openFull(mechanics.small, {}, mechanics.small.indexes, foreignArray(mechanics.small.unique))))
+        .toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
       expect(foreignArrayReads).toBe(0);
       yield* refuseFiniteConstruction(mechanics.small, { rootAttemptFence: `${pins.attemptFence}-wrong` });
       yield* refuseFiniteConstruction(mechanics.small, { snapshotCommitSeq: CommitSeqSchema.make(2n) });
@@ -804,6 +865,15 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       expect(rootSnapshotRevisions - beforePageSql).toBe(0);
       expect(admissionTransactions - beforePageAdmissions).toBe(0);
       expect(pageRoot.snapshot().pageReads).toHaveLength(3);
+      const returnedPage = yield* paged.working.relationalPage(paged.lifetime.context, paged.id, "notes", pageQuery);
+      const returnedRow = returnedPage.rows[0];
+      if (returnedRow === undefined) throw new Error("Missing captured projected page row");
+      expect(Object.isFrozen(returnedRow)).toBe(true);
+      expect(Reflect.set(returnedRow, "label", "escaped")).toBe(false);
+      expect(pageRoot.snapshot().observedRows[0]?.value).toMatchObject({ label: "original" });
+      const selectedRows = yield* paged.working.relationalFind(paged.lifetime.context, paged.id, "notes", pageQuery);
+      expect(selectedRows.docs).toEqual([{ label: "original" }]);
+      expect(Object.isFrozen(selectedRows.docs[0])).toBe(true);
       pageRoot.close();
       for (const cachedBase of [false, true]) {
         const ordered = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1024 });
@@ -851,6 +921,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       expect(clockRoot.snapshot().dependencies).toHaveLength(1);
       clockRoot.close();
       yield* retained.close;
+      expect(yield* Effect.result(openFull(mechanics.small)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "closed" } });
       expect(yield* Effect.result(combineLogicalWriteMechanics([mechanics.small, mechanics.extra], failure)))
         .toMatchObject({ _tag: "Failure", failure: { message: "closed" } });
       const deniedRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });

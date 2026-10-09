@@ -1,3 +1,5 @@
+import { invalidateAcceptedApplicationBindingInTransaction } from "./applicationActivation";
+import { invalidateSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceAdmission";
 import { fxSystemIndexMaintenanceObligations } from "./schema";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import { runEffectTransaction } from "./effectTransaction";
@@ -752,6 +754,8 @@ const buildInTransaction = Effect.fn("AppOrderedIndexBuild.buildInTransaction")(
     | AppendAppIndexEntryRevisionV1Error
     | ReadAppIndexRangeV1Error
   > {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(
       tx,
       authority.scopeId,

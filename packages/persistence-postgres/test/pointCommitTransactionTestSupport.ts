@@ -273,7 +273,7 @@ async function pointCommitCommandForLifecycleFromStoredAttemptV1(
   } satisfies PointCommitTransactionCommandV1);
 }
 
-function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
+export function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
   authority: StoredAttemptEvidenceAuthorityV1,
   evidence: StoredAttemptEvidenceV1,
   lifecycle: "running" | "finishing",
@@ -493,6 +493,8 @@ function pointDependency(
   });
   const observed = (() => {
     switch (point.dependencyKind) {
+      case "generated_insertion":
+        throw new Error("Native point-commit test commands require observed point evidence, not a generated insertion intent.");
       case "present":
         if (point.dependencyRevisionCommitSeq === null) {
           throw new Error("Present point evidence has no revision.");

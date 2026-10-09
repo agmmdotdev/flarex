@@ -286,16 +286,16 @@ export async function cmsCommandSettlementScenario(
   );
   expect(
     closed.dependencies.find((row) => row.documentId === readRow._id)
-      ?.dependency.observed,
-  ).toMatchObject({ kind: "present" });
+      ?.dependency,
+  ).toMatchObject({ kind: "appRowPoint", observed: { kind: "present" } });
   expect(
     closed.dependencies.find((row) => row.documentId === removedRow._id)
-      ?.dependency.observed,
-  ).toMatchObject({ kind: "missing", basis: { kind: "tombstone" } });
+      ?.dependency,
+  ).toMatchObject({ kind: "appRowPoint", observed: { kind: "missing", basis: { kind: "tombstone" } } });
   expect(
-    closed.dependencies.find((row) => row.documentId === absent)?.dependency
-      .observed,
-  ).toEqual({ kind: "missing", basis: { kind: "noVisibleRevision" } });
+    closed.dependencies.find((row) => row.documentId === absent)?.dependency,
+  ).toEqual({ kind: "appRowPoint", documentId: absent,
+    observed: { kind: "missing", basis: { kind: "noVisibleRevision" } } });
   expect(closed.changes.map((row) => row.documentId)).toEqual([editedRow._id]);
   expect(closed.observedRows.find(row => row.documentId === readRow._id)?.value.title).toBe(readRow.title);
   expect(closed.observedRows.find(row => row.documentId === editedRow._id)?.value.title).toBe("settled-title");

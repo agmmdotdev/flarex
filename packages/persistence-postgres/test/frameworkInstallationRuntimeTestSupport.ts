@@ -3,7 +3,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { collectInstallationEvidence, readInstallationEvidence } from "../src/frameworkSchema/installation/runtimeEvidence";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
-import { Effect, Tracer } from "effect";
+import { Effect, Exit, Scope, Tracer } from "effect";
 import { expect, vi } from "vitest";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import * as runtimeData from "../src/frameworkSchema/installation/runtimeData";
@@ -19,6 +19,7 @@ import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect } from
 import { createInstallationAcceptanceFixture } from "./frameworkInstallationAcceptanceTestSupport";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { runEffect } from "./effectTestRuntime";
+import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
 
 export async function createInstallationRuntimeFixture(database: FlarexMetadataDatabase) {
   const stored = await createInstallationAcceptanceFixture(database);
@@ -41,6 +42,24 @@ export async function exerciseInstallationRuntime(database: FlarexMetadataDataba
   const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
   const accepted = await database.transaction(tx => runEffect(acceptPreparedInstallation(fixture.prepared, fixture.target, fixture.reference, tx)
     .pipe(Effect.provideService(Tracer.Tracer, tracer))));
+  // The construction allocation must cross the native transaction bridge:
+  // without its real charge this one-byte host incorrectly prepares successfully.
+  await expect(runEffect(Effect.scoped(Effect.gen(function* () {
+    const owner = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 1 });
+    return yield* retainPreparedHost(owner, prepareInstallationRuntime(database, fixture.target, fixture.reference));
+  })))).rejects.toMatchObject({ reason: "resourceFailure", cause: { reason: "capacityExceeded" } });
+  const retainedScope = await runEffect(Scope.make());
+  try {
+    const owner = await runEffect(makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 })
+      .pipe(Scope.provide(retainedScope)));
+    const retained = await runEffect(retainPreparedHost(owner, prepareInstallationRuntime(database, fixture.target, fixture.reference)));
+    const escaped = await runEffect(retained.use(value => Effect.succeed(value)));
+    expect((await runEffect(Effect.fromResult(retained.readUsage()))).chargedBytes).toBeGreaterThan(0);
+    expect(await fixture.accept(escaped)).toEqual(accepted);
+    await runEffect(retained.close);
+    await expect(fixture.accept(escaped)).rejects.toMatchObject({ reason: "invalidAuthority" });
+    expect(await fixture.accept()).toBe(accepted);
+  } finally { await runEffect(Scope.close(retainedScope, Exit.succeed(undefined))); }
   // Inject at the pure runtime-data conversion boundary: data alone exactly fits
   // the old budget, but the complete retained payload must refuse construction.
   const maximum = 8_388_608;

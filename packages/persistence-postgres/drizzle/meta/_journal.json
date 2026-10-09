@@ -967,6 +967,27 @@
       "when": 1790947900000,
       "tag": "0137_retained_materialization_proofs",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1791417600000,
+      "tag": "0138_finite_capture_frontier",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1791504000000,
+      "tag": "0139_application_publication_stages",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1791547200000,
+      "tag": "0140_readiness_metadata_protection",
+      "breakpoints": true
     }
   ]
 }

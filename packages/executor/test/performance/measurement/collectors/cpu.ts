@@ -6,7 +6,7 @@ import { getHeapStatistics } from "node:v8";
 import { threadId } from "node:worker_threads";
 import { ALLOCATION_INTERVAL_BYTES, CPU_INTERVAL_MICROSECONDS, CPU_LIMITS, captureAllocationProfile,
   captureCpuProfile, decodeCpuEvidence, decodeGcDetail, type CpuEvidence, type CpuFaultStage } from "../cpu";
-import type { ResourceReading } from "../cpu";
+import { readNodeResourceCounters } from "./nodeResources";
 
 type CpuSession = { connect(): void; post(method: string, parameters?: object): Promise<unknown>; disconnect(): void };
 type GcEntry = { readonly startTime: number; readonly duration: number; readonly detail: unknown };
@@ -14,11 +14,6 @@ type GcObserver = { observe(): void; takeRecords(): readonly GcEntry[]; disconne
 type MemoryReading = Omit<NonNullable<CpuEvidence["memory"]["before"]>, "atMonotonicMs">;
 type Counters = { readonly cpu: NodeJS.CpuUsage; readonly thread: NodeJS.CpuUsage | null;
   readonly eventLoop: ReturnType<typeof performance.eventLoopUtilization> };
-/** Counter-only observation performs no inspector, heap or GC acquisition. */
-export function readNodeResourceCounters(): ResourceReading {
-  return { process: process.cpuUsage(), thread: typeof process.threadCpuUsage === "function" ? process.threadCpuUsage() : null,
-    eventLoop: performance.eventLoopUtilization() };
-}
 /** Narrow Node adapter seams for deterministic lifecycle witnesses, not a telemetry plugin API. */
 export interface CpuCollectorRuntime {
   readonly now: () => number;

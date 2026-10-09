@@ -2,9 +2,9 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Client, Pool, type ClientConfig } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { sql } from "drizzle-orm";
+import { getTableName, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { flarexSchema } from "../src/schema";
+import { flarexSchema, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemPhysicalDefinitionLifecycles } from "../src/schema";
 
 import { createPostgresPersistence } from "../src/postgres";
 import {
@@ -13,9 +13,11 @@ import {
   guardProtectedMetadataEpoch,
   prepareProtectedMetadata,
   PreparedMetadataEpochError,
+  protectedReadinessMetadataTables,
 } from "../src/preparedMetadataEpoch";
 import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, postgresUrl,
   withTemporaryPostgresSchema } from "./postgresHelpers";
+import { withReadinessMetadataUpgradeMigrations } from "./readinessMetadataUpgradeFixture";
 
 const provisioningUrl = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
 const native = postgresUrl !== null && provisioningUrl ? describe : describe.skip;
@@ -28,9 +30,40 @@ const currentImmutableTables = [
   "fx_system_application_activation", "fx_system_application_write_ownership",
   "fx_system_data_binding_candidate", "fx_system_data_binding_physical_lane",
   "fx_system_data_binding_activation",
+  ...protectedReadinessMetadataTables.map(getTableName),
 ] as const;
 
 native("protected metadata epoch under an authenticated restricted login", () => {
+  it("upgrades installed 139 through original maintenance and refuses its incomplete readiness protection", async () => {
+    await withReadinessMetadataUpgradeMigrations(async (migrationsFolder, exposeCurrent) => {
+      await withTemporaryPostgresSchema(async options => {
+        const previous = await createPostgresPersistence({ ...options, migrationsFolder });
+        let current: Awaited<ReturnType<typeof createPostgresPersistence>> | undefined;
+        try {
+          await previous.migrate();
+          const before = (await previous.query<{ generation: string; incarnation: string }>(
+            "select generation::text, incarnation::text from fx_system_prepared_metadata_epoch")).rows[0];
+          if (before === undefined) throw new Error("Missing actual installed predecessor epoch");
+          await expect(Effect.runPromise(prepareProtectedMetadata(previous.drizzle))).rejects.toMatchObject({ reason: "unprotectedRuntime" });
+          expect((await previous.query<{ count: number }>(`select count(*)::integer as count from pg_trigger
+            where tgname='fx_prepared_metadata_invalidate' and tgrelid in (
+              select oid from pg_class where relnamespace=current_schema()::regnamespace and relname = any($1::text[]))`,
+            [protectedReadinessMetadataTables.map(getTableName)])).rows).toEqual([{ count: 0 }]);
+          await exposeCurrent();
+          current = await createPostgresPersistence({ ...options, migrationsFolder });
+          await current.migrate();
+          const after = (await current.query<{ generation: string; incarnation: string }>(
+            "select generation::text, incarnation::text from fx_system_prepared_metadata_epoch")).rows[0];
+          expect(after?.incarnation).toBe(before.incarnation);
+          expect(BigInt(after?.generation ?? "-1")).toBe(BigInt(before.generation) + 1n);
+          expect((await current.query<{ count: number }>(`select count(*)::integer as count from pg_trigger
+            where tgname='fx_prepared_metadata_invalidate' and tgrelid in (
+              select oid from pg_class where relnamespace=current_schema()::regnamespace and relname = any($1::text[]))`,
+            [protectedReadinessMetadataTables.map(getTableName)])).rows).toEqual([{ count: 17 }]);
+        } finally { await current?.close(); await previous.close(); }
+      });
+    });
+  }, 180_000);
   it("resolves each native hash getter once with the exact receiver and preserves getter defects", async () => {
     const fixture = await createProtectedFileScopedPostgresFixture();
     const nativeCrypto = globalThis.crypto;
@@ -421,6 +454,25 @@ native("protected metadata epoch under an authenticated restricted login", () =>
     } finally {
       await fixture.dispose();
     }
+  }, 180_000);
+
+  it("keeps ordinary dynamic build and coverage progress outside the static epoch", async () => {
+    const fixture = await createProtectedFileScopedPostgresFixture();
+    try {
+      const database = fixture.persistence.drizzle;
+      const before = await database.transaction(tx => Effect.runPromise(
+        captureProtectedMetadataEpoch(fixture.protectedMetadata, database, tx)));
+      await database.update(fxSystemIndexBuildStates)
+        .set({ coveredThroughCommitSeq: sql`${fxSystemIndexBuildStates.coveredThroughCommitSeq}` }).where(sql`false`);
+      await database.update(fxSystemUniqueConstraintBuilds)
+        .set({ coveredThroughCommitSeq: sql`${fxSystemUniqueConstraintBuilds.coveredThroughCommitSeq}` }).where(sql`false`);
+      await database.update(fxSystemPhysicalDefinitionLifecycles)
+        .set({ transitionFence: sql`${fxSystemPhysicalDefinitionLifecycles.transitionFence}` }).where(sql`false`);
+      const after = await database.transaction(tx => Effect.runPromise(
+        captureProtectedMetadataEpoch(fixture.protectedMetadata, database, tx)));
+      expect(after).toEqual(before);
+      await database.transaction(tx => Effect.runPromise(guardProtectedMetadataEpoch(fixture.protectedMetadata, database, before, tx)));
+    } finally { await fixture.dispose(); }
   }, 180_000);
 
   it("provisions a disposable restricted runtime through the ordinary persistence factory", async () => {

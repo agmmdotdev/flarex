@@ -1,4 +1,5 @@
 import { RelationalSessionError } from "../src/relationalTransaction/model";
+import { PhysicalSessionDeadlineIssue } from "../src/physicalSession/errors";
 import {
   CommittedPointOutcomeRequestKeyReuseErrorV1,
   CommittedPointOutcomeCorruptionErrorV1,
@@ -35,6 +36,7 @@ export const projectCe0CmsRequestFailure = (
   cause: unknown,
 ): CmsTransactionError => {
   if (cause instanceof CmsTransactionError) return cause;
+  if (cause instanceof PhysicalSessionDeadlineIssue) return cmsError("deadlineExceeded", cause);
   if (cause instanceof PreparedHostRuntimeError)
     return cmsError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
   if (cause instanceof TrustedScopeAuthorityPortError)

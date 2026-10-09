@@ -9,6 +9,8 @@ import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { OrderedIndexBoundHexV1Schema, OrderedIndexKeyBytesHexV1Schema } from "flarex-protocol/ordered-index";
 import { MAX_APP_UNIQUE_KEY_COMPONENTS_V1, canonicalizeAppUniqueKeyV1Result } from "../appUniqueKeyContract";
 import type { LogicalDocumentChanges } from "./workingSet";
+import { GeneratedInsertionIntentsSchema } from "flarex-protocol/commit-protocol";
+export { authenticatedGeneratedInsertionsResult } from "flarex-protocol/commit-protocol";
 
 const strict = { parseOptions: { onExcessProperty: "error" as const } };
 const entry = Schema.Struct({ rowId: AppRowIdHexV1Schema, encodedKey: OrderedIndexKeyBytesHexV1Schema,
@@ -36,6 +38,7 @@ const LegacyLogicalParticipantDependencyEvidenceSchema = Schema.Struct({
   indexRanges: Schema.Array(range).check(Schema.isMaxLength(256)),
   indexPages: Schema.Array(page).check(Schema.isMaxLength(256)),
   uniqueReads: Schema.Array(unique).check(Schema.isMaxLength(256)),
+  generatedInsertions: Schema.optionalKey(GeneratedInsertionIntentsSchema),
 }).annotate(strict);
 export const FiniteLogicalParticipantDependencyEvidenceSchema = Schema.Struct({
   ...LegacyLogicalParticipantDependencyEvidenceSchema.fields, version: Schema.Literal(2),
@@ -66,6 +69,9 @@ export const serializeLogicalParticipantDependencyEvidence = Effect.fn("LogicalD
       return yield* Effect.fail(logicalParticipantEvidenceError("unsupportedProfile"));
     const projected = {
       format: "flarex.logical-participant-evidence" as const,
+      generatedInsertions: closed.dependencies.flatMap(point => point.dependency.kind === "generatedInsertion" &&
+        point.dependency.origin === undefined ? [{ documentId: point.documentId, tableId: point.tableId,
+          rowId: point.rowId, effectOrdinal: point.dependency.effectOrdinal }] : []),
       ...(closed.metadataDependencies === undefined ? { version: 1 as const } : {
         version: 2 as const, metadataWatermark: closed.metadataWatermark?.toString(),
         metadataDependencies: yield* encodeMetadataArrayEffect(closed.metadataDependencies)

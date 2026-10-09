@@ -1,4 +1,5 @@
 import { Data, Effect, Exit, Option, Result, Schema } from "effect";
+import { observeExecution } from "../executionDiagnostics/operation";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, type Json, type JsonObject } from "flarex-protocol/json";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, logicalTableKey,
@@ -11,10 +12,12 @@ import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transactio
 import { readApplicationBindingTargetProtection, isPreparedApplicationBinding, requireAcceptedApplicationBindingObservation,
   captureFiniteApplicationMetadata, inspectFiniteApplicationMetadata, type FiniteApplicationMetadata,
   readCapturedFiniteApplicationMetadata,
+  readFiniteApplicationStorageCaptureMetadata,
   readFiniteApplicationCapturePorts,
   readPreparedFiniteApplicationMetadataProjections,
   readPreparedFiniteApplicationPublicationDefinitions,
-  type AcceptedApplicationBinding, type ApplicationBindingInput } from "../applicationActivation";
+  type AcceptedApplicationBinding, type ApplicationBindingObservation, type ApplicationBindingInput } from "../applicationActivation";
+import { isCheckedApplicationActiveHead } from "../applicationActiveHeadRead";
 import { withApplicationBindingEvidenceInTransaction, withPreparedApplicationBindingEvidenceInTransaction,
   type ApplicationBindingEvidence } from "../applicationBindingProjection";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
@@ -33,7 +36,9 @@ import { publishedPhysicalDefinitionMatchesLocated, loadPublishedPhysicalRequire
 import { prepareLogicalStorageReadiness, requirePreparedLogicalStorageCatalog, type PreparedLogicalStorageCatalog } from "../logicalStorageReadiness";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runEffectTransaction } from "../effectTransaction";
-import { chargeHostPreparation, captureHostPreparationCharge, captureHostPreparationLifetime } from "../preparedHostRuntime";
+import { chargeHostPreparation, captureHostPreparationCharge, captureHostPreparationLifetime,
+  registerHostPreparationDisposal } from "../preparedHostRuntime";
+import { preparePublicationDefinitions, readPublicationDefinitionPreparationPayload, disposePublicationDefinitions } from "../commitPublication/definitionPreparation";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { type ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
@@ -46,10 +51,12 @@ import { prepareFiniteMetadataProjection, mergeFiniteMetadataProjections, mergeF
   prepareFiniteTableWriteClosureComparison, acceptFiniteTableWriteClosureComparison,
   type FiniteMetadataComparisonExpected, type FiniteTableWriteClosureComparison,
   type PreparedFiniteMetadataProjection } from "../finiteMetadataDependencies";
+import { disposeFiniteMetadataProjection, readFiniteMetadataProjectionPreparationPayload } from "../finiteMetadataDependencies";
 import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
 import type { LogicalMetadataKey } from "flarex-protocol/commit-protocol";
 import { hasProvisionalFiniteEntry } from "../transactionSessionActivation";
 import type { FiniteEntryObservation } from "../finiteEntryObservation";
+import { authenticateProtectedReadinessMetadataPair } from "../preparedMetadataEpoch";
 
 export class LogicalSourceAdmissionError extends Data.TaggedError("LogicalSourceAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "unsupportedProfile";
@@ -235,25 +242,22 @@ export function inspectFiniteApplicationStorageDemand(input: FiniteApplicationSt
 
 /** Detached named captures consume only the existing entry issuer and host
  * lifetime. Fresh session/build authority remains in the capture statement. */
-export const readFiniteStorageCaptureMetadata = Effect.fn("LogicalSourceAdmission.captureMetadata")(function* (
+// This repeated storage operation names diagnostics only through the SDK;
+// default requests retain the untraced issuer/lifetime checks directly.
+export const readFiniteStorageCaptureMetadata = Effect.fnUntraced(function* (
   metadata: FiniteAttemptMetadata, root: SessionJournalAttempt,
 ) {
   const state = finiteAttemptMetadata.get(metadata);
   if (state === undefined || state.root !== root)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-  const captured = yield* Effect.fromResult(readCapturedFiniteApplicationMetadata(state.applicationMetadata, root));
+  const basis = yield* Effect.fromResult(readFiniteApplicationStorageCaptureMetadata(state.applicationMetadata, root));
   if (state.applicationCatalogOpen !== undefined) yield* state.applicationCatalogOpen;
-  const basis = captured.basis;
   const applicationPorts = state.authorityPort === undefined ? yield* Effect.fromResult(
     readFiniteApplicationCapturePorts(state.applicationMetadata, root)) : undefined;
   const authorityPorts = state.authorityPort ?? applicationPorts?.authority;
-  return Object.freeze({ owner: state.owner, basis: Object.freeze({ deploymentId: basis.deploymentId,
-    schemaVersionId: basis.schemaVersionId, activationSequence: basis.activationSequence.toString(),
-    headSha256: encodeBytesToLowercaseHex(basis.headSha256),
-    activationSha256: encodeBytesToLowercaseHex(basis.activationSha256),
-    manifestSha256: encodeBytesToLowercaseHex(basis.schemaManifestSha256) }), authorityPorts,
+  return Object.freeze({ owner: state.owner, basis, authorityPorts,
     controlDb: state.controlDb ?? applicationPorts?.controlDb });
-});
+}, effect => observeExecution("LogicalSourceAdmission.captureMetadata", effect));
 
 /** Retirement may authenticate the original directory after the business
  * lifetime closes. This projection conveys routing provenance only. */
@@ -318,7 +322,7 @@ type SharedCheckedBindingScope = {
     indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>>;
 };
 const checkedBindings = new WeakMap<FlarexMetadataTransaction, SharedCheckedBindingScope>();
-export type LogicalSourceConstruction = Readonly<{ kind: "standalone" }> |
+export type LogicalSourceConstruction = Readonly<{ kind: "standalone"; application?: ApplicationBindingInput }> |
   Readonly<{ kind: "prepared"; catalog: PreparedLogicalStorageCatalog }>;
 
 /** Full entry and direct callers share only their accepting transaction proof. */
@@ -343,7 +347,7 @@ export function withSharedLogicalSourceBindingChecks<Value, Failure, Requirement
   });
 }
 
-function invalidateSharedLogicalSourceBindingChecks(tx: FlarexMetadataTransaction): void {
+export function invalidateSharedLogicalSourceBindingChecks(tx: FlarexMetadataTransaction): void {
   let shared = checkedBindings.get(tx);
   while (shared !== undefined) {
     shared.observations.length = 0;
@@ -369,7 +373,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   const expected = yield* decodeContract(owned.value).pipe(Effect.mapError(cause =>
     new LogicalSourceAdmissionError({ reason: "invalidInput", cause })));
   const readiness = yield* (construction.kind === "standalone"
-    ? prepareLogicalStorageReadiness(capturedPorts, unique, captured)
+    ? prepareLogicalStorageReadiness(capturedPorts, unique, captured, construction.application)
     : requirePreparedLogicalStorageCatalog(construction.catalog, capturedPorts, unique, captured));
   if (readiness.status !== "prepared") return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" }));
   const requirements = readiness.requirements;
@@ -421,12 +425,26 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     cause => new LogicalSourceAdmissionError({ reason: "notReady", cause }));
   const indexes = Object.freeze(catalogIndexes.filter(index => tableIds.has(index.access.tableId)));
   const selectedUnique = Object.freeze(catalogUnique.filter(constraint => tableIds.has(constraint.tableId)));
+  const publicationDefinitions = preparePublicationDefinitions(indexes, selectedUnique);
+  yield* registerHostPreparationDisposal(() => { disposePublicationDefinitions(publicationDefinitions); });
+  yield* chargeHostPreparation(readPublicationDefinitionPreparationPayload(publicationDefinitions));
   const metadataProjection = yield* prepareFiniteMetadataProjection({ requirements, requirementsProfile: "binding", sourceKey: source.key, indexes,
     unique: selectedUnique, ...(sourcePolicy === undefined ? {} : { sourcePolicies: [{ sourceKey: source.key, semantic: sourcePolicy }] }) });
-  const applicationProjections = yield* Effect.forEach(applicationSources, member => prepareFiniteMetadataProjection({
-    requirements, requirementsProfile: "binding", sourceKey: member.key, indexes: catalogIndexes, unique: catalogUnique }));
+  yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(metadataProjection); });
+  yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(metadataProjection)));
+  const applicationProjections = yield* Effect.forEach(applicationSources, member => Effect.gen(function* () {
+    const projection = yield* prepareFiniteMetadataProjection({ requirements, requirementsProfile: "binding", sourceKey: member.key,
+      indexes: catalogIndexes, unique: catalogUnique });
+    yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(projection); });
+    yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(projection)));
+    return projection;
+  }));
   const boundApplicationProjection = applicationProjections.length === 0 ? undefined :
     yield* Effect.fromResult(mergeFiniteMetadataProjections(applicationProjections));
+  if (boundApplicationProjection !== undefined) {
+    yield* registerHostPreparationDisposal(() => { disposeFiniteMetadataProjection(boundApplicationProjection); });
+    yield* chargeHostPreparation(yield* Effect.fromResult(readFiniteMetadataProjectionPreparationPayload(boundApplicationProjection)));
+  }
   yield* chargeHostPreparation(JSON.stringify({ tables: selectedTables, indexes: catalogIndexes, unique: catalogUnique },
     (_, member: unknown) => typeof member === "bigint" ? member.toString() : member));
   const chargePrepared = yield* captureHostPreparationCharge();
@@ -435,6 +453,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   const requirePrepared = requirePreparedLogicalStorageCatalog(readiness, capturedPorts, unique, captured).pipe(Effect.asVoid);
   const singletonSourceKeys = Object.freeze([source.key]);
   let singletonReadiness: SelectedLogicalStorageReadiness | undefined;
+  if (sourceLifetime !== undefined) yield* Effect.fromResult(sourceLifetime.onDispose(() => { singletonReadiness = undefined; }));
   const selectSingletonReadiness = Effect.fn("LogicalSourceAdmission.selectSingletonReadiness")(function* () {
     if (singletonReadiness !== undefined) return singletonReadiness;
     const selected = yield* readiness.selectSources(singletonSourceKeys);
@@ -455,7 +474,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState, accepted: AcceptedApplicationBinding | undefined,
       bindingSelection: Readonly<{ candidateSha256: string; activationSha256: string }>) => Effect.Effect<Value, Failure, Requirements>,
-    borrowed?: AcceptedApplicationBinding,
+    applicationObservation?: ApplicationBindingObservation,
     observation?: FiniteEntryObservation,
   ) {
     return yield* Effect.gen(function* () {
@@ -467,13 +486,28 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     // Authenticity and the actual issuer lease remain mandatory even when a
     // positive source observation is reused in this accepting transaction.
     const targetProtection = yield* Effect.fromResult(readApplicationBindingTargetProtection(application));
-    if (borrowed !== undefined)
-      yield* Effect.fromResult(requireAcceptedApplicationBindingObservation(borrowed, application, tx, clock));
-    const protection = targetProtection.protection;
+    if (applicationObservation !== undefined && !isCheckedApplicationActiveHead(applicationObservation))
+      yield* Effect.fromResult(requireAcceptedApplicationBindingObservation(applicationObservation, application, tx, clock));
+    const readinessProtection = targetProtection.readinessProtection;
+    if (readinessProtection !== undefined) {
+      yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, readinessProtection.target, readinessProtection.control)).pipe(
+        Effect.mapError(cause => new LogicalSourceAdmissionError({ reason: "sourceMismatch", cause })));
+      yield* requirePreparedLogicalStorageCatalog(readiness, capturedPorts, unique, captured, readinessProtection.control);
+    }
+    const protection = targetProtection.protection ?? readinessProtection?.target;
     let targetPreparation = targetPreparations.get(application);
     if (protection !== undefined && targetPreparation === undefined) {
-      targetPreparation = prepareBindingSelectedStructure(authority, protection, sourceLifetime ?? targetProtection.lifetime);
-      targetPreparations.set(application, targetPreparation);
+      // Per-Application plans belong to that exact generation. A request with
+      // no retained Application lifetime keeps its plan only in this callback.
+      targetPreparation = yield* Effect.fromResult(prepareBindingSelectedStructure(authority, protection, targetProtection.lifetime));
+      if (targetProtection.lifetime !== undefined) {
+        targetPreparations.set(application, targetPreparation);
+        yield* Effect.fromResult(targetProtection.lifetime.onDispose(() => { targetPreparations.delete(application); })).pipe(
+          Effect.mapError(cause => {
+            targetPreparations.delete(application);
+            return new LogicalSourceAdmissionError({ reason: "notReady", cause });
+          }));
+      }
     }
     const sourceKeys = singletonSourceKeys;
     if (selection === "read" && !sourceKeys.includes(source.key))
@@ -497,15 +531,12 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       const acceptShared = (accepted?: AcceptedApplicationBinding) => Effect.suspend(() =>
         work(Object.freeze({ tx, authority, clock,
           schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }), accepted, shared.bindingSelection));
-      if (owner !== "finiteRootPin") return yield* acceptShared();
-      if (borrowed !== undefined) return yield* acceptShared(borrowed);
-      // The preceding source's callback has released its issuer. Reuse the
-      // checked frame, while finite pinning gets its own live issuer from the
-      // Application owner under normal current Application authentication.
+      // Every source still projects live revocation and proves its selected
+      // correlation. Only the genuine Application basis is lent by its owner.
       return yield* withApplicationBindingEvidenceInTransaction(application, tx, clock,
         (evidence, accepted) => Effect.fromResult(verifyPreparedLogicalSchemaBinding(readiness, shared.frame, evidence,
           { kind: "activated", activation: shared.activation })).pipe(
-          Effect.andThen(acceptShared(accepted))));
+          Effect.andThen(acceptShared(accepted))), applicationObservation);
     }
     const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "read"
       ? yield* (sourceKeys.length === 1 && sourceKeys[0] === source.key
@@ -517,12 +548,12 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       Effect.gen(function* () {
       yield* (selection === "finite"
         ? Effect.fromResult(verifyPreparedLogicalSchemaBinding(readiness, candidate.frame, applicationEvidence,
-          { kind: "activated", activation }))
+          { kind: "activated", activation })).pipe(Effect.andThen(readiness.validateCatalog(tx, authority, readinessProtection)))
         : selectedReadiness === undefined
         ? verifyLogicalSchemaBindingInTransaction(readiness, candidate.frame, applicationEvidence,
-          tx, authority, clock, { kind: "activated", activation }, applicationEvidence.checkedActive).pipe(Effect.asVoid)
+          tx, authority, clock, { kind: "activated", activation }, applicationEvidence.checkedActive, readinessProtection).pipe(Effect.asVoid)
         : verifyLogicalSchemaReadBindingInTransaction(selectedReadiness, candidate.frame, applicationEvidence,
-          tx, authority, clock, { kind: "activated", activation }, applicationEvidence.checkedActive).pipe(Effect.asVoid));
+          tx, authority, clock, { kind: "activated", activation }, applicationEvidence.checkedActive, readinessProtection).pipe(Effect.asVoid));
       const head = Object.freeze({ sequence: current.frame.sequence, sha256: current.sha256 });
       const bindingSelection = Object.freeze({ candidateSha256: current.frame.candidateSha256, activationSha256: current.frame.activationSha256 });
       checkedBindings.get(tx)?.observations.push(Object.freeze({ selectionKey, application, controlDb: capturedPorts.controlDb,
@@ -534,17 +565,18 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       return yield* Effect.suspend(() => work(Object.freeze({ tx, authority, clock,
         schemaVersionId: captured.schemaVersionId, source, frame: candidate.frame, head }), accepted, bindingSelection));
     });
-    if (owner === "transactionCompletion" && constructionKind === "standalone" && isPreparedApplicationBinding(application))
-      return yield* withPreparedApplicationBindingEvidenceInTransaction(application, tx, clock, admit);
-    return yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, admit, borrowed);
+    if ((applicationObservation === undefined || isCheckedApplicationActiveHead(applicationObservation)) && owner === "transactionCompletion" && constructionKind === "standalone" && isPreparedApplicationBinding(application))
+      return yield* withPreparedApplicationBindingEvidenceInTransaction(application, tx, clock, admit, applicationObservation);
+    return yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, admit, applicationObservation);
     }).pipe(Effect.onExit(exit => Effect.sync(() => {
       if (Exit.isFailure(exit)) invalidateSharedLogicalSourceBindingChecks(tx);
     })));
   });
   const withBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
-    checkBinding("full", "sourceProof", application, tx, authority, clock, work);
+    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: AcceptedApplicationBinding) =>
+    checkBinding("full", "sourceProof", application, tx, authority, clock, work, applicationObservation);
   const pinFiniteReadBinding = Effect.fn("LogicalSourceAdmission.pinFiniteReadBinding")(function* <Failure, Requirements>(
     application: ApplicationBindingInput, root: SessionJournalAttempt, tx: FlarexMetadataTransaction,
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
@@ -601,12 +633,14 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   // source proof without acquiring the request's final guard before settlement.
   const withTransactionBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
-    checkBinding("full", "transactionCompletion", application, tx, authority, clock, work);
+    work: (state: LogicalSourceBindingState, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation) =>
+    checkBinding("full", "transactionCompletion", application, tx, authority, clock, work, applicationObservation);
   const withTransactionReadBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
-    checkBinding("read", "transactionCompletion", application, tx, authority, clock, work);
+    work: (state: LogicalSourceBindingState, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation) =>
+    checkBinding("read", "transactionCompletion", application, tx, authority, clock, work, applicationObservation);
   const prepareFiniteCommitClosurePages = (tx: FlarexMetadataTransaction, touchedTableIds: readonly CatalogTableId[],
     cacheSnapshot = checkedBindings.get(tx)?.writeClosures) => Result.gen(function* () {
     const pages: (readonly FiniteMetadataComparisonExpected[])[] = [];
@@ -741,6 +775,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     clock: ScopeClockRecord, touchedTableIds: readonly CatalogTableId[]) =>
     consumeFiniteCommitClosure(tx, authority, clock, touchedTableIds);
   return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withTransactionBinding, withTransactionReadBinding,
-    requirements, catalog: readiness, requirePrepared, metadataProjection,
+    requirements, catalog: readiness, requirePrepared, metadataProjection, publicationDefinitions,
+    preparationLifetime: sourceLifetime,
     pinFiniteReadBinding, readFiniteCommitClosure, prepareFiniteCommitClosureObservation });
 });

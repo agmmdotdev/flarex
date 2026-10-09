@@ -9,6 +9,7 @@ import { fxAppRowRevisions, fxAppRowCurrent, fxAppIndexEntryRevisions, fxAppInde
 import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from "../applicationActivationSchema";
 import { fxSystemApplicationRevisionSchemas } from "../applicationRelationSchema";
 import { fxSystemApplicationRevisionSchemasV1 } from "../schema";
+import { APP_PUBLICATION_ACCEPTANCE_FUNCTION, APP_PUBLICATION_APPLICATION_FUNCTION } from "./publicationStagesInstallation";
 
 const namespace = sql.raw("%1$I");
 const table = (target: PgTable) => sql`${namespace}.${sql.identifier(getTableName(target))}`;
@@ -278,55 +279,6 @@ BEGIN
   reason := 'accepted'; RETURN NEXT;
 END;
 $materialization_begin$;`);
-
-/** Called only after intrinsic build authentication. Developer locks complete
- * before a separate internal statement observes genuinely fresh predecessors. */
-export const APP_DEVELOPER_HEADS_FUNCTION_SQL = compile(sql`
-CREATE FUNCTION ${namespace}.fx_observe_app_developer_heads(p_scope text, p_scope_uuid uuid, p_indexes integer[],
-  p_tables integer[], p_ids bytea[], p_lengths integer[])
-RETURNS TABLE(kind text, ordinal integer, developer_build ${indexBuild}, pointer_commit_seq_text text,
-  latest_commit_seq_text text, latest_is_tombstone boolean, latest_creation_time_text text,
-  original_scope_uuid uuid, original_write_epoch_uuid uuid, original_prev_commit_seq_text text,
-  original_schema_version_id text, original_codec_version integer, original_byte_length_text text,
-  original_stored_sha256 bytea, original_actual_sha256 bytea)
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $developer_heads$
-DECLARE i integer; pointer_seq bigint; latest ${row}; captured record;
-BEGIN
-  ordinal := 0;
-  FOR developer_build IN SELECT b.* FROM ${indexBuild} b
-    WHERE b.${field(fxSystemIndexBuildStates.scopeId.name)} = p_scope
-      AND b.${field(fxSystemIndexBuildStates.indexDefinitionId.name)} = ANY(p_indexes)
-    ORDER BY b.${field(fxSystemIndexBuildStates.indexDefinitionId.name)} FOR SHARE LOOP
-    kind := 'developerBuild'; RETURN NEXT; ordinal := ordinal + 1;
-  END LOOP;
-  developer_build := NULL;
-  IF coalesce(array_length(p_ids, 1), 0) > 0 THEN FOR i IN 1..array_length(p_ids, 1) LOOP
-    SELECT c.${field(fxAppRowCurrent.commitSeq.name)} AS pointer_seq, r AS latest_row INTO captured
-      FROM (VALUES (1)) AS request(dummy)
-      LEFT JOIN ${current} c ON c.${field(fxAppRowCurrent.scopeUuid.name)} = p_scope_uuid
-        AND c.${field(fxAppRowCurrent.tableId.name)} = p_tables[i] AND c.${field(fxAppRowCurrent.rowId.name)} = p_ids[i]
-      LEFT JOIN LATERAL (SELECT rev.* FROM ${row} rev WHERE rev.${field(fxAppRowRevisions.scopeUuid.name)} = p_scope_uuid
-        AND rev.${field(fxAppRowRevisions.tableId.name)} = p_tables[i] AND rev.${field(fxAppRowRevisions.rowId.name)} = p_ids[i]
-        ORDER BY rev.${field(fxAppRowRevisions.commitSeq.name)} DESC LIMIT 1) r ON true;
-    pointer_seq := captured.pointer_seq; latest := captured.latest_row;
-    kind := 'head'; ordinal := i - 1;
-    pointer_commit_seq_text := pointer_seq::text; latest_commit_seq_text := latest.${field(fxAppRowRevisions.commitSeq.name)}::text;
-    latest_is_tombstone := latest.${field(fxAppRowRevisions.isTombstone.name)};
-    latest_creation_time_text := latest.${field(fxAppRowRevisions.creationTime.name)}::text;
-    original_scope_uuid := latest.${field(fxAppRowRevisions.scopeUuid.name)};
-    original_write_epoch_uuid := latest.${field(fxAppRowRevisions.writeEpochUuid.name)};
-    original_prev_commit_seq_text := latest.${field(fxAppRowRevisions.prevCommitSeq.name)}::text;
-    original_schema_version_id := latest.${field(fxAppRowRevisions.schemaVersionId.name)};
-    original_codec_version := latest.${field(fxAppRowRevisions.valueCodecVersion.name)};
-    original_byte_length_text := octet_length(latest.${field(fxAppRowRevisions.valueBytes.name)})::text;
-    original_stored_sha256 := latest.${field(fxAppRowRevisions.valueSha256.name)};
-    original_actual_sha256 := CASE WHEN p_lengths[i] IS NOT NULL AND latest.${field(fxAppRowRevisions.isTombstone.name)} = false
-      AND latest.${field(fxAppRowRevisions.valueCodecVersion.name)} = 1 AND octet_length(latest.${field(fxAppRowRevisions.valueBytes.name)}) = p_lengths[i]
-      THEN pg_catalog.sha256(latest.${field(fxAppRowRevisions.valueBytes.name)}) ELSE NULL END;
-    RETURN NEXT;
-  END LOOP; END IF;
-END;
-$developer_heads$;`);
 
 /** Fixed domain data only. Predecessor proof precedes every row write; separate
  * procedural statements retain fresh visibility and include AFTER triggers. */
@@ -1145,6 +1097,8 @@ END;
 $materialization$;`);
 
 export const APPLICATION_DOMAIN_FUNCTIONS = [
+  APP_PUBLICATION_ACCEPTANCE_FUNCTION,
+  APP_PUBLICATION_APPLICATION_FUNCTION,
   { name: "fx_accept_app_unique_owners", signature: "fx_app_unique_owner[],bytea[],bigint[]", delimiter: "$unique_owners$", ddl: APP_UNIQUE_OWNER_ACCEPTANCE_FUNCTION_SQL,
     inputs: ["p_owners", "p_previous", "p_row_previous"], outputs: ["reason", "owners"], outputTypes: ["text", "integer"] },
   { name: "fx_accept_app_index_transitions", signature: "text,uuid,integer[],text[],integer[],integer[],bytea[],bytea[],bytea[],bytea[],bytea[],bytea[],bigint[],bigint[],text[],bigint[],integer", delimiter: "$index_transitions$", ddl: APP_INDEX_TRANSITIONS_FUNCTION_SQL,
@@ -1162,11 +1116,6 @@ export const APPLICATION_DOMAIN_FUNCTIONS = [
   { name: "fx_begin_app_materialization", signature: "text,timestamptz,boolean", delimiter: "$materialization_begin$", ddl: APP_MATERIALIZATION_BEGIN_FUNCTION_SQL,
     inputs: ["p_scope", "p_deadline", "p_snapshot"], outputs: ["reason", "database_now", "application_head", "application_activation", "legacy_schema", "relation_schema"],
     outputTypes: ["text", "timestamptz", getTableName(fxSystemApplicationActiveHeads), getTableName(fxSystemApplicationActivations), getTableName(fxSystemApplicationRevisionSchemasV1), getTableName(fxSystemApplicationRevisionSchemas)] },
-  { name: "fx_observe_app_developer_heads", signature: "text,uuid,integer[],integer[],bytea[],integer[]", delimiter: "$developer_heads$", ddl: APP_DEVELOPER_HEADS_FUNCTION_SQL,
-    inputs: ["p_scope", "p_scope_uuid", "p_indexes", "p_tables", "p_ids", "p_lengths"],
-    outputs: ["kind", "ordinal", "developer_build", "pointer_commit_seq_text", "latest_commit_seq_text", "latest_is_tombstone", "latest_creation_time_text",
-      "original_scope_uuid", "original_write_epoch_uuid", "original_prev_commit_seq_text", "original_schema_version_id", "original_codec_version", "original_byte_length_text", "original_stored_sha256", "original_actual_sha256"],
-    outputTypes: ["text", "integer", getTableName(fxSystemIndexBuildStates), "text", "text", "boolean", "text", "uuid", "uuid", "text", "text", "integer", "text", "bytea", "bytea"] },
   { name: "fx_apply_app_row_batch", signature: "fx_app_row_write[],fx_app_row_write[]", delimiter: "$row_batch$", ddl: APP_ROW_BATCH_FUNCTION_SQL,
     inputs: ["p_rows", "p_verify"], outputs: ["reason", "ordinal", "actual_commit_seq", "actual_creation_time"], outputTypes: ["text", "integer", "bigint", "double precision"] },
   { name: "fx_apply_app_index_batch", signature: "fx_app_index_write[],bigint[],boolean[],fx_app_index_write[]", delimiter: "$index_batch$", ddl: APP_INDEX_BATCH_FUNCTION_SQL,

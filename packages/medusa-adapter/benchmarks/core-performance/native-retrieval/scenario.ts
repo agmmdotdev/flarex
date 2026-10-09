@@ -526,7 +526,7 @@ describe("paired genuine native Product retrieval", () => {
                   expect(protocol.every(entry => entry.outcome === "returned")).toBe(true);
                   if (lane === "flarex") {
                     if (managedRead) {
-                      const entries = observations.filter(entry => entry.kind === "sql" && entry.label.includes("fx_lock_read_scope_placement"));
+                      const entries = observations.filter(entry => entry.kind === "sql" && entry.label.includes("fx_accept_finite_placement_frontier"));
                       expect(entries).toHaveLength(1);
                       const entry = entries[0];
                       if (entry === undefined) throw new Error("Missing named standalone entry statement");

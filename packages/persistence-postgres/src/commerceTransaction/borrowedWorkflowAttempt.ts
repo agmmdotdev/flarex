@@ -25,7 +25,7 @@ import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { captureCommerceResources, defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
 import { captureCommerceJsonData, projectCommerceRequestFailure } from "./request";
-import { projectLogicalCommerceActivity } from "./logicalParticipant";
+import { makeLogicalCommerceActivityProjection } from "./logicalParticipant";
 
 export type BorrowedWorkflowAttemptInput = Readonly<{
   readonly bundle: LogicalParticipantAdmissionBundle;
@@ -102,7 +102,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           const requireAdmission = input.rootEvaluator === undefined ? checkedRead(() => Effect.void) : localRootGate;
           const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
           const constructWorking = (constructionTx: FlarexMetadataTransaction | undefined) => makeLogicalDocumentWorkingSet({
-            readTransaction: checkedRead, requireAdmission,
+            readTransaction: checkedRead, requireAdmission, writeMechanics: mechanics,
             ...(input.rootEvaluator === undefined ? {} : { readReadiness: { kind: "finiteQueryRequired" as const, mechanics,
             captureStorage: (operation, demand) => input.captureStorage(operation, demand).pipe(Effect.mapError(projectFiniteStorageCaptureFailure), Effect.mapError(projectCommerceRequestFailure)) } }),
             scopeId: root.scopeId, clock: states[0]!.clock, snapshotCommitSeq: root.snapshotCommitSeq,
@@ -132,6 +132,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           const eventSources: Array<string | null> = [];
           const calls: AtomicCommerceCallObservation[] = [];
           const names = Object.freeze({ get: mechanics.tableName });
+          const projectActivity = makeLogicalCommerceActivityProjection(names);
           const sourceFor = (participant: AtomicCommerceCallObservation["participant"]) =>
             input.members.findIndex(member => member.participant === participant);
           const call: AtomicCommerceContext["call"] = Effect.fn("LogicalCommerce.workflowCall")((participant, command, args) =>
@@ -194,16 +195,7 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                   return Object.freeze({ input: captured.value, result: output.value });
                 });
               const observed = yield* invoke(child, command, args);
-              const snapshot = yield* working.activitySnapshot();
-              const activity = yield* projectLogicalCommerceActivity(names, {
-                ...snapshot,
-                attempts: snapshot.attempts.slice(cursor.attempts).map(attempt =>
-                  Object.freeze({ ...attempt, ordinal: attempt.ordinal - cursor.attempts })),
-                lifecycle: snapshot.lifecycle.slice(cursor.lifecycle).map(observation => Object.freeze({ ...observation,
-                  attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - cursor.attempts })),
-                setNull: snapshot.setNull.slice(cursor.setNull),
-                referenceReplacements: snapshot.referenceReplacements.slice(cursor.referenceReplacements),
-              });
+              const activity = yield* projectActivity(yield* working.readActivityContribution(yield* working.activityContribution, cursor));
               const localActivity = { ...activity, observedRows: activity.observedRows.filter(row =>
                 state.writeMechanics.tableId(row.table) !== undefined) };
               if (definition.mode === "read" && (localActivity.mutations.length !== 0 || localActivity.lifecycle.length !== 0 ||

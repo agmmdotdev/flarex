@@ -362,7 +362,7 @@ export async function createScopePublicationFixture(
             await writeScopePublicationPrefix(tx, command, kernel, selectedOptions);
             openExactAttemptScopeClockObservation(tx, record, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
             try {
-              await advanceScopePublicationClock(tx, command, kernel, selectedOptions);
+              await runEffect(advanceScopePublicationClock(tx, command, kernel, selectedOptions));
               const refreshed = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
               expect(refreshed.lastCommitSeq).toBe(commitSeq);
               expect(refreshed.updatedAt).toEqual(publicationTime);

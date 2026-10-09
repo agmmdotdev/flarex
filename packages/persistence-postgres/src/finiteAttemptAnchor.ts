@@ -87,7 +87,9 @@ const failure = (reason: FiniteAttemptAnchorError["reason"], cause?: unknown) =>
 declare const capturedBrand: unique symbol;
 export interface CapturedFiniteAttemptAnchor { readonly [capturedBrand]: true }
 interface CapturedState { readonly value: typeof AnchorSchema.Type; readonly bytes: Uint8Array; readonly digest: Uint8Array;
-  readonly immutablePins?: ReturnType<typeof projectImmutableFrontierPins> }
+  readonly immutablePins?: ReturnType<typeof projectImmutableFrontierPins>;
+  readonly storageCaptureBasis?: Readonly<{ expected: Result.Result.Success<ReturnType<typeof projectExpectedFiniteAttemptAnchor>>;
+    parameters: Readonly<Record<string, unknown>> }> }
 const captured = new WeakMap<CapturedFiniteAttemptAnchor, CapturedState>();
 
 /** Exact typed stored-column projection. Hashes are request pins alongside
@@ -116,12 +118,36 @@ function projectImmutableFrontierPins(row: FiniteAttemptFrontierRow) {
  * admission separately requires the installed command's full stored-row comparison
  * and entry COMMIT ACK before SessionJournal exposes an executable handle. Named
  * storage captures cannot authenticate a cold or caller-authored expectation. */
-export function projectExpectedFiniteAttemptAnchor(handle: CapturedFiniteAttemptAnchor) {
+export function projectExpectedFiniteAttemptAnchor(handle: CapturedFiniteAttemptAnchor): Result.Result<Readonly<{
+  bytes: Uint8Array; digest: Uint8Array; pins: ReturnType<typeof projectImmutableFrontierPins>;
+  snapshotToken: SnapshotToken; reservation: FiniteMetadataReservation | null;
+}>, FiniteAttemptAnchorError> {
   const state = captured.get(handle);
   if (state === undefined || state.immutablePins === undefined)
     return Result.fail(failure("invalidInput"));
   return Result.succeed(Object.freeze({ bytes: copyBytes(state.bytes), digest: copyBytes(state.digest),
     pins: state.immutablePins, snapshotToken: state.value.snapshotToken, reservation: state.value.reservation }));
+}
+
+/** Source-private storage mechanics, retained by this original issuer. The
+ * live registry and established entry pins are checked before every reuse.
+ * Only the trusted capture command consumes the owned buffers; public and
+ * durable projections above/below keep their detached byte contract. */
+export function prepareFiniteAttemptStorageCaptureBasis(handle: CapturedFiniteAttemptAnchor) {
+  const state = captured.get(handle);
+  if (state === undefined || state.immutablePins === undefined) return Result.fail(failure("invalidInput"));
+  if (state.storageCaptureBasis !== undefined) return Result.succeed(state.storageCaptureBasis);
+  const expected = Object.freeze({ bytes: state.bytes, digest: state.digest, pins: state.immutablePins,
+    snapshotToken: state.value.snapshotToken, reservation: state.value.reservation });
+  const parameters = Object.freeze({
+    ...Object.fromEntries(Object.entries(expected.pins).map(([name, value]) => ["pin_" + name, value])),
+    anchorBytes: expected.bytes, anchorDigest: expected.digest,
+    snapshotEpoch: expected.snapshotToken.epoch.slice(6), metadataWatermark: expected.reservation?.metadataWatermark ?? null,
+    scopeUuid: expected.pins.scopeUuid,
+  });
+  const basis = Object.freeze({ expected, parameters });
+  captured.set(handle, { ...state, storageCaptureBasis: basis });
+  return Result.succeed(basis);
 }
 
 /** Snapshot and selected metadata are immutable attempt evidence. Ownership
@@ -131,8 +157,12 @@ export const captureFiniteAttemptAnchor = Effect.fn("FiniteAttemptAnchor.capture
 ) {
   const reservation = input.reservation === undefined ? null : readCapturedFiniteMetadataReservation(input.reservation);
   if (input.reservation !== undefined && reservation === null) return yield* Effect.fail(failure("invalidInput"));
-  const value = yield* decodeType({ format: "flarex.finite-attempt-anchor", version: 1,
+  const decoded = yield* decodeType({ format: "flarex.finite-attempt-anchor", version: 1,
     snapshotToken: input.snapshotToken, reservation }).pipe(Effect.mapError(cause => failure("invalidInput", cause)));
+  // This issuer owns the scalar snapshot; reservation's original issuer already
+  // froze its complete fixed shape. Public projections cannot mutate either.
+  const value = Object.freeze({ ...decoded,
+    snapshotToken: Object.freeze({ ...decoded.snapshotToken }), reservation });
   if (reservation !== null && (reservation.snapshotToken.scopeId !== value.snapshotToken.scopeId ||
     reservation.snapshotToken.epoch !== value.snapshotToken.epoch || reservation.snapshotToken.commitSeq !== value.snapshotToken.commitSeq))
     return yield* Effect.fail(failure("invalidInput"));

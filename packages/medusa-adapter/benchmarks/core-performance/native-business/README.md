@@ -6,6 +6,10 @@ island's actual Product/MikroORM, Pricing, Link, query and workflow SDK, and
 Payload 3.88.0 with `@payloadcms/db-postgres` 3.88.0. It changes no Flarex runtime.
 The selected contract is [preflight 26](../../../../../roadmaps/mixed-mutation-core/26-native-business-baseline-preflight.md).
 
+The [connected generation measurement checkpoint](./connected-generation-results.md)
+records the complete current Flarex/native comparisons, CPU and database costs,
+retained compressed evidence, and the unmet native-relative gates.
+
 ## What is measured
 
 | Flow | Timed complete native business work |

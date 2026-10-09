@@ -54,7 +54,7 @@ import { decodeCapturedPublishedCurrentAppRowEffect, projectBoundedCurrentAppRow
   type AppRowRevisionV1, type CurrentAppRowReadLimits, type ReadAppRowError } from "./appRows";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import { requireAdmittedTargetInstallationSchema } from "./installationLifecycle";
-import { applicationDomainFailureDetail, buildAppUniqueBatchStatement, buildAppUniqueMutationStatement, buildAppUniqueOwnerAcceptanceStatement,
+import { applicationDomainFailureDetail, buildAppUniqueBatchStatement, buildAppUniqueMutationStatement, applicationUniqueOwnerAcceptanceParameters,
   type AppUniqueAbsentOwner } from "./applicationDocumentMaterialization/domainApplication";
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
@@ -487,29 +487,46 @@ const decodeUniqueOwnerRefusal = Schema.decodeUnknownResult(Schema.fromJsonStrin
   reason: Schema.Literals(["invalidBatch", "storedCorruption", "previousMismatch"]), ordinal: Schema.Number,
 })), { onExcessProperty: "error" });
 
-export const acceptAppUniqueOriginalOwnersInTransactionEffect = Effect.fn("AppUniqueKeys.acceptOriginalOwners")(function* (
-  tx: AppUniqueKeyTransaction, scopeId: ScopeId, writeEpoch: ScopeEpoch, pairs: readonly AppUniqueCanonicalTransition[],
+const acceptPreparedAppUniqueOriginalOwnerResult = Effect.fnUntraced(function* (
+  pairs: readonly AppUniqueCanonicalTransition[], result: unknown,
 ) {
-  if (pairs.length === 0) return;
-  const projection = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId).pipe(Result.mapError(cause => invalid("invalidScopeId", cause))));
-  const scopeUuid = yield* requireScopeAuthorityEffect(tx, scopeId, projection.scopeUuid, writeEpoch);
-  const owners: AppUniqueAbsentOwner[] = pairs.map((pair, ordinal) => ({ scopeUuid, constraintId: pair.constraintId,
-    localeKey: pair.localeKey, tableId: pair.tableId, rowId: appRowIdHexV1ToBytes(pair.rowId), ordinal }));
-  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
-  const statement = buildAppUniqueOwnerAcceptanceStatement(owners, pairs.map(pair => pair.previous?.kind === "claim" ? pair.previous.canonicalKeyBytes : null),
-    pairs.map(pair => pair.rowPrevCommitSeq), schemaName);
-  const result = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => tx.execute(statement), catch: cause => {
-    const detail = applicationDomainFailureDetail(cause, "fx_accept_app_unique_owners");
-    if (detail === null) return new AppUniqueKeyPersistenceError(cause);
-    return Result.match(decodeUniqueOwnerRefusal(detail), { onFailure: () => new AppUniqueKeyPersistenceError(cause), onSuccess: proof =>
-      Number.isSafeInteger(proof.ordinal) && proof.ordinal >= 0 && proof.ordinal < pairs.length
-        ? new AppUniqueKeyStorageCorruptionError("original unique owner differs", { cause }) : new AppUniqueKeyPersistenceError(cause) });
-  } }));
   const { rows } = yield* Effect.fromResult(decodeUniqueApplicationDriverRows(result)
     .pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
   if (rows.length !== 1) return yield* Effect.fail(new AppUniqueKeyPersistenceError(result));
   const proof = yield* Effect.fromResult(decodeUniqueOwnerAcceptance(rows[0]).pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
   if (proof.owners !== pairs.length) return yield* Effect.fail(new AppUniqueKeyPersistenceError(proof));
+});
+
+export const prepareAppUniqueOriginalOwnerAcceptanceInTransactionEffect = Effect.fnUntraced(function* (
+  tx: AppUniqueKeyTransaction, scopeId: ScopeId, writeEpoch: ScopeEpoch, pairs: readonly AppUniqueCanonicalTransition[],
+) {
+  const projection = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId).pipe(Result.mapError(cause => invalid("invalidScopeId", cause))));
+  const scopeUuid = pairs.length === 0 ? projection.scopeUuid
+    : yield* requireScopeAuthorityEffect(tx, scopeId, projection.scopeUuid, writeEpoch);
+  const owners: AppUniqueAbsentOwner[] = pairs.map((pair, ordinal) => ({ scopeUuid, constraintId: pair.constraintId,
+    localeKey: pair.localeKey, tableId: pair.tableId, rowId: appRowIdHexV1ToBytes(pair.rowId), ordinal }));
+  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(Result.mapError(cause => new AppUniqueKeyPersistenceError(cause))));
+  const parameters = applicationUniqueOwnerAcceptanceParameters(owners,
+    pairs.map(pair => pair.previous?.kind === "claim" ? pair.previous.canonicalKeyBytes : null), pairs.map(pair => pair.rowPrevCommitSeq), schemaName);
+  const statement = sql`select reason, owners from ${sql.identifier(schemaName)}.fx_accept_app_unique_owners(${parameters})`;
+  const mapFailure = (cause: unknown) => {
+    const detail = applicationDomainFailureDetail(cause, "fx_accept_app_unique_owners");
+    if (detail === null) return new AppUniqueKeyPersistenceError(cause);
+    return Result.match(decodeUniqueOwnerRefusal(detail), { onFailure: () => new AppUniqueKeyPersistenceError(cause), onSuccess: proof =>
+      Number.isSafeInteger(proof.ordinal) && proof.ordinal >= 0 && proof.ordinal < pairs.length
+        ? new AppUniqueKeyStorageCorruptionError("original unique owner differs", { cause }) : new AppUniqueKeyPersistenceError(cause) });
+  };
+  const accept = (result: unknown) => acceptPreparedAppUniqueOriginalOwnerResult(pairs, result);
+  return Object.freeze({ parameters, statement, mapFailure, accept });
+});
+
+export const acceptAppUniqueOriginalOwnersInTransactionEffect = Effect.fn("AppUniqueKeys.acceptOriginalOwners")(function* (
+  tx: AppUniqueKeyTransaction, scopeId: ScopeId, writeEpoch: ScopeEpoch, pairs: readonly AppUniqueCanonicalTransition[],
+) {
+  if (pairs.length === 0) return;
+  const prepared = yield* prepareAppUniqueOriginalOwnerAcceptanceInTransactionEffect(tx, scopeId, writeEpoch, pairs);
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => tx.execute(prepared.statement), catch: prepared.mapFailure }));
+  yield* prepared.accept(result);
 });
 
 export const prepareAppUniqueCanonicalMutationApplicationEffect = Effect.fn("AppUniqueKeys.bindCanonicalMutationApplication")(function* (

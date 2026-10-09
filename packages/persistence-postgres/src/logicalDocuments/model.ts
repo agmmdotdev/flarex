@@ -114,7 +114,9 @@ export type LogicalStorageReadReadiness<Failure> =
 export type LogicalPendingDocumentSeed = Readonly<{
   tableId: CatalogTableId;
   rowId: AppRowIdHexV1;
-  observed: ApplicationDocumentObservation["dependency"]["observed"];
+  evidence: ApplicationDocumentObservation["dependency"]["observed"] |
+    Readonly<{ kind: "generatedInsertion"; effectOrdinal: number;
+      origin: Readonly<{ syscallSequence: bigint; sourceBindingSha256Hex: string }> }>;
   overlay: Readonly<{ kind: "live"; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }> |
     Readonly<{ kind: "deleted" }>;
 }>;
@@ -149,6 +151,9 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   /** Existing full-admission profiles retain their complete source proof.
    * Selected read profiles must supply their transaction-owned demand guard. */
   readonly readReadiness?: LogicalStorageReadReadiness<Failure>;
+  /** Authentic immutable source mechanics; fresh admission and storage readiness
+   * remain owned by the selected execution profile. */
+  readonly writeMechanics?: PreparedLogicalDocumentWriteMechanics;
   readonly validateDocument: (write: LogicalDocumentWrite) => Effect.Effect<void, Failure>;
   readonly error: LogicalDocumentFailure<Failure>;
   readonly uniqueConflict: (constraint: Readonly<{ tableName: string; orderedFields: readonly string[] }>) => Failure;

@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Cause, Effect, Result } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
@@ -11,7 +11,7 @@ import { isSyntheticBindingReference, sameBindingValue } from "../frameworkSchem
 import { validateCommerceProfileSet } from "../frameworkSchema/binding/commerceBinding";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { prepareInstallationRuntime, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
-import { chargeHostPreparation } from "../preparedHostRuntime";
+import { chargeHostPreparation, captureHostPreparationLifetime, registerHostPreparationDisposal } from "../preparedHostRuntime";
 import { prepareLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from "../logicalStorageReadiness";
 import type { LogicalSourceConstruction } from "../logicalDocuments/sourceAdmission";
@@ -93,7 +93,7 @@ function captureParticipant(member: AtomicCommerceParticipantInput) {
 }
 export type CapturedAtomicCommerceParticipants = readonly ReturnType<typeof captureParticipant>[];
 const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
-  commands: readonly CommerceCommand[] }>>();
+  commands: readonly CommerceCommand[]; lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>> }>>();
 
 /** The host takes ownership of every caller selection before any preparation
  * can yield to authority or catalog I/O. */
@@ -108,6 +108,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
   location: Readonly<{ deploymentId: string; scopeId: ScopeId }> | undefined,
   construction: LogicalSourceConstruction,
 ) {
+  const lifetime = yield* captureHostPreparationLifetime();
   const names = new Set<string>();
   const installations = new Map<string, { reference: InstallationBindingReference; descriptors: readonly CommerceProfileState[] }>();
   const logicalSources = new Set<string>();
@@ -158,20 +159,24 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       if (catalog === undefined) {
         const preparedCatalog = yield* prepareLogicalStorageReadiness(selection.ports, selection.unique, {
           ...location, schemaVersionId: selection.schemaVersionId,
-        }).pipe(Effect.mapError(projectCommerceRequestFailure));
+        }, construction.kind === "standalone" ? construction.application : undefined).pipe(
+          Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
         if (preparedCatalog.status !== "prepared") return yield* Effect.fail(commerceError("invalidAuthority"));
         catalog = preparedCatalog;
       }
       const prepared = yield* prepareLogicalRelationalAdmission(selection.ports, selection.unique, {
         ...location, schemaVersionId: selection.schemaVersionId,
-      }, selection.source, { kind: "prepared", catalog }).pipe(Effect.mapError(projectCommerceRequestFailure));
+      }, selection.source, { kind: "prepared", catalog }).pipe(
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
       yield* chargeHostPreparation({ sourceKey, contractSha256: contract.sha256Hex })
         .pipe(Effect.mapError(projectCommerceRequestFailure));
       const preparedMember = { ...common, kind: "logical" as const, sourceKey, contractSha256: contract.sha256Hex,
         descriptor: Object.freeze({ resources, contractSha256: contract.sha256Hex,
           initialization: selection.initialization }), prepared,
         selectedResources: member.resources === undefined ? undefined : resources };
-      preparedLogicalMembers.set(preparedMember, { factory: member.factoryInput, commands: Object.freeze([...commands]) });
+      preparedLogicalMembers.set(preparedMember, { factory: member.factoryInput, commands: Object.freeze([...commands]), lifetime });
+      yield* registerHostPreparationDisposal(() => { preparedLogicalMembers.delete(preparedMember); }).pipe(
+        Effect.mapError(projectCommerceRequestFailure));
       members.push(preparedMember);
       continue;
     }
@@ -208,7 +213,8 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     const digest = member.reference.installation.installationSha256;
     let installation = prepared.get(digest);
     if (installation === undefined) {
-      installation = yield* prepareInstallationRuntime(database, target, member.reference).pipe(Effect.mapError(projectCommerceRequestFailure));
+      installation = yield* prepareInstallationRuntime(database, target, member.reference).pipe(
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
       prepared.set(digest, installation);
     }
     return { ...member, prepared: installation };
@@ -223,6 +229,7 @@ export type PreparedAtomicCommerceLogicalParticipant = Extract<Effect.Success<Re
 export const requirePreparedAtomicCommerceLogicalParticipant = (member: PreparedAtomicCommerceLogicalParticipant,
   expectedFactory: AtomicCommerceParticipantInput | undefined) => {
   const issued = preparedLogicalMembers.get(member);
+  if (issued?.lifetime !== undefined && Result.isFailure(issued.lifetime.checkOpen())) return Result.fail(commerceError("invalidAuthority"));
   return issued !== undefined && (expectedFactory === undefined || issued.factory === expectedFactory) &&
     member.commands.size === issued.commands.length && issued.commands.every(command => member.commands.has(command))
     ? Result.succeed(member) : Result.fail(commerceError("invalidAuthority"));

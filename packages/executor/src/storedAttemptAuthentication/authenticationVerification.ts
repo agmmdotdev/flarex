@@ -32,6 +32,8 @@ import {
   MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
   verifyParticipantPointCorrelationEffect,
+  authenticatedGeneratedInsertionsResult,
+  type AuthenticatedGeneratedInsertion,
   verifySuccessfulResultEvidenceV1Effect,
   type CanonicalSuccessfulResultV1,
   type LogicalAppWriteV1,
@@ -205,13 +207,16 @@ export const verifyCanonicalStoredEvidenceEffect = Effect.fn(
   ) {
     return yield* corruptionEffect("resultSemanticBytesMismatch");
   }
-  const counterMismatch = journalCounterMismatch(evidence, journal.journal);
+  const generatedInsertions = yield* Effect.fromResult(authenticatedGeneratedInsertionsResult(journal.journal.participantOperations))
+    .pipe(Effect.mapError(cause => new StoredAttemptStorageCorruptionV1Error({ reason: "pointEvidenceInvalid", cause })));
+  const counterMismatch = journalCounterMismatch(evidence, journal.journal, generatedInsertions);
   if (counterMismatch !== undefined) {
     return yield* Effect.fail(counterMismatch);
   }
   const points = yield* verifyPointCorrelationEffect(
     evidence.points,
     journal.journal,
+    generatedInsertions,
   );
   const successfulResultValue = yield* normalizeAuthenticatedResultValueEffect(
     successfulResult.valueJson,
@@ -366,9 +371,11 @@ function storedEnvelopeMismatch(
 function journalCounterMismatch(
   evidence: StoredAttemptEvidencePortV1,
   journal: SessionJournal,
+  generatedInsertions: ReadonlyMap<AppDocumentIdV1, AuthenticatedGeneratedInsertion>,
 ): StoredAttemptStorageCorruptionV1Error | undefined {
   let writeSemanticBytes = 0;
   let pointDependencyCount = 0;
+  const observedPointIds = new Set<AppDocumentIdV1>();
   const indexedDependencies = journal.readDependencies.filter(
     (dependency) => dependency.kind === "appIndexRange",
   );
@@ -378,6 +385,7 @@ function journalCounterMismatch(
   for (const dependency of journal.readDependencies) {
     if (dependency.kind === "appRowPoint") {
       pointDependencyCount += 1;
+      observedPointIds.add(dependency.documentId);
     }
   }
   const indexRangeDependencyEvidenceBytes = Result.all(
@@ -411,6 +419,10 @@ function journalCounterMismatch(
       }
     }
   }
+  // The durable root counts physical point rows, including authenticated
+  // generated-only identities. A retained same-ID read still occupies one row.
+  const physicalPointCount = pointDependencyCount + [...generatedInsertions.keys()]
+    .filter(documentId => !observedPointIds.has(documentId)).length;
   return Result.match(indexRangeDependencyEvidenceBytes, {
     onFailure: () => new StoredAttemptStorageCorruptionV1Error({
       reason: "journalCounterMismatch",
@@ -422,7 +434,7 @@ function journalCounterMismatch(
         journal.readUsage.documentsRead !== evidence.root.readDocuments ||
         journal.readUsage.semanticBytesRead !==
           evidence.root.readSemanticBytes ||
-        pointDependencyCount !== evidence.root.pointDependencyCount ||
+        physicalPointCount !== evidence.root.pointDependencyCount ||
         indexedDependencies.length !==
           evidence.root.indexRangeDependencyCount ||
         measuredIndexRangeEvidenceBytes !==
@@ -459,7 +471,7 @@ export interface AuthenticatedStoredAttemptPointV1 {
   readonly dependency: Extract<
     LogicalReadDependencyV1,
     { readonly kind: "appRowPoint" }
-  >;
+  > | Readonly<{ kind: "generatedInsertion"; documentId: AppDocumentIdV1; intent: AuthenticatedGeneratedInsertion }>;
   readonly overlayKind: "none" | "live" | "deleted";
   readonly overlayCreationTime: AppCreationTimeV1 | null;
   readonly overlayValue: CanonicalFlarexRuntimeValueV1 | null;
@@ -472,6 +484,7 @@ const verifyPointCorrelationEffect = Effect.fn(
 )(function* (
   rows: ReadonlyArray<StoredAttemptPointEvidencePortV1>,
   journal: SessionJournal,
+  generatedInsertions: ReadonlyMap<AppDocumentIdV1, AuthenticatedGeneratedInsertion>,
 ): Effect.fn.Return<
   ReadonlyArray<AuthenticatedStoredAttemptPointV1>,
   StoredAttemptStorageCorruptionV1Error
@@ -490,20 +503,18 @@ const verifyPointCorrelationEffect = Effect.fn(
     AuthenticatedStoredAttemptPointV1
   >();
   for (const row of rows) {
-    const point = yield* verifyPointEffect(row);
+    const point = yield* verifyPointEffect(row, generatedInsertions);
     if (points.has(point.documentId)) {
       return yield* corruptionEffect("duplicatePointEvidence");
     }
     const dependency = dependencies.get(point.documentId);
-    if (
-      dependency === undefined ||
-      !dependenciesEqual(dependency, point.dependency)
-    ) {
+    if (point.dependency.kind === "generatedInsertion" ? dependency !== undefined :
+      dependency === undefined || !dependenciesEqual(dependency, point.dependency)) {
       return yield* corruptionEffect("pointDependencyMismatch");
     }
     points.set(point.documentId, point);
   }
-  if (points.size !== dependencies.size) {
+  if ([...points.values()].filter(point => point.dependency.kind !== "generatedInsertion").length !== dependencies.size) {
     return yield* corruptionEffect("pointDependencySetMismatch");
   }
 
@@ -536,7 +547,8 @@ const verifyPointCorrelationEffect = Effect.fn(
     if (overlayValueJson !== null && !isJsonObject(overlayValueJson))
       return yield* corruptionEffect("overlayDocumentNotObject");
     return Object.freeze({ documentId: point.documentId, tableId: point.tableId,
-      observed: point.dependency.observed, overlayKind: point.overlayKind, overlayValueJson });
+      observed: point.dependency.kind === "generatedInsertion" ? { kind: "generatedInsertion" as const } : point.dependency.observed,
+      overlayKind: point.overlayKind, overlayValueJson });
   }));
   yield* verifyParticipantPointCorrelationEffect(journal, participantPoints).pipe(
     Effect.mapError(cause => new StoredAttemptStorageCorruptionV1Error({
@@ -547,6 +559,7 @@ const verifyPointCorrelationEffect = Effect.fn(
 
 const verifyPointEffect = Effect.fn(function* (
   row: StoredAttemptPointEvidencePortV1,
+  generatedInsertions: ReadonlyMap<AppDocumentIdV1, AuthenticatedGeneratedInsertion>,
 ): Effect.fn.Return<
   AuthenticatedStoredAttemptPointV1,
   StoredAttemptStorageCorruptionV1Error
@@ -567,6 +580,7 @@ const verifyPointEffect = Effect.fn(function* (
   const dependency = yield* dependencyFromPointEffect(
     row,
     identity.documentId,
+    generatedInsertions,
   );
   if (row.overlayKind !== "live") {
     if (
@@ -637,11 +651,18 @@ const verifyPointEffect = Effect.fn(function* (
 const dependencyFromPointEffect = Effect.fn(function* (
   row: StoredAttemptPointEvidencePortV1,
   documentId: AppDocumentIdV1,
+  generatedInsertions: ReadonlyMap<AppDocumentIdV1, AuthenticatedGeneratedInsertion>,
 ): Effect.fn.Return<
-  Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>,
+  AuthenticatedStoredAttemptPointV1["dependency"],
   StoredAttemptStorageCorruptionV1Error
 > {
   switch (row.dependencyKind) {
+    case "generated_insertion": {
+      const intent = generatedInsertions.get(documentId);
+      if (intent === undefined || intent.tableId !== row.tableId || row.dependencyRevisionCommitSeq !== null)
+        return yield* corruptionEffect("pointEvidenceInvalid");
+      return Object.freeze({ kind: "generatedInsertion", documentId, intent });
+    }
     case "present":
       if (row.dependencyRevisionCommitSeq === null) {
         return yield* corruptionEffect("presentDependencyRevisionMissing");
@@ -698,6 +719,7 @@ const verifyPointWriteChainEffect = Effect.fn(function* (
   point: AuthenticatedStoredAttemptPointV1,
   writes: ReadonlyArray<LogicalAppWriteV1>,
 ): Effect.fn.Return<void, StoredAttemptStorageCorruptionV1Error> {
+  if (point.dependency.kind === "generatedInsertion") return yield* corruptionEffect("pointEvidenceInvalid");
   if (writes.length === 0) {
     if (point.overlayKind !== "none") {
       return yield* corruptionEffect("readOnlyPointHasOverlay");

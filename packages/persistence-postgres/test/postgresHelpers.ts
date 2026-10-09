@@ -526,7 +526,7 @@ export async function withTemporaryPostgresPersistencePair(
   }
 }
 
-interface FileScopedPostgresFixture {
+export interface FileScopedPostgresFixture {
   readonly persistence: PostgresFlarexPersistence;
   readonly schemaName: string;
   readonly migrationsSchema: string;
@@ -734,7 +734,7 @@ export async function createProtectedFileScopedPostgresFixture(
       migrationsTable: owner.migrationsTable ?? "__drizzle_migrations",
       migrationPool: owner.persistence.pool,
       poolConfig: { options: `-c search_path=${owner.schemaName}`, application_name: `${roleName}_test`,
-        ...(transport === "finiteCapture" ? { statement_timeout: 30_000 } : {}) },
+        ...(transport === "finiteCapture" || profile === "managed" ? { statement_timeout: 30_000 } : {}) },
     });
     const activeRuntime = runtime;
     const endpointPolicy = "protected-postgres-fixture";
@@ -910,7 +910,7 @@ export async function createActivationServingFileScopedPostgresFixture(
       const persistence = await createPostgresPersistence({ connectionString: runtimeUrl.toString(),
         migrationPool: owner.persistence.pool, ...journal,
         poolConfig: { options: `-c search_path=${owner.schemaName}`, application_name: `${login}_test`,
-          ...(transport === "finiteCapture" ? { statement_timeout: 30_000 } : {}) } });
+          ...(transport === "finiteCapture" || profile !== "activationWriter" ? { statement_timeout: 30_000 } : {}) } });
       members.set(profile, Object.freeze({ persistence, login }));
     }
     const serving = members.get("dataRuntime"), activation = members.get("activationWriter"), controlRead = members.get("controlRead");

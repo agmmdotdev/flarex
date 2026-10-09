@@ -1,4 +1,5 @@
-import { Cause, Duration, Effect, Exit } from "effect";
+import { observeExecution } from "../executionDiagnostics/operation";
+import { Cause, Context, Duration, Effect, Exit, Tracer } from "effect";
 import {
   Client,
   type PoolClient,
@@ -155,12 +156,11 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
    * tracked work, and destroys the original transport without another pool slot
    * or a PID-only cross-session signal.
    */
+  // The pool owner retains these operations. SDK diagnostics alone names them;
+  // quiet requests construct no Effect.fn definition/call stacks or spans.
   function buildDriver(): PhysicalSessionDriver {
     const options = normalizePostgresPhysicalSessionOptions(optionInput);
-    const makeReadOperation = (profile: "sessionBudget" | "implicitStatement"): PhysicalSessionDriver["runReadEffect"] => Effect.fn(
-      profile === "sessionBudget" ? "PostgresPhysicalSession.read" : "PostgresPhysicalSession.implicitRead",
-    )(
-      <Value, Failure>(
+    const makeReadOperation = (profile: "sessionBudget" | "implicitStatement"): PhysicalSessionDriver["runReadEffect"] => <Value, Failure>(
         input: {
           readonly deadline: PhysicalDeadline;
         },
@@ -168,7 +168,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
           database: FlarexMetadataDatabase,
         ) => Effect.Effect<Value, Failure, never>,
       ): Effect.Effect<Value, Failure | ResourceIssue, never> =>
-        Effect.uninterruptibleMask((restore) =>
+        observeExecution(profile === "sessionBudget" ? "PostgresPhysicalSession.read" : "PostgresPhysicalSession.implicitRead", Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             const acquisition = yield* Effect.exit(
               restore(acquireConnection(ownedPool, input.deadline, options)),
@@ -395,13 +395,12 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
               ? yield* Effect.failCause(callbackCause ?? callback.value.cause)
               : callback.value.value;
           }),
-        ),
-    );
+        ));
     const runReadEffect = makeReadOperation("sessionBudget");
     const runImplicitReadEffect = makeReadOperation("implicitStatement");
 
     const runInitialTransactionEffect: PhysicalSessionDriver["runInitialTransactionEffect"] =
-      Effect.fn("PostgresPhysicalSession.initialTransaction")(function* <
+      Effect.fnUntraced(function* <
         Value,
         Failure,
       >(
@@ -661,10 +660,10 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
           kind: "committed",
           value: callback.value.value,
         });
-      });
+      }, effect => observeExecution("PostgresPhysicalSession.initialTransaction", effect));
 
     const runRecoveryTransactionEffect: PhysicalSessionDriver["runRecoveryTransactionEffect"] =
-      Effect.fn("PostgresPhysicalSession.recoveryTransaction")(function* <
+      Effect.fnUntraced(function* <
         Value,
         Failure,
       >(
@@ -932,7 +931,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
           kind: "committed",
           value: callback.value.value,
         });
-      });
+      }, effect => observeExecution("PostgresPhysicalSession.recoveryTransaction", effect));
 
     return Object.freeze({
       runReadEffect,
@@ -1017,9 +1016,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     );
   };
 
-  const acquireRecoveryConnection = Effect.fn(
-    "PostgresPhysicalSession.acquireRecoveryConnection",
-  )(function* (
+  const acquireRecoveryConnection = Effect.fnUntraced(function* (
     pool: PhysicalPostgresPool,
     deadline: PhysicalDeadline,
     excludedIdentity: PhysicalConnectionIdentity,
@@ -1033,7 +1030,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         return yield* Effect.fail(resourceIssue("quarantine", discarded.cause));
       }
     }
-  });
+  }, effect => observeExecution("PostgresPhysicalSession.acquireRecoveryConnection", effect));
 
   function makeCheckedOutConnection(
     client: PoolClient,
@@ -1214,8 +1211,13 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     work: (database: Database) => Effect.Effect<Value, Failure, never>,
     observeSettlement?: (settlement: Exit.Exit<Value, Failure>) => void,
   ): Effect.Effect<Exit.Exit<Value, Failure>, ResourceIssue, never> {
-    return Effect.flatMap(Effect.context<never>(), (context) =>
-      runBoundedPromiseEffect(
+    return Effect.withFiber(fiber => {
+      // This physical callback intentionally carries the complete current
+      // Context. Preserve its actual diagnostic parent across the independent
+      // runtime without applying narrower adapter service/Clock exclusions.
+      const context = fiber.currentSpan === undefined ? fiber.context :
+        Context.add(fiber.context, Tracer.ParentSpan, fiber.currentSpan);
+      return runBoundedPromiseEffect(
         deadline,
         phase,
         (signal) => {
@@ -1231,8 +1233,8 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
               });
         },
         connection,
-      ),
-    );
+      );
+    });
   };
 
   const runDrainEffect = function runDrainEffect(
@@ -1447,9 +1449,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     quarantineFailed,
   );
 
-  const quarantineWorkEffect = Effect.fn(
-    "PostgresPhysicalSession.quarantineConnection",
-  )(function* (
+  const quarantineWorkEffect = Effect.fnUntraced(function* (
     connection: CheckedOutConnection,
     options: NormalizedPostgresPhysicalSessionOptions,
   ): Effect.fn.Return<QuarantineResult> {
@@ -1544,7 +1544,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       kind: "failed",
       cause: aggregateCauses(causes, "PostgreSQL quarantine failed."),
     });
-  });
+  }, effect => observeExecution("PostgresPhysicalSession.quarantineConnection", effect));
 
   const boundedQuarantineDrainExitEffect =
     function boundedQuarantineDrainExitEffect(
@@ -1757,9 +1757,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     );
   };
 
-  const rollbackNotCommitted = Effect.fn(
-    "PostgresPhysicalSession.rollbackNotCommitted",
-  )(function* (
+  const rollbackNotCommitted = Effect.fnUntraced(function* (
     connection: CheckedOutConnection,
     deadline: PhysicalDeadline,
     primary: Cause.Cause<ResourceIssue>,
@@ -1793,11 +1791,9 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       );
     }
     return initialNotCommitted(primary);
-  });
+  }, effect => observeExecution("PostgresPhysicalSession.rollbackNotCommitted", effect));
 
-  const settleCallbackFailure = Effect.fn(
-    "PostgresPhysicalSession.settleCallbackFailure",
-  )(function* <Failure>(
+  const settleCallbackFailure = Effect.fnUntraced(function* <Failure>(
     connection: CheckedOutConnection,
     deadline: PhysicalDeadline,
     callbackCause: Cause.Cause<Failure>,
@@ -1856,11 +1852,9 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       >);
     }
     return Object.freeze({ kind: "callbackRolledBack", callbackCause });
-  });
+  }, effect => observeExecution("PostgresPhysicalSession.settleCallbackFailure", effect));
 
-  const initialUncertain = Effect.fn(
-    "PostgresPhysicalSession.initialUncertain",
-  )(function* <Value>(
+  const initialUncertain = Effect.fnUntraced(function* <Value>(
     connection: CheckedOutConnection,
     value: Value,
     initialSettlementCause: unknown,
@@ -1886,7 +1880,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       recoveryDeadline,
       quarantine: quarantineResult,
     });
-  });
+  }, effect => observeExecution("PostgresPhysicalSession.initialUncertain", effect));
 
   function recoveryLifecycleUnresolved(
     cause: Cause.Cause<ResourceIssue>,
@@ -1929,9 +1923,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       );
     };
 
-  const rollbackRecoveryLifecycle = Effect.fn(
-    "PostgresPhysicalSession.rollbackRecoveryLifecycle",
-  )(function* (
+  const rollbackRecoveryLifecycle = Effect.fnUntraced(function* (
     connection: CheckedOutConnection,
     deadline: PhysicalDeadline,
     primary: Cause.Cause<ResourceIssue>,
@@ -1968,11 +1960,9 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       );
     }
     return recoveryLifecycleUnresolved(primary);
-  });
+  }, effect => observeExecution("PostgresPhysicalSession.rollbackRecoveryLifecycle", effect));
 
-  const settleRecoveryCallbackFailure = Effect.fn(
-    "PostgresPhysicalSession.settleRecoveryCallbackFailure",
-  )(function* <Failure>(
+  const settleRecoveryCallbackFailure = Effect.fnUntraced(function* <Failure>(
     connection: CheckedOutConnection,
     deadline: PhysicalDeadline,
     callbackCause: Cause.Cause<Failure>,
@@ -2051,7 +2041,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         cause: resolutionCause,
       }),
     });
-  });
+  }, effect => observeExecution("PostgresPhysicalSession.settleRecoveryCallbackFailure", effect));
 
   function completeCallbackBoundaryCause<Failure>(
     boundaryCause: Cause.Cause<ResourceIssue>,

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { Cause, Effect, Exit, Layer, Option, Result, Schema, Tracer } from "effect";
 import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from
   "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
@@ -12,7 +13,7 @@ type PhaseRecord = Extract<MeasurementEvent, { kind: "phase" }>;
 type BindingContext = Readonly<{ parent: Tracer.AnySpan | undefined; fiberId: string | null }>;
 
 /** Exact observed boundary names, checked against fixture traceEffect/tracePhase
- * sites and the named operations in logicalDocuments. Unknown names stay gaps. */
+ * sites and their named source operations. Unknown names stay gaps. */
 const boundaryOwners = new Map<string, string>([
   ["request admission", "applicationAdmission"],
   ["stored read and source preparation", "applicationAdmission"],
@@ -68,13 +69,58 @@ const boundaryOwners = new Map<string, string>([
   ["PostgresPhysicalSession.cancel", "physicalSession"],
   ["PostgresPhysicalSession.quarantine", "physicalSession"],
   ["PointCommitTransaction.publishFinite", "pointCommitPublication"],
-  ["ApplicationDocument.applyPreparedMaterializationBlock", "logicalMaterialization"],
+  ["ApplicationDocument.acceptPublication", "pointCommitPublication"],
+  ["ApplicationDocument.materializeAcceptedPublication", "logicalMaterialization"],
   ["AppIndexEntries.consumeCurrentPages", "applicationIndexes"],
   ["LogicalDocuments.withCandidateSelection", "logicalWorkingSet"],
   ["FiniteEntryObservation.capture", "finiteExecution"],
   ["FinitePublication.observeMetadata", "pointCommitPublication"],
+  ["ApplicationRelationReadinessFold.validatePreparedInTransaction", "applicationReadinessAcceptance"],
+  ["ApplicationRelationReadinessFold.validateProtectedReplay", "applicationReadinessAcceptance"],
+  ["ApplicationBindingProjection.readAccepted", "applicationBindingAcceptance"],
+  ["ApplicationActivation.prepareBindingSelection", "applicationBindingPreparation"],
+  ["ApplicationReadiness.validateStoredIssuedReadiness", "applicationReadinessAcceptance"],
+  ["ApplicationReadiness.authenticateInstalled", "applicationReadinessAcceptance"],
+  ["ApplicationReadiness.readReady", "applicationReadinessPreparation"],
+  ["InstallationRuntime.accept", "installationAcceptance"],
+  ["AtomicCommerce.attempt", "atomicCommerceExecution"],
+  ["AtomicCommerce.executeRequest", "atomicCommerceExecution"],
+  ["DataBinding.verifyLogicalSchema", "logicalBindingAcceptance"],
+  ["LogicalStorageReadiness.inspect", "logicalReadinessAcceptance"],
+  ["LogicalCommerce.make", "logicalWorkingSet"],
+  ["Workflow.runAtomic", "medusaWorkflow"],
+  ["MedusaWorkflow.runNative", "medusaWorkflow"],
+  ["AtomicCommerce.closeContributions", "finiteCommitPreparation"],
+  ["CommerceCommit.finalize", "commercePublication"],
+  ["CmsCommit.finalize", "cmsPublication"],
+  ["CmsCommit.publishOutcome", "cmsPublication"],
+  ["ScopeAuthority.resolveLocatedTrustedById", "scopeAuthorityResolution"],
 ]);
 const boundaryOwner = (name: string) => boundaryOwners.get(name) ?? null;
+// Exact existing producer names. These are inclusive owner envelopes, not
+// standalone admission costs or a complete operation timeline.
+const ownerBoundaries = new Set([
+  "ApplicationRelationReadinessFold.validatePreparedInTransaction",
+  "ApplicationRelationReadinessFold.validateProtectedReplay",
+  "ApplicationBindingProjection.readAccepted", "InstallationRuntime.accept",
+  "ApplicationActivation.prepareBindingSelection", "ApplicationReadiness.validateStoredIssuedReadiness",
+  "ApplicationReadiness.authenticateInstalled", "ApplicationReadiness.readReady",
+  "AtomicCommerce.attempt", "AtomicCommerce.executeRequest",
+  "DataBinding.verifyLogicalSchema", "LogicalStorageReadiness.inspect", "LogicalCommerce.make",
+  "Workflow.runAtomic", "MedusaWorkflow.runNative",
+  "AtomicCommerce.closeContributions", "CommerceCommit.finalize",
+  "native Product operation", "native Payload operation", "native Medusa workflow",
+  "request admission", "stored read and source preparation", "finite outer entry activation",
+  "portable runtime execution", "Worker execution", "Application point",
+  "finite freeze and validation", "freeze and verify", "authoritative publication",
+  "runtime result validation", "complete call cleanup", "CmsCommit.finalize",
+  "CmsCommit.publishOutcome", "PointCommitTransaction.publishFinite",
+  "ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication",
+  "ScopeAuthority.resolveLocatedTrustedById",
+  "publication.publisher", "publication.transaction", "publication.durablePublication",
+  "PostgresPhysicalSession.drain", "PostgresPhysicalSession.release",
+  "PostgresPhysicalSession.cancel", "PostgresPhysicalSession.quarantine",
+]);
 // Coarse counter brackets only. Internal spans remain wall evidence without
 // a syscall at every row/helper. These are actual source-owned boundaries.
 const resourceBoundaries = new Set([
@@ -111,7 +157,9 @@ export function createEffectMeasurementCollector(input: Readonly<{
   now: () => number;
   capacity?: number;
   readResources?: () => ResourceReading;
+  observation?: "owners";
 }>) {
+  const ownersOnly = input.observation === "owners";
   const capacity = input.capacity ?? 20_000;
   if (!Number.isSafeInteger(capacity) || capacity < 1) throw new Error("Invalid Effect collection capacity");
   const context = new AsyncLocalStorage<BindingContext>();
@@ -155,7 +203,11 @@ export function createEffectMeasurementCollector(input: Readonly<{
     });
   };
   const resourceEnd = (start: ReturnType<typeof resourceStart>) => {
-    if (start === undefined) return undefined;
+    if (start === undefined) {
+      // Selected acquisition failure must not suppress the closing reading.
+      if (ownersOnly) resourceStart();
+      return undefined;
+    }
     const end = resourceStart();
     if (end === undefined) return undefined;
     const delta = (last: ResourceReading["process"], first: ResourceReading["process"]) =>
@@ -177,7 +229,15 @@ export function createEffectMeasurementCollector(input: Readonly<{
     events.push(event);
     return true;
   };
-  const parentId = (parent: Tracer.AnySpan | undefined) => parent === undefined ? null : identities.get(parent) ?? null;
+  const parentId = (parent: Tracer.AnySpan | undefined): string | null => {
+    while (parent !== undefined) {
+      const id = identities.get(parent);
+      if (id !== undefined) return id;
+      if (!ownersOnly || parent._tag === "ExternalSpan") return null;
+      parent = Option.getOrUndefined(parent.parent);
+    }
+    return null;
+  };
   const observer = (startMs: number, name: string) => {
     const endMs = now();
     if (closed || events.length + observerIntervals.length >= capacity) { droppedEvents++; return; }
@@ -187,13 +247,14 @@ export function createEffectMeasurementCollector(input: Readonly<{
       outcome: failureCount === 0 ? "success" : "failure" });
   };
   const tracer = Tracer.make({
-    context(primitive, fiber) {
+    ...(!ownersOnly ? { context<X>(primitive: Tracer.EffectPrimitive<X>, fiber: Parameters<NonNullable<Tracer.Tracer["context"]>>[1]): X {
       return context.run({ parent: fiber.currentSpan, fiberId: String(fiber.id) }, () =>
         primitive["~effect/Effect/evaluate"](fiber));
-    },
+    } } : {}),
     span(options) {
+      if (ownersOnly && !options.root && !ownerBoundaries.has(options.name)) return new Tracer.NativeSpan(options);
       const startMs = now();
-      const resourcesBefore = options.root || resourceBoundaries.has(options.name) || options.name.startsWith("publication.")
+      const resourcesBefore = ownersOnly || options.root || resourceBoundaries.has(options.name) || options.name.startsWith("publication.")
         ? resourceStart() : undefined;
       const span = new Tracer.NativeSpan(options);
       const id = `effect:${span.spanId}`;
@@ -234,16 +295,15 @@ export function createEffectMeasurementCollector(input: Readonly<{
       return span;
     },
   });
-  const layer = Layer.succeed(Tracer.Tracer, tracer);
   const provide = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => {
     if (closed) return work;
     const parent = context.getStore()?.parent;
-    const traced = Effect.provideService(work, Tracer.Tracer, tracer);
+    const traced = Effect.provideService(Effect.provideService(work, ExecutionDiagnostics, diagnosticPolicy), Tracer.Tracer, tracer);
     return parent === undefined ? traced : Effect.provideService(traced, Tracer.ParentSpan, parent);
   };
   const provideRequest = <A, E, R>(work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => {
     if (closed) return work;
-    const traced = Effect.provideService(work, Tracer.Tracer, tracer);
+    const traced = Effect.provideService(Effect.provideService(work, ExecutionDiagnostics, diagnosticPolicy), Tracer.Tracer, tracer);
     return requestParent === undefined ? traced : Effect.provideService(traced, Tracer.ParentSpan, requestParent);
   };
   // RC.112 withSpan/withParentSpan add Cause stack-frame annotations even with
@@ -251,7 +311,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
   // rewriting the business Cause; provide only its ParentSpan capability.
   const traceEffect = <A, E, R>(name: string, work: Effect.Effect<A, E, R>, owner?: string,
     isFailure?: (value: A) => boolean): Effect.Effect<A, E, R> => {
-    if (closed) return work;
+    if (closed || (ownersOnly && !ownerBoundaries.has(name))) return work;
     return Effect.withFiber(fiber => Effect.useSpan(name, {
       attributes: { "measurement.fiberId": String(fiber.id),
         ...(owner === undefined ? {} : { "measurement.owner": owner }) },
@@ -262,10 +322,12 @@ export function createEffectMeasurementCollector(input: Readonly<{
       catch (cause) { fault(cause); }
     }))), Tracer.ParentSpan, span)));
   };
+  const diagnosticPolicy = { observe: traceEffect };
+  const layer = Layer.merge(Layer.succeed(Tracer.Tracer, tracer), Layer.succeed(ExecutionDiagnostics, diagnosticPolicy));
   const withPhase = <A>(name: string, run: () => Promise<A>): Promise<A> => {
-    if (closed) return run();
+    if (closed || (ownersOnly && !ownerBoundaries.has(name))) return run();
     const startMs = now();
-    const resourcesBefore = resourceBoundaries.has(name) ? resourceStart() : undefined;
+    const resourcesBefore = ownersOnly || resourceBoundaries.has(name) ? resourceStart() : undefined;
     const outer = context.getStore();
     if (outer === undefined) lostContextEvents++;
     const ordinal = sequence++;
@@ -291,6 +353,7 @@ export function createEffectMeasurementCollector(input: Readonly<{
     });
   };
   const recordPublication = (event: PointCommitPublicationEvent) => {
+    if (ownersOnly && (event.kind !== "phase" || !ownerBoundaries.has(`publication.${event.phase}`))) return;
     const startMs = now();
     if (closed) { droppedEvents++; lostContextEvents++; return; }
     const parent = context.getStore()?.parent;
@@ -347,14 +410,17 @@ export function createEffectMeasurementCollector(input: Readonly<{
       // Dropped spans and escaped completions retain their own collector losses.
       return null;
     },
-    publicationObservation: () => new PointCommitPublicationObservation({ detail: true, record: recordPublication,
+    publicationObservation: () => new PointCommitPublicationObservation({ detail: !ownersOnly, record: recordPublication,
       traceEffect: (phase, work) => provide(traceEffect(`publication.${phase}`, work, "pointCommitPublication")) }),
     async runRequest<A>(name: string, run: () => Promise<A>): Promise<A> {
       if (started) throw new Error("Effect measurement collector is single-request");
       started = true;
       const work = Effect.useSpan(name, { root: true }, span => {
         requestParent = span;
-        return Effect.provideService(Effect.tryPromise({ try: run, catch: cause => cause }), Tracer.ParentSpan, span);
+        return Effect.provideService(Effect.tryPromise({
+          try: ownersOnly ? () => context.run({ parent: span, fiberId: null }, run) : run,
+          catch: cause => cause,
+        }), Tracer.ParentSpan, span);
       });
       const exit = await Effect.runPromiseExit(Effect.provide(work, layer));
       closed = true;

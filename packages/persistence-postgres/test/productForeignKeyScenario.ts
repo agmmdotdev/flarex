@@ -209,7 +209,7 @@ export const productForeignKeyScenario: (
             ["product", "prod_fk"], ["product_variant", "variant_fk_observed"],
           ]);
           expect(closed.success.dependencies.some(row => row.tableId === nativeTables.find(table =>
-            table.logicalName === "product")?.tableId && row.dependency.observed.kind === "present")).toBe(true);
+            table.logicalName === "product")?.tableId && row.dependency.kind === "appRowPoint" && row.dependency.observed.kind === "present")).toBe(true);
         }
         if (scenario === "persist" || scenario === "deletePersisted") {
           const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId, tables: new Set(tableIds),

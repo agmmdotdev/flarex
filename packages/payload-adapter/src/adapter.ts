@@ -4,7 +4,7 @@ import type { PayloadCollectionRuntime } from "./collectionRuntime";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
-import { Clock, Effect, Result, Semaphore } from "effect";
+import { Cause, Clock, type Context, Effect, Result, Semaphore } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import {
   capturePrivateJsonData,
@@ -20,6 +20,7 @@ import { payloadManyIds } from "./many";
 import { UnsupportedPayloadCapability } from "./errors";
 import { isPayloadLimit, isPayloadPage, payloadPaginationPolicy } from "./query";
 interface RequestBridge {
+  readonly diagnostics: Context.Context<never>;
   readonly collection: PayloadCollectionRuntime;
   readonly context: CmsCommandContext;
   readonly request: Partial<PayloadRequest>;
@@ -27,6 +28,7 @@ interface RequestBridge {
   readonly population: ReturnType<typeof makePayloadPopulation> | null;
   readonly semaphore: Semaphore.Semaphore;
   readonly joins: PayloadJoinQuery;
+  readonly onCollection?: (collection: string) => void;
   live: boolean;
 }
 
@@ -49,8 +51,9 @@ function projectUniqueFailure(state: RequestBridge, error: CmsTransactionError) 
   req: state.request }, state.request.t);
 }
 const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> =>
-  Effect.runPromise((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
-    state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.mapError(error => projectUniqueFailure(state, error))), { signal: state.signal });
+  Effect.runPromiseWith(state.diagnostics)((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
+    state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.catchCause(cause =>
+      Effect.failCause(Cause.map(cause, error => projectUniqueFailure(state, error))))), { signal: state.signal });
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over the owned Result decoder.
 const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, cmsLimits.documentBytes, cmsError)).value;
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over its sanitized query decoder.
@@ -111,13 +114,13 @@ const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollec
 };
 
 /** Node-only, per-Payload-instance foreign Promise boundary; it owns no database. */
-export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, collections: readonly PayloadCollectionRuntime[], onCollection?: (collection: string) => void) {
+export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, collections: readonly PayloadCollectionRuntime[]) {
   const document = (collection: PayloadCollectionRuntime, value: Json) => payloadDocument(value, profile, collection);
   const fields = (state: RequestBridge, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, state.collection, input, expectedId, creationTimestamp);
   const current = new AsyncLocalStorage<RequestBridge>();
   const unsupported = async (capability = "deferred adapter member"): Promise<never> => {
     const state = current.getStore();
-    if (state?.live) await Effect.runPromise(state.context.rollback(state.context.transactionId).pipe(Effect.exit), { signal: state.signal });
+    if (state?.live) await Effect.runPromiseWith(state.diagnostics)(state.context.rollback(state.context.transactionId).pipe(Effect.exit), { signal: state.signal });
     throw new UnsupportedPayloadCapability(capability);
   };
   const deferred = () => unsupported();
@@ -141,7 +144,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
       // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing adapter argument parser.
       Result.getOrThrow(payloadJoinQuery(args.joins, true));
     }
-    onCollection?.(args.collection);
+    state.onCollection?.(args.collection);
     return state;
   };
   const roots = async (state: RequestBridge, values: ReturnType<typeof document>[], queryInput: unknown) => {
@@ -239,16 +242,17 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
       const state = stateFor(args.req);
       if (args.collection !== "payload-preferences" || Object.keys(args).some(key => !["collection", "req", "where"].includes(key))) return unsupported(`deleteMany:${args.collection}`);
       await run(state, state.context.preferences.deleteForPendingDocument(state.context.context, transactionId(state), state.collection.collectionSlug, args.where));
-      onCollection?.(args.collection);
+      state.onCollection?.(args.collection);
     }, deleteVersions: deferred, findDistinct: deferred, findGlobal: deferred,
     findGlobalVersions: deferred, findVersions: deferred, generateSchema: deferred, migrate: deferred, migrateDown: deferred,
     migrateFresh: deferred, migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
-  const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }) => {
+  const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, diagnostics: Context.Context<never>, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }, onCollection?: (collection: string) => void) => {
     if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
-    const state: RequestBridge = { context, collection, request, signal, joins, live: !signal.aborted,
-      population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1) };
+    const state: RequestBridge = { context, collection, request, signal, joins, diagnostics, live: !signal.aborted,
+      population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1),
+      ...(onCollection === undefined ? {} : { onCollection }) };
     const abort = () => { state.live = false; };
     signal.addEventListener("abort", abort, { once: true });
     try { return await current.run(state, work); } finally { state.live = false; signal.removeEventListener("abort", abort); }

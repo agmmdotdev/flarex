@@ -343,7 +343,7 @@ describe("native Product Type on shared logical Product storage", () => {
       if (productCount === 512 && fixture.observeSql !== undefined) {
         let stagedFactPages = 0;
         fixture.observeSql(text => {
-          if (/insert into "fx_system_commit_app_row_change"/i.test(text) && ++stagedFactPages === 4)
+          if (/\bfx_write_scope_publication_rows\b/i.test(text) && ++stagedFactPages === 4)
             throw new Error("Injected failure after four staged fact pages");
         });
         try {
@@ -490,7 +490,7 @@ describe("native Product Type on shared logical Product storage", () => {
           const before = await logicalCurrencyInventory(localFixture);
           let stagedFactPages = 0;
           localFixture.observeSql?.(text => {
-            if (/insert into "fx_system_commit_app_row_change"/i.test(text)) stagedFactPages++;
+            if (/\bfx_write_scope_publication_rows\b/i.test(text)) stagedFactPages++;
           });
           try {
             await expect(Effect.runPromise(deleted.host.run(deleted.host.newRequestKey(), deleted.root, [typeId])))

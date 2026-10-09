@@ -1,5 +1,6 @@
 import { closeExactAttemptScopeClockObservation } from "./scopeClock";
-import { Cause, Context, Effect, Exit, Tracer } from "effect";
+import { Cause, type Context, Effect, Exit } from "effect";
+import { captureExecutionDiagnosticContext, observeExecution } from "./executionDiagnostics/operation";
 
 import type { AppRowTransaction } from "./appRows";
 import {
@@ -41,23 +42,20 @@ interface StartedRead<Value, Failure> {
  * read-committed Promise transaction contract. Domain failures stay in their
  * original Cause; transaction resource failures keep the kernel's typed error.
  */
-export const runLocatedReadCommittedEffect = Effect.fn(
-  "LocatedReadCommitted.runEffect",
-)(function <Value, Failure>(
+// The SDK owns optional named observations; ordinary reads construct no spans.
+export const runLocatedReadCommittedEffect = Effect.fnUntraced(function* <Value, Failure>(
   target: LocatedReadCommittedAttemptTargetV1,
   options: LocatedReadCommittedEffectOptions,
   body: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
-): Effect.Effect<
+): Effect.fn.Return<
   Value,
   Failure | LocatedReadCommittedTransactionFailureV1
 > {
-  return Effect.withFiber((fiber): Effect.Effect<
+  return yield* observeExecution("LocatedReadCommitted.runEffect", Effect.withFiber((fiber): Effect.Effect<
     Value,
     Failure | LocatedReadCommittedTransactionFailureV1
   > => {
-    const tracerContext = Context.make(Tracer.Tracer, Context.get(fiber.context, Tracer.Tracer));
-    const tracingContext = fiber.currentSpan === undefined ? tracerContext
-      : Context.add(tracerContext, Tracer.ParentSpan, fiber.currentSpan);
+    const tracingContext = captureExecutionDiagnosticContext(fiber);
     const started = startLocatedRead(target, options.rollbackMessage, body, tracingContext);
     const settled = Effect.uninterruptible(Effect.exit(Effect.tryPromise({
       try: () => started.promise,
@@ -104,7 +102,7 @@ export const runLocatedReadCommittedEffect = Effect.fn(
         ? Effect.fail(cause)
         : Effect.die(cause);
     }));
-  });
+  }));
 });
 
 function startLocatedRead<Value, Failure>(

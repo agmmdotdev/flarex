@@ -1,11 +1,14 @@
 import { Cause, Effect, Exit, Result } from "effect";
 import { LocatedReadCommittedTransactionFailureV1 } from "./transactionSessionAttemptKernel";
+import { captureExecutionDiagnosticContext } from "./executionDiagnostics/operation";
 
 /** The single audited Effect runtime bridge for the Promise transaction. */
 export async function runPointCommitInTransactionEffect<Value, Failure>(
   effect: Effect.Effect<Value, Failure>,
+  diagnosticContext?: ReturnType<typeof captureExecutionDiagnosticContext>,
 ): Promise<Result.Result<Value, Failure>> {
-  const exit = await Effect.runPromiseExit(effect);
+  const exit = await (diagnosticContext === undefined ? Effect.runPromiseExit(effect)
+    : Effect.runPromiseExitWith(diagnosticContext)(effect));
   if (Exit.isSuccess(exit)) return Result.succeed(exit.value);
   const reason = exit.cause.reasons[0];
   if (exit.cause.reasons.length === 1 && reason !== undefined && Cause.isFailReason(reason))
@@ -16,11 +19,11 @@ export async function runPointCommitInTransactionEffect<Value, Failure>(
 /** Reenter the owned Promise kernel without treating a full Cause as one
  * scalar error. Settlement uncertainty and cleanup failures retain their owner. */
 export function runPointCommitPromiseEffect<Value, Failure>(
-  work: () => PromiseLike<Value>,
+  work: (diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>) => PromiseLike<Value>,
   mapFailure: (cause: unknown) => Failure,
 ): Effect.Effect<Value, Failure> {
-  return Effect.tryPromise({
-    try: work,
+  return Effect.withFiber(fiber => Effect.tryPromise({
+    try: () => work(captureExecutionDiagnosticContext(fiber)),
     catch: cause => {
       const callback = cause instanceof LocatedReadCommittedTransactionFailureV1 && cause.issue.kind === "callbackRolledBack"
         ? cause.issue.callbackCause : cause;
@@ -30,7 +33,7 @@ export function runPointCommitPromiseEffect<Value, Failure>(
     Effect.catchIf(Cause.isCause,
       cause => Effect.failCause(Cause.map(cause, mapFailure)),
       cause => Effect.failSync(() => mapFailure(cause))),
-  );
+  ));
 }
 
 /**

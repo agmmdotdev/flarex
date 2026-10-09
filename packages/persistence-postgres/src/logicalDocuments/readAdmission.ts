@@ -86,8 +86,12 @@ export const prepareLogicalReadAdmission = Effect.fn("LogicalReadAdmission.prepa
     if (target.protection === undefined) return yield* Effect.fail(failure("invalidAuthority"));
     let preparedTarget = targetPreparations.get(application);
     if (preparedTarget === undefined) {
-      preparedTarget = prepareBindingSelectedStructure(authority, target.protection, target.lifetime);
-      targetPreparations.set(application, preparedTarget);
+      preparedTarget = yield* Effect.fromResult(prepareBindingSelectedStructure(authority, target.protection, target.lifetime));
+      if (target.lifetime !== undefined) {
+        targetPreparations.set(application, preparedTarget);
+        yield* Effect.fromResult(target.lifetime.onDispose(() => { targetPreparations.delete(application); })).pipe(
+          Effect.mapError(cause => { targetPreparations.delete(application); return failure("notReady", cause); }));
+      }
     }
     yield* Effect.sync(() => openProtectedMetadataFinalGuardScope(tx));
     return yield* Effect.gen(function* () {

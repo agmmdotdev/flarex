@@ -6,13 +6,14 @@ import { isJson, type Json } from "flarex-protocol/json";
 import { fxSystemTransactionSessions } from "./schema";
 import type { CanonicalApplicationMutationExecutionAuthorityV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import type { AppRowTransaction } from "./appRows";
-import { withPreparedFiniteActiveApplicationInTransaction, requirePreparedFiniteApplicationSelection,
+import { withPreparedFiniteReplacementApplicationInTransaction, withPreparedRecoveredFiniteApplicationInTransaction, requirePreparedFiniteApplicationSelection,
   type PreparedFiniteActiveApplication, type AcceptedApplicationBinding, type ApplicationActiveSelection,
   type ApplicationActivationError } from "./applicationActivation";
 import { ApplicationMutationAdmissionError, requireFiniteReplacementApplicationExecutionAuthority } from "./applicationMutationAdmission";
 import { captureFiniteReplacementAttemptInTransactionEffect, acceptFiniteEntryForContinuationInTransactionEffect } from "./transactionSessionActivation";
 import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
-  openProtectedMetadataFinalGuardScope } from "./preparedMetadataEpoch";
+  openProtectedMetadataFinalGuardScope, registerManagedMetadataSnapshotFinalGuard } from "./preparedMetadataEpoch";
+import { readAdmittedCoLocatedInstallationPair } from "./installationLifecycle";
 import { LogicalParticipantAdmissionError, type LogicalParticipantAdmissionBundle } from "./logicalDocuments/participantAdmission";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect } from "./appSchemaCandidateValidation";
@@ -34,6 +35,8 @@ export interface PreparedFiniteSessionJournalEntry { readonly [preparedFiniteSes
 export interface ConfirmedFiniteRootEntryCapture { readonly [confirmedFiniteRootEntryCaptureBrand]: true }
 export type OriginalFiniteExecutionEntry = Readonly<{ capture: ConfirmedFiniteRootEntryCapture;
   preparation: PreparedFiniteSessionJournalEntry }>;
+export type FiniteReplacementOrigin = Readonly<{ kind: "frozen"; originalEntry: OriginalFiniteExecutionEntry }>
+  | Readonly<{ kind: "recovered" }>;
 export type FiniteSessionJournalParticipantSelection = Omit<SessionJournalParticipantSelection, "sources"> & {
   readonly sources: readonly Omit<SessionJournalParticipantSelection["sources"][number], "application">[];
 };
@@ -161,18 +164,23 @@ export const runPreparedFiniteReplacementSessionJournalEntryEffect = Effect.fn(
   "SessionJournalStore.enterFiniteReplacementInTransaction",
 )(function* (entry: PreparedFiniteSessionJournalEntry, application: PreparedFiniteActiveApplication,
   tx: AppRowTransaction, input: ExactRunningAttemptKernelInputV1, resolved: ResolvedJournalTargetV1,
-  observeAdmissionRefusal?: (failure: ApplicationMutationAdmissionError) => void,
-  originalEntry?: OriginalFiniteExecutionEntry) {
+  origin: FiniteReplacementOrigin,
+  observeAdmissionRefusal?: (failure: ApplicationMutationAdmissionError) => void) {
   openProtectedMetadataFinalGuardScope(tx);
   return yield* Effect.gen(function* () {
     const state = preparedFiniteEntries.get(entry);
     if (state?.status !== "prepared") return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    const original = originalEntry === undefined ? undefined : readOriginalFiniteExecutionAuthority(originalEntry, state.issuer);
-    if (originalEntry !== undefined && original === undefined)
+    const original = origin.kind === "frozen" ? readOriginalFiniteExecutionAuthority(origin.originalEntry, state.issuer) : undefined;
+    if (origin.kind === "frozen" && original === undefined)
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    const pair = yield* Effect.fromResult(readAdmittedCoLocatedInstallationPair(tx));
+    if (pair !== null) {
+      yield* registerManagedMetadataSnapshotFinalGuard(tx, pair.database, pair.target);
+      yield* registerManagedMetadataSnapshotFinalGuard(tx, pair.database, pair.control);
+    }
     const fresh = yield* captureFiniteReplacementAttemptInTransactionEffect(tx, input, original);
-    return yield* withPreparedFiniteActiveApplicationInTransaction(application, tx, fresh.context.scopeClock,
-      (accepted, binding) => Effect.gen(function* () {
+    const accept = (accepted: Readonly<{ selection: ApplicationActiveSelection; basis: import("./applicationActivation").ApplicationActiveSelectionBasis }>,
+      binding: AcceptedApplicationBinding) => Effect.gen(function* () {
         yield* requireFiniteReplacementApplicationExecutionAuthority(accepted.basis, fresh.executionAuthority).pipe(
           Effect.tapError(failure => failure instanceof ApplicationMutationAdmissionError
             ? Effect.sync(() => observeAdmissionRefusal?.(failure)) : Effect.void));
@@ -190,7 +198,11 @@ export const runPreparedFiniteReplacementSessionJournalEntryEffect = Effect.fn(
         yield* fresh.verifyFinalRows;
         yield* flushProtectedMetadataFinalGuards(tx);
         return yield* acceptPreparedFiniteSessionJournalEntryForContinuationEffect(entry, tx, capture);
-      })).pipe(Effect.ensuring(Effect.sync(fresh.close)));
+      });
+    return yield* (origin.kind === "frozen"
+      ? withPreparedFiniteReplacementApplicationInTransaction(application, tx, fresh.context.scopeClock, origin.originalEntry, state.issuer, accept)
+      : withPreparedRecoveredFiniteApplicationInTransaction(application, tx, fresh.context.scopeClock, accept))
+      .pipe(Effect.ensuring(Effect.sync(fresh.close)));
   }).pipe(Effect.ensuring(Effect.sync(() => closeProtectedMetadataFinalGuardScope(tx))));
 });
 

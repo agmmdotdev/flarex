@@ -207,7 +207,7 @@ function distribution(values: readonly number[]) {
     p95Ms: sorted[Math.max(0, Math.ceil(sorted.length * .95) - 1)], minMs: sorted[0], maxMs: sorted.at(-1) };
 }
 
-const authorityStatement = /fx_system_(?:scope_clock|scope_execution_authority|data_binding_head|application_active_head|index_build_state|prepared_metadata_epoch|installation(?:_runtime)?|tx_session|snapshot_lease|tx_journal|tx_execution_claim)\b|fx_lock_(?:installation_admission|read_scope_placement|prepared_metadata_epoch|running_attempt_tail|finite_scope_observation|finite_running_attempt)\b|fx_accept_finite_storage_capture\b|fx_control_scope(?:_provisioning)?\b/;
+const authorityStatement = /fx_system_(?:scope_clock|scope_execution_authority|data_binding_head|application_active_head|index_build_state|prepared_metadata_epoch|installation(?:_runtime)?|tx_session|snapshot_lease|tx_journal|tx_execution_claim)\b|fx_lock_(?:installation_admission|installation_frontier|prepared_metadata_epoch|running_attempt_tail|finite_running_attempt)\b|fx_accept_finite_(?:storage_capture|placement_frontier)\b|fx_control_scope(?:_provisioning)?\b/;
 const businessStatement = /fx_app_(?:row|index|unique|search|relation)|fx_read_snapshot_(?:rows|index_page)\b/;
 function decodedResults(dispatches: readonly TraceDispatchRecord[]): DecodedResults {
   return { dispatches: dispatches.length,
@@ -230,10 +230,7 @@ function requireProtectedServerWork(statements: ReturnType<typeof retrievalServe
     if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && pattern.test(statement.query)))
       throw new Error(`Missing observed nested finite ${owner} server work`);
   }
-  const targetEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+(?:as\s+)?target_epoch\b`, "i");
-  const controlEpoch = new RegExp(String.raw`\bleft\s+join\s+${qualifier}fx_system_prepared_metadata_epoch\s+(?:as\s+)?control_epoch\b`, "i");
-  const installedCalls = /\bfx_lock_installation_admission\s*\(/i;
-  const placementCalls = /\bfx_lock_read_scope_placement\s*\(/i;
+  const placementCalls = /\bfx_accept_finite_placement_frontier\s*\(/i;
   const finiteCaptureCalls = /\bfx_accept_finite_storage_capture\s*\(/i;
   const selectStatement = /^\s*(?:select|with)\b/i;
   // Genuine installed acceptance and the named capture share one outer
@@ -241,10 +238,14 @@ function requireProtectedServerWork(statements: ReturnType<typeof retrievalServe
   // then starts separate fresh time and sequencer commands after their waits.
   if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
     selectStatement.test(statement.query) &&
-    targetEpoch.test(statement.query) && controlEpoch.test(statement.query) &&
-    installedCalls.test(statement.query) && placementCalls.test(statement.query) &&
+    placementCalls.test(statement.query) &&
     finiteCaptureCalls.test(statement.query)))
-    throw new Error("Missing observed top-level finite installed acceptance with both epoch projections");
+    throw new Error("Missing observed top-level scalar placement and finite capture acceptance");
+  const metadataEpoch = new RegExp(String.raw`\bjoin\s+(?:${qualifier})?"?fx_system_prepared_metadata_epoch"?\b`, "i");
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+    selectStatement.test(statement.query) && metadataEpoch.test(statement.query) &&
+    /\bp\.login\s*=\s*session_user\b/i.test(statement.query)))
+    throw new Error("Missing observed nested installation frontier metadata and actual login policy check");
   const authorityRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_scope_execution_authority"?\b`, "i");
   const authorityScope = /\bwhere\s+a\.scope_id\s*=\s*p_scope_id\b/i;
   if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&

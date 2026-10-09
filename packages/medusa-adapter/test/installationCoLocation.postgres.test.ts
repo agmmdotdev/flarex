@@ -1,16 +1,17 @@
 import { sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
-import { acquireInstallationAdmission, acceptCoLocatedInstallationAdmission, closeInstallationAdmission,
+import { acquireInstallationAdmission, closeInstallationAdmission,
   getCoLocatedReadInstallationReferences, loadManagedInstallation, requireCoLocatedInstallationAdmission } from "../../persistence-postgres/src/installationLifecycle";
 import { acceptProtectedMetadataFinalGuardBatch, captureProtectedMetadataEpoch, closeProtectedMetadataFinalGuardScope,
   openProtectedMetadataFinalGuardScope, prepareProtectedMetadata, prepareProtectedMetadataFinalGuardBatch,
   recordManagedMetadataEpochSnapshot, registerProtectedMetadataFinalGuard } from "../../persistence-postgres/src/preparedMetadataEpoch";
 import { publishVerifiedInstallation, withInstallationMaintenance } from "../../persistence-postgres/src/postgresInstallationMaintenance";
-import { fxControlScopes, fxControlScopeProvisioning, fxSystemPreparedMetadataEpoch } from "../../persistence-postgres/src/schema";
-import { getScopeMetadata, decodeScopeMetadataRecord } from "../../persistence-postgres/src/scopeMetadata";
-import { getScopeAuthorityProvisioningReceipt, decodeScopeAuthorityProvisioningReceipt } from "../../persistence-postgres/src/scopeAuthorityProvisioningReceipt";
+import { fxSystemPreparedMetadataEpoch } from "../../persistence-postgres/src/schema";
+import { getScopeMetadata } from "../../persistence-postgres/src/scopeMetadata";
+import { getScopeAuthorityProvisioningReceipt } from "../../persistence-postgres/src/scopeAuthorityProvisioningReceipt";
+import { prepareInstalledPairAuthority, prepareInstalledPlacementAuthority } from "../../persistence-postgres/src/scopeAuthorityControlRead";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { createCoLocatedReadInstallationFixture, createFileScopedPostgresFixture,
   createProtectedFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
@@ -25,14 +26,6 @@ function signal() {
   return { promise, release };
 }
 
-const gateSelection = (alias: string) => {
-  const name = sql.identifier(alias);
-  return { databaseName: sql<string>`${name}.database_name`, schemaName: sql<string>`${name}.schema_name`,
-    namespaceOid: sql<string>`${name}.namespace_oid::text`, incarnation: sql<string>`${name}.incarnation::text`,
-    structuralGeneration: sql<string>`${name}.structural_generation::text`, login: sql<string>`${name}.login`,
-    sameLogin: sql<boolean>`${name}.same_login`, actualDatabase: sql<string>`${name}.actual_database`,
-    sameSchema: sql<boolean>`${name}.same_schema` };
-};
 const epochSelection = (alias: string) => {
   const name = sql.identifier(alias);
   return { databaseName: sql<string>`${name}.database_name`,
@@ -72,11 +65,12 @@ native("colocated installation authority", () => {
       await expect(Effect.runPromise(prepareProtectedMetadata(database, control.installation)))
         .rejects.toMatchObject({ reason: "unprotectedRuntime" });
 
+      const pairAuthority = Result.getOrThrow(prepareInstalledPairAuthority(pair, database));
+      const placementAuthority = Result.getOrThrow(prepareInstalledPlacementAuthority(pair, database, seeded.application.active.basis.authority.physicalLocator));
       const admit = async (tx: FlarexMetadataTransaction) => {
-        const [row] = await tx.select({ target: gateSelection("t"), control: gateSelection("c") })
-          .from(sql`${refs.target.gate} t cross join ${refs.control.gate} c`);
-        if (row === undefined) throw new Error("Pair gate returned no row");
-        await Effect.runPromise(acceptCoLocatedInstallationAdmission(pair, database, tx, row));
+        const [row] = await tx.select(pairAuthority.fields).from(pairAuthority.source);
+        if (row === undefined) throw new Error("Pair frontier returned no row");
+        await Effect.runPromise(pairAuthority.accept(tx, row));
         await Effect.runPromise(requireCoLocatedInstallationAdmission(pair, database, tx));
       };
       await database.transaction(async tx => {
@@ -101,23 +95,14 @@ native("colocated installation authority", () => {
             // A temporary shadow must not affect the qualified control function.
             await tx.execute(sql`create temporary table fx_control_scope (id text, deployment_id text)`);
             await admit(tx);
-            const placement = await tx.select({
-              scope: { scopeId: sql`p.scope_id`.mapWith(fxControlScopes.scopeId), deploymentId: sql`p.deployment_id`.mapWith(fxControlScopes.deploymentId),
-                activeSchemaVersionId: sql`p.active_schema_version_id`.mapWith(fxControlScopes.activeSchemaVersionId),
-                isolationKind: sql`p.isolation_kind`.mapWith(fxControlScopes.isolationKind), physicalLocator: sql`p.physical_locator_json`.mapWith(fxControlScopes.physicalLocator),
-                createdAt: sql`p.created_at`.mapWith(fxControlScopes.createdAt) },
-              receipt: { scopeId: sql`p.receipt_scope_id`.mapWith(fxControlScopeProvisioning.scopeId),
-                protocolVersion: sql`p.receipt_protocol_version`.mapWith(fxControlScopeProvisioning.protocolVersion),
-                state: sql`p.receipt_state`.mapWith(fxControlScopeProvisioning.state), physicalLocator: sql`p.receipt_physical_locator_json`.mapWith(fxControlScopeProvisioning.physicalLocator),
-                initialEpoch: sql`p.receipt_initial_epoch`.mapWith(fxControlScopeProvisioning.initialEpoch),
-                reservedAt: sql`p.receipt_reserved_at`.mapWith(fxControlScopeProvisioning.reservedAt), readyAt: sql`p.receipt_ready_at`.mapWith(fxControlScopeProvisioning.readyAt) },
-            }).from(sql`${sql.identifier(refs.control.schemaName)}.fx_lock_read_scope_placement(${deploymentId},${scopeId}) p`);
-            const [placementRow] = placement;
+            const [placementRow] = await tx.select(placementAuthority.fields).from(placementAuthority.source)
+              .prepare("co_located_placement_observation").execute({ deploymentId, scopeId });
             if (placementRow === undefined) throw new Error("No placement row");
-            expect(decodeScopeMetadataRecord(placementRow.scope)).toEqual(originalScope);
-            expect(decodeScopeAuthorityProvisioningReceipt(placementRow.receipt)).toEqual(originalReceipt);
-            expect(await tx.select({ scope: sql<string>`p.scope_id` }).from(sql`${sql.identifier(refs.control.schemaName)}.
-              fx_lock_read_scope_placement(${"wrong-deployment"},${scopeId}) p`)).toEqual([]);
+            const placement = await Effect.runPromise(placementAuthority.accept(tx, { deploymentId, scopeId }, placementRow));
+            expect(placement.scope).toEqual(originalScope);
+            expect(placement.receipt).toEqual(originalReceipt);
+            expect(await tx.select({ reason: placementAuthority.fields.reason }).from(placementAuthority.source)
+              .prepare("co_located_placement_refusal").execute({ deploymentId: "wrong-deployment", scopeId })).toEqual([{ reason: "invalidAuthority" }]);
             const observed = await captureEpochRows(tx);
             await Effect.runPromise(recordManagedMetadataEpochSnapshot(tx, database, refs.targetInstallation, observed.target));
             await Effect.runPromise(recordManagedMetadataEpochSnapshot(tx, database, refs.controlInstallation, observed.control));
@@ -175,20 +160,19 @@ native("colocated installation authority", () => {
         "${controlOwner.schemaName}".fx_control_scope from public`);
       await Effect.runPromise(withInstallationMaintenance(controlOwner.persistence.pool.options, controlOwner.schemaName,
         handle => publishVerifiedInstallation(handle, controlPolicies, controlJournal)));
-      await expect(database.transaction(admit)).rejects.toThrow("Pair gate returned no row");
+      await expect(database.transaction(admit)).rejects.toMatchObject({ reason: "invalidAuthority" });
       const replacementPair = (await createCoLocatedReadInstallationFixture({ target, control, controlOwner })).installation;
-      const replacementRefs = await Effect.runPromise(getCoLocatedReadInstallationReferences(replacementPair, database));
+      const replacementAuthority = Result.getOrThrow(prepareInstalledPairAuthority(replacementPair, database));
       await Effect.runPromise(withInstallationMaintenance(targetOwner.persistence.pool.options, targetOwner.schemaName,
         handle => publishVerifiedInstallation(handle, [{ database, endpointPolicy }], {
           migrationsSchema: targetOwner.migrationsSchema, migrationsTable: targetOwner.migrationsTable })));
       await expect(database.transaction(async tx => {
         try {
-          const [row] = await tx.select({ target: gateSelection("t"), control: gateSelection("c") })
-            .from(sql`${replacementRefs.target.gate} t cross join ${replacementRefs.control.gate} c`);
-          if (row === undefined) throw new Error("No replacement gate row");
-          await Effect.runPromise(acceptCoLocatedInstallationAdmission(replacementPair, database, tx, row));
+          const [row] = await tx.select(replacementAuthority.fields).from(replacementAuthority.source);
+          if (row === undefined) throw new Error("No replacement frontier row");
+          await Effect.runPromise(replacementAuthority.accept(tx, row));
         } finally { closeInstallationAdmission(tx); }
-      })).rejects.toThrow("No replacement gate row");
+      })).rejects.toMatchObject({ reason: "invalidAuthority" });
       const currentTarget = await Effect.runPromise(loadManagedInstallation(database, endpointPolicy, targetOwner.schemaName));
       expect(currentTarget).not.toBe(refs.targetInstallation);
 

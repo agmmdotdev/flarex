@@ -1,21 +1,22 @@
 import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { Data, Effect, Result, Schema } from "effect";
+import { observeExecution } from "./executionDiagnostics/operation";
 import { getTableName, sql, type SQL } from "drizzle-orm";
 import type { PreparedQueryConfig } from "drizzle-orm/pg-core";
 import type { SelectedFieldsOrdered } from "drizzle-orm/pg-core/query-builders/select.types";
 import type { SelectResultFields } from "drizzle-orm/query-builders/select.types";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
-import { acceptCoLocatedInstallationAdmission, requireCoLocatedInstallationAdmissionResult, getCoLocatedReadInstallationReferencesResult, coLocatedInstallationGateSource,
+import { acceptCoLocatedInstallationFrontier, requireCoLocatedInstallationAdmissionResult, getCoLocatedReadInstallationReferencesResult,
+  coLocatedInstallationFrontierSource, coLocatedInstallationFrontierFields,
   type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
-import { managedInstallationIdentity, managedInstallationMetadataIncarnation } from "./installationLifecycle";
-import { recordManagedMetadataEpochSnapshot, hasProtectedMetadataFinalGuardScope,
+import { recordManagedMetadataFrontierSnapshot, hasProtectedMetadataFinalGuardScope,
   registerManagedMetadataSnapshotFinalGuard } from "./preparedMetadataEpoch";
-import { fxControlScopes, fxControlScopeProvisioning, fxSystemScopeClocks, fxSystemPreparedMetadataEpoch } from "./schema";
+import { fxControlScopes, fxControlScopeProvisioning, fxSystemScopeClocks } from "./schema";
 import { decodeScopeMetadataRecord } from "./scopeMetadata";
 import { decodeScopeAuthorityProvisioningReceipt } from "./scopeAuthorityProvisioningReceipt";
 import { decodeScopeClockRecordResult, ScopeExecutionAuthoritySchema } from "./scopeClock";
-import { resolveTrustedScopeAuthoritySnapshotResult } from "./scopeAuthorityResolution";
+import { resolveTrustedScopeAuthoritySnapshotResult, resolveTrustedScopePlacementSnapshotResult } from "./scopeAuthorityResolution";
 import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
@@ -34,15 +35,6 @@ const decodeExecutionAuthority = Schema.decodeUnknownEffect(Schema.toType(ScopeE
 /** Construction support only. Live authority is always read by the target's
  * installed acceptance operation in its own transaction. */
 export const INSTALLED_SCOPE_AUTHORITY_TARGET: unique symbol = Symbol("Flarex/InstalledScopeAuthorityTarget");
-
-export const epochFields = (alias: "target_epoch" | "control_epoch") => {
-  const a = sql.identifier(alias);
-  return { databaseName: sql<string>`${a}.database_name`,
-    namespaceOid: sql`${a}.namespace_oid`.mapWith(fxSystemPreparedMetadataEpoch.namespaceOid),
-    incarnation: sql<string>`${a}.incarnation::text`,
-    generation: sql`${a}.generation`.mapWith(fxSystemPreparedMetadataEpoch.generation),
-    login: sql<string>`session_user` };
-};
 
 export const installedScopeFields = () => ({ scopeId: sql`placement.scope_id`.mapWith(fxControlScopes.scopeId),
           deploymentId: sql`placement.deployment_id`.mapWith(fxControlScopes.deploymentId),
@@ -69,37 +61,93 @@ export const installedClockFields = () => ({ scopeUuid: sql`fx_system_scope_cloc
           epoch: sql`scope_authority.${sql.identifier(fxSystemScopeExecutionAuthorities.epoch.name)}`.mapWith(fxSystemScopeExecutionAuthorities.epoch),
           updatedAt: sql`greatest(fx_system_scope_clock.updated_at, scope_authority.updated_at)`.mapWith(fxSystemScopeClocks.updatedAt) });
 
-const installedFiniteClockFields = () => ({
-  scopeUuid: sql`(finite_scope.sequence_row).scope_uuid`.mapWith(fxSystemScopeClocks.scopeUuid),
-  epochUuid: sql`(finite_scope.authority_row).epoch_uuid`.mapWith(fxSystemScopeExecutionAuthorities.epochUuid),
-  scopeId: sql`(finite_scope.sequence_row).scope_id`.mapWith(fxSystemScopeClocks.scopeId),
-  storageGeneration: sql`(finite_scope.authority_row).storage_generation`.mapWith(fxSystemScopeExecutionAuthorities.storageGeneration),
-  storageGenerationFence: sql`(finite_scope.authority_row).storage_generation_fence`.mapWith(fxSystemScopeExecutionAuthorities.storageGenerationFence),
-  lastMetadataSequence: sql`(finite_scope.sequence_row).last_metadata_sequence`.mapWith(fxSystemScopeClocks.lastMetadataSequence),
-  lastCommitSeq: sql`(finite_scope.sequence_row).last_commit_seq`.mapWith(fxSystemScopeClocks.lastCommitSeq),
-  oldestAvailableCommitSeq: sql`(finite_scope.authority_row).oldest_available_commit_seq`.mapWith(fxSystemScopeExecutionAuthorities.oldestAvailableCommitSeq),
-  authorizationRevocationEpoch: sql`(finite_scope.authority_row).authorization_revocation_epoch`.mapWith(fxSystemScopeExecutionAuthorities.authorizationRevocationEpoch),
-  epoch: sql`(finite_scope.authority_row).epoch`.mapWith(fxSystemScopeExecutionAuthorities.epoch),
-  updatedAt: sql`greatest((finite_scope.sequence_row).updated_at, (finite_scope.authority_row).updated_at)`.mapWith(fxSystemScopeClocks.updatedAt),
-});
+function installedPlacementSource(refs: Result.Result.Success<ReturnType<typeof getCoLocatedReadInstallationReferencesResult>>) {
+  const control = sql.identifier(refs.control.schemaName);
+  return sql`(with accepted_placement as materialized (
+    select ${control}.fx_accept_finite_placement_frontier(${refs.target.frontierExpected},
+      ${refs.control.frontierExpected},${sql.placeholder("deploymentId")},${sql.placeholder("scopeId")}) as frontier)
+    select (frontier).* from accepted_placement) placement`;
+}
+
+const installedPlacementFields = () => ({ reason: sql<string>`placement.reason`,
+  scope: installedScopeFields(), receipt: installedReceiptFields(),
+  targetMetadataGeneration: sql<string | null>`placement.target_metadata_generation::text`,
+  controlMetadataGeneration: sql<string | null>`placement.control_metadata_generation::text` });
+type InstalledPlacementRow = SelectResultFields<ReturnType<typeof installedPlacementFields>>;
+
+/** Scope-less genuine paired admission reuses the same scalar/metadata owners.
+ * The returned evidence has no placement, clock or head verdict. */
+export function prepareInstalledPairAuthority(installation: PreparedCoLocatedReadInstallation, database: FlarexMetadataDatabase) {
+  return Result.gen(function* () {
+    const refs = yield* getCoLocatedReadInstallationReferencesResult(installation, database);
+    const registerFinalGuards = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction) {
+      yield* registerManagedMetadataSnapshotFinalGuard(tx, database, refs.targetInstallation);
+      yield* registerManagedMetadataSnapshotFinalGuard(tx, database, refs.controlInstallation);
+    }, work => observeExecution("InstalledPair.registerFinalGuards", work));
+    const accept = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction,
+      row: SelectResultFields<ReturnType<typeof coLocatedInstallationFrontierFields>>) {
+      yield* Effect.fromResult(getCoLocatedReadInstallationReferencesResult(installation, database));
+      if (row.reason === "resourceFailure") return yield* Effect.fail(installedFailure("resourceFailure"));
+      if (row.reason !== "accepted") return yield* Effect.fail(installedFailure("invalidAuthority"));
+      const generations = yield* acceptCoLocatedInstallationFrontier(installation, database, tx, row);
+      const target = yield* recordManagedMetadataFrontierSnapshot(tx, database, refs.targetInstallation, generations.targetMetadataGeneration);
+      const control = yield* recordManagedMetadataFrontierSnapshot(tx, database, refs.controlInstallation, generations.controlMetadataGeneration);
+      if (hasProtectedMetadataFinalGuardScope(tx)) yield* registerFinalGuards(tx);
+      return Object.freeze({ target, control });
+    }, work => observeExecution("InstalledPair.accept", work));
+    return Object.freeze({ source: sql`${coLocatedInstallationFrontierSource(refs)} installed`,
+      fields: coLocatedInstallationFrontierFields(), accept, registerFinalGuards });
+  });
+}
+
+/** One actual scoped placement observation. The issuer's expected identities
+ * are immutable; admission and both metadata generations come from this query.
+ * Actual scoped callers must provide a positive statement timeout <=30 seconds;
+ * this owner never installs or overrides a session budget. */
+export function prepareInstalledPlacementAuthority(installation: PreparedCoLocatedReadInstallation,
+  database: FlarexMetadataDatabase, physicalLocator: ScopePhysicalLocator) {
+  const capturedLocator = Object.freeze({ ...physicalLocator });
+  return Result.gen(function* () {
+    const refs = yield* getCoLocatedReadInstallationReferencesResult(installation, database);
+    if (capturedLocator.schemaName !== refs.target.schemaName) return yield* Result.fail(installedFailure("invalidAuthority"));
+    const pair = yield* prepareInstalledPairAuthority(installation, database);
+    const registerFinalGuards = pair.registerFinalGuards;
+    const observe = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction, row: InstalledPlacementRow) {
+      const { target, control } = yield* pair.accept(tx, row);
+      const scope = yield* Effect.try({ try: () => decodeScopeMetadataRecord(row.scope), catch: cause => installedFailure("invalidAuthority", cause) });
+      const receiptScopeId = row.receipt.scopeId;
+      const receipt = receiptScopeId === null ? null : yield* Effect.try({ try: () =>
+        decodeScopeAuthorityProvisioningReceipt({ ...row.receipt, scopeId: receiptScopeId }), catch: cause => installedFailure("invalidAuthority", cause) });
+      return Object.freeze({ scope, receipt, target, control });
+    }, work => observeExecution("InstalledPlacement.observe", work));
+    const accept = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction,
+      selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>, row: InstalledPlacementRow) {
+      const observed = yield* observe(tx, row);
+      yield* Effect.fromResult(resolveTrustedScopePlacementSnapshotResult(selection, observed.scope, observed.receipt, capturedLocator));
+      return observed;
+    }, work => observeExecution("InstalledPlacement.accept", work));
+    return Object.freeze({ source: installedPlacementSource(refs), fields: installedPlacementFields(), accept,
+      // Clock-owning callers preserve their established decode/refusal order,
+      // then resolve complete placement+clock authority with the existing owner.
+      observe, registerFinalGuards });
+  });
+}
 
 // These explicit fixed groups match select's insertion order. Drizzle's
 // session applies its own nested result mapping and column decoders.
 function orderInstalledFields(selected: Readonly<{
-  targetInstallation: SQL<unknown>; controlInstallation: SQL<unknown>; safePath: SQL<string>;
+  reason: SQL<string>; targetMetadataGeneration: SQL<string | null>; controlMetadataGeneration: SQL<string | null>; safePath: SQL<string>;
   scope: ReturnType<typeof installedScopeFields>; receipt: ReturnType<typeof installedReceiptFields>;
   clock: ReturnType<typeof installedClockFields>;
-  targetEpoch: ReturnType<typeof epochFields>; controlEpoch: ReturnType<typeof epochFields>;
 }>): SelectedFieldsOrdered {
   return [
-    { path: ["targetInstallation"], field: selected.targetInstallation },
-    { path: ["controlInstallation"], field: selected.controlInstallation },
-    { path: ["safePath"], field: selected.safePath },
+    { path: ["reason"], field: selected.reason },
     ...Object.entries(selected.scope).map(([key, field]) => ({ path: ["scope", key], field })),
     ...Object.entries(selected.receipt).map(([key, field]) => ({ path: ["receipt", key], field })),
+    { path: ["targetMetadataGeneration"], field: selected.targetMetadataGeneration },
+    { path: ["controlMetadataGeneration"], field: selected.controlMetadataGeneration },
+    { path: ["safePath"], field: selected.safePath },
     ...Object.entries(selected.clock).map(([key, field]) => ({ path: ["clock", key], field })),
-    ...Object.entries(selected.targetEpoch).map(([key, field]) => ({ path: ["targetEpoch", key], field })),
-    ...Object.entries(selected.controlEpoch).map(([key, field]) => ({ path: ["controlEpoch", key], field })),
   ];
 }
 
@@ -107,45 +155,29 @@ function orderInstalledFields(selected: Readonly<{
  * compilation; every transaction observation remains with its fresh owner. */
 function compileInstalledAttemptScopePlan(database: FlarexMetadataDatabase,
   refs: Result.Result.Success<ReturnType<typeof getCoLocatedReadInstallationReferencesResult>>) {
-  const target = sql.identifier(refs.target.schemaName), control = sql.identifier(refs.control.schemaName);
-  const epochTable = sql.identifier(getTableName(fxSystemPreparedMetadataEpoch));
+  const target = sql.identifier(refs.target.schemaName);
   const authorityTable = sql.identifier(getTableName(fxSystemScopeExecutionAuthorities));
   const clockTable = sql.identifier(getTableName(fxSystemScopeClocks));
   const fields = {
-    targetInstallation: sql<unknown>`installed.target_installation`, controlInstallation: sql<unknown>`installed.control_installation`,
+    ...installedPlacementFields(),
     safePath: sql<string>`pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', ${refs.target.schemaName}::text), true)`,
-    scope: installedScopeFields(), receipt: installedReceiptFields(), clock: installedClockFields(),
-    targetEpoch: epochFields("target_epoch"), controlEpoch: epochFields("control_epoch"),
+    clock: installedClockFields(),
   };
   const orderedFields = orderInstalledFields(fields);
-  const placementSource = sql`${coLocatedInstallationGateSource(refs)} as installed
-    cross join lateral ${control}.fx_lock_read_scope_placement(${sql.placeholder("deploymentId")},
-      case when installed.first_oid > 0 and installed.second_oid > 0 then ${sql.placeholder("scopeId")} else null end) as placement`;
-  const epochJoins = sql`left join ${target}.${epochTable} as target_epoch on target_epoch.${sql.identifier(fxSystemPreparedMetadataEpoch.singletonId.name)} = 1
-    left join ${control}.${epochTable} as control_epoch on control_epoch.${sql.identifier(fxSystemPreparedMetadataEpoch.singletonId.name)} = 1`;
-  const installedSource = (protection: "share" | "attempt") => sql`${placementSource}
-    join lateral (select * from ${target}.${authorityTable} where ${sql.identifier(fxSystemScopeExecutionAuthorities.scopeId.name)} = ${fields.scope.scopeId} for share) as scope_authority on true
-    join lateral (select * from ${target}.${clockTable} where ${sql.identifier(fxSystemScopeClocks.scopeId.name)} = scope_authority.${sql.identifier(fxSystemScopeExecutionAuthorities.scopeId.name)}
+  const installedSource = (protection: "share" | "attempt") => sql`${installedPlacementSource(refs)}
+    left join lateral (select * from ${target}.${authorityTable} where placement.reason = 'accepted'
+      and ${sql.identifier(fxSystemScopeExecutionAuthorities.scopeId.name)} = ${fields.scope.scopeId} for share) as scope_authority on true
+    left join lateral (select * from ${target}.${clockTable} where placement.reason = 'accepted'
+      and ${sql.identifier(fxSystemScopeClocks.scopeId.name)} = scope_authority.${sql.identifier(fxSystemScopeExecutionAuthorities.scopeId.name)}
       ${protection === "attempt" ? sql`for no key update` : sql`for share`}) as fx_system_scope_clock on true
-    ${epochJoins}`;
+    `;
   const share = database.select(fields).from(installedSource("share")).limit(2);
   const attempt = database.select(fields).from(installedSource("attempt")).limit(2);
   const compiled = { share: Object.freeze(share.toSQL()), attempt: Object.freeze(attempt.toSQL()) };
-  const finiteFields = { ...fields, clock: installedFiniteClockFields() };
-  const scopeRootsPresent = sql<boolean>`(finite_scope.authority_row).${sql.identifier(fxSystemScopeExecutionAuthorities.scopeId.name)} is not null
-    and (finite_scope.sequence_row).${sql.identifier(fxSystemScopeClocks.scopeId.name)} is not null`;
-  const finite = database.select({ ...finiteFields, scopeRootsPresent }).from(sql`${placementSource}
-    cross join lateral ${target}.fx_lock_finite_scope_observation(${fields.scope.scopeId}) as finite_scope ${epochJoins}`).limit(2);
-  const finiteOrderedFields: SelectedFieldsOrdered = [...orderInstalledFields(finiteFields),
-    { path: ["scopeRootsPresent"], field: scopeRootsPresent },
-  ];
-  const compiledFinite = finite.toSQL();
-  return Object.freeze({ compiled: Object.freeze(compiled), compiledFinite: Object.freeze(compiledFinite),
-    fields, finiteFields: { ...finiteFields, scopeRootsPresent }, orderedFields, finiteOrderedFields });
+  return Object.freeze({ compiled: Object.freeze(compiled), fields, orderedFields });
 }
 type InstalledAttemptScopePlan = ReturnType<typeof compileInstalledAttemptScopePlan>;
 type InstalledAttemptScopeRow = SelectResultFields<InstalledAttemptScopePlan["fields"]>;
-type InstalledFiniteScopeRow = SelectResultFields<InstalledAttemptScopePlan["finiteFields"]>;
 const installedAttemptScopePlans = new WeakMap<FlarexMetadataDatabase,
   WeakMap<PreparedCoLocatedReadInstallation, Readonly<{ locator: ScopePhysicalLocator; plan: InstalledAttemptScopePlan }>>>();
 
@@ -168,35 +200,20 @@ export function prepareInstalledAttemptScopeAuthority(installation: PreparedCoLo
       installedAttemptScopePlans.set(database, slots);
     }
     const acceptedTransactions = new WeakMap<FlarexMetadataTransaction, Readonly<{
-      deploymentId: string; scopeId: ScopeId; protection: "share" | "attempt" | "finite";
+      deploymentId: string; scopeId: ScopeId; protection: "share" | "attempt";
     }>>();
-    const { compiled, compiledFinite, orderedFields, finiteOrderedFields } = plan;
-    const acceptInstalledPlacement = Effect.fn("InstalledScopeAuthority.acceptPlacement")(function* (tx: FlarexMetadataTransaction,
-      row: Omit<InstalledAttemptScopeRow, "clock">) {
-      yield* acceptCoLocatedInstallationAdmission(installation, database, tx,
-        { target: row.targetInstallation, control: row.controlInstallation });
-      yield* recordManagedMetadataEpochSnapshot(tx, database, refs.targetInstallation, row.targetEpoch);
-      yield* recordManagedMetadataEpochSnapshot(tx, database, refs.controlInstallation, row.controlEpoch);
-      if (hasProtectedMetadataFinalGuardScope(tx)) {
-        yield* registerManagedMetadataSnapshotFinalGuard(tx, database, refs.targetInstallation);
-        yield* registerManagedMetadataSnapshotFinalGuard(tx, database, refs.controlInstallation);
-      }
-      const scope = yield* Effect.try({ try: () => decodeScopeMetadataRecord(row.scope), catch: cause => installedFailure("invalidAuthority", cause) });
-      const receiptScopeId = row.receipt.scopeId;
-      const receipt = receiptScopeId === null ? null : yield* Effect.try({ try: () =>
-        decodeScopeAuthorityProvisioningReceipt({ ...row.receipt, scopeId: receiptScopeId }), catch: cause => installedFailure("invalidAuthority", cause) });
-      return Object.freeze({ scope, receipt });
-    });
-    const acceptInstalledRow = Effect.fn("InstalledScopeAuthority.acceptRow")(function* (tx: FlarexMetadataTransaction,
+    const { compiled, orderedFields } = plan;
+    const placement = yield* prepareInstalledPlacementAuthority(installation, database, capturedLocator);
+    const acceptInstalledRow = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction,
       selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>, row: InstalledAttemptScopeRow) {
-      const { scope, receipt } = yield* acceptInstalledPlacement(tx, row);
+      const { scope, receipt } = yield* placement.observe(tx, row);
       const clock = yield* Effect.fromResult(decodeScopeClockRecordResult(row.clock));
       const authority = yield* Effect.fromResult(resolveTrustedScopeAuthoritySnapshotResult(selection, scope, receipt, capturedLocator, clock));
       const executionAuthority = yield* decodeExecutionAuthority(row.clock).pipe(
         Effect.mapError(cause => installedFailure("invalidAuthority", cause)));
       return Object.freeze({ authority, executionAuthority, row: row.clock });
-    });
-    const lock = Effect.fn("InstalledScopeAuthority.lockAttempt")(function* (tx: FlarexMetadataTransaction,
+    }, work => observeExecution("InstalledScopeAuthority.acceptRow", work));
+    const lock = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction,
       selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>, protection: "share" | "attempt") {
       yield* Effect.fromResult(getCoLocatedReadInstallationReferencesResult(installation, database));
       const rows = yield* Effect.tryPromise({ try: () => tx._.session.prepareQuery<PreparedQueryConfig & {
@@ -205,26 +222,12 @@ export function prepareInstalledAttemptScopeAuthority(installation: PreparedCoLo
         catch: cause => installedFailure("resourceFailure", cause) });
       const row = rows[0];
       if (rows.length !== 1 || row === undefined) return yield* Effect.fail(installedFailure("invalidAuthority"));
+      if (row.reason === "resourceFailure") return yield* Effect.fail(installedFailure("resourceFailure"));
+      if (row.reason === "accepted" && row.clock.scopeId === null) return yield* Effect.fail(installedFailure("invalidAuthority"));
       const accepted = yield* acceptInstalledRow(tx, selection, row);
       acceptedTransactions.set(tx, Object.freeze({ ...selection, protection }));
       return accepted;
-    });
-    const lockFiniteScope = Effect.fn("InstalledScopeAuthority.lockFiniteScope")(function* (tx: FlarexMetadataTransaction,
-      selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>) {
-      yield* Effect.fromResult(getCoLocatedReadInstallationReferencesResult(installation, database));
-      const rows = yield* Effect.tryPromise({ try: () => tx._.session.prepareQuery<PreparedQueryConfig & {
-        execute: InstalledFiniteScopeRow[];
-      }>(compiledFinite, finiteOrderedFields, undefined, true).execute(selection),
-        catch: cause => installedFailure("resourceFailure", cause) });
-      const row = rows[0];
-      if (rows.length !== 1 || row === undefined || !row.scopeRootsPresent)
-        return yield* Effect.fail(installedFailure("invalidAuthority"));
-      // Complete installed JS validation before the separate compact statement
-      // can acquire any session, lease, journal or execution-claim lock.
-      const accepted = yield* acceptInstalledRow(tx, selection, row);
-      acceptedTransactions.set(tx, Object.freeze({ ...selection, protection: "finite" }));
-      return accepted;
-    });
+    }, work => observeExecution("InstalledScopeAuthority.lockAttempt", work));
     const requireAcceptedTransaction = (
       tx: FlarexMetadataTransaction, selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>, protection: "share" | "attempt",
     ) => Result.gen(function* () {
@@ -234,9 +237,14 @@ export function prepareInstalledAttemptScopeAuthority(installation: PreparedCoLo
         accepted.protection !== protection) return yield* Result.fail(installedFailure("invalidAuthority"));
     });
     const closeAcceptedTransaction = (tx: FlarexMetadataTransaction) => { acceptedTransactions.delete(tx); };
+    const registerFinalGuards = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction,
+      selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>, protection: "share" | "attempt") {
+      yield* Effect.fromResult(requireAcceptedTransaction(tx, selection, protection));
+      yield* placement.registerFinalGuards(tx);
+    }, work => observeExecution("InstalledScopeAuthority.registerFinalGuards", work));
     const requireDatabase = (candidate: FlarexMetadataDatabase) => candidate === database ? Result.succeed(undefined) :
       Result.fail(installedFailure("invalidAuthority"));
-    return Object.freeze({ lock, lockFiniteScope, requireAcceptedTransaction, closeAcceptedTransaction, requireDatabase });
+    return Object.freeze({ lock, requireAcceptedTransaction, closeAcceptedTransaction, registerFinalGuards, requireDatabase });
   });
 }
 
@@ -249,31 +257,10 @@ export function prepareInstalledFiniteCaptureSource(installation: PreparedCoLoca
   return Result.gen(function* () {
     const refs = yield* getCoLocatedReadInstallationReferencesResult(installation, database);
     if (physicalLocator.schemaName !== refs.target.schemaName) return yield* Result.fail(installedFailure("invalidAuthority"));
-    const control = sql.identifier(refs.control.schemaName);
-    const target = sql.identifier(refs.target.schemaName);
-    const targetIdentity = managedInstallationIdentity(refs.targetInstallation, database);
-    const controlIdentity = managedInstallationIdentity(refs.controlInstallation, database);
-    const targetIncarnation = managedInstallationMetadataIncarnation(refs.targetInstallation, database);
-    const controlIncarnation = managedInstallationMetadataIncarnation(refs.controlInstallation, database);
-    if (targetIdentity === undefined || controlIdentity === undefined || targetIncarnation === undefined || controlIncarnation === undefined)
-      return yield* Result.fail(installedFailure("invalidAuthority"));
     const locator = sql`jsonb_build_object('kind', ${physicalLocator.kind}::text,
       'databaseKey', ${physicalLocator.databaseKey}::text, 'schemaName', ${physicalLocator.schemaName}::text)`;
-    const source = sql`(values (1)) capture_resource(value)
-      left join lateral ${coLocatedInstallationGateSource(refs, "finiteCapture")} installed on true
-      left join lateral (select * from ${control}.fx_lock_read_scope_placement(${sql.placeholder("deploymentId")},
-        ${sql.placeholder("scopeId")}) as admitted_placement
-        where installed.first_oid > 0 and installed.second_oid > 0 offset 0) placement on true
-      left join ${target}.fx_system_prepared_metadata_epoch target_epoch on target_epoch.singleton_id = 1
-      left join ${control}.fx_system_prepared_metadata_epoch control_epoch on control_epoch.singleton_id = 1`;
-    const acceptedScope = sql`case when placement.scope_id = ${sql.placeholder("scopeId")}
-      and target_epoch.database_name = ${targetIdentity.databaseName}
-      and target_epoch.namespace_oid = ${targetIdentity.namespaceOid}::bigint
-      and target_epoch.incarnation = ${targetIncarnation}::uuid and target_epoch.generation > 0
-      and control_epoch.database_name = ${controlIdentity.databaseName}
-      and control_epoch.namespace_oid = ${controlIdentity.namespaceOid}::bigint
-      and control_epoch.incarnation = ${controlIncarnation}::uuid and control_epoch.generation > 0
-      and session_user = ${targetIdentity.login} and current_user = session_user
+    const source = installedPlacementSource(refs);
+    const acceptedScope = sql`case when placement.reason = 'accepted' and placement.scope_id = ${sql.placeholder("scopeId")}
       and placement.deployment_id = ${sql.placeholder("deploymentId")}
       and (placement.active_schema_version_id is null or btrim(placement.active_schema_version_id) <> '')
       and placement.isolation_kind = ${physicalLocator.kind}
@@ -298,7 +285,9 @@ export function prepareInstalledFiniteCaptureSource(installation: PreparedCoLoca
         and btrim(placement.receipt_initial_epoch) <> ''
         and placement.receipt_reserved_at is not null and isfinite(placement.receipt_reserved_at) and isfinite(placement.receipt_ready_at) and placement.receipt_ready_at >= placement.receipt_reserved_at))
       then placement.scope_id else null end`;
-    return Object.freeze({ source, acceptedScope, schemaName: refs.target.schemaName, controlSchemaName: refs.control.schemaName });
+    return Object.freeze({ source, acceptedScope, schemaName: refs.target.schemaName, controlSchemaName: refs.control.schemaName,
+      targetMetadataEpoch: sql<string | null>`placement.target_metadata_generation::text`,
+      controlMetadataEpoch: sql<string | null>`placement.control_metadata_generation::text` });
   });
 }
 

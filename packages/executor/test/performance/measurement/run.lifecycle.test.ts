@@ -16,21 +16,22 @@ const boundary = vi.hoisted(() => {
   const state: { prepareFailure: unknown; requestFailure: unknown; sampleCleanupFailure: unknown;
     familyCleanupFailure: unknown; nativeCleanupFailure: unknown; effect: unknown; trace: unknown;
     returnValue: unknown; committed: number; cpuFailure: unknown; clearFailure: unknown;
-    normalizationFailure: boolean; requestFailureIndex: number | null } = {
+    resourceCpu: number; resourceReads: number; resourceFaultAt: number; normalizationFailure: boolean; requestFailureIndex: number | null } = {
     prepareFailure: undefined, requestFailure: undefined, sampleCleanupFailure: undefined,
     familyCleanupFailure: undefined, nativeCleanupFailure: undefined, effect: undefined, trace: undefined,
     returnValue: undefined, committed: 0, cpuFailure: undefined, clearFailure: undefined,
-    normalizationFailure: false, requestFailureIndex: null,
+    resourceCpu: 0, resourceReads: 0, resourceFaultAt: 0, normalizationFailure: false, requestFailureIndex: null,
   };
   return { events, bindings, requests, reports, state,
     prepareFamily: vi.fn(), native: vi.fn(), source: vi.fn(), persist: vi.fn(), cpu: vi.fn(), idle: vi.fn(),
-    effectCollector: vi.fn() };
+    resources: vi.fn(), effectCollector: vi.fn() };
 });
 vi.mock("../support/prepareScenario", () => ({ prepareCorePerformanceFamily: boundary.prepareFamily }));
 vi.mock("./collectors/native", () => ({ acquireNativeBusinessResource: boundary.native }));
 vi.mock("./source", () => ({ measurementSourceDigest: boundary.source }));
 vi.mock("./collectors/cpu", async importOriginal => ({ ...await importOriginal<typeof import("./collectors/cpu")>(),
   createCpuMeasurementCollector: boundary.cpu, assertCpuMeasurementIdle: boundary.idle }));
+vi.mock("./collectors/nodeResources", () => ({ readNodeResourceCounters: boundary.resources }));
 vi.mock("./collectors/effect", async importOriginal => {
   const original = await importOriginal<typeof import("./collectors/effect")>();
   return { ...original, createEffectMeasurementCollector: (...args: Parameters<typeof original.createEffectMeasurementCollector>) => {
@@ -50,7 +51,7 @@ const settings = { postgresVersion: "18", role: "ordinary", superuser: false, by
 // A real Pool identity with a mocked foreign query boundary. No connection is opened.
 const pool = new Pool({ max: 1 });
 vi.spyOn(pool, "query").mockImplementation(async () => ({ command: "SELECT", rowCount: 1, oid: 0, fields: [], rows: [settings] }));
-const verify = vi.fn<(result: unknown) => Promise<void>>(async () => { boundary.events.push("verify"); });
+const verify = vi.fn<(result: unknown) => Promise<void>>(async () => { boundary.events.push("verify"); boundary.state.resourceCpu += 10_000; });
 const cleanup = vi.fn(async () => {
   boundary.events.push("sampleCleanup");
   if (boundary.state.sampleCleanupFailure !== undefined) throw boundary.state.sampleCleanupFailure;
@@ -60,6 +61,7 @@ const prepareSample = vi.fn<CorePerformanceScenario["prepareSample"]>(async (_id
   if (boundary.state.prepareFailure !== undefined) throw boundary.state.prepareFailure;
   return { verify, cleanup, run: async (observation) => {
     boundary.events.push(`run:${index}`);
+    boundary.state.resourceCpu += 100;
     boundary.requests.push({ lane: "flarex", index, effect: boundary.state.effect !== undefined,
       trace: boundary.state.trace !== undefined, publication: observation !== undefined });
     if (boundary.state.requestFailure !== undefined && (boundary.state.requestFailureIndex === null || boundary.state.requestFailureIndex === index))
@@ -106,9 +108,10 @@ const native = {
       const index = Number(marker.split("-").at(-1));
       return { run: async () => {
         boundary.events.push(`nativeRun:${index}`);
+        boundary.state.resourceCpu += 10;
         boundary.requests.push({ lane: "native", index, effect: boundary.state.effect !== undefined,
           trace: boundary.state.trace !== undefined, publication: false });
-      }, verify: async () => { boundary.events.push("nativeVerify"); }, cleanup: async () => { boundary.events.push("nativeSampleCleanup"); } };
+      }, verify: async () => { boundary.events.push("nativeVerify"); boundary.state.resourceCpu += 20_000; }, cleanup: async () => { boundary.events.push("nativeSampleCleanup"); } };
     }),
   },
   close: vi.fn(async () => { boundary.events.push("nativeClose");
@@ -148,7 +151,14 @@ beforeEach(() => {
   Object.assign(boundary.state, { prepareFailure: undefined, requestFailure: undefined, sampleCleanupFailure: undefined,
     familyCleanupFailure: undefined, nativeCleanupFailure: undefined, effect: undefined, trace: undefined,
     returnValue: undefined, committed: 0, cpuFailure: undefined, clearFailure: undefined });
-  Object.assign(boundary.state, { normalizationFailure: false, requestFailureIndex: null });
+  Object.assign(boundary.state, { resourceCpu: 0, resourceReads: 0, resourceFaultAt: 0, normalizationFailure: false, requestFailureIndex: null });
+  boundary.resources.mockImplementation(() => {
+    boundary.events.push("resourceRead");
+    if (++boundary.state.resourceReads === boundary.state.resourceFaultAt) throw new Error("private counter fault");
+    const cpu = boundary.state.resourceCpu++;
+    return { process: { user: cpu, system: 0 }, thread: { user: cpu * 2, system: 0 },
+      eventLoop: { idle: 0, active: 0, utilization: 0 } };
+  });
   boundary.prepareFamily.mockResolvedValue(family);
   boundary.native.mockResolvedValue(native);
   boundary.source.mockResolvedValue({ digest: "stable-source", files: 3 });
@@ -163,6 +173,27 @@ beforeEach(() => {
       ...(boundary.state.cpuFailure === undefined ? {} : { complete: false, failures: ["cpuStop"] as const }) } : emptyCpu(),
     failures: () => boundary.state.cpuFailure === undefined ? [] : [{ stage: "cpuStop", cause: boundary.state.cpuFailure }],
   }));
+});
+
+it("selects owner resources without database or profiler acquisition and omits unavailable ledgers", async () => {
+  await measure({ selection: { scenario: "payload-create" }, size: "small", mode: "resources", observation: "owners",
+    driver: "postgres", outputDirectory, warmups: 0, samples: 1 });
+  expect(boundary.effectCollector).toHaveBeenCalledTimes(1);
+  expect(boundary.cpu).not.toHaveBeenCalled();
+  expect(boundary.resources).toHaveBeenCalledTimes(2);
+  expect(setTrace.mock.calls.every(([trace]) => trace === undefined)).toBe(true);
+  const report = boundary.reports[0];
+  expect(report).toMatchObject({ execution: "complete", acceptance: "notEvaluated",
+    observation: { selection: "owners", timeline: "unavailable", driver: "unavailable" } });
+  const selectedSample = report?.samples.find(sample => sample.kind === "diagnostic");
+  expect(selectedSample).not.toHaveProperty("driver");
+  expect(selectedSample).not.toHaveProperty("analysis");
+  expect(selectedSample).toMatchObject({ ownerResources: { diagnostic: "complete", operations: [{ name: "payload-create" }] } });
+  expect(selectedSample?.ownerResources?.operations.every(row => !("driverAwaitUnionMs" in row))).toBe(true);
+  expect(boundary.requests.map(request => [request.effect, request.trace])).toEqual([[false, false], [true, false]]);
+  expect(verify).toHaveBeenCalledTimes(2);
+  expect(cleanup).toHaveBeenCalledTimes(2);
+  expect(family.dispose).toHaveBeenCalledTimes(1);
 });
 
 async function rejection(run: () => Promise<unknown>): Promise<MeasurementRunFailure> {
@@ -180,6 +211,7 @@ describe("measurement SDK family and sample lifecycle", () => {
     expect(result).toMatchObject({ execution: "complete", acceptance: "notEvaluated" });
     expect(boundary.prepareFamily).toHaveBeenCalledExactlyOnceWith("mixed-product", { driver: "postgres", size: "small", sampleCount: 15 });
     expect(boundary.effectCollector).not.toHaveBeenCalled();
+    expect(boundary.resources).not.toHaveBeenCalled();
     expect(boundary.native).not.toHaveBeenCalled();
     expect(boundary.cpu).toHaveBeenCalledTimes(5);
     expect(boundary.cpu.mock.calls.every(([input]) => input?.allocations === false)).toBe(true);
@@ -259,6 +291,61 @@ describe("measurement SDK family and sample lifecycle", () => {
     expect(boundary.requests.at(-1)).toMatchObject({ effect: true, publication: true });
     expect(boundary.cpu).toHaveBeenCalledExactlyOnceWith();
   });
+  it("alternates observer-free native/root-counter pairs and excludes verification CPU", async () => {
+    const result = await compare({ selection: { scenario: "mixed-product" }, size: "small", mode: "root-counters",
+      samples: 3, warmups: 1, outputDirectory });
+    expect(result).toMatchObject({ execution: "complete", acceptance: "notEvaluated" });
+    expect(boundary.cpu).not.toHaveBeenCalled();
+    expect(boundary.effectCollector).not.toHaveBeenCalled();
+    expect(boundary.resources).toHaveBeenCalledTimes(28); // 16 calibration + 12 actual pair reads; warmups quiet.
+    expect(boundary.requests.map(request => request.lane)).toEqual(["flarex", "native", "native", "flarex", "flarex", "native", "native", "flarex"]);
+    expect(boundary.requests.every(request => !request.effect && !request.trace && !request.publication)).toBe(true);
+    const report = boundary.reports[0];
+    expect(report?.cpuPairs).toHaveLength(3);
+    expect(report?.cpuPairs?.every(pair => pair.process.addedTotalMicroseconds === 90 && pair.thread?.addedTotalMicroseconds === 180)).toBe(true);
+    expect(report?.counterCalibration).toHaveLength(8);
+    expect(report?.samples.filter(sample => sample.kind === "diagnostic").every(sample => sample.rootCounters?.complete &&
+      sample.evidence === undefined && sample.analysis === undefined && sample.driver === undefined)).toBe(true);
+    expect(report?.gates.map(gate => gate.name)).not.toContain("addedMedian");
+    expect(report?.sampling.pairOrder).toBe("alternating");
+    expect(boundary.events.indexOf("familyDispose")).toBeLessThan(boundary.events.indexOf("persist"));
+  });
+
+  it("measures root counters without a separate business calibration request or any collector binding", async () => {
+    await measure({ ...quiet, mode: "root-counters", samples: 2, selection: { scenario: "product-update" } });
+    expect(boundary.prepareFamily).toHaveBeenCalledExactlyOnceWith("product", { driver: "pglite", size: "small", sampleCount: 2 });
+    expect(boundary.effectCollector).not.toHaveBeenCalled(); expect(boundary.cpu).not.toHaveBeenCalled();
+    expect(boundary.requests).toHaveLength(2);
+    expect(boundary.reports[0]?.samples.every(sample => sample.kind === "diagnostic" && sample.rootCounters?.complete)).toBe(true);
+  });
+
+  it.each([17, 18])("invalidates root evidence on read %s while preserving verified committed results", async resourceFaultAt => {
+    boundary.state.resourceFaultAt = resourceFaultAt;
+    boundary.state.returnValue = { committed: true };
+    const result = await measure({ ...quiet, mode: "root-counters", selection: { scenario: "mixed-product" } });
+    expect(result).toMatchObject({ execution: "incomplete", acceptance: "notEvaluated" });
+    expect(boundary.state.committed).toBe(1);
+    expect(verify).toHaveBeenCalledExactlyOnceWith(boundary.state.returnValue);
+    expect(boundary.resources).toHaveBeenCalledTimes(18);
+    expect(boundary.reports[0]?.samples[0]).toMatchObject({ outcome: "success", failureStage: null,
+      rootCounters: { complete: false }, failures: [
+        { stage: resourceFaultAt === 17 ? "rootCounters.beforeRead" : "rootCounters.afterRead" },
+        { stage: "rootCounters.validation", tokens: ["SchemaError"] },
+      ] });
+    expect(boundary.reports[0]?.cleanup).toBe("completed");
+  });
+
+  it("retains the completed native root-counter side when fresh Flarex partner acquisition fails", async () => {
+    const original = new Error("partner preparation fault");
+    boundary.state.prepareFailure = original;
+    const failed = await rejection(() => compare({ selection: { scenario: "mixed-product" }, size: "small",
+      mode: "root-counters", samples: 1, warmups: 0, outputDirectory }));
+    expect(failed.cause).toBe(original);
+    expect(boundary.reports[0]?.samples).toMatchObject([{ lane: "native", rootCounters: { complete: true }, outcome: "success" }]);
+    expect(boundary.reports[0]?.cpuPairs).toEqual([]);
+    expect(boundary.reports[0]?.cleanup).toBe("completed");
+  });
+
   it("alternates fresh quiet/resource pairs without constructing a profiler", async () => {
     await measure({ ...quiet, mode: "resources", warmups: 1, samples: 3,
       selection: { scenario: "mixed-product" } });

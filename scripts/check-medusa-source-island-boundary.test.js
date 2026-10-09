@@ -32,6 +32,44 @@ const nativeControlPromotion = {
 };
 
 describe("Medusa source-island boundary checker", () => {
+  it("confines historical capture imports to the actual query and erased metadata owners", () => {
+    const fixture = "packages/executor/test/performance/support/historicalCaptureFixture.ts";
+    const edges = [
+      { specifier: "../../../../medusa-adapter/src/product-query", name: "findProducts", typeOnly: false },
+      { specifier: "../../../../medusa-adapter/src/product-runtime-metadata", name: "ProductRuntimeMetadata", typeOnly: true },
+    ];
+    const promotion = { ...nativeControlPromotion, files: edges.map(edge => ({
+      target: posix.normalize(posix.join(posix.dirname(fixture), edge.specifier)) + ".ts",
+      classification: "authored", targetSha256: "pinned",
+    })) };
+    /** @param {string} relativePath @param {string} text
+     * @param {import("./check-medusa-currency-promotion.mjs").Promotion} [selected] */
+    const check = (relativePath, text, selected = promotion) => analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: selected, rootSources: [{ relativePath, text }],
+    }).errors;
+    for (const edge of edges) {
+      const imported = `import ${edge.typeOnly ? "type " : ""}{ ${edge.name} } from ${JSON.stringify(edge.specifier)};`;
+      expect(check(fixture, imported)).toEqual([]);
+      for (const relativePath of [fixture.replace("historicalCaptureFixture", "adjacentFixture"),
+        "packages/executor/src/historicalCaptureFixture.ts"]) {
+        const target = posix.normalize(posix.join(posix.dirname(fixture), edge.specifier));
+        const neighboringImport = imported.replace(edge.specifier, posix.relative(posix.dirname(relativePath), target));
+        expect(check(relativePath, neighboringImport).length).toBeGreaterThan(0);
+      }
+      expect(check(fixture, imported, { ...promotion, files: [] }).length).toBeGreaterThan(0);
+      expect(check(fixture, imported, { ...promotion, files: promotion.files.map(file => ({
+        ...file, classification: "preserved",
+      })) }).length).toBeGreaterThan(0);
+      for (const malformed of [
+        imported.replace(`{ ${edge.name} }`, `{ ${edge.name}, adjacent }`),
+        imported.replace(`{ ${edge.name} }`, `{ ${edge.name} as renamed }`),
+        imported.replace(`{ ${edge.name} }`, "* as owner"),
+        imported.replace(edge.specifier, edge.specifier + ".ts"),
+        `import ${edge.typeOnly ? "" : "type "}{ ${edge.name} } from ${JSON.stringify(edge.specifier)};`,
+      ]) expect(check(fixture, malformed).length).toBeGreaterThan(0);
+    }
+  });
+
   it("admits only the exact measurement SDK collector's inventoried native business import", () => {
     const prefix = "packages/medusa-adapter/benchmarks/core-performance/native-business/";
     const owners = ["native.ts", "workflow.ts", "run.ts", "tsconfig.json"].map(file => prefix + file);
@@ -302,7 +340,7 @@ describe("Medusa source-island boundary checker", () => {
       { importer: "packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts",
         specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts" },
       ...["applicationFiniteBindingCorrelation.test.ts", "bindingMetadataBackfillScenario.ts", "finiteSourceCommitClosure.test.ts",
-        "appSchemaCandidateValidation.postgres.test.ts"]
+        "appSchemaCandidateValidation.postgres.test.ts", "sessionJournalMultiSource.test.ts"]
         .map(file => ({ importer: `packages/persistence-postgres/test/${file}`,
           specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" })),
       ...["logical-currency-fixture", "logical-product-fixture"].map(fixture => ({

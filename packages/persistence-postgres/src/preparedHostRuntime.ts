@@ -47,6 +47,18 @@ interface Owner {
 }
 const owners = new WeakMap<object, Owner>();
 export type PreparedHostPreparationCharge = (value: unknown) => Result.Result<void, PreparedHostRuntimeError>;
+export interface PreparedHostGeneration<Value> {
+  readonly use: <A, E, R>(work: (value: Value) => Effect.Effect<A, E, R>) => Effect.Effect<A, E | PreparedHostRuntimeError, R>;
+  readonly retire: Effect.Effect<void>;
+}
+export interface PreparedHostPreparationLifetime {
+  readonly charge: PreparedHostPreparationCharge;
+  readonly checkOpen: () => Result.Result<void, PreparedHostRuntimeError>;
+  /** Total issuer-owned cleanup, run exactly once after the last actual borrow. */
+  readonly onDispose: (dispose: () => void) => Result.Result<void, PreparedHostRuntimeError>;
+  readonly stage: <Value, E, R>(construction: Effect.Effect<Value, E, R>) =>
+    Effect.Effect<PreparedHostGeneration<Value>, E | PreparedHostRuntimeError, R>;
+}
 class PreparationCharge extends Context.Service<
   PreparationCharge,
   {
@@ -55,6 +67,8 @@ class PreparationCharge extends Context.Service<
     ) => Effect.Effect<void, PreparedHostRuntimeError>;
     readonly chargeResult: PreparedHostPreparationCharge;
     readonly checkOpen: () => Result.Result<void, PreparedHostRuntimeError>;
+    readonly onDispose: PreparedHostPreparationLifetime["onDispose"];
+    readonly stage: PreparedHostPreparationLifetime["stage"];
   }
 >()("Flarex/HostPreparationCharge") {}
 
@@ -112,11 +126,21 @@ export const captureHostPreparationCharge = Effect.fn("PreparedHostRuntime.captu
 export const captureHostPreparationLifetime = Effect.fn("PreparedHostRuntime.captureLifetime")(function* () {
   const allocation = yield* Effect.serviceOption(PreparationCharge);
   return Option.isSome(allocation) ? Object.freeze({ charge: allocation.value.chargeResult,
-    checkOpen: allocation.value.checkOpen }) : undefined;
+    checkOpen: allocation.value.checkOpen, onDispose: allocation.value.onDispose, stage: allocation.value.stage }) : undefined;
+});
+
+/** Package-private issuer payload cleanup in the actual preparation allocation.
+ * Request preparations outside a retained host have no disposal registration. */
+export const registerHostPreparationDisposal = Effect.fn("PreparedHostRuntime.registerDisposal")(function* (dispose: () => void) {
+  const allocation = yield* Effect.serviceOption(PreparationCharge);
+  if (Option.isNone(allocation)) return;
+  const registered = allocation.value.onDispose(dispose);
+  if (Result.isFailure(registered)) dispose();
+  yield* Effect.fromResult(registered);
 });
 
 /** Source-private resource owner. Public methods delegate through use; explicit
- * metadata reconstruction borrows the same retained construction allocation. */
+ * reconstruction stages a separate generation under this same bounded lease. */
 export const retainPreparedHost = Effect.fn("PreparedHostRuntime.retain")(
   function* <Value extends object, Failure, Requirements>(
     runtime: PreparedHostRuntime,
@@ -128,7 +152,7 @@ export const retainPreparedHost = Effect.fn("PreparedHostRuntime.retain")(
     return yield* Effect.acquireUseRelease(
       makeLease<Value>(owner),
       lease => construction.pipe(
-        Effect.provideService(PreparationCharge, { charge: lease.charge, chargeResult: lease.chargeResult, checkOpen: lease.checkOpen }),
+        Effect.provideService(PreparationCharge, { charge: lease.charge, chargeResult: lease.chargeResult, checkOpen: lease.checkOpen, onDispose: lease.onDispose, stage: lease.stage }),
         Effect.flatMap(host => lease.install(host)),
         Effect.as(lease.access),
       ),
@@ -147,13 +171,21 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
   const done = yield* Deferred.make<void>();
   let value: Value | undefined;
   let active = 1; // Construction also owns its reservation until it settles.
+  let constructing = true;
+  const releaseConstruction = () => { if (constructing) { constructing = false; active--; } };
   let closing = false;
   let bytes = 0;
   let rejected: PreparedHostRuntimeError | undefined;
+  const generations = new Set<() => void>();
+  const staticDisposals = new Set<() => void>();
   const finish = Effect.suspend(() => {
     if (!closing || active !== 0 || !owner.leases.delete(lease))
       return Effect.void;
     value = undefined;
+    for (const dispose of generations) dispose();
+    generations.clear();
+    for (const dispose of staticDisposals) dispose();
+    staticDisposals.clear();
     owner.bytes -= bytes;
     bytes = 0;
     return Deferred.succeed(done, undefined).pipe(Effect.asVoid);
@@ -179,18 +211,77 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
   };
   const checkOpen = (): Result.Result<void, PreparedHostRuntimeError> => owner.closed || closing ? Result.fail(error("closed")) :
     rejected === undefined ? Result.succeed(undefined) : Result.fail(rejected);
+  const onDispose: PreparedHostPreparationLifetime["onDispose"] = dispose => checkOpen().pipe(
+    Result.map(() => { staticDisposals.add(dispose); }));
   /** Read the real lease accounting without charging or exposing its value. */
   const readUsage = (): Result.Result<Readonly<{ chargedBytes: number }>, PreparedHostRuntimeError> =>
     checkOpen().pipe(Result.map(() => Object.freeze({ chargedBytes: bytes })));
   const charge = (data: unknown) => Effect.suspend(() => Effect.fromResult(chargeResult(data)));
+  const stage: PreparedHostPreparationLifetime["stage"] = construction => Effect.acquireUseRelease(
+    Effect.suspend(() => {
+      return Effect.fromResult(checkOpen()).pipe(Effect.map(() => { active++; return { abandon: (): void => undefined }; }));
+    }),
+    reservation => Effect.gen(function* () {
+      let generationValue: { readonly value: Effect.Success<typeof construction> } | undefined;
+      let charged = 0;
+      let borrowing = 0;
+      let retired = false;
+      let stageRejected: PreparedHostRuntimeError | undefined;
+      const disposals = new Set<() => void>();
+      const dispose = () => {
+        generationValue = undefined;
+        for (const release of disposals) release();
+        disposals.clear();
+        owner.bytes -= charged;
+        bytes -= charged;
+        charged = 0;
+        generations.delete(dispose);
+      };
+      const reclaim = () => { if (retired && borrowing === 0) dispose(); };
+      reservation.abandon = () => { retired = true; reclaim(); };
+      const generationCheck = (): Result.Result<void, PreparedHostRuntimeError> => checkOpen().pipe(
+        Result.flatMap(() => stageRejected !== undefined ? Result.fail(stageRejected) :
+          retired && borrowing === 0 ? Result.fail(error("closed")) : Result.succeed(undefined)));
+      const generationCharge: PreparedHostPreparationCharge = data => generationCheck().pipe(
+        Result.flatMap(() => measurePayload(data, owner.maximumPreparedBytes - owner.bytes)),
+        Result.map(size => { owner.bytes += size; bytes += size; charged += size; }),
+        Result.mapError(cause => { stageRejected ??= cause; return cause; }));
+      const generationDisposal: PreparedHostPreparationLifetime["onDispose"] = release => generationCheck().pipe(
+        Result.map(() => { disposals.add(release); }));
+      generations.add(dispose);
+      return yield* construction.pipe(
+        Effect.provideService(PreparationCharge, { charge: data => Effect.suspend(() => Effect.fromResult(generationCharge(data))),
+          chargeResult: generationCharge, checkOpen: generationCheck, onDispose: generationDisposal, stage }),
+        Effect.tap(() => Effect.fromResult(generationCheck())),
+        Effect.map(prepared => {
+          generationValue = { value: prepared };
+          const use: PreparedHostGeneration<Effect.Success<typeof construction>>["use"] = work => Effect.acquireUseRelease(
+            Effect.suspend(() => {
+              if (retired || generationValue === undefined) return Effect.fail(error("closed"));
+              const current = generationValue.value;
+              return Effect.fromResult(generationCheck()).pipe(Effect.map(() => { borrowing++; active++; return current; }));
+            }),
+            work,
+            () => Effect.suspend(() => { borrowing--; active--; reclaim(); return finish; }),
+          );
+          return Object.freeze({ use, retire: Effect.sync(() => { retired = true; reclaim(); }) });
+        }),
+      );
+    }),
+    (reservation, outcome) => Effect.suspend(() => {
+      if (Exit.isFailure(outcome)) reservation.abandon();
+      active--;
+      return finish;
+    }),
+  );
   const abandon = Effect.suspend(() => {
-    active = 0;
+    releaseConstruction();
     closing = true;
-    return finish;
+    return finish.pipe(Effect.andThen(Deferred.await(done)));
   });
   const install = Effect.fn("PreparedHostRuntime.install")((host: Value) =>
     Effect.suspend(() => {
-      active = 0;
+      releaseConstruction();
       if (owner.closed || closing || rejected !== undefined) {
         closing = true;
         return finish.pipe(
@@ -220,14 +311,9 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
     );
   const reconstruct = <A, E, R>(
     work: (host: Value) => Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E | PreparedHostRuntimeError, R> =>
-    use(host => Effect.suspend(() => work(host)).pipe(
-      Effect.provideService(PreparationCharge, { charge, chargeResult, checkOpen }),
-      // A callback may catch a charge refusal, or close may start during its
-      // work. Neither permits a newly constructed capability to escape.
-      Effect.tap(() => Effect.fromResult(checkOpen())),
-    ));
-  return { charge, chargeResult, checkOpen, abandon, install, access: Object.freeze({ use, reconstruct, close, readUsage }) };
+  ): Effect.Effect<PreparedHostGeneration<A>, E | PreparedHostRuntimeError, R> =>
+    use(host => stage(Effect.suspend(() => work(host))));
+  return { charge, chargeResult, checkOpen, onDispose, stage, abandon, install, access: Object.freeze({ use, reconstruct, close, readUsage }) };
 });
 
 /** Bounded structural payload accounting. Repeated references are deliberately

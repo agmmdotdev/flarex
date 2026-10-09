@@ -1,20 +1,25 @@
+import { observeExecution } from "./executionDiagnostics/operation";
+import { projectLogicalPointExpectation } from "./logicalDocuments/pointEvidence";
+import { indexApplicationDocumentRowIntents } from "./applicationDocumentMaterialization/settlementPlan";
+import { prepareApplicationDocumentSettlementFromOriginalsEffect } from "./applicationDocumentMaterialization/settlementPlan";
+import { acceptApplicationPublication,readAcceptedApplicationPublication,type AcceptedApplicationPublication } from "./applicationDocumentMaterialization/publicationAcceptance";
+import { materializeAcceptedApplicationPublicationRows,captureOriginalApplicationPublicationBuildLocks } from "./applicationDocumentMaterialization/materialization";
 import { closeExactAttemptScopeClockObservation, openExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect, lockScopeExecutionAuthorityInTransactionEffect,
   selectScopeClockRows, ScopeAuthorizationRevocationEpochPersistenceError } from "./scopeClock";
 import { openProtectedMetadataFinalGuardScope, closeProtectedMetadataFinalGuardScope,
   flushProtectedMetadataFinalGuards, prepareProtectedMetadataFinalGuardBatch, acceptProtectedMetadataFinalGuardBatch } from "./preparedMetadataEpoch";
 import type { AppSchemaCandidateWriteGuardPlanningHead } from "./appSchemaCandidateValidation";
 import { ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION, RUN_INSTALLED_ACCEPTING_READ_COMMITTED, isInstalledAttemptScopeAuthorityTarget } from "./scopeAuthorityControlRead";
-import { sqlCall } from "./pointCommitErrors";
+import { sqlCall, pointCommitSqlCallFailure } from "./pointCommitErrors";
 import { PointCommitPublicationObservation, observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "./pointCommitPublicationObservation";
 import { prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, type AppUniqueConstraintSetPreparation } from "./appUniqueConstraintSetBuildV1";
 import { hasApplicationDocumentOrderedIndexComposition } from "./applicationDocumentMaterialization/indexComposition";
 import { MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "./applicationDocumentMaterialization/materialization";
-import { prepareApplicationDocumentSettlementEffect, preparedApplicationDocumentSettlementHasFailure,
-  acceptPreparedApplicationOriginalsEffect, acceptPreparedApplicationDeveloperTransitionsEffect,
-  acceptPreparedApplicationUniqueOwnersEffect, acceptPreparedApplicationRelationsEffect,
-  type PreparedApplicationDocumentSettlement } from "./applicationDocumentMaterialization/materialization";
+import { prepareApplicationDocumentSettlementEffect, preparedApplicationDocumentSettlementHasFailure } from "./applicationDocumentMaterialization/materialization";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "./storedCommitAuthority/postgresLoader";
 import { runPointCommitInTransactionEffect, projectPointCommitTransactionResult, runPointCommitPromiseEffect } from "./pointCommitPromiseBoundary";
+import { captureExecutionDiagnosticContext } from "./executionDiagnostics/operation";
+import { selectPreparedPublicationDefinitions } from "./commitPublication/definitionPreparation";
 import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock,
   requireScopePublicationStrongReferences, reproveScopePublicationPrefix } from "./commitPublication/pointCommitProjection";
 import { scopePublicationClockAdvanceSource, requirePointCommitClockPublicationResult } from "./commitPublication/publication";
@@ -22,18 +27,18 @@ import { scopePublicationMetadataChanged, scopePublicationProcedureFailure } fro
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { PointCommitDependencyV1, PointCommitRowIntentV1, PreparedLivePointCommitRowIntentV1, PreparedPointCommitRowIntentV1, PreparedPointCommitCandidateSchemaWriteGuard, PreparedPointCommitApplicationRelations, LocatedPreparedPointCommitApplicationRelations, LoadedPointCommitHeadV1, type ApplicationDocumentMaterializationCommand } from "./applicationDocumentMaterialization/model";
 import { hasApplicationRelationCommitAuthorityForPointCommit, prepareApplicationRelationDefinitionsFromLocatedBindingResult } from "./applicationRelationCommit";
-import { hasAppSchemaCandidateWriteGuardComposition, prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
+import { hasAppSchemaCandidateWriteGuardComposition, prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect, captureAppSchemaCandidateWriteGuardLockedHead,
   AppSchemaCandidateWriteGuardError } from "./appSchemaCandidateValidation";
-import { PointCommitConflictV1Error, PointCommitConflictEvidenceV1, PointCommitStaleAuthorityV1Error, PointCommitStaleAuthorityReasonV1, PointCommitCorruptionV1Error, PointCommitCorruptionReasonV1, PointCommitSqlFailureMarkerV1, PointCommitSqlOperationV1, PointCommitSqlErrorV1, mapTransactionFailure, PointCommitRollbackProofV1Error, corruption, sqlError, findSqlState } from "./pointCommitErrors";
+import { PointCommitConflictV1Error, AppDocumentInsertionConflictError, PointCommitConflictEvidenceV1, PointCommitStaleAuthorityV1Error, PointCommitStaleAuthorityReasonV1, PointCommitCorruptionV1Error, PointCommitCorruptionReasonV1, PointCommitSqlFailureMarkerV1, PointCommitSqlOperationV1, PointCommitSqlErrorV1, mapTransactionFailure, PointCommitRollbackProofV1Error, corruption, sqlError, findSqlState } from "./pointCommitErrors";
 import type { PointCommitConflictCauseV1 } from "./pointCommitErrors";
 import { runEffectTransactionSettlement } from "./effectTransaction";
-import { prepareFiniteActiveApplication, type ApplicationActivationRepository, type PreparedFiniteActiveApplication } from "./applicationActivation";
+import { invalidateAcceptedApplicationBindingInTransaction, type AcceptedApplicationBinding, type PreparedFiniteActiveApplication } from "./applicationActivation";
 import { confirmPreparedFiniteSessionJournalEntry, runPreparedFiniteReplacementSessionJournalEntryEffect,
   readOriginalFiniteExecutionAuthority, projectOriginalFinitePublicationSession,
   type PreparedFiniteSessionJournalEntry, type ConfirmedFiniteRootEntryCapture,
   type runPreparedFiniteSessionJournalEntryEffect } from "./sessionJournalFiniteEntry";
 import type { ScopeClockRow } from "./scopeClock";
-import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, lockFinitePointCommitDeveloperIndexBuildsAndHeads, loadApplicationDocumentPriorState, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidations } from "./applicationDocumentMaterialization/materialization";
+import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, runCandidateSchemaWriteGuard, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidations } from "./applicationDocumentMaterialization/materialization";
 
 import { type ScopePublicationContribution } from "./commitPublication/scopePublicationModel";
 
@@ -45,7 +50,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Encoding, Exit, Result, Schema } from "effect";
 import { ApplicationMutationAdmissionError } from "./applicationMutationAdmission";
 import { validateApplicationWriteOwnershipForCommit } from "./applicationWriteOwnership/Commit";
-import { hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthoritySource, inspectLogicalParticipantCommitMetadataProjection, requireLogicalParticipantCommitAuthorityEffect, requireFiniteLogicalParticipantCommitAuthorityEffect, type LogicalParticipantCommitAuthority } from "./logicalDocuments/participantAdmission";
+import { LogicalParticipantAdmissionError, hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthoritySource, inspectLogicalParticipantCommitMetadataProjection, requireLogicalParticipantCommitAuthorityEffect, withLogicalParticipantCommitApplicationBindingInTransaction, requireFiniteLogicalParticipantCommitAuthorityEffect, type LogicalParticipantCommitAuthority } from "./logicalDocuments/participantAdmission";
 import { withSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceAdmission";
 import { inspectLogicalParticipantAdmissionBundle, inspectFiniteOperationCommitAuthority,
   prepareFiniteOperationCommitObservation }
@@ -61,7 +66,7 @@ import { lockFiniteAttemptAnchorRowByIdentityInTransaction, readFiniteAttemptAnc
   type FiniteAttemptNonacceptanceProof, type PendingFiniteAttemptNonacceptance } from "./finiteAttemptAnchor";
 import { validateLogicalDocumentChanges } from "./logicalDocuments/contribution";
 import { validateLogicalParticipantDependencyEvidence } from "./logicalDocuments/commitEvidence";
-import { decodeLogicalParticipantDependencyEvidence } from "./logicalDocuments/journalEvidence";
+import { decodeLogicalParticipantDependencyEvidence, authenticatedGeneratedInsertionsResult } from "./logicalDocuments/journalEvidence";
 import { validateConsumedMetadataDependencies, captureFiniteMetadataDependency, finiteMetadataTableKey,
   finiteMetadataContractKey, prepareConsumedFiniteMetadataComparison,
   prepareFiniteTableWriteClosureComparison, acceptFiniteTableWriteClosureComparison, acceptFiniteMetadataComparisonVerdict } from "./finiteMetadataDependencies";
@@ -74,12 +79,11 @@ import { admittedCommerceEventGroup, validateAdmittedCommerceEventIntents, valid
 import { EventEnvelope, type CommittedEvent } from "./commitEvents/model";
 import { commitEventsDigest } from "./commitEvents/digest";
 import { finitePublicationAnchorQuery, observeFinitePublicationMetadata } from "./finitePublicationObservation";
-import { beginFiniteApplicationMaterialization, type CapturedApplicationMaterializationCoverage } from "./indexBuildStates";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "./installationLifecycle";
 
 import { type AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from "flarex-protocol/internal/application-schema-binding";
-import { AppRowIdHexV1Schema, appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import { AppRowIdHexV1Schema, appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result, type AppRowIdHexV1, type AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { CatalogEdgeDefinitionIdSchema, type CatalogIndexDefinitionId, type CatalogUniqueConstraintDefinitionId, type CatalogEdgeDefinitionId, CatalogRelationIdSchema, type CatalogRelationId, CatalogIndexDefinitionIdSchema, CatalogTableIdSchema, type CatalogTableId } from "flarex-protocol/catalog";
 import { CanonicalSuccessfulResultBytesV1Schema, CanonicalSessionJournalBytesSchema, decodeCanonicalSessionJournalEffect, CommitSyscallSequenceV1Schema, LogicalApplicationRelationIncomingReadDependencyV1Schema, LogicalIndexRangeReadDependencyV1Schema, MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1, MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1, MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1, MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1, MAX_COMMIT_READ_DOCUMENTS_V1, MAX_COMMIT_READ_SEMANTIC_BYTES_V1, MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1, MAX_COMMIT_RELATION_READ_SYSCALLS_V1, MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1, MAX_COMMIT_POINT_READ_DEPENDENCIES_V1, MAX_COMMIT_WRITE_OPERATIONS_V1, MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1, MAX_POINT_COMMIT_MATERIAL_ROWS_V1, SESSION_JOURNAL_FORMAT, canonicalizeAdmittedParticipantBindingV1Result, canonicalizeAdmittedSourceBundleResult, canonicalizeSuccessfulResultV1Effect, measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result, normalizeLogicalIndexRangeReadDependenciesV1Result, verifyParticipantPointCorrelationEffect, type ParticipantPointCorrelation, type SessionJournal, type AdmittedParticipantOperation, type SourceContribution, type CommitFinalSyscallSequenceV1, type CommitSyscallSequenceV1, type CommitMaterialWriteEventEvidenceBytesV1, type LogicalReadDependencyV1, type LogicalApplicationRelationIncomingReadDependencyV1, type LogicalIndexRangeReadDependencyV1, type SuccessfulResultSha256HexV1 } from "flarex-protocol/commit-protocol";
 import { orderedIndexBoundHexV1ToBytes, orderedIndexKeyBytesHexV1FromBytes, orderedIndexKeyBytesHexV1ToBytes, orderedIndexRowIdHexV1ToBytes, orderedIndexRowIdHexV1FromBytesResult, OrderedIndexKeyBytesHexV1Schema, OrderedIndexRowIdHexV1Schema, type OrderedIndexKeyBytesHexV1, type OrderedIndexRowIdHexV1 } from "flarex-protocol/ordered-index";
@@ -87,7 +91,7 @@ import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flare
 import { CommitSeqSchema, SnapshotTokenSchema, ScopeEpochUuidV1Schema, ScopeUuidV1Schema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, replacementScopeIdV1FromUuid, type CommitSeq, type FlarexDbV1StorageGeneration, type ReplacementScopeIdV1, type ScopeEpochUuidV1, type ScopeUuidV1, type SnapshotToken, type StorageGenerationFence } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import { TRANSACTION_SESSION_PROTOCOL_VERSION_V1, MAX_TRANSACTION_ATTEMPT_FENCE, TransactionAttemptFenceSchema, TransactionAuthorizationRevocationEpochSchema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema, type StoredTransactionSessionScalarsV1, type TransactionArtifactIdV1, type TransactionArtifactRuntimeV1, type TransactionAttemptFence, type TransactionAuthorizationGrantIdV1, type TransactionAuthorizationRevocationEpoch, type TransactionExecutionModuleV1, type TransactionFunctionPathV1, type TransactionPackageIdV1, type TransactionPolicyVersionV1, type TransactionRequestKeyV1, type TransactionSessionIdV1, type TransactionSourcePackageSha256HexV1 } from "flarex-protocol/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueSha256V1Schema, jsonToFlarexValueV1, FlarexValueCodecV1Error, FlarexValueEvidenceV1Error, canonicalizeFlarexValueV1, decodeCanonicalFlarexValueEvidenceV1, isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1, type CanonicalFlarexValueV1, type FlarexValueCodecVersion } from "flarex-protocol/value";
+import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueSha256V1Schema, jsonToFlarexValueV1, FlarexValueCodecV1Error, FlarexValueEvidenceV1Error, canonicalizeFlarexValueV1, canonicalizeFlarexValueV1Effect, decodeCanonicalFlarexValueEvidenceV1, isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1, type CanonicalFlarexValueV1, type FlarexValueCodecVersion } from "flarex-protocol/value";
 
 import { type AppDeveloperIndexDefinitionPortV1 } from "./appDeveloperIndexCommitV1";
 import { snapshotApplicationExecutionAuthorityJson } from "./applicationExecutionAuthoritySnapshot";
@@ -329,6 +333,9 @@ interface PreparedFiniteCommitCommand extends ApplicationDocumentMaterialization
   readonly scopeUuid: ScopeUuidV1;
   readonly executionClaim: TransactionExecutionClaimPinV1;
   readonly frozen: OwnedFrozenFiniteAttemptData;
+  readonly generatedInsertions: ReadonlySet<string>;
+  readonly generatedOnlyPoints: ReadonlySet<string>;
+  readonly rowIntentsByTable: ReadonlyMap<CatalogTableId, ApplicationDocumentMaterializationCommand["rowIntents"]>;
   readonly attemptedTableIds: readonly CatalogTableId[];
   readonly participantMaterialDocumentIds: ReadonlySet<string>;
   readonly indexRangeDependencies: readonly LogicalIndexRangeReadDependencyV1[];
@@ -355,7 +362,7 @@ interface PreparedFiniteSourceAcceptance {
 
 /** Retained outcomes belong to this publication's genuine frozen graph. They
  * prove no current binding, permission, maintenance state or data dependency. */
-const prepareFiniteSourceAcceptance = Effect.fn("PointCommitTransaction.prepareFiniteSourceAcceptance")(function* (
+const prepareFiniteSourceAcceptance = Effect.fnUntraced(function* (
   command: PreparedFiniteCommitCommand,
   developerDefinitions: readonly LocatedAppIndexDefinitionV1[],
   uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
@@ -370,8 +377,10 @@ const prepareFiniteSourceAcceptance = Effect.fn("PointCommitTransaction.prepareF
   for (const { source, touchedTables } of grouped.values()) {
     const documentResults: Exit.Exit<void, PointCommitCorruptionV1Error>[] = [];
     const definitionResults: Exit.Exit<void, PointCommitCorruptionV1Error>[] = [];
-    for (const intent of command.rowIntents) {
-      if (intent.kind !== "live" || !source.selected.tableIds.has(intent.tableId)) continue;
+    const sourceRows = [...source.selected.tableIds].flatMap(tableId => command.rowIntentsByTable.get(tableId) ?? [])
+      .toSorted((a, b) => a.tableId - b.tableId || compareRowIds(a.rowId, b.rowId));
+    for (const intent of sourceRows) {
+      if (intent.kind !== "live") continue;
       const outcome = yield* Effect.exit(Effect.sync(() => source.selected.validateDocument(intent.tableId, intent.document))
         .pipe(Effect.flatMap(result => Effect.fromResult(result.pipe(Result.mapError(() => corruption("rowWriteInvalid"))))), Effect.asVoid));
       documentResults.push(outcome);
@@ -403,7 +412,7 @@ const prepareFiniteSourceAcceptance = Effect.fn("PointCommitTransaction.prepareF
     if (documentResults.some(Exit.isFailure) || definitionResults.some(Exit.isFailure)) break;
   }
   return Object.freeze(plans);
-});
+}, work => observeExecution("PointCommitTransaction.prepareFiniteSourceAcceptance", work));
 
 /**
  * O08-A correlation evidence only. Persistence re-resolves every authority
@@ -574,8 +583,7 @@ interface PreparedFiniteReplacementEntry {
 const prepareFiniteReplacementEntryEffect = Effect.fn("PointMutationAttemptReplacement.prepareFiniteEntry")(
   function* (composition: NonNullable<PointMutationAttemptReplacementOptionsV1["finiteEntry"]>) {
     const preparation = yield* composition.prepareEntry();
-    const application = yield* prepareFiniteActiveApplication(composition.application).pipe(Effect.mapError(cause =>
-      new PointMutationAttemptReplacementFiniteEntryError({ cause })));
+    const application = composition.application;
     return { preparation, application } satisfies PreparedFiniteReplacementEntry;
   },
 );
@@ -617,9 +625,12 @@ export interface PointMutationAttemptReplacementPortV1 {
   >;
 }
 export interface PointFiniteAttemptReplacementPort {
-  readonly replaceFinite: (command: PointFiniteAttemptResolutionCommand & Readonly<{ proof: FiniteAttemptNonacceptanceProof }>) =>
+  readonly replaceFinite: (command: PointFiniteCommitCommand & Readonly<{ proof: FiniteAttemptNonacceptanceProof }>) =>
+    Effect.Effect<PointMutationAttemptReplacementObservationV1, PointMutationAttemptReplacementV1Error | PointCommitDecisionUncertainV1Error>;
+  readonly replaceRecoveredFinite: (command: PointRecoveredFiniteAttemptReplacementCommand & Readonly<{ proof: FiniteAttemptNonacceptanceProof }>) =>
     Effect.Effect<PointMutationAttemptReplacementObservationV1, PointMutationAttemptReplacementV1Error | PointCommitDecisionUncertainV1Error>;
 }
+export type PointRecoveredFiniteAttemptReplacementCommand = Omit<PointFiniteAttemptResolutionCommand, "frozenAttempt"> & Readonly<{ frozenAttempt?: never }>;
 
 export interface RunningRelationConflictAttemptReplacementPortV1 {
   readonly replaceRunningRelationConflict: (
@@ -1040,23 +1051,10 @@ export type PointCommitTransactionProofStepV1 =
   | "finiteParticipantDocumentValidated"
   | "intrinsicIndexBuildLocked"
   | "developerIndexBuildLocked"
-  | "rowBatchWriting"
-  | "rowBatchWritten"
-  | "intrinsicMembershipPreparing"
-  | "intrinsicMembershipPrepared"
-  | "tentativeRowWritten"
-  | "indexBatchWriting"
-  | "indexBatchWritten"
-  | "intrinsicIndexEntryWritten"
-  | "developerIndexEntryWritten"
-  | "uniqueKeyWritten"
-  | "uniqueKeyBatchWriting"
-  | "uniqueKeyBatchWritten"
   | "relationBindingValidated"
   | "relationTargetsValidated"
   | "relationEdgeWritten"
   | "relationRestrictValidated"
-  | "uniquePublicationApplied"
   | "candidateSchemaValidationFailed"
   | "outcomeRechecked"
   | "commitHeaderWritten"
@@ -1181,11 +1179,16 @@ function capturePointCommitTransactionProofOptionsV1(
   });
 }
 
+interface SelectedLogicalOperationProfile {
+  readonly profile: NonNullable<PointCommitTransactionProofOptionsV1["logicalOperationProfiles"]>[number];
+  readonly authorities: readonly LogicalParticipantCommitAuthority[];
+  readonly applicationBindings: readonly boolean[];
+}
+
 function selectLogicalOperationProfileResult(
   options: PointCommitTransactionProofOptionsV1,
   operation: AdmittedParticipantOperation,
-): Result.Result<Readonly<{ profile: NonNullable<PointCommitTransactionProofOptionsV1["logicalOperationProfiles"]>[number];
-  authorities: readonly LogicalParticipantCommitAuthority[] }>, PointCommitCorruptionV1Error> {
+): Result.Result<SelectedLogicalOperationProfile, PointCommitCorruptionV1Error> {
   const matching = (options.logicalOperationProfiles ?? []).filter(profile =>
     profile.participant === operation.participant && profile.operationMethods.includes(operation.method));
   if (matching.length !== 1) return Result.fail(corruption("commandInvalid"));
@@ -1193,6 +1196,7 @@ function selectLogicalOperationProfileResult(
   if (profile.profileRevision !== operation.profileRevision ||
     profile.sources.length !== operation.sourceContributions.length ||
     profile.sources.length === 0) return Result.fail(corruption("commandInvalid"));
+  const applicationBindings: boolean[] = [];
   for (const [ordinal, token] of profile.sources.entries()) {
     const source = inspectLogicalParticipantCommitAuthoritySource(token);
     const contribution = operation.sourceContributions[ordinal];
@@ -1204,8 +1208,9 @@ function selectLogicalOperationProfileResult(
       !hasLogicalParticipantCommitAuthority(token, operation.participant, contribution)) {
       return Result.fail(corruption("commandInvalid"));
     }
+    applicationBindings.push(source.applicationBindingAvailable);
   }
-  return Result.succeed(Object.freeze({ profile, authorities: profile.sources }));
+  return Result.succeed(Object.freeze({ profile, authorities: profile.sources, applicationBindings: Object.freeze(applicationBindings) }));
 }
 
 class PointCommitAdmissionDigestProviderError extends Data.TaggedError("PointCommitAdmissionDigestProviderError")<{
@@ -1258,7 +1263,7 @@ export interface PointMutationAttemptReplacementOptionsV1 {
   /** Trusted reserved-graph composition. Stored profile and reservation require
    * it; its presence never chooses a weaker admission path. */
   readonly finiteEntry?: Readonly<{
-    application: ApplicationActivationRepository<unknown, unknown>;
+    application: PreparedFiniteActiveApplication;
     prepareEntry: () => Effect.Effect<PreparedFiniteSessionJournalEntry, PointMutationAttemptReplacementFiniteEntryError, import("effect").Scope.Scope>;
   }>;
   /** Same trusted aggregate profile selection used by final publication. */
@@ -1297,6 +1302,8 @@ interface PreparedPointCommitTransactionCommandV1
   readonly rowIntents: ReadonlyArray<PreparedPointCommitRowIntentV1>;
   readonly attemptedTableIds: ReadonlyArray<CatalogTableId> | null;
   readonly participantOperations: readonly AdmittedParticipantOperation[];
+  readonly generatedInsertions: ReadonlySet<string>;
+  readonly generatedOnlyPoints: ReadonlySet<string>;
   readonly participantJournal: SessionJournal | null;
   readonly participantMaterialDocumentIds: ReadonlySet<string>;
   readonly participantEventIntents: readonly CommittedEvent[];
@@ -1678,11 +1685,16 @@ export function createPointMutationAttemptReplacementPortV1(
           ), mapPointMutationAttemptReplacementTransactionFailure));
       });
 
-  const replaceFinite: PointFiniteAttemptReplacementPort["replaceFinite"] = Effect.fn("PointMutationAttemptReplacement.replaceFinite")(function* (input) {
+  const replaceFiniteOwned = Effect.fn("PointMutationAttemptReplacement.replaceFinite")(function* (
+    request: Readonly<{ kind: "frozen"; input: Parameters<PointFiniteAttemptReplacementPort["replaceFinite"]>[0] }>
+      | Readonly<{ kind: "recovered"; input: Parameters<PointFiniteAttemptReplacementPort["replaceRecoveredFinite"]>[0] }>) {
+    const input = request.input;
     const command = yield* prepareFiniteAttemptResolutionCommand(input).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
-    const originalEntry = "frozenAttempt" in input
-      ? (yield* requireFrozenFiniteAttemptOrigin(input, command).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError))).originalEntry
-      : undefined;
+    if (request.kind === "recovered" && "frozenAttempt" in input) return yield* Effect.fail(replacementCorruption("replacementMutationInvalid"));
+    const origin = request.kind === "frozen"
+      ? Object.freeze({ kind: "frozen" as const, originalEntry: (yield* requireFrozenFiniteAttemptOrigin(request.input, command)
+        .pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError))).originalEntry })
+      : Object.freeze({ kind: "recovered" as const });
     const proof = yield* Effect.fromResult(readFiniteAttemptNonacceptanceProof(input.proof)).pipe(Effect.mapError(cause =>
       new PointMutationAttemptReplacementFiniteEntryError({ cause })));
     if (proof.selector.scopeId !== command.authorityPins.scopeId || proof.selector.deploymentId !== command.authorityPins.deploymentId ||
@@ -1730,7 +1742,7 @@ export function createPointMutationAttemptReplacementPortV1(
           entry.capture = yield* runPreparedFiniteReplacementSessionJournalEntryEffect(entry.preparation, entry.application, tx,
             { selector: { ...proof.selector, attemptFence: fresh.context.session.attemptFence }, preliminaryAuthority: located.authority,
               executionClaim: fresh.context.executionClaim }, { authority: located.authority, target },
-            failure => { admissionRefusal = failure; }, originalEntry).pipe(Effect.mapError(cause =>
+            origin, failure => { admissionRefusal = failure; }).pipe(Effect.mapError(cause =>
               new PointMutationAttemptReplacementFiniteEntryError({ cause })));
           const observation = Object.freeze({ kind: "replaced" as const, scopeUuid: current.session.scopeUuid, sessionId: proof.selector.sessionId,
             previousAttemptFence: proof.selector.attemptFence, attemptFence: fresh.context.session.attemptFence, executionClaim: entry.capture.context.executionClaim });
@@ -1760,7 +1772,8 @@ export function createPointMutationAttemptReplacementPortV1(
   });
   return Object.freeze({
     replace,
-    replaceFinite,
+    replaceFinite: (input: Parameters<PointFiniteAttemptReplacementPort["replaceFinite"]>[0]) => replaceFiniteOwned({ kind: "frozen", input }),
+    replaceRecoveredFinite: (input: Parameters<PointFiniteAttemptReplacementPort["replaceRecoveredFinite"]>[0]) => replaceFiniteOwned({ kind: "recovered", input }),
     replaceRunningRelationConflict,
     recoverRunningRelationConflict,
   });
@@ -1818,7 +1831,7 @@ export function createPointCommitRollbackProofPortV1(
       { hasRelationAuthority: port => hasApplicationRelationCommitAuthorityForPointCommit(port, ports), hasCandidateGuardAuthority: port => hasAppSchemaCandidateWriteGuardComposition(port, ports) },
       capturedOptions,
     );
-    return yield* Effect.uninterruptible(runPointCommitPromiseEffect(() => runRollbackProof(
+    return yield* Effect.uninterruptible(runPointCommitPromiseEffect(diagnosticContext => runRollbackProof(
         target,
         located.authority,
         mixedCommand,
@@ -1828,6 +1841,7 @@ export function createPointCommitRollbackProofPortV1(
         applicationRelations,
         candidateSchemaWriteGuard,
         capturedOptions,
+        diagnosticContext,
       ), mapTransactionFailure));
   });
 
@@ -1951,6 +1965,7 @@ export function createPointCommitPublisherPortV1(
       uniqueDefinitions: uniqueDefinitions.length,
     } });
 
+    const diagnosticContext=yield* Effect.withFiber(fiber=>Effect.succeed(captureExecutionDiagnosticContext(fiber)));
     const runPublication = awaitPointCommitPublicationSettlement(
       runPointCommitPublication(
         target,
@@ -1962,6 +1977,7 @@ export function createPointCommitPublisherPortV1(
         applicationRelations,
         candidateSchemaWriteGuard,
         capturedOptions,
+        diagnosticContext,
       ),
     );
     const decision: PointCommitPublicationRunDecisionV1 = yield*
@@ -2114,7 +2130,7 @@ function mapFiniteAnchorFailure(error: FiniteAttemptAnchorError) {
   }
 }
 
-const prepareFiniteCommitDefinitions = Effect.fn("PointCommitTransaction.prepareFiniteDefinitions")(function* (
+const prepareFiniteCommitDefinitions = Effect.fnUntraced(function* (
   command: PreparedFiniteCommitCommand, ports: StoredCommitAuthorityEvidenceLoaderPortsV1, options: PointCommitTransactionProofOptionsV1,
 ) {
   const originalEntry = readOriginalFiniteExecutionAuthority(command.frozen.originalEntry, ports);
@@ -2124,14 +2140,16 @@ const prepareFiniteCommitDefinitions = Effect.fn("PointCommitTransaction.prepare
   const applicationTables = new Set(command.rowIntents.filter(row => !command.participantMaterialDocumentIds.has(row.documentId))
     .map(row => row.tableId));
   const prepared = command.frozen.applicationPublicationDefinitions;
+  const selectedApplicationDefinitions = selectPreparedPublicationDefinitions(prepared.prepared, applicationTables);
+  if (selectedApplicationDefinitions === null) return yield* Effect.fail(corruption("commandInvalid"));
   const indexes = new Map<CatalogIndexDefinitionId, LocatedAppIndexDefinitionV1>();
   const unique = new Map<CatalogUniqueConstraintDefinitionId, LocatedAppUniqueConstraintDefinitionV1>();
-  for (const index of prepared.indexes.filter(member => applicationTables.has(member.access.tableId))) {
+  for (const index of selectedApplicationDefinitions.indexes) {
     if (!isLocatedAppIndexDefinitionV1(index) || index.scopeId !== command.authorityPins.scopeId ||
       index.deploymentId !== command.authorityPins.deploymentId) return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
     indexes.set(index.indexDefinitionId, index);
   }
-  for (const constraint of prepared.unique.filter(member => applicationTables.has(member.tableId))) {
+  for (const constraint of selectedApplicationDefinitions.unique) {
     if (!isLocatedAppUniqueConstraintDefinitionV1(constraint) || constraint.scopeId !== command.authorityPins.scopeId ||
       constraint.deploymentId !== command.authorityPins.deploymentId || constraint.schemaVersionId !== command.authorityPins.schemaVersionId)
       return yield* Effect.fail(corruption("uniqueConstraintDefinitionInvalid"));
@@ -2139,12 +2157,14 @@ const prepareFiniteCommitDefinitions = Effect.fn("PointCommitTransaction.prepare
   }
   const sourceSchemaVersionByTable = new Map<CatalogTableId, CatalogSchemaVersionId>();
   for (const source of command.sources) {
+    const selectedDefinitions = selectPreparedPublicationDefinitions(source.selected.publicationDefinitions, new Set(source.touchedTables));
+    if (selectedDefinitions === null) return yield* Effect.fail(corruption("commandInvalid"));
     for (const tableId of source.touchedTables) {
       const prior = sourceSchemaVersionByTable.get(tableId);
       if (prior !== undefined && prior !== source.selected.schemaVersionId) return yield* Effect.fail(corruption("commandInvalid"));
       sourceSchemaVersionByTable.set(tableId, source.selected.schemaVersionId);
     }
-    for (const index of source.selected.indexes.filter(member => source.touchedTables.includes(member.access.tableId))) {
+    for (const index of selectedDefinitions.indexes) {
       if (!isLocatedAppIndexDefinitionV1(index) || index.scopeId !== command.authorityPins.scopeId ||
         index.deploymentId !== command.authorityPins.deploymentId) return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
       const prior = indexes.get(index.indexDefinitionId);
@@ -2152,7 +2172,7 @@ const prepareFiniteCommitDefinitions = Effect.fn("PointCommitTransaction.prepare
         return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
       indexes.set(index.indexDefinitionId, index);
     }
-    for (const constraint of source.selected.unique.filter(member => source.touchedTables.includes(member.tableId))) {
+    for (const constraint of selectedDefinitions.unique) {
       if (!isLocatedAppUniqueConstraintDefinitionV1(constraint) || constraint.scopeId !== command.authorityPins.scopeId ||
         constraint.deploymentId !== command.authorityPins.deploymentId || constraint.schemaVersionId !== source.selected.schemaVersionId)
         return yield* Effect.fail(corruption("uniqueConstraintDefinitionInvalid"));
@@ -2199,9 +2219,9 @@ const prepareFiniteCommitDefinitions = Effect.fn("PointCommitTransaction.prepare
   }
   return { mixedCommand, intrinsicDefinitions, developerDefinitions, uniqueDefinitions, applicationRelations, candidateSchemaWriteGuard,
     originalIssuer: ports, expectedSession };
-});
+}, work => observeExecution("PointCommitTransaction.prepareFiniteDefinitions", work));
 
-const prepareFiniteCommitSettlement = Effect.fn("PointCommitTransaction.prepareFiniteSettlement")(function* (
+const prepareFiniteCommitSettlement = Effect.fnUntraced(function* (
   definitions: Effect.Success<ReturnType<typeof prepareFiniteCommitDefinitions>>,
 ) {
   const command = definitions.mixedCommand;
@@ -2222,11 +2242,11 @@ const prepareFiniteCommitSettlement = Effect.fn("PointCommitTransaction.prepareF
         ...(command.events.length === 0 ? {} : { events: { values: command.events, sha256: eventSha } }) } satisfies ScopePublicationContribution;
     })) : null;
   return Object.freeze({ ...definitions, sourceAcceptance: sources, documentSettlement, publicationContribution });
-});
+}, work => observeExecution("PointCommitTransaction.prepareFiniteSettlement", work));
 
 function createFinitePublisherOperations(ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   options: PointCommitTransactionProofOptionsV1): PointFiniteCommitPublisherPort {
-  const publishFiniteOperation = Effect.fn("PointCommitTransaction.publishFinite")(function* (input: PointFiniteCommitCommand) {
+  const publishFiniteOperation = Effect.fnUntraced(function* (input: PointFiniteCommitCommand) {
     const outcomeCommand = yield* prepareFiniteAttemptResolutionCommand(input);
     const located = (yield* requireFrozenFiniteAttemptOrigin(input, outcomeCommand)).resolvedTarget;
     if (!isLocatedPointCommitPublicationTargetV1(located.target)) return yield* Effect.fail(corruption("readCommittedCapabilityMissing"));
@@ -2277,7 +2297,7 @@ function createFinitePublisherOperations(ports: StoredCommitAuthorityEvidenceLoa
       valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1, valueJson: structuredClone(result.valueJson), semanticSizeBytes: result.semanticSizeBytes,
       canonicalText: result.canonicalText, canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(copyBytes(result.canonicalBytes)), sha256: FlarexValueSha256V1Schema.make(digest),
     }) });
-  });
+  }, work => observeExecution("PointCommitTransaction.publishFinite", work));
   const publishFinite: PointFiniteCommitPublisherPort["publishFinite"] = input => publishFiniteOperation(input).pipe(
     Effect.tapError(error => Effect.sync(() => finiteSettlementRefusals.set(error, { kind: "publication", command: input }))));
   const resolveFinite: PointFiniteCommitPublisherPort["resolveFinite"] = Effect.fn("PointCommitTransaction.resolveFinite")(function* (input) {
@@ -2359,7 +2379,7 @@ function createFinitePublisherOperations(ports: StoredCommitAuthorityEvidenceLoa
   return Object.freeze({ publishFinite, resolveFinite });
 }
 
-const requireFrozenFiniteAttemptOrigin = Effect.fn("PointCommitTransaction.requireFrozenOrigin")(function* (
+const requireFrozenFiniteAttemptOrigin = Effect.fnUntraced(function* (
   input: PointFiniteAttemptResolutionCommand, command: PreparedFiniteAttemptResolutionCommand,
 ) {
   if (input.frozenAttempt === undefined) return yield* Effect.fail(corruption("commandInvalid"));
@@ -2369,7 +2389,7 @@ const requireFrozenFiniteAttemptOrigin = Effect.fn("PointCommitTransaction.requi
     origin.selector.attemptFence !== command.authorityPins.attemptFence)
     return yield* Effect.fail(corruption("commandInvalid"));
   return origin;
-});
+}, work => observeExecution("PointCommitTransaction.requireFrozenOrigin", work));
 
 const prepareFiniteAttemptResolutionCommand = Effect.fn("PointCommitTransaction.prepareFiniteResolution")(function* (
   input: PointFiniteAttemptResolutionCommand,
@@ -2540,36 +2560,26 @@ function runFinitePointCommitPublication(target: LocatedPointCommitPublicationTa
         error: (reason, cause): PointCommitPublicationV1Error => reason === "statementFailure" || reason === "resourceFailure"
           ? finiteCommitSqlFailure("validateIndexRanges", cause ?? reason) : corruption("dependencySetInvalid"),
       }, command.frozen.graph);
-      const intrinsicBuilds = yield* finiteCommitPromiseEffect(() => lockPointCommitIntrinsicIndexBuilds(tx, clock, intrinsicDefinitions, command));
-      const { developerIndexBuilds: developerBuilds, freshHeads } = yield* finiteCommitPromiseEffect(() =>
-        lockFinitePointCommitDeveloperIndexBuildsAndHeads(tx, clock, developerDefinitions, command,
-          command.frozen.originalRows, uniqueDefinitions, preparedApplicationRelationsForFiniteCommit(applicationRelations), options));
-      const heads = freshHeads.heads;
-      yield* Effect.fromResult(validatePointCommitDependenciesResult(command, heads));
-      const ranges = yield* finiteCommitPromiseEffect(() => findPointCommitIndexRangeConflict(tx, clock, command));
-      if (ranges !== null) return yield* Effect.fail(ranges);
-      const relations = yield* finiteCommitPromiseEffect(() => findPointCommitRelationConflict(tx, clock, command, options));
-      if (relations !== null) return yield* Effect.fail(relations);
-      const materialization = yield* beginFiniteApplicationMaterialization(tx, clock.record,
-        new Date(Math.min(anchor.leaseExpiresAt.getTime(), Date.parse(anchor.executionClaim.claimExpiresAt),
-          anchor.session.authorizationGrantExpiresAt.getTime(), anchor.session.hardExpiresAt.getTime()))).pipe(Effect.mapError(error =>
-            error.reason === "resourceFailure" ? finiteCommitSqlFailure("readDatabaseTime", error.cause ?? error)
-              : corruption("sessionInvalid")));
-      const preWriteTime = materialization.databaseNowMilliseconds;
-      yield* Effect.fromResult(requireFiniteAttemptIsLive(anchor, new Date(preWriteTime)).pipe(Result.mapError(mapFiniteAnchorFailure)));
       if (documentSettlement === null) return yield* Effect.fail(corruption("commandInvalid"));
-      const kernel = yield* finiteCommitPromiseEffect(() => lowerAcceptedPointCommit(tx, command, clock, heads, intrinsicBuilds, developerBuilds, developerDefinitions,
-        uniqueDefinitions, preparedApplicationRelationsForFiniteCommit(applicationRelations), candidateSchemaWriteGuard, acceptedAuthority,
-        preWriteTime, admittedParticipants, options, { freshHeads, documentSettlement,
-          ...(materialization.capturedCoverage === null ? {} : { capturedCoverage: materialization.capturedCoverage }) }));
-      if (kernel.kind === "existing") return Object.freeze({ kind: "existing" as const });
+      const acceptedPublication=yield* acceptApplicationPublication(tx,{clock,settlement:documentSettlement,intrinsic:intrinsicDefinitions,
+        developer:developerDefinitions,unique:uniqueDefinitions,relations:preparedApplicationRelationsForFiniteCommit(applicationRelations),
+        indexRanges:command.indexRangeDependencies,relationDependencies:command.relationDependencies,candidate:candidateSchemaWriteGuard!==null,
+        oldestAvailableCommitSeq:clock.oldestAvailableCommitSeq,observeQuery:options.observeQuery,
+        generatedInsertions:command.generatedInsertions,generatedOnlyPoints:command.generatedOnlyPoints,
+        deadline:new Date(Math.min(anchor.leaseExpiresAt.getTime(),Date.parse(anchor.executionClaim.claimExpiresAt),
+          anchor.session.authorizationGrantExpiresAt.getTime(),anchor.session.hardExpiresAt.getTime()))})
+          .pipe(Effect.catchCause(cause=>Effect.failCause(Cause.map(cause,mapPointCommitCallbackFailure))));
+      const acceptedState=yield* Effect.fromResult(readAcceptedApplicationPublication(tx,acceptedPublication));
+      yield* Effect.fromResult(requireFiniteAttemptIsLive(anchor,new Date(acceptedState.databaseNowMilliseconds)).pipe(Result.mapError(mapFiniteAnchorFailure)));
+      const kernel=yield* lowerAcceptedPointCommit(tx,command,clock,acceptedPublication,candidateSchemaWriteGuard,acceptedAuthority,
+        admittedParticipants,options).pipe(Effect.catchCause(cause=>Effect.failCause(Cause.map(cause,mapPointCommitCallbackFailure))));
       const ready = yield* Effect.fromResult(requirePointCommitReadyForPublicationResult(kernel));
       if (publicationContribution === null) return yield* Effect.fail(corruption("commandInvalid"));
       if (Exit.isFailure(publicationContribution)) return yield* Effect.failCause(publicationContribution.cause);
       const contribution = publicationContribution.value;
       yield* finiteCommitPromiseEffect(() => writeScopePublicationPrefix(tx, contribution, ready, options, undefined, anchor.session));
       if (accepted !== undefined && options.afterTransactionStep === undefined) {
-        yield* finiteCommitPromiseEffect(() => requireScopePublicationStrongReferences(tx, ready, options));
+        yield* requireScopePublicationStrongReferences(tx, ready, options).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPointCommitCallbackFailure))));
         const guard = yield* prepareProtectedMetadataFinalGuardBatch(tx).pipe(Effect.mapError(error =>
           error.reason === "resourceFailure" ? finiteCommitSqlFailure("validateActiveApplicationSchema", error.cause ?? error) : stale("activeSchemaChanged")));
         yield* Effect.sync(() => closeExactAttemptScopeClockObservation(tx));
@@ -2589,7 +2599,7 @@ function runFinitePointCommitPublication(target: LocatedPointCommitPublicationTa
         yield* acceptProtectedMetadataFinalGuardBatch(tx, rows.map(guardRow => ({ valid: guardRow.valid }))).pipe(Effect.mapError(error =>
           error.reason === "resourceFailure" ? finiteCommitSqlFailure("validateActiveApplicationSchema", error.cause ?? error) : stale("activeSchemaChanged")));
       } else {
-        yield* finiteCommitPromiseEffect(() => advanceScopePublicationClock(tx, contribution, ready, options));
+        yield* advanceScopePublicationClock(tx, contribution, ready, options).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, mapPointCommitCallbackFailure))));
         yield* finiteCommitPromiseEffect(() => emitTransactionStep(options, command, "beforeCommit"));
         yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(error => error.reason === "resourceFailure"
           ? finiteCommitSqlFailure("validateActiveApplicationSchema", error.cause ?? error) : stale("activeSchemaChanged")));
@@ -2598,6 +2608,35 @@ function runFinitePointCommitPublication(target: LocatedPointCommitPublicationTa
   }), isInstalledAttemptScopeAuthorityTarget(target)
     ? callback => target[RUN_INSTALLED_ACCEPTING_READ_COMMITTED](command.authorityPins, callback)
     : target[RUN_LOCATED_READ_COMMITTED_V1]);
+}
+
+/** Physical planning guards are derived only after canonical journal authentication.
+ * Generated guards never enter the genuine read verdict or replacement OCC set. */
+function authenticatedPublicationPointsResult(journal: SessionJournal,
+  dependencies: readonly PointCommitDependencyV1[], expectedPhysicalCount: number,
+): Result.Result<readonly PointCommitDependencyV1[], PointCommitCorruptionV1Error> {
+  return Result.gen(function* () {
+    const insertionOrigins = yield* authenticatedGeneratedInsertionsResult(journal.participantOperations)
+      .pipe(Result.mapError(() => corruption("occEvidenceInvalid")));
+    const genuinePoints = journal.readDependencies.filter(dependency => dependency.kind === "appRowPoint");
+    if (genuinePoints.length !== dependencies.length || dependencies.some(point =>
+      !genuinePoints.some(read => read.documentId === point.documentId && read.observed.kind === point.dependency.observed.kind &&
+        (read.observed.kind === "present" && point.dependency.observed.kind === "present"
+          ? read.observed.revisionCommitSeq === point.dependency.observed.revisionCommitSeq
+          : read.observed.kind === "missing" && point.dependency.observed.kind === "missing" &&
+            read.observed.basis.kind === point.dependency.observed.basis.kind &&
+            (read.observed.basis.kind === "noVisibleRevision" || point.dependency.observed.basis.kind === "tombstone" &&
+              read.observed.basis.revisionCommitSeq === point.dependency.observed.basis.revisionCommitSeq)))))
+      return yield* Result.fail(corruption("occEvidenceInvalid"));
+    const genuineReadIds = new Set(genuinePoints.map(point => point.documentId));
+    const points = Object.freeze([...dependencies, ...[...insertionOrigins.values()]
+      .filter(intent => !genuineReadIds.has(intent.documentId)).map(intent => ({ documentId: intent.documentId,
+        tableId: intent.tableId, rowId: intent.rowId, dependency: { kind: "appRowPoint" as const,
+          documentId: intent.documentId, observed: { kind: "missing" as const, basis: { kind: "noVisibleRevision" as const } } } }))]
+      .toSorted((left, right) => left.tableId - right.tableId || compareRowIds(left.rowId, right.rowId)));
+    if (points.length !== expectedPhysicalCount) return yield* Result.fail(corruption("occEvidenceInvalid"));
+    return points;
+  });
 }
 
 const preparePointCommitCommand = Effect.fn(
@@ -2614,6 +2653,9 @@ const preparePointCommitCommand = Effect.fn(
   let attemptedTableIds: ReadonlyArray<CatalogTableId> | null = null;
   let participantOperations: readonly AdmittedParticipantOperation[] = Object.freeze([]);
   let participantJournal: SessionJournal | null = null;
+  let generatedInsertions: ReadonlySet<string> = new Set();
+  let generatedOnlyPoints: ReadonlySet<string> = new Set();
+  let publicationPoints = captured.dependencies;
   let finiteMetadataReservationSha256Hex: string | null = null;
   const metadataDependencies: LogicalMetadataReadDependency[] = [];
   let participantMaterialDocumentIds: ReadonlySet<string> = new Set();
@@ -2631,6 +2673,14 @@ const preparePointCommitCommand = Effect.fn(
     attemptedTableIds = Object.freeze([...tables]);
     participantOperations = journal.journal.participantOperations;
     participantJournal = journal.journal;
+    const insertionOrigins = yield* Effect.fromResult(authenticatedGeneratedInsertionsResult(participantOperations)
+      .pipe(Result.mapError(() => corruption("commandInvalid"))));
+    generatedInsertions = new Set(insertionOrigins.keys());
+    const genuineReadIds = new Set(journal.journal.readDependencies.filter(dependency => dependency.kind === "appRowPoint").map(dependency => dependency.documentId));
+    generatedOnlyPoints = new Set([...insertionOrigins.keys()].filter(id => !genuineReadIds.has(id)));
+    publicationPoints = yield* Effect.fromResult(authenticatedPublicationPointsResult(
+      journal.journal, captured.dependencies, captured.sealIdentity.pointDependencyCount).pipe(
+      Result.mapError(() => corruption("commandInvalid"))));
     finiteMetadataReservationSha256Hex = journal.journal.finiteMetadataReservationSha256Hex ?? null;
     metadataDependencies.push(...journal.journal.readDependencies.filter(dependency => dependency.kind === "metadata"));
     for (const operation of participantOperations) for (const contribution of operation.sourceContributions) {
@@ -2667,6 +2717,8 @@ const preparePointCommitCommand = Effect.fn(
   }
   const rowIntents: PreparedPointCommitRowIntentV1[] = [];
   for (const rowIntent of captured.rowIntents) {
+    if (!publicationPoints.some(point => pointDependenciesEqual(point, rowIntent)))
+      return yield* Effect.fail(corruption("commandInvalid"));
     if (rowIntent.kind === "deleted") {
       rowIntents.push(rowIntent);
       continue;
@@ -2701,8 +2753,10 @@ const preparePointCommitCommand = Effect.fn(
   }
   return Object.freeze({
     ...captured,
+    dependencies: publicationPoints,
     attemptedTableIds,
     participantOperations,
+    generatedInsertions, generatedOnlyPoints,
     participantJournal,
     metadataDependencies: Object.freeze([...new Map(metadataDependencies.map(dependency => [logicalMetadataDependencyIdentity(dependency), dependency])).values()]),
     finiteMetadataReservationSha256Hex,
@@ -2712,7 +2766,7 @@ const preparePointCommitCommand = Effect.fn(
   });
 });
 
-const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFiniteCommand")(function* (
+const prepareFiniteCommitCommand = Effect.fnUntraced(function* (
   input: PointFiniteCommitCommand, options: PointCommitTransactionProofOptionsV1,
 ) {
   const authorityPins = yield* Effect.fromResult(captureAuthorityPinsResult(input.authorityPins));
@@ -2734,13 +2788,18 @@ const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFini
     frozen.attemptState.schemaVersionId !== authorityPins.schemaVersionId ||
     frozen.attemptState.executionClaim.claimOwner !== executionClaim.claimOwner || frozen.attemptState.executionClaim.claimFence !== executionClaim.claimFence ||
     frozen.attemptState.executionProfile !== "finiteRoot") return yield* Effect.fail(corruption("commandInvalid"));
-  const dependencies = yield* Effect.fromResult(capturePointCommitDependenciesResult(
-    [...frozen.graph.dependencies].toSorted((a, b) => a.tableId - b.tableId || compareRowIds(a.rowId, b.rowId)), frozen.graph.dependencies.length));
+  const dependencies = frozen.graph.dependencies.map(projectLogicalPointExpectation);
+  if (dependencies.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) return yield* Effect.fail(corruption("commandInvalid"));
+  yield* Effect.fromResult(requireCanonicalDependencyOrderResult(dependencies));
+  const dependenciesByDocumentId = new Map(dependencies.map(dependency => [dependency.documentId, dependency]));
+  const generatedInsertions = new Set(frozen.graph.dependencies.filter(point => point.dependency.kind === "generatedInsertion").map(point => point.documentId));
+  const generatedOnlyPoints = generatedInsertions;
   const rowIntents = frozen.rowIntents;
   if (rowIntents.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1) return yield* Effect.fail(corruption("commandInvalid"));
   yield* Effect.fromResult(requireCanonicalDependencyOrderResult(rowIntents));
   for (const row of rowIntents) {
-    if (!dependencies.some(dependency => pointDependenciesEqual(dependency, row))) return yield* Effect.fail(corruption("dependencySetInvalid"));
+    const dependency = dependenciesByDocumentId.get(row.documentId);
+    if (dependency === undefined || !pointDependenciesEqual(dependency, row)) return yield* Effect.fail(corruption("dependencySetInvalid"));
     if (row.kind === "live" && !isCanonicalDocumentForIntent(row.document, row))
       return yield* Effect.fail(corruption("commandInvalid"));
   }
@@ -2765,6 +2824,13 @@ const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFini
     if (operation.eventIntents.some(intent => intent.sourceKey !== null &&
       !operation.sourceRefs.some(reference => reference.sourceKey === intent.sourceKey)))
       return yield* Effect.fail(corruption("commandInvalid"));
+    const eventIntentsBySource = new Map<string | null, typeof operation.eventIntents[number][]>();
+    const preparedEvents = new Map<typeof operation.eventIntents[number], CommittedEvent>();
+    for (const intent of operation.eventIntents) {
+      const group = eventIntentsBySource.get(intent.sourceKey);
+      if (group === undefined) eventIntentsBySource.set(intent.sourceKey, [intent]);
+      else group.push(intent);
+    }
     for (const [ordinal, admission] of bundle.admissions.entries()) {
       const token = profile.sources[ordinal]!, methods = bundle.sourceMethods[ordinal]!;
       const selected = inspectFiniteOperationCommitAuthority(token, admission, frozen.attempt, operation.participant, methods);
@@ -2782,8 +2848,11 @@ const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFini
       for (const tableId of selected.tableIds) nativeTables.add(tableId);
       sources.push({ token, operation, admission, methods, selected, touchedTables: Object.freeze([...touchedTables]) });
       const selectedEvents: CommittedEvent[] = [];
-      for (const event of operation.eventIntents.filter(intent => intent.sourceKey === selected.sourceKey))
-        selectedEvents.push(yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent).pipe(Result.mapError(() => corruption("commandInvalid")))));
+      for (const event of eventIntentsBySource.get(selected.sourceKey) ?? []) {
+        const prepared = yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent).pipe(Result.mapError(() => corruption("commandInvalid"))));
+        selectedEvents.push(prepared);
+        preparedEvents.set(event, prepared);
+      }
       const policies = (options.logicalParticipantEvents ?? []).filter(policy => policy.authority === token);
       if (policies.length > 1 || selectedEvents.length > 0 && policies.length !== 1) return yield* Effect.fail(corruption("commandInvalid"));
       const policy = policies[0];
@@ -2792,17 +2861,22 @@ const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFini
         .pipe(Effect.mapError(() => corruption("commandInvalid")));
     }
     const operationEvents: CommittedEvent[] = [];
-    for (const event of operation.eventIntents.filter(intent => intent.sourceKey === null))
-      operationEvents.push(yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent).pipe(Result.mapError(() => corruption("commandInvalid")))));
+    for (const event of eventIntentsBySource.get(null) ?? []) {
+      const prepared = yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent).pipe(Result.mapError(() => corruption("commandInvalid"))));
+      operationEvents.push(prepared);
+      preparedEvents.set(event, prepared);
+    }
     if (operationEvents.length > 0 && profile.operationEvents === undefined) return yield* Effect.fail(corruption("commandInvalid"));
     if (profile.operationEvents !== undefined) yield* validateAdmittedOperationEventIntents(profile.operationEvents.policy,
       profile.operationEvents.selection, operationEvents, admittedCommerceEventGroup({ scopeUuid: scope.scopeUuid,
         sessionId: authorityPins.sessionId, attemptFence: authorityPins.attemptFence })).pipe(Effect.mapError(() => corruption("commandInvalid")));
     // Source and operation policies validate their own selections above. The
     // publication preserves the producer's original interleaving across them.
-    for (const intent of operation.eventIntents)
-      events.push(yield* Effect.fromResult(decodePointCommitEventEnvelope(intent.intent)
-        .pipe(Result.mapError(() => corruption("commandInvalid")))));
+    for (const intent of operation.eventIntents) {
+      const prepared = preparedEvents.get(intent);
+      if (prepared === undefined) return yield* Effect.fail(corruption("commandInvalid"));
+      events.push(prepared);
+    }
   }
   if (frozen.graph.attempts.some((attempt, ordinal) => !attributedAttempts.has(ordinal) && !applicationTables.has(attempt.tableId)))
     return yield* Effect.fail(corruption("commandInvalid"));
@@ -2810,14 +2884,14 @@ const prepareFiniteCommitCommand = Effect.fn("PointCommitTransaction.prepareFini
     catch: () => corruption("successfulResultInvalid") }));
   const successfulResult = Object.freeze({ valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1, value: resultValue,
     semanticSizeBytes: frozen.successfulResult.semanticSizeBytes, sha256Hex: frozen.successfulResult.evidence.sha256Hex,
-    canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(copyBytes(frozen.successfulResult.canonicalBytes)) });
+    canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(frozen.successfulResult.canonicalBytes) });
   return Object.freeze({ authorityPins, session, executionClaim, scopeUuid: scope.scopeUuid, frozen,
-    dependencies, rowIntents, sources: Object.freeze(sources), events: Object.freeze(events),
+    dependencies, generatedInsertions, generatedOnlyPoints, rowIntents, rowIntentsByTable: indexApplicationDocumentRowIntents({ rowIntents }), sources: Object.freeze(sources), events: Object.freeze(events),
     attemptedTableIds: Object.freeze([...applicationTables]),
     participantMaterialDocumentIds: new Set(rowIntents.filter(row => nativeTables.has(row.tableId)).map(row => row.documentId)),
     indexRangeDependencies: frozen.applicationIndexRanges, relationDependencies: frozen.applicationRelationDependencies,
     successfulResult }) satisfies PreparedFiniteCommitCommand;
-});
+}, work => observeExecution("PointCommitTransaction.prepareFiniteCommand", work));
 
 /** Application and selected native sources may have different logical schema
  * revisions. Gather their trusted definitions before taking publication locks;
@@ -2838,12 +2912,14 @@ const preparePointCommitMixedDefinitions = Effect.fn("PointCommitTransaction.pre
         selectedProfile.authorities[ordinal]!, operation, contribution);
       if (selected === null) return yield* Effect.fail(corruption("commandInvalid"));
       const touched = new Set(contribution.effects.map(effect => effect.tableId));
+      const selectedDefinitions = selectPreparedPublicationDefinitions(selected.publicationDefinitions, touched);
+      if (selectedDefinitions === null) return yield* Effect.fail(corruption("commandInvalid"));
       for (const tableId of touched) {
         const prior = sourceSchemaVersionByTable.get(tableId);
         if (prior !== undefined && prior !== selected.schemaVersionId) return yield* Effect.fail(corruption("commandInvalid"));
         sourceSchemaVersionByTable.set(tableId, selected.schemaVersionId);
       }
-      for (const definition of selected.indexes) {
+      for (const definition of selectedDefinitions.indexes) {
         if (definition.access.kind !== "developer" || !touched.has(definition.access.tableId)) continue;
         const prior = indexes.get(definition.indexDefinitionId);
         if (prior !== undefined && (prior.access.tableId !== definition.access.tableId ||
@@ -2851,7 +2927,7 @@ const preparePointCommitMixedDefinitions = Effect.fn("PointCommitTransaction.pre
           return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
         indexes.set(definition.indexDefinitionId, definition);
       }
-      for (const definition of selected.unique) {
+      for (const definition of selectedDefinitions.unique) {
         if (!touched.has(definition.tableId)) continue;
         const prior = unique.get(definition.uniqueConstraintDefinitionId);
         if (prior !== undefined && (prior.tableId !== definition.tableId ||
@@ -3015,7 +3091,7 @@ function capturePointCommitCommandResult(
     );
     const dependencies = yield* capturePointCommitDependenciesResult(
       input.dependencies,
-      sealIdentity.pointDependencyCount,
+      input.journalBytes === undefined ? sealIdentity.pointDependencyCount : undefined,
     );
     const indexRangeDependencies = yield* capturePointCommitIndexRangeDependenciesResult(
       input.indexRangeDependencies,
@@ -3032,7 +3108,7 @@ function capturePointCommitCommandResult(
     const journalBytes = input.journalBytes === undefined ? undefined : yield* decodePointCommitJournalBytesResult(input.journalBytes).pipe(
       Result.map(copyBytes), Result.mapError(() => corruption("commandInvalid")));
     for (const rowIntent of rowIntents) {
-      if (!dependencies.some(
+      if (journalBytes === undefined && !dependencies.some(
         (dependency) => pointDependenciesEqual(dependency, rowIntent),
       )) {
         return yield* Result.fail(corruption("commandInvalid"));
@@ -3077,7 +3153,7 @@ function capturePointMutationAttemptReplacementCommandResult(
     );
     const dependencies = yield* capturePointCommitDependenciesResult(
       input.dependencies,
-      sealIdentity.pointDependencyCount,
+      undefined,
     );
     const indexRangeDependencies = yield* capturePointCommitIndexRangeDependenciesResult(
       input.indexRangeDependencies,
@@ -3504,7 +3580,7 @@ function capturePointCommitConflictEvidenceResult(
 
 function capturePointCommitDependenciesResult(
   input: ReadonlyArray<PointCommitDependencyV1>,
-  expectedCount: number,
+  expectedCount: number | undefined,
 ): Result.Result<
   ReadonlyArray<PointCommitDependencyV1>,
   PointCommitCorruptionV1Error
@@ -3515,7 +3591,7 @@ function capturePointCommitDependenciesResult(
   const dependencyCount = input.length;
   if (
     dependencyCount > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 ||
-    dependencyCount !== expectedCount
+    expectedCount !== undefined && dependencyCount !== expectedCount
   ) {
     return Result.fail(corruption("commandInvalid"));
   }
@@ -3531,7 +3607,7 @@ function capturePointCommitDependenciesResult(
       }
       captured.push(yield* capturePointDependencyResult(dependency));
     }
-    if (captured.length !== expectedCount) {
+    if (expectedCount !== undefined && captured.length !== expectedCount) {
       return yield* Result.fail(corruption("commandInvalid"));
     }
     const dependencies = Object.freeze(captured);
@@ -4350,6 +4426,8 @@ function runPointMutationAttemptReplacement(
     await emitReplacementStep(options, command, "leaseLocked");
     const executionProfile = await lockPointCommitJournalRoot(tx, command, sharedOptions);
     const sealedJournal = await readSealedPointCommitJournal(tx, command, sharedOptions);
+    projectPointCommitTransactionResult(authenticatedPublicationPointsResult(
+      sealedJournal, command.dependencies, command.sealIdentity.pointDependencyCount));
     requireDurableReplacementProfile(executionProfile, lease.row);
     await emitReplacementStep(options, command, "journalRootLocked");
     await requireNoFinishingExecutionClaim(
@@ -5836,6 +5914,7 @@ async function runRollbackProof(
   candidateSchemaWriteGuard:
     PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
+  diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>,
 ): Promise<PointCommitWouldCommitV1> {
   try {
     await target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
@@ -5852,6 +5931,7 @@ async function runRollbackProof(
         candidateSchemaWriteGuard,
         options,
         "rollbackProof",
+        diagnosticContext,
       );
       await emitTransactionStep(options, command, "beforeRollback");
       throw ROLLBACK_SENTINEL;
@@ -5882,6 +5962,7 @@ async function runPointCommitPublication(
   candidateSchemaWriteGuard:
     PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
+  diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>,
 ): Promise<PointCommitPublicationDecisionV1> {
   return observePointCommitPublicationPromise(options.publicationObservation, "transaction", () =>
     target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
@@ -5898,6 +5979,7 @@ async function runPointCommitPublication(
       candidateSchemaWriteGuard,
       options,
       "publish",
+      diagnosticContext,
     );
     if (kernel.kind === "existing") return kernel;
     const ready = projectPointCommitTransactionResult(
@@ -5941,6 +6023,7 @@ async function runPointCommitTransactionKernel(
     PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
+  diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>,
 ): Promise<PointCommitKernelResultV1> {
   // Only lifecycle-stable metadata may be read before publication exclusion.
   // Session/build locks stay below the upgrade: their other owners are clock-first.
@@ -5959,7 +6042,7 @@ async function runPointCommitTransactionKernel(
         Effect.mapError(error => error instanceof CommittedPointOutcomeSqlErrorV1
           ? new PointCommitSqlFailureMarkerV1("recheckOutcome", error.cause)
           : error),
-      ),
+      ), diagnosticContext,
     )).kind !== "missing"
   ) {
     await emitTransactionStep(options, command, "outcomeRechecked");
@@ -5979,6 +6062,7 @@ async function runPointCommitTransactionKernel(
       Effect.mapError(error => error.reason === "resourceFailure"
         ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
         : corruption(error.reason === "writeDenied" ? "applicationWritePolicyDenied" : "applicationWritePolicyEvidenceInvalid")))),
+    diagnosticContext,
   ));
   await observePointCommitPublicationPromise(options.publicationObservation, "lifecycleAcceptance", () => validateActiveRelationSelectionForPointCommit(tx, command));
   if (command.relationDependencies.length > 0) {
@@ -6061,7 +6145,7 @@ async function runPointCommitTransactionKernel(
     requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
   );
   const finiteReservation = command.finiteMetadataReservationSha256Hex === null ? null :
-    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(requireFinitePointCommitReservation(command, lease.row)));
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(requireFinitePointCommitReservation(command, lease.row),diagnosticContext));
   if (finiteReservation !== null) projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
     validateConsumedMetadataDependencies(tx, command.authorityPins.scopeId, finiteReservation.metadataWatermark, command.metadataDependencies)
       .pipe(Effect.mapError(error => error.reason === "writeConflict" && error.dependency !== undefined &&
@@ -6070,7 +6154,7 @@ async function runPointCommitTransactionKernel(
           capturedMetadataWatermark: error.capturedMetadataWatermark, lastChangedMetadataSequence: error.lastChangedMetadataSequence },
           snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq, currentCommitSeq: clock.record.lastCommitSeq })
         : error.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("validateIndexRanges", error.cause ?? error)
-          : corruption("dependencySetInvalid")))));
+          : corruption("dependencySetInvalid"))),diagnosticContext));
 
   const admittedParticipants = await observePointCommitPublicationPromise(options.publicationObservation, "participantProof", () =>
     validateAdmittedParticipantOperations(tx, preliminaryAuthority, command, clock.record,
@@ -6085,9 +6169,25 @@ async function runPointCommitTransactionKernel(
       command,
       options,
     );
-    projectPointCommitTransactionResult(
-      validatePointCommitDependenciesResult(command, loadedHeads),
-    );
+    // A generated guard is insertion intent, never an observed missing read.
+    // Genuine reads (including a prior same-ID read) keep their original OCC
+    // validation before the separate insertion collision verdict.
+    const observedDependencies: PointCommitDependencyV1[] = [];
+    const observedHeads: LoadedPointCommitHeadV1[] = [];
+    let insertionConflict: AppDocumentInsertionConflictError | undefined;
+    for (let ordinal = 0; ordinal < command.dependencies.length; ordinal++) {
+      const dependency = command.dependencies[ordinal];
+      const head = loadedHeads[ordinal];
+      if (dependency === undefined || head === undefined) throw corruption("dependencySetInvalid");
+      if (!command.generatedOnlyPoints.has(dependency.documentId)) {
+        observedDependencies.push(dependency); observedHeads.push(head);
+      }
+      if (command.generatedInsertions.has(dependency.documentId) && head.head.kind !== "missing")
+        insertionConflict ??= new AppDocumentInsertionConflictError({ documentId: dependency.documentId });
+    }
+    projectPointCommitTransactionResult(validatePointCommitDependenciesResult(
+      { authorityPins: command.authorityPins, dependencies: observedDependencies }, observedHeads));
+    if (insertionConflict !== undefined) throw insertionConflict;
     const rangeConflict = await findPointCommitIndexRangeConflict(
       tx,
       clock,
@@ -6115,93 +6215,61 @@ async function runPointCommitTransactionKernel(
       relationAdjacencyChanges: Object.freeze([]),
     });
   }
-  const preWriteDatabaseNowMilliseconds = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => readPointCommitDatabaseTime(
-    tx,
-    command.authorityPins.scopeId,
-    options,
-  ));
-  projectPointCommitTransactionResult(
-    requireAttemptIsLiveResult(
-      session,
-      lease,
-      preWriteDatabaseNowMilliseconds,
-    ),
-  );
-  return lowerAcceptedPointCommit(tx, command, clock, loadedHeads, intrinsicBuilds, developerBuilds,
-    developerDefinitions, uniqueDefinitions, validatedApplicationRelations, candidateSchemaWriteGuard, preliminaryAuthority,
-    preWriteDatabaseNowMilliseconds, admittedParticipants, options);
+  return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(Effect.gen(function* () {
+    const originalBuildLocks=yield* Effect.fromResult(captureOriginalApplicationPublicationBuildLocks(tx,clock,intrinsicDefinitions,developerDefinitions));
+    const originals=yield* Effect.exit(observePointCommitPublicationEffect(options.publicationObservation,"priorDocuments",
+      loadApplicationDocumentPriorState(tx,command,loadedHeads,developerBuilds,uniqueDefinitions,validatedApplicationRelations,options)));
+    const settlement=yield* prepareApplicationDocumentSettlementFromOriginalsEffect(command,
+      Exit.isSuccess(originals) ? originals.value.originalRows??[] : [],originals,developerDefinitions,uniqueDefinitions,
+      validatedApplicationRelations,intrinsicDefinitions);
+    const acceptedPublication=yield* acceptApplicationPublication(tx,{clock,settlement,intrinsic:intrinsicDefinitions,developer:developerDefinitions,
+      unique:uniqueDefinitions,relations:validatedApplicationRelations,indexRanges:command.indexRangeDependencies,
+      relationDependencies:command.relationDependencies,candidate:candidateSchemaWriteGuard!==null,oldestAvailableCommitSeq:clock.oldestAvailableCommitSeq,
+      generatedInsertions:command.generatedInsertions,generatedOnlyPoints:command.generatedOnlyPoints,
+      originalBuildLocks,observeQuery:options.observeQuery,deadline:new Date(Math.min(session.authorizationGrantExpiresAtMilliseconds,session.hardExpiresAtMilliseconds,lease.expiresAtMilliseconds))});
+    return yield* lowerAcceptedPointCommit(tx,command,clock,acceptedPublication,candidateSchemaWriteGuard,preliminaryAuthority,admittedParticipants,options);
+  }),diagnosticContext));
 }
 
 
 /** Application and finite settlement share one row/index/unique/relation lowering owner.
  * The command carries material graph facts; no durable seal is needed here. */
-async function lowerAcceptedPointCommit(
+const lowerAcceptedPointCommit = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   command: import("./applicationDocumentMaterialization/model").ApplicationDocumentMaterializationCommand & Readonly<{
     attemptedTableIds: readonly CatalogTableId[] | null; participantMaterialDocumentIds: ReadonlySet<string>;
   }>,
   clock: LockedPointCommitClockV1,
-  loadedHeads: readonly LoadedPointCommitHeadV1[],
-  intrinsicBuilds: Awaited<ReturnType<typeof lockPointCommitIntrinsicIndexBuilds>>,
-  developerBuilds: Awaited<ReturnType<typeof lockPointCommitDeveloperIndexBuilds>>,
-  developerDefinitions: readonly LocatedAppIndexDefinitionV1[],
-  uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
-  validatedApplicationRelations: LocatedPreparedPointCommitApplicationRelations | null,
+  acceptedPublication:AcceptedApplicationPublication,
   candidateSchemaWriteGuard: PreparedPointCommitCandidateSchemaWriteGuard | null,
   preliminaryAuthority: TrustedScopeAuthority,
-  preWriteDatabaseNowMilliseconds: number,
   admittedParticipants: readonly Readonly<{search: readonly LogicalSearchDefinition[]}>[],
   options: PointCommitTransactionProofOptionsV1,
-  finitePredecessors?: Readonly<{
-    freshHeads: import("./applicationDocumentMaterialization/model").FinitePointCommitHeads;
-    documentSettlement: PreparedApplicationDocumentSettlement;
-    capturedCoverage?: CapturedApplicationMaterializationCoverage;
-  }>,
-): Promise<PointCommitKernelResultV1> {
+) {
   options.publicationObservation?.record({ kind: "phase", phase: "lowering", edge: "begin" });
-  try {
-    const allocation = projectPointCommitTransactionResult(
-      allocatePointCommitKernelResult(
+  return yield* Effect.gen(function* () {
+    invalidateAcceptedApplicationBindingInTransaction(tx);
+    const state=yield* Effect.fromResult(readAcceptedApplicationPublication(tx,acceptedPublication));
+    if (state.input.settlement.command!==command) return yield* Effect.fail(corruption("commandInvalid"));
+    const developerDefinitions=state.input.developer;
+    const allocation = (yield* Effect.fromResult(allocatePointCommitKernelResult(
         clock,
-        preWriteDatabaseNowMilliseconds,
-      ),
-    );
-    const preparation = finitePredecessors === undefined
-      ? { kind: "ordinary" as const, priorState: projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-        observePointCommitPublicationEffect(options.publicationObservation, "priorDocuments", loadApplicationDocumentPriorState(
-          tx, command, loadedHeads, developerBuilds, uniqueDefinitions, validatedApplicationRelations, options)))) }
-      : { kind: "finite" as const, settlement: finitePredecessors.documentSettlement, freshHeads: finitePredecessors.freshHeads };
-    if (preparation.kind === "finite")
-      projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(observePointCommitPublicationEffect(
-        options.publicationObservation, "priorDocuments", acceptPreparedApplicationOriginalsEffect(command,
-          preparation.freshHeads, preparation.settlement, developerBuilds, uniqueDefinitions, validatedApplicationRelations))));
-    const developerIndexActions = await observePointCommitPublicationPromise(options.publicationObservation, "developerIndexPreparation", () =>
-      preparation.kind === "ordinary" ? preparePointCommitDeveloperIndexActions(tx, command, preparation.priorState, developerBuilds)
-        : runPointCommitInTransactionEffect(acceptPreparedApplicationDeveloperTransitionsEffect(tx, preparation.settlement, developerBuilds))
-          .then(result => projectPointCommitTransactionResult(result)));
-    const uniquePreparation = await observePointCommitPublicationPromise(options.publicationObservation, "uniquePreparation", async () => {
-      if (preparation.kind === "ordinary")
-        return preparePointCommitUniqueKeyActions(tx, command, preparation.priorState, uniqueDefinitions, clock.record.epoch);
-      const actions = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-        acceptPreparedApplicationUniqueOwnersEffect(tx, preparation.settlement, clock.record.epoch)));
-      const unique = preparation.settlement.unique;
-      if (unique === undefined) throw new Error("Accepted finite unique planning was not reached");
-      if (Exit.isFailure(unique)) return projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(Effect.failCause(unique.cause)));
-      return Object.freeze({ actions, pairs: unique.value });
-    });
-    const relationPlan = await observePointCommitPublicationPromise(options.publicationObservation, "relationPreparation", () =>
-      preparation.kind === "ordinary" ? preparePointCommitApplicationRelationPlan(tx, command, preparation.priorState,
-        validatedApplicationRelations, clock.record.lastCommitSeq, options)
-        : runPointCommitInTransactionEffect(acceptPreparedApplicationRelationsEffect(tx, preparation.settlement, clock.record.lastCommitSeq, options))
-          .then(result => projectPointCommitTransactionResult(result)));
+        state.databaseNowMilliseconds,
+      )));
+    const relation=state.input.settlement.relation;
+    if (relation===undefined) return yield* Effect.die(new Error("Accepted relation preparation was not reached"));
+    if (Exit.isFailure(relation)) return yield* Effect.failCause(relation.cause);
+    const relationPlan=relation.value;
     if (
       relationPlan !== null &&
       relationPlan.prepared.distinctFinalTargetCount > 0
     ) {
-      await emitTransactionStep(options, command, "relationTargetsValidated");
+      yield* runPointCommitPromiseEffect(() => emitTransactionStep(options, command, "relationTargetsValidated"), mapPointCommitCallbackFailure);
     }
     if (candidateSchemaWriteGuard !== null) {
-      const guardResult = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(runCandidateSchemaWriteGuard(
+      const lockedHead=yield* Effect.fromResult(captureAppSchemaCandidateWriteGuardLockedHead(tx,candidateSchemaWriteGuard.guard,
+        preliminaryAuthority,state.candidateHead)).pipe(Effect.mapError(()=>corruption("candidateSchemaValidationInvalid")));
+      const guardResult = (yield* runCandidateSchemaWriteGuard(
         tx,
         candidateSchemaWriteGuard,
         preliminaryAuthority,
@@ -6214,14 +6282,10 @@ async function lowerAcceptedPointCommit(
               rowId: intent.rowId,
               document: intent.document,
             })]
-          : []),
-      )));
+          : []),lockedHead,
+      ));
       if (guardResult.status === "candidateFailed") {
-        await emitTransactionStep(
-          options,
-          command,
-          "candidateSchemaValidationFailed",
-        );
+        yield* runPointCommitPromiseEffect(() => emitTransactionStep(options, command, "candidateSchemaValidationFailed"), mapPointCommitCallbackFailure);
       }
     }
     const applicationTables = new Set(command.attemptedTableIds ?? []);
@@ -6242,42 +6306,25 @@ async function lowerAcceptedPointCommit(
       return Object.freeze({ definitions: Object.freeze([...searchByIdentity.values()]),
         changes: Object.freeze(command.rowIntents.filter(row => command.participantMaterialDocumentIds.has(row.documentId))) });
     });
-    const capturedCoverage = finitePredecessors?.capturedCoverage;
-    const preparedIntrinsic = preparation.kind === "finite" ? preparation.settlement.intrinsic : undefined;
-    if (preparation.kind === "finite" && preparedIntrinsic === undefined)
-      throw new Error("Finite intrinsic planning was not reached");
-    try {
-      await materializeApplicationDocumentRows(tx, {
-        command, commitSeq: allocation.commitSeq, clock: clock.record,
-        loadedHeads, intrinsicBuilds, developerIndexActions, developerBuilds,
-        uniqueKeyActions: uniquePreparation.actions, uniqueDefinitions, canonicalUniquePairs: uniquePreparation.pairs,
+    yield* materializeAcceptedApplicationPublicationRows(tx, {
+        accepted:acceptedPublication,commitSeq:allocation.commitSeq,
         publicationProfile: indexPublicationProfile, options,
-        ...(capturedCoverage === undefined ? {} : { capturedCoverage }),
         ...(searchContribution === undefined ? {} : { searchContribution }),
-        ...(preparedIntrinsic === undefined ? {} : { preparedIntrinsic }),
-      });
-    } catch (cause) {
-      // The shared owner preserves search failures; this Promise settlement
-      // boundary retains the finite publisher's existing error contract.
-      if (cause instanceof LogicalSearchMaintenanceError)
-        throw cause.reason === "statementFailure"
-          ? new PointCommitSqlFailureMarkerV1("writeCommitChange", cause.cause ?? cause)
-          : corruption("rowWriteInvalid");
-      throw cause;
-    }
+      }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, failure => failure instanceof LogicalSearchMaintenanceError
+      ? failure.reason === "statementFailure"
+        ? mapPointCommitCallbackFailure(new PointCommitSqlFailureMarkerV1("writeCommitChange", failure.cause ?? failure))
+        : corruption("rowWriteInvalid")
+      : mapPointCommitCallbackFailure(failure)))));
     if (relationPlan !== null) {
-      const relationMaintenance = await runPointCommitInTransactionEffect(
-        observePointCommitPublicationEffect(options.publicationObservation, "relationWrites", maintainPointCommitApplicationRelationsEffect(
+      yield* observePointCommitPublicationEffect(options.publicationObservation, "relationWrites", maintainPointCommitApplicationRelationsEffect(
           tx,
           command,
           allocation.commitSeq,
           relationPlan,
           options,
-        )),
-      );
-      projectPointCommitTransactionResult(relationMaintenance);
+        ));
     }
-    await resetPointCommitDeveloperIndexValidations(tx, developerBuilds.map(developer => developer.build), options.publicationObservation);
+    yield* resetPointCommitDeveloperIndexValidations(tx,state.developerValidations,options.publicationObservation);
     return Object.freeze({
       kind: "ready",
       clock,
@@ -6285,115 +6332,123 @@ async function lowerAcceptedPointCommit(
         relationPlan?.prepared.adjacencyChanges ?? Object.freeze([]),
       ...allocation,
     });
-  } finally {
+  }).pipe(Effect.ensuring(Effect.sync(() => {
     options.publicationObservation?.record({ kind: "phase", phase: "lowering", edge: "end" });
-  }
-}
+  })));
+}, work => observeExecution("PointCommitTransaction.lowerAccepted", work));
+
 
 /** Reconstruct participant authority from trusted publisher composition. This
  * runs for both live settlement and finish-only recovery under the same scope
  * and journal locks, without invoking any framework callback. */
-async function validateParticipantPointCorrelation(
+const validateParticipantPointCorrelation = Effect.fnUntraced(function* (
   tx: AppRowTransaction, command: PreparedPointCommitTransactionCommandV1,
-): Promise<void> {
+) {
   const journal = command.participantJournal;
-  if (journal === null) throw corruption("commandInvalid");
+  if (journal === null) return yield* Effect.fail(corruption("commandInvalid"));
   if (journal.operationUsage.receiptEvidenceBytes !== command.sealIdentity.receiptEvidenceBytes ||
     journal.operationUsage.participantWorkBytes !== command.sealIdentity.participantWorkBytes ||
     journal.operationUsage.participantWorkCalls !== command.sealIdentity.participantWorkCalls)
-    throw corruption("occEvidenceInvalid");
+    return yield* Effect.fail(corruption("occEvidenceInvalid"));
   const query = tx.select().from(fxSystemTransactionJournalPoints).where(and(
     eq(fxSystemTransactionJournalPoints.scopeUuid, command.sealIdentity.scopeUuid),
     eq(fxSystemTransactionJournalPoints.sessionId, command.authorityPins.sessionId),
     eq(fxSystemTransactionJournalPoints.attemptFence, command.authorityPins.attemptFence),
   )).limit(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 + 1);
-  const rows = await sqlCall("validateParticipantEvidence", () => query);
-  if (rows.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) throw corruption("occEvidenceInvalid");
+  const rows = yield* runDrizzleStatementEffect(query, cause => pointCommitSqlCallFailure("validateParticipantEvidence", cause));
+  if (rows.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) return yield* Effect.fail(corruption("occEvidenceInvalid"));
   const points: ParticipantPointCorrelation[] = [];
   for (const row of rows) {
-    const rowId = projectPointCommitTransactionResult(appRowIdHexV1FromBytesResult(row.rowId)
+    const rowId = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(row.rowId)
       .pipe(Result.mapError(() => corruption("occEvidenceInvalid"))));
-    const tableId = projectPointCommitTransactionResult(decodePointCommitEncodedTableIdResult(row.tableId)
+    const tableId = yield* Effect.fromResult(decodePointCommitEncodedTableIdResult(row.tableId)
       .pipe(Result.mapError(() => corruption("occEvidenceInvalid"))));
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
-    const revision = row.dependencyRevisionCommitSeq === null ? null : projectPointCommitTransactionResult(
+    const revision = row.dependencyRevisionCommitSeq === null ? null : yield* Effect.fromResult(
       decodePointCommitRetainedFloorResult(row.dependencyRevisionCommitSeq)
         .pipe(Result.mapError(() => corruption("occEvidenceInvalid"))));
-    const observed: ParticipantPointCorrelation["observed"] = row.dependencyKind === "present" && revision !== null
-      ? { kind: "present", revisionCommitSeq: revision }
-      : row.dependencyKind === "missing_tombstone" && revision !== null
-        ? { kind: "missing", basis: { kind: "tombstone", revisionCommitSeq: revision } }
-        : row.dependencyKind === "missing_no_visible_revision" && revision === null
-          ? { kind: "missing", basis: { kind: "noVisibleRevision" } }
-          : (() => { throw corruption("occEvidenceInvalid"); })();
+    let observed: ParticipantPointCorrelation["observed"];
+    if (row.dependencyKind === "present" && revision !== null) observed = { kind: "present", revisionCommitSeq: revision };
+    else if (row.dependencyKind === "missing_tombstone" && revision !== null)
+      observed = { kind: "missing", basis: { kind: "tombstone", revisionCommitSeq: revision } };
+    else if (row.dependencyKind === "missing_no_visible_revision" && revision === null)
+      observed = { kind: "missing", basis: { kind: "noVisibleRevision" } };
+    else if (row.dependencyKind === "generated_insertion" && revision === null && command.generatedOnlyPoints.has(documentId))
+      observed = { kind: "generatedInsertion" };
+    else return yield* Effect.fail(corruption("occEvidenceInvalid"));
     points.push(Object.freeze({ documentId, tableId, observed, overlayKind: row.overlayKind,
       overlayValueJson: row.overlayValueJson }));
   }
-  projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-    verifyParticipantPointCorrelationEffect(journal, points)
-      .pipe(Effect.mapError(() => corruption("occEvidenceInvalid")))));
+  yield* verifyParticipantPointCorrelationEffect(journal, points)
+    .pipe(Effect.mapError(() => corruption("occEvidenceInvalid")));
   const pointById = new Map(points.map(point => [point.documentId, point] as const));
-  const firstBefore = new Map<SourceContribution["effects"][number]["documentId"],
-    SourceContribution["effects"][number]>();
+  const firstBefore = new Map<SourceContribution["effects"][number]["documentId"], SourceContribution["effects"][number]>();
   for (const operation of journal.participantOperations)
     for (const effect of operation.sourceContributions.flatMap(source => source.effects)
       .toSorted((left, right) => left.effectOrdinal - right.effectOrdinal))
-    if (!firstBefore.has(effect.documentId)) firstBefore.set(effect.documentId, effect);
+      if (!firstBefore.has(effect.documentId)) firstBefore.set(effect.documentId, effect);
   const rowById = new Map(command.rowIntents.map(row => [row.documentId, row] as const));
-  const selected = [...firstBefore];
+  const verifyFinal = Effect.fnUntraced(function* (documentId: AppDocumentIdV1, point: ParticipantPointCorrelation) {
+    const intent = rowById.get(documentId);
+    if (point.overlayKind === "deleted" && command.generatedInsertions.has(documentId)) {
+      if (intent !== undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      return;
+    }
+    if (intent === undefined || intent.tableId !== point.tableId) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+    if (point.overlayKind === "live") {
+      if (intent.kind !== "live" || point.overlayValueJson === null) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      const final = yield* canonicalizeFlarexValueV1Effect(point.overlayValueJson, "appDocument")
+        .pipe(Effect.mapError(() => corruption("occEvidenceInvalid")));
+      if (!bytesEqual(final.canonicalBytes, intent.document.canonicalBytes)) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+    } else if (point.overlayKind !== "deleted" || intent.kind !== "deleted") return yield* Effect.fail(corruption("occEvidenceInvalid"));
+  });
+  for (const [documentId] of firstBefore) {
+    const point = pointById.get(documentId);
+    if (point?.observed.kind === "generatedInsertion") yield* verifyFinal(documentId, point);
+  }
+  const selected = [...firstBefore].filter(([documentId]) => pointById.get(documentId)?.observed.kind !== "generatedInsertion");
   for (let offset = 0; offset < selected.length;) {
     const firstEntry = selected[offset];
-    if (firstEntry === undefined) throw corruption("occEvidenceInvalid");
+    if (firstEntry === undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
     const tableId = firstEntry[1].tableId;
     const batch: typeof selected = [];
+    const rowIds: AppRowIdHexV1[] = [];
     while (offset < selected.length && batch.length < 32) {
       const entry = selected[offset];
       if (entry === undefined || entry[1].tableId !== tableId) break;
-      const intent = rowById.get(entry[0]);
-      if (intent === undefined || intent.tableId !== tableId || !pointById.has(entry[0])) {
-        if (batch.length === 0) throw corruption("occEvidenceInvalid");
-        break;
-      }
-      batch.push(entry);
-      offset++;
+      const point = pointById.get(entry[0]);
+      const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(entry[0])
+        .pipe(Result.mapError(() => corruption("occEvidenceInvalid"))));
+      if (point === undefined || point.tableId !== tableId || identity.tableId !== tableId)
+        return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      batch.push(entry); rowIds.push(identity.rowId); offset++;
     }
     let ordinal = 0;
-    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-      consumeAppRowSnapshotRevisionsInTransactionEffect(tx, {
-        scopeId: command.authorityPins.scopeId, tableId,
-        rowIds: batch.map(([documentId]) => rowById.get(documentId)!.rowId),
-        snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
-      }, error => error instanceof AppRowReadPersistenceError
-        ? new PointCommitSqlFailureMarkerV1("validateParticipantEvidence", error.cause ?? error)
-        : corruption("occEvidenceInvalid"), (_rowId, historical) => Effect.gen(function* () {
-            const entry = batch[ordinal++];
-            if (entry === undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
-            const [documentId, first] = entry;
-            const point = pointById.get(documentId);
-            const intent = rowById.get(documentId);
-            if (point === undefined || intent === undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
-    if (point.observed.kind === "present") {
-      if (historical.kind !== "live" || historical.commitSeq !== point.observed.revisionCommitSeq ||
-        first.before === null) return yield* Effect.fail(corruption("occEvidenceInvalid"));
-      const prior = yield* Effect.tryPromise({ try: () => canonicalizeFlarexValueV1(first.before!, "appDocument"),
-          catch: () => corruption("occEvidenceInvalid") });
-      if (!bytesEqual(prior.canonicalBytes, historical.document.canonicalBytes)) return yield* Effect.fail(corruption("occEvidenceInvalid"));
-    } else if (point.observed.basis.kind === "tombstone") {
-      if (historical.kind !== "tombstone" || historical.commitSeq !== point.observed.basis.revisionCommitSeq)
-        return yield* Effect.fail(corruption("occEvidenceInvalid"));
-    } else if (historical.kind !== "missing") return yield* Effect.fail(corruption("occEvidenceInvalid"));
-    if (point.overlayKind === "live") {
-      if (intent.kind !== "live" || point.overlayValueJson === null) return yield* Effect.fail(corruption("occEvidenceInvalid"));
-      const final = yield* Effect.tryPromise({ try: () => canonicalizeFlarexValueV1(point.overlayValueJson!, "appDocument"),
-          catch: () => corruption("occEvidenceInvalid") });
-      if (!bytesEqual(final.canonicalBytes, intent.document.canonicalBytes)) return yield* Effect.fail(corruption("occEvidenceInvalid"));
-    } else if (point.overlayKind === "deleted") {
-      if (intent.kind !== "deleted") return yield* Effect.fail(corruption("occEvidenceInvalid"));
-    } else return yield* Effect.fail(corruption("occEvidenceInvalid"));
-        })),
-    ));
+    yield* consumeAppRowSnapshotRevisionsInTransactionEffect(tx, {
+      scopeId: command.authorityPins.scopeId, tableId, rowIds,
+      snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
+    }, error => error instanceof AppRowReadPersistenceError
+      ? new PointCommitSqlFailureMarkerV1("validateParticipantEvidence", error.cause ?? error)
+      : corruption("occEvidenceInvalid"), (_rowId, historical) => Effect.gen(function* () {
+      const entry = batch[ordinal++];
+      if (entry === undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      const [documentId, first] = entry;
+      const point = pointById.get(documentId);
+      if (point === undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      if (point.observed.kind === "present") {
+        if (historical.kind !== "live" || historical.commitSeq !== point.observed.revisionCommitSeq || first.before === null)
+          return yield* Effect.fail(corruption("occEvidenceInvalid"));
+        const prior = yield* canonicalizeFlarexValueV1Effect(first.before, "appDocument")
+          .pipe(Effect.mapError(() => corruption("occEvidenceInvalid")));
+        if (!bytesEqual(prior.canonicalBytes, historical.document.canonicalBytes)) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      } else if (point.observed.kind === "missing" && point.observed.basis.kind === "tombstone") {
+        if (historical.kind !== "tombstone" || historical.commitSeq !== point.observed.basis.revisionCommitSeq)
+          return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      } else if (historical.kind !== "missing") return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      yield* verifyFinal(documentId, point);
+    }));
   }
-}
+}, work => observeExecution("PointCommit.validateParticipantPointCorrelation", work));
 
 async function validateAdmittedParticipantOperations(
   tx: AppRowTransaction,
@@ -6406,16 +6461,16 @@ async function validateAdmittedParticipantOperations(
   finiteReservation: FiniteMetadataReservation | null = null,
 ): Promise<readonly Readonly<{ search: readonly LogicalSearchDefinition[] }>[]> {
   if (command.participantOperations.length === 0) return [];
-  await validateParticipantPointCorrelation(tx, command);
   // The existing Promise transaction owns this single Effect bridge. Source
   // evidence is shared only within the already locked publication transaction.
   return projectPointCommitTransactionResult((await runPointCommitInTransactionEffect(
-    withSharedLogicalSourceBindingChecks(tx, () => validateAdmittedParticipantOperationsInTransaction(
-      tx, authority, command, clock, developerDefinitions, uniqueDefinitions, options, finiteReservation)),
+    validateParticipantPointCorrelation(tx, command).pipe(Effect.andThen(
+      withSharedLogicalSourceBindingChecks(tx, () => validateAdmittedParticipantOperationsInTransaction(
+        tx, authority, command, clock, developerDefinitions, uniqueDefinitions, options, finiteReservation)))),
   )).pipe(Result.mapError(error => error instanceof PointCommitAdmissionDigestProviderError ? error.cause : error)));
 }
 
-const validateAdmittedParticipantOperationsInTransaction = Effect.fn("PointCommit.validateAdmittedParticipants")(
+const validateAdmittedParticipantOperationsInTransaction = Effect.fnUntraced(
 function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
@@ -6429,128 +6484,151 @@ function* (
   const operations = command.participantOperations;
   const principalDigest = encodeBytesToLowercaseHex(command.session.identityAccessPolicySha256);
   const validated: Array<Readonly<{ search: readonly LogicalSearchDefinition[] }>> = [];
-  for (const operation of operations) {
-    const selectedProfile = yield* Effect.fromResult(selectLogicalOperationProfileResult(options, operation));
-    for (const [ordinal, contribution] of operation.sourceContributions.entries()) {
-    const dependencyEvidence = yield* Effect.fromResult(decodeLogicalParticipantDependencyEvidence(contribution.dependencyEvidence)
-      .pipe(Result.mapError(() => corruption("dependencySetInvalid"))));
-    if (finiteReservation === null ? dependencyEvidence.version !== 1 : dependencyEvidence.version !== 2 ||
-      dependencyEvidence.metadataWatermark !== finiteReservation.metadataWatermark.toString())
-      return yield* Effect.fail(corruption("dependencySetInvalid"));
-    const token = selectedProfile.authorities[ordinal]!;
-    if (finiteReservation !== null && dependencyEvidence.version === 2) {
-      const projection = inspectLogicalParticipantCommitMetadataProjection(token, operation, contribution);
-      if (projection === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
-      const metadata = yield* decodePointCommitMetadataDependenciesEffect(dependencyEvidence.metadataDependencies)
-        .pipe(Effect.mapError(() => corruption("dependencySetInvalid")));
-      for (const tableId of new Set(contribution.effects.map(effect => effect.tableId))) {
-        const table = finiteMetadataTableKey(projection, tableId, "table"), closure = finiteMetadataTableKey(projection, tableId, "writeClosure");
-        if (table === null || closure === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
-        for (const key of [table, closure, { namespace: table.namespace, ownerKey: table.ownerKey, contractKey: finiteMetadataContractKey("sourcePolicy") }]) {
-          const expected = yield* Effect.fromResult(captureFiniteMetadataDependency(projection, key, finiteReservation.metadataWatermark)
-            .pipe(Result.mapError(() => corruption("dependencySetInvalid"))));
-          if (expected.observed.kind !== "present") return yield* Effect.fail(corruption("dependencySetInvalid"));
-          const semanticSha256Hex = expected.observed.semanticSha256Hex;
-          if (!metadata.some(member =>
-            logicalMetadataDependencyIdentity(member) === logicalMetadataDependencyIdentity(expected) && member.observed.kind === "present" &&
-            member.capturedWatermark === expected.capturedWatermark && member.observed.semanticSha256Hex === semanticSha256Hex))
-            return yield* Effect.fail(corruption("dependencySetInvalid"));
+  // Open the genuine Application callback at the first Application-owning
+  // source's authority barrier, after its digest; retain it through later sources.
+  const validateFrom = Effect.fnUntraced(function* (initialOperation: number, initialOrdinal: number,
+    borrowed?: AcceptedApplicationBinding,
+    resumed?: { readonly profile: SelectedLogicalOperationProfile }): Effect.fn.Return<void,
+      PointCommitCorruptionV1Error | PointCommitSqlFailureMarkerV1 | PointCommitStaleAuthorityV1Error |
+      PointCommitConflictV1Error | PointCommitAdmissionDigestProviderError> {
+    for (let operationIndex = initialOperation; operationIndex < operations.length; operationIndex++) {
+      const operation = operations[operationIndex]!;
+      const selectedProfile = resumed !== undefined && operationIndex === initialOperation ? resumed.profile
+        : yield* Effect.fromResult(selectLogicalOperationProfileResult(options, operation));
+      for (let ordinal = operationIndex === initialOperation ? initialOrdinal : 0; ordinal < operation.sourceContributions.length; ordinal++) {
+      const contribution = operation.sourceContributions[ordinal]!;
+      const token = selectedProfile.authorities[ordinal]!;
+      if (!(resumed !== undefined && operationIndex === initialOperation && ordinal === initialOrdinal)) {
+        const dependencyEvidence = yield* Effect.fromResult(decodeLogicalParticipantDependencyEvidence(contribution.dependencyEvidence)
+          .pipe(Result.mapError(() => corruption("dependencySetInvalid"))));
+        if (finiteReservation === null ? dependencyEvidence.version !== 1 : dependencyEvidence.version !== 2 ||
+          dependencyEvidence.metadataWatermark !== finiteReservation.metadataWatermark.toString())
+          return yield* Effect.fail(corruption("dependencySetInvalid"));
+        if (finiteReservation !== null && dependencyEvidence.version === 2) {
+          const projection = inspectLogicalParticipantCommitMetadataProjection(token, operation, contribution);
+          if (projection === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
+          const metadata = yield* decodePointCommitMetadataDependenciesEffect(dependencyEvidence.metadataDependencies)
+            .pipe(Effect.mapError(() => corruption("dependencySetInvalid")));
+          for (const tableId of new Set(contribution.effects.map(effect => effect.tableId))) {
+            const table = finiteMetadataTableKey(projection, tableId, "table"), closure = finiteMetadataTableKey(projection, tableId, "writeClosure");
+            if (table === null || closure === null) return yield* Effect.fail(corruption("dependencySetInvalid"));
+            for (const key of [table, closure, { namespace: table.namespace, ownerKey: table.ownerKey, contractKey: finiteMetadataContractKey("sourcePolicy") }]) {
+              const expected = yield* Effect.fromResult(captureFiniteMetadataDependency(projection, key, finiteReservation.metadataWatermark)
+                .pipe(Result.mapError(() => corruption("dependencySetInvalid"))));
+              if (expected.observed.kind !== "present") return yield* Effect.fail(corruption("dependencySetInvalid"));
+              const semanticSha256Hex = expected.observed.semanticSha256Hex;
+              if (!metadata.some(member =>
+                logicalMetadataDependencyIdentity(member) === logicalMetadataDependencyIdentity(expected) && member.observed.kind === "present" &&
+                member.capturedWatermark === expected.capturedWatermark && member.observed.semanticSha256Hex === semanticSha256Hex))
+                return yield* Effect.fail(corruption("dependencySetInvalid"));
+            }
+          }
         }
+        const binding = yield* Effect.fromResult(canonicalizeAdmittedParticipantBindingV1Result({
+          scopeId: command.authorityPins.scopeId,
+          sessionId: command.authorityPins.sessionId,
+          attemptFence: command.authorityPins.attemptFence,
+          snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
+          schemaVersionId: command.authorityPins.schemaVersionId,
+          principalDigest,
+          participant: operation.participant,
+          method: operation.method,
+          sourceKey: contribution.sourceKey,
+          sourceSha256Hex: contribution.sourceSha256Hex,
+          bindingHead: contribution.bindingHead,
+        }).pipe(Result.mapError(() => corruption("commandInvalid"))));
+        const bindingBytes = yield* Effect.tryPromise({
+          try: () => crypto.subtle.digest("SHA-256", new Uint8Array(binding.bytes).buffer),
+          catch: cause => new PointCommitAdmissionDigestProviderError({ cause }),
+        });
+        if (encodeBytesToLowercaseHex(new Uint8Array(bindingBytes)) !== contribution.sourceBindingSha256Hex)
+          return yield* Effect.fail(corruption("commandInvalid"));
+      }
+      if (finiteReservation === null && borrowed === undefined &&
+        selectedProfile.applicationBindings[ordinal] === true)
+        return yield* withLogicalParticipantCommitApplicationBindingInTransaction(token, tx, clock,
+          binding => validateFrom(operationIndex, ordinal, binding, { profile: selectedProfile })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error =>
+            error instanceof LogicalParticipantAdmissionError ? error.reason === "resourceFailure"
+              ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
+              : error.reason === "storedCorruption" ? corruption("activeApplicationHeadInvalid")
+                : new PointCommitStaleAuthorityV1Error({ reason: "activeSchemaChanged" }) : error))));
+      const admittedEffect = (finiteReservation === null
+        ? requireLogicalParticipantCommitAuthorityEffect(token, operation, contribution, tx, authority, clock, borrowed)
+        : requireFiniteLogicalParticipantCommitAuthorityEffect(token, operation, contribution, tx, authority, clock)).pipe(
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error.reason === "resourceFailure"
+          ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
+          : error.reason === "storedCorruption" ? corruption("activeApplicationHeadInvalid")
+            : new PointCommitStaleAuthorityV1Error({ reason: "activeSchemaChanged" })))));
+      const admitted = yield* admittedEffect;
+      const touched = new Set(contribution.effects.map(effect => effect.tableId));
+      const expectedIndexes = admitted.indexes.filter(definition => definition.access.kind === "developer" &&
+        touched.has(definition.access.tableId));
+      const actualIndexes = developerDefinitions.filter(definition => touched.has(definition.access.tableId));
+      if (expectedIndexes.length !== actualIndexes.length || expectedIndexes.some(expected =>
+        !actualIndexes.some(actual => actual.indexDefinitionId === expected.indexDefinitionId &&
+          actual.physicalSpecSha256Hex === expected.physicalSpecSha256Hex)))
+        return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
+      const expectedUnique = admitted.unique.filter(definition => touched.has(definition.tableId));
+      const actualUnique = uniqueDefinitions.filter(definition => touched.has(definition.tableId));
+      if (expectedUnique.length !== actualUnique.length || expectedUnique.some(expected =>
+        !actualUnique.some(actual => actual.uniqueConstraintDefinitionId === expected.uniqueConstraintDefinitionId &&
+          actual.physicalSpecSha256Hex === expected.physicalSpecSha256Hex)))
+        return yield* Effect.fail(corruption("uniqueConstraintDefinitionInvalid"));
+      for (const row of command.rowIntents) {
+        if (!command.participantMaterialDocumentIds.has(row.documentId) || !touched.has(row.tableId) || row.kind === "deleted")
+          continue;
+        yield* Effect.fromResult(admitted.validateDocument(row.tableId, row.document)
+          .pipe(Result.mapError(() => corruption("rowWriteInvalid"))));
+      }
+      validated.push(Object.freeze({ search: admitted.search.filter(definition => touched.has(definition.tableId)) }));
+      const dependencyEffect = validateLogicalParticipantDependencyEvidence(
+        tx, command.authorityPins.scopeId, operation, contribution,
+        { tableIds: admitted.tableIds, ...admitted.readDefinitions }, options.publicationObservation).pipe(
+          Effect.mapError(error => error.reason === "writeConflict"
+            ? new PointCommitConflictV1Error({ conflict: { kind: "logicalParticipant",
+              participant: operation.participant, syscallSequence: operation.syscallSequence },
+              snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
+              currentCommitSeq: clock.lastCommitSeq })
+            : error.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("validateIndexRanges", error.cause ?? error)
+              : corruption("dependencySetInvalid")));
+      yield* dependencyEffect;
+      const events: CommittedEvent[] = [];
+      for (const event of operation.eventIntents.filter(intent => intent.sourceKey === contribution.sourceKey))
+        events.push(yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent)
+          .pipe(Result.mapError(() => corruption("commandInvalid")))));
+      const eventBindings = (options.logicalParticipantEvents ?? []).filter(member => member.authority === token);
+      if (eventBindings.length > 1 || (events.length > 0 && eventBindings.length !== 1))
+        return yield* Effect.fail(corruption("commandInvalid"));
+      const eventBinding = eventBindings[0];
+      if (eventBinding !== undefined) {
+        const group = admittedCommerceEventGroup({ scopeUuid: command.sealIdentity.scopeUuid,
+          sessionId: command.authorityPins.sessionId, attemptFence: command.authorityPins.attemptFence });
+        const eventEvidence = validateAdmittedCommerceEventIntents(
+          eventBinding.policy, eventBinding.selection, events, group).pipe(
+          Effect.mapError(() => corruption("commandInvalid")));
+        yield* eventEvidence;
+      }
+      }
+      yield* requireAdmittedOperationBundleDigest(operation);
+      const workflowEvents: CommittedEvent[] = [];
+      for (const event of operation.eventIntents.filter(intent => intent.sourceKey === null))
+        workflowEvents.push(yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent)
+          .pipe(Result.mapError(() => corruption("commandInvalid")))));
+      const operationEventBinding = selectedProfile.profile.operationEvents;
+      if (workflowEvents.length > 0 && operationEventBinding === undefined)
+        return yield* Effect.fail(corruption("commandInvalid"));
+      if (operationEventBinding !== undefined) {
+        const group = admittedCommerceEventGroup({ scopeUuid: command.sealIdentity.scopeUuid,
+          sessionId: command.authorityPins.sessionId, attemptFence: command.authorityPins.attemptFence });
+        yield* validateAdmittedOperationEventIntents(operationEventBinding.policy,
+          operationEventBinding.selection, workflowEvents, group)
+          .pipe(Effect.mapError(() => corruption("commandInvalid")));
       }
     }
-    const binding = yield* Effect.fromResult(canonicalizeAdmittedParticipantBindingV1Result({
-      scopeId: command.authorityPins.scopeId,
-      sessionId: command.authorityPins.sessionId,
-      attemptFence: command.authorityPins.attemptFence,
-      snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
-      schemaVersionId: command.authorityPins.schemaVersionId,
-      principalDigest,
-      participant: operation.participant,
-      method: operation.method,
-      sourceKey: contribution.sourceKey,
-      sourceSha256Hex: contribution.sourceSha256Hex,
-      bindingHead: contribution.bindingHead,
-    }).pipe(Result.mapError(() => corruption("commandInvalid"))));
-    const bindingBytes = yield* Effect.tryPromise({
-      try: () => crypto.subtle.digest("SHA-256", new Uint8Array(binding.bytes).buffer),
-      catch: cause => new PointCommitAdmissionDigestProviderError({ cause }),
-    });
-    if (encodeBytesToLowercaseHex(new Uint8Array(bindingBytes)) !== contribution.sourceBindingSha256Hex)
-      return yield* Effect.fail(corruption("commandInvalid"));
-    const admittedEffect = (finiteReservation === null ? requireLogicalParticipantCommitAuthorityEffect : requireFiniteLogicalParticipantCommitAuthorityEffect)(
-      token, operation, contribution, tx, authority, clock).pipe(
-      Effect.mapError(error => error.reason === "resourceFailure"
-        ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
-        : error.reason === "storedCorruption" ? corruption("activeApplicationHeadInvalid")
-          : new PointCommitStaleAuthorityV1Error({ reason: "activeSchemaChanged" })));
-    const admitted = yield* admittedEffect;
-    const touched = new Set(contribution.effects.map(effect => effect.tableId));
-    const expectedIndexes = admitted.indexes.filter(definition => definition.access.kind === "developer" &&
-      touched.has(definition.access.tableId));
-    const actualIndexes = developerDefinitions.filter(definition => touched.has(definition.access.tableId));
-    if (expectedIndexes.length !== actualIndexes.length || expectedIndexes.some(expected =>
-      !actualIndexes.some(actual => actual.indexDefinitionId === expected.indexDefinitionId &&
-        actual.physicalSpecSha256Hex === expected.physicalSpecSha256Hex)))
-      return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
-    const expectedUnique = admitted.unique.filter(definition => touched.has(definition.tableId));
-    const actualUnique = uniqueDefinitions.filter(definition => touched.has(definition.tableId));
-    if (expectedUnique.length !== actualUnique.length || expectedUnique.some(expected =>
-      !actualUnique.some(actual => actual.uniqueConstraintDefinitionId === expected.uniqueConstraintDefinitionId &&
-        actual.physicalSpecSha256Hex === expected.physicalSpecSha256Hex)))
-      return yield* Effect.fail(corruption("uniqueConstraintDefinitionInvalid"));
-    for (const row of command.rowIntents) {
-      if (!command.participantMaterialDocumentIds.has(row.documentId) || !touched.has(row.tableId) || row.kind === "deleted")
-        continue;
-      yield* Effect.fromResult(admitted.validateDocument(row.tableId, row.document)
-        .pipe(Result.mapError(() => corruption("rowWriteInvalid"))));
-    }
-    validated.push(Object.freeze({ search: admitted.search.filter(definition => touched.has(definition.tableId)) }));
-    const dependencyEffect = validateLogicalParticipantDependencyEvidence(
-      tx, command.authorityPins.scopeId, operation, contribution,
-      { tableIds: admitted.tableIds, ...admitted.readDefinitions }, options.publicationObservation).pipe(
-        Effect.mapError(error => error.reason === "writeConflict"
-          ? new PointCommitConflictV1Error({ conflict: { kind: "logicalParticipant",
-            participant: operation.participant, syscallSequence: operation.syscallSequence },
-            snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
-            currentCommitSeq: clock.lastCommitSeq })
-          : error.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("validateIndexRanges", error.cause ?? error)
-            : corruption("dependencySetInvalid")));
-    yield* dependencyEffect;
-    const events: CommittedEvent[] = [];
-    for (const event of operation.eventIntents.filter(intent => intent.sourceKey === contribution.sourceKey))
-      events.push(yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent)
-        .pipe(Result.mapError(() => corruption("commandInvalid")))));
-    const eventBindings = (options.logicalParticipantEvents ?? []).filter(member => member.authority === token);
-    if (eventBindings.length > 1 || (events.length > 0 && eventBindings.length !== 1))
-      return yield* Effect.fail(corruption("commandInvalid"));
-    const eventBinding = eventBindings[0];
-    if (eventBinding !== undefined) {
-      const group = admittedCommerceEventGroup({ scopeUuid: command.sealIdentity.scopeUuid,
-        sessionId: command.authorityPins.sessionId, attemptFence: command.authorityPins.attemptFence });
-      const eventEvidence = validateAdmittedCommerceEventIntents(
-        eventBinding.policy, eventBinding.selection, events, group).pipe(
-        Effect.mapError(() => corruption("commandInvalid")));
-      yield* eventEvidence;
-    }
-    }
-    yield* requireAdmittedOperationBundleDigest(operation);
-    const workflowEvents: CommittedEvent[] = [];
-    for (const event of operation.eventIntents.filter(intent => intent.sourceKey === null))
-      workflowEvents.push(yield* Effect.fromResult(decodePointCommitEventEnvelope(event.intent)
-        .pipe(Result.mapError(() => corruption("commandInvalid")))));
-    const operationEventBinding = selectedProfile.profile.operationEvents;
-    if (workflowEvents.length > 0 && operationEventBinding === undefined)
-      return yield* Effect.fail(corruption("commandInvalid"));
-    if (operationEventBinding !== undefined) {
-      const group = admittedCommerceEventGroup({ scopeUuid: command.sealIdentity.scopeUuid,
-        sessionId: command.authorityPins.sessionId, attemptFence: command.authorityPins.attemptFence });
-      yield* validateAdmittedOperationEventIntents(operationEventBinding.policy,
-        operationEventBinding.selection, workflowEvents, group)
-        .pipe(Effect.mapError(() => corruption("commandInvalid")));
-    }
-  }
+  });
+  yield* validateFrom(0, 0);
   return Object.freeze(validated);
-});
+}, work => observeExecution("PointCommit.validateAdmittedParticipants", work));
 
 function requirePointCommitReadyForPublicationResult(
   kernel: Extract<PointCommitKernelResultV1, { readonly kind: "ready" }>,
@@ -7033,7 +7111,7 @@ function preparedApplicationRelationsForFiniteCommit(
   return prepared?.definitions == null ? null : Object.freeze({ port: prepared.port, definitions: prepared.definitions });
 }
 
-const requireFinitePointCommitReservation = Effect.fn("PointCommit.requireFiniteReservation")(function* (
+const requireFinitePointCommitReservation = Effect.fnUntraced(function* (
   command: Pick<PreparedPointCommitTransactionCommandV1, "authorityPins" | "finiteMetadataReservationSha256Hex">,
   lease: typeof fxSystemSnapshotLeases.$inferSelect,
 ) {
@@ -7049,7 +7127,7 @@ const requireFinitePointCommitReservation = Effect.fn("PointCommit.requireFinite
     reservation.snapshotToken.commitSeq !== pins.snapshotToken.commitSeq)
     return yield* Effect.fail(corruption("leaseInvalid"));
   return reservation;
-});
+}, work => observeExecution("PointCommit.requireFiniteReservation", work));
 
 function selectPointCommitSessionRows(tx: AppRowTransaction, command: PreparedPointCommitAuthorityCommandV1) {
   return tx
@@ -8124,7 +8202,8 @@ async function publishPointCommitInTransaction(
   if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "sessionCommits", counts: { rows: session.length } });
 
   await reproveScopePublicationPrefix(prefix);
-  await advanceScopePublicationClock(tx, contribution, kernel, options);
+  projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    advanceScopePublicationClock(tx, contribution, kernel, options)));
 }
 
 function requireSinglePublicationWriteResult<

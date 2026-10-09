@@ -1,0 +1,169 @@
+{
+  "files": [
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-product/quiet-9245a250-7cc0-4ced-b3b7-86e647f2c436.json.gz",
+      "originalBytes": 35898,
+      "sha256": "d0e2cfddfb4fc7b34dc3268cd54f66fd6f8666ff078f5a6deeb9e443c746195e"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-product/quiet-7a2c03d1-3778-423f-86c8-b51d98b0cbda.json.gz",
+      "originalBytes": 35962,
+      "sha256": "4407a7953110aeb6cbd27a0cfbaaeb017f2d035774224fbed237a0ef62ded1ee"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-product/root-counters-8cf9d69a-ac02-4b61-bfbb-97fd3884c818.json.gz",
+      "originalBytes": 46959,
+      "sha256": "590e3dd31b1ae825987b49a0feb1bc53543df60b543c02ce0d547c8f8c6b1094"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-product/root-counters-1031ba41-24dc-46fd-9e87-61a32bfb7b52.json.gz",
+      "originalBytes": 46864,
+      "sha256": "7593ca9556025ff5aa2b9daf0e0858a6a1314d218a6aec7cc35a8689423b3a21"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-product/database-6ceed965-9b0b-4c16-b6ca-bc0474926319.json.gz",
+      "originalBytes": 14604695,
+      "sha256": "c708f214af54381b2a02e3d45e6f9826a411f9df0667f526dcd5e60ccbed7f55"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-product/database-cfbdae58-1412-44a6-8a69-acf2a5107a47.json.gz",
+      "originalBytes": 14644889,
+      "sha256": "149da3cba8fcdb43d50709fc685b09a6ac4d6c30d2e413cac4acaebe02d0e97f"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/payload-create/quiet-ed9b2a10-60bf-47b3-a0cb-2134df662c29.json.gz",
+      "originalBytes": 35683,
+      "sha256": "5432d9812467a0bc77b78edae8b2459532327953417e7144499a1b8ee7e1b3ea"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/payload-create/quiet-306d8a87-9b35-4f28-a3c3-f1bfbbd8541a.json.gz",
+      "originalBytes": 35850,
+      "sha256": "5c172d0a7c022661234c7b4b9ce673e0c958628ff358f9dcd410f4e87515ea84"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/payload-create/root-counters-9f5ec3c1-7280-4e80-ade6-42e6bb11274c.json.gz",
+      "originalBytes": 46589,
+      "sha256": "2ad18bb57afc1e44b7907ccfd1dd839515fbaf3e2df00d6a13f77bbb0868719d"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/payload-create/root-counters-d6a8ab8b-2942-4fd1-8c98-b9f135afd310.json.gz",
+      "originalBytes": 46699,
+      "sha256": "39af9dcdfc8e22052fdfb34c01335a76c72d69f12a9df067633b1f06f3641c2f"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/payload-create/database-a0e720e2-fbbd-4a3b-856f-edce6bb3a5e8.json.gz",
+      "originalBytes": 9661405,
+      "sha256": "cfc0b9c9ff051fa5d8744001cfe0044567d0b54c55502f46d5796650e4839be8"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/payload-create/database-b5c32ecb-a9e0-48ce-a885-34198734ac0a.json.gz",
+      "originalBytes": 5218870,
+      "sha256": "2a24055bc38999679ad089073119add9b3e25833ce88d344b2b9e5060962e7bb"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/medusa-workflow/quiet-131d2659-dcc1-43e2-9ff6-cfdf2044c66a.json.gz",
+      "originalBytes": 35705,
+      "sha256": "ec9890265a709a58c701b4167c589b5d27c24661762c12d25a172f4f964b86ef"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/medusa-workflow/quiet-6f5f633e-c4c2-445c-a834-1dbb806570d4.json.gz",
+      "originalBytes": 35803,
+      "sha256": "8cfaf909d4e443df07a4b29dbfa6a6811ed0c2e490afcf3af14c4f87e43c7671"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/medusa-workflow/root-counters-984aede5-d1c4-444c-af21-e9698dd21e3e.json.gz",
+      "originalBytes": 46851,
+      "sha256": "7b668f517e82838f5fc3c93280693979a4d650bf6a0d44802bbd7ee5346dba1e"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/medusa-workflow/root-counters-c42f071a-34fd-435c-8a7d-db1291ccdab2.json.gz",
+      "originalBytes": 46881,
+      "sha256": "fa3b414603cc4cb7c85d5fe15f7a9f189ea21920137e2298863b224fa0dad8d1"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/medusa-workflow/database-01d9e9b9-7eda-4b94-9d41-261ed75d42be.json.gz",
+      "originalBytes": 54009631,
+      "sha256": "69273e73b9566dd2da4d70fa2fc6e41990d80ae1e4fec92d1a0c119f0b716ba6"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/medusa-workflow/database-ae92850f-b99a-4a7a-94f2-2192abde917c.json.gz",
+      "originalBytes": 46747317,
+      "sha256": "017516ac2179263754db0979a4171a5f4f92bc8235a71cd7a9cbb9cffdcc3b5c"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-payload/quiet-adbac30f-0453-41ec-ba1e-1d9491882ce8.json.gz",
+      "originalBytes": 35906,
+      "sha256": "e486eae2a3141a4b81d89ff3a91e3f0c3a4e700f6a658a7c7ac30ac04faef8e8"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-payload/quiet-cf99a83f-95ca-4576-8c75-1769213296cb.json.gz",
+      "originalBytes": 35923,
+      "sha256": "7aa4dbfd9cbcbfc1e29fb49a454a81b808cfd088e4cdc64198ff508a1801d904"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-payload/root-counters-0f921344-7d21-43ec-a43b-046441889c32.json.gz",
+      "originalBytes": 46930,
+      "sha256": "09f016a20ce7f7f4be9369b7427d6b5228565a62935dd8024ed27ca54afe9bf0"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-payload/root-counters-1eb72667-ed28-496d-9fc3-fff6caeba704.json.gz",
+      "originalBytes": 46908,
+      "sha256": "6762327b6263b92a5840edab10ee7523b78cad92b2d1a277ccabd8ef5465f975"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-payload/database-a7bc08d7-db7d-4346-9caa-d693cbc91aac.json.gz",
+      "originalBytes": 16175613,
+      "sha256": "3917f9003408c18c34e1ed200f2301a0feff7c54ede7d835d89b078cd8fa13f2"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-payload/database-b09a64fe-f632-49bc-9569-5ae96740aafd.json.gz",
+      "originalBytes": 17107347,
+      "sha256": "18f05f01da456668ab30426ad663896c61f82832704b7ad291348c66ed96f104"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-workflow/quiet-d90b27be-fe62-46e8-9db3-40fa8a96ae4b.json.gz",
+      "originalBytes": 35831,
+      "sha256": "3a473a5c5de6e68fb88875e5f05b72ca6f3f6fbb470d27c0308496af2a696c15"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-workflow/quiet-ddf7f89b-4ec7-43a2-bc51-8f9cc1d6e0ec.json.gz",
+      "originalBytes": 35848,
+      "sha256": "3470442739a7fde8a0e5bef4624aa00e2cf01cbe4fb0e3e9520c963013cfec4d"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-workflow/root-counters-20f61716-227f-4248-8965-3cb0971d9ca3.json.gz",
+      "originalBytes": 46940,
+      "sha256": "67d4a5205dccfd4edd284bd3eb5563cca9f7b49edbececcfaf22bbcf6572321f"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-workflow/root-counters-b3381f4b-41e3-494c-a1b0-afa2e64a118d.json.gz",
+      "originalBytes": 46976,
+      "sha256": "2135ae60f975aac889e87bd61bffa5877f4cd42437f99ee55fffd1ddb7dad99b"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/baseline/mixed-workflow/database-d8b42c80-16dc-441e-870d-282313c4bb15.json.gz",
+      "originalBytes": 38517017,
+      "sha256": "806c73f7beeee812646363e7dc228aa0c5c8cf676da90dfc47312a2d0262c5b4"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/candidate/mixed-workflow/database-5d83d505-dfeb-4333-ad46-f620925a40a7.json.gz",
+      "originalBytes": 39524742,
+      "sha256": "e7eb9c17d5e581dc3f7c82fb350623a4fe9061e3cd434d5d05afb2e2857096b9"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/comparison.json.gz",
+      "originalBytes": 87993,
+      "sha256": "9e6c4e238e5c779316cf232beacad469276d85eb1644ec3245d305e7a0574921"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/previous-comparison.json.gz",
+      "originalBytes": 85897,
+      "sha256": "2af063e796a6e52e1de089eef107b75d17089b96cba313e8842b1338803c3ba6"
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-business/reports/connected-generation/source-checkpoint.json.gz",
+      "originalBytes": 43918,
+      "sha256": "63c93784ce48ba9171b18dc91c6156b52c4f0820a5f90f3f5cb538c884ef2e30"
+    }
+  ]
+}

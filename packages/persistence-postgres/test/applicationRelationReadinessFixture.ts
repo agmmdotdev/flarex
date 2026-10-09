@@ -383,50 +383,15 @@ export async function relationReadinessFixture(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const pointTarget = "pool" in resource
-    ? createPostgresLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator, options.sessionTargetOptions)
-    : createPGliteLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator, options.sessionTargetOptions);
-  const locatedTarget = (() => {
-    if (options.bindingAdmission === true) {
-      if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) {
-        throw new Error("Binding fixture requires a read-committed session target");
-      }
-      return pointTarget;
-    }
-    return createLocatedAppSchemaCandidateValidationTarget(persistence.drizzle, fixtureLocator);
-  })();
-  const scopeSessionTargets = { resolve: async () => {
-    if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) throw new Error("Expected a read-committed session target");
-    return pointTarget;
-  } };
-  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
-  const authorityPorts = Object.freeze({
-    ...controlReader,
-    scopeClockTargets: options.bindingAdmission === true ? scopeSessionTargets : { resolve: async () => locatedTarget },
+  const runtime = composeRelationReadinessFixtureRuntime(control, resource, {
+    deploymentId, scopeId: authority.scopeId, physicalLocator: fixtureLocator,
+    bindingAdmission: options.bindingAdmission === true,
+    ...(options.sessionTargetOptions === undefined ? {} : { sessionTargetOptions: options.sessionTargetOptions }),
+    ...(options.activationProfile === undefined ? {} : { activationProfile: options.activationProfile }),
   });
-  const pointCommitAuthority = Object.freeze({
-    scopeMetadata: authorityPorts.scopeMetadata,
-    provisioningReceipts: authorityPorts.provisioningReceipts,
-    scopeSessionTargets,
-    applicationControlDb: control.drizzle,
-  });
-  const relationCommit = createApplicationRelationCommitPort(
-    control.drizzle,
-    pointCommitAuthority,
-  );
-  const servingInspector = createApplicationRelationServingInspector();
-  const relationBuild = createApplicationRelationBuildPort(
-    control.drizzle,
-    authorityPorts,
-    relationCommit,
-    servingInspector,
-  );
-  const relations = createApplicationRelationReadinessPort(
-    control.drizzle,
-    authorityPorts,
-    relationCommit,
-    relationBuild,
-  );
+  const { pointTarget, authorityPorts, pointCommitAuthority, relationCommit, servingInspector,
+    relationBuild, relations, candidateValidation, physicalDefinitionLifecycle, foldContext, fold,
+    legacyReadiness, relationActivation, activationProfile } = runtime;
   let relationInput = options.writePolicy === true
     ? { ...(options.cmsManifest ?? await policyManifestFixture(undefined, options.cmsIndexes, options.cmsFields)), deploymentId,
       decisions: options.cmsManifest?.manifest.schema.relations.map(relation => ({ relationOrdinal: relation.relationOrdinal, evolution: { kind: "new" as const } })) ?? [] }
@@ -576,81 +541,6 @@ export async function relationReadinessFixture(
     expect(copiedPublication.failure).toMatchObject({ reason: "invalidInput" });
   }
 
-  const candidateValidation = createAppSchemaCandidateValidationPort({
-    controlDb: control.drizzle,
-    authority: authorityPorts,
-  });
-  const candidateReadiness = createAppSchemaCandidateReadinessPort(
-    candidateValidation,
-  );
-  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
-    control.drizzle,
-  );
-  const uniqueConstraintEligibility =
-    createAppUniqueConstraintSetEligibilityPortV1({
-      controlDb: control.drizzle,
-      authority: authorityPorts,
-    }, uniqueConstraints);
-  const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: authorityPorts.scopeMetadata,
-    provisioningReceipts: authorityPorts.provisioningReceipts,
-    scopeSessionTargets: {
-      resolve: async () => {
-        throw new Error("Relation readiness must not open a commit session.");
-      },
-    },
-  }, { uniqueConstraints, uniqueConstraintEligibility });
-  const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({
-    controlDb: control.drizzle,
-    authority: authorityPorts,
-  });
-  const foldContext = Object.freeze({
-    controlDb: control.drizzle,
-    authority: authorityPorts,
-    schema: createApplicationRelationSchemaAuthorityPort(
-      control.drizzle,
-    ),
-    taskCatalog: createApplicationRelationTaskCatalogSnapshotPort(),
-    candidateValidation: candidateReadiness,
-    pointCommit,
-    physicalDefinitionLifecycle,
-    relations,
-  });
-  const fold = makeApplicationRelationReadinessFoldRepository(foldContext);
-  let legacyColdCalls = 0;
-  const legacyReadiness = makeApplicationReadinessRepository({
-    controlDb: control.drizzle,
-    authority: authorityPorts,
-    schema: makeApplicationSchemaAuthorityPublisher({
-      db: control.drizzle,
-      runTransaction: run => control.drizzle.transaction(run),
-    }),
-    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
-    candidateValidation: candidateReadiness,
-    pointCommit,
-    physicalDefinitionLifecycle,
-    cold: {
-      runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
-      compatibilityDate: COMPATIBILITY_DATE,
-      materialize: () => {
-        legacyColdCalls += 1;
-        return Effect.die(new Error(
-          "Legacy cold materialization must not run for relation readiness.",
-        ));
-      },
-    },
-  });
-  if (options.sessionTargetOptions?.managedInstallation !== undefined && options.activationProfile === undefined)
-    throw new Error("A managed relation fixture requires its genuine activation target profile");
-  const activationProfile: ApplicationActivationTargetProfile = options.activationProfile ?? { kind: "fullProof" };
-  const relationActivation = makeApplicationActivationRepository({
-    activation: activationProfile,
-    deploymentId,
-    scopeId: authority.scopeId,
-    readiness: legacyReadiness,
-    relationReadiness: fold,
-    authority: authorityPorts,
-  });
   return Object.freeze({
     persistence,
     control,
@@ -685,13 +575,82 @@ export async function relationReadinessFixture(
       readiness: legacyReadiness,
       authority: authorityPorts,
     }),
-    legacyColdCalls: () => legacyColdCalls,
+    legacyColdCalls: runtime.legacyColdCalls,
     input: Object.freeze({
       deploymentId,
       scopeId: authority.scopeId,
       revisionId: publication.revisionId,
     }),
   });
+}
+
+/** Original fixture composition is reused by setup and a genuinely restricted
+ * serving login. This constructs ports only; it issues no readiness verdict. */
+export function composeRelationReadinessFixtureRuntime(
+  control: ApplicationNativeMutationPersistence,
+  target: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  input: Readonly<{ deploymentId: string; scopeId: ScopeId; physicalLocator: SplitScopePhysicalLocator;
+    bindingAdmission: boolean; sessionTargetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
+    activationProfile?: ApplicationActivationTargetProfile;
+    protectedMetadata?: Parameters<typeof makeApplicationReadinessRepository>[0]["protectedMetadata"];
+    coldRuntime?: Readonly<{ runtimeHostIdentity: string; compatibilityDate: string }> }>,
+) {
+  const pointTarget = "pool" in target
+    ? createPostgresLocatedPointMutationSessionActivationTargetV1(target, input.physicalLocator, input.sessionTargetOptions)
+    : createPGliteLocatedPointMutationSessionActivationTargetV1(target, input.physicalLocator, input.sessionTargetOptions);
+  const locatedTarget = (() => {
+    if (!input.bindingAdmission) return createLocatedAppSchemaCandidateValidationTarget(target.drizzle, input.physicalLocator);
+    if (!isLocatedReadCommittedAttemptTargetV1(pointTarget))
+      throw new Error("Binding fixture requires a read-committed session target");
+    return pointTarget;
+  })();
+  const scopeSessionTargets = { resolve: async () => {
+    if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) throw new Error("Expected a read-committed session target");
+    return pointTarget;
+  } };
+  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
+  const authorityPorts = Object.freeze({ ...controlReader,
+    scopeClockTargets: input.bindingAdmission ? scopeSessionTargets : { resolve: async () => locatedTarget } });
+  const pointCommitAuthority = Object.freeze({ scopeMetadata: authorityPorts.scopeMetadata,
+    provisioningReceipts: authorityPorts.provisioningReceipts, scopeSessionTargets, applicationControlDb: control.drizzle });
+  const relationCommit = createApplicationRelationCommitPort(control.drizzle, pointCommitAuthority);
+  const servingInspector = createApplicationRelationServingInspector();
+  const relationBuild = createApplicationRelationBuildPort(control.drizzle, authorityPorts, relationCommit, servingInspector);
+  const relations = createApplicationRelationReadinessPort(control.drizzle, authorityPorts, relationCommit, relationBuild);
+  const candidateValidation = createAppSchemaCandidateValidationPort({ controlDb: control.drizzle, authority: authorityPorts });
+  const candidateReadiness = createAppSchemaCandidateReadinessPort(candidateValidation);
+  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(control.drizzle);
+  const uniqueConstraintEligibility = createAppUniqueConstraintSetEligibilityPortV1({ controlDb: control.drizzle,
+    authority: authorityPorts }, uniqueConstraints);
+  const pointCommit = createPointCommitPublisherPortV1({ scopeMetadata: authorityPorts.scopeMetadata,
+    provisioningReceipts: authorityPorts.provisioningReceipts,
+    scopeSessionTargets: { resolve: async () => { throw new Error("Relation readiness must not open a commit session."); } },
+  }, { uniqueConstraints, uniqueConstraintEligibility });
+  const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({ controlDb: control.drizzle, authority: authorityPorts });
+  const foldContext = Object.freeze({ controlDb: control.drizzle, authority: authorityPorts,
+    schema: createApplicationRelationSchemaAuthorityPort(control.drizzle),
+    taskCatalog: createApplicationRelationTaskCatalogSnapshotPort(), candidateValidation: candidateReadiness,
+    pointCommit, physicalDefinitionLifecycle, relations });
+  const fold = makeApplicationRelationReadinessFoldRepository(foldContext);
+  let legacyColdCalls = 0;
+  const legacyReadiness = makeApplicationReadinessRepository({ controlDb: control.drizzle, authority: authorityPorts,
+    ...(input.protectedMetadata === undefined ? {} : { protectedMetadata: input.protectedMetadata }),
+    schema: makeApplicationSchemaAuthorityPublisher({ db: control.drizzle, runTransaction: run => control.drizzle.transaction(run) }),
+    taskCatalog: createApplicationTaskCatalogSnapshotPort(), candidateValidation: candidateReadiness,
+    pointCommit, physicalDefinitionLifecycle, cold: { runtimeHostIdentity: input.coldRuntime?.runtimeHostIdentity ?? RUNTIME_HOST_IDENTITY,
+      compatibilityDate: input.coldRuntime?.compatibilityDate ?? COMPATIBILITY_DATE, materialize: () => {
+        legacyColdCalls++;
+        return Effect.die(new Error("Legacy cold materialization must not run for relation readiness."));
+      } } });
+  if (input.sessionTargetOptions?.managedInstallation !== undefined && input.activationProfile === undefined)
+    throw new Error("A managed relation fixture requires its genuine activation target profile");
+  const activationProfile: ApplicationActivationTargetProfile = input.activationProfile ?? { kind: "fullProof" };
+  const relationActivation = makeApplicationActivationRepository({ activation: activationProfile,
+    deploymentId: input.deploymentId, scopeId: input.scopeId, readiness: legacyReadiness,
+    relationReadiness: fold, authority: authorityPorts });
+  return { pointTarget, authorityPorts, pointCommitAuthority, relationCommit, servingInspector, relationBuild,
+    relations, candidateValidation, physicalDefinitionLifecycle, foldContext, fold, legacyReadiness,
+    relationActivation, activationProfile, uniqueConstraintEligibility, legacyColdCalls: () => legacyColdCalls };
 }
 
 export async function prepareReadinessEvidence(

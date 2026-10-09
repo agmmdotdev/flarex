@@ -1,11 +1,13 @@
 import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Result, Tracer } from "effect";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
-import { CommitSeqSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, ScopeIdSchema, type ScopeId } from "flarex-protocol/storage-authority";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { prepareApplicationBindingSelection, claimApplicationExecutableActiveSelection, type ApplicationBindingPreparation } from "../src/applicationActivation";
 import { readApplicationBindingPreparationInputs, readAcceptedApplicationBinding, withAcceptedApplicationBinding,
+  requireAcceptedApplicationBindingObservation, invalidateAcceptedApplicationBindingInTransaction,
   type AcceptedApplicationBinding } from "../src/applicationActivation";
 import { readCheckedApplicationActiveHead, type CheckedApplicationActiveHead } from "../src/applicationActiveHeadRead";
 import { readAcceptedApplicationBindingProjection } from "../src/applicationBindingProjection";
@@ -13,7 +15,10 @@ import { readApplicationBindingProjectionInTransaction, withApplicationBindingEv
 import { borrowIndexCoverageContextInTransaction, matchIndexCoverageContextInTransaction,
   readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
   readPreparedIndexCoverageTableFrontiers, type IndexCoverageContext } from "../src/indexBuildStates";
-import { fxSystemScopeClocks, fxSystemUniqueConstraintBuilds } from "../src/schema";
+import { fxControlIndexDefinitions, fxSystemScopeClocks, fxSystemUniqueConstraintBuilds } from "../src/schema";
+import type { AppRowTransaction } from "../src/appRows";
+import { createPhysicalDefinitionLifecyclePort, createLocatedPhysicalDefinitionLifecycleTarget,
+  preparePhysicalDefinitionLifecycleSubjectEffect, beginPhysicalDefinitionDrainingEffect } from "../src/physicalDefinitionLifecycle";
 import { fxSystemApplicationReadiness } from "../src/applicationRelationSchema";
 import { fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
 import { lockScopeClockForSnapshotReadInTransactionEffect,
@@ -25,7 +30,11 @@ import { prepareAdditionalRelationRevision } from "./applicationRelationReadines
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { createFileScopedPostgresFixture, postgresUrl } from "./postgresHelpers";
 import { runEffect } from "./effectTestRuntime";
-import { prepareCmsApplication } from "../src/cmsTransaction/admission";
+import { prepareCmsApplicationFromBinding, requirePreparedCmsApplication } from "../src/cmsTransaction/admission";
+import { retainPreparedHost } from "../src/preparedHostRuntime";
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
+import { createLocatedAppSchemaCandidateValidationTarget } from "../src/appSchemaCandidateValidation";
+import { registerLocatedReadCommittedTargetDatabaseV1 } from "../src/transactionSessionAttemptKernel";
 
 async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence) {
   const schema = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
@@ -49,6 +58,40 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
     return yield* readApplicationBindingProjectionInTransaction(input, tx, clock);
   }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
+  const definition = (await base.fixture.control.drizzle.select().from(fxControlIndexDefinitions)
+    .where(eq(fxControlIndexDefinitions.deploymentId, base.fixture.deploymentId)).limit(1))[0];
+  if (definition === undefined) throw new Error("Missing actual lifecycle definition");
+  const lifecycleActive = await runEffect(base.fixture.relationActivation.readActive());
+  let acceptingTransaction: AppRowTransaction | undefined;
+  const lifecycleTarget = createLocatedPhysicalDefinitionLifecycleTarget(persistence.drizzle,
+    lifecycleActive.basis.authority.physicalLocator, async work => {
+      if (acceptingTransaction === undefined) throw new Error("Lifecycle witness has no accepting transaction");
+      return work(acceptingTransaction);
+    });
+  const lifecyclePort = createPhysicalDefinitionLifecyclePort({ controlDb: base.fixture.control.drizzle,
+    authority: { ...base.fixture.authorityPorts, scopeClockTargets: { resolve: async () => lifecycleTarget } } });
+  const lifecycle = await runEffect(preparePhysicalDefinitionLifecycleSubjectEffect(lifecyclePort, {
+    definitionKind: "index", deploymentId: base.fixture.deploymentId, scopeId,
+    indexDefinitionId: definition.indexDefinitionId,
+  }));
+  const rollbackLifecycleWitness = new Error("Roll back same-transaction lifecycle witness");
+  await expect(persistence.drizzle.transaction(async tx => {
+    acceptingTransaction = tx;
+    try {
+      await runEffect(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+        yield* withAcceptedApplicationBinding(prepared, tx, clock, binding => Effect.gen(function* () {
+          yield* beginPhysicalDefinitionDrainingEffect(lifecycle, { expectedTransitionFence: 0n });
+          const unchangedClock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+          expect(unchangedClock).toEqual(clock);
+          expect(Result.isSuccess(readAcceptedApplicationBinding(binding, tx, clock))).toBe(true);
+          expect(yield* Effect.flip(withAcceptedApplicationBinding(prepared, tx, clock,
+            () => Effect.void, binding))).toMatchObject({ reason: "invalidComposition" });
+        }));
+      }));
+      throw rollbackLifecycleWitness;
+    } finally { acceptingTransaction = undefined; }
+  })).rejects.toBe(rollbackLifecycleWitness);
   expect(await accept()).toEqual(base.reference);
   expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
   let escapedCoverage: IndexCoverageContext | undefined;
@@ -163,8 +206,12 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   const manifestVersion = planning.manifest.version;
   Object.assign(planning.manifest, { version: 0 });
   expect((await runEffect(readApplicationBindingPreparationInputs(prepared, base.fixture.control.drizzle))).manifest.version).toBe(manifestVersion);
-  const cms = await runEffect(prepareCmsApplication(base.fixture.relationActivation, base.fixture.authorityPorts,
-    base.fixture.control.drizzle, base.fixture.deploymentId, base.fixture.authority.scopeId));
+  const cmsLease = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
+    const selection = yield* prepareApplicationBindingSelection(base.fixture.relationActivation);
+    return yield* prepareCmsApplicationFromBinding(selection, base.fixture.control.drizzle, base.fixture.deploymentId,
+      base.fixture.authority.scopeId);
+  })));
+  const cms = await runEffect(cmsLease.use(requirePreparedCmsApplication));
   const assertFrozen = (value: unknown): void => {
     if (typeof value !== "object" || value === null) return;
     expect(Object.isFrozen(value)).toBe(true);
@@ -172,6 +219,7 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   };
   assertFrozen(cms.configuration);
   expect(() => Object.assign(cms.configuration, { profile: "changed" })).toThrow(TypeError);
+  await runEffect(cmsLease.close);
   const otherPreparation = await prepare();
   let escaped: AcceptedApplicationBinding | undefined;
   await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
@@ -192,6 +240,10 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
         expect(Result.isFailure(readAcceptedApplicationBinding(binding, { ...tx } as typeof tx, clock))).toBe(true);
         expect(Result.isFailure(readAcceptedApplicationBinding(binding, tx, { ...clock,
           storageGenerationFence: StorageGenerationFenceSchema.make(clock.storageGenerationFence + 1n) }))).toBe(true);
+        const metadataChanged = { ...clock, lastMetadataSequence: MetadataSequenceSchema.make(clock.lastMetadataSequence + 1n) };
+        expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, prepared, tx, metadataChanged))).toBe(true);
+        expect(Result.isFailure(readAcceptedApplicationBinding(binding, tx, { ...clock,
+          oldestAvailableCommitSeq: CommitSeqSchema.make(clock.oldestAvailableCommitSeq + 1n) }))).toBe(true);
         if (ending === "failure") return yield* Effect.fail("expected refusal");
         if (ending === "interruption") return yield* Effect.interrupt;
       })));
@@ -200,6 +252,29 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
       expect(Result.isFailure(readAcceptedApplicationBinding(escaped, tx, clock))).toBe(true);
       expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction").length - before).toBe(1);
     }
+  }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
+  await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+    yield* withAcceptedApplicationBinding(prepared, tx, clock, binding => Effect.gen(function* () {
+      const before = spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction").length;
+      const advanced = { ...clock, updatedAt: new Date(clock.updatedAt.getTime() + 1_000) };
+      expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, prepared, tx, advanced))).toBe(true);
+      yield* withApplicationBindingEvidenceInTransaction(prepared, tx, advanced, (_evidence, fresh) => Effect.gen(function* () {
+        expect(fresh).not.toBe(binding);
+        expect(Result.isSuccess(readAcceptedApplicationBinding(fresh, tx, advanced))).toBe(true);
+        yield* withAcceptedApplicationBinding(prepared, tx, advanced, lent => Effect.sync(() => expect(lent).toBe(fresh)), fresh);
+        invalidateAcceptedApplicationBindingInTransaction(tx);
+        expect(Result.isSuccess(readAcceptedApplicationBinding(fresh, tx, advanced))).toBe(true);
+        expect(yield* Effect.flip(withAcceptedApplicationBinding(prepared, tx, advanced,
+          () => Effect.void, fresh))).toMatchObject({ reason: "invalidComposition" });
+      }), binding);
+      expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction").length - before).toBe(1);
+      invalidateAcceptedApplicationBindingInTransaction(tx);
+      // The original source token remains alive for settlement; only lending ends.
+      expect(Result.isSuccess(readAcceptedApplicationBinding(binding, tx, clock))).toBe(true);
+      expect(yield* Effect.flip(withAcceptedApplicationBinding(prepared, tx, clock,
+        () => Effect.void, binding))).toMatchObject({ reason: "invalidComposition" });
+    }));
   }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
   // SAFETY: intentionally forged nominal input tests the registry refusal boundary.
   await expect(accept({} as ApplicationBindingPreparation)).rejects.toMatchObject({ reason: "invalidComposition" });
@@ -304,9 +379,41 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   }
   const active = await runEffect(base.fixture.relationActivation.readActive());
   const next = await prepareAdditionalRelationRevision(base.fixture);
-  await runEffect(base.fixture.relationActivation.activate({
-    revisionId: next.readiness.revisionId, expectedActiveHead: active.expectedActiveHead,
-  }));
+  const activationTarget = Object.freeze({ ...createLocatedAppSchemaCandidateValidationTarget(persistence.drizzle,
+    active.basis.authority.physicalLocator, async work => {
+      if (acceptingTransaction === undefined) throw new Error("Activation witness has no accepting transaction");
+      return work(acceptingTransaction);
+    }),
+    // Authority resolution reads the clock before invoking the target runner.
+    // Route that fresh observation through the same genuine transaction too;
+    // a database-level read would wait on the connection held by this witness.
+    getCurrentClock: async (requestedScope: ScopeId) => {
+      if (acceptingTransaction === undefined) throw new Error("Activation witness has no accepting transaction");
+      return runEffect(lockScopeClockForSnapshotReadInTransactionEffect(acceptingTransaction, requestedScope));
+    },
+  });
+  registerLocatedReadCommittedTargetDatabaseV1(activationTarget, persistence.drizzle);
+  const resolveActivationTarget = vi.spyOn(base.fixture.authorityPorts.scopeClockTargets, "resolve")
+    .mockResolvedValue(activationTarget);
+  try {
+    await persistence.drizzle.transaction(async tx => {
+      acceptingTransaction = tx;
+      try {
+        await runEffect(Effect.gen(function* () {
+          const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+          yield* withAcceptedApplicationBinding(prepared, tx, clock, binding => Effect.gen(function* () {
+            const activated = yield* base.fixture.relationActivation.activate({
+              revisionId: next.readiness.revisionId, expectedActiveHead: active.expectedActiveHead,
+            });
+            expect(activated.disposition).toBe("inserted");
+            expect(Result.isSuccess(readAcceptedApplicationBinding(binding, tx, clock))).toBe(true);
+            expect(yield* Effect.flip(withAcceptedApplicationBinding(prepared, tx, clock,
+              () => Effect.void, binding))).toMatchObject({ reason: "invalidComposition" });
+          }));
+        }));
+      } finally { acceptingTransaction = undefined; }
+    });
+  } finally { resolveActivationTarget.mockRestore(); }
   await expect(accept(prepared)).rejects.toMatchObject({ reason: "concurrentHead" });
   expect((await accept(await prepare())).revisionId).toBe(next.readiness.revisionId);
 }

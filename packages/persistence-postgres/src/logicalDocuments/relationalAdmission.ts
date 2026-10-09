@@ -22,7 +22,7 @@ import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { AdmittedParticipantOperation, SourceContribution } from "flarex-protocol/commit-protocol";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import type { ApplicationBindingInput } from "../applicationActivation";
+import type { ApplicationBindingInput, AcceptedApplicationBinding, ApplicationBindingObservation } from "../applicationActivation";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
@@ -76,6 +76,7 @@ const projectParticipantBindingFailure = (cause: unknown): LogicalParticipantAdm
 declare const admissionBrand: unique symbol;
 export interface LogicalRelationalAdmission { readonly [admissionBrand]: true }
 export interface LogicalRelationalAdmissionState {
+  readonly writeMechanics: PreparedLogicalDocumentWriteMechanics;
   readonly tx: FlarexMetadataTransaction;
   readonly authority: TrustedScopeAuthority;
   readonly clock: ScopeClockRecord;
@@ -186,29 +187,32 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
   const withSelectedAdmission = Effect.fn("LogicalRelationalAdmission.withTransaction")(function* <Value, Failure, Requirements>(
     profile: "full" | "read",
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (admission: LogicalRelationalAdmission) => Effect.Effect<Value, Failure, Requirements>,
+    work: (admission: LogicalRelationalAdmission, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation,
   ) {
     const accept = profile === "read" ? selected.withTransactionReadBinding : selected.withTransactionBinding;
-    return yield* accept(application, tx, authority, clock, (binding): Effect.Effect<Value, Failure | LogicalRelationalAdmissionError, Requirements> => {
+    return yield* accept(application, tx, authority, clock, (binding, accepted): Effect.Effect<Value, Failure | LogicalRelationalAdmissionError, Requirements> => {
       // SAFETY: only callback lifetime membership authenticates this inert token.
       const admission = Object.freeze({}) as LogicalRelationalAdmission;
       admissions.set(admission, Object.freeze({ tx, authority, clock, schemaVersionId: binding.schemaVersionId,
         sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, schema,
         tables: selectedTables, tableNames, values: confinedValues, indexes: selected.indexes, unique: selected.unique,
-        search: Object.freeze(search),
+        search: Object.freeze(search), writeMechanics,
         readReadiness: Object.freeze({ kind: "full" as const }),
         head: binding.head }));
-      return Effect.suspend(() => work(admission)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
-    });
+      return Effect.suspend(() => work(admission, accepted)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
+    }, applicationObservation);
   });
   const withAdmission = <Value, Failure, Requirements>(
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (admission: LogicalRelationalAdmission) => Effect.Effect<Value, Failure, Requirements>,
-  ) => withSelectedAdmission("full", application, tx, authority, clock, work);
+    work: (admission: LogicalRelationalAdmission, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation,
+  ) => withSelectedAdmission("full", application, tx, authority, clock, work, applicationObservation);
   const withReadAdmission = <Value, Failure, Requirements>(
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (admission: LogicalRelationalAdmission) => Effect.Effect<Value, Failure, Requirements>,
-  ) => withSelectedAdmission("read", application, tx, authority, clock, work);
+    work: (admission: LogicalRelationalAdmission, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    applicationObservation?: ApplicationBindingObservation,
+  ) => withSelectedAdmission("read", application, tx, authority, clock, work, applicationObservation);
   const bindAttemptEffect = Effect.fn("LogicalRelationalAttemptAdmission.bind")(function* (
     application: ApplicationBindingInput, attempt: SessionJournalAttempt, root: LogicalParticipantAttemptRoot,
     readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
@@ -268,13 +272,16 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       methods.some(method => method.length === 0)) return issueLogicalParticipantCommitAuthority(Object.freeze({
         participant: "", methods: new Set<string>(), sourceKey: selected.source.key,
         sourceSha256: selected.source.sourceSha256, schemaVersionId: capturedInput.schemaVersionId,
-        tableIds, indexes: selected.indexes, unique: selected.unique, search: Object.freeze(search),
+        tableIds, search: Object.freeze(search),
+        publicationDefinitions: selected.publicationDefinitions,
         validateDocument: () => Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })),
         verify: () => Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })),
-      }));
-    return issueLogicalParticipantCommitAuthority(Object.freeze({ participant, methods: allowed,
+      }), selected.preparationLifetime);
+    return issueLogicalParticipantCommitAuthority(Object.freeze({ application, projectApplicationFailure: projectParticipantBindingFailure,
+      participant, methods: allowed,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256,
-      schemaVersionId: capturedInput.schemaVersionId, tableIds, indexes: selected.indexes, unique: selected.unique,
+      schemaVersionId: capturedInput.schemaVersionId, tableIds,
+      publicationDefinitions: selected.publicationDefinitions,
       search: Object.freeze(search),
       validateDocument: (tableId: CatalogTableId, document: CanonicalFlarexValueV1) => confinedValues.validate(tableId, document).pipe(
         Result.mapError(cause => new LogicalParticipantAdmissionError({ reason: "documentInvalid", cause }))),
@@ -289,7 +296,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
           .pipe(Effect.mapError(projectParticipantBindingFailure)),
       verify: (_operation: AdmittedParticipantOperation, contribution: SourceContribution,
         tx: FlarexMetadataTransaction,
-        authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+        authority: TrustedScopeAuthority, clock: ScopeClockRecord, applicationObservation?: AcceptedApplicationBinding) =>
         selected.withBinding(application, tx, authority, clock, binding => {
         if (authority.scopeId !== capturedInput.scopeId || clock.scopeId !== capturedInput.scopeId ||
           binding.schemaVersionId !== capturedInput.schemaVersionId ||
@@ -302,8 +309,8 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
         if (contribution.effects.some(effect => !admittedTableIds.has(effect.tableId)))
           return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return Effect.void;
-      }).pipe(Effect.mapError(projectParticipantBindingFailure)),
-    }));
+      }, applicationObservation).pipe(Effect.mapError(projectParticipantBindingFailure)),
+    }), selected.preparationLifetime);
   };
   const prepared = Object.freeze({ withAdmission, withReadAdmission, bindAttemptEffect, createCommitAuthority });
   return prepared;

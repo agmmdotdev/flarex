@@ -1,5 +1,5 @@
 import { expect, vi } from "vitest";
-import { Result, Schema } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { and, eq } from "drizzle-orm";
 import {
   appRowIdHexV1ToBytes,
@@ -10,6 +10,8 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import { cmsLimits } from "../src/cmsTransaction/model";
 import { fxAppRowRevisions } from "../src/schema";
+import { AppDocumentInsertionConflictError } from "../src/pointCommitErrors";
+import { makeCmsHost } from "../src/cmsTransaction/host";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -62,14 +64,15 @@ export async function ce0FirstInsertExecutionScenario(
           return array;
         });
       try {
-        expect(
-          await runEffectFailure(
-            run(tested.host.newRequestKey(), {
-              count: 8,
-              prefix: `identity-${collision}`,
-            }),
-          ),
-        ).toMatchObject({ reason: "uniqueConflict" });
+        const failure = await runEffectFailure(
+          run(tested.host.newRequestKey(), {
+            // One committed collision reaches the deferred settlement guard;
+            // repeated pending IDs retain the separate two-allocation proof.
+            count: collision === "committed" ? 1 : 8,
+            prefix: `identity-${collision}`,
+          }),
+        );
+        expect(failure).toMatchObject({ reason: "uniqueConflict" });
         expect(calls).toBe(collision === "committed" ? 1 : 2);
         expect(await tested.inventory()).toEqual(stable);
       } finally {
@@ -160,4 +163,53 @@ export async function ce0FirstInsertExecutionScenario(
     }
     expect(await tested.inventory()).toEqual(stable);
   }
+  const beforeTombstone = await tested.inventory();
+  const tombstoneSeedArgs = { count: 1, prefix: "execution-tombstone-seed" };
+  const tombstoneSeed = await runEffect(core(tested.host.newRequestKey(), tombstoneSeedArgs));
+  const liveTombstoneSeed = await tested.verifyInsert(beforeTombstone, tombstoneSeed, 1, tombstoneSeedArgs.prefix);
+  const tombstoneDocument = decodeIds(tombstoneSeed)[0];
+  if (tombstoneDocument === undefined) throw new Error("Missing tombstone seed document");
+  const tombstoneIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(tombstoneDocument._id));
+  const tombstoneBytes = appRowIdHexV1ToBytes(tombstoneIdentity.rowId);
+  const deletingHost = await runEffect(makeCmsHost({ ...tested.input, commands: [tested.remove] }));
+  try {
+    expect(await runEffect(deletingHost.run(deletingHost.newRequestKey(), tested.remove, tombstoneDocument._id))).toBeNull();
+  } finally { await runEffect(deletingHost.close); }
+  expect(await runEffect(tested.host.read(tested.read, [tombstoneDocument._id]))).toEqual([null]);
+  const deleted = await tested.inventory();
+  expect(deleted.revisions).toHaveLength(liveTombstoneSeed.revisions.length + 1);
+  const tombstoneHistory = deleted.revisions.filter(row => row.tableId === tombstoneIdentity.tableId && Buffer.from(row.rowId).equals(tombstoneBytes));
+  expect(tombstoneHistory).toHaveLength(2);
+  const [liveRevision, tombstoneRevision] = tombstoneHistory;
+  const currentTombstone = deleted.rows.find(row => row.tableId === tombstoneIdentity.tableId && Buffer.from(row.rowId).equals(tombstoneBytes));
+  if (liveRevision === undefined || tombstoneRevision === undefined || currentTombstone === undefined)
+    throw new Error("Missing retained tombstone history or current pointer");
+  expect(liveRevision.isTombstone).toBe(false);
+  expect(tombstoneRevision.isTombstone).toBe(true);
+  expect(tombstoneRevision.valueBytes).toBeNull();
+  expect(tombstoneRevision.valueSha256).toBeNull();
+  expect(tombstoneRevision.prevCommitSeq).toBe(liveRevision.commitSeq);
+  expect(currentTombstone.commitSeq).toBe(tombstoneRevision.commitSeq);
+  expect(deleted.indexes.some(row => Buffer.from(row.rowId).equals(tombstoneBytes))).toBe(false);
+  expect(deleted.claims.some(row => row.tableId === tombstoneIdentity.tableId && Buffer.from(row.rowId).equals(tombstoneBytes))).toBe(false);
+  let allocations = 0;
+  const tombstoneRandom = vi.spyOn(crypto, "getRandomValues").mockImplementation(array => {
+    if (!(array instanceof Uint8Array) || array.byteLength !== 16) throw new Error("Unexpected random request");
+    allocations++;
+    array.set(tombstoneBytes);
+    return array;
+  });
+  try {
+    const rejected = await runEffect(Effect.exit(core(tested.host.newRequestKey(), { count: 1, prefix: "execution-tombstone-collision" })));
+    expect(Exit.isFailure(rejected)).toBe(true);
+    if (!Exit.isFailure(rejected)) throw new Error("Expected generated tombstone insertion conflict");
+    expect(rejected.cause.reasons).toHaveLength(1);
+    const reason = rejected.cause.reasons[0];
+    if (reason === undefined || !Cause.isFailReason(reason)) throw new Error("Expected a typed insertion-conflict Cause");
+    const failure = reason.error;
+    expect(failure).toMatchObject({ reason: "uniqueConflict", cause: { documentId: tombstoneDocument._id } });
+    expect(failure.cause).toBeInstanceOf(AppDocumentInsertionConflictError);
+    expect(allocations).toBe(1);
+    expect(await tested.inventory()).toEqual(deleted);
+  } finally { tombstoneRandom.mockRestore(); }
 }

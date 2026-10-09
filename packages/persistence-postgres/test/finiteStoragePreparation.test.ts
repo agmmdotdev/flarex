@@ -237,11 +237,13 @@ describe("database-owned finite storage preparation", () => {
       const first = await createMixedMutationProductFixture({ driver, suffix: `prepared-plan-first-${driver}` });
       let second: Awaited<ReturnType<typeof first.openCompetingFiniteFixture>> | undefined;
       const observed: Array<Readonly<{ driver: "pglite" | "postgres"; sessionId: unknown;
-        snapshot: unknown; owner: unknown; claimFence: unknown }>> = [];
+        snapshot: unknown; owner: unknown; claimFence: unknown; anchorBytes: unknown; anchorDigest: unknown;
+        staticParameters: unknown }>> = [];
       const observe = (actualDriver: "pglite" | "postgres", values: Record<string, unknown> | undefined) => {
         if (values !== undefined && values.pin_sessionId !== undefined) observed.push({
           driver: actualDriver, sessionId: values.pin_sessionId, snapshot: values.snapshot,
           owner: values.claimOwner, claimFence: values.claimFence,
+          anchorBytes: values.anchorBytes, anchorDigest: values.anchorDigest, staticParameters: Object.getPrototypeOf(values),
         });
       };
       const originalPglite = PglitePreparedQuery.prototype.execute;
@@ -286,7 +288,7 @@ describe("database-owned finite storage preparation", () => {
         const compiledCaptures = () => select.mock.calls.filter(([projection]) => projection !== undefined &&
           "reason" in projection && "raw" in projection).length;
         const compiledAuthorities = () => select.mock.calls.filter(([projection]) => projection !== undefined &&
-          "targetInstallation" in projection && "clock" in projection).length;
+          "reason" in projection && "clock" in projection && !("raw" in projection)).length;
         rebind(physicalLocator);
         expect(compiledCaptures()).toBe(0);
         expect(compiledAuthorities()).toBe(0);
@@ -295,7 +297,7 @@ describe("database-owned finite storage preparation", () => {
         select.mockClear();
         rebind({ ...physicalLocator, databaseKey: `${physicalLocator.databaseKey}-displaced` });
         expect(compiledCaptures()).toBe(10);
-        expect(compiledAuthorities()).toBe(driver === "postgres" ? 3 : 0);
+        expect(compiledAuthorities()).toBe(driver === "postgres" ? 2 : 0);
         select.mockRestore();
         if (resource.kind === "postgres") {
           const managed = first.currency.managedRead;
@@ -336,8 +338,14 @@ describe("database-owned finite storage preparation", () => {
           expect(new Set(captures.map(capture => capture.snapshot))).toEqual(new Set([fixture.activation.anchor.snapshotToken.commitSeq]));
           expect(new Set(captures.map(capture => capture.owner))).toEqual(new Set([fixture.activation.executionClaim.claimOwner]));
           expect(new Set(captures.map(capture => capture.claimFence))).toEqual(new Set([fixture.activation.executionClaim.claimFence]));
+          expect(new Set(captures.map(capture => capture.anchorBytes)).size).toBe(1);
+          expect(new Set(captures.map(capture => capture.anchorDigest)).size).toBe(1);
+          expect(new Set(captures.map(capture => capture.staticParameters)).size).toBe(1);
+          expect(Object.isFrozen(captures[0]?.staticParameters)).toBe(true);
           expect(fixture.getOpenTransactionDepth()).toBe(0);
         }
+        expect(firstCaptures[0]?.anchorBytes).not.toBe(secondCaptures[0]?.anchorBytes);
+        expect(firstCaptures[0]?.staticParameters).not.toBe(secondCaptures[0]?.staticParameters);
       } finally {
         pgliteExecute.mockRestore();
         postgresExecute.mockRestore();

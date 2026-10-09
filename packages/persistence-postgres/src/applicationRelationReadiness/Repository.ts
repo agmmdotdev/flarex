@@ -1,4 +1,4 @@
-import { chargeHostPreparation, PreparedHostRuntimeError } from "../preparedHostRuntime";
+import { chargeHostPreparation, registerHostPreparationDisposal, PreparedHostRuntimeError } from "../preparedHostRuntime";
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
@@ -299,12 +299,25 @@ export function getPreparedApplicationRelationReadinessDefinitions(
     ?.definitions ?? null;
 }
 
+/** The original readiness issuer lends its exact definition mechanics. This
+ * has no readiness verdict; disposed or differently composed keys cannot lend. */
+export function lendPreparedApplicationRelationReadinessDefinitions(
+  port: ApplicationRelationReadinessPort,
+  prepared: PreparedApplicationRelationReadiness,
+  controlDb: FlarexMetadataDatabase,
+): Readonly<{ port: ApplicationRelationCommitPort; definitions: LocatedApplicationRelationDefinitionSet }> | null {
+  const state = getPreparedApplicationRelationReadinessState(port, prepared);
+  return state === null || state.port.controlDb !== controlDb ? null
+    : Object.freeze({ port: state.port.relationCommit, definitions: state.definitions });
+}
+
 /** Include immediate-origin definition sets hidden behind the prepared token. */
 export const chargeRelationReadinessPreparation = Effect.fn("ApplicationRelationReadiness.chargePreparation")(
   (prepared: PreparedApplicationRelationReadiness) => {
     const state = preparedApplicationRelationReadinessStates.get(prepared);
     return state === undefined ? Effect.fail(new PreparedHostRuntimeError({ reason: "invalidPayload" }))
-      : chargeHostPreparation({ prepared, definitions: state.definitions, immediateOrigins: state.immediateOrigins });
+      : chargeHostPreparation({ prepared, definitions: state.definitions, immediateOrigins: state.immediateOrigins }).pipe(
+        Effect.andThen(registerHostPreparationDisposal(() => { preparedApplicationRelationReadinessStates.delete(prepared); })));
   },
 );
 

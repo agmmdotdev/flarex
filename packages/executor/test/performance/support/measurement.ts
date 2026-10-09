@@ -1,4 +1,5 @@
-import { Context, Effect, Exit, Tracer } from "effect";
+import { Effect, Exit } from "effect";
+import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { PhysicalSessionObservation } from "../../../../persistence-postgres/src/physicalSession/observation";
 import type { MixedMutationPerformanceTrace, TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 
@@ -23,8 +24,7 @@ export function traceMixedMutationEffect<A, E>(
   return Effect.withFiber(fiber => {
     // This is an existing independent runtime, not a structured child fiber.
     // Carry only tracing capabilities; never move business services or Clock.
-    let tracing = Context.make(Tracer.Tracer, Context.get(fiber.context, Tracer.Tracer));
-    if (fiber.currentSpan !== undefined) tracing = Context.add(tracing, Tracer.ParentSpan, fiber.currentSpan);
+    const tracing = captureExecutionDiagnosticContext(fiber);
     let completion: Promise<Exit.Exit<A, E>> | undefined;
     return Effect.uninterruptibleMask(restore => restore(Effect.promise(signal => {
       completion = trace.withPhase(name, () => Effect.runPromiseExitWith(tracing)(operation, { signal }));

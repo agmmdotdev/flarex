@@ -1,7 +1,7 @@
 /** Stable package surface. CMS commit participation remains source-private. */
 export { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 export { isPointFiniteCommitPublisherPort, isPointFiniteReplacementTerminalRefusal } from "./pointCommitTransaction";
-export type { PointFiniteCommitCommand, PointFiniteCommitPublisherPort, PointFiniteAttemptResolutionCommand, PointFiniteAttemptResolution, PointFiniteAttemptReplacementPort, PointFiniteTerminalRefusal } from "./pointCommitTransaction";
+export type { PointFiniteCommitCommand, PointFiniteCommitPublisherPort, PointFiniteAttemptResolutionCommand, PointRecoveredFiniteAttemptReplacementCommand, PointFiniteAttemptResolution, PointFiniteAttemptReplacementPort, PointFiniteTerminalRefusal } from "./pointCommitTransaction";
 export type { PointCommitPublicationEvent, PointCommitPublicationPhase, PointCommitPublicationOwner, PointCommitPublicationMetric } from "./pointCommitPublicationObservation";
 export {
   PointFiniteAttemptRetryBudgetExhaustedError,

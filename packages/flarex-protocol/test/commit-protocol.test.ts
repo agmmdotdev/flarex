@@ -18,6 +18,9 @@ import {
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
+  AdmittedParticipantOperationSchema,
+  authenticatedGeneratedInsertionsResult,
+  GeneratedInsertionIntentsSchema,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
   MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
@@ -35,6 +38,7 @@ import {
   SuccessfulResultSha256HexV1Schema,
   canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
+  readIssuedCanonicalSuccessfulResultV1,
   decodeCanonicalSessionJournalEffect,
   decodeCommitEnvelopeV1Effect,
   makeCommitEnvelopeV1Effect,
@@ -86,6 +90,60 @@ const DOCUMENT_B = documentId(2);
 const encodeCommitEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
 
 describe("commit protocol C02", () => {
+  it("preserves retained participant bytes without inferring insertion origin", async () => {
+    for (const version of [1, 2]) {
+      const operation = insertionOperation({ format: "flarex.logical-participant-evidence", version,
+        indexRanges: [], indexPages: [], uniqueReads: [],
+        ...(version === 2 ? { metadataWatermark: "0", metadataDependencies: [] } : {}) });
+      const canonical = await runEffect(canonicalizeSessionJournalEffect({
+        ...sessionJournal({ finalSyscallSequence: 1n, readDependencies: [missingDependency(DOCUMENT_A)] }),
+        participantOperations: [operation],
+      }));
+      const restored = await runEffect(decodeCanonicalSessionJournalEffect({
+        canonicalBytes: canonical.canonicalBytes, expectedSha256Hex: canonical.sha256Hex,
+      }));
+      const intents = Result.getOrThrow(authenticatedGeneratedInsertionsResult(restored.journal.participantOperations));
+      expect(intents.size).toBe(0);
+      expect(restored.journal.readDependencies).toEqual([missingDependency(DOCUMENT_A)]);
+      const repeated = await runEffect(canonicalizeSessionJournalEffect(restored.journal));
+      expect(repeated.canonicalBytes).toEqual(canonical.canonicalBytes);
+      expect(repeated.sha256Hex).toBe(canonical.sha256Hex);
+      expect(repeated.canonicalText).not.toContain('"generatedInsertions"');
+    }
+  });
+
+  it("correlates explicit insertion intent while retaining an independent same-ID read", async () => {
+    const identity = decodeAppDocumentIdentityV1(DOCUMENT_A);
+    const intent = { documentId: DOCUMENT_A, tableId: identity.tableId, rowId: identity.rowId, effectOrdinal: 0 };
+    const operation = insertionOperation({ generatedInsertions: [intent] });
+    const journal = await runEffect(canonicalizeSessionJournalEffect({
+      ...sessionJournal({ finalSyscallSequence: 1n, readDependencies: [missingDependency(DOCUMENT_A)] }),
+      participantOperations: [operation],
+    }));
+    const intents = Result.getOrThrow(authenticatedGeneratedInsertionsResult(journal.journal.participantOperations));
+    expect([...intents.values()]).toEqual([{ ...intent,
+      origin: { syscallSequence: 1n, sourceBindingSha256Hex: "a".repeat(64) } }]);
+    expect(journal.journal.readDependencies).toEqual([missingDependency(DOCUMENT_A)]);
+  });
+
+  it("refuses mismatched insertion identity, event ordinal, duplicate origin and overflow", () => {
+    const identity = decodeAppDocumentIdentityV1(DOCUMENT_A);
+    const intent = { documentId: DOCUMENT_A, tableId: identity.tableId, rowId: identity.rowId, effectOrdinal: 0 };
+    expect(authenticatedGeneratedInsertionsResult([insertionOperation({ generatedInsertions: [intent] })]))
+      .toMatchObject({ _tag: "Success" });
+    for (const generatedInsertions of [
+      [{ ...intent, tableId: decodeCatalogTableId(2) }],
+      [{ ...intent, rowId: decodeAppDocumentIdentityV1(DOCUMENT_B).rowId }],
+      [{ ...intent, effectOrdinal: 1 }], [intent, intent],
+    ]) {
+      expect(authenticatedGeneratedInsertionsResult([insertionOperation({ generatedInsertions })]))
+        .toMatchObject({ _tag: "Failure", failure: { issue: { reason: "invalidSchema", component: "journal" } } });
+    }
+    expect(Schema.decodeUnknownResult(GeneratedInsertionIntentsSchema)(
+      Array.from({ length: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 + 1 }, () => intent),
+    )).toMatchObject({ _tag: "Failure" });
+  });
+
   it("retains canonical consumed metadata at syscall zero only with a finite reservation", async () => {
     const dependency = { kind: "metadata", namespace: "binding", ownerKey: "medusa.product",
       contractKey: '["accessFamily","product","ordered","title"]',
@@ -988,6 +1046,20 @@ describe("commit protocol C02", () => {
   });
 });
 
+function insertionOperation(dependencyEvidence: JsonObject) {
+  return Schema.decodeUnknownSync(AdmittedParticipantOperationSchema)({
+    syscallSequence: "1", participant: "fixture.participant", method: "insert",
+    profileRevision: "b".repeat(64), admissionBundleSha256Hex: "c".repeat(64),
+    requestSha256Hex: "d".repeat(64), resultSha256Hex: "e".repeat(64), eventIntents: [],
+    sourceContributions: [{ sourceKey: "fixture.source", sourceSha256Hex: "f".repeat(64),
+      sourceBindingSha256Hex: "a".repeat(64), bindingHead: { sequence: "1", sha256: "1".repeat(64) },
+      methods: ["insert"], dependencyEvidence,
+      effects: [{ effectOrdinal: 0, tableId: 1, documentId: DOCUMENT_A, operation: "insert", before: null,
+        after: { _id: DOCUMENT_A, _creationTime: 1, name: "inserted" } }],
+    }],
+  });
+}
+
 function sessionJournal(options: {
   readonly finalSyscallSequence?: bigint;
   readonly readDependencies?: ReadonlyArray<LogicalReadDependencyV1>;
@@ -1215,3 +1287,29 @@ function runFailure<A>(
 ): Promise<CommitProtocolV1Error> {
   return Effect.runPromise(Effect.flip(effect));
 }
+
+
+describe("issued successful result handoff", () => {
+  it("retains exact canonical bytes while rejecting lookalike issuance and detached mutations", async () => {
+    const input = { nested: { name: "original" } };
+    const result = await Effect.runPromise(canonicalizeSuccessfulResultV1Effect(input));
+    const originalBytes = result.canonicalBytes;
+    const originalEvidence = result.evidence;
+    expect(readIssuedCanonicalSuccessfulResultV1(result)).toBe(result);
+    input.nested.name = "changed";
+    result.canonicalBytes.fill(0);
+    expect(result.valueJson).toEqual({ nested: { name: "original" } });
+    expect(result.canonicalBytes).toEqual(originalBytes);
+    expect(result.evidence).toEqual(originalEvidence);
+    expect(readIssuedCanonicalSuccessfulResultV1({ ...result })).toBeUndefined();
+    const detached = structuredClone(result);
+    expect(readIssuedCanonicalSuccessfulResultV1(detached)).toBeUndefined();
+    const verified = await Effect.runPromise(verifySuccessfulResultEvidenceV1Effect(detached.evidence));
+    expect(verified.canonicalBytes).toEqual(originalBytes);
+    expect(verified.evidence).toEqual(originalEvidence);
+    Reflect.set(detached.evidence, "sha256Hex", "0".repeat(64));
+    await expect(Effect.runPromise(verifySuccessfulResultEvidenceV1Effect(detached.evidence))).rejects.toMatchObject({
+      issue: { reason: "digestMismatch", component: "successfulResult" },
+    });
+  });
+});

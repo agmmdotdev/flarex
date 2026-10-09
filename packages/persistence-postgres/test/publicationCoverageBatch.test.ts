@@ -1,9 +1,10 @@
+import { runEffect } from "./effectTestRuntime";
 import { fxSystemIndexMaintenanceObligations } from "../src/schema";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { CommitSeqSchema, ScopeEpochSchema, ReplacementScopeIdV1Schema, SnapshotTokenSchema,
-  StorageGenerationFenceSchema, FlarexDbV1StorageGenerationSchema } from "flarex-protocol/storage-authority";
+  StorageGenerationFenceSchema, FlarexDbV1StorageGenerationSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { CatalogIndexDefinitionIdSchema, CatalogTableIdSchema, CatalogUniqueConstraintDefinitionIdSchema } from "flarex-protocol/catalog";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -17,7 +18,9 @@ import type { FlarexMetadataDatabase } from "../src/deployments";
 import { advanceUnboundUniqueCoverageInTransactionEffect } from "../src/appUniqueConstraintSetBuildV1";
 import { locateAppIndexDefinitionByIdEffect } from "../src/appIndexDefinitions";
 import { decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate } from "../src/indexBuildStates";
-import { materializeApplicationDocumentRows } from "../src/applicationDocumentMaterialization/materialization";
+import { materializeAcceptedApplicationPublicationRows } from "../src/applicationDocumentMaterialization/materialization";
+import { prepareApplicationDocumentSettlementEffect } from "../src/applicationDocumentMaterialization/settlementPlan";
+import { acceptApplicationPublication } from "../src/applicationDocumentMaterialization/publicationAcceptance";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../src/installationLifecycle";
 import { fxControlIndexDefinitions, fxControlTables, fxSystemIndexBuildStates,
@@ -142,15 +145,17 @@ async function proveFencedIndexCoverageBatch(persistence: TestPersistence) {
     await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
     try {
       const clock = await Effect.runPromise(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId));
-      const complete = await materializeApplicationDocumentRows(tx, {
-        command: {
+      const command = {
           authorityPins: { deploymentId, scopeId, schemaVersionId,
             snapshotToken: SnapshotTokenSchema.make({ scopeId, epoch: clock.epoch, commitSeq: clock.lastCommitSeq }) }, rowIntents: [], dependencies: [],
-        },
-        commitSeq: CommitSeqSchema.make(2n), clock, loadedHeads: [], intrinsicBuilds: members,
-        developerIndexActions: [], developerBuilds: [], uniqueKeyActions: [], uniqueDefinitions: [],
-        canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {}, deferCoverage: true,
-      });
+        };
+      const intrinsic=members.map(member=>member.definition);
+      const settlement=await runEffect(prepareApplicationDocumentSettlementEffect(command,[],[],[],null,intrinsic));
+      const accepted=await runEffect(acceptApplicationPublication(tx,{clock:{record:clock,scopeUuid:projectScopeIdUuidV1(scopeId).scopeUuid},
+        settlement,intrinsic,developer:[],unique:[],relations:null,indexRanges:[],relationDependencies:[],candidate:false,deadline:null,oldestAvailableCommitSeq:0n}));
+      const complete = await runEffect(materializeAcceptedApplicationPublicationRows(tx, {
+        accepted,commitSeq: CommitSeqSchema.make(2n),publicationProfile: "sourceBound", options: {}, deferCoverage: true,
+      }));
       if (complete === undefined) throw new Error("Expected deferred coverage completion");
       expect((await tx.select().from(fxSystemIndexBuildStates)).map(row => row.coveredThroughCommitSeq))
         .toEqual(ids.map(() => 1n));
@@ -160,7 +165,7 @@ async function proveFencedIndexCoverageBatch(persistence: TestPersistence) {
       if (damage === "fence") await tx.update(fxSystemIndexBuildStates)
         .set({ attemptFence: IndexBuildAttemptFenceSchema.make(2n) }).where(last);
       if (damage === "missing") await tx.delete(fxSystemIndexBuildStates).where(last);
-      await complete();
+      await runEffect(complete);
     } finally { closeInstallationAdmission(tx); }
   });
   await advance(await selected());

@@ -1,4 +1,4 @@
-import { Clock, Effect, Option, Result, Schema } from "effect";
+import { Cause, Clock, Effect, Option, Result, Schema } from "effect";
 import { and, eq, sql } from "drizzle-orm";
 import { isJsonObject } from "flarex-protocol/json";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result,
@@ -96,7 +96,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
           scopeId: clock.scopeId, tableId, minimumCommitSeq: clock.lastCommitSeq, pendingCommitSeq,
           maximumIdentities: batch.length, maximumDocumentBytes: 65_536,
           maximumTotalValueBytes: 1_048_576, rowIds: batch,
-        }).pipe(Effect.mapError(classify));
+        }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, classify))));
         if (result.commitSeq !== clock.lastCommitSeq) return yield* Effect.fail(corruption());
         const found = new Map(result.rows.map(row => [row.rowId, row]));
         for (const rowId of batch) {
@@ -191,7 +191,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       if (cached !== undefined) return cached;
       const indexId = reference.reverseIndex.indexDefinitionId;
       const build = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, [indexId], "share")
-        .pipe(Effect.mapError(classify));
+        .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, classify))));
       if (build.status !== "ready" || build.rows.length !== 1) return yield* Effect.fail(corruption("reference index is not enabled"));
       const buildRow = build.rows[0];
       if (buildRow === undefined) return yield* Effect.fail(corruption("reference index build row is missing"));
@@ -201,10 +201,10 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
         .pipe(Effect.mapError(cause => corruption(cause)));
       if (state.coveredThroughCommitSeq !== pendingCommitSeq) {
         const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock)
-          .pipe(Effect.mapError(classify));
+          .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, classify))));
         const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, {
           indexDefinitionId: indexId, tableId: reference.sourceTableId, physicalSpecSha256Hex: digest,
-        }, clock.lastCommitSeq, context, pendingCommitSeq).pipe(Effect.mapError(classify));
+        }, clock.lastCommitSeq, context, pendingCommitSeq).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, classify))));
         if (!covered) return yield* Effect.fail(corruption("reference reverse index is not covered"));
       }
       coveredReferences.set(reference, state);
@@ -270,7 +270,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
             commitSeq: pendingCommitSeq });
         })));
         if (actions.length > 0) yield* appendPublicationIndexEntryRevisionsInTransactionEffect(tx, actions)
-          .pipe(Effect.mapError(classify));
+          .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, classify))));
       }
       // An activated Application index may also serve as the reverse index.
       // Its pending entries were already lowered by the document materializer;
@@ -310,7 +310,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
         const page = yield* scanCurrentPublicationIndexInTransactionEffect(tx, {
           scopeId: clock.scopeId, publicationIndex: reference.reverseIndex, bounds,
           limit: PAGE_ROWS, ...(after === undefined ? {} : { after }),
-        }).pipe(Effect.mapError(classify));
+        }).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, classify))));
         scanned += page.entries.length;
         if (scanned > MAX_REFERENCE_ROWS) return yield* Effect.fail(capacity("reverseRows", scanned));
         if (page.entries.some(entry => entry.tableId !== reference.sourceTableId))

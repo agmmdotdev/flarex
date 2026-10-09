@@ -1,15 +1,15 @@
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { and, eq } from "drizzle-orm";
-import { fxSystemIndexBuildStates } from "../src/schema";
-import { enterApplicationDocumentParticipant } from "../src/applicationDocumentMaterialization/participant";
+import { enterApplicationDocumentParticipant, readPreparedApplicationDocumentParticipant } from "../src/applicationDocumentMaterialization/participant";
 import {
-  prepareCmsApplication,
+  prepareCmsApplicationFromBinding,
+  requirePreparedCmsApplication,
   withCmsAdmission,
 } from "../src/cmsTransaction/admission";
 import {
   enterCmsApplicationCommit,
   prepareCmsApplicationCommit,
+  readPreparedCmsApplicationCommit,
 } from "../src/cmsTransaction/publication";
 import type { CmsHostInput } from "../src/cmsTransaction/host";
 import { makeCmsRequestLifetime } from "../src/cmsTransaction/lifetime";
@@ -18,6 +18,10 @@ import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../src/scopeAutho
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { orderedIndexCompositionRefusals } from "./orderedIndexCompositionRefusals";
+import { retainPreparedHost } from "../src/preparedHostRuntime";
+import { prepareApplicationBindingSelection } from "../src/applicationActivation";
+import { captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect } from "../src/appSchemaCandidateValidation";
+import { runRelationalSession } from "../src/relationalTransaction/session";
 
 /** The extracted participant must reject structural copies and expired admission. */
 export async function assertCmsParticipantAdmission<Failure>(
@@ -25,100 +29,101 @@ export async function assertCmsParticipantAdmission<Failure>(
 ) {
   const { authority } = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect(
     { deploymentId: input.deploymentId, scopeId: input.scopeId }, input.authority));
-  const application = await runEffect(
-    prepareCmsApplication(
-      input.application,
-      input.authority,
-      input.controlDatabase,
-      input.deploymentId,
-      input.scopeId,
-    ),
-  );
-  const prepared = await runEffect(
-    prepareCmsApplicationCommit(
-      application,
-      input.controlDatabase,
-      authority,
-      input.pointCommitAuthority,
-      input.materialization,
-    ),
-  );
-  const { intrinsicCreationTimeIndexes, developerIndexes, ...otherOptions } = input.materialization;
-  if (!intrinsicCreationTimeIndexes || !developerIndexes) throw new Error("Expected valid participant index ports");
-  const payloadTable = application.schema.writePolicy?.writePolicies.find(policy => policy.owner === "payload");
-  if (payloadTable === undefined) throw new Error("Expected managed participant table");
-  const intrinsic = await runEffect(intrinsicCreationTimeIndexes.locate({ deploymentId: input.deploymentId,
-    scopeId: authority.scopeId, tableId: payloadTable.tableId }));
-  if (intrinsic === null) throw new Error("Expected managed table creation-time definition");
   // An unused foreign catalog tests exact issuer identity; refused ports must
   // never reach that database on either physical-driver lane.
   const foreign = await createMigratedPGlitePersistence();
-  for (const invalid of orderedIndexCompositionRefusals(intrinsicCreationTimeIndexes, developerIndexes, foreign.drizzle)) {
-    expect(await runEffectFailure(prepareCmsApplicationCommit(application, input.controlDatabase, authority,
-      input.pointCommitAuthority, { ...otherOptions, ...invalid }))).toMatchObject({ reason: "invalidAuthority" });
-  }
-  expect(await runEffectFailure(prepareCmsApplicationCommit({ ...application, schema: { ...application.schema } },
-    input.controlDatabase, authority, input.pointCommitAuthority, input.materialization)))
-    .toMatchObject({ reason: "invalidAuthority" });
-  expect(await runEffectFailure(prepareCmsApplicationCommit(application, foreign.drizzle, authority,
-    input.pointCommitAuthority, input.materialization))).toMatchObject({ reason: "invalidAuthority" });
-  await input.database.transaction((tx) =>
-    runEffect(
-      Effect.gen(function* () {
-        const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId);
-        const lifetime = yield* makeCmsRequestLifetime(
-          { hostId: Symbol("participant-test") },
-          { requestId: Symbol("participant-test") },
-          "participant-test",
-          "write",
-        );
-        yield* Effect.gen(function* () {
-          const escaped = yield* withCmsAdmission(
-            application,
-            tx,
-            authority,
-            clock,
-            (admission) =>
-              Effect.gen(function* () {
-                const copiedPreparation = yield* Effect.result(
-                  enterCmsApplicationCommit(
-                    { ...prepared },
-                    admission,
-                    lifetime,
-                  ),
-                );
-                expect(copiedPreparation).toMatchObject({
-                  _tag: "Failure",
-                  failure: { reason: "invalidAuthority" },
-                });
-                const copiedAdmission = yield* Effect.result(
-                  enterCmsApplicationCommit(
-                    prepared,
-                    { ...admission },
-                    lifetime,
-                  ),
-                );
-                expect(copiedAdmission).toMatchObject({
-                  _tag: "Failure",
-                  failure: { reason: "invalidAuthority" },
-                });
-                // The typed opening FK and maintained-delete guard now protect
-                // this actual build. Exercise the materializer in the admitted
-                // transaction without a privileged destructive fixture mutation.
-                yield* enterApplicationDocumentParticipant(prepared.core, tx, authority, clock, application.schema);
-                yield* enterCmsApplicationCommit(prepared, admission, lifetime);
-                return admission;
-              }),
+  const retained = await runEffect(retainPreparedHost(input.hostRuntime, Effect.gen(function* () {
+    const selection = yield* prepareApplicationBindingSelection(input.application);
+    const application = yield* prepareCmsApplicationFromBinding(selection, input.controlDatabase, input.deploymentId, input.scopeId);
+    const applicationState = yield* requirePreparedCmsApplication(application);
+    const planningHead = yield* runRelationalSession(input.session, "snapshotRead", tx =>
+      captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx, authority, input.pointCommitAuthority));
+    const { intrinsicCreationTimeIndexes, developerIndexes, ...otherOptions } = input.materialization;
+    if (!intrinsicCreationTimeIndexes || !developerIndexes) throw new Error("Expected valid participant index ports");
+    for (const invalid of orderedIndexCompositionRefusals(intrinsicCreationTimeIndexes, developerIndexes, foreign.drizzle)) {
+      expect(yield* Effect.flip(prepareCmsApplicationCommit(application, input.controlDatabase, authority,
+        input.pointCommitAuthority, { ...otherOptions, ...invalid }, planningHead))).toMatchObject({ reason: "invalidAuthority" });
+    }
+    expect(yield* Effect.flip(prepareCmsApplicationCommit({ ...application },
+      input.controlDatabase, authority, input.pointCommitAuthority, input.materialization, planningHead)))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(yield* Effect.flip(prepareCmsApplicationCommit(application, foreign.drizzle, authority,
+      input.pointCommitAuthority, input.materialization, planningHead))).toMatchObject({ reason: "invalidAuthority" });
+    const prepared = yield* prepareCmsApplicationCommit(application, input.controlDatabase, authority,
+      input.pointCommitAuthority, input.materialization, planningHead);
+    const preparedState = yield* readPreparedCmsApplicationCommit(prepared);
+    const participantState = yield* readPreparedApplicationDocumentParticipant(preparedState.core);
+    expect(yield* Effect.flip(readPreparedApplicationDocumentParticipant({ ...preparedState.core })))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(participantState.schema).toBe(applicationState.schema);
+    expect(participantState.intrinsic).toBe(applicationState.intrinsicDefinitions);
+    expect(participantState.developer).toBe(applicationState.indexDefinitions);
+    expect(participantState.unique).toBe(applicationState.uniqueDefinitions);
+    return { application, applicationState, prepared, preparedState };
+  })));
+  const { application, applicationState, prepared, preparedState } = await runEffect(retained.use(value => Effect.succeed(value)));
+  try {
+    await input.database.transaction((tx) =>
+      runEffect(
+        Effect.gen(function* () {
+          const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId);
+          const lifetime = yield* makeCmsRequestLifetime(
+            { hostId: Symbol("participant-test") },
+            { requestId: Symbol("participant-test") },
+            "participant-test",
+            "write",
           );
-          const expired = yield* Effect.result(
-            enterCmsApplicationCommit(prepared, escaped, lifetime),
-          );
-          expect(expired).toMatchObject({
-            _tag: "Failure",
-            failure: { reason: "invalidAuthority" },
-          });
-        }).pipe(Effect.ensuring(lifetime.close));
-      }),
-    ),
-  );
+          yield* Effect.gen(function* () {
+            const escaped = yield* withCmsAdmission(
+              application,
+              tx,
+              authority,
+              clock,
+              (admission) =>
+                Effect.gen(function* () {
+                  const copiedPreparation = yield* Effect.result(
+                    enterCmsApplicationCommit(
+                      { ...prepared },
+                      admission,
+                      lifetime,
+                    ),
+                  );
+                  expect(copiedPreparation).toMatchObject({
+                    _tag: "Failure",
+                    failure: { reason: "invalidAuthority" },
+                  });
+                  const copiedAdmission = yield* Effect.result(
+                    enterCmsApplicationCommit(
+                      prepared,
+                      { ...admission },
+                      lifetime,
+                    ),
+                  );
+                  expect(copiedAdmission).toMatchObject({
+                    _tag: "Failure",
+                    failure: { reason: "invalidAuthority" },
+                  });
+                  // The typed opening FK and maintained-delete guard now protect
+                  // this actual build. Exercise the materializer in the admitted
+                  // transaction without a privileged destructive fixture mutation.
+                  yield* enterApplicationDocumentParticipant(preparedState.core, tx, authority, clock, applicationState.schema);
+                  yield* enterCmsApplicationCommit(prepared, admission, lifetime);
+                  return admission;
+                }),
+            );
+            const expired = yield* Effect.result(
+              enterCmsApplicationCommit(prepared, escaped, lifetime),
+            );
+            expect(expired).toMatchObject({
+              _tag: "Failure",
+              failure: { reason: "invalidAuthority" },
+            });
+          }).pipe(Effect.ensuring(lifetime.close));
+        }),
+      ),
+    );
+  } finally { await runEffect(retained.close); }
+  expect(await runEffectFailure(requirePreparedCmsApplication(application))).toMatchObject({ reason: "invalidAuthority" });
+  expect(await runEffectFailure(readPreparedCmsApplicationCommit(prepared))).toMatchObject({ reason: "invalidAuthority" });
+  expect(await runEffectFailure(readPreparedApplicationDocumentParticipant(preparedState.core))).toMatchObject({ reason: "invalidAuthority" });
 }

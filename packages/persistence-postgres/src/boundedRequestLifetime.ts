@@ -1,4 +1,5 @@
 import { Cause, Clock, Effect, Exit, Option, Result } from "effect";
+import { observeExecution } from "./executionDiagnostics/operation";
 
 declare const requestBrand: unique symbol;
 export interface BoundedRequestContext { readonly [requestBrand]: true }
@@ -72,7 +73,7 @@ export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
   } satisfies BoundedRequestLifetime<Inner>);
 }
 
-export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime")(function* <Failure, Owner extends object, RequestIdentity extends object>(
+export const makeBoundedRequestLifetime = Effect.fnUntraced(function* <Failure, Owner extends object, RequestIdentity extends object>(
   failure: (reason: RequestFailureReason, cause?: unknown) => Failure,
   limits: RequestLimits,
   owner: Owner,
@@ -111,7 +112,7 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
     request.bytes += bytes;
     return Result.succeed(undefined);
   };
-  const check = Effect.fn("BoundedRequest.checkContext")(function* (supplied: BoundedRequestContext) {
+  const check = Effect.fnUntraced(function* (supplied: BoundedRequestContext) {
     const state = contexts.get(supplied);
     if (state === undefined || !state.live || state.request !== request ||
       state.request.owner !== owner || state.request.requestIdentity !== requestIdentity) {
@@ -126,8 +127,8 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
     }
     if ((yield* Clock.currentTimeMillis) >= request.expiresAt) return yield* Effect.fromResult(fail("deadlineExceeded"));
     if (request.active !== supplied) return yield* Effect.fromResult(fail("overlappingOperation"));
-  });
-  const resolveId = Effect.fn("BoundedRequest.resolveId")(function* (presented: PresentedTransactionId, missingAllowed: boolean) {
+  }, work => observeExecution("BoundedRequest.checkContext", work));
+  const resolveId = Effect.fnUntraced(function* (presented: PresentedTransactionId, missingAllowed: boolean) {
     if (presented === undefined || presented === null) {
       if (missingAllowed) return request.id;
       return yield* Effect.fromResult(fail("invalidAuthority"));
@@ -148,8 +149,8 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
       return yield* Effect.fromResult(fail("invalidAuthority"));
     }
     return value;
-  });
-  const enter = Effect.fn("BoundedRequest.enter")(function* (supplied: BoundedRequestContext,
+  }, work => observeExecution("BoundedRequest.resolveId", work));
+  const enter = Effect.fnUntraced(function* (supplied: BoundedRequestContext,
     presented: PresentedTransactionId, missingAllowed: boolean) {
     yield* check(supplied);
     request.calls += 1;
@@ -157,26 +158,30 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
     yield* resolveId(presented, missingAllowed);
     // Pending IDs may settle after revocation, closure, timeout or child entry.
     yield* check(supplied);
-  });
+  }, work => observeExecution("BoundedRequest.enter", work));
   const observe = <Value>(work: Effect.Effect<Value, Failure>) => Effect.suspend(() => {
     request.activeCalls += 1;
     return work.pipe(Effect.onExit(exit => Exit.isFailure(exit)
       ? Effect.sync(() => latch(exit.cause)) : Effect.void),
       Effect.ensuring(Effect.sync(() => { request.activeCalls -= 1; })));
   });
-  const begin = Effect.fn("BoundedRequest.begin")((supplied: BoundedRequestContext, presented?: PresentedTransactionId) =>
-    observe(enter(supplied, presented, true).pipe(Effect.as(request.id))));
-  const operation: BoundedRequestLifetime<Failure>["operation"] = Effect.fn("BoundedRequest.operation")(
-    (supplied, presented, operationMode, work) => observe(Effect.gen(function* () {
+  const begin = Effect.fnUntraced(function* (supplied: BoundedRequestContext, presented?: PresentedTransactionId) {
+    return yield* (observe(enter(supplied, presented, true).pipe(Effect.as(request.id))));
+  }, work => observeExecution("BoundedRequest.begin", work));
+  const operation: BoundedRequestLifetime<Failure>["operation"] = Effect.fnUntraced(
+    function* <Value>(supplied: BoundedRequestContext, presented: PresentedTransactionId, operationMode: "read" | "write", work: Effect.Effect<Value, Failure>) {
+    return yield* (observe(Effect.gen(function* () {
       yield* enter(supplied, presented, operationMode === "read" && readIdPolicy === "allowMissing");
       if (contexts.get(supplied)?.mode === "read" && operationMode === "write") return yield* Effect.fromResult(fail("invalidAuthority"));
       if (request.busy) return yield* Effect.fromResult(fail("overlappingOperation"));
       request.busy = true;
       return yield* work.pipe(Effect.ensuring(Effect.sync(() => { request.busy = false; })));
-    })),
-  );
-  const nested: BoundedRequestLifetime<Failure>["nested"] = Effect.fn("BoundedRequest.nested")(
-    (supplied, presented, work, nestedMode) => observe(Effect.gen(function* () {
+    })));
+  },
+    work => observeExecution("BoundedRequest.operation", work));
+  const nested: BoundedRequestLifetime<Failure>["nested"] = Effect.fnUntraced(
+    function* <Value>(supplied: BoundedRequestContext, presented: PresentedTransactionId, work: (child: BoundedRequestContext) => Effect.Effect<Value, Failure>, nestedMode?: "read" | "write") {
+    return yield* (observe(Effect.gen(function* () {
       yield* enter(supplied, presented, false);
       if (request.busy) return yield* Effect.fromResult(fail("overlappingOperation"));
       const parentMode = contexts.get(supplied)?.mode ?? request.mode;
@@ -193,10 +198,12 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
         request.children -= 1;
         request.active = supplied;
       })));
-    })),
-  );
-  const withinDeadline: BoundedRequestLifetime<Failure>["withinDeadline"] = Effect.fn("BoundedRequest.withinDeadline")(
-    work => observe(Effect.gen(function* () {
+    })));
+  },
+    work => observeExecution("BoundedRequest.nested", work));
+  const withinDeadline: BoundedRequestLifetime<Failure>["withinDeadline"] = Effect.fnUntraced(
+    function* <Value>(work: Effect.Effect<Value, Failure>) {
+    return yield* (observe(Effect.gen(function* () {
       if (request.phase !== "open") return yield* Effect.fail(request.phase === "rollbackOnly"
         ? failure("rollbackOnly", Option.getOrUndefined(request.failure)) : failure("closed"));
       const remaining = request.expiresAt - (yield* Clock.currentTimeMillis);
@@ -206,11 +213,12 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
       // interruption ahead of the owning deadline cause.
       return yield* Effect.raceFirst(work, Effect.sleep(remaining).pipe(
         Effect.andThen(() => Effect.fromResult(fail("deadlineExceeded")))));
-    })),
-  );
-  const settleFromAdapter = Effect.fn("BoundedRequest.adapterSettlement")((supplied: BoundedRequestContext,
-    presented: PresentedTransactionId, reason: "borrowedSettlement" | "rollbackOnly") =>
-    observe(enter(supplied, presented, false).pipe(Effect.andThen(() => Effect.fromResult(fail(reason))))));
+    })));
+  },
+    work => observeExecution("BoundedRequest.withinDeadline", work));
+  const settleFromAdapter = Effect.fnUntraced(function* (supplied: BoundedRequestContext, presented: PresentedTransactionId, reason: "borrowedSettlement" | "rollbackOnly") {
+    return yield* (observe(enter(supplied, presented, false).pipe(Effect.andThen(() => Effect.fromResult(fail(reason))))));
+  }, work => observeExecution("BoundedRequest.adapterSettlement", work));
   const seal = Effect.gen(function* () {
     if (request.phase === "closed" || request.phase === "closing") return yield* Effect.fail(failure("closed"));
     if (request.busy || request.children !== 0 || request.activeCalls !== 0) latch(Cause.fail(failure("overlappingOperation")));
@@ -232,4 +240,4 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
     adapterCommit: (supplied: BoundedRequestContext, presented: PresentedTransactionId) => settleFromAdapter(supplied, presented, "borrowedSettlement"),
     rollback: (supplied: BoundedRequestContext, presented: PresentedTransactionId) => settleFromAdapter(supplied, presented, "rollbackOnly"),
   });
-});
+}, work => observeExecution("BoundedRequest.makeLifetime", work));

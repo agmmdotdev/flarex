@@ -1,7 +1,8 @@
 # Core Performance
 
-Status: **substantial connected mutation performance redesign is active;
-complete native-relative acceptance remains unmet.** The local standalone-read
+Status: **the connected mutation cutover is implemented and measured, and work
+is paused for owner discussion; complete native-relative acceptance remains
+unmet.** The local standalone-read
 implementation and consumer cutover are complete; its separate read-tuning pause
 remains in place. Standalone mutations are part of the active connected redesign.
 The installation interlock, query-required preparation and independent direct
@@ -9,6 +10,33 @@ read capabilities are implemented. The full latency/scaling targets below remain
 unproven; accepting current latency does not claim those targets were met.
 The [execution architecture roadmap](../execution-architecture/README.md) owns
 the connected organization and its remaining composition work.
+The active mutation cutover is the
+[shared execution replacement](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md):
+one ordinary generation/entry, relation-owned CMS mechanics, finite scalar
+storage acceptance, root-owned contribution and fixed publication stages.
+Its implemented connected correction replaces complete protected admission and
+quiet owned execution at the original readiness, generation, receipt and
+settlement owners. Protected epoch coverage guards retained immutable readiness
+facts and their repeated accepting replay is removed for the selected callers.
+Standalone Payload uses the actual protected deployment profile, while explicit
+unprotected consumers retain full fresh catalog validation. Fixed publication stages alone
+do not finish the selected outcome or establish native-relative acceptance.
+The [connected measurement ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/connected-generation-results.md)
+owns complete baseline comparisons and retained evidence. Remaining request CPU,
+SQL and latency excess, including the Medusa tail, remain open; no further
+implementation starts during this owner-requested pause.
+The connected generation owns Application and selected logical source preparation
+together. CMS materialization templates and Commerce source catalogues must refresh
+with that generation after a legitimate metadata change. Finite consumers must
+use their existing native admission observation to select or refresh the same
+generation before business execution; an inert generation borrow cannot replace
+fresh admission, and an extra ordinary admission transaction cannot replace the
+native finite path. Cold source validation captures original evidence during
+construction, while warm execution retains fresh dynamic checks and final guards.
+This includes standalone Medusa AtomicCommerce configuration and logical
+participant catalogues. Preserve its independent full-live canonical workflow
+profile while binding immutable source preparation to the same generation;
+adapter or benchmark construction cannot compensate for a missing core handoff.
 
 ## Delivery Policy
 

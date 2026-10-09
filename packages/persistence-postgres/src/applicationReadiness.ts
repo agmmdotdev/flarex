@@ -1,4 +1,6 @@
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
+import { observeExecution } from "./executionDiagnostics/operation";
+import { chargeUniqueConstraintPreparation, lendPreparedAppUniqueConstraintDefinitions, type AppUniqueConstraintSetPreparation } from "./appUniqueConstraintSetBuildV1";
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./indexMaintenanceModel";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
@@ -7,6 +9,7 @@ import { getActivationServingInstallationReferencesResult, isManagedInstallation
 import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { acquireProtectedMetadataInstallationAdmission, captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, guardProtectedMetadataEpoch, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+  authenticateProtectedReadinessMetadataPair, type ProtectedTargetMetadataEvidence,
   type ProtectedMetadataEpochIdentity, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import {
   canonicalizeApplicationManifestV1,
@@ -86,10 +89,11 @@ import { detachDriverRows } from "./detachDriverRows";
 import { runEffectTransaction } from "./effectTransaction";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
-import { chargeHostPreparation } from "./preparedHostRuntime";
+import { captureHostPreparationLifetime, chargeHostPreparation, registerHostPreparationDisposal } from "./preparedHostRuntime";
 import type { OriginalSchemaVersionRead } from "./schemaVersionArtifacts";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
+  publishedPhysicalDefinitionMatchesLocated,
   MAX_RECONCILED_DEFINITIONS,
   type IndexBuildReconciliationCatalogV1Error,
   type PublishedPhysicalRequirementSnapshotV1,
@@ -113,6 +117,7 @@ import {
   preparePhysicalDefinitionLifecycleReadinessEffect,
   chargePhysicalDefinitionPreparation,
   validatePhysicalDefinitionLifecycleReadinessInTransactionEffect,
+  validatePhysicalDefinitionLifecycleReadinessCatalogEffect,
   type PhysicalDefinitionLifecyclePort,
   type PreparedPhysicalDefinitionLifecycleReadiness,
   type PreparePhysicalDefinitionLifecycleReadinessError,
@@ -120,6 +125,8 @@ import {
 } from "./physicalDefinitionLifecycle";
 import {
   loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect,
+  preparePointCommitUniqueConstraintSet,
+  acceptPreparedPointCommitUniqueConstraintSet,
   validatePointCommitUniqueConstraintEligibilityInTransactionV1Effect,
   type LoadPointCommitUniqueConstraintEligibilityV1Error,
   type ValidatePointCommitUniqueConstraintEligibilityV1Error,
@@ -442,6 +449,9 @@ interface PreparedIssuedApplicationReadinessState {
 }
 
 interface StoredReadinessAuthority {
+  readonly target?: LocatedReadCommittedAttemptTargetV1;
+  readonly controlIdentity?: Readonly<{ databaseName: string; namespaceOid: string }>;
+  readonly generationProtection?: ApplicationReadinessProtection;
   readonly preparationProfile?: "finiteEntry";
   readonly bundle: StoredBundle;
   readonly schemaVersion: CatalogSchemaVersion;
@@ -451,6 +461,7 @@ interface StoredReadinessAuthority {
   readonly requirements: PublishedPhysicalRequirementSnapshotV1;
   readonly physicalDefinitionLifecycle:
     PreparedPhysicalDefinitionLifecycleReadiness;
+  readonly uniquePreparation?: AppUniqueConstraintSetPreparation;
   readonly cold: PreparedColdEvidence;
   readonly readinessSha256: Uint8Array;
   readonly readinessBytes: Uint8Array;
@@ -458,6 +469,31 @@ interface StoredReadinessAuthority {
   readonly physicalReadinessSha256: Uint8Array;
   readonly protectedMetadata?: Readonly<{ database: FlarexMetadataDatabase;
     token: ProtectedMetadataPreparation; epoch: ProtectedMetadataEpochIdentity }>;
+}
+export interface ApplicationReadinessProtection {
+  readonly target: ProtectedTargetMetadataEvidence;
+  readonly control: ProtectedTargetMetadataEvidence;
+}
+
+function snapshotReadinessProtection(protection: ApplicationReadinessProtection): ApplicationReadinessProtection {
+  return Object.freeze({
+    target: Object.freeze({ database: protection.target.database, token: protection.target.token,
+      epoch: Object.freeze({ ...protection.target.epoch }) }),
+    control: Object.freeze({ database: protection.control.database, token: protection.control.token,
+      epoch: Object.freeze({ ...protection.control.epoch }) }),
+  });
+}
+
+function readinessEpochsEqual(left: ProtectedMetadataEpochIdentity, right: ProtectedMetadataEpochIdentity): boolean {
+  return left.databaseName === right.databaseName && left.namespaceOid === right.namespaceOid &&
+    left.incarnation === right.incarnation && left.generation === right.generation && left.login === right.login;
+}
+
+function readinessProtectionMatches(original: ApplicationReadinessProtection, supplied: ApplicationReadinessProtection): boolean {
+  return original.target.database === supplied.target.database && original.target.token === supplied.target.token &&
+    original.control.database === supplied.control.database && original.control.token === supplied.control.token &&
+    readinessEpochsEqual(original.target.epoch, supplied.target.epoch) &&
+    readinessEpochsEqual(original.control.epoch, supplied.control.epoch);
 }
 
 export interface OriginalApplicationControlRead {
@@ -475,6 +511,7 @@ interface StoredIssuedApplicationReadinessState {
   readonly stored: StoredReadinessAuthority;
   readonly readinessSha256: Uint8Array;
   readonly readinessBytes: Uint8Array;
+  readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
 }
 
 type IssuedApplicationReadinessState =
@@ -496,6 +533,12 @@ export function readApplicationReadinessPreparationProtection(repository: unknow
   return state === undefined || protection === undefined
     ? Result.fail(readinessFailureValue("invalidComposition"))
     : Result.succeed(protection);
+}
+/** Package-private composition identity; this exposes no positive readiness. */
+export function readApplicationReadinessControlDatabase<SchemaFailure, ColdFailure>(repository: ApplicationReadinessRepository<SchemaFailure, ColdFailure>) {
+  const state = readinessRepositoryStates.get(repository);
+  return state === undefined ? Result.fail(readinessFailureValue("invalidComposition")) :
+    Result.succeed(state.context.controlDb);
 }
 const issuedReadinessStates = new WeakMap<
   Extract<ApplicationReadinessResult, { readonly status: "ready" }>,
@@ -552,6 +595,7 @@ export interface CapturedApplicationReadiness {
 const readinessCaptures = new WeakMap<CapturedApplicationReadiness, {
   readonly issuer: ApplicationReadinessRepositoryIssuerV1;
   readonly profile: "request" | "retained";
+  readonly target: LocatedReadCommittedAttemptTargetV1;
   readonly rows: CapturedReadinessRows;
 }>();
 
@@ -652,7 +696,7 @@ export const captureApplicationReadinessInTransaction = Effect.fn(
     revisionId, revision, selected, functions, readiness, cold });
   // SAFETY: the inert token is authenticated solely by the issuing repository's private map.
   const capture = Object.freeze({}) as CapturedApplicationReadiness;
-  readinessCaptures.set(capture, { issuer: state.issuer, profile, rows: Object.freeze({ ...rows, task,
+  readinessCaptures.set(capture, { issuer: state.issuer, profile, target, rows: Object.freeze({ ...rows, task,
     ...(protection === undefined || before === undefined ? {} : {
       protection: Object.freeze({ ...protection, epoch: before }) }) }) });
   return capture;
@@ -662,12 +706,18 @@ export const captureApplicationReadinessInTransaction = Effect.fn(
 export const prepareCapturedApplicationReadiness = Effect.fn(
   "ApplicationReadiness.prepareCapturedRows",
 )(function* (repository: ApplicationReadinessRepository<unknown, unknown>, capture: CapturedApplicationReadiness,
-  preparationProfile: "full" | "finiteEntry" = "full") {
+  preparationProfile: "full" | "finiteEntry" = "full", originalGenerationProtection?: ApplicationReadinessProtection) {
   const state = readinessRepositoryStates.get(repository);
   const captured = readinessCaptures.get(capture);
   if (state === undefined || captured === undefined || captured.issuer !== state.issuer)
     return yield* readinessFailure("invalidComposition");
   const rows = captured.rows;
+  const generationProtection = originalGenerationProtection === undefined ? undefined : snapshotReadinessProtection(originalGenerationProtection);
+  if (generationProtection !== undefined && (captured.profile !== "retained" || preparationProfile !== "full" ||
+    rows.protection === undefined || !hasLocatedReadCommittedTargetDatabaseV1(captured.target, generationProtection.target.database) ||
+    generationProtection.target.database !== generationProtection.control.database ||
+    !readinessEpochsEqual(rows.protection.epoch, generationProtection.target.epoch)))
+    return yield* readinessFailure("invalidComposition");
   if (rows.revision === undefined) return notReady(rows.revisionId, "revisionMissing");
   const bundle = yield* authenticateStoredBundle(rows.authority,
     { deploymentId: rows.deploymentId, revisionId: rows.revision.revisionId }, rows.revision, rows.selected,
@@ -677,10 +727,19 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
   if ("status" in bundle) return captured.profile === "request" ? bundle : yield* readinessFailure("storedState");
   const { schema, originalArtifact } = yield* state.context.schema.readPublished({ deploymentId: rows.deploymentId, manifest: bundle.manifest });
   yield* requireSchemaCorrelation(bundle, schema.schemaVersion, schema);
+  const controlIdentity = (yield* query(state.context.controlDb.select({
+    databaseName: sql<string>`current_database()`,
+    namespaceOid: sql<string>`current_schema()::pg_catalog.regnamespace::oid::text`,
+  }).from(sql`(values (1)) as readiness_control_identity(value)`).limit(1)))[0];
+  if (controlIdentity === undefined) return yield* readinessFailure("invalidComposition");
+  if (generationProtection !== undefined && (controlIdentity.databaseName !== generationProtection.control.epoch.databaseName ||
+    controlIdentity.namespaceOid !== generationProtection.control.epoch.namespaceOid.toString()))
+    return yield* readinessFailure("invalidComposition");
   const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(state.context.controlDb,
     { deploymentId: rows.deploymentId, schemaVersionId: schema.schemaVersionId });
   if (requirements === null || encodeBytesToLowercaseHex(requirements.manifestSha256) !== schema.schemaManifestSha256 ||
     requirements.definitions.length > MAX_PHYSICAL_DEFINITIONS) return yield* readinessFailure("storedState");
+  let uniquePreparation: AppUniqueConstraintSetPreparation | undefined;
   if (preparationProfile === "full") {
     const unique = yield* loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(state.context.pointCommit,
       { deploymentId: rows.deploymentId, scopeId: rows.authority.scopeId, schemaVersionId: schema.schemaVersionId },
@@ -688,6 +747,11 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     if (unique.status === "not_ready") return captured.profile === "request"
       ? notReady(rows.revisionId, uniqueNotReadyReason(unique.reason), unique.lifecycle)
       : yield* readinessFailure("authorityChanged");
+    const uniqueCatalog = yield* preparePointCommitUniqueConstraintSet(state.context.pointCommit,
+      { deploymentId: rows.deploymentId, scopeId: rows.authority.scopeId, schemaVersionId: schema.schemaVersionId },
+      state.context.controlDb, state.context.authority);
+    if (uniqueCatalog.status !== "prepared") return yield* readinessFailure("authorityChanged");
+    uniquePreparation = uniqueCatalog.preparation;
   }
   const physicalDefinitionLifecycle = yield* preparePhysicalDefinitionLifecycleReadinessEffect(
     state.context.physicalDefinitionLifecycle, rows.authority.scopeId, requirements);
@@ -702,6 +766,11 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     schemaBindingSha256, requirements, physicalDefinitionLifecycle, rows.readiness.physicalReadinessSha256,
     rows.readiness, cold);
   if (captured.profile === "retained") {
+    if (generationProtection !== undefined) yield* chargeHostPreparation({
+      targetEpoch: generationProtection.target.epoch, controlEpoch: generationProtection.control.epoch,
+    }).pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+    if (uniquePreparation !== undefined) yield* chargeUniqueConstraintPreparation(uniquePreparation).pipe(
+      Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
     yield* chargePhysicalDefinitionPreparation(physicalDefinitionLifecycle).pipe(
       Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
     yield* chargeHostPreparation({ bundle: { ...bundle,
@@ -715,7 +784,9 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     readinessBytes: stored.readinessBytes }).pipe(
       Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   }
-  const issued = storedReadyProjection(Object.freeze({ ...stored, originalControl,
+  const issued = yield* storedReadyProjection(Object.freeze({ ...stored, originalControl, target: captured.target, controlIdentity,
+    ...(generationProtection === undefined ? {} : { generationProtection }),
+    ...(uniquePreparation === undefined ? {} : { uniquePreparation }),
     ...(preparationProfile === "finiteEntry" ? { preparationProfile: "finiteEntry" as const } : {}),
     ...(rows.protection === undefined ? {} : { protectedMetadata: rows.protection }) }), state.issuer);
   if (issued.status !== "ready") return yield* readinessFailure("storedState");
@@ -723,6 +794,36 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
   if (issuedState === undefined) return yield* readinessFailure("storedState");
   return Object.freeze({ readiness: issued, basis: activationBasis(issuedState), schema, originalControl });
 });
+
+export interface DerivedFiniteApplicationReadiness {
+  readonly readiness: Extract<ApplicationReadinessResult, { readonly status: "ready" }>;
+  readonly schema: ApplicationSchemaAuthority;
+  readonly originalControl: OriginalApplicationControlRead;
+}
+
+/** A finite capability derives from the original complete cold issuer in its
+ * same construction allocation. It cannot turn a partial or foreign capture
+ * into paired readiness, and does not recapture SQL or canonical evidence. */
+export const deriveFiniteApplicationReadiness = Effect.fnUntraced(function* (repository: unknown,
+  issued: ApplicationReadinessResult, originalProtection?: ApplicationReadinessProtection): Effect.fn.Return<
+    DerivedFiniteApplicationReadiness, ApplicationReadinessError> {
+  const owner = typeof repository === "object" && repository !== null ? readinessRepositoryStates.get(repository) : undefined;
+  const state = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
+  const lifetime = yield* captureHostPreparationLifetime();
+  if (owner === undefined || state?.kind !== "stored" || state.issuer !== owner.issuer ||
+    state.stored.preparationProfile !== undefined || state.stored.originalControl === undefined ||
+    lifetime === undefined || state.lifetime === undefined || lifetime.checkOpen !== state.lifetime.checkOpen)
+    return yield* readinessFailure("invalidComposition");
+  yield* Effect.fromResult(state.lifetime.checkOpen()).pipe(
+    Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  const retained = state.stored.generationProtection;
+  if (originalProtection === undefined ? retained !== undefined :
+    retained === undefined || !readinessProtectionMatches(retained, originalProtection))
+    return yield* readinessFailure("invalidComposition");
+  const readiness = yield* storedReadyProjection(Object.freeze({ ...state.stored, preparationProfile: "finiteEntry" }), state.issuer);
+  if (readiness.status !== "ready") return yield* readinessFailure("storedState");
+  return Object.freeze({ readiness, schema: state.stored.schema, originalControl: state.stored.originalControl });
+}, work => observeExecution("ApplicationReadiness.deriveFinite", work));
 
 /** Only the exact readiness issuer can expose its already bracketed immutable
  * target proof to connected internal preparation owners. */
@@ -1122,7 +1223,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
             stored.reason,
             stored.detail,
           )
-        : storedReadyProjection(second.epoch === undefined || protectedTarget === undefined ? stored :
+        : yield* storedReadyProjection(second.epoch === undefined || protectedTarget === undefined ? stored :
           Object.freeze({ ...stored, protectedMetadata: Object.freeze({ database: protectedTarget.database,
             token: protectedTarget.token, epoch: second.epoch }) }), issuer);
     },
@@ -1236,6 +1337,13 @@ export const validateApplicationReadinessForActivationInTransaction =
     },
   );
 
+type StoredApplicationReadinessValidationError = ApplicationReadinessError |
+  ApplicationTaskCatalogSnapshotError | ValidatePhysicalDefinitionLifecycleReadinessError |
+  LockScopeClockForShareError | Effect.Error<ReturnType<typeof preparePointCommitUniqueConstraintSet>> |
+  Effect.Error<ReturnType<typeof acceptPreparedPointCommitUniqueConstraintSet>> |
+  Effect.Error<ReturnType<typeof lendPreparedAppUniqueConstraintDefinitions>> |
+  Effect.Error<ReturnType<typeof loadPublishedPhysicalRequirementSnapshotV1>>;
+
 export const validateStoredApplicationReadinessForActivationInTransaction =
   Effect.fn("ApplicationReadiness.validateStoredForActivationInTransaction")(
     function* (
@@ -1244,12 +1352,10 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
       tx: AppRowTransaction,
       currentClock: ScopeClockRecord,
       checkedActive?: CheckedApplicationActiveHead,
+      pairedProtection?: ApplicationReadinessProtection,
     ): Effect.fn.Return<
       StoredApplicationReadinessActivationValidation,
-      | ApplicationReadinessError
-      | ApplicationTaskCatalogSnapshotError
-      | ValidatePhysicalDefinitionLifecycleReadinessError
-      | LockScopeClockForShareError
+      StoredApplicationReadinessValidationError
     > {
       if (typeof repository !== "object" || repository === null ||
         issued.status !== "ready") {
@@ -1270,6 +1376,8 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
         tx,
         currentClock,
         checkedActive,
+        undefined,
+        pairedProtection,
       );
     },
   );
@@ -1292,12 +1400,11 @@ export const validateFiniteApplicationReadinessInTransaction = Effect.fn("Applic
 /** Only the Application request owner calls this after its live head/activation
  * read. The original issuer's canonical projection stays inside this callback;
  * all physical checks are fresh and successful work must pass the final guard. */
-export const withStoredApplicationReadinessForBindingInTransaction = Effect.fn(
-  "ApplicationReadiness.withStoredForBindingInTransaction",
-)(function* <Value, Failure, Requirements>(
+export const withStoredApplicationReadinessForBindingInTransaction = Effect.fnUntraced(function* <Value, Failure, Requirements>(
   repository: unknown, issued: ApplicationReadinessResult, tx: AppRowTransaction,
   currentClock: ScopeClockRecord, checkedActive: CheckedApplicationActiveHead | undefined,
   work: (validated: StoredApplicationReadinessActivationValidation) => Effect.Effect<Value, Failure, Requirements>,
+  pairedProtection?: ApplicationReadinessProtection,
 ) {
   if (typeof repository !== "object" || repository === null || issued.status !== "ready")
     return yield* readinessFailure("invalidComposition");
@@ -1305,44 +1412,59 @@ export const withStoredApplicationReadinessForBindingInTransaction = Effect.fn(
   const issuedState = issuedReadinessStates.get(issued);
   if (repositoryState === undefined || issuedState === undefined || issuedState.kind !== "stored" ||
     issuedState.stored.preparationProfile === "finiteEntry" ||
-    issuedState.issuer !== repositoryState.issuer || issuedState.stored.bundle.authority.scopeId !== currentClock.scopeId ||
-    hasProtectedMetadataFinalGuardScope(tx)) return yield* readinessFailure("invalidComposition");
+    issuedState.issuer !== repositoryState.issuer || issuedState.stored.bundle.authority.scopeId !== currentClock.scopeId)
+    return yield* readinessFailure("invalidComposition");
   const protection = issuedState.stored.protectedMetadata;
+  const deferredGuard = hasProtectedMetadataFinalGuardScope(tx);
   if (protection !== undefined) yield* authenticateProtectedTargetMetadataSnapshot(protection, tx).pipe(
     Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  if (protection !== undefined && deferredGuard) yield* registerProtectedMetadataFinalGuard(
+    tx, protection.token, protection.database, protection.epoch,
+  ).pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   const validated = yield* validateStoredIssuedReadiness(repositoryState, issuedState, tx, currentClock,
-    checkedActive, protection);
+    checkedActive, protection, pairedProtection);
   const value = yield* Effect.suspend(() => work(validated));
   // This remains the last metadata acquisition. Body failures, defects and
   // interruption bypass this success tail and retain the owning rollback Cause.
-  if (protection !== undefined) yield* guardProtectedMetadataEpoch(
+  // A genuine installed relational entry owns the existing transaction guard
+  // scope and flushes it after all business work. Other callers keep this tail.
+  if (protection !== undefined && !deferredGuard) yield* guardProtectedMetadataEpoch(
     protection.token, protection.database, protection.epoch, tx,
   ).pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   return value;
-});
+}, work => observeExecution("ApplicationReadiness.withStoredForBindingInTransaction", work));
 
-const validateStoredIssuedReadiness = Effect.fn(
-  "ApplicationReadiness.validateStoredIssuedReadiness",
-)(function* (
+const validateStoredIssuedReadiness = Effect.fnUntraced(function* (
   repositoryState: ApplicationReadinessIssuerState,
   issuedState: StoredIssuedApplicationReadinessState,
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
   checkedActive?: CheckedApplicationActiveHead,
   requestProjection?: StoredReadinessAuthority["protectedMetadata"],
+  pairedProtection?: ApplicationReadinessProtection,
 ): Effect.fn.Return<
   StoredApplicationReadinessActivationValidation,
-  | ApplicationReadinessError
-  | ApplicationTaskCatalogSnapshotError
-  | ValidatePhysicalDefinitionLifecycleReadinessError
-  | LockScopeClockForShareError
+  StoredApplicationReadinessValidationError
 > {
   const protection = issuedState.stored.protectedMetadata;
   if (requestProjection !== undefined && requestProjection !== protection)
     return yield* readinessFailure("invalidComposition");
+  if (pairedProtection !== undefined) {
+    const expected = issuedState.stored.controlIdentity;
+    const original = issuedState.stored.generationProtection;
+    if (issuedState.stored.target === undefined ||
+      !hasLocatedReadCommittedTargetDatabaseV1(issuedState.stored.target, pairedProtection.target.database) ||
+      expected === undefined || expected.databaseName !== pairedProtection.control.epoch.databaseName ||
+      expected.namespaceOid !== pairedProtection.control.epoch.namespaceOid.toString() ||
+      original === undefined || !readinessProtectionMatches(original, pairedProtection))
+      return yield* readinessFailure("invalidComposition");
+    yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, original.target, original.control)).pipe(Effect.mapError(cause =>
+      readinessFailureValue(cause.reason === "changed" ? "authorityChanged" : "invalidComposition", false, cause)));
+  }
   let currentBundle: StoredBundle;
-  const useProtectedProjection = requestProjection !== undefined ||
-    (protection !== undefined && hasProtectedMetadataFinalGuardScope(tx));
+  let freshCatalog: Readonly<{ schema: ApplicationSchemaAuthority; reader: AppRowTransaction | FlarexMetadataDatabase }> | undefined;
+  const useProtectedProjection = (pairedProtection !== undefined || issuedState.stored.preparationProfile === "finiteEntry") &&
+    (requestProjection !== undefined || (protection !== undefined && hasProtectedMetadataFinalGuardScope(tx)));
   if (useProtectedProjection) {
     if (requestProjection === undefined && protection !== undefined)
       yield* registerProtectedMetadataFinalGuard(tx, protection.token, protection.database, protection.epoch)
@@ -1363,6 +1485,37 @@ const validateStoredIssuedReadiness = Effect.fn(
     if ("status" in loaded || !storedBundlesEqual(loaded, issuedState.stored.bundle))
       return yield* readinessFailure("authorityChanged");
     currentBundle = loaded;
+    freshCatalog = yield* validateStoredReadinessControlCatalog(repositoryState, issuedState.stored, currentBundle, tx);
+  }
+  if (issuedState.stored.preparationProfile !== "finiteEntry") {
+    const preparedUnique = !useProtectedProjection || issuedState.stored.uniquePreparation === undefined
+      ? yield* preparePointCommitUniqueConstraintSet(repositoryState.context.pointCommit,
+          { deploymentId: currentBundle.deploymentId, scopeId: currentBundle.authority.scopeId,
+            schemaVersionId: issuedState.stored.schema.schemaVersionId },
+          repositoryState.context.controlDb, repositoryState.context.authority)
+      : { status: "prepared" as const, preparation: issuedState.stored.uniquePreparation };
+    if (preparedUnique.status !== "prepared") return yield* readinessFailure("authorityChanged");
+    if (!useProtectedProjection && issuedState.stored.uniquePreparation !== undefined) {
+      const original = yield* lendPreparedAppUniqueConstraintDefinitions(issuedState.stored.uniquePreparation, repositoryState.context.controlDb);
+      const current = yield* lendPreparedAppUniqueConstraintDefinitions(preparedUnique.preparation, repositoryState.context.controlDb);
+      if (current.length !== original.length || current.some((definition, index) => {
+        const expected = original[index];
+        return expected === undefined || definition.deploymentId !== expected.deploymentId ||
+          definition.uniqueConstraintDefinitionId !== expected.uniqueConstraintDefinitionId ||
+          definition.logicalUniqueConstraintId !== expected.logicalUniqueConstraintId || definition.tableId !== expected.tableId ||
+          definition.physicalSpecCodecVersion !== expected.physicalSpecCodecVersion ||
+          definition.physicalSpecBytesHex !== expected.physicalSpecBytesHex || definition.physicalSpecSha256Hex !== expected.physicalSpecSha256Hex;
+      })) return yield* readinessFailure("authorityChanged");
+    }
+    const unique = yield* acceptPreparedPointCommitUniqueConstraintSet(repositoryState.context.pointCommit,
+      preparedUnique.preparation, tx, currentBundle.authority, clock);
+    if (unique.status === "not_ready") return yield* readinessFailure("authorityChanged");
+  }
+  if (freshCatalog !== undefined) {
+    yield* validatePhysicalDefinitionLifecycleReadinessCatalogEffect(repositoryState.context.physicalDefinitionLifecycle,
+      issuedState.stored.physicalDefinitionLifecycle, tx);
+    const binding = yield* readSchemaBinding(freshCatalog.reader, currentBundle, issuedState.stored.schemaVersion, freshCatalog.schema);
+    if (!bytesEqualFullScan(binding.sha256, issuedState.stored.schemaBindingSha256)) return yield* readinessFailure("schemaBinding");
   }
   if (issuedState.stored.preparationProfile === "finiteEntry") {
     if (repositoryState.context.cold.runtimeHostIdentity !== issuedState.stored.cold.runtimeHostIdentity ||
@@ -1421,6 +1574,34 @@ const validateStoredIssuedReadiness = Effect.fn(
     status: "ready",
     basis: activationBasis(issuedState),
   });
+}, work => observeExecution("ApplicationReadiness.validateStoredIssuedReadiness", work));
+
+/** Retention never replaces an unprotected catalog proof. Reuse the original
+ * catalog owners and the actual accepting client for colocated metadata; a
+ * separate control catalog keeps its established bounded reader. */
+const validateStoredReadinessControlCatalog = Effect.fnUntraced(function* (
+  repository: ApplicationReadinessIssuerState, stored: StoredReadinessAuthority,
+  bundle: StoredBundle, tx: AppRowTransaction,
+) {
+  const control = repository.context.controlDb;
+  const catalog = stored.target !== undefined && hasLocatedReadCommittedTargetDatabaseV1(stored.target, control) ? tx : undefined;
+  const { schema } = yield* repository.context.schema.readPublished({
+    deploymentId: bundle.deploymentId, manifest: bundle.manifest,
+  }, catalog).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause,
+    error => readinessFailureValue("schemaBinding", false, error)))));
+  yield* requireSchemaCorrelation(bundle, stored.schemaVersion, schema);
+  if (!bytesEqualFullScan(applicationSchemaBindingBytes(schema), applicationSchemaBindingBytes(stored.schema)))
+    return yield* readinessFailure("schemaBinding");
+  const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(control,
+    { deploymentId: bundle.deploymentId, schemaVersionId: schema.schemaVersionId }, catalog);
+  if (requirements === null || !bytesEqualFullScan(requirements.manifestSha256, stored.requirements.manifestSha256) ||
+    requirements.definitions.length !== stored.requirements.definitions.length ||
+    requirements.definitions.some((definition, index) => {
+      const expected = stored.requirements.definitions[index];
+      return expected === undefined || definition.tableId !== expected.tableId ||
+        !publishedPhysicalDefinitionMatchesLocated(expected, definition);
+    })) return yield* readinessFailure("authorityChanged");
+  return Object.freeze({ schema, reader: catalog ?? control });
 });
 
 const reserveBundle = Effect.fn("ApplicationReadiness.reserveBundle")(
@@ -1742,7 +1923,7 @@ function publishSchemaBinding(
 }
 
 const readSchemaBinding = Effect.fn("ApplicationReadiness.readSchemaBinding")(function* (
-  tx: AppRowTransaction,
+  tx: AppRowTransaction | FlarexMetadataDatabase,
   bundle: StoredBundle,
   schemaVersion: CatalogSchemaVersion,
   schema: ApplicationSchemaAuthority,
@@ -2348,7 +2529,7 @@ function* <SchemaFailure, ColdFailure>(
         readinessSha256,
         readinessBytes,
       );
-      return readyProjection(
+      return yield* readyProjection(
         "replayed",
         prepared,
         readinessSha256,
@@ -2417,7 +2598,7 @@ function* <SchemaFailure, ColdFailure>(
         ),
       );
     }
-    return readyProjection(
+    return yield* readyProjection(
       "inserted",
       prepared,
       readinessSha256,
@@ -2958,14 +3139,14 @@ function storedBundlesEqual(left: StoredBundle, right: StoredBundle): boolean {
   });
 }
 
-function readyProjection(
+const readyProjection = Effect.fn("ApplicationReadiness.issueReadyProjection")(function* (
   disposition: "inserted" | "replayed",
   prepared: PreparedReadiness,
   readinessSha256: Uint8Array,
   readinessBytes: Uint8Array,
   readyAt: Date,
   issuer: ApplicationReadinessRepositoryIssuerV1,
-): ApplicationReadinessResult {
+): Effect.fn.Return<ApplicationReadinessResult, ApplicationReadinessError> {
   const result = Object.freeze({
     status: "ready",
     disposition,
@@ -2983,13 +3164,15 @@ function readyProjection(
     readinessSha256: copyBytes(readinessSha256),
     readinessBytes: copyBytes(readinessBytes),
   }));
+  yield* registerHostPreparationDisposal(() => { issuedReadinessStates.delete(result); }).pipe(
+    Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   return result;
-}
+});
 
-function storedReadyProjection(
+const storedReadyProjection = Effect.fn("ApplicationReadiness.issueStoredReadyProjection")(function* (
   stored: StoredReadinessAuthority,
   issuer: ApplicationReadinessRepositoryIssuerV1,
-): ApplicationReadinessResult {
+): Effect.fn.Return<ApplicationReadinessResult, ApplicationReadinessError> {
   const result = Object.freeze({
     status: "ready",
     disposition: "replayed",
@@ -3003,12 +3186,15 @@ function storedReadyProjection(
   issuedReadinessStates.set(result, Object.freeze({
     kind: "stored",
     issuer,
+    lifetime: yield* captureHostPreparationLifetime(),
     stored,
     readinessSha256: copyBytes(stored.readinessSha256),
     readinessBytes: copyBytes(stored.readinessBytes),
   }));
+  yield* registerHostPreparationDisposal(() => { issuedReadinessStates.delete(result); }).pipe(
+    Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   return result;
-}
+});
 
 function activationBasis(
   state: IssuedApplicationReadinessState,

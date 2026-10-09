@@ -7,6 +7,8 @@ import { withPostgresExecutionObservation } from "./postgresExecutionObservation
 import { readCe0Environment } from "./ce0Environment";
 import { runEffect } from "./effectTestRuntime";
 import { makeCmsHost } from "../src/cmsTransaction/host";
+import { Effect } from "effect";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../src/executionDiagnostics/operation";
 
 type Observation = Awaited<ReturnType<typeof withPostgresExecutionObservation>>["observation"];
 interface Sample {
@@ -27,24 +29,23 @@ interface Workload {
 
 describe.skipIf(postgresUrl === null)("CE2 active CMS request measurement", () => {
   const withPersistence = useFileScopedPostgresPersistence();
-  it("combines index families while retaining bounded membership SQL", () => withPersistence(async persistence => {
+  it("combines index families in one installed materialization driver call", () => withPersistence(async persistence => {
     const tested = await cmsExecutionMeasurementFixture(persistence, makePostgresRelationalSession(persistence));
     for (const count of [1, 16, 17, 32]) {
       const before = await tested.inventory();
       const titles = Array.from({ length: count }, (_, index) => `combined-sql-${count}-${index}`);
-      let batches = 0;
       const measured = await withPostgresExecutionObservation(persistence.pool, async mark => {
-        const host = await runEffect(makeCmsHost({ ...tested.input, materialization: {
-          ...tested.input.materialization,
-          afterTransactionStep: async event => {
-            if (event.step === "indexBatchWriting") { batches++; mark(event.step); }
-            else if (event.step === "indexBatchWritten") mark(event.step);
-          },
-        } }));
-        return runEffect(host.run(host.newRequestKey(), tested.insert, { titles }));
+        const host = await runEffect(makeCmsHost(tested.input));
+        const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) =>
+          name !== "ApplicationDocument.materializeAcceptedPublication" ? work : Effect.sync(() => mark("applyPublication")).pipe(
+            Effect.andThen(work), Effect.ensuring(Effect.sync(() => mark("resolveAndLock")))) };
+        return runEffect(host.run(host.newRequestKey(), tested.insert, { titles }).pipe(
+          Effect.provideService(ExecutionDiagnostics, diagnostics)));
       });
-      expect(batches).toBe(1);
-      expect(measured.observation.phases.indexBatchWriting?.queryCalls).toBe(1 + 4 * Math.ceil((count * 2) / 32));
+      // This counts the actual fixed driver invocation. Native bounded DML and
+      // the two memberships per row retain their storage proofs below.
+      expect(measured.observation.familyQueries.fx_accept_app_publication).toBe(1);
+      expect(measured.observation.familyQueries.fx_apply_app_publication).toBe(1);
       await tested.verifyInserts(before, [{ value: measured.value, titles }]);
     }
   }), 120_000);

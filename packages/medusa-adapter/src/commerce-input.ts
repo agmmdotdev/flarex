@@ -1,11 +1,18 @@
 import { Result } from "effect";
-import { capturePrivateJsonData, commerceError, defaultCommerceResources, type CommerceResources, type Json, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { useCapturedPrivateJsonData, inspectCapturedPrivateJsonData, commerceError, defaultCommerceResources, type CommerceResources, type Json, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 /** Medusa builds plain option objects with undefined members. Omit those members
  * at this foreign boundary, then use the core's strict captured JSON contract. */
 export function captureCommerceInput(input: unknown, resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources, onOmitted?: (path: readonly string[]) => void): Result.Result<Json, CommerceTransactionError> {
   let nodes = 0;
   const active = new Set<object>();
   const visit = (value: unknown, depth: number, path: readonly string[]): Result.Result<unknown, CommerceTransactionError> => Result.gen(function* () {
+    const issued = inspectCapturedPrivateJsonData(value);
+    if (issued !== undefined) {
+      if (nodes + issued.nodes > resources.valueNodes || depth + issued.depth > 16)
+        return yield* Result.fail(commerceError("limitExceeded"));
+      nodes += issued.nodes;
+      return issued.value;
+    }
     if (++nodes > resources.valueNodes || depth > 16) return yield* Result.fail(commerceError("limitExceeded"));
     if (value === null || typeof value !== "object") return value;
     const meta = yield* Result.try({ try: () => ({ array: Array.isArray(value), prototype: Object.getPrototypeOf(value), keys: Reflect.ownKeys(value) }), catch: cause => commerceError("invalidInput", cause) });
@@ -29,5 +36,5 @@ export function captureCommerceInput(input: unknown, resources: Pick<CommerceRes
     }
     return Object.fromEntries(entries);
   });
-  return visit(input, 0, []).pipe(Result.flatMap(value => capturePrivateJsonData(value, resources.commandBytes, commerceError)), Result.map(value => value.value));
+  return visit(input, 0, []).pipe(Result.flatMap(value => useCapturedPrivateJsonData(value, resources.commandBytes, commerceError)), Result.map(value => value.value));
 }

@@ -1,11 +1,64 @@
+import { getTableName, sql } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { createPGlitePersistence } from "../src/pglite";
 import { closeInstallationAdmission, initializeFullProofInstallation, loadManagedInstallation,
   lockInstallationForCurrentTransaction, verifyInstallationWriterProtection } from "../src/installationLifecycle";
 import { newTestPGlite } from "./pgliteSearchExtensions";
+import { fxSystemTransactionJournalPoints } from "../src/schema";
 
 describe("installation full-proof compatibility", () => {
+  it("attests the journal CHECK and cleans native parser references on nested success and rollback", async () => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    const table = fxSystemTransactionJournalPoints;
+    const check = getTableConfig(table).checks.find(value => value.name === "fx_system_tx_journal_point_dependency_check");
+    if (check === undefined) throw new Error("Missing actual journal CHECK");
+    const references = async () => (await persistence.query(
+      "select count(*)::integer as count from pg_class where relnamespace=pg_my_temp_schema() and relname like 'fx_point_dependency_reference_%'"
+    )).rows;
+    const rollback = new Error("exact cold verification rollback");
+    try {
+      await persistence.migrate();
+      await persistence.drizzle.transaction(async tx => {
+        for (let index = 0; index < 2; index += 1) {
+          await Effect.runPromise(verifyInstallationWriterProtection(tx, "public"));
+          expect((await tx.execute<{ count: number }>(sql`select count(*)::integer as count from pg_class
+            where relnamespace=pg_my_temp_schema() and relname like 'fx_point_dependency_reference_%'`)).rows)
+            .toEqual([{ count: 0 }]);
+        }
+      });
+      await expect(persistence.drizzle.transaction(async tx => {
+        await Effect.runPromise(verifyInstallationWriterProtection(tx, "public"));
+        throw rollback;
+      })).rejects.toBe(rollback);
+      expect(await references()).toEqual([{ count: 0 }]);
+      await expect(Effect.runPromise(verifyInstallationWriterProtection(persistence.drizzle, "missing_installation_schema")))
+        .rejects.toMatchObject({ reason: "resourceFailure" });
+      expect(await references()).toEqual([{ count: 0 }]);
+      for (const replacement of [undefined, sql`true`, sql`(${table.dependencyKind} = 'present' and ${table.dependencyRevisionCommitSeq} is not null
+        and ${table.dependencyRevisionCommitSeq} >= 1 or ${table.dependencyKind} = 'missing_no_visible_revision')
+        and ${table.dependencyRevisionCommitSeq} is null or (${table.dependencyKind} = 'missing_tombstone'
+        and ${table.dependencyRevisionCommitSeq} is not null and ${table.dependencyRevisionCommitSeq} >= 1)
+        or (${table.dependencyKind} = 'generated_insertion' and ${table.dependencyRevisionCommitSeq} is null)`]) {
+        await persistence.drizzle.execute(sql`alter table ${sql.identifier(getTableName(table))}
+          drop constraint ${sql.identifier(check.name)}`);
+        if (replacement !== undefined) await persistence.drizzle.execute(sql`alter table ${sql.identifier(getTableName(table))}
+          add constraint ${sql.identifier(check.name)} check (${replacement})`);
+        await persistence.query("update fx_system_installation set state='unverified'");
+        await expect(Effect.runPromise(initializeFullProofInstallation(persistence.drizzle, "public")))
+          .rejects.toMatchObject({ reason: "invalidInstallation" });
+        expect((await persistence.query("select state from fx_system_installation")).rows).toEqual([{ state: "unverified" }]);
+        expect(await references()).toEqual([{ count: 0 }]);
+        if (replacement !== undefined) await persistence.drizzle.execute(sql`alter table ${sql.identifier(getTableName(table))}
+          drop constraint ${sql.identifier(check.name)}`);
+        await persistence.drizzle.execute(sql`alter table ${sql.identifier(getTableName(table))}
+          add constraint ${sql.identifier(check.name)} check (${check.value})`);
+        await Effect.runPromise(initializeFullProofInstallation(persistence.drizzle, "public"));
+      }
+    } finally { await db.close(); }
+  }, 180_000);
   it("refuses overlapping complete maintenance commands across wrappers of the actual backend", async () => {
     const db = newTestPGlite();
     const first = await createPGlitePersistence({ db });

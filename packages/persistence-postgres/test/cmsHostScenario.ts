@@ -1,5 +1,5 @@
 import { selectScopeClockRows } from "../src/scopeClock";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../src/installationLifecycle";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../src/installationLifecycle";
 import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
@@ -7,7 +7,8 @@ import { cmsHostFixture } from "./cmsHostFixture";
 import { assertCmsParticipantAdmission } from "./cmsParticipantAdmission";
 import { expect } from "vitest";
 import { Effect, Exit } from "effect";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { CanonicalFlarexValueBytesV1Schema } from "flarex-protocol/value";
 import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -248,12 +249,45 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   await runEffect(observed.run(observed.newRequestKey(), sameValue, created._id));
   const afterSame = await inventory();
   expect(afterSame.revisions).toHaveLength(afterZero.revisions.length + 1);
-  expect(steps).toEqual(expect.arrayContaining(["tentativeRowWritten", "commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]));
+  expect(steps).toEqual(expect.arrayContaining(["commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]));
+
+  // The installed materialization stage has no JavaScript row interleave.
+  // Real RETURNING corruption refuses the row, and a later uniqueness claim
+  // refuses after provisional row/history and index writes have been applied.
+  const schemaName = await persistence.drizzle.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try { return await runEffect(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
+    finally { closeInstallationAdmission(tx); }
+  });
+  for (const family of ["row", "unique"] as const) {
+    const target = family === "row" ? fxAppRowRevisions : fxAppUniqueKeys;
+    const targetName = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(getTableName(target))}`).sql;
+    const functionName = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier("cms_materialization_corruption")}`).sql;
+    const corrupt = family === "row"
+      ? `NEW."${fxAppRowRevisions.creationTime.name}" := NEW."${fxAppRowRevisions.creationTime.name}" + 1;`
+      : `NEW."${fxAppUniqueKeys.encodedKey.name}" := set_byte(NEW."${fxAppUniqueKeys.encodedKey.name}",
+          octet_length(NEW."${fxAppUniqueKeys.encodedKey.name}") - 1,
+          get_byte(NEW."${fxAppUniqueKeys.encodedKey.name}", octet_length(NEW."${fxAppUniqueKeys.encodedKey.name}") - 1) # 1);`;
+    await persistence.query(`create function ${functionName}() returns trigger language plpgsql as $$
+      begin
+        if NEW."${target.tableId.name}" = ${posts.tableId} then ${corrupt} end if;
+        return NEW;
+      end $$`);
+    try {
+      await persistence.query(`create trigger cms_materialization_corruption before insert on ${targetName}
+        for each row execute function ${functionName}()`);
+      try {
+        const triggerFailure = await runEffectFailure(host.run(host.newRequestKey(), bulk, { count: 1, prefix: `trigger-${family}` }));
+        expect(triggerFailure).toMatchObject({ reason: "storedCorruption" });
+        expect(await inventory()).toEqual(afterSame);
+      } finally { await persistence.query(`drop trigger cms_materialization_corruption on ${targetName}`); }
+    } finally { await persistence.query(`drop function ${functionName}()`); }
+  }
   for (const failedStep of new Set(steps)) {
     const fault = new Error(`Fault after ${failedStep}`);
     const failing = await runEffect(makeCmsHost({ ...input, materialization: { ...input.materialization,
       afterTransactionStep: async event => { if (event.step === failedStep) throw fault; } } }));
-    expect(Exit.isFailure(await runEffect(Effect.exit(failing.run(failing.newRequestKey(), edit, { id: created._id }))))).toBe(true);
+    expect(Exit.isFailure(await runEffect(Effect.exit(failing.run(failing.newRequestKey(), bulk, { count: 1, prefix: `publication-${failedStep}` }))))).toBe(true);
     expect(await inventory()).toEqual(afterSame);
   }
   await runEffect(host.run(host.newRequestKey(), remove, created._id));

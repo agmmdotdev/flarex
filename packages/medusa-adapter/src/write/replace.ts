@@ -1,3 +1,6 @@
+import { observeExecution } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+// Named execution diagnostics belong to explicit SDK composition. Local operations
+// retain their lazy Effect body without rebuilding traced function definitions.
 import { Effect, Result, Schema } from "effect";
 import { generateEntityId, MedusaError } from "@medusajs/framework/utils/portable";
 import { emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
@@ -9,7 +12,10 @@ import { commerceDecoder } from "../commerce-decoder";
 import { captureCommerceInput } from "../commerce-input";
 import { assembleCommerceRelations } from "../commerce-relations";
 import type { GraphEntity, GraphTable, ReplacementProfile, ReplacedGraph } from "./graph-model";
-const decodeGraphArray = commerceDecoder(Schema.Array(Schema.Json), "invalidInput");
+// The authoritative native capture already established the complete JSON tree.
+// Relation shape remains checked here; operation-specific decoders stay below.
+const graphArray = (value: Json): Result.Result<readonly Json[], CommerceTransactionError> =>
+  Array.isArray(value) ? Result.succeed(value) : Result.fail(commerceError("invalidInput"));
 const decodeConfig = commerceDecoder(Schema.Struct({ relations: Schema.Array(Schema.String) }), "unsupportedProfile");
 type Table = GraphTable;
 
@@ -17,13 +23,13 @@ type Table = GraphTable;
  * Medusa supplies normalized values; core supplies all reads, writes and facts.
  * No manager, SQL implementation or mutable state survives this operation.
  */
-export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
+export const replaceGraphRows = Effect.fnUntraced(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, profile: ReplacementProfile, entity: GraphEntity,
   input: unknown, config: unknown, creation = false,
 ): Effect.fn.Return<ReplacedGraph, CommerceTransactionError> {
   const catalog = profile.catalog;
   const supplied = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-  const inputs = yield* Effect.fromResult(decodeGraphArray(supplied));
+  const inputs = yield* Effect.fromResult(graphArray(supplied));
   const settings = yield* Effect.fromResult(captureCommerceInput(config));
   const { relations } = yield* Effect.fromResult(decodeConfig(settings));
   if (relations.some(name => !profile.allowedRelations(entity).includes(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -34,13 +40,13 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
   const deletes = new Map<string, Map<string, JsonObject>>();
   const visited = new Set<string>();
   const stores = new Map<string, Effect.Success<ReturnType<CommerceCommandContext["table"]>>>();
-  const getStore = Effect.fn("MedusaGraph.store")(function* (table: Table) {
+  const getStore = (table: Table) => observeExecution("MedusaGraph.store", Effect.gen(function* () {
     const previous = stores.get(table.name);
     if (previous !== undefined) return previous;
     const store = yield* ctx.table(table.name);
     stores.set(table.name, store);
     return store;
-  });
+  }));
   const keys = (table: Table) => table.columns.some(column => column.primaryKey)
     ? table.columns.filter(column => column.primaryKey).map(column => column.name)
     : table.foreignKeys.flatMap(key => key.columns);
@@ -49,7 +55,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
     const rows = group.get(table.name) ?? new Map<string, JsonObject>();
     rows.set(identity(table, row), row); group.set(table.name, rows);
   };
-  const load = Effect.fn("MedusaGraph.load")(function* (table: Table, column: string, values: readonly string[]) {
+  const load = (table: Table, column: string, values: readonly string[]) => observeExecution("MedusaGraph.load", Effect.gen(function* () {
     if (values.length === 0) return [];
     const selected = new Set(values);
     const known = new Map((state.get(table.name) ?? []).map(row => [identity(table, row), row]));
@@ -79,8 +85,8 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
     state.set(table.name, [...known.values()]);
     return [...known.values()].filter(row => typeof row[column] === "string" && selected.has(row[column]) &&
       !deletes.get(table.name)?.has(identity(table, row)));
-  });
-  const remove = Effect.fn("MedusaGraph.remove")(function* (table: Table, row: JsonObject): Effect.fn.Return<void, CommerceTransactionError> {
+  }));
+  const remove = (table: Table, row: JsonObject) => observeExecution("MedusaGraph.remove", Effect.gen(function* (): Effect.fn.Return<void, CommerceTransactionError> {
     const token = identity(table, row);
     if (deletes.get(table.name)?.has(token)) return;
     if (inserts.get(table.name)?.has(token) || updates.get(table.name)?.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
@@ -96,10 +102,8 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
     }
     put(deletes, table, row);
     state.set(table.name, (state.get(table.name) ?? []).filter(value => identity(table, value) !== token));
-  });
-  const plan = Effect.fn("MedusaGraph.plan")(function* (
-    target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean,
-  ): Effect.fn.Return<JsonObject, CommerceTransactionError> {
+  }));
+  const plan = (target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean) => observeExecution("MedusaGraph.plan", Effect.gen(function* (): Effect.fn.Return<JsonObject, CommerceTransactionError> {
     const decoded = yield* Effect.fromResult(catalog.decodeRow(target, inputRow));
     const id = generateEntityId(decoded.key, target.prefix);
     const row = decoded.supplied;
@@ -153,7 +157,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
       if (root && !relations.includes(name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const child = catalog.entities.find(value => value.table.name === descriptor.targetTable);
       if (child === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const members = yield* Effect.fromResult(decodeGraphArray(row[name]));
+      const members = yield* Effect.fromResult(graphArray(row[name]));
       const join = descriptor.join;
       if (join.type === "hasMany") {
         const fk = join.foreignKeys[0];
@@ -244,7 +248,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
       }
     }
     return next;
-  });
+  }));
   const roots: JsonObject[] = [];
   for (const row of inputs) roots.push(yield* plan(entity, row, {}, true));
   // A stable dependency order batches independent rows and removes children
@@ -259,7 +263,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
     ordered.push(table);
   }
   const performedActions = emptyPerformedActions();
-  const apply = Effect.fn("MedusaGraph.apply")(function* (table: Table, operation: "insert" | "update" | "delete", group: Map<string, Map<string, JsonObject>>) {
+  const apply = (table: Table, operation: "insert" | "update" | "delete", group: Map<string, Map<string, JsonObject>>) => observeExecution("MedusaGraph.apply", Effect.gen(function* () {
     const rows = [...group.get(table.name)?.values() ?? []];
     if (rows.length === 0) return;
     const store = yield* getStore(table);
@@ -271,7 +275,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
       const changed = new Set(written.map(row => identity(table, row)));
       state.set(table.name, [...(state.get(table.name) ?? []).filter(row => !changed.has(identity(table, row))), ...written]);
     }
-  });
+  }));
   for (const table of [...ordered].reverse()) yield* apply(table, "delete", deletes);
   for (const table of ordered) yield* apply(table, "insert", inserts);
   for (const table of ordered) yield* apply(table, "update", updates);
@@ -286,7 +290,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
   }
   const freshRoots = yield* load(entity.table, entity.keyColumn, rootIds);
   if (freshRoots.length !== roots.length) return yield* Effect.fail(commerceError("storedCorruption"));
-  const selectValues = Effect.fn("MedusaGraph.selectValues")(function* (rows: readonly JsonObject[], column: string) {
+  const selectValues = (rows: readonly JsonObject[], column: string) => observeExecution("MedusaGraph.selectValues", Effect.gen(function* () {
     const values = new Set<string>();
     for (const row of rows) {
       const value = row[column];
@@ -295,7 +299,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
       values.add(value);
     }
     return [...values];
-  });
+  }));
   // Hydrate each selected relation from its indexed forward or reverse key.
   // The original service still owns the final DTO serialization.
   for (const path of paths) {
@@ -336,4 +340,4 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
   const projection = new Map(yield* Effect.fromResult(profile.project(state)));
   projection.set(entity.table.name, roots.map(root => freshRoots.find(row => row[entity.keyColumn] === root[entity.keyColumn]) ?? root));
   return { entities: assembleCommerceRelations(entity.table.name, projection, paths, catalog.queryRelations), performedActions };
-});
+}, work => observeExecution("MedusaGraph.replaceRows", work));

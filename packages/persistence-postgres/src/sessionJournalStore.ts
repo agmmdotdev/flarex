@@ -1,3 +1,4 @@
+import { observeExecution } from "./executionDiagnostics/operation";
 import { captureFiniteStorageEffect, FiniteStorageCaptureError, type FiniteStorageCaptureOperation } from "./finiteStorageCapture";
 import { type CapturedFiniteAttemptAnchor } from "./finiteAttemptAnchor";
 import { materializeFiniteApplicationExecutionEvidence, type materializeFiniteExecutionSchema } from "./storedCommitAuthority/materialization";
@@ -103,6 +104,7 @@ import {
   type ApplicationActivationSequenceV1,
   type CanonicalSessionJournal,
   type CanonicalSuccessfulResultV1,
+  readIssuedCanonicalSuccessfulResultV1,
   type CommitFinalSyscallSequenceV1,
   type CommitProtocolV1LimitDimension,
   type CommitSyscallSequenceV1,
@@ -291,8 +293,9 @@ import { APPLICATION_EXECUTION_METADATA_OWNER, captureFiniteMetadataDependency, 
 import { captureFiniteMetadataReservation,
   type CapturedFiniteMetadataReservation } from "./finiteMetadataReservation";
 import { projectLogicalDocumentJournalContribution, type LogicalJournalContributionError } from "./logicalDocuments/journalContribution";
-import { serializeLogicalParticipantDependencyEvidence, type LogicalParticipantEvidenceError } from "./logicalDocuments/journalEvidence";
-import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
+import { serializeLogicalParticipantDependencyEvidence, authenticatedGeneratedInsertionsResult, type LogicalParticipantEvidenceError } from "./logicalDocuments/journalEvidence";
+import { projectLogicalPointExpectation, type LogicalDocumentPointEvidence } from "./logicalDocuments/pointEvidence";
+import type { LogicalDocumentChanges, PendingDocument } from "./logicalDocuments/workingSet";
 import type { LogicalDocumentBorrowView, LogicalPendingDocumentSeed, LogicalFiniteStorageCapture } from "./logicalDocuments/model";
 import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
   recordLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot, borrowClosedLogicalDocumentRoot, type LogicalDocumentRootEvaluator } from
@@ -757,7 +760,7 @@ export { readConfirmedFiniteRootEntryCapture } from "./sessionJournalFiniteEntry
 export type { PreparedFiniteSessionJournalEntry, ConfirmedFiniteRootEntryCapture,
   FiniteSessionJournalParticipantSelection } from "./sessionJournalFiniteEntry";
 import { issueFrozenFiniteAttempt, type FrozenFiniteAttempt, type FrozenFiniteOperation } from "./sessionJournalFiniteFreeze";
-export { readFrozenFiniteAttempt, readFrozenFiniteCommitValues } from "./sessionJournalFiniteFreeze";
+export { readFrozenFiniteAttempt, readFrozenFiniteCommitValues, borrowFrozenFiniteCommitValues, type FrozenFiniteCommitValidationValues } from "./sessionJournalFiniteFreeze";
 export type { FrozenFiniteAttempt, FrozenFiniteAttemptData, FrozenFiniteOperation } from "./sessionJournalFiniteFreeze";
 export type SessionJournalParticipantSelection = Readonly<{
   participant: string;
@@ -1466,7 +1469,7 @@ interface FiniteRootAdmittedRecord {
   }>;
   readonly requestEvidence: CanonicalFlarexValueV1;
   readonly bindingDigest: Uint8Array;
-  readonly completed: AdmittedCompletion;
+  readonly completed: Pick<AdmittedCompletion, "result" | "eventIntents" | "workBytes" | "workCalls">;
   readonly outcome: Extract<SessionJournalStoredOutcome, {
     readonly kind: "admittedLogicalResult";
   }>;
@@ -1626,9 +1629,7 @@ const decodeOrderedIndexBoundHexV1Result = Schema.decodeUnknownResult(
 const decodeExecutionClaimOwnerResult = decodeTransactionExecutionClaimOwnerV1;
 const decodeExecutionClaimFenceResult = decodeTransactionExecutionClaimFenceV1;
 
-const captureAdmittedOperationRequestEffect = Effect.fn(
-  "SessionJournalStore.captureAdmittedOperationRequest",
-)(function* (input: Readonly<{
+const captureAdmittedOperationRequestEffect = Effect.fnUntraced(function* (input: Readonly<{
   requestBytes: Uint8Array;
   requestSha256: Uint8Array;
 }>): Effect.fn.Return<
@@ -1665,7 +1666,7 @@ const captureAdmittedOperationRequestEffect = Effect.fn(
     return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidInput" }));
   }
   return Object.freeze({ frame: encoded.operation, sha256: digest });
-});
+}, work => observeExecution("SessionJournalStore.captureAdmittedOperationRequest", work));
 
 function mapAdmittedKernelFailure(cause: unknown):
   InvalidSessionJournalCapabilityV1Error | SessionJournalPersistenceV1Error |
@@ -1689,9 +1690,7 @@ function mapAdmittedKernelFailure(cause: unknown):
 
 /** The caller owns the transaction-local sharing scope. Every source still
  * authenticates its own issuer, selected head and request pins. */
-const requireAdmittedBundleSourcesInTransactionEffect = Effect.fn(
-  "SessionJournalStore.requireAdmittedBundleSources",
-)(function* (
+const requireAdmittedBundleSourcesInTransactionEffect = Effect.fnUntraced(function* (
   bundle: LogicalParticipantAdmissionBundle,
   attempt: SessionJournalAttempt,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "admittedLogicalOperation" }>,
@@ -1720,15 +1719,12 @@ const requireAdmittedBundleSourcesInTransactionEffect = Effect.fn(
     states.push(state);
   }
   return Object.freeze(states);
-});
+}, work => observeExecution("SessionJournalStore.requireAdmittedBundleSources", work));
 
-const requireAdmittedBundleInTransactionEffect = Effect.fn(
-  "SessionJournalStore.requireAdmittedBundle",
-)((bundle: LogicalParticipantAdmissionBundle, attempt: SessionJournalAttempt,
-  request: Extract<SessionJournalStoredRequest, { readonly kind: "admittedLogicalOperation" }>,
-  tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
-  withSharedLogicalSourceBindingChecks(tx, () => requireAdmittedBundleSourcesInTransactionEffect(
+const requireAdmittedBundleInTransactionEffect = Effect.fnUntraced(function* (bundle: LogicalParticipantAdmissionBundle, attempt: SessionJournalAttempt, request: Extract<SessionJournalStoredRequest, { readonly kind: "admittedLogicalOperation" }>, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
+    return yield* (withSharedLogicalSourceBindingChecks(tx, () => requireAdmittedBundleSourcesInTransactionEffect(
     bundle, attempt, request, tx, authority, clock)));
+  }, work => observeExecution("SessionJournalStore.requireAdmittedBundle", work));
 
 const preflightAdmittedOperationInTransactionEffect = Effect.fn(
   "SessionJournalStore.preflightAdmittedOperation",
@@ -1855,10 +1851,25 @@ const preflightAdmittedOperationInTransactionEffect = Effect.fn(
   if (rows.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) {
     return yield* Effect.fail(corruption(attempt, "pointDependencyCountMismatch"));
   }
+  const retainedInsertions = rows.some(row => row.dependencyKind === "generated_insertion")
+    ? yield* Effect.gen(function* () {
+      const snapshot = yield* Effect.tryPromise({
+        try: () => captureSealProjectionRowsInTransaction(tx, attempt, { scopeUuid: context.scopeUuid, root: context.journalRoot }),
+        catch: cause => new SessionJournalPersistenceV1Error({ operation: "runAdmittedOperation", cause }),
+      });
+      const candidate = yield* materializeSealCandidateEffect(attempt, { ...snapshot, root: context.journalRoot });
+      return yield* Effect.fromResult(authenticatedGeneratedInsertionsResult(candidate.journal.participantOperations)
+        .pipe(Result.mapError(cause => corruption(attempt, "logicalWriteEventInvalid", cause))));
+    }) : new Map<import("flarex-protocol/app-document-id").AppDocumentIdV1, import("flarex-protocol/commit-protocol").AuthenticatedGeneratedInsertion>();
   const pendingRows: LogicalPendingDocumentSeed[] = [];
   for (const row of rows) {
-    const dependency = yield* Effect.fromResult(decodePointDependencyResult(attempt, row));
-    const observed = logicalDependencyFromPoint(dependency).observed;
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId: row.tableId, rowId: appRowIdHexV1FromBytes(row.rowId) });
+    const intent = retainedInsertions.get(documentId);
+    const evidence = row.dependencyKind === "generated_insertion"
+      ? intent === undefined || row.dependencyRevisionCommitSeq !== null
+        ? yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"))
+        : { kind: "generatedInsertion" as const, effectOrdinal: intent.effectOrdinal, origin: intent.origin }
+      : logicalDependencyFromPoint(yield* Effect.fromResult(decodePointDependencyResult(attempt, row))).observed;
     if (row.overlayKind === "live" && row.overlayCreationTime === null) {
       return yield* Effect.fail(corruption(attempt, "liveOverlayEvidenceMissing"));
     }
@@ -1868,7 +1879,7 @@ const preflightAdmittedOperationInTransactionEffect = Effect.fn(
         document: yield* decodeLivePointOverlayEvidenceEffect(attempt, row) })
       : Object.freeze({ kind: "deleted" as const });
     pendingRows.push(Object.freeze({ tableId: row.tableId,
-      rowId: appRowIdHexV1FromBytes(row.rowId), observed, overlay }));
+      rowId: appRowIdHexV1FromBytes(row.rowId), evidence, overlay }));
   }
   return Object.freeze({ kind: "ready" as const, pendingRows: Object.freeze(pendingRows) });
 });
@@ -2050,6 +2061,7 @@ const prepareAdmittedContributionsEffect = Effect.fn(
     const owner = owners[ordinal]!;
     const dependency = yield* serializeLogicalParticipantDependencyEvidence({
       ...completed.changes,
+      dependencies: completed.changes.dependencies.filter(point => owner.tableIds.has(point.tableId)),
       indexReads: completed.changes.indexReads.filter(read => owner.indexes.some(
         index => index.indexDefinitionId === read.definition.indexDefinitionId)),
       pageReads: completed.changes.pageReads.filter(read => owner.indexes.some(
@@ -2172,18 +2184,26 @@ const appendAdmittedOperationInTransactionEffect = Effect.fn(
     const existing = existingByIdentity.get(key);
     const identity = Object.freeze({ scopeId: attemptState.selector.scopeId,
       tableId: observation.tableId, rowId: observation.rowId });
-    const observed = observation.dependency.observed;
+    const generated = observation.dependency.kind === "generatedInsertion";
+    const observed = observation.dependency.kind === "appRowPoint" ? observation.dependency.observed
+      : { kind: "missing" as const, basis: { kind: "noVisibleRevision" as const } };
     const dependency: AppRowPointDependencyV1 = observed.kind === "present"
       ? Object.freeze({ kind: "present" as const, identity,
         revisionCommitSeq: observed.revisionCommitSeq })
       : Object.freeze({ kind: "missing" as const, identity,
         basis: observed.basis });
     if (existing !== undefined) {
+      if (existing.dependencyKind === "generated_insertion") {
+        if (!generated || observation.dependency.kind !== "generatedInsertion" || observation.dependency.origin === undefined ||
+          existing.dependencyRevisionCommitSeq !== null)
+          return yield* Effect.fail(corruption(attemptState, "pointDependencyCountMismatch"));
+      } else {
       const prior = yield* Effect.fromResult(decodePointDependencyResult(
         attemptState, existing,
       ));
-      if (!dependenciesEqual(prior, dependency)) {
+      if (!(generated && prior.kind === "missing" && prior.basis.kind === "noVisibleRevision") && !dependenciesEqual(prior, dependency)) {
         return yield* Effect.fail(corruption(attemptState, "pointDependencyCountMismatch"));
+      }
       }
     } else {
       newPoints += 1;
@@ -2198,7 +2218,7 @@ const appendAdmittedOperationInTransactionEffect = Effect.fn(
           document: point.overlay.document });
     mutations.push(Object.freeze({ mode: existing === undefined ? "insert" as const : "update" as const,
       tableId: observation.tableId, rowId: observation.rowId,
-      dependency, overlay }));
+      dependency, overlay, ...(generated && existing === undefined ? { generatedInsertion: true as const } : {}) }));
   }
   const preparedEvents: Array<Readonly<{
     effectOrdinal: number; bytes: Uint8Array; sha256: Uint8Array;
@@ -2586,7 +2606,7 @@ export function createSessionJournalStorePersistence(
   const admittedInFlight = new Set<string>();
   const runAdmittedOperationEffect: SessionJournalStorePersistence[
     "runAdmittedOperationEffect"
-  ] = Effect.fn("SessionJournalStore.runAdmittedOperation")(function* (
+  ] = Effect.fnUntraced(function* (
     attempt, admission, input, borrow,
   ) {
     const attemptState = typeof attempt === "object" && attempt !== null
@@ -2778,7 +2798,8 @@ export function createSessionJournalStorePersistence(
           if (finite.status !== "open")
             return Object.freeze({ kind: "stateRejected" as const, issue: Object.freeze({ reason: "journalFailed" as const }) });
           finite.receipts.set(request.syscallSequence, Object.freeze({ admission, request, kind: "admitted" as const,
-            requestEvidence, bindingDigest, completed: structuredClone(completed), outcome, outcomeEvidence,
+            requestEvidence, bindingDigest, completed: Object.freeze(structuredClone({ result: completed.result,
+              eventIntents: completed.eventIntents, workBytes: completed.workBytes, workCalls: completed.workCalls })), outcome, outcomeEvidence,
             attemptStart, attemptEnd: attemptStart + completed.changes.attempts.length }));
           finite.lastSequence = request.syscallSequence;
           finite.counters = addFiniteCounters(finite.counters, deltas);
@@ -2892,7 +2913,7 @@ export function createSessionJournalStorePersistence(
         }).pipe(Effect.ensuring(borrowed.abort));
       }));
     }).pipe(Effect.ensuring(Effect.sync(() => admittedInFlight.delete(inFlightKey))));
-  });
+  }, work => observeExecution("SessionJournalStore.runAdmittedOperation", work));
 
   const resolveJournalTargetEffect = Effect.fn(
     "SessionJournalStore.resolveJournalTarget",
@@ -2964,7 +2985,7 @@ export function createSessionJournalStorePersistence(
 
   const resolvePointTableEffect: SessionJournalStorePersistence[
     "resolvePointTableEffect"
-  ] = Effect.fn("SessionJournalStore.resolvePointTable")(function* (
+  ] = Effect.fnUntraced(function* (
     attempt,
     tableNameInput,
   ) {
@@ -3011,11 +3032,11 @@ export function createSessionJournalStorePersistence(
     });
     tableStates.set(handle, state);
     return handle;
-  });
+  }, work => observeExecution("SessionJournalStore.resolvePointTable", work));
 
   const runPointOperationEffect: SessionJournalStorePersistence[
     "runPointOperationEffect"
-  ] = Effect.fn("SessionJournalStore.runPointOperation")(function* (
+  ] = Effect.fnUntraced(function* (
     table,
     operation,
     validator,
@@ -3076,11 +3097,11 @@ export function createSessionJournalStorePersistence(
     );
     if (finite?.status === "aborted") discardFiniteRootEvidence(finite);
     return projectPointOperationResult(applied);
-  });
+  }, work => observeExecution("SessionJournalStore.runPointOperation", work));
 
   const resolveDeveloperIndexEffect: SessionJournalStorePersistence[
     "resolveDeveloperIndexEffect"
-  ] = Effect.fn("SessionJournalStore.resolveDeveloperIndex")(function* (
+  ] = Effect.fnUntraced(function* (
     table,
     indexDescriptorInput,
   ) {
@@ -3153,11 +3174,11 @@ export function createSessionJournalStorePersistence(
     });
     indexStates.set(handle, state);
     return handle;
-  });
+  }, work => observeExecution("SessionJournalStore.resolveDeveloperIndex", work));
 
   const runIndexedQueryEffect: SessionJournalStorePersistence[
     "runIndexedQueryEffect"
-  ] = Effect.fn("SessionJournalStore.runIndexedQuery")(function* (
+  ] = Effect.fnUntraced(function* (
     index,
     operation,
   ) {
@@ -3203,11 +3224,11 @@ export function createSessionJournalStorePersistence(
     );
     if (finite?.status === "aborted") discardFiniteRootEvidence(finite);
     return projectIndexedQueryResult(applied);
-  });
+  }, work => observeExecution("SessionJournalStore.runIndexedQuery", work));
 
   const resolveApplicationRelationReadEffect: SessionJournalStorePersistence[
     "resolveApplicationRelationReadEffect"
-  ] = Effect.fn("SessionJournalStore.resolveApplicationRelationRead")(
+  ] = Effect.fnUntraced(
     function* (attempt, capability) {
       const attemptState = typeof attempt === "object" && attempt !== null
         ? attemptStates.get(attempt)
@@ -3257,13 +3278,13 @@ export function createSessionJournalStorePersistence(
       });
       relationStates.set(handle, state);
       return handle;
-    },
+    }, work => observeExecution("SessionJournalStore.resolveApplicationRelationRead", work),
   );
 
   const runApplicationRelationIncomingReadEffect:
     SessionJournalStorePersistence[
       "runApplicationRelationIncomingReadEffect"
-    ] = Effect.fn("SessionJournalStore.runApplicationRelationIncomingRead")(
+    ] = Effect.fnUntraced(
       function* (relation, operation) {
         const state = typeof relation === "object" && relation !== null
           ? relationStates.get(relation)
@@ -3308,7 +3329,7 @@ export function createSessionJournalStorePersistence(
           ),
         );
         return projectApplicationRelationIncomingResult(applied, request);
-      },
+      }, work => observeExecution("SessionJournalStore.runApplicationRelationIncomingRead", work),
     );
 
   const prepareSealEffect: SessionJournalStorePersistence[
@@ -3413,9 +3434,7 @@ export function createSessionJournalStorePersistence(
     }));
   });
 
-  const freezeFiniteRootEffect: SessionJournalStorePersistence["freezeFiniteRootEffect"] = Effect.fn(
-    "SessionJournalStore.freezeFiniteRoot",
-  )(function* (attempt, successfulResult) {
+  const freezeFiniteRootEffect: SessionJournalStorePersistence["freezeFiniteRootEffect"] = Effect.fnUntraced(function* (attempt, successfulResult) {
     const attemptState = typeof attempt === "object" && attempt !== null ? attemptStates.get(attempt) : undefined;
     if (attemptState === undefined) return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({ capability: "attempt" }));
     const finite = finiteRootStates.get(attemptState);
@@ -3430,10 +3449,11 @@ export function createSessionJournalStorePersistence(
     }
     finite.status = "freezing";
     return yield* Effect.gen(function* () {
-      const verifiedResult = yield* verifySuccessfulResultEvidenceV1Effect(successfulResult.evidence)
-        .pipe(Effect.mapError(cause => new SessionJournalSealV1Error({ reason: "canonicalResultMismatch", cause })));
-      if (!bytesEqual(verifiedResult.canonicalBytes, successfulResult.canonicalBytes) || !jsonEqual(verifiedResult.valueJson, successfulResult.valueJson) ||
-        verifiedResult.canonicalText !== successfulResult.canonicalText || verifiedResult.semanticSizeBytes !== successfulResult.semanticSizeBytes)
+      const issuedResult = readIssuedCanonicalSuccessfulResultV1(successfulResult);
+      const verifiedResult = issuedResult ?? (yield* verifySuccessfulResultEvidenceV1Effect(successfulResult.evidence)
+        .pipe(Effect.mapError(cause => new SessionJournalSealV1Error({ reason: "canonicalResultMismatch", cause }))));
+      if (issuedResult === undefined && (!bytesEqual(verifiedResult.canonicalBytes, successfulResult.canonicalBytes) || !jsonEqual(verifiedResult.valueJson, successfulResult.valueJson) ||
+        verifiedResult.canonicalText !== successfulResult.canonicalText || verifiedResult.semanticSizeBytes !== successfulResult.semanticSizeBytes))
         return yield* Effect.fail(new SessionJournalSealV1Error({ reason: "canonicalResultMismatch" }));
       const closedRoot = yield* Effect.fromResult(takeLogicalDocumentRootSnapshot(finite.evaluator))
         .pipe(Effect.mapError(cause => corruption(attemptState, "pointDependencyChangedAtSnapshot", cause)));
@@ -3450,7 +3470,7 @@ export function createSessionJournalStorePersistence(
           attemptStart: receipt.attemptStart, attemptEnd: receipt.attemptEnd, result: receipt.completed.result,
           eventIntents: receipt.completed.eventIntents, workBytes: receipt.completed.workBytes,
           workCalls: receipt.completed.workCalls }) : Object.freeze({ kind: receipt.kind, sequence,
-          request: requireJson(encodeStoredRequest(receipt.request)), outcome: requireJson(encodeStoredOutcome(receipt.outcome)),
+          request: receipt.requestEvidence.valueJson, outcome: receipt.outcomeEvidence.valueJson,
           ...(receipt.kind === "point" && receipt.plan.write !== undefined ? { write: receipt.plan.write } : {}) }));
       const applicationMetadataProjection = getFiniteApplicationWriteMetadataProjection(finite.metadata, attempt);
       if (applicationMetadataProjection === null) return yield* Effect.fail(corruption(attemptState, "exactAttemptPinsChanged"));
@@ -3464,7 +3484,7 @@ export function createSessionJournalStorePersistence(
       // caller input shares those retained values.
       const frozen = issueFrozenFiniteAttempt(closedRoot, finite.evaluator, { attempt, originalEntry, resolvedTarget: finite.resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions, candidatePlanningHead, anchorCapture: finite.anchorCapture, attemptState,
         successfulResult: verifiedResult, operations,
-        dependencies: Object.freeze([...graph.dependencies.map(observation => observation.dependency),
+        dependencies: Object.freeze([...graph.dependencies.flatMap(observation => observation.dependency.kind === "appRowPoint" ? [observation.dependency] : []),
           ...finite.indexRanges, ...finite.relationDependencies, ...graph.metadataDependencies ?? []]),
         applicationIndexRanges: finite.indexRanges,
         applicationRelationDependencies: finite.relationDependencies,
@@ -3477,10 +3497,10 @@ export function createSessionJournalStorePersistence(
       finite.status = "aborted";
       discardFiniteRootEvidence(finite);
     })));
-  });
+  }, work => observeExecution("SessionJournalStore.freezeFiniteRoot", work));
   const discardFiniteRootEffect: SessionJournalStorePersistence[
     "discardFiniteRootEffect"
-  ] = Effect.fn("SessionJournalStore.discardFiniteRoot")(function* (attempt) {
+  ] = Effect.fnUntraced(function* (attempt) {
     const state = typeof attempt === "object" && attempt !== null
       ? attemptStates.get(attempt) : undefined;
     const finite = state === undefined ? undefined : finiteRootStates.get(state);
@@ -3491,7 +3511,7 @@ export function createSessionJournalStorePersistence(
     }
     finite.status = "aborted";
     discardFiniteRootEvidence(finite);
-  });
+  }, work => observeExecution("SessionJournalStore.discardFiniteRoot", work));
 
   return Object.freeze({
     prepareFiniteEntryEffect,
@@ -4264,9 +4284,7 @@ function capturePatchChangesResult(
   });
 }
 
-const canonicalizeStoredRequestEffect = Effect.fn(
-  "SessionJournalStore.canonicalizeStoredRequest",
-)(function* (
+const canonicalizeStoredRequestEffect = Effect.fnUntraced(function* (
   request: SessionJournalStoredRequest,
 ): Effect.fn.Return<
   CanonicalFlarexValueV1,
@@ -4281,7 +4299,7 @@ const canonicalizeStoredRequestEffect = Effect.fn(
       cause,
     }),
   });
-});
+}, work => observeExecution("SessionJournalStore.canonicalizeStoredRequest", work));
 
 function mapRunPointOperationFailure(
   cause: unknown,
@@ -4448,9 +4466,7 @@ async function canonicalizeStoredOutcome(
   return canonicalizeFlarexValueJsonV1(requireJson(encoded));
 }
 
-const prepareLogicalWriteEventEffect = Effect.fn(
-  "SessionJournalStore.prepareLogicalWriteEvent",
-)(function* (
+const prepareLogicalWriteEventEffect = Effect.fnUntraced(function* (
   write: LogicalAppWriteV1,
 ): Effect.fn.Return<
   PreparedLogicalWriteEventV1,
@@ -4482,7 +4498,7 @@ const prepareLogicalWriteEventEffect = Effect.fn(
     sha256: copyFlarexValueSha256V1(evidence.sha256),
     evidenceBytes: evidence.canonicalBytes.byteLength,
   });
-});
+}, work => observeExecution("SessionJournalStore.prepareLogicalWriteEvent", work));
 
 function requireJson(input: unknown): Json {
   if (!isJson(input)) throw new Error("Schema encoder returned non-JSON data.");
@@ -4622,6 +4638,7 @@ interface JournalPointMutationV1 {
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
   readonly dependency: AppRowPointDependencyV1;
+  readonly generatedInsertion?: true;
   readonly overlay: JournalPointOverlayV1;
 }
 
@@ -5013,7 +5030,7 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
   // must not retain that read without accepting its dependency/counter charge.
   const hydratedRowId = request.kind === "patch" || request.kind === "replace"
     ? decodeAppDocumentIdentityV1(request.documentId).rowId : undefined;
-  const hadHydratedRead = hydratedRowId !== undefined && finite.evaluator.point(table.tableId, hydratedRowId) !== undefined;
+  const hadHydratedRead = hydratedRowId !== undefined && finitePoint(finite, table.tableId, hydratedRowId) !== undefined;
   const plan = frontier.kind === "storage"
     ? yield* planFinitePointOperationEffect(frontier.capture, frontier.context, table, request, randomUuid, finite)
     : request.kind === "insert" ? yield* Effect.fail(corruption(table.attempt, "requestTableCapabilityMismatch"))
@@ -5046,14 +5063,14 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
   const point = plan.pointMutation;
   if (point !== undefined && point.overlay.kind !== "none" && plan.write !== undefined) {
     const observation = finitePointObservation(finite, point);
-    if (finite.evaluator.point(point.tableId, point.rowId) === undefined) {
+    if (finitePoint(finite, point.tableId, point.rowId) === undefined) {
       yield* Effect.fromResult(finite.evaluator.observePoint(table.tableName, observation, { kind: "missing" })
         .pipe(Result.mapError(cause => corruption(table.attempt, "pointDependencyChangedAtSnapshot", cause))));
     }
     const overlay = point.overlay.kind === "live"
       ? Object.freeze({ kind: "live" as const, creationTime: point.overlay.creationTime,
         document: point.overlay.document }) : Object.freeze({ kind: "deleted" as const });
-    yield* Effect.fromResult(finite.evaluator.writePoint(table.tableName, observation, overlay,
+    yield* Effect.fromResult(finite.evaluator.writePoint(table.tableName, finiteRootState(finite)?.dependencies.get(observation.documentId) ?? observation, overlay,
       request.kind === "get" ? "replace" : request.kind).pipe(Result.mapError(cause =>
       corruption(table.attempt, "pointDependencyChangedAtSnapshot", cause))));
   }
@@ -5070,9 +5087,7 @@ const runFinitePointOperationEffect = Effect.fnUntraced(function* (
 /** Evaluate an indexed Application page against one root-wide point overlay.
  * Physical index facts remain snapshot facts; the final seal persists the
  * normalized negative/range evidence together with the root's writes. */
-const runFiniteIndexedQueryEffect = Effect.fn(
-  "SessionJournalStore.runFiniteIndexedQuery",
-)(function* (
+const runFiniteIndexedQueryEffect = Effect.fnUntraced(function* (
   capture: LogicalFiniteStorageCapture<FiniteStorageCaptureError>,
   context: FiniteEntryAttemptKernelContext,
   index: PinnedDeveloperIndexStateV1,
@@ -5104,7 +5119,7 @@ const runFiniteIndexedQueryEffect = Effect.fn(
     kind: "sequenceRejected", issue: Object.freeze({ reason: "sequenceExhausted",
       lastAccepted: CommitFinalSyscallSequenceV1Schema.make(finite.lastSequence) }),
   });
-  const staged = finitePoints(finite).filter(point => point.tableId === index.tableId && point.overlay.kind !== "none");
+  const staged = finitePoints(finite, index.tableId).filter(point => point.overlay.kind !== "none");
   if (staged.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1)
     return yield* Effect.fail(corruption(index.attempt, "pointDependencyCountMismatch"));
   const stagedByRowId = new Map<OrderedIndexRowIdHexV1, IndexedQueryStagedPositionV1>();
@@ -5153,7 +5168,7 @@ const runFiniteIndexedQueryEffect = Effect.fn(
   };
   if (documentLimitIssue !== undefined) return limitOutcome(documentLimitIssue);
   type MaterializationLimit = Readonly<{ _tag: "FiniteIndexedReadLimit"; issue: SessionJournalIncrementalLimitIssueV1 }>;
-  const consumePosition = Effect.fn("SessionJournalStore.consumeFiniteIndexedPosition")(function* (
+  const consumePosition = Effect.fnUntraced(function* (
     position: IndexedQueryMergedPositionV1, revision?: LiveAppRowRevisionV1,
   ): Effect.fn.Return<void, SessionJournalRunIndexedQueryV1Error | MaterializationLimit> {
     const document = position.kind === "live" ? position.document : revision?.document;
@@ -5186,7 +5201,7 @@ const runFiniteIndexedQueryEffect = Effect.fn(
       }
     }
     documents.push(document); readSemanticBytes = nextReadSemanticBytes;
-  });
+  }, work => observeExecution("SessionJournalStore.consumeFiniteIndexedPosition", work));
   const materialized = yield* Effect.gen(function* () {
     for (let offset = 0; offset < page.length; offset += INDEXED_QUERY_DOCUMENT_MATERIALIZATION_BATCH_SIZE_V1) {
       const batch = page.slice(offset, offset + INDEXED_QUERY_DOCUMENT_MATERIALIZATION_BATCH_SIZE_V1);
@@ -5258,7 +5273,7 @@ const runFiniteIndexedQueryEffect = Effect.fn(
   finite.lastSequence = request.syscallSequence;
   return Object.freeze({ kind: "outcome", delivery: "executed", outcome: structuredClone(outcome) });
   }).pipe(Effect.ensuring(Effect.sync(() => { finite.inFlightOperations -= 1; })));
-});
+}, work => observeExecution("SessionJournalStore.runFiniteIndexedQuery", work));
 
 const runIndexedQueryInTransactionEffect = Effect.fn(
   "SessionJournalStore.runIndexedQueryInTransaction",
@@ -7066,7 +7081,7 @@ const planFinitePointOperationEffect = Effect.fnUntraced(function* (
   }));
 });
 
-const planReadPointOperationEffect = Effect.fn("SessionJournalStore.planReadPointOperation")(
+const planReadPointOperationEffect = Effect.fnUntraced(
   function* (table: PinnedPointTableStateV1, request: Exclude<SessionJournalStoredPointRequest, { readonly kind: "insert" }>,
     readPoint: PointReadOperation): Effect.fn.Return<SessionJournalOperationPlanV1, SessionJournalRunPointOperationV1Error> {
     switch (request.kind) {
@@ -7080,11 +7095,9 @@ const planReadPointOperationEffect = Effect.fn("SessionJournalStore.planReadPoin
       case "replace": return yield* planReplaceEffect(table, request, readPoint);
       case "delete": return yield* planDeleteEffect(table, request, readPoint);
     }
-  });
+  }, work => observeExecution("SessionJournalStore.planReadPointOperation", work));
 
-const planInsertEffect = Effect.fn(
-  "SessionJournalStore.planInsert",
-)(function* (
+const planInsertEffect = Effect.fnUntraced(function* (
   context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "insert" }>,
@@ -7204,11 +7217,9 @@ const planInsertEffect = Effect.fn(
     }),
     nextCreationTime,
   });
-});
+}, work => observeExecution("SessionJournalStore.planInsert", work));
 
-const planPatchEffect = Effect.fn(
-  "SessionJournalStore.planPatch",
-)(function* (
+const planPatchEffect = Effect.fnUntraced(function* (
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "patch" }>,
   readPoint: PointReadOperation,
@@ -7305,11 +7316,9 @@ const planPatchEffect = Effect.fn(
       document: next,
     }),
   });
-});
+}, work => observeExecution("SessionJournalStore.planPatch", work));
 
-const planReplaceEffect = Effect.fn(
-  "SessionJournalStore.planReplace",
-)(function* (
+const planReplaceEffect = Effect.fnUntraced(function* (
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "replace" }>,
   readPoint: PointReadOperation,
@@ -7408,11 +7417,9 @@ const planReplaceEffect = Effect.fn(
       document: next,
     }),
   });
-});
+}, work => observeExecution("SessionJournalStore.planReplace", work));
 
-const planDeleteEffect = Effect.fn(
-  "SessionJournalStore.planDelete",
-)(function* (
+const planDeleteEffect = Effect.fnUntraced(function* (
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequest, { readonly kind: "delete" }>,
   readPoint: PointReadOperation,
@@ -7456,11 +7463,9 @@ const planDeleteEffect = Effect.fn(
     ),
     write,
   });
-});
+}, work => observeExecution("SessionJournalStore.planDelete", work));
 
-const readLogicalPointEffect = Effect.fn(
-  "SessionJournalStore.readLogicalPoint",
-)(function* (
+const readLogicalPointEffect = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   context: PointOperationPlanningContext,
   table: PinnedPointTableStateV1,
@@ -7536,7 +7541,7 @@ const readLogicalPointEffect = Effect.fn(
       return Object.freeze({ result, dependencyIsNew: false });
     }
   }
-});
+}, work => observeExecution("SessionJournalStore.readLogicalPoint", work));
 
 const loadJournalPointRowEffect = Effect.fn(
   "SessionJournalStore.loadJournalPointRow",
@@ -7621,6 +7626,8 @@ function decodePointDependencyResult(
     rowId,
   });
   switch (row.dependencyKind) {
+    case "generated_insertion":
+      return Result.fail(corruption(attempt, "pointDependencyCountMismatch"));
     case "present":
       if (row.dependencyRevisionCommitSeq === null) {
         return Result.fail(corruption(
@@ -7749,15 +7756,13 @@ type CanonicalizePlannedDocumentResultV1 =
     }>
   | Readonly<{ readonly kind: "invalid" }>;
 
-const tryCanonicalizeDocumentEffect = Effect.fn(
-  "SessionJournalStore.tryCanonicalizeDocument",
-)((input: {
+const tryCanonicalizeDocumentEffect = Effect.fnUntraced(function* (input: {
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
   readonly creationTime: AppCreationTimeV1;
   readonly fields: unknown;
-}): Effect.Effect<CanonicalizePlannedDocumentResultV1> =>
-  Effect.tryPromise({
+}) {
+    return yield* (Effect.tryPromise({
     try: () => canonicalizeAppDocumentV1(input),
     catch: (cause): unknown => cause,
   }).pipe(
@@ -7771,6 +7776,7 @@ const tryCanonicalizeDocumentEffect = Effect.fn(
         : Effect.die(cause)
     ),
   ));
+  }, work => observeExecution("SessionJournalStore.tryCanonicalizeDocument", work));
 
 function nextAppCreationTime(value: AppCreationTimeV1): AppCreationTimeV1 {
   const buffer = new ArrayBuffer(8);
@@ -8585,7 +8591,9 @@ async function persistPointMutation(
   context: ExactRunningAttemptKernelContextV1,
   mutation: JournalPointMutationV1,
 ): Promise<void> {
-  const dependencyColumns = dependencyColumnsForPoint(mutation.dependency);
+  const dependencyColumns = mutation.generatedInsertion === true
+    ? { dependencyKind: "generated_insertion" as const, dependencyRevisionCommitSeq: null }
+    : dependencyColumnsForPoint(mutation.dependency);
   const overlayColumns = overlayColumnsForPoint(mutation.overlay);
   if (mutation.mode === "insert") {
     await tx.insert(fxSystemTransactionJournalPoints).values({
@@ -8944,34 +8952,60 @@ function kernelContextMatchesAttempt(
     anchor.snapshotToken.commitSeq === attempt.snapshotToken.commitSeq;
 }
 
-/** A syscall projection of evaluator-owned state; never a second pending store. */
-function finitePoint(finite: FiniteRootAttemptState, tableId: CatalogTableId,
-  rowId: AppRowIdHexV1): JournalPointMutationV1 | undefined {
-  const point = finite.evaluator.point(tableId, rowId);
-  if (point === undefined) return undefined;
-  const observed = point.observation.dependency.observed;
-  const identity = Object.freeze({ scopeId: finite.initialContext.anchor.scopeId, tableId, rowId });
+/** The journal borrows the same authenticated pending owner as native views.
+ * These values never escape a syscall: public/replay outcomes detach on return. */
+function finiteRootState(finite: FiniteRootAttemptState) {
+  return attachLogicalDocumentRootEvaluator(finite.evaluator, { attempt: finite.handle,
+    scopeId: finite.initialContext.anchor.scopeId,
+    snapshotCommitSeq: finite.initialContext.anchor.snapshotToken.commitSeq,
+    attemptFence: String(finite.initialContext.anchor.attemptFence) });
+}
+
+function projectFinitePoint(scopeId: ScopeId, evidence: LogicalDocumentPointEvidence,
+  row: PendingDocument | undefined): JournalPointMutationV1 {
+  const observation = projectLogicalPointExpectation(evidence);
+  const { tableId, rowId } = observation;
+  const observed = observation.dependency.observed;
+  const identity = Object.freeze({ scopeId, tableId, rowId });
   const dependency: AppRowPointDependencyV1 = observed.kind === "present"
     ? Object.freeze({ kind: "present", identity, revisionCommitSeq: observed.revisionCommitSeq })
     : Object.freeze({ kind: "missing", identity, basis: observed.basis });
-  const overlay: JournalPointOverlayV1 = !point.written ? Object.freeze({ kind: "none" }) : point.document === null
-    ? Object.freeze({ kind: "deleted" }) : Object.freeze({ kind: "live", creationTime: point.creationTime!, document: point.document });
+  const overlay: JournalPointOverlayV1 = (row?.attempts.length ?? 0) === 0 ? Object.freeze({ kind: "none" }) : row?.current == null
+    ? Object.freeze({ kind: "deleted" }) : Object.freeze({ kind: "live", creationTime: row.creationTime, document: row.current });
   return Object.freeze({ mode: "insert", tableId, rowId, dependency, overlay });
+}
+
+function finitePoint(finite: FiniteRootAttemptState, tableId: CatalogTableId,
+  rowId: AppRowIdHexV1): JournalPointMutationV1 | undefined {
+  const root = finiteRootState(finite);
+  if (root === null) return undefined;
+  const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+  const observation = root.dependencies.get(documentId);
+  return observation === undefined ? undefined : projectFinitePoint(root.pins.scopeId, observation, root.rows.get(documentId));
 }
 
 function readKnownFinitePoint(finite: FiniteRootAttemptState, tableId: CatalogTableId,
   rowId: AppRowIdHexV1): LogicalPointReadV1 | undefined {
-  const staged = finitePoint(finite, tableId, rowId);
-  const pending = finite.evaluator.point(tableId, rowId);
-  if (staged === undefined || pending === undefined) return undefined;
+  const root = finiteRootState(finite);
+  if (root === null) return undefined;
+  const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+  const observation = root.dependencies.get(documentId);
+  if (observation === undefined) return undefined;
+  const pending = root.rows.get(documentId);
+  const staged = projectFinitePoint(root.pins.scopeId, observation, pending);
   const dependency = staged.dependency;
   return Object.freeze({ dependencyIsNew: false, pointMutation: staged,
-    result: pending.document === null ? Object.freeze({ kind: "missing", document: null, dependency }) :
-      Object.freeze({ kind: "present", document: pending.document, dependency }) });
+    result: pending?.current == null ? Object.freeze({ kind: "missing", document: null, dependency }) :
+      Object.freeze({ kind: "present", document: pending.current, dependency }) });
 }
 
-function finitePoints(finite: FiniteRootAttemptState, tableId?: CatalogTableId): readonly JournalPointMutationV1[] {
-  return finite.evaluator.points(tableId).map(point => finitePoint(finite, point.observation.tableId, point.observation.rowId)!);
+function finitePoints(finite: FiniteRootAttemptState, tableId: CatalogTableId): readonly JournalPointMutationV1[] {
+  const root = finiteRootState(finite);
+  if (root === null) return [];
+  const points: JournalPointMutationV1[] = [];
+  for (const observation of root.dependencies.values()) if (observation.tableId === tableId)
+    points.push(projectFinitePoint(root.pins.scopeId, observation, root.rows.get(observation.documentId)));
+  return points;
 }
 
 function finitePointObservation(finite: FiniteRootAttemptState, point: JournalPointMutationV1) {
@@ -9414,6 +9448,11 @@ const materializeSealCandidateEffect = Effect.fn(
     { readonly kind: "appRowPoint" }
   >> = [];
   for (const point of pointRows) {
+    if (point.dependencyKind === "generated_insertion") {
+      if (point.dependencyRevisionCommitSeq !== null) return yield* Effect.fail(corruption(attempt, "pointDependencyCountMismatch"));
+      yield* verifyPointOverlayEvidenceEffect(attempt, point);
+      continue;
+    }
     const dependency = yield* Effect.fromResult(
       decodePointDependencyResult(attempt, point),
     );
@@ -9617,6 +9656,16 @@ const materializeSealCandidateEffect = Effect.fn(
       operation => operation.syscallSequence === sequence))) {
     return yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"));
   }
+
+  const insertionIntents = yield* Effect.fromResult(authenticatedGeneratedInsertionsResult(participantOperations)
+    .pipe(Result.mapError(cause => corruption(attempt, "logicalWriteEventInvalid", cause))));
+  for (const point of pointRows) if (point.dependencyKind === "generated_insertion" && !insertionIntents.has(
+    appDocumentIdV1FromRowIdentity({ tableId: point.tableId, rowId: appRowIdHexV1FromBytes(point.rowId) })))
+    return yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"));
+  for (const intent of insertionIntents.values()) if (!pointRows.some(point => point.tableId === intent.tableId &&
+    appRowIdHexV1FromBytes(point.rowId) === intent.rowId && (point.dependencyKind === "generated_insertion" ||
+      point.dependencyKind === "missing_no_visible_revision")))
+    return yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"));
 
   const journal = Object.freeze(SessionJournalSchema.make({
     format: SESSION_JOURNAL_FORMAT,

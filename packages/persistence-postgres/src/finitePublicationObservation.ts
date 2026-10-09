@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import type { MetadataSequence } from "flarex-protocol/commit-protocol";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
-import { FiniteMetadataError, type FiniteMetadataComparisonExpected } from "./finiteMetadataDependencies";
+import { encodeFiniteMetadataComparison, FiniteMetadataError, type FiniteMetadataComparisonExpected } from "./finiteMetadataDependencies";
 import { fxSystemApplicationActiveHeads } from "./applicationActivationSchema";
 import { fxSystemApplicationWriteOwnership } from "./applicationWriteOwnership/Schema";
 import { fxSystemScopeClocks } from "./schema";
@@ -87,11 +87,11 @@ export const observeFinitePublicationMetadata = Effect.fn("FinitePublication.obs
 ) {
   const [row] = yield* runDrizzleStatementEffect(tx.select({
     consumed: sql<unknown>`${sql.identifier(schemaName)}.fx_compare_finite_metadata(${scopeId}::text,
-      ${capturedWatermark.toString()}::bigint, ${JSON.stringify(consumed)}::jsonb)`,
+      ${capturedWatermark.toString()}::bigint, ${encodeFiniteMetadataComparison(consumed)}::jsonb)`,
     application: sql<unknown>`(select coalesce(jsonb_agg(
       ${sql.identifier(schemaName)}.fx_compare_finite_metadata(${scopeId}::text, null::bigint, page.value)
       order by page.ordinality), '[]'::jsonb)
-      from jsonb_array_elements(${JSON.stringify(application)}::jsonb)
+      from jsonb_array_elements(${`[${application.map(encodeFiniteMetadataComparison).join(",")}]`}::jsonb)
         with ordinality as page(value, ordinality))`,
     ownership: sql<unknown>`jsonb_build_object(
       'contract', ${fxSystemApplicationActiveHeads.readinessContractVersion},
@@ -103,7 +103,7 @@ export const observeFinitePublicationMetadata = Effect.fn("FinitePublication.obs
         order by page.ordinality), '[]'::jsonb)
         from jsonb_array_elements(source.value) with ordinality as page(value, ordinality))
       order by source.ordinality), '[]'::jsonb)
-      from jsonb_array_elements(${JSON.stringify(sources)}::jsonb)
+      from jsonb_array_elements(${`[${sources.map(pages => `[${pages.map(encodeFiniteMetadataComparison).join(",")}]`).join(",")}]`}::jsonb)
         with ordinality as source(value, ordinality))`,
   }).from(fxSystemScopeClocks).leftJoin(fxSystemApplicationActiveHeads,
     eq(fxSystemApplicationActiveHeads.scopeId, fxSystemScopeClocks.scopeId))

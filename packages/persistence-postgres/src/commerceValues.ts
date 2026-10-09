@@ -1,5 +1,5 @@
 /** Value-only adapter boundary; grants no installation, SQL or transaction authority. */
-export { capturePrivateJsonData } from "./privateJsonData";
+export { capturePrivateJsonData, useCapturedPrivateJsonData, inspectCapturedPrivateJsonData } from "./privateJsonData";
 export { capturePrivateCanonicalValue } from "./frameworkSchema/privateCanonicalValue";
 export type { PrivateCanonicalValueSnapshot } from "./frameworkSchema/privateCanonicalValue";
 export type { FrameworkSchemaArtifact } from "./frameworkSchema/artifact/model";

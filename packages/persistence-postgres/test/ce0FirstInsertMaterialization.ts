@@ -23,14 +23,14 @@ import {
   type CommitSeq,
 } from "flarex-protocol/storage-authority";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
-import type { PreparedApplicationParticipant } from "../src/applicationDocumentMaterialization/participant";
-import type { ApplicationDocumentMaterializationOptions } from "../src/applicationDocumentMaterialization/model";
+import { readPreparedApplicationDocumentParticipant, type PreparedApplicationParticipant } from "../src/applicationDocumentMaterialization/participant";
 import {
   lockPointCommitIntrinsicIndexBuilds,
   lockPointCommitDeveloperIndexBuilds,
   runCandidateSchemaWriteGuard,
 } from "../src/applicationDocumentMaterialization/materialization";
 import type { LogicalDocumentChange } from "../src/logicalDocuments/workingSet";
+import { projectLogicalPointExpectation } from "../src/logicalDocuments/pointEvidence";
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import { lowerAppDeveloperIndexKeyV1 } from "../src/appDeveloperIndexCommitV1";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../src/appUniqueConstraintCommitV1";
@@ -73,6 +73,15 @@ const hash = makeLivePrivateSha256V1({
 });
 const digest = (bytes: Uint8Array) =>
   hash(bytes, { maximumInputBytes: cmsLimits.documentBytes });
+
+export type Ce0FirstInsertMaterializationStep = "rowBatchWritten" | "indexBatchWritten" | "uniquePublicationApplied";
+/** Observes this independent reference's actual native writes. */
+export interface Ce0FirstInsertMaterializationOptions {
+  readonly afterTransactionStep?: (event: Readonly<{
+    scopeId: TrustedScopeAuthority["scopeId"];
+    step: Ce0FirstInsertMaterializationStep;
+  }>) => Promise<void>;
+}
 const rowIdBytes = Schema.Uint8Array.check(
   Schema.makeFilter((value) => value.byteLength === 16),
 );
@@ -138,10 +147,13 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
   "Ce0Insert.prepare",
 )(function* (
   tx: AppRowTransaction,
-  prepared: PreparedApplicationParticipant,
+  token: PreparedApplicationParticipant,
   authority: TrustedScopeAuthority,
   clock: ScopeClockRecord,
+  referenceOptions: Ce0FirstInsertMaterializationOptions = {},
 ) {
+  const prepared = yield* readPreparedApplicationDocumentParticipant(token).pipe(
+    Effect.catchTag("LogicalDocumentMaterializationError", cause => Effect.fail(cmsError(cause.reason, cause.cause))));
   if (
     prepared.relations !== null ||
     prepared.command.rowIntents.length !== 1 ||
@@ -204,6 +216,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
     for (const row of changes) {
       if (
         row.kind !== "live" ||
+        row.dependency.kind !== "appRowPoint" ||
         row.dependency.observed.kind !== "missing" ||
         row.dependency.observed.basis.kind !== "noVisibleRevision" ||
         row.tableId !== prepared.command.rowIntents[0]?.tableId
@@ -286,7 +299,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
       authority,
       clock,
       commitSeq,
-      rows,
+      rows.map(row => ({ ...row, ...projectLogicalPointExpectation(row) })),
     ).pipe(Effect.mapError(projectCe0KernelFailure));
     const rowValues = rows.map((row) => ({
       scopeUuid: scope.scopeUuid,
@@ -387,15 +400,10 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
     }) =>
       `${row.scopeUuid}/${row.tableId}/${row.constraintId}/${row.localeKey}/${encodeBytesToLowercaseHex(row.rowId)}/${encodeBytesToLowercaseHex(row.canonicalKeySha256)}/${row.keyCodecVersion}/${encodeBytesToLowercaseHex(row.encodedKey)}`;
     const step = (
-      name:
-        | "rowBatchWritten"
-        | "indexBatchWritten"
-        | "uniquePublicationApplied",
+      name: Ce0FirstInsertMaterializationStep,
     ) =>
       Effect.promise(async () => {
-        const options: ApplicationDocumentMaterializationOptions =
-          prepared.options;
-        await options.afterTransactionStep?.({
+        await referenceOptions.afterTransactionStep?.({
           scopeId: scope.scopeId,
           step: name,
         });

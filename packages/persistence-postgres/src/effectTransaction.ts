@@ -1,4 +1,5 @@
-import { Cause, Context, Effect, Exit, Tracer } from "effect";
+import { Cause, Effect, Exit } from "effect";
+import { captureExecutionDiagnosticContext } from "./executionDiagnostics/operation";
 import { acquireInstallationAdmission, closeInstallationAdmission, lockInstallationForCurrentTransaction,
   type PreparedInstallation } from "./installationLifecycle";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -30,14 +31,11 @@ export function runEffectTransactionSettlement<Value, Failure, SettlementFailure
   settlementFailure: (cause: unknown) => SettlementFailure,
 ): Effect.Effect<Value, Failure | SettlementFailure> {
   return Effect.withFiber(fiber => {
-    const tracerContext = Context.make(Tracer.Tracer, Context.get(fiber.context, Tracer.Tracer));
-    const tracingContext = fiber.currentSpan === undefined ? tracerContext
-      : Context.add(tracerContext, Tracer.ParentSpan, fiber.currentSpan);
-    const runPromiseExit = Effect.runPromiseExitWith(tracingContext);
+    const tracingContext = captureExecutionDiagnosticContext(fiber);
     let callbackCause: Cause.Cause<Failure | SettlementFailure> | undefined;
     const rollback = new Error(rollbackMessage);
     const transaction = start(async tx => {
-      const exit = await runPromiseExit(Effect.suspend(() => body(tx)));
+      const exit = await Effect.runPromiseExitWith(tracingContext)(Effect.suspend(() => body(tx)));
       if (Exit.isFailure(exit)) {
         callbackCause = exit.cause;
         throw rollback;
@@ -81,8 +79,8 @@ export function awaitEffectTransactionSettlement<Value>(
 function interruptedSettlementCause(
   interruptors: ReadonlySet<number>,
   defect: unknown,
-): Cause.Cause<never> {
-  let combined = Cause.die(defect);
+): Cause.Cause<unknown> {
+  let combined = Cause.isCause(defect) ? defect : Cause.die(defect);
   for (const interruptor of interruptors) {
     combined = Cause.combine(Cause.interrupt(interruptor), combined);
   }

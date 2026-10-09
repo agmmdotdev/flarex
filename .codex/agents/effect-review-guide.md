@@ -19,15 +19,17 @@ differences, review scope, and reviewer responsibility split.
 ## Active Implementation Rule
 
 Apply the standard while writing code; do not wait for a reviewer to request
-it. Inspect the smallest connected operation, service or Layer, runtime
+it. Inspect the connected operation, service or Layer, runtime
 boundary, and direct tests before copying neighboring code. Existing local
 inconsistency is migration evidence, not authority.
 
 When a change calls, extends, copies, or materially relies on a concrete Effect
-pattern violation, fix the smallest behavior-preserving touched flow in the
-same approved slice when focused validation exists. Do not expand into an
-unapproved package migration or change a public contract, trust boundary,
-transaction boundary, or lifecycle owner without a new preflight.
+pattern violation, correct its connected owners and consumers in the same
+approved scope when decisive validation exists. Do not cap a redesign at a
+helper or component while the approved complete outcome remains unmet.
+Operation-level review granularity does not constrain delivery size. A package,
+public-contract, trust, transaction or lifecycle change outside the approved
+scope needs a new preflight; in-scope changes follow the standing approval.
 
 For each new or materially changed data boundary, identify its named Schema or
 existing authoritative decoder, or state the concrete reason for custom capture
@@ -316,12 +318,12 @@ its materially connected flow. A maintainability, diagnostics, or testability
 violation is normally P3; higher severity requires normal correctness,
 security, compatibility, data-loss, reliability, or operational evidence.
 Label pre-existing findings `Touched-flow debt (pre-existing)` and explain the
-connection plus the smallest safe correction.
+connection plus the complete correction needed to resolve it at its owning boundary.
 
 A changed plain TypeScript flow that semantically requires an Effect-native
 operation, Schema, Result, Option, service, or Layer is a reportable violation
 even if no changed file imports Effect. The finding must name the semantic reason and
-the smallest target transformation; a generic preference for Effect syntax is
+the required target transformation and its affected callers; a generic preference for Effect syntax is
 not sufficient.
 
 Do not report pure helpers, standalone Effect values, tiny inline

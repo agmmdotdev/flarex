@@ -1,6 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 import { conditionalUniqueSpec, conditionalProjectionCases } from "./conditionalUniqueTestSupport";
 import { readOrderedMembershipStorage } from "./orderedMembershipStorageScenario";
+import { ExecutionDiagnostics } from "../src/executionDiagnostics/operation";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../src/installationLifecycle";
 
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
 
@@ -11,7 +13,8 @@ import {
 
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
-import { Cause, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
+import { Cause, Effect, Exit, Fiber, Random, Result, Schema, Tracer } from "effect";
+import { publicationCoveragePhaseTrace } from "./publicationCoveragePhaseTrace";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -35,6 +38,7 @@ import {
   decodeCatalogIndexDefinitionId,
   decodeCatalogIndexId,
   decodeCatalogTableId,
+  type CatalogIndexDefinitionId,
 } from "flarex-protocol/catalog";
 import {
   decodeOrderedIndexBoundHexV1,
@@ -868,9 +872,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const finishing = await runEffect(
       authentication.enterPointCommitFinishing(prepared),
     );
-    const rollbackProof = await runEffect(
-      authentication.provePointCommitRollback(finishing),
-    );
+    const rowWrites = await installPublicationDmlWitness(storedEvidence.evidence.scopeUuid, "composition_proof", "row");
+    try {
+      const rollbackProof = await runEffect(authentication.provePointCommitRollback(finishing).pipe(
+        Effect.provideService(ExecutionDiagnostics, { observe: <A, E, R>(name: string, work: Effect.Effect<A, E, R>) =>
+          ["ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication"].includes(name)
+            ? Effect.sync(() => { pointCommitSteps.push(name); }).pipe(Effect.andThen(work)) : work })));
+      expect(rollbackProof).toEqual({ kind: "wouldCommit" });
+      expect((await rowWrites.read()).count).toBe(1);
+    } finally { await rowWrites.drop(); }
 
     expect(storedSqlClosed).toBe(true);
     expect(authoritySqlClosed).toBe(true);
@@ -879,8 +889,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(authentication.isCommitInputVerified(verified)).toBe(true);
     expect(authentication.isPointCommitPrepared(prepared)).toBe(true);
     expect({ authorityQueries, metadataLoads }).toEqual(beforeVerification);
-    expect(rollbackProof).toEqual({ kind: "wouldCommit" });
-    expect(pointCommitSteps).toContain("tentativeRowWritten");
+    expect(pointCommitSteps.filter(step => step.startsWith("ApplicationDocument."))).toEqual([
+      "ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication",
+    ]);
+    expect(pointCommitSteps.indexOf("clockLocked")).toBeLessThan(pointCommitSteps.indexOf("ApplicationDocument.acceptPublication"));
+    expect(pointCommitSteps.at(-1)).toBe("beforeRollback");
     const durable = await persistence.query<{
       revisions: string;
       current_rows: string;
@@ -3667,6 +3680,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("keeps candidate failure in the real point-commit transaction", async () => {
+    const coverageTrace=publicationCoveragePhaseTrace();
     let candidateValidation:
       | ReturnType<
           typeof createAppSchemaCandidateValidationPortForPointCommitAuthority
@@ -3712,6 +3726,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             candidateValidation,
             pointCommitAuthority,
           }),
+          afterTransactionStep:(event:Parameters<NonNullable<PointCommitTransactionProofOptionsV1["afterTransactionStep"]>>[0])=>{
+            if(event.step==="candidateSchemaValidationFailed")coverageTrace.candidateFailed();
+            return Promise.resolve();
+          },
         });
       },
       pointCommitAuthority,
@@ -3744,8 +3762,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
 
     await expect(
-      runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
+      runEffect(prepared.authentication.publishPointCommit(prepared.plan).pipe(Effect.provideService(Tracer.Tracer,coverageTrace.tracer))),
     ).resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+    coverageTrace.assertFullProof(0);
     await expect(
       runEffect(
         loadAppSchemaCandidateValidationEffect(candidateValidation, {
@@ -4521,7 +4540,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
   it("publishes mixed multi-row sidecars atomically and rolls them back together", async () => {
     let insertedDocumentId: string | null = null;
-    let intrinsicWrites = 0;
     const prepared = await prepareO07BScenario(
       "o09a_multi_row_atomicity",
       async (current, table) => {
@@ -4551,20 +4569,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         }
         insertedDocumentId = inserted.outcome.documentId;
       },
-      async (current) => ({
-        ...(await enableIntrinsicIndexForO06(current)),
-        afterTransactionStep: (event) => {
-          if (event.step === "intrinsicIndexEntryWritten") {
-            intrinsicWrites += 1;
-            if (intrinsicWrites === 2) {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
-            }
-          }
-          return Promise.resolve();
-        },
-      }),
+      current => enableIntrinsicIndexForO06(current),
       true,
     );
     if (
@@ -4591,12 +4596,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       ],
     });
-    expect(
-      await runFailure(
-        prepared.authentication.publishPointCommit(prepared.plan),
-      ),
-    ).toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(intrinsicWrites).toBe(2);
+    const fault = await installPublicationDmlWitness(prepared.scopeUuid, "intrinsic_rollback", "intrinsic", 2);
+    try {
+      const failure = await runFailure(prepared.authentication.publishPointCommit(prepared.plan));
+      expect(failure).toBeInstanceOf(PointCommitSqlErrorV1);
+      expect(failure).toMatchObject({ operation: "applyPublication", sqlState: "P0001" });
+      expect((await fault.read()).count).toBe(2);
+    } finally { await fault.drop(); }
     expect(await intrinsicIndexState(prepared.scopeUuid)).toEqual(before);
     expect(await o06DurableState(prepared.scopeUuid)).toEqual({
       revisions: "1",
@@ -4767,7 +4773,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }),
     );
 
-    let developerWrites = 0;
     const moved = await prepareO07BScenario(
       "c08a_developer_index_move",
       async (current, table) => {
@@ -4800,20 +4805,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           outcome: { kind: "unit" },
         });
       },
-      async (current) => ({
-        ...(await prepareDeveloperIndexForO06(current, true)),
-        afterTransactionStep: (event) => {
-          if (event.step === "developerIndexEntryWritten") {
-            developerWrites += 1;
-            if (developerWrites === 2) {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
-            }
-          }
-          return Promise.resolve();
-        },
-      }),
+      current => prepareDeveloperIndexForO06(current, true),
       true,
       true,
     );
@@ -4822,10 +4814,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       revisions: [{ commitSeq: "1", isTombstone: false }],
       current: [{ commitSeq: "1" }],
     });
-    expect(
-      await runFailure(moved.authentication.publishPointCommit(moved.plan)),
-    ).toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(developerWrites).toBe(2);
+    const movedDefinitions = await runEffect(createAppDeveloperIndexDefinitionPortV1(persistence.drizzle).locate({
+      deploymentId: moved.current.anchor.deploymentId, scopeId: moved.current.anchor.scopeId,
+      schemaVersionId: moved.current.schemaVersionId, tableIds: [decodeCatalogTableId(1)], maximumDefinitions: 256,
+    }));
+    if (movedDefinitions === null || movedDefinitions.length === 0) throw new Error("Missing genuine moved developer definition");
+    const fault = await installPublicationDmlWitness(moved.scopeUuid, "developer_move", "developer", 2, undefined,
+      movedDefinitions.map(definition => definition.indexDefinitionId));
+    try {
+      const failure = await runFailure(moved.authentication.publishPointCommit(moved.plan));
+      expect(failure).toBeInstanceOf(PointCommitSqlErrorV1);
+      expect(failure).toMatchObject({ operation: "applyPublication", sqlState: "P0001" });
+      expect((await fault.read()).count).toBe(2);
+    } finally { await fault.drop(); }
     expect(await developerIndexState(moved.scopeUuid)).toEqual(beforeMove);
 
     const recovered = createO07BAuthentication(
@@ -5326,6 +5327,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("rolls back active unique coverage together with row and claim publication", async () => {
+    const publicationSteps: string[] = [];
+    const refusal = new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
     const prepared = await prepareO07BScenario(
       "unique_coverage_rollback",
       async (current, table) => {
@@ -5338,19 +5341,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       async (current) => ({
         ...(await prepareUniqueConstraintForO06(current, false)),
         afterTransactionStep: async (event) => {
-          if (event.step === "uniquePublicationApplied")
-            throw new PointCommitCorruptionV1Error({
-              reason: "publicationInvariantInvalid",
-            });
+          if (event.step === "beforeCommit") {
+            publicationSteps.push(event.step);
+            throw refusal;
+          }
         },
       }),
     );
     const before = await uniqueBuildStates(prepared.current);
-    expect(
-      await runFailure(
-        prepared.authentication.publishPointCommit(prepared.plan),
-      ),
-    ).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan).pipe(
+      Effect.provideService(ExecutionDiagnostics, { observe: <A, E, R>(name: string, work: Effect.Effect<A, E, R>) =>
+        ["ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication"].includes(name)
+          ? Effect.sync(() => { publicationSteps.push(name); }).pipe(Effect.andThen(work)) : work })))).toBe(refusal);
+    expect(publicationSteps).toEqual([
+      "ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication", "beforeCommit",
+    ]);
     expect(await uniqueBuildStates(prepared.current)).toEqual(before);
     expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
     expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
@@ -5487,7 +5492,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("rolls back a moved unique claim and resumes the exact transition", async () => {
-    let uniqueWrites = 0;
+    const typedRefusal = new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+    let refuseAtCommitHeader = false;
     const prepared = await prepareO07BScenario(
       "c08b2_unique_move_rollback",
       async (current, table) => {
@@ -5501,32 +5507,29 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           patch: { name: "moved" },
         });
       },
-      async (current) => ({
-        ...(await prepareUniqueConstraintForO06(current, true)),
-        afterTransactionStep: (event) => {
-          if (event.step === "uniqueKeyWritten") {
-            uniqueWrites += 1;
-            if (uniqueWrites === 2) {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
-            }
-          }
+      async current => ({ ...(await prepareUniqueConstraintForO06(current, true)),
+        afterTransactionStep: event => {
+          if (refuseAtCommitHeader && event.step === "commitHeaderWritten") throw typedRefusal;
           return Promise.resolve();
-        },
-      }),
+        } }),
       true,
     );
     const before = await uniqueKeyState(prepared.scopeUuid);
     expect(before).toHaveLength(1);
 
-    expect(
-      await runFailure(
-        prepared.authentication.publishPointCommit(prepared.plan),
-      ),
-    ).toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(uniqueWrites).toBe(2);
+    const fault = await installPublicationDmlWitness(prepared.scopeUuid, "unique_move", "unique", 2);
+    try {
+      const failure = await runFailure(prepared.authentication.publishPointCommit(prepared.plan));
+      expect(failure).toBeInstanceOf(PointCommitSqlErrorV1);
+      expect(failure).toMatchObject({ operation: "applyPublication", sqlState: "P0001" });
+      expect((await fault.read()).count).toBe(2);
+    } finally { await fault.drop(); }
     expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(before);
+
+    refuseAtCommitHeader = true;
+    expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan))).toBe(typedRefusal);
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(before);
+    refuseAtCommitHeader = false;
 
     const recovered = createO07BAuthentication(
       prepared.current,
@@ -5546,8 +5549,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("orders shared index and unique sidecars and rolls them back together", async () => {
-    const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
-    let uniqueWrites = 0;
     const prepared = await prepareO07BScenario(
       "o09b_combined_sidecar_rollback",
       async (current, table) => {
@@ -5565,23 +5566,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ...(await enableIntrinsicIndexForO06(current)),
         ...(await prepareDeveloperIndexForO06(current, true)),
         ...(await prepareUniqueConstraintForO06(current, true)),
-        afterTransactionStep: (event) => {
-          if (
-            event.step === "developerIndexEntryWritten" ||
-            event.step === "uniqueKeyWritten"
-          ) {
-            sidecarSteps.push(event.step);
-          }
-          if (event.step === "uniqueKeyWritten") {
-            uniqueWrites += 1;
-            if (uniqueWrites === 2) {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
-            }
-          }
-          return Promise.resolve();
-        },
       }),
       true,
       true,
@@ -5590,17 +5574,27 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const beforeUnique = await uniqueKeyState(prepared.scopeUuid);
     const beforeDurable = await o06DurableState(prepared.scopeUuid);
 
-    expect(
-      await runFailure(
-        prepared.authentication.publishPointCommit(prepared.plan),
-      ),
-    ).toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(sidecarSteps).toEqual([
-      "developerIndexEntryWritten",
-      "developerIndexEntryWritten",
-      "uniqueKeyWritten",
-      "uniqueKeyWritten",
-    ]);
+    const order = "fx_test_publication_combined_order";
+    const developerDefinitions = await runEffect(createAppDeveloperIndexDefinitionPortV1(persistence.drizzle).locate({
+      deploymentId: prepared.current.anchor.deploymentId, scopeId: prepared.current.anchor.scopeId,
+      schemaVersionId: prepared.current.schemaVersionId, tableIds: [decodeCatalogTableId(1)], maximumDefinitions: 256,
+    }));
+    if (developerDefinitions === null || developerDefinitions.length === 0) throw new Error("Missing genuine combined developer definition");
+    await persistence.query(`create sequence public.${order} maxvalue 16`);
+    try {
+      const developer = await installPublicationDmlWitness(prepared.scopeUuid, "combined_developer", "developer", undefined, order,
+        developerDefinitions.map(definition => definition.indexDefinitionId));
+      try {
+        const unique = await installPublicationDmlWitness(prepared.scopeUuid, "combined_unique", "unique", 2, order);
+        try {
+          const failure = await runFailure(prepared.authentication.publishPointCommit(prepared.plan));
+          expect(failure).toBeInstanceOf(PointCommitSqlErrorV1);
+          expect(failure).toMatchObject({ operation: "applyPublication", sqlState: "P0001" });
+          expect(await developer.read()).toEqual({ count: 2, firstOrder: 1, lastOrder: 2 });
+          expect(await unique.read()).toEqual({ count: 2, firstOrder: 3, lastOrder: 4 });
+        } finally { await unique.drop(); }
+      } finally { await developer.drop(); }
+    } finally { await persistence.query(`drop sequence public.${order}`); }
     expect(await developerIndexState(prepared.scopeUuid)).toEqual(
       beforeDeveloper,
     );
@@ -5751,7 +5745,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("preserves same-key claims, releases deletes, and omits sparse keys", async () => {
-    let uniqueWrites = 0;
     const sameKey = await prepareO07BScenario(
       "c08b2_unique_same_key",
       async (current, table) => {
@@ -5765,19 +5758,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           patch: { category: "non-unique-change" },
         });
       },
-      async (current) => ({
-        ...(await prepareUniqueConstraintForO06(current, true)),
-        afterTransactionStep: async (event) => {
-          if (event.step === "uniqueKeyWritten") uniqueWrites += 1;
-        },
-      }),
+      current => prepareUniqueConstraintForO06(current, true),
       true,
     );
     const sameKeyBefore = await uniqueKeyState(sameKey.scopeUuid);
-    await runEffect(sameKey.authentication.publishPointCommit(sameKey.plan));
+    const writes = await installPublicationDmlWitness(sameKey.scopeUuid, "same_unique", "unique");
+    try {
+      await runEffect(sameKey.authentication.publishPointCommit(sameKey.plan));
+      expect((await writes.read()).count).toBe(0);
+    } finally { await writes.drop(); }
     const sameKeyAfter = await uniqueKeyState(sameKey.scopeUuid);
     expect(sameKeyAfter).toEqual(sameKeyBefore);
-    expect(uniqueWrites).toBe(0);
     expect(sameKeyAfter[0]?.encodedKeyHex).toBe(
       sameKeyBefore[0]?.encodedKeyHex,
     );
@@ -5980,36 +5971,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const liveBefore = await o06DurableState(live.evidence.scopeUuid);
     const liveSteps: string[] = [];
+    const diagnostics = (steps: string[]) => ({ observe: <A, E, R>(name: string, work: Effect.Effect<A, E, R>) =>
+      ["ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication"].includes(name)
+        ? Effect.sync(() => { steps.push(name); }).pipe(Effect.andThen(work)) : work });
     const liveIndexOptions = await enableIntrinsicIndexForO06(live.current);
-    const liveResult = await runEffect(
-      createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
-        ...liveIndexOptions,
-        afterTransactionStep: (event) => {
-          liveSteps.push(event.step);
-          return Promise.resolve();
-        },
-      }).prove(live.command),
-    );
-    expect(liveResult).toEqual({ kind: "wouldCommit" });
-    expect(Object.isFrozen(liveResult)).toBe(true);
-    expect(liveSteps).toEqual([
-      "lifecycleProtected",
-      "clockLocked",
-      "intrinsicIndexBuildLocked",
-      "sessionLocked",
-      "leaseLocked",
-      "journalRootLocked",
-      "dependenciesValidated",
-      "intrinsicMembershipPreparing",
-      "intrinsicMembershipPrepared",
-      "rowBatchWriting",
-      "rowBatchWritten",
-      "tentativeRowWritten",
-      "indexBatchWriting",
-      "indexBatchWritten",
-      "intrinsicIndexEntryWritten",
-      "beforeRollback",
+    const liveWrites = await installPublicationDmlWitness(live.evidence.scopeUuid, "live_proof", "intrinsic");
+    try {
+      const liveResult = await runEffect(
+        createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+          ...liveIndexOptions,
+          afterTransactionStep: (event) => {
+            liveSteps.push(event.step);
+            return Promise.resolve();
+          },
+        }).prove(live.command).pipe(Effect.provideService(ExecutionDiagnostics, diagnostics(liveSteps))),
+      );
+      expect((await liveWrites.read()).count).toBe(1);
+      expect(liveResult).toEqual({ kind: "wouldCommit" });
+      expect(Object.isFrozen(liveResult)).toBe(true);
+    } finally { await liveWrites.drop(); }
+    expect(liveSteps.filter(step => step.startsWith("ApplicationDocument."))).toEqual([
+      "ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication",
     ]);
+    expect(liveSteps.indexOf("clockLocked")).toBeLessThan(liveSteps.indexOf("ApplicationDocument.acceptPublication"));
+    expect(liveSteps.at(-1)).toBe("beforeRollback");
     expect(await o06DurableState(live.evidence.scopeUuid)).toEqual(liveBefore);
 
     const deleted = await prepareO06Scenario(
@@ -6036,17 +6021,23 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const deleteIndexOptions = await enableIntrinsicIndexForO06(
       deleted.current,
     );
-    await runEffect(
-      createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
-        ...deleteIndexOptions,
-        afterTransactionStep: (event) => {
-          deleteSteps.push(event.step);
-          return Promise.resolve();
-        },
-      }).prove(deleted.command),
-    );
-    expect(deleteSteps).toContain("tentativeRowWritten");
-    expect(deleteSteps).toContain("intrinsicIndexEntryWritten");
+    const deleteWrites = await installPublicationDmlWitness(deleted.evidence.scopeUuid, "delete_proof", "intrinsic");
+    try {
+      await runEffect(
+        createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+          ...deleteIndexOptions,
+          afterTransactionStep: (event) => {
+            deleteSteps.push(event.step);
+            return Promise.resolve();
+          },
+        }).prove(deleted.command).pipe(Effect.provideService(ExecutionDiagnostics, diagnostics(deleteSteps))),
+      );
+      expect((await deleteWrites.read()).count).toBe(1);
+    } finally { await deleteWrites.drop(); }
+    expect(deleteSteps.filter(step => step.startsWith("ApplicationDocument."))).toEqual([
+      "ApplicationDocument.acceptPublication", "ApplicationDocument.materializeAcceptedPublication",
+    ]);
+    expect(deleteSteps.at(-1)).toBe("beforeRollback");
     expect(await o06DurableState(deleted.evidence.scopeUuid)).toEqual(
       deleteBefore,
     );
@@ -6094,17 +6085,20 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     );
     const noMaterialSteps: string[] = [];
-    await runEffect(
-      createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
-        afterTransactionStep: (event) => {
-          noMaterialSteps.push(event.step);
-          return Promise.resolve();
-        },
-      }).prove(noMaterial.command),
-    );
+    const noMaterialWrites = await installPublicationDmlWitness(noMaterial.evidence.scopeUuid, "empty_proof", "row");
+    try {
+      await runEffect(
+        createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+          afterTransactionStep: (event) => {
+            noMaterialSteps.push(event.step);
+            return Promise.resolve();
+          },
+        }).prove(noMaterial.command).pipe(Effect.provideService(ExecutionDiagnostics, diagnostics(noMaterialSteps))),
+      );
+      expect((await noMaterialWrites.read()).count).toBe(0);
+    } finally { await noMaterialWrites.drop(); }
     expect(noMaterial.command.dependencies).toHaveLength(1);
     expect(noMaterial.command.rowIntents).toEqual([]);
-    expect(noMaterialSteps).not.toContain("tentativeRowWritten");
     expect(noMaterialSteps.at(-1)).toBe("beforeRollback");
   });
 
@@ -7587,25 +7581,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       creationTime,
       fields: { name: "seeded" },
     });
-    await persistence.drizzle.transaction((tx) =>
-      appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId,
-        tableId,
-        rowId,
-        writeEpoch: clock.epoch,
-        commitSeq: CommitSeqSchema.make(1n),
-        prevCommitSeq: null,
-        schemaVersionId,
-        creationTime,
-        value: {
-          codecVersion: document.codecVersion,
-          valueJson: document.valueJson,
-          canonicalBytes: document.canonicalBytes,
-          sha256: document.sha256,
-        },
-      }),
-    );
+    await persistence.drizzle.transaction(async (tx) => {
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try {
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
+          scopeId,
+          tableId,
+          rowId,
+          writeEpoch: clock.epoch,
+          commitSeq: CommitSeqSchema.make(1n),
+          prevCommitSeq: null,
+          schemaVersionId,
+          creationTime,
+          value: {
+            codecVersion: document.codecVersion,
+            valueJson: document.valueJson,
+            canonicalBytes: document.canonicalBytes,
+            sha256: document.sha256,
+          },
+        });
+      } finally {
+        closeInstallationAdmission(tx);
+      }
+    });
     await persistence.query(
       `
         update fx_system_scope_clock
@@ -7633,25 +7632,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       creationTime,
       fields: { name: "second-validation-row" },
     });
-    await persistence.drizzle.transaction((tx) =>
-      appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: current.anchor.scopeId,
-        tableId,
-        rowId,
-        writeEpoch: clock.epoch,
-        commitSeq: CommitSeqSchema.make(1n),
-        prevCommitSeq: null,
-        schemaVersionId: current.schemaVersionId,
-        creationTime,
-        value: {
-          codecVersion: document.codecVersion,
-          valueJson: document.valueJson,
-          canonicalBytes: document.canonicalBytes,
-          sha256: document.sha256,
-        },
-      }),
-    );
+    await persistence.drizzle.transaction(async (tx) => {
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try {
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
+          scopeId: current.anchor.scopeId,
+          tableId,
+          rowId,
+          writeEpoch: clock.epoch,
+          commitSeq: CommitSeqSchema.make(1n),
+          prevCommitSeq: null,
+          schemaVersionId: current.schemaVersionId,
+          creationTime,
+          value: {
+            codecVersion: document.codecVersion,
+            valueJson: document.valueJson,
+            canonicalBytes: document.canonicalBytes,
+            sha256: document.sha256,
+          },
+        });
+      } finally {
+        closeInstallationAdmission(tx);
+      }
+    });
   }
 
   async function developerBuildCursor(
@@ -7962,15 +7966,20 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(definition, document, creationTime));
       if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
       await persistence.drizzle.transaction(async (tx) => {
-        await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
-              kind: "live",
-              scopeId: current.anchor.scopeId,
-              definition,
-              encodedKey,
-              rowId: decodeOrderedIndexRowIdHexV1(rowId),
-              writeEpoch: clock.epoch,
-              commitSeq: CommitSeqSchema.make(1n),
-            }]));
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+          await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
+                kind: "live",
+                scopeId: current.anchor.scopeId,
+                definition,
+                encodedKey,
+                rowId: decodeOrderedIndexRowIdHexV1(rowId),
+                writeEpoch: clock.epoch,
+                commitSeq: CommitSeqSchema.make(1n),
+              }]));
+        } finally {
+          closeInstallationAdmission(tx);
+        }
       });
     }
     return Object.freeze({ developerIndexes });
@@ -8048,50 +8057,55 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
     await persistence.drizzle.transaction(async (tx) => {
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: current.anchor.scopeId,
-        tableId,
-        rowId,
-        writeEpoch: clock.epoch,
-        commitSeq,
-        prevCommitSeq: null,
-        schemaVersionId: current.schemaVersionId,
-        creationTime,
-        value: {
-          codecVersion: document.codecVersion,
-          valueJson: document.valueJson,
-          canonicalBytes: document.canonicalBytes,
-          sha256: document.sha256,
-        },
-      });
-      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
-            kind: "live",
-            scopeId: current.anchor.scopeId,
-            definition,
-            encodedKey,
-            rowId: decodeOrderedIndexRowIdHexV1(rowId),
-            writeEpoch: clock.epoch,
-            commitSeq,
-          }]));
-      await tx.insert(fxSystemCommits).values({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeCount: 1,
-      });
-      await tx.insert(fxSystemCommitAppRowChanges).values({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeOrdinal: 0,
-        tableId,
-        rowId: appRowIdHexV1ToBytes(rowId),
-      });
-      await tx
-        .update(fxSystemScopeClocks)
-        .set({ lastCommitSeq: commitSeq })
-        .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try {
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
+          scopeId: current.anchor.scopeId,
+          tableId,
+          rowId,
+          writeEpoch: clock.epoch,
+          commitSeq,
+          prevCommitSeq: null,
+          schemaVersionId: current.schemaVersionId,
+          creationTime,
+          value: {
+            codecVersion: document.codecVersion,
+            valueJson: document.valueJson,
+            canonicalBytes: document.canonicalBytes,
+            sha256: document.sha256,
+          },
+        });
+        await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
+              kind: "live",
+              scopeId: current.anchor.scopeId,
+              definition,
+              encodedKey,
+              rowId: decodeOrderedIndexRowIdHexV1(rowId),
+              writeEpoch: clock.epoch,
+              commitSeq,
+            }]));
+        await tx.insert(fxSystemCommits).values({
+          scopeUuid,
+          epochUuid,
+          commitSeq,
+          changeCount: 1,
+        });
+        await tx.insert(fxSystemCommitAppRowChanges).values({
+          scopeUuid,
+          epochUuid,
+          commitSeq,
+          changeOrdinal: 0,
+          tableId,
+          rowId: appRowIdHexV1ToBytes(rowId),
+        });
+        await tx
+          .update(fxSystemScopeClocks)
+          .set({ lastCommitSeq: commitSeq })
+          .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+      } finally {
+        closeInstallationAdmission(tx);
+      }
     });
     return Object.freeze({ encodedKey });
   }
@@ -8177,21 +8191,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       if (clock === null) {
         throw new Error("Missing C08-B2 seeded scope clock.");
       }
-      await persistence.drizzle.transaction((tx) =>
-        runEffect(
-          applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
-            scopeId: current.anchor.scopeId,
-            constraintId: definition.uniqueConstraintDefinitionId,
-            tableId,
-            rowId,
-            writeEpoch: clock.epoch,
-            previous: null,
-            next: Result.getOrThrow(
-              lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(Result.map(key => key.kind === "claim" ? key.projection : null)),
-            ),
-          }]),
-        ),
-      );
+      await persistence.drizzle.transaction(async (tx) => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try {
+          await runEffect(
+            applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
+              scopeId: current.anchor.scopeId,
+              constraintId: definition.uniqueConstraintDefinitionId,
+              tableId,
+              rowId,
+              writeEpoch: clock.epoch,
+              previous: null,
+              next: Result.getOrThrow(
+                lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(Result.map(key => key.kind === "claim" ? key.projection : null)),
+              ),
+            }]),
+          );
+        } finally {
+          closeInstallationAdmission(tx);
+        }
+      });
     }
     const buildPorts = {
       controlDb: persistence.drizzle,
@@ -8313,36 +8332,41 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       throw new Error("Missing the second C08-B2 seed authority.");
     }
     await persistence.drizzle.transaction(async (tx) => {
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: current.anchor.scopeId,
-        tableId,
-        rowId,
-        writeEpoch: clock.epoch,
-        commitSeq: CommitSeqSchema.make(1n),
-        prevCommitSeq: null,
-        schemaVersionId: current.schemaVersionId,
-        creationTime,
-        value: {
-          codecVersion: document.codecVersion,
-          valueJson: document.valueJson,
-          canonicalBytes: document.canonicalBytes,
-          sha256: document.sha256,
-        },
-      });
-      await runEffect(
-        applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try {
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
           scopeId: current.anchor.scopeId,
-          constraintId: definition.uniqueConstraintDefinitionId,
           tableId,
           rowId,
           writeEpoch: clock.epoch,
-          previous: null,
-          next: Result.getOrThrow(
-            lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(Result.map(key => key.kind === "claim" ? key.projection : null)),
-          ),
-        }]),
-      );
+          commitSeq: CommitSeqSchema.make(1n),
+          prevCommitSeq: null,
+          schemaVersionId: current.schemaVersionId,
+          creationTime,
+          value: {
+            codecVersion: document.codecVersion,
+            valueJson: document.valueJson,
+            canonicalBytes: document.canonicalBytes,
+            sha256: document.sha256,
+          },
+        });
+        await runEffect(
+          applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
+            scopeId: current.anchor.scopeId,
+            constraintId: definition.uniqueConstraintDefinitionId,
+            tableId,
+            rowId,
+            writeEpoch: clock.epoch,
+            previous: null,
+            next: Result.getOrThrow(
+              lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(Result.map(key => key.kind === "claim" ? key.projection : null)),
+            ),
+          }]),
+        );
+      } finally {
+        closeInstallationAdmission(tx);
+      }
     });
     return documentId;
   }
@@ -8967,41 +8991,46 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "appDocument",
     );
     await persistence.drizzle.transaction(async (tx) => {
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId,
-        tableId: intent.tableId,
-        rowId: intent.rowId,
-        writeEpoch: clock.epoch,
-        commitSeq,
-        prevCommitSeq: null,
-        schemaVersionId,
-        creationTime: intent.creationTime,
-        value: {
-          codecVersion: document.codecVersion,
-          valueJson: document.valueJson,
-          canonicalBytes: document.canonicalBytes,
-          sha256: document.sha256,
-        },
-      });
-      await tx.insert(fxSystemCommits).values({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeCount: 1,
-      });
-      await tx.insert(fxSystemCommitAppRowChanges).values({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeOrdinal: 0,
-        tableId: intent.tableId,
-        rowId: appRowIdHexV1ToBytes(intent.rowId),
-      });
-      await tx
-        .update(fxSystemScopeClocks)
-        .set({ lastCommitSeq: commitSeq })
-        .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try {
+        await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+          kind: "live",
+          scopeId,
+          tableId: intent.tableId,
+          rowId: intent.rowId,
+          writeEpoch: clock.epoch,
+          commitSeq,
+          prevCommitSeq: null,
+          schemaVersionId,
+          creationTime: intent.creationTime,
+          value: {
+            codecVersion: document.codecVersion,
+            valueJson: document.valueJson,
+            canonicalBytes: document.canonicalBytes,
+            sha256: document.sha256,
+          },
+        });
+        await tx.insert(fxSystemCommits).values({
+          scopeUuid,
+          epochUuid,
+          commitSeq,
+          changeCount: 1,
+        });
+        await tx.insert(fxSystemCommitAppRowChanges).values({
+          scopeUuid,
+          epochUuid,
+          commitSeq,
+          changeOrdinal: 0,
+          tableId: intent.tableId,
+          rowId: appRowIdHexV1ToBytes(intent.rowId),
+        });
+        await tx
+          .update(fxSystemScopeClocks)
+          .set({ lastCommitSeq: commitSeq })
+          .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+      } finally {
+        closeInstallationAdmission(tx);
+      }
     });
   }
 
@@ -9343,6 +9372,68 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const row = result.rows[0];
     if (row === undefined) throw new Error("Missing O08 disposition state.");
     return row;
+  }
+
+  // Installed triggers observe the fixed publication routine's actual DML.
+  // Sequences survive rollback so a mid-routine fault remains observable.
+  async function installPublicationDmlWitness(scopeUuid: string, label: string,
+    family: "intrinsic" | "developer" | "unique" | "row", failAt?: number, sharedOrder?: string,
+    definitionIds?: readonly CatalogIndexDefinitionId[]) {
+    const prefix = `fx_test_publication_${label}`;
+    const counter = `${prefix}_count`;
+    const first = `${prefix}_first`;
+    const last = `${prefix}_last`;
+    const order = sharedOrder ?? `${prefix}_order`;
+    const functionName = `${prefix}_fn`;
+    const triggerName = `${prefix}_trigger`;
+    const table = family === "unique" ? "fx_app_unique_key" : family === "row" ? "fx_app_row_rev" : "fx_app_index_entry_rev";
+    let definition = family === "intrinsic" ? "and selected.index_definition_id = 1" : "";
+    if (family === "developer") {
+      if (definitionIds === undefined || definitionIds.length === 0)
+        throw new Error("Developer DML witness requires its genuine located definitions");
+      definition = `and selected.index_definition_id::text in (${definitionIds.map(
+        id => `'${decodeCatalogIndexDefinitionId(id)}'`).join(",")})`;
+    }
+    const sequences = [counter, first, last, ...(sharedOrder === undefined ? [order] : [])];
+    const drop = async () => {
+      await persistence.query(`drop trigger if exists ${triggerName} on public.${table}`);
+      await persistence.query(`drop function if exists public.${functionName}()`);
+      for (const name of sequences) await persistence.query(`drop sequence if exists public.${name}`);
+    };
+    try {
+      for (const name of sequences) await persistence.query(`create sequence public.${name} maxvalue 16`);
+      await persistence.query(`create function public.${functionName}() returns trigger language plpgsql set search_path = pg_catalog, pg_temp as $$
+      declare selected public.${table}%rowtype; event_number bigint; event_order bigint;
+      begin
+        if TG_OP = 'DELETE' then selected := old; else selected := new; end if;
+        if selected.scope_uuid = '${scopeUuid}'::uuid ${definition} then
+          event_number := nextval('public.${counter}');
+          event_order := nextval('public.${order}');
+          if event_number = 1 then perform setval('public.${first}', event_order); end if;
+          perform setval('public.${last}', event_order);
+          ${failAt === undefined ? "" : `if event_number = ${failAt} then raise exception 'forced native publication ${family} write %', event_number using errcode = 'P0001'; end if;`}
+        end if;
+        if TG_OP = 'DELETE' then return old; else return new; end if;
+      end $$`);
+      await persistence.query(`create trigger ${triggerName} after insert or delete on public.${table}
+        for each row execute function public.${functionName}()`);
+    } catch (cause) {
+      await drop();
+      throw cause;
+    }
+    return Object.freeze({
+      read: async () => {
+        const result = await persistence.query<{ count: string; first_order: string; last_order: string }>(`
+          select (case when c.is_called then c.last_value else 0 end)::text as count,
+            (case when f.is_called then f.last_value else 0 end)::text as first_order,
+            (case when l.is_called then l.last_value else 0 end)::text as last_order
+          from public.${counter} c, public.${first} f, public.${last} l`);
+        const row = result.rows[0];
+        if (row === undefined) throw new Error("Missing installed publication DML witness");
+        return { count: Number(row.count), firstOrder: Number(row.first_order), lastOrder: Number(row.last_order) };
+      },
+      drop,
+    });
   }
 
   async function installO08CSerializationTrigger(

@@ -34,6 +34,7 @@ export async function prepareStandaloneProductLaunchPerformanceSeries(input?: Re
   try {
     const currency = await logicalCurrencyFixture(input?.driver ?? "postgres", close => cleanup.push(close), {
       includeProduct: true, includePricing: true, includeVariantPricingLink: true,
+      ...((input?.driver ?? "postgres") === "postgres" ? { protectedRuntime: true, managedRead: true } : {}),
       ...(input?.postgresEndpoints === undefined ? {} : { postgresEndpoints: input.postgresEndpoints }),
     });
     const product = await prepareLogicalProductHost(currency);

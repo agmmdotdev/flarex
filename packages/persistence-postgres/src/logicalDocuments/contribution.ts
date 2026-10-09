@@ -55,7 +55,9 @@ export const validateLogicalDocumentChanges = Effect.fn(
       (row) => reads.get(row.documentId)?.dependency !== row.dependency,
     ) ||
     closed.noFinalRows.some((id) => {
-      const observed = reads.get(id)?.dependency.observed;
+      const point = reads.get(id);
+      if (point?.dependency.kind === "generatedInsertion") return false;
+      const observed = point?.dependency.observed;
       return (
         observed?.kind !== "missing" ||
         observed.basis.kind !== "noVisibleRevision"
@@ -75,12 +77,19 @@ export const validateLogicalDocumentChanges = Effect.fn(
     closed.attempts.some(
       (attempt, index) =>
         attempt.ordinal !== index || !attempted.has(attempt.documentId),
-    ) ||
-    [...attempted].some(
-      (id) => !closed.attempts.some((attempt) => attempt.documentId === id),
     )
   ) {
     return yield* Effect.fail(error("invalidAuthority"));
+  }
+  const attemptedIds = new Set(closed.attempts.map(attempt => attempt.documentId));
+  if ([...attempted].some(id => !attemptedIds.has(id))) return yield* Effect.fail(error("invalidAuthority"));
+  for (const point of closed.dependencies) {
+    if (point.dependency.kind !== "generatedInsertion") continue;
+    if (point.dependency.origin !== undefined) continue;
+    const first = closed.attempts.find(attempt => attempt.documentId === point.documentId);
+    if (first?.ordinal !== point.dependency.effectOrdinal || first.operation !== "insert" || first.before !== null ||
+      first.after === null || first.tableId !== point.tableId || point.dependency.documentId !== point.documentId)
+      return yield* Effect.fail(error("invalidAuthority"));
   }
   // Broad/unindexed collection find reads the complete bounded table before filtering.
   // Its frontier includes tombstones, so empty results cannot lose insertions.

@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { expect } from "vitest";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
+import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
@@ -43,6 +44,48 @@ export async function sessionJournalReceiptScenario(
     fields: { name: "first receipt" },
   })).resolves.toMatchObject({ kind: "completed", delivery: "executed" });
   const before = await readState();
+  const point = before.points[0];
+  if (point === undefined) throw new Error("Missing original native insertion point");
+  expect(point).toMatchObject({ dependencyKind: "missing_no_visible_revision", dependencyRevisionCommitSeq: null });
+  const pointIdentity = and(
+    eq(fxSystemTransactionJournalPoints.scopeUuid, point.scopeUuid),
+    eq(fxSystemTransactionJournalPoints.sessionId, point.sessionId),
+    eq(fxSystemTransactionJournalPoints.attemptFence, point.attemptFence),
+    eq(fxSystemTransactionJournalPoints.tableId, point.tableId),
+    eq(fxSystemTransactionJournalPoints.rowId, point.rowId),
+  );
+  const revision = CommitSeqSchema.make(1n);
+  const zero = CommitSeqSchema.make(0n);
+  // Structural CHECK coverage uses one genuinely issued point. These mutations
+  // never assert admission authority and always roll back with its full receipt.
+  for (const test of [
+    { kind: "present", revision, accepted: true },
+    { kind: "present", revision: null, accepted: false },
+    { kind: "present", revision: zero, accepted: false },
+    { kind: "missing_no_visible_revision", revision: null, accepted: true },
+    { kind: "missing_no_visible_revision", revision, accepted: false },
+    { kind: "missing_tombstone", revision, accepted: true },
+    { kind: "missing_tombstone", revision: null, accepted: false },
+    { kind: "missing_tombstone", revision: zero, accepted: false },
+    { kind: "generated_insertion", revision: null, accepted: true },
+    { kind: "generated_insertion", revision, accepted: false },
+    { kind: sql`${"unknown_dependency"}`, revision: null, accepted: false },
+  ] as const) {
+    const rollback = new Error("Rollback structural journal dependency witness");
+    const changed = persistence.drizzle.transaction(async tx => {
+      const rows = await tx.update(fxSystemTransactionJournalPoints).set({
+        dependencyKind: test.kind, dependencyRevisionCommitSeq: test.revision,
+      }).where(pointIdentity).returning();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ dependencyKind: test.kind, dependencyRevisionCommitSeq: test.revision });
+      throw rollback;
+    });
+    if (test.accepted) await expect(changed).rejects.toBe(rollback);
+    else await expect(changed).rejects.toMatchObject({ cause: {
+      code: "23514", constraint: "fx_system_tx_journal_point_dependency_check",
+    } });
+    expect(await readState()).toEqual(before);
+  }
   const next = {
     kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
     fields: { name: "second receipt" },

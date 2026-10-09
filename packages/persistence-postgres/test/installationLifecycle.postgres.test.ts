@@ -3,14 +3,16 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { getTableName, sql } from "drizzle-orm";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { Cause, Data, Effect, Exit, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
-import { acquireInstallationAdmission, closeInstallationAdmission, loadManagedInstallation,
+import { acquireInstallationAdmission, closeInstallationAdmission, loadManagedInstallation, verifyInstallationWriterProtection,
   type InstallationLifecycleError } from "../src/installationLifecycle";
 import { publishVerifiedInstallation, runInstallationMigrations, withInstallationMaintenance,
   type InstallationMaintenance } from "../src/postgresInstallationMaintenance";
 import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, postgresUrl } from "./postgresHelpers";
-import { flarexSchema } from "../src/schema";
+import { flarexSchema, fxSystemTransactionJournalPoints } from "../src/schema";
 
 const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL ? describe : describe.skip;
 class DeliberateMaintenanceFailure extends Data.TaggedError("DeliberateMaintenanceFailure")<{}> {}
@@ -51,6 +53,81 @@ async function writeMaintenanceMigration(folder: string, when: number, statement
 }
 
 native("managed installation PostgreSQL lifecycle", () => {
+  it("attests the journal CHECK through actual managed maintenance and cleans nested parser references", async () => {
+    const owner = await createFileScopedPostgresFixture();
+    const fixture = await createProtectedFileScopedPostgresFixture("managed", owner);
+    const journal = { migrationsSchema: owner.migrationsSchema, migrationsTable: owner.migrationsTable };
+    const proofJournal = { schemaName: owner.migrationsSchema, tableName: owner.migrationsTable };
+    const folder = await mkdtemp(join(tmpdir(), "flarex-journal-check-witness-"));
+    const migrationOptions = { migrationsFolder: folder, migrationsSchema: owner.migrationsSchema,
+      migrationsTable: "installation_journal_check_witness" };
+    const table = fxSystemTransactionJournalPoints;
+    const check = getTableConfig(table).checks.find(value => value.name === "fx_system_tx_journal_point_dependency_check");
+    if (check === undefined) throw new Error("Missing actual journal CHECK");
+    const dialect = new PgDialect();
+    let when = 0;
+    const alter = (expression: ReturnType<typeof sql> | undefined, suffix = sql``) => {
+      const statement = sql`alter table ${sql.identifier(owner.schemaName)}.${sql.identifier(getTableName(table))}
+        drop constraint ${sql.identifier(check.name)}`;
+      if (expression !== undefined) statement.append(sql`, add constraint ${sql.identifier(check.name)} check (${expression}) ${suffix}`);
+      const compiled = dialect.sqlToQuery(statement);
+      if (compiled.params.length !== 0) throw new Error("CHECK witness must contain only schema-owned SQL");
+      return compiled.sql;
+    };
+    const refs = (database: typeof owner.persistence.drizzle) => database.select({ count: sql<number>`count(*)::integer` })
+      .from(sql`pg_catalog.pg_class`).where(sql`relnamespace=pg_catalog.pg_my_temp_schema()
+        and relname like 'fx_point_dependency_reference_%'`);
+    const publish = (statement: string) => Effect.gen(function* () {
+      yield* Effect.promise(() => writeMaintenanceMigration(folder, ++when, statement));
+      return yield* withInstallationMaintenance(owner.persistence.pool.options, owner.schemaName, handle => Effect.gen(function* () {
+        yield* runInstallationMigrations(handle, migrationOptions);
+        yield* publishVerifiedInstallation(handle, [{ database: fixture.persistence.drizzle, endpointPolicy: policy }], journal);
+      }));
+    });
+    const rollback = new Error("exact ordinary cold verification rollback");
+    try {
+      await owner.persistence.drizzle.transaction(async tx => {
+        for (let index = 0; index < 2; index += 1) {
+          await Effect.runPromise(verifyInstallationWriterProtection(tx, owner.schemaName, proofJournal));
+          expect((await tx.execute<{ count: number }>(sql`select count(*)::integer as count from pg_catalog.pg_class
+            where relnamespace=pg_catalog.pg_my_temp_schema() and relname like 'fx_point_dependency_reference_%'`)).rows)
+            .toEqual([{ count: 0 }]);
+        }
+      });
+      await expect(owner.persistence.drizzle.transaction(async tx => {
+        await Effect.runPromise(verifyInstallationWriterProtection(tx, owner.schemaName, proofJournal));
+        throw rollback;
+      })).rejects.toBe(rollback);
+      expect(await refs(owner.persistence.drizzle)).toEqual([{ count: 0 }]);
+      const failed = await Effect.runPromiseExit(verifyInstallationWriterProtection(owner.persistence.drizzle, "missing_installation_schema", proofJournal));
+      expect(Exit.isFailure(failed)).toBe(true);
+      if (Exit.isFailure(failed)) {
+        expect(failed.cause.reasons).toHaveLength(1);
+        expect(failed.cause.reasons[0]).toMatchObject({ _tag: "Fail", error: { reason: "resourceFailure" } });
+        expect(Cause.pretty(failed.cause)).not.toContain("25P02");
+      }
+      expect(await refs(owner.persistence.drizzle)).toEqual([{ count: 0 }]);
+      for (const statement of [alter(undefined), alter(sql`true`), alter(sql`(${table.dependencyKind} = 'present' and ${table.dependencyRevisionCommitSeq} is not null
+        and ${table.dependencyRevisionCommitSeq} >= 1 or ${table.dependencyKind} = 'missing_no_visible_revision')
+        and ${table.dependencyRevisionCommitSeq} is null or (${table.dependencyKind} = 'missing_tombstone'
+        and ${table.dependencyRevisionCommitSeq} is not null and ${table.dependencyRevisionCommitSeq} >= 1)
+        or (${table.dependencyKind} = 'generated_insertion' and ${table.dependencyRevisionCommitSeq} is null)`),
+        alter(check.value, sql`not valid`), alter(check.value, sql`no inherit`)]) {
+        await expect(Effect.runPromise(publish(statement))).rejects.toMatchObject({ reason: "invalidInstallation" });
+        expect((await owner.persistence.query("select state from fx_system_installation")).rows).toEqual([{ state: "draining" }]);
+        await expect(fixture.persistence.query("update fx_system_scope_execution_authority set epoch=epoch where false"))
+          .rejects.toMatchObject({ code: "55000" });
+        const exists = await owner.persistence.query<{ present: boolean }>(`select exists(select 1 from pg_catalog.pg_constraint
+          where conrelid='${owner.schemaName}.${getTableName(table)}'::pg_catalog.regclass and conname='${check.name}') as present`);
+        const restore = dialect.sqlToQuery(sql`alter table ${sql.identifier(owner.schemaName)}.${sql.identifier(getTableName(table))}
+          ${exists.rows[0]?.present === true ? sql`drop constraint ${sql.identifier(check.name)},` : sql``}
+          add constraint ${sql.identifier(check.name)} check (${check.value})`);
+        if (restore.params.length !== 0) throw new Error("Schema restore must have no parameters");
+        await Effect.runPromise(publish(restore.sql));
+        expect((await owner.persistence.query("select state from fx_system_installation")).rows).toEqual([{ state: "active" }]);
+      }
+    } finally { await fixture.dispose(); await owner.dispose(); await rm(folder, { recursive: true, force: true }); }
+  }, 180_000);
   it("protects an exact configured same-schema journal including inherited column grants", async () => {
     const owner = await createFileScopedPostgresFixture({ sameSchema: true, tableName: "configured_migration_receipts" });
     const fixture = await createProtectedFileScopedPostgresFixture("managed", owner);

@@ -21,7 +21,7 @@ import {
   ScopePublicationUnsupportedProfileError,
 } from "../commitPublication/scopePublicationModel";
 
-import { Result } from "effect";
+import { Cause, Effect, Result } from "effect";
 
 import { type ScopeClockRecord } from "../scopeClock";
 
@@ -51,23 +51,25 @@ export const writeScopePublicationPrefix: typeof writeSharedPublicationPrefix =
 export const reproveScopePublicationPrefix: typeof reproveSharedPublicationPrefix =
   (...args) => reproveSharedPublicationPrefix(...args).catch(rethrowPublicationFailure);
 
-export const advanceScopePublicationClock: typeof advanceSharedPublicationClock =
-  (...args) =>
-    advanceSharedPublicationClock(...args).catch(rethrowPublicationFailure);
-export const requireScopePublicationStrongReferences: typeof requireSharedPublicationStrongReferences =
-  (...args) => requireSharedPublicationStrongReferences(...args).catch(rethrowPublicationFailure);
+export const advanceScopePublicationClock = (...args: Parameters<typeof advanceSharedPublicationClock>) =>
+  advanceSharedPublicationClock(...args).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectPublicationFailure))));
+export const requireScopePublicationStrongReferences = (...args: Parameters<typeof requireSharedPublicationStrongReferences>) =>
+  requireSharedPublicationStrongReferences(...args).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectPublicationFailure))));
 
-export function rethrowPublicationFailure(cause: unknown): never {
+function projectPublicationFailure<Failure>(cause: Failure) {
   if (cause instanceof ScopePublicationUnsupportedProfileError)
-    throw new PointCommitUnsupportedProfileV1Error({ reason: cause.reason });
+    return new PointCommitUnsupportedProfileV1Error({ reason: cause.reason });
   if (cause instanceof ScopePublicationCorruptionError)
-    throw corruption(cause.reason);
+    return corruption(cause.reason);
   if (cause instanceof ScopePublicationResourceError)
-    throw new PointCommitResourceExhaustionV1Error({
+    return new PointCommitResourceExhaustionV1Error({
       dimension: cause.dimension,
       maximum: cause.maximum,
     });
   if (cause instanceof ScopePublicationSqlFailure)
-    throw pointCommitSqlCallFailure(cause.operation, cause.cause);
-  throw cause;
+    return pointCommitSqlCallFailure(cause.operation, cause.cause);
+  return cause;
+}
+export function rethrowPublicationFailure(cause: unknown): never {
+  throw projectPublicationFailure(cause);
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getTableColumns, getTableName, sql, type SQL } from "drizzle-orm";
 import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemMetadataContractObservations,
   fxSystemSnapshotLeases, fxSystemTransactionSessions, fxSystemTransactionJournals,
@@ -5,8 +6,8 @@ import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemMetadat
 import { finiteEntryCompletionInstallationSql } from "./finiteEntryCompletionInstallation";
 import { finiteEntryObservationInstallationSql } from "./finiteEntryObservation";
 import { finitePublicationInstallationSql } from "./finitePublicationInstallation";
+import { finiteCaptureFrontierInstallationSql } from "./finiteCaptureFrontierInstallation";
 import { applicationDomainInstallationSql } from "./applicationDocumentMaterialization/domainInstallation";
-const FINITE_SCOPE_OBSERVATION_FUNCTION_BODY_SHA256 = "be4cecb1334b19b5be35f9c37666a4b95685c78253c28b45e4bff4cb821b4524";
 
 const tables = [fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemMetadataContractObservations,
   fxSystemSnapshotLeases, fxSystemTransactionSessions, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims];
@@ -88,7 +89,7 @@ const captureFunctions = [
     body: "cac90a3bd1168ac81ec557ef9a3852bd99d939a6de0578ad1d406e7ee243d728", argumentNames: ["p_scope_uuid","p_table_id","p_row_id","ordinal","identity_exists"],
     argumentTypes: ["uuid","integer","bytea","integer","boolean"], argumentModes: ["i","i","i","t","t"] },
   { name: "fx_accept_finite_storage_capture", signature: sql`pg_catalog.quote_ident(${schemaName}) || '.fx_accept_finite_storage_capture(text,' || pg_catalog.quote_ident(${schemaName}) || '.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer)'`,
-    body: "2e9fb9ef548b6720f212c4b28607939baba9f1a86a32a71814842c5562464c2b", argumentNames: ["p_scope_id","p_expected","p_anchor_bytes","p_anchor_sha256","p_snapshot_epoch_uuid","p_snapshot_commit_seq","p_metadata_watermark","p_claim_owner","p_claim_fence","p_generation","p_generation_fence","p_epoch","p_index_definition_id","p_table_id","p_unique_definition_id","reason","database_now_epoch_milliseconds","serving_commit_seq","authority_row","session_row","build_row","unique_row","table_frontier","historical_change","body_eligible"], argumentTypes: ["text","@target@.fx_finite_capture_expected","bytea","bytea","uuid","bigint","bigint","uuid","bigint","text","bigint","text","integer","integer","integer","text","text","bigint","@target@.fx_system_scope_execution_authority","@target@.fx_system_tx_session","@target@.fx_system_index_build_state","@target@.fx_system_unique_constraint_build","bigint","boolean","boolean"], argumentModes: ["i","i","i","i","i","i","i","i","i","i","i","i","i","i","i","t","t","t","t","t","t","t","t","t","t"] },
+    body: createHash("sha256").update(FINITE_STORAGE_CAPTURE_FUNCTION_SQL.split("$body$")[1]!).digest("hex"), argumentNames: ["p_scope_id","p_expected","p_anchor_bytes","p_anchor_sha256","p_snapshot_epoch_uuid","p_snapshot_commit_seq","p_metadata_watermark","p_claim_owner","p_claim_fence","p_generation","p_generation_fence","p_epoch","p_index_definition_id","p_table_id","p_unique_definition_id"], argumentTypes: ["text","@target@.fx_finite_capture_expected","bytea","bytea","uuid","bigint","bigint","uuid","bigint","text","bigint","text","integer","integer","integer"], argumentModes: ["i","i","i","i","i","i","i","i","i","i","i","i","i","i","i"] },
   { name: "fx_read_snapshot_rows", signature: sql`pg_catalog.quote_ident(${schemaName}) || '.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean)'`,
     body: "aa6e17ea61a64c8383342c8bf90e531616e13b3cf9b4f2310f1a8ae5aa5a5ddc", argumentNames: ["p_scope_uuid","p_table_id","p_row_ids","p_snapshot_commit_seq","p_transfer_budget","p_settlement_window","ordinal","requested_row_id","row_present","scope_uuid","table_id","row_id","commit_seq_text","prev_commit_seq_text","write_epoch_uuid","schema_version_id","creation_time","value_codec_version","is_tombstone","value_sha256","value_bytes","body_withheld"], argumentTypes: ["uuid","integer","bytea[]","bigint","bigint","boolean","integer","bytea","boolean","uuid","integer","bytea","text","text","uuid","text","double precision","integer","boolean","bytea","bytea","boolean"], argumentModes: ["i","i","i","i","i","i","t","t","t","t","t","t","t","t","t","t","t","t","t","t","t","t"] },
   { name: "fx_read_snapshot_index_page", signature: sql`pg_catalog.quote_ident(${schemaName}) || '.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer)'`,
@@ -115,11 +116,12 @@ const captureStructure = sql`
     and exists (select 1 from pg_catalog.pg_proc p, bounds b where p.oid = (${fn.signature})::pg_catalog.regprocedure
       and p.pronamespace = b.namespace_oid and p.proowner = b.owner_oid
       and p.proargnames = array[${sql.join(fn.argumentNames.map(name => sql`${name}`), sql`,`)}]::text[]
-      and p.proallargtypes = array[${sql.join(fn.argumentTypes.map(type => type.startsWith("@target@.") ?
-        sql`(pg_catalog.quote_ident(${schemaName}) || ${type.slice(8)})::pg_catalog.regtype::oid` : sql`${type}::pg_catalog.regtype::oid`), sql`,`)}]::oid[]
-      and p.proargmodes = array[${sql.join(fn.argumentModes.map(mode => sql`${mode}`), sql`,`)}]::"char"[]
+      and ${fn.name === "fx_accept_finite_storage_capture" ? sql`p.proallargtypes is null and p.proargtypes::text = array_to_string(array[${sql.join(fn.argumentTypes.map(type => type.startsWith("@target@.") ?
+        sql`(pg_catalog.quote_ident(${schemaName}) || ${type.slice(8)})::pg_catalog.regtype::oid` : sql`${type}::pg_catalog.regtype::oid`), sql`,`)}]::oid[], ' ')` : sql`p.proallargtypes = array[${sql.join(fn.argumentTypes.map(type => type.startsWith("@target@.") ?
+        sql`(pg_catalog.quote_ident(${schemaName}) || ${type.slice(8)})::pg_catalog.regtype::oid` : sql`${type}::pg_catalog.regtype::oid`), sql`,`)}]::oid[]`}
+      and ${fn.name === "fx_accept_finite_storage_capture" ? sql`p.proargmodes is null` : sql`p.proargmodes = array[${sql.join(fn.argumentModes.map(mode => sql`${mode}`), sql`,`)}]::"char"[]`}
       and p.pronargdefaults = 0 and p.prokind = 'f' and p.provolatile = 'v' and not p.prosecdef and not p.proisstrict
-      and p.proretset and p.prorettype = 'pg_catalog.record'::pg_catalog.regtype
+      and ${fn.name === "fx_accept_finite_storage_capture" ? sql`not p.proretset and p.prorettype = (pg_catalog.quote_ident(${schemaName}) || '.fx_finite_capture_frontier')::pg_catalog.regtype` : sql`p.proretset and p.prorettype = 'pg_catalog.record'::pg_catalog.regtype`}
       and not p.proleakproof and p.proparallel = 'u' and p.prosupport = 0
       and p.proconfig = array['search_path=pg_catalog, pg_temp']
       and p.prolang = (select oid from pg_catalog.pg_language where lanname = 'plpgsql')
@@ -130,7 +132,7 @@ const captureStructure = sql`
     ))`), sql` and `)}
 `;
 
-return sql`${captureStructure} and ${finiteEntryCompletionInstallationSql(schemaName)}
+return sql`${captureStructure} and ${finiteCaptureFrontierInstallationSql(schemaName)} and ${finiteEntryCompletionInstallationSql(schemaName)}
   and ${finiteEntryObservationInstallationSql(schemaName)} and ${finitePublicationInstallationSql(schemaName)}
   and ${applicationDomainInstallationSql(schemaName)}`;
 }
@@ -194,26 +196,8 @@ export const scopeExecutionAuthorityInstallationSql = (schemaName: SQL) => sql<b
       where k.conrelid = c.oid and k.contype = 'f' and k.convalidated and not k.condeferrable
         and target.relname = 'fx_system_scope_clock' and k.conkey = array[source_column.attnum]::smallint[]
         and k.confkey = array[target_column.attnum]::smallint[] and k.confupdtype = 'r' and k.confdeltype = 'r'))
-  and (select count(*) = 1 from pg_catalog.pg_proc p, bounds b where p.pronamespace = b.namespace_oid
+  and not exists (select 1 from pg_catalog.pg_proc p, bounds b where p.pronamespace = b.namespace_oid
     and p.proname = 'fx_lock_finite_scope_observation')
-  and exists (select 1 from pg_catalog.pg_proc p, bounds b, relations a, relations c
-    where p.pronamespace = b.namespace_oid and p.proname = 'fx_lock_finite_scope_observation'
-      and a.relname = 'fx_system_scope_execution_authority' and c.relname = 'fx_system_scope_clock'
-      and p.proowner = b.owner_oid and p.pronargs = 1 and p.pronargdefaults = 0
-      and p.proargtypes = '25'::pg_catalog.oidvector
-      and p.proallargtypes = array[25,a.reltype,c.reltype]::oid[]
-      and p.proargmodes::text = '{i,t,t}'
-      and p.proargnames = array['p_scope_id','authority_row','sequence_row']::text[]
-      and p.prorettype = 'pg_catalog.record'::pg_catalog.regtype and p.proretset
-      and p.prokind = 'f' and p.provolatile = 'v' and not p.prosecdef and not p.proisstrict
-      and not p.proleakproof and p.proparallel = 'u' and p.prosupport = 0
-      and p.proconfig = array['search_path=pg_catalog, pg_temp'] and p.prolang =
-        (select oid from pg_catalog.pg_language where lanname = 'plpgsql')
-      and not exists (select 1 from pg_catalog.aclexplode(coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
-        where acl.grantee = 0 and acl.privilege_type = 'EXECUTE')
-      and pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.replace(
-        pg_catalog.replace(p.prosrc,E'\\r\\n',E'\\n'),pg_catalog.quote_ident(${schemaName}) || '.', '"__flarex_target__".'), 'UTF8')), 'hex')
-        = ${FINITE_SCOPE_OBSERVATION_FUNCTION_BODY_SHA256})
   and ${finiteCaptureInstallationSql(schemaName)}
   and exists (select 1 from pg_catalog.pg_proc p, bounds b where p.pronamespace = b.namespace_oid
     and p.proname = 'fx_check_scope_execution_authority' and p.pronargs = 0 and p.pronargdefaults = 0
@@ -239,12 +223,15 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
       p_snapshot_epoch_uuid uuid, p_snapshot_commit_seq bigint, p_metadata_watermark bigint,
       p_claim_owner uuid, p_claim_fence bigint, p_generation text, p_generation_fence bigint, p_epoch text,
       p_index_definition_id integer, p_table_id integer, p_unique_definition_id integer)
-    RETURNS TABLE(reason text, database_now_epoch_milliseconds text, serving_commit_seq bigint,
-      authority_row "__flarex_target__".fx_system_scope_execution_authority, session_row "__flarex_target__".fx_system_tx_session,
-      build_row "__flarex_target__".fx_system_index_build_state, unique_row "__flarex_target__".fx_system_unique_constraint_build,
-      table_frontier bigint, historical_change boolean, body_eligible boolean)
+    RETURNS "__flarex_target__".fx_finite_capture_frontier
     LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $body$
-    DECLARE s "__flarex_target__".fx_system_tx_session; clock_row "__flarex_target__".fx_system_scope_clock; current_time_ms bigint;
+    DECLARE reason text; database_now_epoch_milliseconds text; serving_commit_seq bigint;
+      authority_row "__flarex_target__".fx_system_scope_execution_authority;
+      session_row "__flarex_target__".fx_system_tx_session;
+      build_row "__flarex_target__".fx_system_index_build_state;
+      unique_row "__flarex_target__".fx_system_unique_constraint_build;
+      table_frontier bigint; historical_change boolean; body_eligible boolean;
+      s "__flarex_target__".fx_system_tx_session; clock_row "__flarex_target__".fx_system_scope_clock; current_time_ms bigint;
       effective_statement_timeout interval;
     BEGIN
       -- Startup arms the statement before execution. Re-check the actual pooled
@@ -252,12 +239,12 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
       effective_statement_timeout := current_setting('statement_timeout')::interval;
       IF effective_statement_timeout <= interval '0 milliseconds'
         OR effective_statement_timeout > interval '30000 milliseconds' THEN
-        reason := 'resourceFailure'; body_eligible := false; RETURN NEXT; RETURN;
+        reason := 'resourceFailure'; body_eligible := false; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       reason := 'invalidAuthority';
-      IF p_scope_id IS NULL THEN RETURN NEXT; RETURN; END IF;
+      IF p_scope_id IS NULL THEN RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible); END IF;
       SELECT a.* INTO authority_row FROM "__flarex_target__".fx_system_scope_execution_authority a WHERE a.scope_id = p_scope_id FOR SHARE;
-      IF authority_row.scope_id IS NULL THEN RETURN NEXT; RETURN; END IF;
+      IF authority_row.scope_id IS NULL THEN RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible); END IF;
       -- Intrinsic scope corruption precedes generation verdicts and session waits.
       SELECT c.* INTO clock_row FROM "__flarex_target__".fx_system_scope_clock c WHERE c.scope_id = p_scope_id;
       IF clock_row.scope_id IS NULL OR clock_row.scope_uuid IS DISTINCT FROM (p_expected).scope_uuid
@@ -268,25 +255,25 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
         OR authority_row.authorization_revocation_epoch < 0
         OR NOT isfinite(clock_row.updated_at) OR NOT isfinite(authority_row.updated_at)
         OR btrim(authority_row.epoch) = '' OR authority_row.epoch_uuid IS NULL THEN
-        reason := 'storedCorruption'; RETURN NEXT; RETURN;
+        reason := 'storedCorruption'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF p_generation <> 'flarexdb_v1' OR authority_row.storage_generation <> 'flarexdb_v1' THEN
-        reason := 'unsupportedStorageGeneration'; RETURN NEXT; RETURN;
+        reason := 'unsupportedStorageGeneration'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF authority_row.storage_generation_fence IS DISTINCT FROM p_generation_fence THEN
-        reason := 'storageGenerationFenceChanged'; RETURN NEXT; RETURN;
+        reason := 'storageGenerationFenceChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
-      IF authority_row.epoch IS DISTINCT FROM p_epoch THEN reason := 'scopeEpochChanged'; RETURN NEXT; RETURN; END IF;
+      IF authority_row.epoch IS DISTINCT FROM p_epoch THEN reason := 'scopeEpochChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible); END IF;
       -- Identity lookup precedes fence interpretation, including corrupt replaced rows.
       SELECT a.* INTO s FROM "__flarex_target__".fx_system_tx_session a
         WHERE a.scope_uuid = (substring(p_scope_id FROM 7))::uuid AND a.session_id = (p_expected).session_id FOR SHARE;
-      IF s.session_id IS NULL THEN reason := 'attemptMissing'; RETURN NEXT; RETURN; END IF;
+      IF s.session_id IS NULL THEN reason := 'attemptMissing'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible); END IF;
       IF NOT isfinite(s.authorization_grant_expires_at) OR NOT isfinite(s.hard_expires_at)
         OR NOT isfinite(s.created_at) OR NOT isfinite(s.updated_at)
         OR s.finite_lease_expires_at IS NULL OR NOT isfinite(s.finite_lease_expires_at)
         OR s.finite_claimed_at IS NULL OR NOT isfinite(s.finite_claimed_at)
         OR s.finite_claim_expires_at IS NULL OR NOT isfinite(s.finite_claim_expires_at) THEN
-        reason := 'storedCorruption'; RETURN NEXT; RETURN;
+        reason := 'storedCorruption'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF s.finite_attempt_bytes IS NULL OR octet_length(s.finite_attempt_bytes) NOT BETWEEN 1 AND 131072
         OR s.finite_attempt_sha256 IS NULL OR octet_length(s.finite_attempt_sha256) <> 32
@@ -295,12 +282,12 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
         OR s.finite_claim_owner IS NULL OR s.finite_claim_fence IS NULL OR s.finite_claim_fence < 1
         OR s.finite_claim_expires_at <= s.finite_claimed_at OR s.finite_claim_expires_at > s.finite_lease_expires_at
         OR s.finite_lease_expires_at > s.hard_expires_at THEN
-        reason := 'storedCorruption'; RETURN NEXT; RETURN;
+        reason := 'storedCorruption'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF s.attempt_fence <> (p_expected).attempt_fence THEN
         -- The owning canonical decoder checks this fresh frontier before the
         -- replacement verdict. No business body is selected for this header.
-        session_row := s; reason := 'attemptReplaced'; RETURN NEXT; RETURN;
+        session_row := s; reason := 'attemptReplaced'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF s.finite_attempt_bytes IS DISTINCT FROM p_anchor_bytes OR s.finite_attempt_sha256 IS DISTINCT FROM p_anchor_sha256
         OR s.finite_snapshot_epoch_uuid IS DISTINCT FROM p_snapshot_epoch_uuid
@@ -340,10 +327,10 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
         OR s.finite_claimed_at IS NULL OR s.finite_claim_expires_at IS NULL
         OR s.finite_claim_expires_at <= s.finite_claimed_at OR s.finite_claim_expires_at > s.finite_lease_expires_at
         OR s.finite_lease_expires_at > s.hard_expires_at THEN
-        reason := 'storedCorruption'; RETURN NEXT; RETURN;
+        reason := 'storedCorruption'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF s.finite_claim_owner <> p_claim_owner OR s.finite_claim_fence <> p_claim_fence THEN
-        reason := 'ownershipChanged'; RETURN NEXT; RETURN;
+        reason := 'ownershipChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF p_unique_definition_id IS NOT NULL THEN
         SELECT b.* INTO unique_row FROM "__flarex_target__".fx_system_unique_constraint_build b
@@ -375,23 +362,23 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
             AND h.commit_seq <= p_snapshot_commit_seq) INTO historical_change;
         END IF;
       END IF;
-      IF s.lifecycle <> 'running' THEN reason := 'lifecycleChanged'; RETURN NEXT; RETURN; END IF;
+      IF s.lifecycle <> 'running' THEN reason := 'lifecycleChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible); END IF;
       IF current_time_ms >= floor(extract(epoch FROM s.finite_lease_expires_at)*1000)
         OR current_time_ms >= floor(extract(epoch FROM s.finite_claim_expires_at)*1000)
         OR current_time_ms >= floor(extract(epoch FROM s.authorization_grant_expires_at)*1000)
         OR current_time_ms >= floor(extract(epoch FROM s.hard_expires_at)*1000) THEN
-        reason := 'expired'; RETURN NEXT; RETURN;
+        reason := 'expired'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF s.storage_generation <> authority_row.storage_generation OR s.storage_generation_fence <> authority_row.storage_generation_fence THEN
-        reason := 'storageGenerationFenceChanged'; RETURN NEXT; RETURN;
+        reason := 'storageGenerationFenceChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF p_epoch <> authority_row.epoch OR p_snapshot_epoch_uuid <> authority_row.epoch_uuid THEN
-        reason := 'scopeEpochChanged'; RETURN NEXT; RETURN;
+        reason := 'scopeEpochChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
       IF s.authorization_revocation_epoch <> authority_row.authorization_revocation_epoch THEN
-        reason := 'authorizationRevocationEpochChanged'; RETURN NEXT; RETURN;
+        reason := 'authorizationRevocationEpochChanged'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
       END IF;
-      IF p_snapshot_commit_seq < authority_row.oldest_available_commit_seq THEN reason := 'expired'; RETURN NEXT; RETURN; END IF;
+      IF p_snapshot_commit_seq < authority_row.oldest_available_commit_seq THEN reason := 'expired'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible); END IF;
       -- Native cheap guards govern transfer eligibility. Canonical build
       -- evidence retains the original decoder's corruption/refusal ordering.
       body_eligible := serving_commit_seq >= p_snapshot_commit_seq;
@@ -419,6 +406,6 @@ export const FINITE_STORAGE_CAPTURE_FUNCTION_SQL = `    CREATE OR REPLACE FUNCTI
             OR table_frontier IS NULL OR table_frontier <= unique_row.covered_through_commit_seq
             OR unique_row.covered_through_commit_seq >= authority_row.oldest_available_commit_seq AND NOT historical_change);
       END IF;
-      session_row := s; reason := 'accepted'; RETURN NEXT;
+      session_row := s; reason := 'accepted'; RETURN ROW(reason, database_now_epoch_milliseconds, serving_commit_seq, authority_row, session_row, build_row, unique_row, table_frontier, historical_change, body_eligible);
     END;
     $body$`;

@@ -170,21 +170,28 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
   }, 120_000);
 
   it("shares aggregate call and byte budgets and revokes borrowed contexts", async () => {
-    const { proof, input } = fixture;
+    const { input } = fixture;
     const before = await inventory();
+    // This neutral core probe is not a native Product command. Its explicitly
+    // declared participants retain the same genuine source admissions.
+    const productParticipant = defineAtomicCommerceParticipant("budgetProduct");
+    const currencyParticipant = defineAtomicCommerceParticipant("budgetCurrency");
     let capturedContext: CommerceCommandContext | undefined;
     const probe = defineCommerceCommand("mixedCaptureContext", "read", ctx =>
       Effect.sync(() => { capturedContext = ctx; return null; }));
     const command = defineAtomicCommerceCommand("mixedSharedBudget", Effect.fn("MixedAtomic.sharedBudget")(function* (ctx, value) {
       if (value === "bytes") {
-        for (let index = 0; index < 12; index++) yield* ctx.call(index % 2 ? proof.productParticipant : proof.currencyParticipant, probe, "x".repeat(100_000));
+        for (let index = 0; index < 12; index++) yield* ctx.call(index % 2 ? productParticipant : currencyParticipant, probe, "x".repeat(100_000));
       } else {
-        for (let index = 0; index < 65; index++) yield* ctx.call(index % 2 ? proof.productParticipant : proof.currencyParticipant, probe, null);
+        for (let index = 0; index < 65; index++) yield* ctx.call(index % 2 ? productParticipant : currencyParticipant, probe, null);
       }
       return null;
     }));
     const host = await selected({ ...input, commands: [command],
-      participants: input.participants.map(member => ({ ...member, commands: [...member.commands, probe] })) });
+      participants: [
+        { participant: productParticipant, logicalStorage: fixture.product.hostInput.logicalStorage, commands: [probe] },
+        { participant: currencyParticipant, logicalStorage: fixture.currency.hostInput.logicalStorage, commands: [probe] },
+      ] });
     for (const value of ["calls", "bytes"]) {
       expect(await runEffectFailure(host.run(host.newRequestKey(), command, value))).toMatchObject({ reason: "limitExceeded" });
       if (capturedContext === undefined) throw new Error("Probe never borrowed a context");

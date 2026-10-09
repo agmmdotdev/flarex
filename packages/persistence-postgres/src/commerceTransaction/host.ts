@@ -15,12 +15,11 @@ import { isSyntheticBindingReference } from "../frameworkSchema/binding/canonica
 import type { InstallationBindingReference } from "../frameworkSchema/binding/model";
 import { captureCommerceJsonData, lockCommerceRequest } from "./request";
 import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../boundedRequestLifetime";
-import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../applicationActivation";
-import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
+import { hasApplicationBindingComposition, prepareCurrentApplicationBinding, invalidateAcceptedApplicationBindingInTransaction } from "../applicationActivation";
+import { captureExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
-import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
-import { hasRelationalSessionDatabase, runRelationalSession } from "../relationalTransaction/session";
+import { hasRelationalSessionDatabase, runRelationalSession, readRelationalSessionCoLocatedInstallation,
+  startRelationalRequestDeadline, boundRelationalRequestDeadline } from "../relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
@@ -34,7 +33,8 @@ import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { captureCommerceResources, defaultCommerceResources, type CommerceResources } from "./resources";
 import { captureLogicalCommerceSelection, prepareLogicalCommerceContract, type LogicalCommerceSelectionInput } from "./logicalSelection";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
-import { commerceIdentityEvidence, commerceRequestHash as hash, projectCommerceRequestFailure as projectFailure } from "./request";
+import { commerceIdentityEvidence, commerceRequestHash as hash, projectCommerceRequestFailure } from "./request";
+import { PhysicalSessionDeadlineIssue } from "../physicalSession/errors";
 
 import type { CommerceHostConfiguration } from "./hostConfiguration";
 
@@ -55,6 +55,8 @@ export type LogicalCommerceHostInput<Failure> = CommerceHostConfiguration<Failur
 }>;
 export type CommerceHostInput<Failure> = PhysicalCommerceHostInput<Failure> | LogicalCommerceHostInput<Failure>;
 const decodeKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
+const projectFailure = (cause: unknown) => cause instanceof PhysicalSessionDeadlineIssue ? commerceError("deadlineExceeded", cause) :
+  projectCommerceRequestFailure(cause);
 
 export const makeCommerceHost = Effect.fn("CommerceHost.make")(<Failure>(input: CommerceHostInput<Failure>) => makeHost(input));
 
@@ -123,13 +125,16 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
     { policy: policy.value, logicalResources: selectedLogicalResources }, resources.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identityBytes.canonicalBytes));
   const installationRuntime = reference === undefined ? undefined : yield* prepareInstallationRuntime(database, target, reference).pipe(Effect.mapError(projectFailure));
-  const initialLocation = logicalSelection === undefined ? undefined : yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
-    { deploymentId, scopeId }, authority).pipe(Effect.mapError(projectFailure));
-  const preparedLogical = logicalSelection === undefined || initialLocation === undefined ? undefined :
-    yield* prepareLogicalRelationalAdmission(logicalSelection.ports, logicalSelection.unique, {
-      deploymentId, scopeId: initialLocation.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId,
-    }, logicalSelection.source, { kind: "standalone" }).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("commerce.host") });
+  const preparation = yield* prepareCurrentApplicationBinding(application, database, (binding, context) => Effect.gen(function* () {
+    if (logicalSelection === undefined) return undefined;
+    return yield* prepareLogicalRelationalAdmission(logicalSelection.ports, logicalSelection.unique, {
+      deploymentId, scopeId: context.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId,
+    }, logicalSelection.source, { kind: "standalone", application: binding }).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
+  }), {
+    installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)).pipe(Effect.mapError(projectFailure)) })
+    .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   const execute = Effect.fn("CommerceHost.execute")(function* (requestKey: string | null, token: CommerceCommand | null, args: Json) {
     const root = token === null ? undefined : getCommerceCommand(token);
     const bootstrap = token === null;
@@ -144,18 +149,15 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
       if (!Array.isArray(captured.value) || captured.value.length !== descriptor.initialization.expectedRowCount || data.sha256Hex !== descriptor.initialization.datasetSha256) return yield* Effect.fail(commerceError("seedMismatch"));
     }
     let pendingEvents: readonly Json[] = [];
+    const deadline = yield* startRelationalRequestDeadline(commerceLimits.commandMs).pipe(Effect.mapError(projectFailure));
     const attempt = Effect.fn("CommerceHost.attempt")(function* (recoverOnly: boolean) {
-      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority);
-      if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(commerceError("invalidAuthority"));
-      const active = yield* prepareApplicationBindingSelection(application);
-      return yield* runRelationalSession(session, key === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
+      return yield* preparation.withEntry(({ binding: active, payload: preparedLogical }, enter) => runRelationalSession(session, key === null ? "snapshotRead" : "command", {
+        enter: (tx, requireInstallation) => enter(tx, requireInstallation, Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', ${`${commerceLimits.statementMs}ms`}, true), set_config('lock_timeout', ${`${commerceLimits.lockMs}ms`}, true)`), cause => commerceError("statementFailure", cause));
         // One exact request may be replayed through either retained storage
         // representation. Exclusion precedes admission and callback execution.
-        if (key !== null) yield* lockCommerceRequest(tx, located.authority.scopeId, key);
-        const clock = yield* (bootstrap
-          ? lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId)
-          : lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId));
+        if (key !== null) yield* lockCommerceRequest(tx, scopeId, key);
+        }), ({ clock, authority: entryAuthority, checked }) => Effect.scoped(Effect.gen(function* () {
         const runAdmitted = Effect.fn("CommerceHost.runAdmitted")(function* (member:
           Readonly<{ kind: "physical"; admission: CommerceAdmission }> | Readonly<{ kind: "logical"; admission: LogicalRelationalAdmission }>) {
           const admitted = member.kind === "physical"
@@ -164,7 +166,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           if (bootstrap && admitted.kind === "logical" && admitted.state.tables.length > 1 &&
             descriptor.initialization !== null && descriptor.initialization.expectedRowCount > 0)
             return yield* Effect.fail(commerceError("unsupportedProfile"));
-          const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(projectFailure));
+          const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(entryAuthority.scopeId)).pipe(Effect.mapError(projectFailure));
           if (member.kind === "logical" && !bootstrap) {
             const initialization = descriptor.initialization;
             if (initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -173,7 +175,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           // Standalone reads have no durable replay identity. Fresh admission
           // owns authority; only durable requests construct command evidence.
           const evidence = member.kind === "logical" && key === null ? undefined : yield* commerceIdentityEvidence("command", {
-            deploymentId, scopeId: located.authority.scopeId, epoch: clock.epoch, generation: clock.storageGeneration,
+            deploymentId, scopeId: entryAuthority.scopeId, epoch: clock.epoch, generation: clock.storageGeneration,
             fence: clock.storageGenerationFence.toString(),
             ...(reference === undefined ? { logicalSource: logicalContract?.sha256Hex } : { installation: reference }),
             bindingHead: admitted.state.head,
@@ -243,6 +245,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
             if (local !== undefined && selected.kind === "physical") yield* local.validate(Object.freeze(events.slice()), selected.working.snapshot(), root?.name ?? "initialize", selected.working.lifecycleSnapshot(), selected.working.observationSnapshot());
             if (lookup !== null) {
               const resultHash = yield* sha(result.canonicalBytes);
+              invalidateAcceptedApplicationBindingInTransaction(tx);
               if (selected.kind === "physical") yield* finalizeCommerceCommit({ kind: "physical", admission: selected.admission,
                 closure: yield* selected.working.close(), additional: [] }, lifetime, lookup, result, resultHash);
               else yield* finalizeCommerceCommit({ kind: "logical", closure: yield* selected.working.close(),
@@ -254,18 +257,19 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           }).pipe(Effect.timeoutOrElse({ duration: commerceLimits.commandMs, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }), Effect.ensuring(lifetime.close));
         });
         if (reference !== undefined && input.profile !== undefined)
-          return yield* withCommerceAdmission(input.profile, target, reference, active, tx, located.authority, clock, bootstrap,
-            installationRuntime, admission => runAdmitted({ kind: "physical", admission }));
+          return yield* withCommerceAdmission(input.profile, target, reference, active, tx, entryAuthority, clock, bootstrap,
+            installationRuntime, admission => runAdmitted({ kind: "physical", admission }), checked);
         if (preparedLogical !== undefined)
           return yield* (key === null
-            ? preparedLogical.withReadAdmission(active, tx, located.authority, clock,
-              admission => runAdmitted({ kind: "logical", admission }))
-            : preparedLogical.withAdmission(active, tx, located.authority, clock,
-              admission => runAdmitted({ kind: "logical", admission })));
+            ? preparedLogical.withReadAdmission(active, tx, entryAuthority, clock,
+              admission => runAdmitted({ kind: "logical", admission }), checked)
+            : preparedLogical.withAdmission(active, tx, entryAuthority, clock,
+              admission => runAdmitted({ kind: "logical", admission }), checked));
         return yield* Effect.fail(commerceError("invalidAuthority"));
-      })));
+      })), bootstrap ? "update" : "snapshotRead"),
+      }, deadline));
     });
-    const value = yield* runWithRequestRecovery(attempt, {
+    const value = yield* boundRelationalRequestDeadline(deadline, runWithRequestRecovery(attempt, {
       hasRequestKey: key !== null,
       projectFailure,
       isDecisionUncertain: error => error.reason === "decisionUncertain",
@@ -277,7 +281,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           local.record({ requestKey: key, outcome: Exit.fail(error) });
         }
       },
-    });
+    })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
     if (local !== undefined && key !== null && pendingEvents.length > 0) {
       const outcome = yield* Effect.exit(Effect.suspend(() => local.deliver(pendingEvents)).pipe(Effect.timeoutOrElse({ duration: commerceLimits.cleanupMs,
         orElse: () => Effect.fail(commerceError("deadlineExceeded")) })));

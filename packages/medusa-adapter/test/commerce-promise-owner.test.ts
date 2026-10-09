@@ -5,10 +5,14 @@ import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
 import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
+import { ExecutionDiagnostics, observeExecution, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { withCommerceService } from "../src/commerce-service-bridge";
 import { currencyRepository } from "../src/currency-repository";
 
 const Unrelated = Context.Service<{ readonly request: string }>("CommercePromiseOwnerTest/Unrelated");
+const diagnosticPolicy: ExecutionDiagnosticPolicy = {
+  observe: (name, work) => Effect.useSpan(name, {}, span => Effect.provideService(work, Tracer.ParentSpan, span)),
+};
 const defaultClock = Context.get(Context.empty(), Clock.Clock);
 const clock: Clock.Clock = {
   currentTimeMillis: Effect.succeed(7), currentTimeMillisUnsafe: () => 7,
@@ -33,17 +37,27 @@ describe("commerce Promise operation context", () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const parent = yield* Effect.currentSpan;
       const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
-      yield* Effect.promise(() => owner.run(Effect.withFiber(fiber => Effect.sync(() => {
+      yield* Effect.promise(() => owner.run(observeExecution("DAL.factory-run", Effect.withFiber(fiber => Effect.sync(() => {
         expect(Context.get(fiber.context, Tracer.Tracer)).toBe(trace.tracer);
         expect(Option.getOrUndefined(Context.getOption(fiber.context, Unrelated))).toBeUndefined();
         expect(Context.get(fiber.context, Clock.Clock)).not.toBe(clock);
+        expect(Context.getOption(fiber.context, ExecutionDiagnostics)).toEqual(Option.some(diagnosticPolicy));
         if (fiber.currentSpan?._tag !== "Span") throw new Error("Missing DAL factory span");
         expect(Option.getOrUndefined(fiber.currentSpan.parent)).toBe(parent);
         expect(fiber.currentSpan?.traceId).toBe(parent.traceId);
-      })).pipe(Effect.withSpan("DAL.factory-run"))));
+      })))));
     })).pipe(Effect.withSpan("request"), Effect.provideService(Tracer.Tracer, trace.tracer),
+      Effect.provideService(ExecutionDiagnostics, diagnosticPolicy),
       Effect.provideService(Unrelated, { request: "private" }), Effect.provideService(Clock.Clock, clock)));
     expect(trace.spans.map(span => span.name)).toEqual(["request", "DAL.factory-run"]);
+  });
+
+  it("keeps opt-in operation diagnostics absent on quiet framework runners", async () => {
+    const trace = tracing();
+    const owner = await Effect.runPromise(makeCommercePromiseOwner().pipe(Effect.provideService(Tracer.Tracer, trace.tracer)));
+    try { expect(await owner.run(observeExecution("quiet DAL", Effect.succeed(1)))).toBe(1); }
+    finally { await Effect.runPromise(owner.close); }
+    expect(trace.spans).toEqual([]);
   });
 
   it("keeps actual DAL calls under their service parent in two isolated request factories", async () => {
@@ -65,7 +79,8 @@ describe("commerce Promise operation context", () => {
           table: unused }, name, lifetime.context, unused, unused);
         return yield* withCommerceService(ctx, owner => currencyRepository(ctx, owner),
           repository => repository.find({ where: {}, options: { fields: ["code"] } }, { manager: ctx.manager }));
-      })).pipe(Effect.withSpan(name), Effect.provideService(Tracer.Tracer, trace.tracer)));
+      })).pipe(Effect.withSpan(name), Effect.provideService(Tracer.Tracer, trace.tracer),
+        Effect.provideService(ExecutionDiagnostics, diagnosticPolicy)));
       const service = trace.spans.find(span => span.name === "MedusaAdapter.withService");
       const dal = trace.spans.find(span => span.name === "DAL.findPage");
       const selected = trace.spans.find(span => span.name === "CommerceRepository.select");

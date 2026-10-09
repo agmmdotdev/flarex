@@ -9,6 +9,7 @@ import {
   type PreparedApplicationBinding,
   type ApplicationBindingInput,
   type AcceptedApplicationBinding,
+  type ApplicationBindingObservation,
   readAcceptedApplicationBinding,
   withStandaloneApplicationBindingInTransaction,
   type PreparedStandaloneApplicationBinding,
@@ -108,20 +109,21 @@ export const withApplicationBindingEvidenceInTransaction = Effect.fn(
 )(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
   clock: ScopeClockRecord,
   work: (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
-  borrowed?: AcceptedApplicationBinding) {
+  observation?: ApplicationBindingObservation) {
   return yield* withValidatedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive, accepted) =>
     projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
-      Effect.flatMap(evidence => Effect.suspend(() => work(evidence, accepted)))), borrowed);
+      Effect.flatMap(evidence => Effect.suspend(() => work(evidence, accepted)))), observation);
 });
 
 /** Only the standalone trusted owner completes business work in this callback. */
 export const withPreparedApplicationBindingEvidenceInTransaction = Effect.fn(
   "ApplicationBindingProjection.withPreparedEvidenceInTransaction",
 )(function* <Value, Failure, Requirements>(selection: PreparedApplicationBinding, tx: AppRowTransaction,
-  clock: ScopeClockRecord, work: (evidence: ApplicationBindingEvidence) => Effect.Effect<Value, Failure, Requirements>) {
-  return yield* withPreparedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive) =>
+  clock: ScopeClockRecord, work: (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+  entryHead?: CheckedApplicationActiveHead) {
+  return yield* withPreparedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive, accepted) =>
     projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
-      Effect.flatMap(evidence => Effect.suspend(() => work(evidence)))));
+      Effect.flatMap(evidence => Effect.suspend(() => work(evidence, accepted)))), entryHead);
 });
 
 const projectApplicationBindingEvidence = Effect.fn("ApplicationBindingProjection.projectEvidence")(

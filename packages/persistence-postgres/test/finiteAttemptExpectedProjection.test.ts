@@ -1,12 +1,15 @@
 import { eq } from "drizzle-orm";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { expect, it } from "vitest";
 import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema, SnapshotTokenSchema } from "flarex-protocol/storage-authority";
 import { TransactionSessionIdV1Schema, TransactionPackageIdV1Schema } from "flarex-protocol/transaction-session";
 import { TransactionExecutionClaimOwnerV1Schema, TransactionExecutionClaimFenceV1Schema } from "../src/transactionExecutionClaimModel";
 import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, projectExpectedFiniteAttemptAnchor,
+  prepareFiniteAttemptStorageCaptureBasis,
   readFiniteAttemptAnchorRow, type CapturedFiniteAttemptAnchor } from "../src/finiteAttemptAnchor";
 import { createPGlitePersistence } from "../src/pglite";
+import { captureFiniteMetadataReservation, FiniteMetadataReservationSchema,
+  readCapturedFiniteMetadataReservation } from "../src/finiteMetadataReservation";
 import { fxSystemTransactionSessions } from "../src/schema";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 import { insertSessionTestScope, insertTransactionSessionFixture, transactionSessionFixture, transactionSessionIdAt,
@@ -19,12 +22,28 @@ it("projects exact expected pins only from a successfully validated persisted en
     await persistence.migrate();
     await insertSessionTestScope(persistence);
     const sessionId = TransactionSessionIdV1Schema.make(transactionSessionIdAt(130));
-    await insertTransactionSessionFixture(persistence, transactionSessionFixture(sessionId));
-    const anchor = await Effect.runPromise(captureFiniteAttemptAnchor({ snapshotToken: SnapshotTokenSchema.make({
+    const session = transactionSessionFixture(sessionId);
+    await insertTransactionSessionFixture(persistence, session);
+    const snapshotToken = SnapshotTokenSchema.make({
       scopeId: ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`),
       epoch: ScopeEpochSchema.make(`epoch_${SESSION_TEST_EPOCH_UUID}`), commitSeq: CommitSeqSchema.make(0n),
-    }) }));
+    });
+    const reservation = await Effect.runPromise(captureFiniteMetadataReservation(
+      Schema.decodeUnknownSync(FiniteMetadataReservationSchema)({
+        format: "flarex.finite-metadata-reservation", version: 1,
+        deploymentId: "expected-projection", scopeId: snapshotToken.scopeId, sessionId,
+        attemptFence: session.attemptFence.toString(), storageGeneration: "flarexdb_v1",
+        storageGenerationFence: session.storageGenerationFence.toString(),
+        snapshotToken: { ...snapshotToken, commitSeq: "0" }, schemaVersionId: session.schemaVersionId,
+        metadataWatermark: "11", application: { revisionId: "expected-revision", activationSequence: "1",
+          headSha256: "a".repeat(64), activationSha256: "b".repeat(64),
+          schemaVersionId: session.schemaVersionId, manifestSha256: "c".repeat(64) },
+        binding: { sequence: "1", sha256: "d".repeat(64), candidateSha256: "e".repeat(64), activationSha256: "f".repeat(64) },
+      })));
+    const anchor = await Effect.runPromise(captureFiniteAttemptAnchor({ snapshotToken, reservation }));
+    Reflect.set(snapshotToken, "commitSeq", CommitSeqSchema.make(9n));
     expect(Result.isFailure(projectExpectedFiniteAttemptAnchor(anchor))).toBe(true);
+    expect(Result.isFailure(prepareFiniteAttemptStorageCaptureBasis(anchor))).toBe(true);
     // SAFETY: this negative witness deliberately forges an opaque handle; the
     // private issuer registry must reject it without any database access.
     expect(Result.isFailure(projectExpectedFiniteAttemptAnchor(Object.freeze({}) as CapturedFiniteAttemptAnchor))).toBe(true);
@@ -43,6 +62,20 @@ it("projects exact expected pins only from a successfully validated persisted en
       return stored;
     });
     const projected = Result.getOrThrow(projectExpectedFiniteAttemptAnchor(anchor));
+    const captureBasis = Result.getOrThrow(prepareFiniteAttemptStorageCaptureBasis(anchor));
+    expect(projected.snapshotToken).not.toBe(snapshotToken);
+    expect(Object.isFrozen(projected.snapshotToken)).toBe(true);
+    expect(Reflect.set(projected.snapshotToken, "commitSeq", CommitSeqSchema.make(7n))).toBe(false);
+    expect(captureBasis.expected.snapshotToken.commitSeq).toBe(0n);
+    expect(Result.getOrThrow(projectCapturedFiniteAttemptAnchor(anchor)).finiteSnapshotCommitSeq).toBe(0n);
+    expect(projected.reservation).toBe(readCapturedFiniteMetadataReservation(reservation));
+    expect(projected.reservation).toBe(captureBasis.expected.reservation);
+    expect(Reflect.set(projected.reservation!.application, "revisionId", "mutated")).toBe(false);
+    expect(Reflect.set(projected.reservation!.snapshotToken, "commitSeq", CommitSeqSchema.make(7n))).toBe(false);
+    expect(Reflect.set(projected.reservation!.binding!, "sequence", "7")).toBe(false);
+    expect(captureBasis.expected.reservation?.application.revisionId).toBe("expected-revision");
+    expect(Result.getOrThrow(prepareFiniteAttemptStorageCaptureBasis(anchor))).toBe(captureBasis);
+    expect(Result.isFailure(prepareFiniteAttemptStorageCaptureBasis(new Proxy(anchor, {})))).toBe(true);
     expect(projected.pins).toMatchObject({ packageId: row.packageId, artifactRuntime: row.artifactRuntime,
       artifactId: row.artifactId, sourcePackageHash: row.sourcePackageHash,
       validatedArgsValueCodecVersion: row.validatedArgsValueCodecVersion,
@@ -54,6 +87,9 @@ it("projects exact expected pins only from a successfully validated persisted en
     projected.bytes.fill(0); projected.digest.fill(0);
     const fresh = Result.getOrThrow(projectExpectedFiniteAttemptAnchor(anchor));
     expect(fresh.bytes).toEqual(originalBytes); expect(fresh.digest).toEqual(originalDigest);
+    expect(captureBasis.expected.bytes).toEqual(originalBytes);
+    expect(captureBasis.expected.digest).toEqual(originalDigest);
+    expect(captureBasis.expected.bytes).not.toBe(fresh.bytes);
     const mutated = await Effect.runPromise(Effect.result(readFiniteAttemptAnchorRow({ ...row, packageId: TransactionPackageIdV1Schema.make("different_package") }, anchor)));
     expect(Result.isFailure(mutated)).toBe(true);
     if (Result.isFailure(mutated)) expect(mutated.failure.reason).toBe("storedCorruption");

@@ -1,4 +1,5 @@
-import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
+import { Cause, Clock, Context, Deferred, Effect, Exit, Fiber, Option, Tracer } from "effect";
+import { ExecutionDiagnostics, observeExecution } from "../src/executionDiagnostics/operation";
 import { randomInt } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { TestClock } from "effect/testing";
@@ -32,6 +33,51 @@ const postgresUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_DATABASE_UR
 const artifactDeadlines = makePhysicalDeadlineOperations(
   catalogControlPhysicalErrors,
 );
+
+class PhysicalCallbackBusiness extends Context.Service<PhysicalCallbackBusiness, object>()("test/PhysicalCallbackBusiness") {}
+
+it("keeps physical operations quiet by default and carries opt-in diagnostics with their full callback context", async () => {
+  const { pool, release } = physicalSessionWitnessPool();
+  const physical = makePostgresPhysicalSessionDriver(pool, {
+    access: makePhysicalSessionAccess(flarexSchema), errors: physicalSessionErrors,
+  });
+  const business = Object.freeze({});
+  const spans: Tracer.Span[] = [];
+  const tracer = Tracer.make({ span(options) {
+    const span = new Tracer.NativeSpan(options);
+    spans.push(span);
+    return span;
+  } });
+  const policy = { observe: <Value, Failure, Requirements>(name: string, work: Effect.Effect<Value, Failure, Requirements>) =>
+    work.pipe(Effect.withSpan(name)) };
+  const run = (observed: boolean) => {
+    const work = Effect.gen(function* () {
+      const originalClock = yield* Effect.clockWith(clock => Effect.succeed(clock));
+      const deadline = yield* deadlines.start("read", 1000);
+      return yield* physical.runReadEffect({ deadline }, () => Effect.withFiber(fiber => {
+        const callbackBusiness = Context.getOption(fiber.context, PhysicalCallbackBusiness);
+        expect(Option.isSome(callbackBusiness)).toBe(true);
+        expect(Option.getOrUndefined(callbackBusiness)).toBe(business);
+        expect(Option.getOrUndefined(Context.getOption(fiber.context, Clock.Clock))).toBe(originalClock);
+        expect(Option.isSome(Context.getOption(fiber.context, ExecutionDiagnostics))).toBe(observed);
+        return observeExecution("physical.callback", Effect.succeed("accepted"));
+      }));
+    }).pipe(Effect.provideService(PhysicalCallbackBusiness, business), Effect.withSpan("physical.parent"),
+      Effect.provideService(Tracer.Tracer, tracer));
+    return runEffect(observed ? work.pipe(Effect.provideService(ExecutionDiagnostics, policy)) : work);
+  };
+  expect(await run(false)).toBe("accepted");
+  expect(spans.map(span => span.name)).toEqual(["physical.parent"]);
+  spans.length = 0;
+  expect(await run(true)).toBe("accepted");
+  const physicalSpan = spans.find(span => span.name === "PostgresPhysicalSession.read");
+  const callbackSpan = spans.find(span => span.name === "physical.callback");
+  expect(physicalSpan).toBeDefined();
+  expect(callbackSpan).toBeDefined();
+  expect(callbackSpan !== undefined && Option.isSome(callbackSpan.parent) ? callbackSpan.parent.value.spanId : undefined)
+    .toBe(physicalSpan?.spanId);
+  expect(release).toHaveBeenCalledTimes(2);
+});
 
 it.each(["read", "initial", "recovery"] as const)(
   "resolves the current observation on a retained %s physical driver",

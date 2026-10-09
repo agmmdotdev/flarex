@@ -69,8 +69,9 @@ describe.skipIf(postgresUrl === null)("whole mutation migration 0127 on ordinary
             await current.migrate();
             expect((await current.query(`select
               to_regprocedure(current_schema() || '.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text)') is null retired_attempt_owner,
-              to_regprocedure(current_schema() || '.fx_lock_finite_scope_observation(text)') is not null retained_scope_owner`)).rows)
-              .toEqual([{ retired_attempt_owner: true, retained_scope_owner: true }]);
+              to_regprocedure(current_schema() || '.fx_lock_finite_scope_observation(text)') is null retired_scope_owner,
+              to_regprocedure(current_schema() || '.fx_lock_read_scope_placement(text,text)') is null retired_placement_owner`)).rows)
+              .toEqual([{ retired_attempt_owner: true, retired_scope_owner: true, retired_placement_owner: true }]);
             expect((await current.query(`select scope_uuid::text,session_id::text,request_key,
               encode(request_sha256,'hex') request_hash from fx_system_tx_session`)).rows).toEqual(identity);
             expect((await current.query(`select i.state,

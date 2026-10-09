@@ -4,8 +4,10 @@ import type { AdmittedSourceBinding, CanonicalSuccessfulResultV1, LogicalAppWrit
   LogicalReadDependencyV1, LogicalIndexRangeReadDependencyV1,
   LogicalApplicationRelationIncomingReadDependencyV1 } from "flarex-protocol/commit-protocol";
 import type { Json } from "flarex-protocol/json";
+import { freezeOwnedProtocolProjection } from "flarex-protocol/internal/owned-protocol-projection";
 import type { LogicalParticipantAdmissionBundle } from "./logicalDocuments/participantAdmission";
 import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
+import { projectLogicalPointExpectation } from "./logicalDocuments/pointEvidence";
 import { detachLogicalDocumentChanges } from "./logicalDocuments/detachChanges";
 import type { PointCommitRowIntentV1, PreparedPointCommitRowIntentV1 } from "./applicationDocumentMaterialization/model";
 import { borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot, type ClosedLogicalDocumentRoot,
@@ -86,16 +88,23 @@ export function issueFrozenFiniteAttempt(root: ClosedLogicalDocumentRoot, evalua
     closed.pins.attemptFence !== String(input.attemptState.selector.attemptFence)) return undefined;
   const { attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions,
     candidatePlanningHead, anchorCapture, metadataReservation, operations, ...values } = input;
-  const rowIntents: readonly PreparedPointCommitRowIntentV1[] = Object.freeze(closed.graph.changes.map(change => {
-    const { documentId, tableId, rowId, dependency } = change;
-    return Object.freeze(change.kind === "deleted" ? { documentId, tableId, rowId, dependency, kind: "deleted" as const } :
-      { documentId, tableId, rowId, dependency, kind: "live" as const, creationTime: change.creationTime, document: change.document });
-  }));
+  // Canonical final changes already satisfy materialization intents. Preserve
+  // their exact dependency/document identities through the trusted handoff.
+  const rowIntents: readonly PreparedPointCommitRowIntentV1[] = closed.graph.changes.map(change => {
+    // Closing detached this projection from the working set. Restore immutable
+    // JSON ownership once, before the trusted validator borrows any values.
+    if (change.kind === "live") freezeOwnedProtocolProjection(change.document.valueJson);
+    return { ...change, ...projectLogicalPointExpectation(change) };
+  });
   const handle = Object.freeze({ [frozenFiniteAttemptBrand]: true as const });
-  frozenAttempts.set(handle, Object.freeze({ ...structuredClone(values), graph: closed.graph, originalRows: closed.originalRows,
+  frozenAttempts.set(handle, Object.freeze({ ...values, attemptState: structuredClone(values.attemptState),
+    dependencies: Object.freeze([...values.dependencies]),
+    applicationIndexRanges: Object.freeze([...values.applicationIndexRanges]),
+    applicationRelationDependencies: Object.freeze([...values.applicationRelationDependencies]),
+    graph: closed.graph, originalRows: closed.originalRows,
     rowIntents, attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions,
     candidatePlanningHead, anchorCapture, ...(metadataReservation === undefined ? {} : { metadataReservation }),
-    operations: detachOperations(operations) }));
+    operations: Object.freeze([...operations]) }));
   consumeClosedLogicalDocumentRoot(root, evaluator, input.attempt);
   return handle;
 }
@@ -105,6 +114,27 @@ export function issueFrozenFiniteAttempt(root: ClosedLogicalDocumentRoot, evalua
  * Public/validator projections below always detach from registry ownership. */
 export function readOwnedFrozenFiniteAttempt(handle: FrozenFiniteAttempt): OwnedFrozenFiniteAttemptData | undefined {
   return typeof handle === "object" && handle !== null ? frozenAttempts.get(handle) : undefined;
+}
+
+/** Trusted executor validation borrows the already closed root values. This
+ * projection never escapes into a business callback; public projections below
+ * retain detachment. It conveys no additional publication authority. */
+export interface FrozenFiniteCommitValidationValues {
+  readonly rowIntents: readonly (Readonly<{ kind: "deleted"; documentId: PointCommitRowIntentV1["documentId"]; tableId: PointCommitRowIntentV1["tableId"] }> |
+    Readonly<{ kind: "live"; documentId: PointCommitRowIntentV1["documentId"]; tableId: PointCommitRowIntentV1["tableId"];
+      creationTime: Extract<PointCommitRowIntentV1, { kind: "live" }>["creationTime"]; valueJson: Json }>)[];
+  readonly successfulResult: Pick<CanonicalSuccessfulResultV1, "valueJson">;
+}
+
+export function borrowFrozenFiniteCommitValues(handle: FrozenFiniteAttempt): FrozenFiniteCommitValidationValues | undefined {
+  const data = typeof handle === "object" && handle !== null ? frozenAttempts.get(handle) : undefined;
+  return data === undefined ? undefined : Object.freeze({
+    rowIntents: Object.freeze(data.rowIntents.map(row => Object.freeze(row.kind === "deleted"
+      ? { kind: "deleted" as const, documentId: row.documentId, tableId: row.tableId }
+      : { kind: "live" as const, documentId: row.documentId, tableId: row.tableId,
+        creationTime: row.creationTime, valueJson: row.document.valueJson }))),
+    successfulResult: Object.freeze({ valueJson: data.successfulResult.valueJson }),
+  });
 }
 
 /** The pre-settlement value validator needs no graph, receipts or target

@@ -1,3 +1,4 @@
+import { observeExecution } from "./executionDiagnostics/operation";
 import { fxSystemScopeExecutionAuthorities } from "./schema";
 import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation, exactScopeWriteClockObservationIdentity,
   readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation } from "./scopeClock";
@@ -427,9 +428,7 @@ export const appendPublicationIndexEntryRevisionsInTransactionEffect = Effect.fn
   return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions);
 }, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
 
-const decodeAppendInputsEffect = Effect.fn(
-  "AppIndexEntries.decodeAppendInputs",
-)(function* (
+const decodeAppendInputsEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   inputs: ReadonlyArray<AppendAppIndexEntryRevisionV1Input | AppendPublicationIndexEntryRevisionInput>,
 ): Effect.fn.Return<
@@ -484,8 +483,17 @@ const decodeAppendInputsEffect = Effect.fn(
     );
   const specs = new Map<AppOrderedIndexPhysicalSpecV1, Uint8Array>();
   const revisions: DecodedAppendAppIndexEntryRevisionV1[] = [];
-  for (const captured of captures) {
-    let digest = specs.get(captured.physicalSpec);
+  for (const [ordinal, captured] of captures.entries()) {
+    const input = inputs[ordinal];
+    const issued = input === undefined || !("definition" in input) || input.membershipHeadEvidence === undefined
+      ? undefined : membershipHeadEvidence.get(input.membershipHeadEvidence);
+    const position = issued?.tx === tx && issued.epoch === indexMutationEpoch(tx) && issued.clockIdentity !== undefined &&
+      issued.clockIdentity === exactScopeWriteClockObservationIdentity(tx, captured.identity.scopeId)
+      ? issued.positions.get(indexPositionKey(captured.scopeProjection.scopeUuid, captured.identity)) : undefined;
+    const accepted = position !== undefined && position.tableId === captured.identity.tableId &&
+      position.acceptedKey?.physicalSpec === captured.physicalSpec && bytesEqualFullScan(position.acceptedKey.keyBytes, captured.keyBytes)
+      ? position : undefined;
+    let digest = accepted?.physicalSpecSha256 ?? specs.get(captured.physicalSpec);
     if (digest === undefined) {
       const spec = yield* Effect.tryPromise({
         try: () => canonicalizeAppIndexPhysicalSpecV1(captured.physicalSpec),
@@ -510,18 +518,18 @@ const decodeAppendInputsEffect = Effect.fn(
       physicalSpec: captured.physicalSpec,
       physicalSpecSha256: digest,
       keyBytes: captured.keyBytes,
-      keySha256: yield* sha256Effect(captured.keyBytes, "append"),
+      keySha256: accepted?.acceptedKey?.keySha256 ?? (yield* sha256Effect(captured.keyBytes, "append")),
     });
   }
   return revisions;
-});
+}, work => observeExecution("AppIndexEntries.decodeAppendInputs", work));
 
-export const prepareAppIndexRevisionApplicationEffect = Effect.fn("AppIndexEntries.prepareApplication")(function* (
+export const prepareAppIndexRevisionApplicationEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction, inputs: readonly AppendAppIndexEntryRevisionV1Input[],
 ) {
   const revisions = yield* decodeAppendInputsEffect(tx, inputs);
   return yield* prepareDecodedAppIndexRevisionApplicationEffect(tx, revisions, inputs.map(input => input.membershipHeadEvidence));
-});
+}, work => observeExecution("AppIndexEntries.prepareApplication", work));
 
 function indexPositionKey(
   scopeUuid: ScopeUuidV1,
@@ -542,8 +550,8 @@ const decodeIndexBatchSuccess = Schema.decodeUnknownResult(Schema.Struct({
   reason: Schema.Literal("accepted"), ordinal: Schema.Number, actualCommitSeqText: Schema.Null,
 }), { onExcessProperty: "error" });
 
-function indexBatchFailure(cause: unknown, batch: readonly Readonly<{ revision: DecodedAppendAppIndexEntryRevisionV1 }>[],
-  verification: readonly Readonly<{ revision: DecodedAppendAppIndexEntryRevisionV1 }>[], capturedDetail?: string): AppendAppIndexEntryRevisionV1Error {
+function indexBatchFailure(cause: unknown, batch: readonly Readonly<{ revision: Pick<DecodedAppendAppIndexEntryRevisionV1, "identity" | "commitSeq"> }>[],
+  verification: readonly Readonly<{ revision: Pick<DecodedAppendAppIndexEntryRevisionV1, "identity" | "commitSeq"> }>[], capturedDetail?: string): AppendAppIndexEntryRevisionV1Error {
   const detail = capturedDetail ?? applicationDomainFailureDetail(cause, "fx_apply_app_index_batch");
   if (detail === null) return new AppIndexEntryWritePersistenceError(cause);
   return Result.match(decodeIndexBatchRefusal(detail), {
@@ -570,6 +578,17 @@ function indexBatchFailure(cause: unknown, batch: readonly Readonly<{ revision: 
   });
 }
 
+/** Fixed publication reports only selected intrinsic identities on failure.
+ * The original batch refusal decoder still owns all row/phase ordinals. */
+export function publicationAppIndexApplicationFailure(cause: unknown, identities: readonly AppIndexEntryIdentityV1[],
+  commitSeq: CommitSeq, pageOffset: number, detail: string): AppendAppIndexEntryRevisionV1Error {
+  if (!Number.isSafeInteger(pageOffset) || pageOffset < 0 || pageOffset % 32 !== 0 || pageOffset >= identities.length)
+    return new AppIndexEntryWritePersistenceError(cause);
+  const revisions = identities.map(identity => ({ revision: { identity, commitSeq } }));
+  const batch = revisions.slice(pageOffset, pageOffset+32);
+  return indexBatchFailure(cause,batch,pageOffset+batch.length===revisions.length ? revisions.slice(0,pageOffset) : [],detail);
+}
+
 const preparedAppIndexWrite = (revision: DecodedAppendAppIndexEntryRevisionV1) => ({
   scopeUuid: revision.scopeUuid, indexDefinitionId: revision.identity.indexDefinitionId,
   tableId: revision.identity.tableId, keyCodecVersion: ORDERED_INDEX_KEY_CODEC_VERSION_V1,
@@ -578,9 +597,7 @@ const preparedAppIndexWrite = (revision: DecodedAppendAppIndexEntryRevisionV1) =
   commitSeq: revision.commitSeq, isTombstone: revision.kind === "tombstone",
 } satisfies Required<typeof fxAppIndexEntryRevisions.$inferInsert>);
 
-const prepareDecodedAppIndexRevisionApplicationEffect = Effect.fn(
-  "AppIndexEntries.prepareDecodedApplication",
-)(function* (
+const prepareDecodedAppIndexRevisionApplicationEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   revisions: ReadonlyArray<DecodedAppendAppIndexEntryRevisionV1>,
   evidence?: readonly (AppIndexMembershipHeadEvidence | undefined)[],
@@ -637,7 +654,7 @@ const prepareDecodedAppIndexRevisionApplicationEffect = Effect.fn(
   return { transitions, values: transitions.map(({ revision, prior }) => ({
     prior, historical: revision.historical, row: preparedAppIndexWrite(revision),
   })) };
-});
+}, work => observeExecution("AppIndexEntries.prepareDecodedApplication", work));
 
 export interface PreparedAppIndexRevisionApplication {
   readonly transitions: readonly Readonly<{ revision: DecodedAppendAppIndexEntryRevisionV1; prior: CommitSeq | null }>[];
@@ -745,16 +762,24 @@ const decodeMembershipHeadEnvelope = Schema.decodeUnknownResult(
 export interface AppIndexMembershipHeadEvidence { readonly _tag: "AppIndexMembershipHeadEvidence" }
 const membershipHeadEvidence = new WeakMap<AppIndexMembershipHeadEvidence, Readonly<{
   tx: AppIndexEntryTransaction; epoch: number; clockIdentity: symbol | undefined;
-  positions: ReadonlyMap<string, Readonly<{ head: AppIndexMembershipHeadV1 | null; tableId: CatalogTableId; physicalSpecSha256: Uint8Array }>>;
+  positions: ReadonlyMap<string, AcceptedAppIndexMembershipPosition>;
 }>>();
 
-export interface AppIndexKeyTransition {
+interface AcceptedAppIndexMembershipPosition {
+  readonly head: AppIndexMembershipHeadV1 | null; readonly tableId: CatalogTableId;
+  readonly physicalSpecSha256: Uint8Array;
+  readonly acceptedKey?: Readonly<{ physicalSpec: AppOrderedIndexPhysicalSpecV1; keyBytes: Uint8Array; keySha256: Uint8Array }>;
+}
+
+export interface AppIndexKeyTransitionObligation {
   readonly definition: LocatedAppIndexDefinitionV1;
-  readonly build: IndexBuildStateRecord;
   readonly rowId: OrderedIndexRowIdHexV1;
   readonly priorCommitSeq: CommitSeq | null;
   readonly priorKey: OrderedIndexKeyHexV1 | null;
   readonly finalKey: OrderedIndexKeyHexV1 | null;
+}
+export interface AppIndexKeyTransition extends AppIndexKeyTransitionObligation {
+  readonly build: IndexBuildStateRecord;
 }
 export class AppIndexTransitionLimitExceededError extends Data.TaggedError("AppIndexTransitionLimitExceededError")<{
   readonly observed: number; readonly maximum: number;
@@ -772,62 +797,17 @@ const decodeIndexTransitionRefusal = Schema.decodeUnknownResult(Schema.fromJsonS
   ordinal: Schema.Number, observed: Schema.Number,
 })), { onExcessProperty: "error" });
 
-/** Actual membership chooses writes. Only selected tuples are returned, and
- * their current predecessor enters the existing transaction-bound issuer. */
-export const acceptAppIndexKeyTransitionsInTransactionEffect = Effect.fn("AppIndexEntries.acceptKeyTransitions")(function* (
-  tx: AppIndexEntryTransaction, input: { readonly scopeId: ScopeId; readonly pairs: readonly AppIndexKeyTransition[]; readonly maximumActions: number },
+const acceptPreparedAppIndexKeyTransitionResult = Effect.fnUntraced(function* (
+  tx: AppIndexEntryTransaction, scopeId: ScopeId, scopeUuid: ScopeUuidV1,
+  pairs: readonly (AppIndexKeyTransition | AppIndexKeyTransitionObligation)[],
+  byPosition: ReadonlyMap<string, DecodedMembershipPosition>, keyDigests: ReadonlyMap<OrderedIndexKeyHexV1, Uint8Array>,
+  epoch: number, clockIdentity: symbol | undefined, result: unknown,
 ) {
-  const positions = input.pairs.flatMap(pair => [pair.priorKey, pair.finalKey].flatMap(encodedKey => encodedKey === null ? [] :
-    [{ definition: pair.definition, encodedKey, rowId: pair.rowId }]));
-  const decoded = yield* decodeMembershipPositionsEffect(tx, { scopeId: input.scopeId, positions });
-  const byPosition = new Map(decoded.map(position => [indexPositionKey(position.scopeUuid, position.identity), position]));
-  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(input.scopeId).pipe(Result.mapError(cause => corruption("invalid transition scope", cause))));
-  if (decoded.length === 0 && input.pairs.length > 0) yield* requireScopeUuidEffect(tx, input.scopeId, scope);
-  const previous: (Uint8Array | null)[] = []; const final: (Uint8Array | null)[] = [];
-  const previousSha: (Uint8Array | null)[] = []; const finalSha: (Uint8Array | null)[] = [];
-  const specs: Uint8Array[] = [];
-  for (const pair of input.pairs) {
-    if ((pair.definition.access.kind !== "developer" && pair.definition.access.kind !== "by_creation_time") ||
-      pair.build.scopeId !== input.scopeId || pair.build.indexDefinitionId !== pair.definition.indexDefinitionId)
-      return yield* Effect.fail(corruption("index transition build identity differs"));
-    specs.push(appIndexPhysicalSpecSha256HexV1ToBytes(pair.definition.physicalSpecSha256Hex));
-    const oldBytes = pair.priorKey === null ? null : orderedIndexKeyBytesHexV1ToBytes(pair.priorKey);
-    const newBytes = pair.finalKey === null ? null : orderedIndexKeyBytesHexV1ToBytes(pair.finalKey);
-    previous.push(oldBytes); final.push(newBytes);
-    previousSha.push(oldBytes === null ? null : yield* sha256Effect(oldBytes, "read"));
-    finalSha.push(newBytes === null ? null : yield* sha256Effect(newBytes, "read"));
-  }
-  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(Result.mapError(cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause))));
-  const scalar = applicationIndexTransitionScalarArray; const bytes = applicationIndexTransitionByteArray;
-  const pairs = input.pairs; const columns = fxAppIndexEntryRevisions; const builds = fxSystemIndexBuildStates;
-  const statement = sql`select reason, pair_ordinal, key_ordinal, transition_kind, prior_commit_seq::text, prior_is_tombstone, emitted_count
-    from ${sql.identifier(schemaName)}.fx_accept_app_index_transitions(
-      ${sql.param(input.scopeId, builds.scopeId)}::text, ${sql.param(scope.scopeUuid, columns.scopeUuid)}::uuid,
-      ${scalar(pairs.map(pair => pair.definition.indexDefinitionId), "integer", columns.indexDefinitionId)},
-      ${scalar(pairs.map(pair => pair.definition.access.kind), "text", builds.scopeId)},
-      ${scalar(pairs.map(pair => pair.definition.access.tableId), "integer", columns.tableId)},
-      ${scalar(pairs.map(() => ORDERED_INDEX_KEY_CODEC_VERSION_V1), "integer", columns.keyCodecVersion)},
-      ${bytes(specs, columns.physicalSpecSha256)}, ${bytes(pairs.map(pair => orderedIndexRowIdHexV1ToBytes(pair.rowId)), columns.rowId)},
-      ${bytes(previous, columns.encodedKey)}, ${bytes(previousSha, columns.keySha256)}, ${bytes(final, columns.encodedKey)}, ${bytes(finalSha, columns.keySha256)},
-      ${scalar(pairs.map(pair => pair.priorCommitSeq), "bigint", columns.commitSeq)},
-      ${scalar(pairs.map(pair => pair.build.attemptFence), "bigint", builds.attemptFence)},
-      ${scalar(pairs.map(pair => pair.build.epoch), "text", builds.epoch)},
-      ${scalar(pairs.map(pair => pair.build.storageGenerationFence), "bigint", builds.storageGenerationFence)}, ${input.maximumActions}::integer)`;
-  const result = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => tx.execute(statement), catch: cause => {
-    const detail = applicationDomainFailureDetail(cause, "fx_accept_app_index_transitions");
-    if (detail === null) return new AppIndexEntryReadPersistenceError("scanCurrent", cause);
-    return Result.match(decodeIndexTransitionRefusal(detail), { onFailure: () => new AppIndexEntryReadPersistenceError("scanCurrent", cause), onSuccess: proof => {
-      if (!Number.isSafeInteger(proof.ordinal) || proof.ordinal < 0 || proof.ordinal >= Math.max(pairs.length, 1) ||
-        !Number.isSafeInteger(proof.observed) || proof.observed < 0) return new AppIndexEntryReadPersistenceError("scanCurrent", cause);
-      if (proof.reason === "limitExceeded") return proof.observed > input.maximumActions
-        ? new AppIndexTransitionLimitExceededError({ observed: proof.observed, maximum: input.maximumActions }) : new AppIndexEntryReadPersistenceError("scanCurrent", cause);
-      return proof.reason === "storedCorruption" ? corruption("index transition stored membership invalid", cause)
-        : new AppIndexTransitionAcceptanceError({ reason: proof.reason, ordinal: proof.ordinal, cause });
-    } });
-  } }));
+    if (indexMutationEpoch(tx) !== epoch || exactScopeWriteClockObservationIdentity(tx, scopeId) !== clockIdentity)
+      return yield* Effect.fail(corruption("index transition acceptance lifetime differs"));
   const rows = yield* Effect.fromResult(captureDriverRowsResult(result));
   const selected: { kind: "live" | "tombstone"; definition: LocatedAppIndexDefinitionV1; encodedKey: OrderedIndexKeyHexV1; rowId: OrderedIndexRowIdHexV1 }[] = [];
-  const issued = new Map<string, Readonly<{ head: AppIndexMembershipHeadV1 | null; tableId: CatalogTableId; physicalSpecSha256: Uint8Array }>>();
+  const issued = new Map<string, AcceptedAppIndexMembershipPosition>();
   let terminal = false;
   for (const [ordinal, raw] of rows.entries()) {
     const proof = yield* Effect.fromResult(decodeIndexTransitionProof(raw).pipe(Result.mapError(cause => corruption("index transition result invalid", cause))));
@@ -851,20 +831,98 @@ export const acceptAppIndexKeyTransitionsInTransactionEffect = Effect.fn("AppInd
       return yield* Effect.fail(corruption("selected index transition proof is unreachable"));
     if (pair.definition.access.kind === "by_creation_time" && proof.key_ordinal === 1 && proof.prior_commit_seq !== null)
       return yield* Effect.fail(corruption("new intrinsic membership has a prior revision"));
-    const identity = { scopeId: input.scopeId, indexDefinitionId: pair.definition.indexDefinitionId, tableId: pair.definition.access.tableId, encodedKey: key, rowId: pair.rowId };
-    const positionKey = indexPositionKey(scope.scopeUuid, identity); const position = byPosition.get(positionKey);
+    const identity = { scopeId: scopeId, indexDefinitionId: pair.definition.indexDefinitionId, tableId: pair.definition.access.tableId, encodedKey: key, rowId: pair.rowId };
+    const positionKey = indexPositionKey(scopeUuid, identity); const position = byPosition.get(positionKey);
     if (position === undefined || issued.has(positionKey)) return yield* Effect.fail(corruption("index transition selected position repeated or missing"));
     const priorCommitSeq = proof.prior_commit_seq === null ? null : yield* Effect.fromResult(decodeCommitSeqResult(proof.prior_commit_seq)
       .pipe(Result.mapError(cause => corruption("index transition prior revision is invalid", cause))));
-    issued.set(positionKey, Object.freeze({ tableId: identity.tableId, physicalSpecSha256: position.physicalSpecSha256,
+    const keySha256 = keyDigests.get(key);
+    if (keySha256 === undefined) return yield* Effect.fail(corruption("accepted index key digest missing"));
+    issued.set(positionKey, Object.freeze({ tableId: identity.tableId,
+      physicalSpecSha256: position.physicalSpecSha256,
+      acceptedKey: Object.freeze({ physicalSpec: position.physicalSpec, keyBytes: position.keyBytes, keySha256 }),
       head: priorCommitSeq === null || proof.prior_is_tombstone === null ? null
         : { commitSeq: priorCommitSeq, isTombstone: proof.prior_is_tombstone } }));
     selected.push({ kind: proof.transition_kind, definition: pair.definition, encodedKey: key, rowId: pair.rowId });
   }
   if (!terminal) return yield* Effect.fail(corruption("missing index transition terminal proof"));
   const evidence = Object.freeze({ _tag: "AppIndexMembershipHeadEvidence" as const });
-  membershipHeadEvidence.set(evidence, { tx, epoch: indexMutationEpoch(tx), clockIdentity: exactScopeWriteClockObservationIdentity(tx, input.scopeId), positions: issued });
+  membershipHeadEvidence.set(evidence, { tx, epoch: indexMutationEpoch(tx), clockIdentity: exactScopeWriteClockObservationIdentity(tx, scopeId), positions: issued });
   return Object.freeze(selected.map(action => Object.freeze({ ...action, membershipHeadEvidence: evidence })));
+});
+
+/** Actual membership chooses writes. Only selected tuples are returned, and
+ * their current predecessor enters the existing transaction-bound issuer. */
+export const prepareAppIndexKeyTransitionAcceptanceInTransactionEffect = Effect.fnUntraced(function* (
+  tx: AppIndexEntryTransaction, input: { readonly scopeId: ScopeId; readonly pairs: readonly (AppIndexKeyTransition | AppIndexKeyTransitionObligation)[]; readonly maximumActions: number },
+) {
+  const positions = input.pairs.flatMap(pair => [pair.priorKey, pair.finalKey].flatMap(encodedKey => encodedKey === null ? [] :
+    [{ definition: pair.definition, encodedKey, rowId: pair.rowId }]));
+  const decoded = yield* decodeMembershipPositionsEffect(tx, { scopeId: input.scopeId, positions });
+  const byPosition = new Map(decoded.map(position => [indexPositionKey(position.scopeUuid, position.identity), position]));
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(input.scopeId).pipe(Result.mapError(cause => corruption("invalid transition scope", cause))));
+  if (decoded.length === 0 && input.pairs.length > 0) yield* requireScopeUuidEffect(tx, input.scopeId, scope);
+  const previous: (Uint8Array | null)[] = []; const final: (Uint8Array | null)[] = [];
+  const previousSha: (Uint8Array | null)[] = []; const finalSha: (Uint8Array | null)[] = [];
+  const specs: Uint8Array[] = [];
+  const keyDigests = new Map<OrderedIndexKeyHexV1, Uint8Array>();
+  for (const pair of input.pairs) {
+    if ((pair.definition.access.kind !== "developer" && pair.definition.access.kind !== "by_creation_time") ||
+      ("build" in pair && (pair.build.scopeId !== input.scopeId || pair.build.indexDefinitionId !== pair.definition.indexDefinitionId)))
+      return yield* Effect.fail(corruption("index transition build identity differs"));
+    specs.push(appIndexPhysicalSpecSha256HexV1ToBytes(pair.definition.physicalSpecSha256Hex));
+    const oldBytes = pair.priorKey === null ? null : orderedIndexKeyBytesHexV1ToBytes(pair.priorKey);
+    const newBytes = pair.finalKey === null ? null : orderedIndexKeyBytesHexV1ToBytes(pair.finalKey);
+    previous.push(oldBytes); final.push(newBytes);
+    for (const [key, bytes] of [[pair.priorKey, oldBytes], [pair.finalKey, newBytes]] as const) {
+      if (key !== null && bytes !== null && !keyDigests.has(key))
+        keyDigests.set(key, yield* sha256Effect(bytes, "read"));
+    }
+    previousSha.push(pair.priorKey === null ? null : keyDigests.get(pair.priorKey) ?? null);
+    finalSha.push(pair.finalKey === null ? null : keyDigests.get(pair.finalKey) ?? null);
+  }
+  const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx).pipe(Result.mapError(cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause))));
+  const scalar = applicationIndexTransitionScalarArray; const bytes = applicationIndexTransitionByteArray;
+  const pairs = input.pairs; const columns = fxAppIndexEntryRevisions; const builds = fxSystemIndexBuildStates;
+  const keyParameters = sql`      ${scalar(pairs.map(pair => pair.definition.indexDefinitionId), "integer", columns.indexDefinitionId)},
+      ${scalar(pairs.map(pair => pair.definition.access.kind), "text", builds.scopeId)},
+      ${scalar(pairs.map(pair => pair.definition.access.tableId), "integer", columns.tableId)},
+      ${scalar(pairs.map(() => ORDERED_INDEX_KEY_CODEC_VERSION_V1), "integer", columns.keyCodecVersion)},
+      ${bytes(specs, columns.physicalSpecSha256)}, ${bytes(pairs.map(pair => orderedIndexRowIdHexV1ToBytes(pair.rowId)), columns.rowId)},
+      ${bytes(previous, columns.encodedKey)}, ${bytes(previousSha, columns.keySha256)}, ${bytes(final, columns.encodedKey)}, ${bytes(finalSha, columns.keySha256)},
+      ${scalar(pairs.map(pair => pair.priorCommitSeq), "bigint", columns.commitSeq)}`;
+  const parameters = sql`      ${sql.param(input.scopeId, builds.scopeId)}::text, ${sql.param(scope.scopeUuid, columns.scopeUuid)}::uuid,
+      ${keyParameters},
+      ${scalar(pairs.map(pair => "build" in pair ? pair.build.attemptFence : null), "bigint", builds.attemptFence)},
+      ${scalar(pairs.map(pair => "build" in pair ? pair.build.epoch : null), "text", builds.epoch)},
+      ${scalar(pairs.map(pair => "build" in pair ? pair.build.storageGenerationFence : null), "bigint", builds.storageGenerationFence)}, ${input.maximumActions}::integer`;
+  const statement = sql`select reason, pair_ordinal, key_ordinal, transition_kind, prior_commit_seq::text, prior_is_tombstone, emitted_count
+    from ${sql.identifier(schemaName)}.fx_accept_app_index_transitions(${parameters})`;
+  const epoch = indexMutationEpoch(tx);
+  const clockIdentity = exactScopeWriteClockObservationIdentity(tx, input.scopeId);
+  const mapFailure = (cause: unknown) => {
+    const detail = applicationDomainFailureDetail(cause, "fx_accept_app_index_transitions");
+    if (detail === null) return new AppIndexEntryReadPersistenceError("scanCurrent", cause);
+    return Result.match(decodeIndexTransitionRefusal(detail), { onFailure: () => new AppIndexEntryReadPersistenceError("scanCurrent", cause), onSuccess: proof => {
+      if (!Number.isSafeInteger(proof.ordinal) || proof.ordinal < 0 || proof.ordinal >= Math.max(pairs.length, 1) ||
+        !Number.isSafeInteger(proof.observed) || proof.observed < 0) return new AppIndexEntryReadPersistenceError("scanCurrent", cause);
+      if (proof.reason === "limitExceeded") return proof.observed > input.maximumActions
+        ? new AppIndexTransitionLimitExceededError({ observed: proof.observed, maximum: input.maximumActions }) : new AppIndexEntryReadPersistenceError("scanCurrent", cause);
+      return proof.reason === "storedCorruption" ? corruption("index transition stored membership invalid", cause)
+        : new AppIndexTransitionAcceptanceError({ reason: proof.reason, ordinal: proof.ordinal, cause });
+    } });
+  };
+  const accept = (result: unknown) => acceptPreparedAppIndexKeyTransitionResult(
+    tx, input.scopeId, scope.scopeUuid, pairs, byPosition, keyDigests, epoch, clockIdentity, result);
+  return Object.freeze({ parameters, keyParameters, statement, accept, mapFailure });
+});
+
+export const acceptAppIndexKeyTransitionsInTransactionEffect = Effect.fn("AppIndexEntries.acceptKeyTransitions")(function* (
+  tx: AppIndexEntryTransaction, input: { readonly scopeId: ScopeId; readonly pairs: readonly AppIndexKeyTransition[]; readonly maximumActions: number },
+) {
+  const prepared = yield* prepareAppIndexKeyTransitionAcceptanceInTransactionEffect(tx, input);
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({ try: () => tx.execute(prepared.statement), catch: prepared.mapFailure }));
+  return yield* prepared.accept(result);
 });
 
 /** Authenticate latest membership and its exact current pointer before omitting a write. */
@@ -896,7 +954,7 @@ export const readAppIndexMembershipHeadsInTransactionEffect = Effect.fn(
   return Object.freeze({ heads, evidence });
 });
 
-const decodeMembershipPositionsEffect = Effect.fn("AppIndexEntries.prepareMembershipPositions")(function* (
+const decodeMembershipPositionsEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction, input: { readonly scopeId: ScopeId; readonly positions: readonly AppIndexEntryPositionV1[] },
 ) {
   const scopeId = input.scopeId;
@@ -955,7 +1013,7 @@ const decodeMembershipPositionsEffect = Effect.fn("AppIndexEntries.prepareMember
     });
   }
   return decoded;
-});
+}, work => observeExecution("AppIndexEntries.prepareMembershipPositions", work));
 
 const readDecodedMembershipHeadsEffect = Effect.fn(
   "AppIndexEntries.readDecodedMembershipHeads",
@@ -1062,9 +1120,7 @@ const readDecodedMembershipHeadsEffect = Effect.fn(
   return Object.freeze(heads);
 });
 
-export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fn(
-  "AppIndexEntries.scanAtSnapshotInTransaction",
-)(function* (
+export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   input: ScanAppIndexAtSnapshotV1Input,
   observer?: Parameters<typeof observeDrizzleRawQuery<"scanCurrent">>[2],
@@ -1077,11 +1133,9 @@ export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fn(
     catch: cause => new AppIndexEntryReadPersistenceError("scanSnapshot", cause) }));
   const rows = yield* Effect.fromResult(captureDriverRowsResult(driverResult));
   return yield* decodeCapturedAppIndexSnapshotPageEffect(prepared, rows);
-});
+}, work => observeExecution("AppIndexEntries.scanAtSnapshotInTransaction", work));
 
-export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
-  "AppIndexEntries.scanCurrentInTransaction",
-)(function* (
+export const scanCurrentAppIndexInTransactionEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   input: ScanCurrentAppIndexV1Input,
   observer?: Parameters<typeof observeDrizzleRawQuery<"scanCurrent">>[2],
@@ -1094,7 +1148,7 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
     "scanCurrent",
     observer,
   );
-});
+}, work => observeExecution("AppIndexEntries.scanCurrentInTransaction", work));
 
 const decodePageBatchEnvelope = Schema.decodeUnknownResult(Schema.Struct({
   ordinal: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)), present: Schema.NullOr(Schema.Boolean),
@@ -1103,7 +1157,7 @@ const decodePageBatchEnvelope = Schema.decodeUnknownResult(Schema.Struct({
 /** Bounded ordinal predicates, including empty predicates. Preparation failures
  * and stored body decoding remain in demand order; the trusted consumer can
  * reject one observation before a later stored body is decoded. */
-export const consumeCurrentAppIndexPagesInTransactionEffect = Effect.fn("AppIndexEntries.consumeCurrentPages")(
+export const consumeCurrentAppIndexPagesInTransactionEffect = Effect.fnUntraced(
   function* <Failure, Requirements>(tx: AppIndexEntryTransaction, inputs: readonly ScanCurrentAppIndexV1Input[],
     error: (cause: ReadAppIndexRangeV1Error) => Failure,
     consume: (ordinal: number, page: AppIndexRangePageV1) => Effect.Effect<void, Failure, Requirements>,
@@ -1163,27 +1217,23 @@ export const consumeCurrentAppIndexPagesInTransactionEffect = Effect.fn("AppInde
       }
       if (preparationFailure !== undefined) return yield* Effect.fail(error(preparationFailure));
     }
-  });
+  }, work => observeExecution("AppIndexEntries.consumeCurrentPages", work));
 
 /** Reuse the bounded current-index reader for an index copied into the
  * target-side activation. This never opens the control catalog at settlement. */
-export const scanCurrentPublicationIndexInTransactionEffect = Effect.fn(
-  "AppIndexEntries.scanCurrentPublicationIndex",
-)(function* (
+export const scanCurrentPublicationIndexInTransactionEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   input: PublicationIndexRangeInput,
 ): Effect.fn.Return<AppIndexRangePageV1, ReadAppIndexRangeV1Error> {
   const decoded = yield* decodeRangeReadEffect(tx, input);
   return yield* executeAndDecodeRangeEffect(tx, decoded, buildCurrentRangeStatement(decoded), "scanCurrent");
-});
+}, work => observeExecution("AppIndexEntries.scanCurrentPublicationIndex", work));
 
 /** Bounded cardinality probe over the same current index range used by the
  * page reader. A transition can refuse over-budget fan-out before writing any
  * derived revisions. The result is capped at maximumEntries + 1; it is not an
  * unbounded count or a substitute for page-by-page row validation. */
-export const countCurrentAppIndexRangeUpToLimitInTransactionEffect = Effect.fn(
-  "AppIndexEntries.countCurrentRangeUpToLimit",
-)(function* (
+export const countCurrentAppIndexRangeUpToLimitInTransactionEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   input: Omit<ScanCurrentAppIndexV1Input, "after" | "limit"> & { readonly maximumEntries: number },
 ): Effect.fn.Return<number, ReadAppIndexRangeV1Error> {
@@ -1211,7 +1261,7 @@ export const countCurrentAppIndexRangeUpToLimitInTransactionEffect = Effect.fn(
   if (!Number.isSafeInteger(count) || count > input.maximumEntries + 1)
     return yield* Effect.fail(new AppIndexEntryStorageCorruptionError("out-of-range bounded count"));
   return count;
-});
+}, work => observeExecution("AppIndexEntries.countCurrentRangeUpToLimit", work));
 
 const indexMutationEpochs = new WeakMap<AppIndexEntryTransaction, number>();
 const indexMutationEpoch = (tx: AppIndexEntryTransaction) => indexMutationEpochs.get(tx) ?? 0;
@@ -1290,9 +1340,7 @@ type ReadCurrentAppIndexEntriesForRowV1Input = {
   { readonly publicationIndex: StrongReferenceActivationProjection["reverseIndex"] });
 
 /** Package-internal bounded C08 validation read for one authoritative row. */
-export const readCurrentAppIndexEntriesForRowInTransactionEffect = Effect.fn(
-  "AppIndexEntries.readCurrentForRowInTransaction",
-)(function* (
+export const readCurrentAppIndexEntriesForRowInTransactionEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   input: ReadCurrentAppIndexEntriesForRowV1Input,
 ): Effect.fn.Return<
@@ -1343,7 +1391,7 @@ export const readCurrentAppIndexEntriesForRowInTransactionEffect = Effect.fn(
     );
   }
   return page.entries;
-});
+}, work => observeExecution("AppIndexEntries.readCurrentForRowInTransaction", work));
 
 function captureAppendInputResult(
   input: AppendAppIndexEntryRevisionV1Input | AppendPublicationIndexEntryRevisionInput,
@@ -1792,7 +1840,7 @@ function decodeCursorResult(
 export interface PreparedAppIndexSnapshotRead extends DecodedAppIndexRangeReadV1 { readonly snapshotCommitSeq: CommitSeq; }
 
 /** Input compilation is detached; it never grants database authority. */
-export const prepareAppIndexSnapshotReadEffect = Effect.fn("AppIndexEntries.prepareSnapshotRead")(function* (
+export const prepareAppIndexSnapshotReadEffect = Effect.fnUntraced(function* (
   input: ScanAppIndexAtSnapshotV1Input,
 ): Effect.fn.Return<PreparedAppIndexSnapshotRead, ReadAppIndexRangeV1Error> {
   const snapshotCommitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(input.snapshotCommitSeq), "invalidSnapshotCommitSeq"));
@@ -1803,7 +1851,7 @@ export const prepareAppIndexSnapshotReadEffect = Effect.fn("AppIndexEntries.prep
     indexDefinitionId: captured.indexDefinitionId, physicalSpec: captured.physicalSpec,
     physicalSpecSha256: definition.physicalSpecSha256, bounds: captured.bounds,
     ...(captured.after === undefined ? {} : { after: captured.after }), limit: captured.limit, snapshotCommitSeq });
-});
+}, work => observeExecution("AppIndexEntries.prepareSnapshotRead", work));
 
 export interface AppIndexSnapshotReadExpressions {
   readonly scopeUuid: SQL; readonly indexDefinitionId: SQL; readonly snapshotCommitSeq: SQL;
@@ -1831,7 +1879,7 @@ export function buildAppIndexSnapshotReadStatement(input: PreparedAppIndexSnapsh
 
 const SnapshotIndexOrdinalSchema = Schema.Struct({ ordinal: Schema.Number });
 const decodeSnapshotIndexOrdinalResult = Schema.decodeUnknownResult(SnapshotIndexOrdinalSchema);
-export const decodeCapturedAppIndexSnapshotPageEffect = Effect.fn("AppIndexEntries.decodeCapturedSnapshotPage")(function* (
+export const decodeCapturedAppIndexSnapshotPageEffect = Effect.fnUntraced(function* (
   input: PreparedAppIndexSnapshotRead, rows: readonly unknown[],
 ): Effect.fn.Return<AppIndexRangePageV1, ReadAppIndexRangeV1Error> {
   const decoded: AppIndexRangeEntryV1[] = [];
@@ -1843,7 +1891,7 @@ export const decodeCapturedAppIndexSnapshotPageEffect = Effect.fn("AppIndexEntri
   }
   if (decoded.length > input.limit + 1) return yield* Effect.fail(corruption("snapshot membership exceeds page lookahead"));
   return projectRangePage(input.limit, decoded);
-});
+}, work => observeExecution("AppIndexEntries.decodeCapturedSnapshotPage", work));
 
 function buildCurrentRangeStatement(input: DecodedAppIndexRangeReadV1): SQL {
   const predicates = rangePredicates("current_entry", input);
@@ -1924,9 +1972,7 @@ function captureDriverRowsResult(
   }
 }
 
-const executeAndDecodeRangeEffect = Effect.fn(
-  "AppIndexEntries.executeAndDecodeRange",
-)(function* (
+const executeAndDecodeRangeEffect = Effect.fnUntraced(function* (
   tx: AppIndexEntryTransaction,
   input: DecodedAppIndexRangeReadV1,
   statement: SQL,
@@ -1947,7 +1993,7 @@ const executeAndDecodeRangeEffect = Effect.fn(
     decoded.push(yield* decodeRangeRowEffect(input, row));
   }
   return projectRangePage(input.limit, decoded);
-});
+}, work => observeExecution("AppIndexEntries.executeAndDecodeRange", work));
 
 function projectRangePage(limit: number, decoded: readonly AppIndexRangeEntryV1[]): AppIndexRangePageV1 {
   const isDone = decoded.length <= limit;
@@ -2104,7 +2150,7 @@ function captureRangeRowResult(
   });
 }
 
-const requireScopeUuidEffect = Effect.fn("AppIndexEntries.requireScopeUuid")(
+const requireScopeUuidEffect = Effect.fnUntraced(
   function* (
     tx: AppIndexEntryTransaction,
     scopeId: ScopeId,
@@ -2142,7 +2188,7 @@ const requireScopeUuidEffect = Effect.fn("AppIndexEntries.requireScopeUuid")(
       );
     }
     return projection.scopeUuid;
-  },
+  }, work => observeExecution("AppIndexEntries.requireScopeUuid", work),
 );
 
 function projectRevision(
@@ -2231,7 +2277,7 @@ function corruption(
   );
 }
 
-const sha256Effect = Effect.fn("AppIndexEntries.sha256")(function* (
+const sha256Effect = Effect.fnUntraced(function* (
   bytes: Uint8Array,
   operation: AppIndexEntryHashError["operation"],
 ): Effect.fn.Return<Uint8Array, AppIndexEntryHashError> {
@@ -2249,4 +2295,4 @@ const sha256Effect = Effect.fn("AppIndexEntries.sha256")(function* (
       ),
     );
   return digest;
-});
+}, work => observeExecution("AppIndexEntries.sha256", work));

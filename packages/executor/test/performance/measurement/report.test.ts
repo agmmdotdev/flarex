@@ -6,6 +6,7 @@ import { analyzeMeasurementEvidence } from "./analysis";
 import { analyzeCpuEvidence, CPU_LIMITS, type CpuEvidence } from "./cpu";
 import { serverLimits, type ServerMeasurementEvidence } from "./server";
 import { serverPlanLimits } from "./collectors/plans";
+import { calibrateRootCounters } from "./rootCounters";
 
 const filesystem = vi.hoisted(() => ({
   mkdir: vi.fn<typeof import("node:fs/promises").mkdir>(),
@@ -73,6 +74,65 @@ describe("measurement artifact persistence", () => {
     expect(human).not.toContain("Driver-await union: 0");
   });
 
+  it.each(["owners", "complete"] as const)("keeps resource request table contiguous with %s observation metadata", async selection => {
+    const input: RunReport = { ...report(), mode: "resources", observation: {
+      selection, timeline: selection === "owners" ? "unavailable" : "collected",
+      driver: selection === "owners" ? "unavailable" : "collected" }, samples: [{
+      id: "quiet", lane: "flarex", index: 0, kind: "calibration", requestMs: 1,
+      seedMs: 0, verificationMs: 0, cleanupMs: 0, outcome: "success", failureStage: null, failures: [],
+    }, {
+      id: "observed", lane: "flarex", index: 1, kind: "diagnostic", requestMs: 2,
+      seedMs: 0, verificationMs: 0, cleanupMs: 0, outcome: "success", failureStage: null, failures: [],
+    }] };
+    await persistMeasurementReport(directory, input);
+    const human = filesystem.writeFile.mock.calls[1]?.[1];
+    if (typeof human !== "string") throw new Error("Missing human report");
+    const table = ["| Request | Lane | Kind | Complete call ms | Outcome |", "|---|---|---|---:|---|",
+      "| quiet | flarex | calibration | 1.000 | success |", "| observed | flarex | diagnostic | 2.000 | success |"].join("\n");
+    expect(human).toContain(table);
+    expect(human.indexOf(`Resource observation: ${selection}.`)).toBeLessThan(human.indexOf(table));
+  });
+
+  it("reports selected owner counters with intentionally unavailable timeline and database detail", async () => {
+    const input: RunReport = { ...report(), mode: "resources", observation: {
+      selection: "owners", timeline: "unavailable", driver: "unavailable" }, samples: [{
+      id: "selected", lane: "flarex", index: 0, kind: "diagnostic", requestMs: 1,
+      seedMs: 0, verificationMs: 0, cleanupMs: 0, outcome: "success", failureStage: null, failures: [],
+      ownerResources: { diagnostic: "complete", incompleteReasons: [], operations: [{ id: "root", name: "root", owner: null,
+        wallMs: 1, counterWindowMs: 1, processCpuMs: 2, threadCpuMs: null, eventLoopIdleMs: 0, eventLoopActiveMs: 1 }] },
+    }] };
+    await persistMeasurementReport(directory, input);
+    const raw = filesystem.writeFile.mock.calls[0]?.[1];
+    const human = filesystem.writeFile.mock.calls[1]?.[1];
+    expect(raw).not.toContain("driverAwaitUnionMs");
+    expect(human).toContain("Full operation timeline: unavailable. Driver detail: unavailable");
+    expect(human).toContain("Selected collection integrity: complete");
+    expect(human).toContain("| root | 1.000 | 2.000 | unavailable | 0.000 |");
+    expect(human).not.toContain("Strict deepest-operation wall");
+    expect(human).not.toContain("Driver-await union: 0");
+  });
+  it("retains minimal root CPU evidence and clearly separates calibration and unresolved resolution from acceptance", async () => {
+    let clock = 0, cpu = 0;
+    const counterCalibration = calibrateRootCounters({ now: () => clock++, read: () => ({
+      process: { user: cpu++, system: 0 }, thread: null, eventLoop: { idle: 0, active: 0, utilization: 0 } }) });
+    const rootCounters = counterCalibration[0];
+    if (rootCounters === undefined) throw new Error("Missing calibration sample");
+    const input: RunReport = { ...report(), mode: "root-counters", operation: "compare", counterCalibration,
+      samples: [{ id: "root", lane: "native", index: 0, kind: "diagnostic", requestMs: 1,
+        seedMs: 0, verificationMs: 10, cleanupMs: 20, outcome: "success", failureStage: null, failures: [], rootCounters }],
+      cpuPairs: [{ index: 0, nativeRequestId: "native", flarexRequestId: "flarex", process: {
+        nativeUserMicroseconds: 10, nativeSystemMicroseconds: 0, flarexUserMicroseconds: 8, flarexSystemMicroseconds: 0,
+        addedUserMicroseconds: -2, addedSystemMicroseconds: 0, addedTotalMicroseconds: -2 }, thread: null }] };
+    await persistMeasurementReport(directory, input);
+    expect(filesystem.writeFile.mock.calls[0]?.[1]).toBe(JSON.stringify(input, null, 2) + "\n");
+    const human = filesystem.writeFile.mock.calls[1]?.[1];
+    expect(human).toContain("| 0 | -2 | unavailable |");
+    expect(human).toContain("actual platform process/thread counter resolution and monotonic clock precision are unknown");
+    expect(human).toContain("back-to-back pairs calibrate resource acquisition");
+    expect(human).toContain("retained without subtraction");
+    expect(human).toContain("not quiet elapsed acceptance");
+    expect(filesystem.writeFile).toHaveBeenCalledTimes(2); // No profiler exports.
+  });
   it("renders true plan IDs separately from logged query context and leaves absent IDs unavailable", async () => {
     const server: ServerMeasurementEvidence = { originMonotonicMs: 0, database: { database: "isolated", dbid: 1 },
       root: { startMs: 0, endMs: 1 }, limits: serverLimits, status: "complete", before: null, after: null,

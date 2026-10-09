@@ -92,8 +92,9 @@ describe("createPGlitePersistence", () => {
       await current.migrate();
       expect((await current.query(`select
         to_regprocedure(current_schema() || '.fx_lock_finite_running_attempt(text,uuid,bigint,text,bigint,text)') is null retired_attempt_owner,
-        to_regprocedure(current_schema() || '.fx_lock_finite_scope_observation(text)') is not null retained_scope_owner`)).rows)
-        .toEqual([{ retired_attempt_owner: true, retained_scope_owner: true }]);
+        to_regprocedure(current_schema() || '.fx_lock_finite_scope_observation(text)') is null retired_scope_owner,
+              to_regprocedure(current_schema() || '.fx_lock_read_scope_placement(text,text)') is null retired_placement_owner`)).rows)
+        .toEqual([{ retired_attempt_owner: true, retired_scope_owner: true, retired_placement_owner: true }]);
       const after = await current.query(`select scope_uuid::text,session_id::text,attempt_fence::text,
         request_key,encode(request_sha256,'hex') request_hash from fx_system_tx_session`);
       expect(after.rows).toEqual(before.rows);
@@ -117,6 +118,9 @@ describe("createPGlitePersistence", () => {
 
     await expect(persistence.migrate()).resolves.toBeUndefined();
     await expect(persistence.migrate()).resolves.toBeUndefined();
+    expect((await persistence.query<{ retired: string | null }>(
+      "select to_regprocedure('public.fx_observe_app_developer_heads(text,uuid,integer[],integer[],bytea[],integer[])')::text as retired",
+    )).rows).toEqual([{retired:null}]);
 
     const tables = await persistence.query<{ table_name: string }>(
       `
@@ -236,6 +240,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_framework_schema_target_namespace",
       "fx_system_idempotency",
       "fx_system_index_build_state",
+      "fx_system_index_maintenance_obligation",
       "fx_system_installation",
       "fx_system_installation_runtime",
       "fx_system_logical_source_initialization",
@@ -258,6 +263,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_tx_journal_write_event",
       "fx_system_tx_session",
       "fx_system_unique_constraint_build",
+      "fx_system_unique_maintenance_obligation",
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",

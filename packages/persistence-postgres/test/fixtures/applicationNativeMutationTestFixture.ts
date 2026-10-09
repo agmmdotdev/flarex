@@ -142,8 +142,10 @@ import {
   type PostgresFlarexPersistence,
 } from "../../src/postgres";
 import type { FlarexMetadataDatabase } from "../../src/deployments";
-import type { ProtectedMetadataPreparation } from "../../src/preparedMetadataEpoch";
-import type { PreparedCoLocatedReadInstallation } from "../../src/installationLifecycle";
+import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards, hasProtectedMetadataFinalGuardScope,
+  type ProtectedMetadataPreparation } from "../../src/preparedMetadataEpoch";
+import { acquireCoLocatedInstallationAdmission, closeInstallationAdmission,
+  type PreparedCoLocatedReadInstallation } from "../../src/installationLifecycle";
 import type { FlarexPersistence } from "../../src/index";
 import type { LocatedScopeClockReader } from
   "../../src/scopeAuthorityResolution";
@@ -300,7 +302,8 @@ export interface ApplicationNativeMutationFixture<
     readonly documentId: string;
     readonly name: string;
   }>>;
-  readonly moveHead: () => Promise<CoherentActiveApplication>;
+  readonly moveHead: (input?: Readonly<{ manifest: ApplicationManifestV1;
+    expectedActiveHead: CoherentActiveApplication["expectedActiveHead"] }>) => Promise<CoherentActiveApplication>;
   /** Persistence-owned corruption seam for fail-closed system-test proof. */
   readonly corruptCandidateValidationFrameBytesForTest: () => Promise<void>;
   /** Persistence-owned corruption seam for publication revalidation proof. */
@@ -698,6 +701,9 @@ async function createApplicationNativeMutationFixture<
     const scopeUuid = projectScopeIdUuidV1(authority.scopeId).scopeUuid;
     const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
     await target.drizzle.transaction(async tx => {
+      if (options.managedInstallation !== undefined)
+        await Effect.runPromise(acquireCoLocatedInstallationAdmission(options.managedInstallation.installation, target.drizzle, tx));
+      try {
       await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
         kind: "live",
         scopeId: authority.scopeId,
@@ -732,6 +738,11 @@ async function createApplicationNativeMutationFixture<
       await tx.update(fxSystemScopeClocks)
         .set({ lastCommitSeq: commitSeq })
         .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+      if (hasProtectedMetadataFinalGuardScope(tx)) await Effect.runPromise(flushProtectedMetadataFinalGuards(tx));
+      } finally {
+        closeProtectedMetadataFinalGuardScope(tx);
+        closeInstallationAdmission(tx);
+      }
     });
     return Object.freeze({ documentId, name: input.name });
   };
@@ -862,9 +873,14 @@ async function createApplicationNativeMutationFixture<
       publication: registeredPublication,
     });
   };
-  const moveHead = async (): Promise<CoherentActiveApplication> => {
+  const moveHead: ApplicationNativeMutationFixture<Persistence>["moveHead"] = async input => {
     headMoveSequence += 1;
     const sequence = headMoveSequence;
+    const nextManifest = input === undefined ? canonicalManifest : Result.getOrThrow(canonicalizeApplicationManifestV1(input.manifest));
+    if (input !== undefined) {
+      const nextSchema = await preparePublishedSchema(nextManifest.manifest);
+      await settleCandidateValidation(candidateValidation, deploymentId, authority.scopeId, nextSchema.schemaVersionId);
+    }
     const nextAnalyses = makeApplicationAnalysisRepository(target.drizzle, {
       randomUuid: fixtureUuidSequence(
         30 + sequence * 3 + 1,
@@ -885,7 +901,7 @@ async function createApplicationNativeMutationFixture<
       sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
       analyzerIdentity: "application-analyzer",
       analyzerPolicyIdentity: "application-analyzer-policy",
-      canonicalManifest: canonicalManifest.canonicalText,
+      canonicalManifest: nextManifest.canonicalText,
     }));
     if (nextAnalysis.status !== "analyzed") {
       throw new Error("Application-native next analysis did not settle.");
@@ -939,7 +955,7 @@ async function createApplicationNativeMutationFixture<
     }
     await Effect.runPromise(activation.activate({
       revisionId: nextPublication.revisionId,
-      expectedActiveHead: currentActive.expectedActiveHead,
+      expectedActiveHead: input?.expectedActiveHead ?? currentActive.expectedActiveHead,
     }));
     currentActive = await Effect.runPromise(activation.readActive());
     return currentActive;

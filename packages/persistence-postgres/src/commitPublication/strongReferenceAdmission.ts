@@ -1,4 +1,4 @@
-import { Effect, Option, Result } from "effect";
+import { Cause, Effect, Option, Result } from "effect";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { appRowIdHexV1FromBytesResult } from "flarex-protocol/app-document-id";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
@@ -15,10 +15,10 @@ export const requireStrongReferencePublication = Effect.fn("ScopePublication.req
   function* (tx: FlarexMetadataTransaction, clock: ScopePublicationClock,
     commitSeq: CommitSeq, options: ScopePublicationOptions = {}) {
     const head = yield* readBindingHeadProjection(tx, clock.record, query =>
-      options.observeQuery?.({ name: "readBindingHead", ...query })).pipe(Effect.mapError(cause =>
-      cause.reason === "resourceFailure"
-        ? new ScopePublicationSqlFailure({ operation: "readBindingHead", cause })
-        : new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause })));
+      options.observeQuery?.({ name: "readBindingHead", ...query })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, failure =>
+      failure.reason === "resourceFailure"
+        ? new ScopePublicationSqlFailure({ operation: "readBindingHead", cause: failure })
+        : new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause: failure })))));
     if (Option.isNone(head)) {
       if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "counts", owner: "references", counts: { endpoints: 0, affectedRows: 0 } });
       return;
@@ -45,9 +45,9 @@ export const requireStrongReferencePublication = Effect.fn("ScopePublication.req
       return;
     }
     const references = yield* readBindingActiveReferenceProjection(tx, clock.record, head.value)
-      .pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
-        ? new ScopePublicationSqlFailure({ operation: "readStrongReferenceProjection", cause })
-        : new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause })));
+      .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, failure => failure.reason === "resourceFailure"
+        ? new ScopePublicationSqlFailure({ operation: "readStrongReferenceProjection", cause: failure })
+        : new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause: failure })))));
     const facts = tx.select({ tableId: fxSystemCommitAppRowChanges.tableId,
       rowId: fxSystemCommitAppRowChanges.rowId })
       .from(fxSystemCommitAppRowChanges)

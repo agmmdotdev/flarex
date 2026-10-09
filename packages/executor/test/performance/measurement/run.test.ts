@@ -3,7 +3,7 @@ import { compare, measure } from "./index";
 
 describe("measurement public configuration boundary", () => {
   it("rejects root CPU observation in other modes before acquiring resources", async () => {
-    for (const mode of ["quiet", "timeline", "resources", "database", "server"] as const) {
+    for (const mode of ["quiet", "root-counters", "timeline", "resources", "database", "server"] as const) {
       await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode,
         observation: "root", outputDirectory: "unused" })).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
     }
@@ -11,6 +11,12 @@ describe("measurement public configuration boundary", () => {
   it("reserves a fresh quiet execution for each root CPU sample", async () => {
     await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode: "cpu", observation: "root",
       samples: 53, warmups: 0, outputDirectory: "unused" })).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
+  });
+  it("rejects selected owner observation in other modes before acquiring resources", async () => {
+    for (const mode of ["quiet", "root-counters", "timeline", "database", "cpu", "server"] as const) {
+      await expect(measure({ selection: { scenario: "payload-create" }, size: "small", mode,
+        observation: "owners", outputDirectory: "unused" })).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
+    }
   });
   it("rejects an empty destination before acquiring resources", async () => {
     await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode: "quiet",
@@ -27,6 +33,10 @@ describe("measurement public configuration boundary", () => {
   it("reserves a separate fresh diagnostic calibration attempt", async () => {
     await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode: "cpu",
       samples: 100, warmups: 5, outputDirectory: "unused" })).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
+  });
+  it("rejects traced modes in matched native comparisons before acquisition", async () => {
+    const input = JSON.parse('{"selection":{"scenario":"mixed-product"},"size":"small","mode":"resources","outputDirectory":"unused"}');
+    await expect(compare(input)).rejects.toMatchObject({ _tag: "InvalidMeasurementConfiguration" });
   });
   it("reserves a fresh quiet execution for each resource sample", async () => {
     await expect(measure({ selection: { scenario: "mixed-product" }, size: "small", mode: "resources",

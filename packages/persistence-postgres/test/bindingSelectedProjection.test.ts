@@ -116,31 +116,31 @@ describe("full selected binding evidence and preparation", () => {
           const protection = { token: fixture.protectedMetadata, database: persistence.drizzle, epoch };
           // Full proof permits an explicit unbounded preparation. Sharing must
           // refuse allocating retained state without a donor and recipient lease.
-          const unboundedDonor = prepareBindingSelectedStructure(selected.location, protection, undefined);
-          const unboundedRecipient = prepareBindingSelectedStructure(selected.location, protection, undefined);
+          const unboundedDonor = Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, undefined));
+          const unboundedRecipient = Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, undefined));
           const host = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
             const lifetime = yield* captureHostPreparationLifetime();
-            return { prepared: prepareBindingSelectedStructure(selected.location, protection, lifetime),
-              empty: prepareBindingSelectedStructure(selected.location, protection, lifetime),
-              unopened: prepareBindingSelectedStructure(selected.location, protection, lifetime) };
+            return { prepared: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
+              empty: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
+              unopened: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)) };
           })));
           const recipient = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
             const lifetime = yield* captureHostPreparationLifetime();
             return {
-              prepared: prepareBindingSelectedStructure(selected.location, protection, lifetime),
-              empty: prepareBindingSelectedStructure(selected.location, protection, lifetime),
-              otherLocation: prepareBindingSelectedStructure({ ...selected.location, scopeId: `${selected.location.scopeId}_other` }, protection, lifetime),
-              otherStorage: prepareBindingSelectedStructure({ ...selected.location, storageGeneration: "other" }, protection, lifetime),
-              otherToken: prepareBindingSelectedStructure(selected.location, { ...protection, token: new Proxy(protection.token, {}) }, lifetime),
-              otherDatabase: prepareBindingSelectedStructure(selected.location, { ...protection, database: new Proxy(protection.database, {}) }, lifetime),
-              otherEpoch: prepareBindingSelectedStructure(selected.location, { ...protection, epoch: { ...epoch } }, lifetime),
+              prepared: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
+              empty: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
+              otherLocation: Result.getOrThrow(prepareBindingSelectedStructure({ ...selected.location, scopeId: `${selected.location.scopeId}_other` }, protection, lifetime)),
+              otherStorage: Result.getOrThrow(prepareBindingSelectedStructure({ ...selected.location, storageGeneration: "other" }, protection, lifetime)),
+              otherToken: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, { ...protection, token: new Proxy(protection.token, {}) }, lifetime)),
+              otherDatabase: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, { ...protection, database: new Proxy(protection.database, {}) }, lifetime)),
+              otherEpoch: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, { ...protection, epoch: { ...epoch } }, lifetime)),
             };
           })));
           const tiny = await runEffect(Effect.gen(function* () {
             const scope = yield* Scope.make();
             const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 1 }).pipe(Scope.provide(scope));
             const access = yield* retainPreparedHost(runtime, Effect.gen(function* () {
-              return prepareBindingSelectedStructure(selected.location, protection, yield* captureHostPreparationLifetime());
+              return Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, yield* captureHostPreparationLifetime()));
             }));
             return { scope, access };
           }));
@@ -216,7 +216,7 @@ describe("full selected binding evidence and preparation", () => {
               expect(required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, received.prepared)))
                 .candidate.frame).toEqual(selected.frame);
               const scopedRecipient = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
-                return prepareBindingSelectedStructure(selected.location, protection, yield* captureHostPreparationLifetime());
+                return Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, yield* captureHostPreparationLifetime()));
               })));
               const scopedToken = await runEffect(scopedRecipient.use(value => Effect.succeed(value)));
               try {

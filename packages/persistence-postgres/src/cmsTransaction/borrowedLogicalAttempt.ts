@@ -71,6 +71,7 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
               rootAttemptFence: input.rootAttemptFence }),
           lifetime, requireAdmission,
+          writeMechanics: state.writeMechanics,
           tables: state.writeMechanics.tables, searchDefinitions: state.writeMechanics.searchDefinitions,
           limits: { pageRows: cmsLimits.pageRows, identities: cmsLimits.identities,
             documentBytes: cmsLimits.documentBytes },

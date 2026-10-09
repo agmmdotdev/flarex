@@ -1,5 +1,6 @@
 import { payloadPaginationPolicy } from "./query";
 import { Effect, type Result } from "effect";
+import { captureExecutionDiagnosticContext, observeExecution } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import type { BasePayload, PayloadRequest } from "payload";
 import { cmsError, defineCmsCommand, type CmsCommandContext, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import type { Json } from "flarex-protocol/json";
@@ -17,11 +18,17 @@ type ReadOptions = Pick<PayloadFindByIdInput, "depth" | "joins" | "joinRead">;
 const noJoins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false };
 const noPopulation: ReadOptions = { depth: 0, joins: noJoins, joinRead: false };
 
+/** Source-private observations and trusted request state; never operation input. */
+export interface PayloadOperationInstrumentation {
+  readonly onExecute?: () => void;
+  readonly onCollection?: (collection: string) => void;
+  readonly requestContext?: PayloadRequest["context"];
+}
+
 /** These handlers belong to one Payload instance; no request state is retained. */
 export function makePayloadOperations(payload: BasePayload, bridge: Bridge, profile: PayloadContentProfile,
-  collections: readonly PayloadCollectionRuntime[], isLive: () => boolean, onExecute?: () => void,
-  trustedRequestContext?: PayloadRequest["context"]) {
-  const inputs = makePayloadInputs(profile, collections);
+  inputs: ReturnType<typeof makePayloadInputs>, isLive: () => boolean,
+  instrumentation?: PayloadOperationInstrumentation) {
   const options = (req: Partial<PayloadRequest>, collection: PayloadCollectionRuntime, read: ReadOptions) => ({
     collection: collection.collectionSlug, req, depth: read.depth, overrideAccess: false,
     ...(profile === "payload.content-joins" ? { joins: read.joinRead ? {
@@ -30,7 +37,8 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
     } : false as const } : {}),
   } as const);
 
-  const call = Effect.fn("PayloadAdapter.call")(function* <A extends Json>(
+  // Stable invocation mechanics are observed only by explicit SDK composition.
+  const call = Effect.fnUntraced(function* <A extends Json>(
     context: CmsCommandContext, collection: PayloadCollectionRuntime, write: boolean, read: ReadOptions,
     invoke: (common: ReturnType<typeof options>) => Promise<unknown>,
     decode: (value: unknown) => Result.Result<A, CmsTransactionError>,
@@ -41,18 +49,20 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
       // Standalone snapshot reads intentionally omit an ID. A mixed-attempt
       // read is borrowed work and must present the owned ID like a write.
       ...(write || !context.standaloneRead ? { transactionID: context.transactionId } : {}),
-      ...(trustedRequestContext === undefined ? {} : { context: { ...trustedRequestContext } }),
+      ...(instrumentation?.requestContext === undefined ? {} : { context: { ...instrumentation.requestContext } }),
     };
     const common = options(req, collection, read);
-    onExecute?.();
+    instrumentation?.onExecute?.();
+    const diagnostics = yield* Effect.withFiber(fiber => Effect.succeed(captureExecutionDiagnosticContext(fiber)));
     const result = yield* Effect.tryPromise({
-      try: signal => bridge.within(context, collection, req, signal, () => invoke(common), read.depth === 1, read.joins),
+      try: signal => bridge.within(context, collection, req, signal, diagnostics, () => invoke(common), read.depth === 1, read.joins,
+        instrumentation?.onCollection),
       catch: cause => cause,
     }).pipe(
       // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: compatibility - Payload rejects with its own errors or a CMS failure; unknown rejection remains a defect.
       Effect.catch(projectPayloadFailure));
     return yield* Effect.fromResult(decode(result));
-  });
+  }, work => observeExecution("PayloadAdapter.call", work));
 
   const handlers = {
     create: (ctx: CmsCommandContext, args: PayloadCreateInput) =>
@@ -77,10 +87,10 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
   const command = <A, Output extends Json>(name: string, mode: "read" | "write",
     decode: (ctx: CmsCommandContext, input: Json) => Effect.Effect<A, CmsTransactionError>,
     handle: (ctx: CmsCommandContext, args: NoInfer<A>) => Effect.Effect<Output, CmsTransactionError>,
-  ) => defineCmsCommand({ name, mode, run: Effect.fn("PayloadAdapter.invoke")(function* (ctx, args) {
+  ) => defineCmsCommand({ name, mode, run: Effect.fnUntraced(function* (ctx, args) {
     if (!isLive()) return yield* Effect.fail(cmsError("closed"));
     return yield* handle(ctx, yield* decode(ctx, args));
-  }) });
+  }, work => observeExecution("PayloadAdapter.invoke", work)) });
 
   return {
     create: command("payload-create", "write", inputs.create, handlers.create),

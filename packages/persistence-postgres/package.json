@@ -7,6 +7,7 @@
     "src"
   ],
   "exports": {
+    "./internal/execution-diagnostics": "./src/executionDiagnostics/operation.ts",
     "./internal/cms-adapter": "./src/cmsAdapter.ts",
     "./internal/commerce-adapter": "./src/commerceAdapter.ts",
     "./internal/logical-relational-admission": "./src/logicalDocuments/relationalAdmission.ts",

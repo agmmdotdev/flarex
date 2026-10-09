@@ -1,6 +1,6 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { and, asc, eq, getTableColumns, gt, inArray, lte, sql, type SQLWrapper } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, inArray, lte, type SQLWrapper } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -46,13 +46,7 @@ import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readAppli
   readCheckedApplicationActiveHead, readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
   type CheckedApplicationActiveHead, type CoherentApplicationActiveHead } from "./applicationActiveHeadRead";
 import { decodeApplicationMaterializationObservation } from "./applicationActiveHeadRead";
-import { applicationCompositeSelection } from "./applicationDocumentMaterialization/domainApplication";
-import { requireAdmittedTargetInstallationSchema } from "./installationLifecycle";
 import { readRegisteredManagedMetadataPairFinalGuards } from "./preparedMetadataEpoch";
-import { databaseTimestampFromUnknown } from "./databaseTimestamp";
-import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from "./applicationActivationSchema";
-import { fxSystemApplicationRevisionSchemas } from "./applicationRelationSchema";
-import { fxSystemApplicationRevisionSchemasV1 } from "./schema";
 import { decodeIndexMaintenanceObligationResult, IndexMaintenanceError, type IndexMaintenanceObligation } from "./indexMaintenanceModel";
 import {
   fxSystemIndexBuildStates,
@@ -726,39 +720,29 @@ class CapturedMaterializationCoverage implements CapturedApplicationMaterializat
       ? Result.succeed(this.#observation) : Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
   }
 }
-export const beginFiniteApplicationMaterialization = Effect.fn("IndexBuildState.beginFiniteMaterialization")(
-  function* (tx: AppRowTransaction, clock: ScopeClockRecord, originalDeadline: Date) {
-    const schemaName = yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx));
-    const pair = yield* Effect.fromResult(readRegisteredManagedMetadataPairFinalGuards(tx));
+/** The fixed publication stage lends its observation to this original issuer.
+ * Only the current accepting clock and genuine registered protection choose
+ * the observation profile; callers cannot manufacture a snapshot verdict. */
+export interface ApplicationMaterializationCoverageCapture {
+  readonly snapshot: boolean;
+  readonly capture: (observation: Omit<MaterializationObservation, "snapshot">) => Result.Result<CapturedApplicationMaterializationCoverage, IndexMaintenanceError>;
+}
+export function prepareApplicationMaterializationCoverageCapture(tx: AppRowTransaction, clock: ScopeClockRecord): Result.Result<ApplicationMaterializationCoverageCapture, IndexMaintenanceError> {
+  return Result.gen(function* () {
+    const pair = yield* readRegisteredManagedMetadataPairFinalGuards(tx).pipe(Result.mapError(cause =>
+      new IndexMaintenanceError({ reason: "storedState", cause })));
     const identity = exactScopeWriteClockObservationIdentity(tx, clock.scopeId);
-    if (identity === undefined) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    if (identity === undefined) return yield* Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
     const snapshot = pair !== null;
-    const rows = yield* runDrizzleStatementEffect(tx.select({
-      reason: sql<string>`observed.reason`, databaseNow: sql`observed.database_now`.mapWith(fxSystemScopeClocks.updatedAt),
-      applicationHead: applicationCompositeSelection(fxSystemApplicationActiveHeads, "observed.application_head"),
-      applicationActivation: applicationCompositeSelection(fxSystemApplicationActivations, "observed.application_activation"),
-      legacySchema: applicationCompositeSelection(fxSystemApplicationRevisionSchemasV1, "observed.legacy_schema"),
-      relationSchema: applicationCompositeSelection(fxSystemApplicationRevisionSchemas, "observed.relation_schema"),
-    }).from(sql`${sql.identifier(schemaName)}.fx_begin_app_materialization(${clock.scopeId}::text,
-      ${sql.param(originalDeadline, fxSystemScopeClocks.updatedAt)}::timestamptz, ${snapshot}::boolean) observed`),
-      cause => new IndexMaintenanceError({ reason: "resourceFailure", cause }));
-    const row = rows[0];
-    const now = databaseTimestampFromUnknown(row?.databaseNow);
-    if (rows.length !== 1 || row === undefined || now === null || (row.reason !== "accepted" && row.reason !== "expired"))
-      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
-    if (row.reason === "expired") return Object.freeze({ databaseNowMilliseconds: now.getTime(), capturedCoverage: null });
-    const observation = {
-      snapshot, applicationHead: row.applicationHead.scopeId === null ? null : row.applicationHead,
-      applicationActivation: row.applicationActivation.scopeId === null ? null : row.applicationActivation,
-      legacySchema: row.legacySchema.scopeId === null ? null : row.legacySchema,
-      relationSchema: row.relationSchema.scopeId === null ? null : row.relationSchema,
-    };
-    return Object.freeze({ databaseNowMilliseconds: now.getTime(),
-      capturedCoverage: new CapturedMaterializationCoverage(tx, identity, observation) });
-  },
-  effect => effect.pipe(Effect.mapError(cause => cause instanceof IndexMaintenanceError ? cause :
-    new IndexMaintenanceError({ reason: "resourceFailure", cause }))),
-);
+    return Object.freeze({ snapshot,
+      capture(observation: Omit<MaterializationObservation, "snapshot">) {
+        return exactScopeWriteClockObservationIdentity(tx, clock.scopeId) === identity
+          ? Result.succeed(new CapturedMaterializationCoverage(tx, identity, { ...observation, snapshot }))
+          : Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
+      },
+    });
+  });
+}
 
 
 /** Keep this value within the guarded transaction that produced it. */

@@ -1,6 +1,6 @@
 import { Cause, Data, Duration, Effect, Exit, Random, type Result } from "effect";
 import {
-  readFrozenFiniteCommitValues,
+  borrowFrozenFiniteCommitValues,
   type FrozenFiniteAttempt,
 } from "@flarex/persistence-postgres/session-journal-store";
 import type {
@@ -11,6 +11,7 @@ import type {
   PointCommitOutcomeResolutionV1Error,
   PointFiniteAttemptReplacementPort,
   PointFiniteAttemptResolutionCommand,
+  PointRecoveredFiniteAttemptReplacementCommand,
   PointMutationAttemptReplacementV1Error,
   PointFiniteAttemptResolution,
   PointFiniteTerminalRefusal,
@@ -122,14 +123,19 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
     return Object.freeze({ context, argumentsJson: args.valueJson, argumentArraySemanticBytes });
   });
   const retries = new WeakMap<object, { activated: ActivatedPointMutationSessionV1;
-    command: PointFiniteAttemptResolutionCommand; proof: FiniteAttemptNonacceptanceProof }>();
-  const replaceOrReplay: (command: PointFiniteAttemptResolutionCommand, proof: FiniteAttemptNonacceptanceProof) => Effect.Effect<
+    command: PointFiniteCommitCommand; proof: FiniteAttemptNonacceptanceProof }>();
+  type ReplacementRequest = Readonly<{ kind: "frozen"; command: PointFiniteCommitCommand }>
+    | Readonly<{ kind: "recovered"; command: PointRecoveredFiniteAttemptReplacementCommand }>;
+  const replaceOrReplay: (request: ReplacementRequest, proof: FiniteAttemptNonacceptanceProof) => Effect.Effect<
     Effect.Success<ReturnType<PointFiniteAttemptReplacementPort["replaceFinite"]>> |
       Extract<PointFiniteAttemptResolution, { kind: "committed" }>,
     Effect.Error<ReturnType<PointFiniteAttemptReplacementPort["replaceFinite"]>> | PointCommitPublicationV1Error | FinitePointMutationOutcomeUnresolvedError
   > = Effect.fn("FinitePointMutationExecution.replaceOrReplay")(
-    (command: PointFiniteAttemptResolutionCommand, proof: FiniteAttemptNonacceptanceProof) =>
-      replacement.replaceFinite({ ...command, proof }).pipe(Effect.catchCause((cause): Effect.Effect<
+    (request: ReplacementRequest, proof: FiniteAttemptNonacceptanceProof) => {
+      const command = request.command;
+      return (request.kind === "recovered"
+        ? replacement.replaceRecoveredFinite({ ...request.command, proof })
+        : replacement.replaceFinite({ ...request.command, proof })).pipe(Effect.catchCause((cause): Effect.Effect<
         Extract<PointFiniteAttemptResolution, { kind: "committed" }>,
         Effect.Error<ReturnType<PointFiniteAttemptReplacementPort["replaceFinite"]>> |
           PointCommitPublicationV1Error | FinitePointMutationOutcomeUnresolvedError
@@ -152,7 +158,8 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
             resolution.kind === "rejected" ? Effect.failCause(cause) :
               Effect.die(new Error("Permanent replacement refusal produced retry authority."))),
         );
-      })));
+      }));
+    });
   // Construction-time lifecycle builder: callers attach exact cleanup while
   // ownership is masked, before restoring interruption. Effect.fn suspends its
   // body and would defer that attachment until after the ownership handoff.
@@ -201,7 +208,7 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
             function* (result) {
               if (!open) return yield* Effect.fail(new FinitePointMutationExecutionError({ reason: "closed" }));
               const frozen = yield* freeze(attempt, result);
-              const data = readFrozenFiniteCommitValues(frozen);
+              const data = borrowFrozenFiniteCommitValues(frozen);
               if (data === undefined) return yield* Effect.fail(new FinitePointMutationExecutionError({ reason: "invalidFrozenAttempt" }));
               yield* verifyFiniteCommitValuesEffect({ rowIntents: data.rowIntents, successfulResult: data.successfulResult,
                 schemaManifest: captured.schemaManifest, functionValidationAuthority: {
@@ -284,7 +291,7 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
       const base = yield* prepareRunnerBase(original.prepared.evidence.validatedArgsJson);
       yield* finiteOccRetryBackoff(ticket.command.authorityPins.attemptFence);
       return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-        const replaced = yield* restore(replaceOrReplay(ticket.command, ticket.proof));
+        const replaced = yield* restore(replaceOrReplay({ kind: "frozen", command: ticket.command }, ticket.proof));
         if (replaced.kind === "committed") return recoveredFinitePublication(replaced);
         const fresh = yield* Effect.fromResult(activateConfirmedFiniteReplacement(ticket.activated, replaced, journal, executionClaims.issuer));
         return yield* restore(continueCommittedEntry(fresh, base, entry =>
@@ -314,7 +321,7 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
       const base = yield* prepareRunnerBase(evidence.prepared.evidence.validatedArgsJson);
       yield* finiteOccRetryBackoff(evidence.command.authorityPins.attemptFence);
       return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-      const replaced = yield* restore(replaceOrReplay(evidence.command, resolved.proof));
+      const replaced = yield* restore(replaceOrReplay({ kind: "recovered", command: evidence.command }, resolved.proof));
       if (replaced.kind === "committed") return recoveredFinitePublication(replaced);
       if (replaced.kind !== "replaced" || replaced.finiteEntry === undefined || journal.inspectFiniteExecutionEntry === undefined)
         return yield* Effect.fail(new FinitePointMutationExecutionError({ reason: "invalidEntry" }));

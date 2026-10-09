@@ -4,7 +4,8 @@ import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candida
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { loadPublishedPhysicalRequirementSnapshotV1, type PhysicalDefinitionRequirementV1, type PublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
+import { loadPublishedPhysicalRequirementSnapshotV1, publishedPhysicalRequirementSnapshotsEqual,
+  type PhysicalDefinitionRequirementV1, type PublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
 import { verifyApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
 import { prepareFiniteMetadataProjection } from "./finiteMetadataDependencies";
 import { canonicalAppIndexPhysicalSpecBytesHexV1ToBytes } from "flarex-protocol/index-definition";
@@ -18,13 +19,14 @@ import { readRequiredEnabledIndexBuildsInTransactionEffect, decodeIndexBuildStat
   validateIndexBuildStateFrontierResult } from "./indexBuildStates";
 import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, selectPreparedAppUniqueConstraintSet, inspectSelectedAppUniqueConstraintDefinitions,
   chargeUniqueConstraintPreparation,
+  validatePreparedAppUniqueConstraintCatalog,
   type AppUniqueConstraintSetEligibilityPortV1, type AppUniqueConstraintSetBuildPortsV1 } from "./appUniqueConstraintSetBuildV1";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord } from "./scopeClock";
 import type { AppRowTransaction } from "./appRows";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
 import type { IndexCoverageContext } from "./indexBuildStates";
-import { chargeHostPreparation, captureHostPreparationLifetime } from "./preparedHostRuntime";
+import { chargeHostPreparation, captureHostPreparationLifetime, registerHostPreparationDisposal } from "./preparedHostRuntime";
 import { prepareLogicalSearchBuild, makeLogicalSearchReadinessInspector } from "./logicalSearchBuild";
 import { prepareLogicalStrongReferenceProjections } from "./logicalStrongReferenceProjection";
 import { prepareLogicalRelationalTableMechanics } from "./logicalDocuments/relationalRows";
@@ -32,6 +34,14 @@ import type { LogicalStorageReadDemand } from "./logicalDocuments/model";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "./appUniqueConstraintDefinitions";
 import { prepareLogicalReadMechanics } from "./logicalDocuments/workingSet";
 import { requirePreparedLogicalReadMetadata, type PreparedLogicalReadMetadata } from "./logicalReadMetadata";
+import { authenticateProtectedReadinessMetadataPair, readProtectedReadinessCatalogIdentity, type ProtectedReadinessCatalogIdentity,
+  protectedMetadataEpochsEqual, type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
+import { readOriginalCurrentApplicationGenerationProtection, readApplicationBindingTargetProtection,
+  type ApplicationBindingInput } from "./applicationActivation";
+import type { ApplicationRelationReadinessProtection } from "./applicationRelationReadinessFold";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
+import { runEffectTransaction } from "./effectTransaction";
 
 /** Selected metadata supplies exact definitions; the established index,
  * unique and search owners retain their physical/coverage proof semantics. */
@@ -83,6 +93,7 @@ const preparedCatalogs = new WeakMap<object, Readonly<{
   ports: AppUniqueConstraintSetBuildPortsV1; unique: AppUniqueConstraintSetEligibilityPortV1;
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>;
   lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
+  controlIdentity: ProtectedReadinessCatalogIdentity;
 }>>();
 const decodePublishedIndexEnvelope = Schema.decodeUnknownEffect(Schema.Struct({
   format: Schema.Literal("flarexdb-app-index-physical-spec"), physicalSpecCodecVersion: Schema.Literal(1),
@@ -154,11 +165,29 @@ export const prepareLogicalStorageMetadataProjection = Effect.fn("LogicalStorage
 export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness.prepare")(function* (
   ports: AppUniqueConstraintSetBuildPortsV1, unique: AppUniqueConstraintSetEligibilityPortV1,
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
+  originalApplication?: ApplicationBindingInput,
 ) {
   if (!hasAppUniqueConstraintSetEligibilityCompositionV1(unique, ports.controlDb, ports.authority))
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
   const captured = Object.freeze({ ...input });
   const lifetime = yield* captureHostPreparationLifetime();
+  // Only the original constructor can lend its paired anchors before any cold
+  // catalog read. The original entry owner brackets these reads with its probes.
+  const originalProtection = originalApplication === undefined ? undefined : yield* Effect.fromResult(
+    readOriginalCurrentApplicationGenerationProtection(originalApplication)).pipe(
+      Effect.mapError(cause => new LogicalStorageReadinessError({ reason: "invalidComposition", cause })));
+  if (originalProtection !== undefined && originalApplication !== undefined) {
+    const original = yield* Effect.fromResult(readApplicationBindingTargetProtection(originalApplication)).pipe(
+      Effect.mapError(cause => new LogicalStorageReadinessError({ reason: "invalidComposition", cause })));
+    if (lifetime === undefined || original.lifetime?.checkOpen !== lifetime.checkOpen)
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  }
+  const controlIdentity = yield* readProtectedReadinessCatalogIdentity(ports.controlDb).pipe(
+    Effect.mapError(cause => new LogicalStorageReadinessError({ reason: cause.reason === "resourceFailure" ? "resourceFailure" : "invalidComposition", cause })));
+  yield* chargeHostPreparation(controlIdentity);
+  if (originalProtection !== undefined && (originalProtection.control.epoch.databaseName !== controlIdentity.databaseName ||
+    originalProtection.control.epoch.namespaceOid !== controlIdentity.namespaceOid))
+    return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
   const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(ports.controlDb, captured);
   if (requirements === null) return Object.freeze({ status: "not_ready" as const, reason: "schemaMissing" as const });
   yield* chargeHostPreparation(JSON.stringify({ manifest: requirements.manifest, definitions: requirements.definitions },
@@ -236,6 +265,51 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     table: mechanics.table, capabilities: mechanics.capabilities })));
 
   const inspectIndexes = makeLogicalIndexReadinessInspector(captured, lifetime);
+  let publishedCatalog: object | undefined;
+  const retainedProtection = originalProtection === undefined ? undefined : Object.freeze({
+    targetToken: originalProtection.target.token, controlToken: originalProtection.control.token,
+    targetEpoch: Object.freeze({ ...originalProtection.target.epoch }), controlEpoch: Object.freeze({ ...originalProtection.control.epoch }),
+  });
+  if (retainedProtection !== undefined) yield* chargeHostPreparation({ targetEpoch: retainedProtection.targetEpoch, controlEpoch: retainedProtection.controlEpoch });
+  const validateStaticCatalog = Effect.fn("LogicalStorageReadiness.validateStaticCatalog")(function* (
+    tx: AppRowTransaction, authority: TrustedScopeAuthority,
+    protection?: ApplicationRelationReadinessProtection,
+  ) {
+    if (publishedCatalog === undefined || !preparedCatalogs.has(publishedCatalog))
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    if (lifetime !== undefined) yield* Effect.fromResult(lifetime.checkOpen());
+    if (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId)
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+    if (protection !== undefined) {
+      yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, protection.target, protection.control));
+      if (protection.control.epoch.databaseName !== controlIdentity.databaseName ||
+        protection.control.epoch.namespaceOid !== controlIdentity.namespaceOid)
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+      if (retainedProtection !== undefined) {
+        if (retainedProtection.targetToken !== protection.target.token || retainedProtection.controlToken !== protection.control.token ||
+          !protectedMetadataEpochsEqual(retainedProtection.targetEpoch, protection.target.epoch) ||
+          !protectedMetadataEpochsEqual(retainedProtection.controlEpoch, protection.control.epoch))
+          return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+        return;
+      }
+    }
+    const target = yield* Effect.tryPromise({ try: () => ports.authority.scopeClockTargets.resolve(authority.physicalLocator),
+      catch: cause => new LogicalStorageReadinessError({ reason: "resourceFailure", cause }) });
+    if (protection !== undefined && !hasLocatedReadCommittedTargetDatabaseV1(target, protection.target.database))
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    const validate = Effect.fn("LogicalStorageReadiness.validateCatalogSnapshot")(function* (reader: FlarexMetadataTransaction) {
+      const current = yield* loadPublishedPhysicalRequirementSnapshotV1(ports.controlDb, captured, reader);
+      if (current === null || !publishedPhysicalRequirementSnapshotsEqual(requirements, current))
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+      yield* validatePreparedAppUniqueConstraintCatalog(constraints.preparation, ports.controlDb, reader);
+    });
+    yield* (hasLocatedReadCommittedTargetDatabaseV1(target, ports.controlDb) ? validate(tx) :
+      runEffectTransaction<Effect.Success<ReturnType<typeof validate>>, Effect.Error<ReturnType<typeof validate>>,
+        LogicalStorageReadinessError, FlarexMetadataTransaction>(callback => ports.controlDb.transaction(callback),
+        "Logical readiness catalog validation rolled back", validate,
+        cause => new LogicalStorageReadinessError({ reason: "resourceFailure", cause })));
+    if (protection !== undefined) yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, protection.target, protection.control));
+  });
   const definitionById = new Map(requirements.definitions.map(definition => [definition.indexDefinitionId, definition]));
   const sourceTableIds = new Map(sourceTables.map(member => [member.source.key, new Set(member.tables)]));
   // Definition bodies belong to the catalog charge. These are additional
@@ -281,7 +355,9 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
   const inspect = Effect.fn("LogicalStorageReadiness.inspect")(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     checkedActive?: CheckedApplicationActiveHead,
+    protection?: ApplicationRelationReadinessProtection,
   ) {
+    yield* validateStaticCatalog(tx, authority, protection);
     const indexes = yield* inspectIndexes(tx, authority, clock, requirements.definitions,
       additionalSearchFrontierTableIds, checkedActive);
     if (indexes.status === "not_ready") return indexes;
@@ -346,7 +422,9 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     const inspectSelected = Effect.fn("LogicalStorageReadiness.inspectSelected")(function* (
       tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
       checkedActive?: CheckedApplicationActiveHead,
+      protection?: ApplicationRelationReadinessProtection,
     ) {
+      yield* validateStaticCatalog(tx, authority, protection);
       const indexes = yield* inspectIndexes(tx, authority, clock, definitions,
         additionalSearchFrontierTableIds.filter(tableId => selectedTables.has(tableId)), checkedActive);
       if (indexes.status === "not_ready") return indexes;
@@ -362,7 +440,8 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
       applicationAnalysis });
   });
-  const prepared = Object.freeze({ status: "prepared" as const, inspect, selectSources, advanceEmptySearch: search.advanceEmpty,
+  const prepared = Object.freeze({ status: "prepared" as const, inspect, selectSources, validateCatalog: validateStaticCatalog,
+    advanceEmptySearch: search.advanceEmpty,
     requirements: sourceRequirements, snapshot: requirements,
     relationalTableMechanics: (tableId: CatalogTableId) => relationalMechanics.get(tableId),
     source: (key: string) => sourceByKey.get(key), sourceDefinitionTables: (key: string) => sourceDefinitionTables.get(key),
@@ -380,7 +459,18 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     }),
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
     applicationAnalysis, strongReferences });
-  preparedCatalogs.set(prepared, { ports: Object.freeze({ ...ports }), unique, input: captured, lifetime });
+  if (originalApplication !== undefined) {
+    const finalProtection = yield* Effect.fromResult(readOriginalCurrentApplicationGenerationProtection(originalApplication)).pipe(
+      Effect.mapError(cause => new LogicalStorageReadinessError({ reason: "invalidComposition", cause })));
+    if (retainedProtection !== undefined && (finalProtection === undefined ||
+      finalProtection.target.token !== retainedProtection.targetToken || finalProtection.control.token !== retainedProtection.controlToken ||
+      !protectedMetadataEpochsEqual(finalProtection.target.epoch, retainedProtection.targetEpoch) ||
+      !protectedMetadataEpochsEqual(finalProtection.control.epoch, retainedProtection.controlEpoch)))
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  }
+  preparedCatalogs.set(prepared, { ports: Object.freeze({ ...ports }), unique, input: captured, lifetime, controlIdentity });
+  publishedCatalog = prepared;
+  yield* registerHostPreparationDisposal(() => { preparedCatalogs.delete(prepared); });
   return prepared;
 });
 
@@ -393,6 +483,7 @@ export const requirePreparedLogicalStorageCatalog = Effect.fn("LogicalStorageRea
   catalog: PreparedLogicalStorageCatalog, ports: AppUniqueConstraintSetBuildPortsV1,
   unique: AppUniqueConstraintSetEligibilityPortV1,
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
+  protectedControl?: ProtectedTargetMetadataEvidence,
 ) {
   const issued = preparedCatalogs.get(catalog);
   if (issued === undefined || issued.ports.controlDb !== ports.controlDb || issued.ports.authority !== ports.authority ||
@@ -400,6 +491,9 @@ export const requirePreparedLogicalStorageCatalog = Effect.fn("LogicalStorageRea
     issued.input.schemaVersionId !== input.schemaVersionId)
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
   if (issued.lifetime !== undefined) yield* Effect.fromResult(issued.lifetime.checkOpen());
+  if (protectedControl !== undefined && (protectedControl.epoch.databaseName !== issued.controlIdentity.databaseName ||
+    protectedControl.epoch.namespaceOid !== issued.controlIdentity.namespaceOid))
+    return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
   return catalog;
 });
 

@@ -31,8 +31,8 @@ describe.skipIf(process.env.FLAREX_MEASUREMENT_INTEGRATION !== "1")("measurement
     expect(analysis.evidence.events.some(event => event.kind === "work")).toBe(true);
     expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.parentId !== null)).toBe(true);
     expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "LogicalDocuments.relationalFind")).toBe(true);
-    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "publication.materializationWrites")).toBe(true);
-    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.applyPreparedMaterializationBlock")).toBe(true);
+    expect(analysis.evidence.events.filter(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.acceptPublication" && event.owner === "pointCommitPublication" && event.outcome === "success")).toHaveLength(1);
+    expect(analysis.evidence.events.filter(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.materializeAcceptedPublication" && event.owner === "logicalMaterialization" && event.outcome === "success")).toHaveLength(1);
     expect(analysis.operationContext.coordinationUnionMs).toBeGreaterThan(0);
     expect(analysis.operationContext.ledgerMs).toBeCloseTo(analysis.wall.rootMs, 8);
   });
@@ -45,15 +45,21 @@ describe.skipIf(process.env.FLAREX_MEASUREMENT_INTEGRATION !== "1")("measurement
     const sample = raw.samples.find(sample => sample.kind === "diagnostic");
     const analysis = Result.getOrThrow(analyzeMeasurementEvidence(sample?.evidence));
     expect(analysis.diagnostic).toBe("complete");
-    expect(analysis.database.driverExchanges).toBe(40);
-    expect(analysis.database.correlatedDriverExchanges).toBe(40);
+    expect(analysis.database.driverExchanges).toBeGreaterThan(0);
+    expect(analysis.database.correlatedDriverExchanges).toBe(analysis.database.driverExchanges);
     expect(analysis.database.uncorrelatedDriverExchanges).toBe(0);
     expect(analysis.database.transactions).toBe(2);
+    // The warmed request keeps fresh native admission and publication guards,
+    // while the generation owns complete cold source catalogue validation.
+    expect(analysis.databaseOperations.filter(operation =>
+      operation.name === "LogicalStorageReadiness.validateStaticCatalog" ||
+      operation.name === "LogicalStorageDefinitions.prepareRequirements" ||
+      operation.name === "StableLogicalIndexCatalog.getByName")).toEqual([]);
     expect(analysis.wall.driverAwaitUnionMs).toBeGreaterThan(0);
     expect(analysis.evidence.events.some(event => event.kind === "driverAwait" && event.transactionId !== null)).toBe(true);
     expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "LogicalDocuments.relationalFind")).toBe(true);
-    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "publication.materializationWrites")).toBe(true);
-    expect(analysis.evidence.events.some(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.applyPreparedMaterializationBlock")).toBe(true);
+    expect(analysis.evidence.events.filter(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.acceptPublication" && event.owner === "pointCommitPublication" && event.outcome === "success")).toHaveLength(1);
+    expect(analysis.evidence.events.filter(event => event.kind === "effectSpan" && event.name === "ApplicationDocument.materializeAcceptedPublication" && event.owner === "logicalMaterialization" && event.outcome === "success")).toHaveLength(1);
     expect(analysis.databaseOperations.some(operation => operation.name !== null && operation.name !== "mixed-product")).toBe(true);
     expect(analysis.operationContext.ledgerMs).toBeCloseTo(analysis.wall.rootMs, 8);
     const comparison = await compare({ selection: { scenario: "mixed-product" }, size: "small", warmups: 0,

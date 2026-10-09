@@ -16,7 +16,7 @@ major version and relevant exports/types. This skill's examples target Effect v4
 use the installed equivalent in other versions. A repo-local copy and project
 contracts take precedence over a global copy or historical source example.
 
-For the smallest connected operation, identify:
+For the connected operation and its owning execution graph, identify:
 
 1. Data entering/leaving the boundary and its authoritative runtime contract.
 2. Expected failures, ordinary absence, defects, and interruption.
@@ -24,9 +24,12 @@ For the smallest connected operation, identify:
 4. Dependencies, resources, mutable state, and their owning lifetime.
 
 Reuse the existing contract owner before adding another interface, validator,
-codec, service, or helper. Correct bounded touched-flow gaps inside the approved
-slice; broader public, transaction, authority, or lifecycle changes need their
-own preflight. Skill compliance never expands the user's authorization.
+codec, service, or helper. Correct connected touched-flow gaps inside the approved
+scope. Operation-level API analysis does not cap implementation or delivery size:
+an approved redesign must replace the connected owners and consumers required
+for its complete outcome. Public, transaction, authority, or lifecycle changes
+outside that approval need their own preflight. Skill compliance never expands
+the user's authorization.
 
 ## Choose the representation
 

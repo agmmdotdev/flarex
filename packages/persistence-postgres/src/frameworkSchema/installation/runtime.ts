@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
-import { chargeHostPreparation } from "../../preparedHostRuntime";
+import { captureHostPreparationLifetime } from "../../preparedHostRuntime";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
@@ -45,6 +45,9 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
   const captured = yield* Effect.fromResult(capturePrivateJsonData(input, 65_536, (_reason, cause) => bindingError("invalidInput", cause)));
   if (!isSyntheticBindingReference(captured.value)) return yield* Effect.fail(bindingError("invalidInput"));
   const reference = captured.value;
+  // The native transaction bridge carries tracing, not construction services.
+  // Retain only this actual host allocation's accounting/disposal capability.
+  const preparationLifetime = yield* captureHostPreparationLifetime();
   const state = yield* runEffectTransaction(
     callback => database.transaction(callback, { isolationLevel: "repeatable read" }),
     "Installation preparation failed; roll back its snapshot transaction.",
@@ -76,7 +79,8 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
         },
       };
       if (measureCanonicalJsonUtf8Bytes(payload, MAX_RETAINED_PAYLOAD_BYTES).kind !== "success") return yield* Effect.fail(bindingError("resourceFailure"));
-      yield* chargeHostPreparation(payload).pipe(Effect.mapError(cause => bindingError("resourceFailure", cause)));
+      if (preparationLifetime !== undefined) yield* Effect.fromResult(preparationLifetime.charge(payload))
+        .pipe(Effect.mapError(cause => bindingError("resourceFailure", cause)));
       return Object.freeze({ target, reference, installationStorageId: restored.installation.storageId, headFingerprint, coordinates, evidence, data });
     }).pipe(withBindingMigrationGraphLimits, withFrameworkMigrationPlanVerification,
       Effect.timeoutOrElse({ duration: 15_000, orElse: () => Effect.fail(bindingError("resourceFailure")) })),
@@ -85,6 +89,8 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
   // SAFETY: this family is authenticated only by the private registry. The token
   // contains no data and is never recognized as a restored repository capability.
   const token = Object.freeze({}) as PreparedInstallationRuntime;
+  if (preparationLifetime !== undefined) yield* Effect.fromResult(preparationLifetime.onDispose(() => { states.delete(token); }))
+    .pipe(Effect.mapError(cause => bindingError("resourceFailure", cause)));
   states.set(token, state);
   return token;
 });

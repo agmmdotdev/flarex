@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import { encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
 import {
   captureBindingValue,
   isDataBindingSetFrame,
@@ -49,6 +51,135 @@ function frame(): DataBindingSetFrame {
 }
 
 describe("data binding value boundaries", () => {
+  it("issues the checked detached frozen frame with one canonical digest", async () => {
+    const input = { ...frame(), application: { ...frame().application } };
+    let checked: DataBindingSetFrame | undefined;
+    let checks = 0;
+    const guard = (value: unknown): value is DataBindingSetFrame => {
+      checks += 1;
+      if (!isDataBindingSetFrame(value)) return false;
+      checked = value;
+      return true;
+    };
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    try {
+      const captured = await runEffect(captureBindingValue(input, guard));
+      expect(checks).toBe(1);
+      expect(digest).toHaveBeenCalledTimes(1);
+      expect(captured.frame).toBe(checked);
+      expect(captured.frame).not.toBe(input);
+      expect(captured.frame.application).not.toBe(input.application);
+      expect(Object.isFrozen(captured)).toBe(true);
+      expect(Object.isFrozen(captured.frame)).toBe(true);
+      expect(Object.isFrozen(captured.frame.application.readiness)).toBe(true);
+      expect(Object.isFrozen(captured.frame.commerce)).toBe(true);
+      const canonical = encodeCanonicalJson(input, () => { throw new Error("invalid test frame"); });
+      expect(captured.canonicalJson).toBe(canonical);
+      expect(captured.copyCanonicalBytes()).toEqual(new TextEncoder().encode(canonical));
+      expect(captured.sha256Hex).toBe(createHash("sha256").update(canonical).digest("hex"));
+      expect(captured.canonicalByteLength).toBe(captured.copyCanonicalBytes().byteLength);
+      const bytes = captured.copyCanonicalBytes();
+      const hash = captured.copySha256Bytes();
+      expect(bytes).not.toBe(captured.copyCanonicalBytes());
+      expect(hash).not.toBe(captured.copySha256Bytes());
+      bytes.fill(0);
+      hash.fill(0);
+      input.application.revisionId = "mutated";
+      expect(captured.frame.application.revisionId).toBe("test-revision");
+      expect(captured.copyCanonicalBytes()).toEqual(new TextEncoder().encode(canonical));
+      expect(captured.copySha256Bytes()).toEqual(new Uint8Array(createHash("sha256").update(canonical).digest()));
+    } finally {
+      digest.mockRestore();
+    }
+  });
+  it("preserves intrinsic format/version refusals after hashing a broadly guarded frame", async () => {
+    const guard = (value: unknown): value is JsonObject => value !== null &&
+      typeof value === "object" && !Array.isArray(value);
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    try {
+      for (const input of [
+        { format: "flarex.data-binding-set", version: 1 },
+        { format: "flarex.data-binding-head", version: 1 },
+        { format: "flarex.data-binding-activation", version: 1 },
+        { format: "flarex.data-binding-activation", version: "2" },
+        { format: "flarex.data-binding-activation", version: 4 },
+        { format: "other", version: 2 },
+        { format: "other" },
+        { format: 1, version: 1 },
+      ]) {
+        digest.mockClear();
+        expect(await runEffectFailure(captureBindingValue(input, guard)))
+          .toMatchObject({ reason: "storedCorruption" });
+        expect(digest).toHaveBeenCalledTimes(1);
+      }
+      for (const input of [
+        { format: "flarex.data-binding-set" },
+        { format: "flarex.data-binding-head", version: 2 },
+        { format: "flarex.data-binding-activation", version: 2 },
+        { format: "flarex.data-binding-activation", version: 3 },
+        { format: "other", version: 1 },
+      ]) expect((await runEffect(captureBindingValue(input, guard))).frame).toEqual(input);
+      digest.mockClear();
+      const refusal = new Error("digest unavailable");
+      digest.mockRejectedValueOnce(refusal);
+      expect(await runEffectFailure(captureBindingValue({ format: 1 }, guard)))
+        .toMatchObject({ reason: "resourceFailure", cause: refusal });
+      expect(digest).toHaveBeenCalledTimes(1);
+      digest.mockClear();
+      expect(await runEffectFailure(captureBindingValue(frame(), (_value): _value is JsonObject => false)))
+        .toMatchObject({ reason: "invalidInput" });
+      expect(digest).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
+  });
+  it("issues the canonical zero frame without changing stored binding bytes", async () => {
+    const input = { ...frame(), application: { ...frame().application, readiness: {
+      kind: "relation", manifestSchemaBindingSha256: "a".repeat(64), boundPublicationSha256: "b".repeat(64),
+      relationFrontierCommitSeq: "0", relationSetReadinessSha256: "c".repeat(64), relationCount: -0,
+    } } };
+    if (!isDataBindingSetFrame(input)) throw new Error("Invalid relation readiness fixture");
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    try {
+      const captured = await runEffect(captureBindingValue(input, isDataBindingSetFrame));
+      expect(digest).toHaveBeenCalledTimes(1);
+      expect(Object.is(input.application.readiness.relationCount, -0)).toBe(true);
+      const readiness = captured.frame.application.readiness;
+      if (readiness.kind !== "relation") throw new Error("Wrong captured readiness fixture");
+      expect(Object.is(readiness.relationCount, -0)).toBe(false);
+      expect(readiness.relationCount).toBe(0);
+      expect(captured.canonicalJson).toBe(encodeCanonicalJson(input, () => { throw new Error("Invalid fixture"); }));
+      expect(await runEffect(restoreBindingValue(captured.copyCanonicalBytes(), captured.sha256Hex,
+        captured.frame.format, isDataBindingSetFrame))).toEqual(captured.frame);
+    } finally {
+      digest.mockRestore();
+    }
+  });
+  it("still authenticates and detaches each foreign stored frame", async () => {
+    const captured = await runEffect(captureBindingValue(frame(), isDataBindingSetFrame));
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    try {
+      const restored = await runEffect(restoreBindingValue(captured.copyCanonicalBytes(),
+        captured.sha256Hex, captured.frame.format, isDataBindingSetFrame));
+      expect(digest).toHaveBeenCalledTimes(1);
+      expect(restored).toEqual(captured.frame);
+      expect(restored).not.toBe(captured.frame);
+      expect(restored.application).not.toBe(captured.frame.application);
+      expect(Object.isFrozen(restored.application.readiness)).toBe(true);
+      for (const [bytes, sha256Hex] of [
+        [captured.copyCanonicalBytes(), "0".repeat(64)],
+        [new TextEncoder().encode(` ${captured.canonicalJson}`),
+          createHash("sha256").update(` ${captured.canonicalJson}`).digest("hex")],
+      ] as const) {
+        digest.mockClear();
+        expect(await runEffectFailure(restoreBindingValue(bytes, sha256Hex,
+          captured.frame.format, isDataBindingSetFrame))).toMatchObject({ reason: "storedCorruption" });
+        expect(digest).toHaveBeenCalledTimes(1);
+      }
+    } finally {
+      digest.mockRestore();
+    }
+  });
   it("binds sorted strong-reference endpoints into the current head format", async () => {
     const head = { format: "flarex.data-binding-head", version: 2,
       scopeId: frame().application.scopeId, storageGeneration: "flarexdb_v1", sequence: "1",

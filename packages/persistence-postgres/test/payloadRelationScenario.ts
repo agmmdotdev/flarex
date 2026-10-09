@@ -7,7 +7,9 @@ import { fxAppRowCurrent, fxAppRowRevisions } from "../src/schema";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../src/installationLifecycle";
 import { decodeAppDocumentIdentityV1Result, decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { canonicalizeAppUniqueConstraintSetV1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import { createApplicationRelationReadPort } from "../src/applicationRelationRead";
@@ -17,6 +19,8 @@ import { readApplicationWriteOwnershipInTransaction } from "../src/applicationWr
 import { withApplicationWriteOwnershipCatalog } from "../src/applicationWriteOwnership/Catalog";
 import { ApplicationWriteOwnershipHistoryBudget } from "../src/applicationWriteOwnership/Policy";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
+import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../src/scopeAuthorityResolution";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
 import { fxControlSchemaVersionUniqueConstraintSets, fxControlSchemaVersionUniqueConstraintBindings, fxSystemScopeClocks } from "../src/schema";
 import { expect } from "vitest";
 import { Effect, Exit, Fiber, Result } from "effect";
@@ -59,9 +63,18 @@ export async function payloadRelationScenario(input: {
       const active = await runEffect(fixture.relationActivation.readActive());
       const managedTableId = Result.getOrThrow(decodeAppDocumentIdentityV1Result(source)).tableId;
       const denyOrdinary = async () => {
-        const result = await db.transaction(tx => runEffect(validateApplicationWriteOwnershipForCommit(tx, {
-          scopeId: fixture.authority.scopeId, generation: "application_v1", authenticatedAttemptedTables: [managedTableId], materialTables: [],
-        }, hostInput.materialization.uniqueConstraints).pipe(Effect.result)));
+        const located = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
+          deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+        }, fixture.authorityPorts));
+        const result = await db.transaction(async tx => {
+          await runEffect(lockInstallationForCurrentTransaction(tx));
+          try {
+            await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.authority.scopeId));
+            return await runEffect(validateApplicationWriteOwnershipForCommit(tx, {
+              scopeId: fixture.authority.scopeId, generation: "application_v1", authenticatedAttemptedTables: [managedTableId], materialTables: [],
+            }, hostInput.materialization.uniqueConstraints, located.target).pipe(Effect.result));
+          } finally { closeInstallationAdmission(tx); }
+        });
         expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "writeDenied" } });
       };
       await denyOrdinary();
@@ -202,7 +215,32 @@ export async function payloadRelationScenario(input: {
       expect(await inventory()).toEqual(beforeRestrict);
       await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { score: 7 } });
       expect(await read(source)).toMatchObject({ relatedPost: target, score: 7 });
-      for (const step of ["tentativeRowWritten", "relationEdgeWritten", "commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
+      const schemaName = await db.transaction(async tx => {
+        await runEffect(lockInstallationForCurrentTransaction(tx));
+        try { return await runEffect(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
+        finally { closeInstallationAdmission(tx); }
+      });
+      const rowTable = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(getTableName(fxAppRowRevisions))}`).sql;
+      const rowFunction = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier("payload_relation_row_corruption")}`).sql;
+      const sourceIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(source));
+      await input.persistence.query(`create function ${rowFunction}() returns trigger language plpgsql as $$
+        begin
+          if NEW."${fxAppRowRevisions.rowId.name}"=decode('${sourceIdentity.rowId}','hex') then
+            NEW."${fxAppRowRevisions.creationTime.name}" := NEW."${fxAppRowRevisions.creationTime.name}" + 1;
+          end if;
+          return NEW;
+        end $$`);
+      try {
+        await input.persistence.query(`create trigger payload_relation_row_corruption before insert on ${rowTable}
+          for each row execute function ${rowFunction}()`);
+        try {
+          const before = await inventory();
+          expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update,
+            { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ reason: "storedCorruption" });
+          expect(await inventory()).toEqual(before);
+        } finally { await input.persistence.query(`drop trigger payload_relation_row_corruption on ${rowTable}`); }
+      } finally { await input.persistence.query(`drop function ${rowFunction}()`); }
+      for (const step of ["relationEdgeWritten", "commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
         const before = await inventory(); failureStep = step;
         expect(await runEffect(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
         failureStep = undefined; expect(await inventory()).toEqual(before);
@@ -301,8 +339,10 @@ export async function payloadRelationScenario(input: {
             entered.resolve(); await release.promise;
           }) }));
           let changing: Effect.Effect<unknown, unknown>;
+          let preparedActivation: Awaited<ReturnType<typeof preparePayloadRelationRevision>> | undefined;
           if (change === "activation") {
             const preparedRevision = await preparePayloadRelationRevision(relationFixture, revisionOrdinal++);
+            preparedActivation = preparedRevision;
             if (first === "change") relationFixture = preparedRevision;
             const beforeActive = await runEffect(fixture.relationActivation.readActive());
             const activator = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.legacyReadiness,
@@ -333,15 +373,35 @@ export async function payloadRelationScenario(input: {
           }
           expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: change === "activation" ? "Failure" : "Success" } });
           if (change === "activation") {
-            const count = relation.observations.executions();
-            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({ reason: "invalidAuthority", cause: { reason: "concurrentHead" } });
-            expect(relation.observations.executions()).toBe(count);
+            if (preparedActivation === undefined) throw new Error("Missing prepared schema successor");
             const application = await runEffect(bindings.readApplicationReference());
+            expect(BigInt(application.activationSequence)).toBe(BigInt(beforeBinding.frame.application.activationSequence) + 1n);
+            expect(application.schemaVersionId).not.toBe(beforeBinding.frame.application.schemaVersionId);
+            expect(application.schemaManifestSha256).not.toBe(beforeBinding.frame.application.schemaManifestSha256);
+            expect(application).toMatchObject({ revisionId: preparedActivation.publication.revisionId,
+              schemaVersionId: preparedActivation.relation.binding.schemaVersionId,
+              schemaManifestSha256: preparedActivation.relation.binding.schemaManifestSha256,
+              applicationSchemaSha256: preparedActivation.relation.binding.applicationSchemaSha256 });
+            const count = relation.observations.executions();
+            const beforeRefusal = await inventory();
+            // The original generation is pinned to its immutable schema. A real
+            // successor is refused before Application acceptance or callbacks.
+            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({
+              reason: "invalidAuthority", cause: { _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false },
+            });
+            expect(relation.observations.executions()).toBe(count);
+            expect(await inventory()).toEqual(beforeRefusal);
             const rebound = await runEffect(bindings.prepare({ ...beforeBinding.frame, application, payloadContent: { ...beforeBinding.frame.payloadContent, application } }));
             await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `race-rebind-${first}`, rebound.sha256, beforeBinding.head)));
             // Revision-pinned hosts are reconstructed after the explicit cutover.
-            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({ reason: "invalidAuthority", cause: { reason: "concurrentHead" } });
+            const afterRebind = await inventory();
+            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({
+              reason: "invalidAuthority", cause: { _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false },
+            });
+            expect(relation.observations.executions()).toBe(count);
+            expect(await inventory()).toEqual(afterRebind);
             host = await runEffect(makeCmsHost(composition));
+            expect(await read(source)).toMatchObject({ id: source });
           }
           if (first === "writer") {
             const count = relation.observations.executions();

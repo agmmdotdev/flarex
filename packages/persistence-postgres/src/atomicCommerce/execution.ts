@@ -27,6 +27,7 @@ import {
 } from "./events";
 import type { PreparedAtomicCommerceConfiguration } from "./configuration";
 import type { AtomicCommerceAdmission } from "./admission";
+import { invalidateAcceptedApplicationBindingInTransaction } from "../applicationActivation";
 import type { LogicalCommerceCallObservation } from "./participants";
 import {
   hashAtomicCommerceBytes,
@@ -358,6 +359,7 @@ export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeReq
     const result = yield* Effect.fromResult(canonicalizeJsonOutcome(capturedResult.value)).pipe(
       Effect.mapError(projectCommerceRequestFailure),
     );
+    invalidateAcceptedApplicationBindingInTransaction(tx);
     const { root, additional, events } = yield* execution.closeContributions();
     yield* finalizeCommerceCommit(
       { kind: "atomic", participants: [root, ...additional], factLimit: configuration.factLimit,

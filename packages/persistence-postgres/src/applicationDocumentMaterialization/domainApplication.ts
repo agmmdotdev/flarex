@@ -38,8 +38,8 @@ type RowWrite = Required<typeof fxAppRowRevisions.$inferInsert>;
 type IndexWrite = Required<typeof fxAppIndexEntryRevisions.$inferInsert>;
 const rowColumns = getTableColumns(fxAppRowRevisions);
 const indexColumns = getTableColumns(fxAppIndexEntryRevisions);
-export function applicationIndexTransitionScalarArray(values: readonly (string | number | bigint | null)[],
-  type: "text" | "integer" | "bigint", column: Parameters<typeof sql.param>[1]): SQL {
+export function applicationIndexTransitionScalarArray(values: readonly (string | number | bigint | boolean | null)[],
+  type: "text" | "integer" | "bigint" | "uuid" | "boolean" | "double precision", column: Parameters<typeof sql.param>[1]): SQL {
   const encoded = values.map(value => value === null ? null : String(column?.mapToDriverValue(value) ?? value));
   return sql`${sql.param(makePgArray(encoded))}::${sql.raw(type)}[]`;
 }
@@ -66,11 +66,10 @@ function uniqueOwnerArray(owners: readonly AppUniqueAbsentOwner[], schemaName: s
     ${sql.param(owner.rowId, uniqueColumns.rowId)}::bytea)::${sql.identifier(schemaName)}.fx_app_unique_owner`), sql`, `)}]::${sql.identifier(schemaName)}.fx_app_unique_owner[]`;
 }
 
-export function buildAppUniqueOwnerAcceptanceStatement(owners: readonly AppUniqueAbsentOwner[], previous: readonly (Uint8Array | null)[],
+export function applicationUniqueOwnerAcceptanceParameters(owners: readonly AppUniqueAbsentOwner[], previous: readonly (Uint8Array | null)[],
   prior: readonly (bigint | null)[], schemaName: string): SQL {
-  return sql`select reason, owners from ${sql.identifier(schemaName)}.fx_accept_app_unique_owners(
-    ${uniqueOwnerArray(owners, schemaName)}, ${applicationIndexTransitionByteArray(previous, fxAppUniqueKeys.encodedKey)},
-    ${applicationIndexTransitionScalarArray(prior, "bigint", fxAppIndexEntryRevisions.commitSeq)})`;
+  return sql`${uniqueOwnerArray(owners, schemaName)}, ${applicationIndexTransitionByteArray(previous, fxAppUniqueKeys.encodedKey)},
+    ${applicationIndexTransitionScalarArray(prior, "bigint", fxAppIndexEntryRevisions.commitSeq)}`;
 }
 
 /** Internal compilation always receives one of this owner's fixed tables. */
@@ -118,23 +117,13 @@ export interface ApplicationMaterializationValues {
   readonly search: readonly PreparedLogicalSearchApplication[];
 }
 
-/** Physical bind capacity partitions successful blocks; it is not a new domain refusal. */
-export function applicationMaterializationBindCount(value: ApplicationMaterializationValues): number {
-  return value.rows.length * Object.keys(rowColumns).length + value.rowPages.length + value.indexes.length * (Object.keys(indexColumns).length + 2)
-    + value.unique.owners.length * 5 + [...value.unique.previous, ...value.unique.next].filter(row => row !== null).length * Object.keys(uniqueColumns).length
-    + (value.validation.length + value.indexCoverage.length + value.uniqueCoverage.length) * 5 + 2
-    + value.search.reduce((sum, search) => sum + 7 + search.ids.length +
-      (search.textPages.flat().length + search.jsonPages.flat().length) * 8, 0);
-}
-
 function materializationScalarArray<T>(values: readonly T[], type: "integer" | "bigint" | "boolean" | "text",
   encoder?: Parameters<typeof sql.param>[1]): SQL {
   return sql`array[${sql.join(values.map(item => sql`${sql.param(item, encoder)}::${sql.raw(type)}`), sql`, `)}]::${sql.raw(type)}[]`;
 }
 
-export function buildApplicationMaterializationStatement(value: ApplicationMaterializationValues, schemaName: string): SQL {
-  return sql`select reason, row_count, index_count, unique_count, validation_count, coverage_count, search_count, search_build_count from ${sql.identifier(schemaName)}.fx_apply_app_materialization(
-    ${applicationTupleArray(fxAppRowRevisions, "fx_app_row_write", value.rows, schemaName)}, ${materializationScalarArray(value.rowPages, "integer")},
+export function applicationMaterializationParameters(value: ApplicationMaterializationValues, schemaName: string): SQL {
+  return sql`    ${applicationTupleArray(fxAppRowRevisions, "fx_app_row_write", value.rows, schemaName)}, ${materializationScalarArray(value.rowPages, "integer")},
     ${applicationTupleArray(fxAppIndexEntryRevisions, "fx_app_index_write", value.indexes.map(entry => entry.row), schemaName)},
     ${materializationScalarArray(value.indexes.map(entry => entry.prior), "bigint")}, ${materializationScalarArray(value.indexes.map(entry => entry.historical), "boolean")},
     ${uniqueOwnerArray(value.unique.owners, schemaName)}, ${applicationTupleArray(fxAppUniqueKeys, "fx_app_unique_write", value.unique.previous, schemaName)},
@@ -151,7 +140,7 @@ export function buildApplicationMaterializationStatement(value: ApplicationMater
     ${materializationScalarArray(value.search.map(search => search.textPages.flat().length), "integer")},
     ${applicationTupleArray(fxAppSearchEntryCurrent, "fx_app_search_write", value.search.flatMap(search => search.textPages.flat()), schemaName)},
     ${materializationScalarArray(value.search.map(search => search.jsonPages.flat().length), "integer")},
-    ${applicationTupleArray(fxAppJsonEntryCurrent, "fx_app_json_write", value.search.flatMap(search => search.jsonPages.flat()), schemaName)})`;
+    ${applicationTupleArray(fxAppJsonEntryCurrent, "fx_app_json_write", value.search.flatMap(search => search.jsonPages.flat()), schemaName)}`;
 }
 
 /** Prepared tuples are fixed domain values compiled from the authoritative

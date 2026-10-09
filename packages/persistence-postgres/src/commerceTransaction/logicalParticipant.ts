@@ -5,13 +5,13 @@ import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { isJsonObject, type JsonObject } from "flarex-protocol/json";
+import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../logicalDocuments/relationalAdmission";
-import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges } from "../logicalDocuments/workingSet";
+import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges, type LogicalDocumentActivity } from "../logicalDocuments/workingSet";
 import type { LogicalStorageReadReadiness } from "../logicalDocuments/model";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
 import { bindPreparedLogicalRelationalRows } from "../logicalDocuments/relationalRows";
@@ -92,6 +92,7 @@ interface ClosureState {
   readonly tx: FlarexMetadataTransaction;
   readonly lifetime: BoundedRequestLifetime<CommerceTransactionError>;
   readonly changes: LogicalDocumentChanges;
+  readonly activity: () => Effect.Effect<LogicalCommerceActivity, CommerceTransactionError>;
   readonly maximumIndexEntries: number;
   readonly maximumFacts: number;
 }
@@ -118,13 +119,16 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     for (const table of state.tables) yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
     tables: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.tables :
-      state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition, relationalMechanics: table.mechanics })),
+      state.writeMechanics.tables,
     ...(readReadiness.kind === "queryRequired" ? (
       readReadiness.mechanics.relationalCapabilities === undefined ? {} : {
         relationalCapabilities: readReadiness.mechanics.relationalCapabilities,
       }
-    ) : { relationalCapabilities: state.schema.capabilities }),
-    searchDefinitions: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.searchDefinitions : state.search,
+    ) : { writeMechanics: state.writeMechanics,
+      ...(state.writeMechanics.relationalCapabilities === undefined ? {} : {
+        relationalCapabilities: state.writeMechanics.relationalCapabilities,
+      }) }),
+    searchDefinitions: readReadiness.kind === "queryRequired" ? readReadiness.mechanics.searchDefinitions : state.writeMechanics.searchDefinitions,
     readReadiness,
     requireAdmission: requireLogicalRelationalAdmission(admission, tx).pipe(Effect.asVoid, Effect.mapError(projectCommerceRequestFailure)),
     validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
@@ -132,34 +136,28 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     uniqueConflict: () => commerceError("invalidInput"),
     limits: { ...logicalCommerceWorkingSetLimits, pageRows: selectedResources?.queryRows ?? logicalCommerceWorkingSetLimits.pageRows,
       identities: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities },
-  }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
-    readReadiness.kind === "queryRequired" ? [] : state.indexes.filter(index => index.access.kind === "developer"));
+  }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis),
+    readReadiness.kind === "queryRequired" ? state.unique : state.writeMechanics.unique,
+    readReadiness.kind === "queryRequired" ? [] : state.writeMechanics.indexes);
   const first = state.tables[0];
   if (first === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const store = yield* working.relationalTable(initialContext, id, first.localName);
+  const names = state.tableNames;
+  const projectActivity = makeLogicalCommerceActivityProjection(names);
   const close = Effect.fn("LogicalCommerce.close")(function* () {
     const changes = yield* working.close();
+    const activity = yield* working.readActivityContribution(yield* working.closedActivityContribution);
     // SAFETY: only this registry authenticates a closed admission/lifetime pair.
     const closure = Object.freeze({}) as LogicalCommerceClosure;
-    closures.set(closure, { admission, tx, lifetime, changes,
+    closures.set(closure, { admission, tx, lifetime, changes, activity: () => projectActivity(activity),
       maximumIndexEntries: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities,
       maximumFacts: resources.facts });
     return closure;
   });
-  const names = state.tableNames;
   const callActivity = Effect.fn("LogicalCommerce.callActivity")(function* (
     cursor: ReturnType<typeof working.activityCursor>,
   ) {
-    const snapshot = yield* working.activitySnapshot();
-    return yield* projectLogicalCommerceActivity(names, {
-      ...snapshot,
-      attempts: snapshot.attempts.slice(cursor.attempts).map(attempt =>
-        Object.freeze({ ...attempt, ordinal: attempt.ordinal - cursor.attempts })),
-      lifecycle: snapshot.lifecycle.slice(cursor.lifecycle).map(observation => Object.freeze({ ...observation,
-        attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - cursor.attempts })),
-      setNull: snapshot.setNull.slice(cursor.setNull),
-      referenceReplacements: snapshot.referenceReplacements.slice(cursor.referenceReplacements),
-    });
+    return yield* projectActivity(yield* working.readActivityContribution(yield* working.activityContribution, cursor));
   });
   return Object.freeze({ store, resources, close,
     transactionTime: (context: BoundedRequestContext) => working.readTransactionTime(context, id),
@@ -195,9 +193,8 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
   const closed = closures.get(closure);
   if (closed === undefined || closed.lifetime !== lifetime || !lifetime.isClosing())
     return yield* Effect.fail(commerceError("invalidAuthority"));
-  const state = yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const names = state.tableNames;
-  return yield* projectLogicalCommerceActivity(names, closed.changes);
+  yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  return yield* closed.activity();
 });
 
 /** Both live call evidence and closed aggregate evidence use the same projection.
@@ -249,10 +246,44 @@ export const projectLogicalCommerceActivity = Effect.fn("LogicalCommerce.project
       targetTable, targetColumn: intent.targetColumn, targetKey: intent.targetKey,
       desiredKeys: intent.desiredKeys }));
   }
-  return Object.freeze({ mutations: Object.freeze(mutations), lifecycle: Object.freeze(lifecycle),
-    observedRows: Object.freeze(observedRows), setNull: Object.freeze(setNull),
-    referenceReplacements: Object.freeze(referenceReplacements) });
+  // Native policies see one detached JSON contribution. Canonical runtime
+  // values and their mutable bytes remain private to the original working set.
+  const detached = structuredClone({ mutations, lifecycle, observedRows, setNull, referenceReplacements });
+  for (const mutation of detached.mutations) {
+    freezeActivityJson(mutation.before); freezeActivityJson(mutation.after); Object.freeze(mutation);
+  }
+  for (const observation of detached.lifecycle) {
+    Object.freeze(observation.key); freezeActivityJson(observation.rowAtOperation); Object.freeze(observation);
+  }
+  for (const observation of detached.observedRows) { freezeActivityJson(observation.row); Object.freeze(observation); }
+  for (const intent of detached.setNull) Object.freeze(intent);
+  for (const intent of detached.referenceReplacements) { Object.freeze(intent.desiredKeys); Object.freeze(intent); }
+  return Object.freeze({ mutations: Object.freeze(detached.mutations), lifecycle: Object.freeze(detached.lifecycle),
+    observedRows: Object.freeze(detached.observedRows), setNull: Object.freeze(detached.setNull),
+    referenceReplacements: Object.freeze(detached.referenceReplacements) });
 });
+
+// Only the checked JSON fields assembled above enter this projection. This is
+// deliberate detachment of an owned contribution, not an unknown-input parser.
+const freezeActivityJson = (value: Json): void => {
+  if (value === null || typeof value !== "object") return;
+  for (const child of Array.isArray(value) ? value : Object.values(value)) freezeActivityJson(child);
+  Object.freeze(value);
+};
+
+/** One current value projection owned by the original admitted source. It
+ * retains neither a live verdict nor an additional graph/settlement authority. */
+export type LogicalCommerceActivity = Effect.Success<ReturnType<typeof projectLogicalCommerceActivity>>;
+
+export function makeLogicalCommerceActivityProjection(names: Pick<ReadonlyMap<CatalogTableId, string>, "get">) {
+  let projected: Readonly<{ source: LogicalDocumentActivity; value: LogicalCommerceActivity }> | undefined;
+  return (activity: LogicalDocumentActivity): Effect.Effect<LogicalCommerceActivity, CommerceTransactionError> => {
+    if (projected?.source === activity) return Effect.succeed(projected.value);
+    return projectLogicalCommerceActivity(names, activity).pipe(Effect.tap(value => Effect.sync(() => {
+      projected = Object.freeze({ source: activity, value });
+    })));
+  };
+}
 
 /** The root consumes exactly once while the source callback is still live. */
 export const consumeLogicalCommerceClosure = Effect.fn("LogicalCommerce.consume")(function* (
@@ -315,10 +346,10 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
   // Homogeneous creates or deletes have no cross-page key transfer. Mixed
   // transitions still need complete unique-key validation on one page.
   const allCreated = rootChanges.every(change => change.kind === "live" &&
-    change.dependency.observed.kind === "missing" &&
-    change.dependency.observed.basis.kind === "noVisibleRevision");
+    (change.dependency.kind === "generatedInsertion" || change.dependency.observed.kind === "missing" &&
+    change.dependency.observed.basis.kind === "noVisibleRevision"));
   const allDeleted = rootChanges.every(change => change.kind === "deleted" &&
-    change.dependency.observed.kind === "present");
+    change.dependency.kind === "appRowPoint" && change.dependency.observed.kind === "present");
   if (pagedRoot && (replacements.length !== 0 || !(allCreated || allDeleted)))
     return yield* Effect.fail(commerceError("limitExceeded"));
   const derivedIds = Object.freeze(replacements.flatMap(({ selection }) =>

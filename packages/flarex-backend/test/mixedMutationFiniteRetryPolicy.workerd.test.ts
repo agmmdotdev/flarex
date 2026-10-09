@@ -32,6 +32,33 @@ function selector(fixture: Fixture, attemptFence: bigint) {
 }
 
 describe.each(drivers)("finite retry eligibility on %s", driver => {
+  it("authenticates cold redispatch before one recovered replacement and replays its commit", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-cold-original-entry-${driver}` });
+    try {
+      const value = await execute(fixture);
+      await fixture.runStandaloneProductUpdate({ title: `${fixture.seed.newTitle} concurrent`, handle: `${fixture.seed.newHandle}-concurrent` });
+      const failure = await Effect.runPromise(await fixture.prepareOccPublication(value))
+        .then(() => undefined, (cause: unknown) => cause);
+      expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
+      const fenced = await currentAttempt(fixture);
+      expect(fenced.lifecycle).toBe("retrying");
+      expect(fixture.nativeInvokeCount.get("update")).toBe(1);
+      const dispatcher = fixture.makeFiniteDispatcher();
+      const published = await Effect.runPromise(dispatcher.redispatchExactPointMutationAttempt(selector(fixture, fenced.attemptFence)));
+      expect(published).toMatchObject({ kind: "published" });
+      const committed = await currentAttempt(fixture);
+      expect(committed).toMatchObject({ lifecycle: "committed", attemptFence: fenced.attemptFence + 1n });
+      expect(fixture.nativeInvokeCount.get("update")).toBe(2);
+      expect(fixture.retryContexts).toHaveLength(1);
+      expect(await Effect.runPromise(fixture.makeFiniteDispatcher().redispatchExactPointMutationAttempt(selector(fixture, committed.attemptFence))))
+        .toMatchObject({ kind: "replayed", token: published.kind === "busy" ? undefined : published.token });
+      expect(await currentAttempt(fixture)).toEqual(committed);
+      expect(fixture.nativeInvokeCount.get("update")).toBe(2);
+      expect(fixture.retryContexts).toHaveLength(1);
+      expect(await fixture.readCurrentProduct()).toMatchObject({ title: fixture.seed.newTitle });
+    } finally { await fixture.close(); }
+  }, 240_000);
+
   it("durably closes a permanent publication refusal before a cold dispatcher can rerun callbacks", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-permanent-${driver}` });
     try {

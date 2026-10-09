@@ -10,7 +10,7 @@ import { payloadConformanceConfiguration } from "./profiles";
 import type { CompiledPayloadCollections } from "../collections";
 
 export interface PayloadConformanceRuntime {
-  readonly runtime: Omit<PayloadRuntime, "borrowParticipant">;
+  readonly runtime: Omit<PayloadRuntime, "makeAttempt">;
   readonly payload: BasePayload;
   readonly observations: {
     readonly touched: () => string[];

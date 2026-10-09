@@ -1,28 +1,43 @@
+import { observeExecution } from "../executionDiagnostics/operation";
 import { Effect, Exit, Result } from "effect";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, type AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { orderedIndexRowIdHexV1FromBytesResult, encodeAppOrderedIndexKeyV1, orderedIndexCreationTimeV1,
   type OrderedIndexKeyHexV1, type OrderedIndexRowIdHexV1 } from "flarex-protocol/ordered-index";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../appUniqueConstraintCommitV1";
 import { hasPreparedApplicationRelationCommitAuthority, prepareApplicationRelationCommitResult,
   ApplicationRelationCommitCorruptionError, type ApplicationRelationRowTransition } from "../applicationRelationCommit";
 import { corruption, PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
-  PointCommitUniqueConstraintMaintenanceUnavailableV1Error, type PointCommitCorruptionV1Error } from "../pointCommitErrors";
+  PointCommitUniqueConstraintMaintenanceUnavailableV1Error, type PointCommitCorruptionV1Error, type PointCommitSqlFailureMarkerV1 } from "../pointCommitErrors";
 import type { LiveAppRowRevisionV1 } from "../appRows";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type { ApplicationDocumentMaterializationCommand, LoadedPointCommitHeadV1,
-  LocatedPreparedPointCommitApplicationRelations, PointCommitDeveloperIndexRowPlanV1,
+  LocatedPreparedPointCommitApplicationRelations,
   PointCommitUniqueKeyPlanV1 } from "./model";
+import type { AppIndexKeyTransitionObligation } from "../appIndexEntries";
 
 /** Canonical obligations have no transaction, build verdict or allocated sequence. */
-export type PreparedDeveloperIndexKeyPair = Omit<PointCommitDeveloperIndexRowPlanV1, "build">;
+export type PreparedDeveloperIndexKeyPair = AppIndexKeyTransitionObligation;
+export function indexApplicationDocumentRowIntents(command: Pick<ApplicationDocumentMaterializationCommand, "rowIntents">) {
+  const rowsByTable = new Map<CatalogTableId, ApplicationDocumentMaterializationCommand["rowIntents"][number][]>();
+  for (const intent of command.rowIntents) {
+    const rows = rowsByTable.get(intent.tableId);
+    if (rows === undefined) rowsByTable.set(intent.tableId, [intent]);
+    else rows.push(intent);
+  }
+  return rowsByTable;
+}
+
 export interface ApplicationDocumentOriginals {
+  readonly rowsByTable: ReadonlyMap<CatalogTableId, ApplicationDocumentMaterializationCommand["rowIntents"]>;
   readonly headsByDocumentId: ReadonlyMap<AppDocumentIdV1, LoadedPointCommitHeadV1>;
   readonly documents: ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>;
+  readonly originalRows?: readonly LiveAppRowRevisionV1[];
 }
 export interface PreparedIntrinsicIndexKey {
   readonly definition: LocatedAppIndexDefinitionV1; readonly rowId: OrderedIndexRowIdHexV1;
@@ -57,16 +72,14 @@ export function prepareOriginalDocumentsResult(command: ApplicationDocumentMater
           ? { kind: "tombstone", identity, revisionCommitSeq: observed.basis.revisionCommitSeq } : { kind: "missing", identity }, creationTime: null });
       }
     }
-    return Object.freeze({ headsByDocumentId, documents });
+    return Object.freeze({ headsByDocumentId, documents, originalRows:rows, rowsByTable: indexApplicationDocumentRowIntents(command) });
   });
 }
 
-export function prepareDeveloperIndexKeyPairsResult(command: ApplicationDocumentMaterializationCommand,
-  originals: ApplicationDocumentOriginals, definitions: readonly LocatedAppIndexDefinitionV1[]) {
+export function prepareDeveloperIndexKeyPairsResult(originals: ApplicationDocumentOriginals, definitions: readonly LocatedAppIndexDefinitionV1[]) {
   return Result.gen(function* () {
     const plans: PreparedDeveloperIndexKeyPair[] = [];
-    for (const definition of definitions) for (const intent of command.rowIntents) {
-      if (intent.tableId !== definition.access.tableId) continue;
+    for (const definition of definitions) for (const intent of originals.rowsByTable.get(definition.access.tableId) ?? []) {
       const loaded = originals.headsByDocumentId.get(intent.documentId);
       if (loaded === undefined) return yield* Result.fail(corruption("developerIndexTransitionInvalid"));
       const rowId = yield* orderedIndexRowIdHexV1FromBytesResult(appRowIdHexV1ToBytes(intent.rowId))
@@ -87,12 +100,10 @@ export function prepareDeveloperIndexKeyPairsResult(command: ApplicationDocument
   });
 }
 
-export function prepareUniqueKeyPairsResult(command: ApplicationDocumentMaterializationCommand,
-  originals: ApplicationDocumentOriginals, definitions: readonly LocatedAppUniqueConstraintDefinitionV1[]) {
+export function prepareUniqueKeyPairsResult(originals: ApplicationDocumentOriginals, definitions: readonly LocatedAppUniqueConstraintDefinitionV1[]) {
   return Result.gen(function* () {
     const plans: PointCommitUniqueKeyPlanV1[] = [];
-    for (const definition of definitions) for (const intent of command.rowIntents) {
-      if (intent.tableId !== definition.tableId) continue;
+    for (const definition of definitions) for (const intent of originals.rowsByTable.get(definition.tableId) ?? []) {
       const loaded = originals.headsByDocumentId.get(intent.documentId);
       if (loaded === undefined) return yield* Result.fail(corruption("uniqueKeyTransitionInvalid"));
       const original = originals.documents.get(intent.documentId) ?? null;
@@ -155,24 +166,35 @@ export function prepareIntrinsicIndexKeysResult(command: ApplicationDocumentMate
   });
 }
 
-export const prepareApplicationDocumentSettlementEffect = Effect.fn("ApplicationDocument.prepareSettlement")(function* (
+export const prepareApplicationDocumentSettlementEffect = Effect.fnUntraced(function* (
   command: ApplicationDocumentMaterializationCommand, originalRows: readonly LiveAppRowRevisionV1[],
   developerDefinitions: readonly LocatedAppIndexDefinitionV1[], uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
   relations: LocatedPreparedPointCommitApplicationRelations | null,
   intrinsicDefinitions: readonly LocatedAppIndexDefinitionV1[],
 ) {
   const originals = yield* Effect.exit(Effect.suspend(() => Effect.fromResult(prepareOriginalDocumentsResult(command, originalRows))));
-  const prior: Effect.Effect<ApplicationDocumentOriginals, PointCommitCorruptionV1Error> = Exit.isSuccess(originals)
+  return yield* prepareApplicationDocumentSettlementFromOriginalsEffect(command,originalRows,originals,developerDefinitions,uniqueDefinitions,relations,intrinsicDefinitions);
+}, work => observeExecution("ApplicationDocument.prepareSettlement", work));
+
+/** Ordinary canonical reads have their own actual transaction boundary. Retain
+ * their original Exit while compiling the same fixed lowering obligations. */
+export const prepareApplicationDocumentSettlementFromOriginalsEffect = Effect.fnUntraced(function* (
+  command:ApplicationDocumentMaterializationCommand,originalRows:readonly LiveAppRowRevisionV1[],
+  originals:Exit.Exit<ApplicationDocumentOriginals,PointCommitCorruptionV1Error|PointCommitSqlFailureMarkerV1>,
+  developerDefinitions:readonly LocatedAppIndexDefinitionV1[],uniqueDefinitions:readonly LocatedAppUniqueConstraintDefinitionV1[],
+  relations:LocatedPreparedPointCommitApplicationRelations|null,intrinsicDefinitions:readonly LocatedAppIndexDefinitionV1[],
+) {
+  const prior: Effect.Effect<ApplicationDocumentOriginals, PointCommitCorruptionV1Error|PointCommitSqlFailureMarkerV1> = Exit.isSuccess(originals)
     ? Effect.succeed(originals.value) : Effect.failCause(originals.cause);
-  const developer = yield* Effect.exit(prior.pipe(Effect.flatMap(value => Effect.fromResult(prepareDeveloperIndexKeyPairsResult(command, value, developerDefinitions)))));
+  const developer = yield* Effect.exit(prior.pipe(Effect.flatMap(value => Effect.fromResult(prepareDeveloperIndexKeyPairsResult(value, developerDefinitions)))));
   const unique = Exit.isFailure(developer) ? undefined
-    : yield* Effect.exit(prior.pipe(Effect.flatMap(value => Effect.fromResult(prepareUniqueKeyPairsResult(command, value, uniqueDefinitions)))));
+    : yield* Effect.exit(prior.pipe(Effect.flatMap(value => Effect.fromResult(prepareUniqueKeyPairsResult(value, uniqueDefinitions)))));
   const relation = unique === undefined || Exit.isFailure(unique) ? undefined
     : yield* Effect.exit(prior.pipe(Effect.flatMap(value => Effect.fromResult(prepareRelationTransitionsResult(command, value, relations)))));
   const intrinsic = relation === undefined || Exit.isFailure(relation) ? undefined
     : yield* Effect.exit(prior.pipe(Effect.flatMap(value => Effect.fromResult(prepareIntrinsicIndexKeysResult(command, value, intrinsicDefinitions)))));
   return Object.freeze({ command, originalRows, originals, developer, unique, relation, intrinsic });
-});
+}, work => observeExecution("ApplicationDocument.prepareSettlementFromOriginals", work));
 
 export type PreparedApplicationDocumentSettlement = Effect.Success<ReturnType<typeof prepareApplicationDocumentSettlementEffect>>;
 export function preparedApplicationDocumentSettlementHasFailure(prepared: PreparedApplicationDocumentSettlement): boolean {

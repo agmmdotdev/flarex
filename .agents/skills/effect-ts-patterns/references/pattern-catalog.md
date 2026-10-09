@@ -292,7 +292,7 @@ clock and transaction decisions remain contextual checks after structural decode
 
 ## Active review checklist
 
-Inspect the changed code plus its smallest connected flow and ask:
+Inspect the changed code and its connected execution flow and ask:
 
 - Which schema/authoritative decoder owns each changed data boundary? Is a
   handwritten predicate duplicating it, or preserving a concrete custom contract?

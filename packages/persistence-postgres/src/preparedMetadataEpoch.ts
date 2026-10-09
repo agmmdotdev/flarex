@@ -1,9 +1,15 @@
-import { sql, type SQL } from "drizzle-orm";
+import { getTableName, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import { copyBytesToArrayBuffer, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 
 import type { FlarexMetadataDatabase } from "./deployments";
-import { fxSystemPreparedMetadataEpoch } from "./schema";
+import { fxSystemPreparedMetadataEpoch, fxControlTables, fxControlIndexes, fxControlIndexDefinitions,
+  fxControlSchemaVersionIndexBindings, fxControlRelations, fxControlEdgeDefinitions,
+  fxControlSchemaVersionRelationBindings, fxControlBoundApplicationSchemas,
+  fxControlApplicationManifestSchemaBindings, fxControlUniqueConstraints, fxControlUniqueConstraintDefinitions,
+  fxControlSchemaVersionUniqueConstraintBindings, fxControlSchemaVersionUniqueConstraintSets,
+  fxControlApplicationSchemaAuthoritiesV1, fxSystemAppSchemaCandidateValidations,
+  fxSystemEdgeDefinitionReadiness, fxSystemApplicationRelationSemanticReadiness } from "./schema";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { runningAttemptTailProtectionSql } from "./exactRunningAttemptTail";
 import { scopeExecutionAuthorityInstallationSql } from "./scopeExecutionAuthorityInstallation";
@@ -15,10 +21,19 @@ import { acquireInstallationAdmission, lockInstallationForCurrentTransaction,
   isCoLocatedControlInstallation,
   type PreparedCoLocatedReadInstallation, type PreparedInstallation } from "./installationLifecycle";
 
-/** Immutable target projection and complete sidecar membership. Control,
- * coverage, live heads and physical catalogs keep their owned fresh proofs. */
+/** Immutable target/control projection and complete sidecar membership.
+ * Mutable coverage, build/lifecycle heads and live authority keep fresh proofs. */
+export const protectedReadinessMetadataTables = Object.freeze([
+  fxControlTables, fxControlIndexes, fxControlIndexDefinitions, fxControlSchemaVersionIndexBindings,
+  fxControlRelations, fxControlEdgeDefinitions, fxControlSchemaVersionRelationBindings,
+  fxControlBoundApplicationSchemas, fxControlApplicationManifestSchemaBindings,
+  fxControlUniqueConstraints, fxControlUniqueConstraintDefinitions, fxControlSchemaVersionUniqueConstraintBindings,
+  fxControlSchemaVersionUniqueConstraintSets, fxControlApplicationSchemaAuthoritiesV1,
+  fxSystemAppSchemaCandidateValidations, fxSystemEdgeDefinitionReadiness, fxSystemApplicationRelationSemanticReadiness,
+]);
 const coveredTables = [
   "fx_control_schema_version",
+  ...protectedReadinessMetadataTables.map(getTableName),
   "fx_system_application_candidate_v1",
   "fx_system_application_analysis_v1",
   "fx_system_application_revision_v2",
@@ -95,7 +110,7 @@ const protectionSql = sql<boolean>`(
       and t.tgnewtable is null and t.tgnargs = 0
       and p.pronamespace = c.relnamespace and p.proname = 'fx_invalidate_prepared_metadata'
   )
-  select ${scopeExecutionAuthorityInstallationSql(sql`current_schema()`)} and ${runningAttemptTailProtectionSql(sql`attestation_functions`, sql`attestation_tables`, sql`attestation_context`)}
+  select ${scopeExecutionAuthorityInstallationSql(sql`(select schema_name from attestation_context)`)} and ${runningAttemptTailProtectionSql(sql`attestation_functions`, sql`attestation_tables`, sql`attestation_context`)}
   and
   current_user = session_user
   and pg_catalog.current_setting('session_replication_role') = 'origin'
@@ -189,6 +204,25 @@ export interface ProtectedTargetMetadataEvidence {
   readonly epoch: ProtectedMetadataEpochIdentity;
 }
 
+const readinessCatalogIdentitySchema = Schema.Struct({ databaseName: Schema.NonEmptyString,
+  namespaceOid: Schema.BigIntFromString.check(Schema.isGreaterThanBigInt(0n)) });
+export type ProtectedReadinessCatalogIdentity = typeof readinessCatalogIdentitySchema.Type;
+const decodeReadinessCatalogIdentity = Schema.decodeUnknownEffect(Schema.Tuple([readinessCatalogIdentitySchema]));
+
+/** The original catalog reader establishes namespace provenance during cold
+ * generation preparation. A genuine pair for a different catalog cannot lend
+ * an epoch to facts that were read here. */
+export const readProtectedReadinessCatalogIdentity = Effect.fn("PreparedMetadataEpoch.readReadinessCatalogIdentity")(
+  function* (database: FlarexMetadataDatabase): Effect.fn.Return<ProtectedReadinessCatalogIdentity, PreparedMetadataEpochError> {
+    const rows = yield* Effect.tryPromise({ try: () => database.select({
+      databaseName: sql<string>`current_database()`,
+      namespaceOid: sql<string>`current_schema()::pg_catalog.regnamespace::oid::text`,
+    }).from(sql`(select 1) as catalog_identity`).limit(2), catch: cause => issue("resourceFailure", cause) });
+    const [identity] = yield* decodeReadinessCatalogIdentity(rows).pipe(
+        Effect.mapError(cause => issue("invalidEpoch", cause)));
+    return Object.freeze(identity);
+  });
+
 declare const protectedMetadataBrand: unique symbol;
 export interface ProtectedMetadataPreparation {
   readonly [protectedMetadataBrand]: true;
@@ -238,8 +272,25 @@ export const recordManagedMetadataEpochSnapshot = Effect.fn("PreparedMetadataEpo
       return yield* Effect.fail(issue("changed"));
     snapshots.set(installation, Object.freeze(identity));
     managedSnapshots.set(tx, snapshots);
+    return identity;
   },
 );
+
+/** A genuine pair's scalar owner already correlated the immutable epoch identity.
+ * Its returned generation is the fresh transaction observation; it is never
+ * borrowed from an earlier preparation or transaction. */
+export const recordManagedMetadataFrontierSnapshot = Effect.fn("PreparedMetadataEpoch.recordManagedFrontier")(
+  function* (tx: FlarexMetadataTransaction, database: FlarexMetadataDatabase,
+    installation: PreparedInstallation, generation: bigint): Effect.fn.Return<ProtectedTargetMetadataEvidence, PreparedMetadataEpochError> {
+    const installed = managedInstallationIdentity(installation, database);
+    const incarnation = managedInstallationMetadataIncarnation(installation, database);
+    if (installed === undefined || incarnation === undefined) return yield* Effect.fail(issue("unprotectedRuntime"));
+    const epoch = yield* recordManagedMetadataEpochSnapshot(tx, database, installation, {
+      databaseName: installed.databaseName, namespaceOid: BigInt(installed.namespaceOid), incarnation,
+      generation, login: installed.login,
+    });
+    return Object.freeze({ database, epoch, token: issueProtectedMetadataPreparation(database, epoch, installation) });
+  });
 
 /** Transaction entry owns this interlock before any scope/head/clock lock.
  * A protected preparation authenticates immutable bytes; admission stays fresh. */
@@ -272,7 +323,9 @@ const readIdentity = Effect.fn("PreparedMetadataEpoch.readIdentity")(function* (
     sameLogin: sql<boolean>`current_user = session_user`,
     // Single-table selection copies its outer SQL field. Keep the public
     // inline flag on this nested, entirely owner-constant proof fragment.
-    protected: sql<boolean>`${protectionSql.inlineParams()}`,
+    protected: sql<boolean>`case when epoch.database_name = current_database()
+      and epoch.namespace_oid = (select oid from pg_catalog.pg_namespace where nspname = current_schema())
+      then ${protectionSql.inlineParams()} else false end`,
   }).from(sql`(select database_name, namespace_oid, incarnation, generation from ${source} limit 2) as epoch`);
   // These two complete shapes contain only fixed names/count and the bounded
   // source. No request, authority or expected epoch enters statement naming.
@@ -422,6 +475,10 @@ const sameInstallation = (left: ProtectedMetadataEpochIdentity, right: Protected
   left.databaseName === right.databaseName && left.namespaceOid === right.namespaceOid &&
   left.incarnation === right.incarnation && left.login === right.login;
 
+/** Exact immutable anchor comparison; this alone grants no metadata authority. */
+export const protectedMetadataEpochsEqual = (left: ProtectedMetadataEpochIdentity, right: ProtectedMetadataEpochIdentity): boolean =>
+  sameInstallation(left, right) && left.generation === right.generation;
+
 /** The running-attempt kernel and managed standalone accepting owner open and
  * flush this scope. Admission from another transaction still fails closed. */
 export function openProtectedMetadataFinalGuardScope(tx: FlarexMetadataTransaction): void {
@@ -504,6 +561,33 @@ export function readRegisteredManagedMetadataPairFinalGuards(tx: FlarexMetadataT
         return yield* Result.fail(issue("unprotectedRuntime"));
     }
     return { targetNamespaceOid: target.namespaceOid, controlNamespaceOid: control.namespaceOid };
+  });
+}
+
+/** Retained readiness is usable only by this transaction's original admitted
+ * pair. Authenticate both original tokens against its fresh snapshots and
+ * registered guards; a matching namespace or caller-authored epoch is not proof. */
+export function authenticateProtectedReadinessMetadataPair(
+  tx: FlarexMetadataTransaction,
+  target: ProtectedTargetMetadataEvidence,
+  control: ProtectedTargetMetadataEvidence,
+): Result.Result<void, PreparedMetadataEpochError> {
+  return Result.gen(function* () {
+    yield* readRegisteredManagedMetadataPairFinalGuards(tx);
+    const pair = yield* readAdmittedCoLocatedInstallationPair(tx).pipe(
+      Result.mapError(cause => issue("unprotectedRuntime", cause)));
+    if (pair === null) return yield* Result.fail(issue("unprotectedRuntime"));
+    for (const [evidence, installation] of [[target, pair.target], [control, pair.control]] as const) {
+      const original = preparations.get(evidence.token);
+      const snapshot = managedSnapshots.get(tx)?.get(installation);
+      if (original === undefined || original.database !== evidence.database ||
+        evidence.database !== pair.database || original.installation !== installation ||
+        snapshot === undefined || !sameInstallation(original.identity, evidence.epoch) ||
+        original.identity.generation !== evidence.epoch.generation)
+        return yield* Result.fail(issue("unprotectedRuntime"));
+      if (!sameInstallation(snapshot, evidence.epoch) || snapshot.generation !== evidence.epoch.generation)
+        return yield* Result.fail(issue("changed"));
+    }
   });
 }
 

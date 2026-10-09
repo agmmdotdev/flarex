@@ -1,5 +1,5 @@
 import type { LogicalStorageReadDemand } from "./model";
-import { Data, Effect, Result, Schema } from "effect";
+import { Cause, Data, Effect, Result, Schema } from "effect";
 import { prepareLogicalReadAdmission, requireLogicalReadAdmission, LogicalReadAdmissionError,
   type LogicalReadAdmission, type ManagedLogicalReadPorts, type LogicalReadSelection } from "./readAdmission";
 import type { LogicalSourceReadPin } from "../logicalReadMetadata";
@@ -27,7 +27,7 @@ import type { ScopeId } from "flarex-protocol/storage-authority";
 import { isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { validateValidatorValueV1, type ValidatorIdPolicyV1 } from "flarex-protocol/validator-engine";
-import type { ApplicationBindingInput } from "../applicationActivation";
+import type { ApplicationBindingInput, AcceptedApplicationBinding, ApplicationBindingObservation } from "../applicationActivation";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
@@ -81,6 +81,8 @@ export interface LogicalDocumentSourceTable {
   readonly definition: SchemaManifestAppTableDeclarationV1;
 }
 export interface LogicalDocumentSourceAdmissionState {
+  readonly tableIds: ReadonlySet<CatalogTableId>;
+  readonly writeMechanics: PreparedLogicalDocumentWriteMechanics;
   readonly tx: FlarexMetadataTransaction;
   readonly authority: TrustedScopeAuthority;
   readonly clock: ScopeClockRecord;
@@ -97,7 +99,28 @@ export interface LogicalDocumentSourceAdmissionState {
   readonly readReadiness: LogicalStorageReadReadiness<LogicalDocumentSourceAdmissionError>;
   readonly validate: (write: LogicalDocumentWrite) => Result.Result<void, LogicalDocumentSourceAdmissionError>;
 }
+
+/** Original source mechanics only; no transaction or Application acceptance. */
+export interface LogicalDocumentSourcePreparation {
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly sourceKey: string;
+  readonly sourceSha256: string;
+  readonly tables: readonly LogicalDocumentSourceTable[];
+  readonly indexes: readonly LocatedAppIndexDefinitionV1[];
+  readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly tableIds: ReadonlySet<CatalogTableId>;
+  readonly tablesById: ReadonlyMap<CatalogTableId, LogicalDocumentSourceTable>;
+  readonly validate: LogicalDocumentSourceAdmissionState["validate"];
+  readonly writeMechanics: PreparedLogicalDocumentWriteMechanics;
+  readonly lifetime: import("../preparedHostRuntime").PreparedHostPreparationLifetime;
+  readonly requirePrepared: Effect.Effect<void, LogicalParticipantAdmissionError>;
+}
 const admissions = new WeakMap<object, LogicalDocumentSourceAdmissionState>();
+const sourceLookupDisposal = (ids: Set<CatalogTableId>, tables: Map<CatalogTableId, LogicalDocumentSourceTable>) => () => {
+  ids.clear(); tables.clear();
+};
 export interface LogicalDocumentAttemptAdmissionState extends Omit<LogicalDocumentSourceAdmissionState, "tx" | "authority" | "readReadiness"> {
   readonly writeMechanics: PreparedLogicalDocumentWriteMechanics;
   readonly root: LogicalParticipantAttemptRoot;
@@ -200,10 +223,11 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
   const withSelectedAdmission = Effect.fn("LogicalDocumentSourceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
     profile: "full" | "read",
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
+    work: (admission: LogicalDocumentSourceAdmission, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    borrowed?: ApplicationBindingObservation,
   ) {
     const accept = profile === "read" ? selected.withTransactionReadBinding : selected.withTransactionBinding;
-    return yield* accept(application, tx, authority, clock, binding => Effect.gen(function* () {
+    return yield* accept(application, tx, authority, clock, (binding, accepted) => Effect.gen(function* () {
       // The source-bound scalar participant has no V3 preference cleanup or
       // embedded-content owner. Refuse mixed selected frames before token issue.
       if (binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null)
@@ -213,21 +237,45 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       admissions.set(admission, Object.freeze({ tx, authority, clock, schemaVersionId: binding.schemaVersionId,
         sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: binding.head,
         frame: binding.frame, contentIdentity,
-        configuration: expected.configuration, tables: selectedTables, indexes: selected.indexes,
-        unique: selected.unique, validate,
+        configuration: expected.configuration, tables: selectedTables, tableIds, indexes: selected.indexes,
+        unique: selected.unique, validate, writeMechanics,
         readReadiness: Object.freeze({ kind: "full" as const }) }));
-      return yield* Effect.suspend(() => work(admission)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
-    }));
+      return yield* Effect.suspend(() => work(admission, accepted)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
+    }), borrowed);
   });
   const withAdmission = <Value, Failure, Requirements>(
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
-  ) => withSelectedAdmission("full", application, tx, authority, clock, work);
+    work: (admission: LogicalDocumentSourceAdmission, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    borrowed?: ApplicationBindingObservation,
+  ) => withSelectedAdmission("full", application, tx, authority, clock, work, borrowed);
   const withReadAdmission = <Value, Failure, Requirements>(
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
-  ) => withSelectedAdmission("read", application, tx, authority, clock, work);
+    work: (admission: LogicalDocumentSourceAdmission, accepted?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+    borrowed?: ApplicationBindingObservation,
+  ) => withSelectedAdmission("read", application, tx, authority, clock, work, borrowed);
   const tableIds = new Set(selectedTables.map(table => table.tableId));
+  const tablesById = new Map(selectedTables.map(table => [table.tableId, table]));
+  if (selected.preparationLifetime !== undefined) {
+    yield* Effect.fromResult(selected.preparationLifetime.charge({ tableIds: [...tableIds], tableLookup: [...tablesById.keys()] }))
+      .pipe(Effect.mapError(cause => new LogicalDocumentSourceAdmissionError({ reason: "resourceFailure", cause })));
+    yield* Effect.fromResult(selected.preparationLifetime.onDispose(sourceLookupDisposal(tableIds, tablesById)))
+      .pipe(Effect.mapError(cause => new LogicalDocumentSourceAdmissionError({ reason: "resourceFailure", cause })));
+  }
+  const lendPreparation = Effect.fn("LogicalDocumentSourceAdmission.lendPreparation")(function* () {
+    yield* selected.requirePrepared;
+    const lifetime = selected.preparationLifetime;
+    if (lifetime === undefined) return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority" }));
+    yield* Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>
+      new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority", cause })));
+    const preparation: LogicalDocumentSourcePreparation = Object.freeze({
+      deploymentId: capturedInput.deploymentId, scopeId: capturedInput.scopeId, schemaVersionId: capturedInput.schemaVersionId,
+      sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256,
+      tables: selectedTables, indexes: selected.indexes, unique: selected.unique, tableIds, tablesById,
+      validate, writeMechanics, lifetime, requirePrepared: selected.requirePrepared.pipe(
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectAttemptFailure)))),
+    });
+    return preparation;
+  });
   const bindAttemptEffect = Effect.fn("LogicalDocumentAttemptAdmission.bind")(function* (
     application: ApplicationBindingInput, attempt: SessionJournalAttempt, root: LogicalParticipantAttemptRoot,
     readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
@@ -276,7 +324,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       preparedSource: prepared, writeMechanics, requirePreparedSource: selected.requirePrepared.pipe(Effect.mapError(projectAttemptFailure)),
       schemaVersionId: capturedInput.schemaVersionId, sourceKey: selected.source.key,
       sourceSha256: selected.source.sourceSha256, head: pinned.head, frame: pinned.frame,
-      contentIdentity, configuration: expected.configuration, tables: selectedTables,
+      contentIdentity, configuration: expected.configuration, tables: selectedTables, tableIds,
       indexes: selected.indexes, unique: selected.unique, validate }));
     return token;
   });
@@ -298,10 +346,12 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     const allowed = new Set(methods);
     const valid = participant.length > 0 && allowed.size > 0 && allowed.size === methods.length &&
       methods.every(method => method.length > 0);
-    return issueLogicalParticipantCommitAuthority(Object.freeze({ participant: valid ? participant : "",
+    return issueLogicalParticipantCommitAuthority(Object.freeze({ application, projectApplicationFailure: projectAttemptFailure,
+      participant: valid ? participant : "",
       methods: valid ? allowed : new Set<string>(), sourceKey: selected.source.key,
       sourceSha256: selected.source.sourceSha256, schemaVersionId: capturedInput.schemaVersionId,
-      tableIds, indexes: selected.indexes, unique: selected.unique, search: Object.freeze([]),
+      tableIds, search: Object.freeze([]),
+      publicationDefinitions: selected.publicationDefinitions,
       validateDocument: validateCommitDocument,
       metadataProjection: selected.metadataProjection,
       prepareFiniteTables: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord, touchedTableIds: readonly CatalogTableId[]) =>
@@ -314,7 +364,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
           .pipe(Effect.mapError(projectAttemptFailure)),
       verify: (_operation: AdmittedParticipantOperation, contribution: SourceContribution,
         tx: FlarexMetadataTransaction,
-        authority: TrustedScopeAuthority, clock: ScopeClockRecord) => selected.withBinding(
+        authority: TrustedScopeAuthority, clock: ScopeClockRecord, borrowed?: AcceptedApplicationBinding) => selected.withBinding(
           application, tx, authority, clock, binding => {
             if (authority.scopeId !== capturedInput.scopeId || clock.scopeId !== capturedInput.scopeId ||
               binding.schemaVersionId !== capturedInput.schemaVersionId ||
@@ -324,10 +374,10 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
               contribution.effects.some(effect => !tableIds.has(effect.tableId)))
               return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
             return Effect.void;
-          }).pipe(Effect.mapError(projectAttemptFailure)),
-    }));
+          }, borrowed).pipe(Effect.mapError(projectAttemptFailure)),
+    }), selected.preparationLifetime);
   };
-  const prepared = Object.freeze({ withAdmission, withReadAdmission, bindAttemptEffect, createCommitAuthority });
+  const prepared = Object.freeze({ withAdmission, withReadAdmission, bindAttemptEffect, createCommitAuthority, lendPreparation });
   return prepared;
 });
 

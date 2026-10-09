@@ -104,6 +104,10 @@ export class PointCommitConflictV1Error extends Data.TaggedError(
   "PointCommitConflictV1Error",
 )<PointCommitConflictEvidenceV1> {}
 
+export class AppDocumentInsertionConflictError extends Data.TaggedError("AppDocumentInsertionConflictError")<{
+  readonly documentId: AppDocumentIdV1;
+}> {}
+
 export type PointCommitStaleAuthorityReasonV1 =
   | "placementChanged"
   | "scopeChanged"
@@ -212,6 +216,8 @@ export class PointCommitUniqueConstraintMaintenanceUnavailableV1Error extends Da
 }> {}
 
 export type PointCommitSqlOperationV1 =
+  | "acceptPublication"
+  | "applyPublication"
   | "resolveAuthority"
   | "beginOrRollback"
   | "lockScopeClock"
@@ -291,6 +297,7 @@ export type PointCommitRollbackProofV1Error =
   | ReadAppUniqueConstraintSetClosureV1Error
   | ReadAppIndexDefinitionError
   | AppendAppIndexEntryRevisionV1Error
+  | AppDocumentInsertionConflictError
   | AppUniqueKeyConflictError
   | AppUniqueKeyHashError
   | CanonicalAppUniqueKeyHashCollisionError;
@@ -311,6 +318,7 @@ export function mapTransactionFailure(
 ): PointCommitRollbackProofV1Error {
   if (
     cause instanceof PointCommitConflictV1Error ||
+    cause instanceof AppDocumentInsertionConflictError ||
     cause instanceof PointCommitStaleAuthorityV1Error ||
     cause instanceof PointCommitCorruptionV1Error ||
     cause instanceof PointCommitResourceExhaustionV1Error ||
@@ -410,6 +418,7 @@ export function pointCommitSqlCallFailure(
 ) {
   if (
     cause instanceof PointCommitConflictV1Error ||
+    cause instanceof AppDocumentInsertionConflictError ||
     cause instanceof PointCommitStaleAuthorityV1Error ||
     cause instanceof PointCommitCorruptionV1Error ||
     cause instanceof PointCommitResourceExhaustionV1Error ||

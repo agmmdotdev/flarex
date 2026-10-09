@@ -1,8 +1,9 @@
 import { BasePayload, type CollectionConfig } from "payload";
-import { Effect, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import { cmsError, type CmsHost, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { makePayloadDatabaseAdapter } from "../adapter";
-import { makePayloadOperations } from "../operations";
+import { makePayloadOperations, type PayloadOperationInstrumentation } from "../operations";
+import { makePayloadInputs } from "../inputs";
 import { buildPayloadConfiguration } from "../configuration";
 import type { CompiledPayloadCollections } from "../collections";
 import { makePayloadCollectionRuntime } from "../collectionRuntime";
@@ -10,12 +11,9 @@ import { makePayloadCollectionRuntime } from "../collectionRuntime";
 type RuntimeConfiguration = Pick<CompiledPayloadCollections, "configuration" | "contentIdentity" | "createNativeCollections">;
 
 /** Source-private test seam. Neither ordinary runtime arguments nor package exports expose it. */
-interface PayloadNativeInstrumentation {
+interface PayloadNativeInstrumentation extends PayloadOperationInstrumentation {
   readonly hooks: NonNullable<CollectionConfig["hooks"]>;
-  readonly onExecute: () => void;
-  readonly onCollection: (collection: string) => void;
   readonly access?: NonNullable<CollectionConfig["access"]>;
-  readonly requestContext?: Readonly<Record<string, unknown>>;
 }
 
 /** Multiple profiles coexist; Scope owns each instance, not a singleton Context. */
@@ -23,9 +21,11 @@ export const makePayloadNative = Effect.fn("PayloadAdapter.makeNative")(function
   compiled: RuntimeConfiguration, instrumentation?: PayloadNativeInstrumentation,
 ) {
   const profile = compiled.configuration.profile;
-  const scope = yield* Effect.scope;
+  const parentScope = yield* Effect.scope;
+  const scope = yield* Scope.fork(parentScope, "sequential");
   const collections = compiled.configuration.tables.map(makePayloadCollectionRuntime);
-  const bridge = makePayloadDatabaseAdapter(profile, collections, instrumentation?.onCollection);
+  const bridge = makePayloadDatabaseAdapter(profile, collections);
+  const inputs = makePayloadInputs(profile, collections);
   let live = true;
   const native = compiled.createNativeCollections();
   if (instrumentation !== undefined) for (const collection of native) {
@@ -40,13 +40,36 @@ export const makePayloadNative = Effect.fn("PayloadAdapter.makeNative")(function
     return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized internal inventory"));
   }
   // Acquire before init so partially initialized instances also receive cleanup.
-  const payload = yield* Effect.acquireRelease(Effect.sync(() => new BasePayload()), instance =>
+  const payload = yield* Scope.provide(scope)(Effect.acquireRelease(Effect.sync(() => new BasePayload()), instance =>
     Effect.sync(() => { live = false; }).pipe(Effect.andThen(Effect.tryPromise({
       try: () => instance.destroy(), catch: cause => cmsError("resourceFailure", cause),
-    })), Effect.orDie));
+    })), Effect.orDie)));
   yield* Effect.tryPromise({ try: () => payload.init({ config, disableOnInit: true }), catch: cause => cmsError("unsupportedProfile", cause) });
-  const commands = makePayloadOperations(payload, bridge, profile, collections, () => live,
-    instrumentation?.onExecute, instrumentation?.requestContext);
+  const makeCommands = (observations?: PayloadOperationInstrumentation) =>
+    makePayloadOperations(payload, bridge, profile, inputs, () => live, observations);
+  const commands = makeCommands(instrumentation);
+  // The native parent and the outer attempt both own this child. Closing
+  // either owner drains borrowed CMS contexts before destroying the native.
+  const makeAttemptOwnership = Effect.fn("PayloadAdapter.makeAttemptOwnership")(function* () {
+    if (!live) return yield* Effect.fail(cmsError("closed"));
+    const attemptScope = yield* Effect.scope;
+    // Scope.close itself does not join an in-progress close. Both owners must
+    // await the same complete drain before the native resource can release.
+    const retained = yield* Scope.fork(scope, "sequential");
+    const child = yield* Scope.make("sequential");
+    const drain = yield* Effect.cached(Scope.close(child, Exit.void).pipe(Effect.uninterruptible));
+    yield* Scope.addFinalizer(retained, drain);
+    const close = Effect.gen(function* () {
+      const drained = yield* Effect.exit(drain);
+      const retired = yield* Effect.exit(Scope.close(retained, Exit.void));
+      // This private ownership Scope contains only the same cached drain and
+      // Scope.fork's link removal. Retiring it can replay that drain failure;
+      // preserve its original full outcome once after unlinking ownership.
+      return yield* (Exit.isFailure(drained) ? drained : retired);
+    }).pipe(Effect.uninterruptible);
+    yield* Scope.addFinalizer(attemptScope, close);
+    return { scope: child, close };
+  }, Effect.uninterruptible);
   // Both bindings retain a host in this native instance's exact lifetime.
   const retainHost = Effect.fn("PayloadAdapter.retainHost")(function* <Host extends Pick<CmsHost, "close">>(
     acquire: Effect.Effect<Host, CmsTransactionError>,
@@ -60,7 +83,7 @@ export const makePayloadNative = Effect.fn("PayloadAdapter.makeNative")(function
     if (!live) return yield* Effect.fail(cmsError("closed"));
     return host;
   });
-  return { commands, payload, isLive: () => live, retainHost, contentIdentity: compiled.contentIdentity };
+  return { commands, makeCommands, makeAttemptOwnership, payload, isLive: () => live, retainHost, contentIdentity: compiled.contentIdentity };
 });
 
 export type PayloadNative = Effect.Success<ReturnType<typeof makePayloadNative>>;

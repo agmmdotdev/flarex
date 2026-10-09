@@ -1,3 +1,4 @@
+import { observeExecution } from "./executionDiagnostics/operation";
 import { createHash } from "node:crypto";
 import { captureDriverDecoder, compileFiniteCaptureResultMapper, type CaptureProjectionField } from "./finiteStorageCaptureProjection";
 import { Data, Effect, Result, Schema } from "effect";
@@ -9,7 +10,7 @@ import { appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-de
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
-import { projectExpectedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from "./finiteAttemptAnchor";
+import { prepareFiniteAttemptStorageCaptureBasis, projectExpectedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from "./finiteAttemptAnchor";
 import { prepareInstalledFiniteCaptureSource } from "./scopeAuthorityControlRead";
 import { getCoLocatedReadInstallationReferencesResult, type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
 import { runEffectTransaction } from "./effectTransaction";
@@ -244,7 +245,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
   installed: Result.Result.Success<ReturnType<typeof prepareInstalledFiniteCaptureSource>> | undefined) {
   const namespace = sql.identifier(installed?.schemaName ?? locator.schemaName);
   const compile = (kind: InternalCaptureOperation["kind"]) => {
-    const captureSource = sql`${namespace}.fx_accept_finite_storage_capture(
+    const captureSource = sql`(with accepted_capture as materialized (select ${namespace}.fx_accept_finite_storage_capture(
       ${installed?.acceptedScope ?? sql.placeholder("scopeId")},
       row(${sql.placeholder("pin_scopeUuid")} ::uuid,
     ${sql.placeholder("pin_sessionId")} ::uuid,
@@ -281,7 +282,7 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
       ${sql.placeholder("claimOwner")}::uuid, ${sql.placeholder("claimFence")}::bigint,
       ${sql.placeholder("generation")}::text, ${sql.placeholder("generationFence")}::bigint,
       ${sql.placeholder("epoch")}::text, ${sql.placeholder("indexDefinitionId")}::integer, ${sql.placeholder("tableId")}::integer,
-      ${sql.placeholder("uniqueDefinitionId")}::integer) capture`;
+      ${sql.placeholder("uniqueDefinitionId")}::integer) as frontier) select (frontier).* from accepted_capture) capture`;
     const authoritySource = installed === undefined ? captureSource : sql`${installed.source} cross join lateral ${captureSource}`;
 
     const indexStorage = () => buildPreparedAppIndexSnapshotReadStatement(installed?.schemaName ?? locator.schemaName, {
@@ -326,8 +327,8 @@ function compileFiniteStorageCapturePlan(database: FlarexMetadataDatabase, locat
       servingCommitSeq: sql<string>`case when coalesce(storage._capture_header_ordinal,1) = 1 then capture.serving_commit_seq::text else null end`, tableFrontier: sql<string | null>`case when coalesce(storage._capture_header_ordinal,1) = 1 then capture.table_frontier::text else null end`,
       historicalChange: sql<boolean>`case when coalesce(storage._capture_header_ordinal,1) = 1 then capture.historical_change else null end`, retainedFloor: sql<string>`case when coalesce(storage._capture_header_ordinal,1) = 1 then (capture.authority_row).oldest_available_commit_seq::text else null end`,
       build: buildFields, uniqueBuild: uniqueFields, indexMaintenance: indexMaintenanceFields, uniqueMaintenance: uniqueMaintenanceFields, frontier: frontierFields,
-      targetMetadataEpoch: installed === undefined ? sql<string | null>`(select generation::text from ${namespace}.fx_system_prepared_metadata_epoch where singleton_id=1)` : sql<string | null>`case when coalesce(storage._capture_header_ordinal,1) = 1 then target_epoch.generation::text else null end`,
-      controlMetadataEpoch: installed === undefined ? sql<string | null>`(select generation::text from ${namespace}.fx_system_prepared_metadata_epoch where singleton_id=1)` : sql<string | null>`case when coalesce(storage._capture_header_ordinal,1) = 1 then control_epoch.generation::text else null end`,
+      targetMetadataEpoch: installed === undefined ? sql<string | null>`(select generation::text from ${namespace}.fx_system_prepared_metadata_epoch where singleton_id=1)` : sql<string | null>`case when coalesce(storage._capture_header_ordinal,1) = 1 then ${installed.targetMetadataEpoch} else null end`,
+      controlMetadataEpoch: installed === undefined ? sql<string | null>`(select generation::text from ${namespace}.fx_system_prepared_metadata_epoch where singleton_id=1)` : sql<string | null>`case when coalesce(storage._capture_header_ordinal,1) = 1 then ${installed.controlMetadataEpoch} else null end`,
       storagePresent: kind === "indexRows" ? sql<boolean>`storage."captureGroup" is not null` :
         kind === "ownershipPolicyManifest" ? sql<boolean>`storage."evidenceLength" is not null` : sql<boolean>`storage.ordinal is not null`,
       raw: Object.fromEntries(rawFields.map(name => [name, sql`storage.${sql.identifier(name)}`])),
@@ -410,6 +411,8 @@ const controlCapturePlans = new WeakMap<FlarexMetadataDatabase, ReturnType<typeo
  * Every run still binds current entry/claim/demand and accepts current live SQL. */
 export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, locator: ScopePhysicalLocator,
   profile: FiniteStorageCaptureProfile) {
+  // Stable untraced operations preserve cancellation and full Cause. The SDK
+  // alone opts into named diagnostic observation at their existing boundaries.
   return Result.gen(function* () {
     const installed = profile.kind === "installed" ? yield* prepareInstalledFiniteCaptureSource(profile.installation, database, locator) : undefined;
     const slots = profile.kind === "installed" ? installedCapturePlans.get(database) ??
@@ -426,7 +429,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
     }
     const deadlines = makePhysicalDeadlineOperations({ deadline: fields => refused("resourceFailure", fields),
       invariant: fields => refused("invalidInput", fields) });
-    const captureControl = Effect.fn("FiniteStorageCapture.fullArtifactControlCatalog")(function* (controlDb: FlarexMetadataDatabase,
+    const captureControl = Effect.fnUntraced(function* (controlDb: FlarexMetadataDatabase,
       operation?: Extract<InternalCaptureOperation, { kind: "ownershipUniqueClosure" }>, expectedEpoch?: ControlEpoch): Effect.fn.Return<ControlCapture, FiniteStorageCaptureError> {
       let shape = controlCapturePlans.get(controlDb);
       if (shape === undefined) { shape = compileControlCapturePlan(controlDb); controlCapturePlans.set(controlDb, shape); }
@@ -449,14 +452,15 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         if (!sameControlEpoch(before, after)) return yield* Effect.fail(refused("invalidAuthority"));
         return Object.freeze({ rawRows: Object.freeze(rawRows), epoch: before });
       }), cause => refused("resourceFailure", cause));
-    });
-    const run = Effect.fn("FiniteStorageCapture.run")(function* (input: ExactRunningAttemptKernelInputV1,
+    }, effect => observeExecution("FiniteStorageCapture.fullArtifactControlCatalog", effect));
+    const run = Effect.fnUntraced(function* (input: ExactRunningAttemptKernelInputV1,
       operation: InternalCaptureOperation, metadataEpoch?: Readonly<{ target: string | null; control: string | null }>) {
       if (input.finiteAnchor === undefined || input.selector.scopeId !== input.preliminaryAuthority.scopeId ||
         input.selector.deploymentId !== input.preliminaryAuthority.deploymentId)
         return yield* Effect.fail(refused("invalidInput"));
-      const expected = yield* Effect.fromResult(projectExpectedFiniteAttemptAnchor(input.finiteAnchor)).pipe(
+      const attemptBasis = yield* Effect.fromResult(prepareFiniteAttemptStorageCaptureBasis(input.finiteAnchor)).pipe(
         Effect.mapError(cause => refused("invalidInput", cause)));
+      const expected = attemptBasis.expected;
       if (input.selector.scopeId !== expected.snapshotToken.scopeId || input.selector.sessionId !== expected.pins.sessionId ||
         input.selector.attemptFence !== expected.pins.attemptFence) return yield* Effect.fail(refused("invalidInput"));
       if (profile.kind === "installed") yield* Effect.fromResult(getCoLocatedReadInstallationReferencesResult(profile.installation, database))
@@ -526,15 +530,13 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       const unique = participant?.uniqueDefinition;
       const shape = shapes.get(operation.kind);
       if (shape === undefined) return yield* Effect.die("Named finite capture shape missing");
-      const placeholders = {
-        ...Object.fromEntries(Object.entries(expected.pins).map(([name, value]) => ["pin_" + name, value])),
+      const placeholders = Object.setPrototypeOf({
         deploymentId: input.selector.deploymentId, scopeId: input.selector.scopeId,
-        anchorBytes: expected.bytes, anchorDigest: expected.digest, snapshotEpoch: expected.snapshotToken.epoch.slice(6), snapshot,
-        metadataWatermark: expected.reservation?.metadataWatermark ?? null, claimOwner: input.executionClaim.claimOwner,
+        snapshot, claimOwner: input.executionClaim.claimOwner,
         claimFence: input.executionClaim.claimFence, generation: input.preliminaryAuthority.storageGeneration,
         generationFence: input.preliminaryAuthority.storageGenerationFence, epoch: input.preliminaryAuthority.epoch,
         indexDefinitionId: selectedIndexId, tableId, uniqueDefinitionId: unique?.uniqueConstraintDefinitionId ?? null,
-        scopeUuid: expected.pins.scopeUuid, rowIds: rows?.rowIds ?? [],
+        rowIds: rows?.rowIds ?? [],
         settlementWindow: operation.kind === "rows" && operation.settlementWindow === true,
         excludeRowIds: excludedRows?.rowIds ?? [],
         maximumHydratedOwners: operation.kind === "indexRows" ? operation.maximumHydratedOwners ?? null : null,
@@ -547,7 +549,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
         catalogSchemaVersionId: operation.kind === "ownershipUniqueClosure" ? operation.schemaVersionId : null,
         remainingRecords: operation.kind === "ownershipPolicyManifest" || operation.kind === "ownershipUniqueClosure" ? operation.remaining.records : 64,
         remainingBytes: operation.kind === "ownershipPolicyManifest" || operation.kind === "ownershipUniqueClosure" ? operation.remaining.bytes : 1_048_576,
-      };
+      }, attemptBasis.parameters);
       const execute = (db: FlarexMetadataDatabase) => Effect.tryPromise({ try: () =>
         db._.session.prepareQuery<import("drizzle-orm/pg-core").PreparedQueryConfig & { execute: ReturnType<typeof shape.mapResult> }>(
           shape.statement, shape.orderedFields, shape.statementName, true, shape.mapResult).execute(placeholders), catch: cause => refused("resourceFailure", cause) });
@@ -603,9 +605,9 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
           return Object.freeze({ kind: operation.kind, rawRows, metadataEpoch: observedEpoch });
         case "retirement": return Object.freeze({ kind: "retirement" as const, retired: false });
       }
-    });
+    }, effect => observeExecution("FiniteStorageCapture.run", effect));
     type CaptureValue = Effect.Success<ReturnType<typeof run>>;
-    const runOwnership = Effect.fn("FiniteStorageCapture.acceptOwnership")(function* (input: ExactRunningAttemptKernelInputV1,
+    const runOwnership = Effect.fnUntraced(function* (input: ExactRunningAttemptKernelInputV1,
       operation: Extract<FiniteStorageCaptureOperation, { kind: "ownership" }>) {
       const value = yield* run(input, operation);
       if (value.kind !== "ownership") return yield* Effect.die("Ownership capture kind changed");
@@ -653,7 +655,7 @@ export function bindFiniteStorageCaptureOwner(database: FlarexMetadataDatabase, 
       if (Result.isFailure(verdict) && verdict.failure.reason !== "writeDenied")
         return yield* Effect.fail(mapOwnershipFailure(verdict.failure));
       return Object.freeze({ kind: "ownership" as const, denied: Result.isFailure(verdict) });
-    });
+    }, effect => observeExecution("FiniteStorageCapture.acceptOwnership", effect));
     const capture: FiniteStorageCaptureTarget[typeof CAPTURE_FINITE_STORAGE] = (input, operation) =>
       // Inspect the operation only when evaluated. Non-ownership captures keep
       // one named capture boundary rather than an ownership orchestration span.
@@ -677,7 +679,7 @@ export class FiniteStorageCaptureError extends Data.TaggedError("FiniteStorageCa
 
 type CaptureMetadataBasis = Effect.Success<ReturnType<typeof readFiniteStorageCaptureMetadata>>["basis"];
 const decodeSequenceText = Schema.decodeUnknownEffect(CommitSeqSchema);
-const acceptDemandBuildEvidence = Effect.fn("FiniteStorageCapture.acceptDemandBuild")(function* (
+const acceptDemandBuildEvidence = Effect.fnUntraced(function* (
   input: ExactRunningAttemptKernelInputV1,
   definition: Readonly<{ indexDefinitionId: CatalogIndexDefinitionId; physicalSpecSha256Hex: string }> | undefined,
   tableId: CatalogTableId | null, unique: LocatedAppUniqueConstraintDefinitionV1 | undefined,
@@ -744,7 +746,7 @@ const acceptDemandBuildEvidence = Effect.fn("FiniteStorageCapture.acceptDemandBu
     if (covered < retainedFloor || header.historicalChange)
       return yield* Effect.fail(refused("notReady"));
   }
-});
+}, effect => observeExecution("FiniteStorageCapture.acceptDemandBuild", effect));
 
 export const CAPTURE_FINITE_STORAGE: unique symbol = Symbol("FlarexDB/captureFiniteStorage");
 export interface FiniteStorageCaptureTarget extends LocatedScopeClockReader {

@@ -14,7 +14,7 @@ import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError } from "./model";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits } from "./resources";
 import { captureCommerceJsonData, projectCommerceRequestFailure } from "./request";
-import { projectLogicalCommerceActivity } from "./logicalParticipant";
+import { makeLogicalCommerceActivityProjection } from "./logicalParticipant";
 import type { CommerceCommandContext } from "./commands";
 import type { CommerceTransactionError } from "./model";
 
@@ -65,6 +65,7 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
               rootAttemptFence: input.rootAttemptFence }),
           lifetime, requireAdmission,
+          writeMechanics: state.writeMechanics,
           tables: state.writeMechanics.tables,
           ...(state.writeMechanics.relationalCapabilities === undefined ? {} : { relationalCapabilities: state.writeMechanics.relationalCapabilities }), searchDefinitions: state.writeMechanics.searchDefinitions,
           validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
@@ -115,6 +116,7 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
         }),
       }, id, lifetime.context, refuseNested, captureEvent);
       const names = state.tableNames;
+      const projectActivity = makeLogicalCommerceActivityProjection(names);
       let consumed = false;
       const close = Effect.gen(function* () {
         if (consumed) return yield* Effect.fail(commerceError("closed"));
@@ -138,15 +140,8 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
           workCalls: lifetime.usedCalls() }),
         activityCursor: working.activityCursor,
         callActivity: (cursor: ReturnType<typeof working.activityCursor>) =>
-          working.activitySnapshot().pipe(Effect.flatMap(snapshot => projectLogicalCommerceActivity(names, {
-            ...snapshot,
-            attempts: snapshot.attempts.slice(cursor.attempts).map(attempt =>
-              Object.freeze({ ...attempt, ordinal: attempt.ordinal - cursor.attempts })),
-            lifecycle: snapshot.lifecycle.slice(cursor.lifecycle).map(observation => Object.freeze({ ...observation,
-              attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - cursor.attempts })),
-            setNull: snapshot.setNull.slice(cursor.setNull),
-            referenceReplacements: snapshot.referenceReplacements.slice(cursor.referenceReplacements),
-          }))),
+          working.activityContribution.pipe(Effect.flatMap(contribution => working.readActivityContribution(contribution, cursor)),
+            Effect.flatMap(projectActivity)),
       });
     })
   ).pipe(Effect.mapError(projectCommerceRequestFailure), Effect.onError(() => closePreparedLifetime));

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit } from "effect";
+import { getTableName, sql } from "drizzle-orm";
+import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemPhysicalDefinitionLifecycles } from "../src/schema";
 
 import { createPGlitePersistence } from "../src/pglite";
-import { prepareProtectedMetadata, PreparedMetadataEpochError } from "../src/preparedMetadataEpoch";
+import { prepareProtectedMetadata, PreparedMetadataEpochError, protectedReadinessMetadataTables } from "../src/preparedMetadataEpoch";
 import { newTestPGlite } from "./pgliteSearchExtensions";
+import { withReadinessMetadataUpgradeMigrations } from "./readinessMetadataUpgradeFixture";
 
 const currentImmutableTables = [
   "fx_system_application_publication", "fx_system_application_function",
@@ -13,9 +16,38 @@ const currentImmutableTables = [
   "fx_system_application_activation", "fx_system_application_write_ownership",
   "fx_system_data_binding_candidate", "fx_system_data_binding_physical_lane",
   "fx_system_data_binding_activation",
+  ...protectedReadinessMetadataTables.map(getTableName),
 ] as const;
 
 describe("prepared metadata epoch PGlite migration", () => {
+  it("upgrades installed 139 through the original migrator and advances its durable readiness epoch", async () => {
+    await withReadinessMetadataUpgradeMigrations(async (migrationsFolder, exposeCurrent) => {
+      const db = newTestPGlite();
+      try {
+        const previous = await createPGlitePersistence({ db, migrationsFolder });
+        await previous.migrate();
+        const before = (await previous.query<{ generation: string; incarnation: string }>(
+          "select generation::text, incarnation::text from fx_system_prepared_metadata_epoch")).rows[0];
+        if (before === undefined) throw new Error("Missing installed predecessor epoch");
+        expect((await previous.query<{ count: number }>(`select count(*)::integer as count from pg_trigger
+          where tgname='fx_prepared_metadata_invalidate' and tgrelid in (
+            select oid from pg_class where relnamespace=current_schema()::regnamespace and relname = any($1::text[]))`,
+          [protectedReadinessMetadataTables.map(getTableName)])).rows).toEqual([{ count: 0 }]);
+        await exposeCurrent();
+        const current = await createPGlitePersistence({ db, migrationsFolder });
+        await current.migrate();
+        const after = (await current.query<{ generation: string; incarnation: string }>(
+          "select generation::text, incarnation::text from fx_system_prepared_metadata_epoch")).rows[0];
+        expect(after?.incarnation).toBe(before.incarnation);
+        expect(BigInt(after?.generation ?? "-1")).toBe(BigInt(before.generation) + 1n);
+        expect((await current.query<{ count: number }>(`select count(*)::integer as count from pg_trigger
+          where tgname='fx_prepared_metadata_invalidate' and tgrelid in (
+            select oid from pg_class where relnamespace=current_schema()::regnamespace and relname = any($1::text[]))`,
+          [protectedReadinessMetadataTables.map(getTableName)])).rows).toEqual([{ count: 17 }]);
+        await expect(Effect.runPromise(prepareProtectedMetadata(current.drizzle))).rejects.toMatchObject({ reason: "unprotectedRuntime" });
+      } finally { await db.close(); }
+    });
+  }, 180_000);
   it("refuses to mint protected metadata from the genuine migrated PGlite owner", async () => {
     const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });
@@ -94,5 +126,25 @@ describe("prepared metadata epoch PGlite migration", () => {
     } finally {
       await db.close();
     }
+  }, 180_000);
+
+  it("keeps ordinary dynamic build and coverage progress outside the static epoch", async () => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    try {
+      await persistence.migrate();
+      const read = async () => (await persistence.query<{ generation: string }>(
+        "select generation::text from fx_system_prepared_metadata_epoch")).rows[0]?.generation;
+      const before = await read();
+      await persistence.drizzle.update(fxSystemIndexBuildStates)
+        .set({ coveredThroughCommitSeq: sql`${fxSystemIndexBuildStates.coveredThroughCommitSeq}` }).where(sql`false`);
+      expect(await read()).toBe(before);
+      await persistence.drizzle.update(fxSystemUniqueConstraintBuilds)
+        .set({ coveredThroughCommitSeq: sql`${fxSystemUniqueConstraintBuilds.coveredThroughCommitSeq}` }).where(sql`false`);
+      expect(await read()).toBe(before);
+      await persistence.drizzle.update(fxSystemPhysicalDefinitionLifecycles)
+        .set({ transitionFence: sql`${fxSystemPhysicalDefinitionLifecycles.transitionFence}` }).where(sql`false`);
+      expect(await read()).toBe(before);
+    } finally { await db.close(); }
   }, 180_000);
 });

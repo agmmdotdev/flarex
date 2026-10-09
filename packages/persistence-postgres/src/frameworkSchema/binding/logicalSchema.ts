@@ -6,6 +6,7 @@ import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../../scopeClock";
 import type { CheckedApplicationActiveHead } from "../../applicationActiveHeadRead";
+import type { ApplicationRelationReadinessProtection } from "../../applicationRelationReadinessFold";
 import type { DataBindingActivationFrame, DataBindingSetFrame } from "./model";
 import type { StoredBindingValue } from "./repository";
 import { sameBindingValue } from "./canonical";
@@ -56,9 +57,10 @@ export const verifyLogicalSchemaBindingInTransaction = Effect.fn("DataBinding.ve
   tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   acceptance: BindingApplicationAcceptance,
   checkedActive?: CheckedApplicationActiveHead,
+  protection?: ApplicationRelationReadinessProtection,
 ) {
   yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application, acceptance));
-  const readiness = yield* prepared.inspect(tx, authority, clock, checkedActive);
+  const readiness = yield* prepared.inspect(tx, authority, clock, checkedActive, protection);
   if (readiness.status !== "ready") return yield* Effect.fail(bindingError("logicalSchemaNotReady", readiness));
   return readiness;
 });
@@ -71,9 +73,10 @@ export const verifyLogicalSchemaReadBindingInTransaction = Effect.fn("DataBindin
   tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   acceptance: BindingApplicationAcceptance,
   checkedActive?: CheckedApplicationActiveHead,
+  protection?: ApplicationRelationReadinessProtection,
 ) {
   yield* Effect.fromResult(verifyPreparedLogicalSchemaBinding(prepared, frame, application, acceptance));
-  const readiness = yield* prepared.inspectSelected(tx, authority, clock, checkedActive);
+  const readiness = yield* prepared.inspectSelected(tx, authority, clock, checkedActive, protection);
   if (readiness.status !== "ready") return yield* Effect.fail(bindingError("logicalSchemaNotReady", readiness));
   return readiness;
 });

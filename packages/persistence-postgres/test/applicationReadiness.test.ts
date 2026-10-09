@@ -52,7 +52,7 @@ import {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
-import { Effect, Encoding, Exit, Result, Schema, Scope } from "effect";
+import { Effect, Encoding, Exit, Result, Schema, Scope, Tracer } from "effect";
 
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
@@ -2831,9 +2831,18 @@ describe("Application activation", { timeout: 30_000 }, () => {
                 (clock.storageGenerationFence + 1n).toString()) }))).toBe(true);
             expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding,
               { ...admitted.selection }, tx, clock))).toBe(true);
+            const borrowedSpans: string[] = [];
+            const borrowedTracer = Tracer.make({ span(options) { borrowedSpans.push(options.name); return new Tracer.NativeSpan(options); } });
             const borrowed = yield* withValidatedApplicationBindingBasisInTransaction(admitted.selection, tx, clock,
-              validated => Effect.succeed(validated), binding);
+              (validated, _checked, finiteBinding) => Effect.sync(() => {
+                // Weak finite entry cannot masquerade as full ordinary readiness.
+                expect(finiteBinding).not.toBe(binding);
+                return validated;
+              }), binding).pipe(Effect.provideService(Tracer.Tracer, borrowedTracer));
             expect(borrowed.basis.revisionId).toBe(admitted.basis.revisionId);
+            expect(borrowedSpans.filter(name => name === "ApplicationReadiness.validateFiniteEntry")).toHaveLength(1);
+            expect(borrowedSpans).not.toContain("ApplicationReadiness.validateStoredForActivationInTransaction");
+            expect(borrowedSpans).not.toContain("ApplicationActiveHead.readCheckedCoherentForShare");
             // Exercise the process-local control consumption boundary using an
             // actual entry and Application issuer. Durable entry SQL is covered
             // by the connected finite-entry fixtures.

@@ -506,6 +506,56 @@ export const AdmittedParticipantOperationSchema = Schema.Struct({
 export type AdmittedParticipantOperation =
   typeof AdmittedParticipantOperationSchema.Type;
 
+/** Private insertion provenance travels inside the authenticated source receipt.
+ * Absence of this field in retained bytes means no explicit insertion intent. */
+export const GeneratedInsertionIntentSchema = Schema.Struct({
+  documentId: AppDocumentIdV1Schema, tableId: CatalogTableIdSchema, rowId: AppRowIdHexV1Schema,
+  effectOrdinal: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_COMMIT_WRITE_OPERATIONS_V1 - 1 })),
+}).annotate(StrictStructOptions);
+export const GeneratedInsertionIntentsSchema = Schema.Array(GeneratedInsertionIntentSchema).check(
+  Schema.isMaxLength(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1));
+export type GeneratedInsertionIntent = typeof GeneratedInsertionIntentSchema.Type;
+export interface AuthenticatedGeneratedInsertion extends GeneratedInsertionIntent {
+  readonly origin: Readonly<{ syscallSequence: bigint; sourceBindingSha256Hex: string }>;
+}
+const decodeInsertionCarrier = Schema.decodeUnknownResult(Schema.Struct({
+  generatedInsertions: Schema.optionalKey(GeneratedInsertionIntentsSchema),
+}));
+export function authenticatedGeneratedInsertionsResult(operations: readonly AdmittedParticipantOperation[]) {
+  return Result.gen(function* () {
+    const intents = new Map<AppDocumentIdV1, AuthenticatedGeneratedInsertion>();
+    const firstEffects = new Map<AppDocumentIdV1, Readonly<{ sequence: bigint; ordinal: number; binding: string }>>();
+    for (const operation of operations) for (const source of operation.sourceContributions)
+      for (const effect of source.effects) {
+        const first = firstEffects.get(effect.documentId);
+        if (first === undefined || operation.syscallSequence < first.sequence ||
+          operation.syscallSequence === first.sequence && effect.effectOrdinal < first.ordinal)
+          firstEffects.set(effect.documentId, { sequence: operation.syscallSequence,
+            ordinal: effect.effectOrdinal, binding: source.sourceBindingSha256Hex });
+      }
+    for (const operation of operations) for (const source of operation.sourceContributions) {
+      const carrier = yield* decodeInsertionCarrier(source.dependencyEvidence)
+        .pipe(Result.mapError(() => invalidSchemaError("journal")));
+      for (const intent of carrier.generatedInsertions ?? []) {
+        const identity = yield* decodeAppDocumentIdentityV1Result(intent.documentId)
+          .pipe(Result.mapError(() => invalidSchemaError("journal")));
+        const effect = source.effects.find(member => member.effectOrdinal === intent.effectOrdinal);
+        const first = firstEffects.get(intent.documentId);
+        if (intents.has(intent.documentId) || identity.tableId !== intent.tableId || identity.rowId !== intent.rowId ||
+          effect === undefined || effect.tableId !== intent.tableId || effect.documentId !== intent.documentId ||
+          effect.operation !== "insert" || effect.before !== null || effect.after === null ||
+          first?.sequence !== operation.syscallSequence || first.ordinal !== intent.effectOrdinal ||
+          first.binding !== source.sourceBindingSha256Hex)
+          return yield* Result.fail(invalidSchemaError("journal"));
+        intents.set(intent.documentId, { ...intent, origin: { syscallSequence: operation.syscallSequence,
+          sourceBindingSha256Hex: source.sourceBindingSha256Hex } });
+      }
+    }
+    if (intents.size > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) return yield* Result.fail(invalidSchemaError("journal"));
+    return intents;
+  });
+}
+
 /** Operational usage is recomputed from retained receipts by the journal
  * owner at seal, then bound by the canonical journal digest for recovery. */
 export const SessionJournalOperationUsageSchema = Schema.Struct({
@@ -547,7 +597,7 @@ export interface ParticipantPointCorrelation {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
   readonly observed: Extract<LogicalReadDependencyV1,
-    { readonly kind: "appRowPoint" }>["observed"];
+    { readonly kind: "appRowPoint" }>["observed"] | Readonly<{ kind: "generatedInsertion" }>;
   readonly overlayKind: "none" | "live" | "deleted";
   readonly overlayValueJson: JsonObject | null;
 }
@@ -1142,6 +1192,14 @@ export const decodeCanonicalSessionJournalEffect = Effect.fn(
   }
   return canonical;
 });
+
+/** Only the original fully validating constructor can issue this handoff. The
+ * object freezes its JSON and exposes byte copies; restored/lookalike values
+ * remain foreign and must use complete evidence verification. */
+const issuedSuccessfulResults = new WeakMap<object, CanonicalSuccessfulResultV1>();
+export function readIssuedCanonicalSuccessfulResultV1(input: unknown): CanonicalSuccessfulResultV1 | undefined {
+  return typeof input === "object" && input !== null ? issuedSuccessfulResults.get(input) : undefined;
+}
 
 export const canonicalizeSuccessfulResultV1Effect = Effect.fn(
   "CommitProtocol.canonicalizeSuccessfulResultV1",
@@ -1863,7 +1921,7 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
   } satisfies SuccessfulResultEvidenceV1);
   const stableValueJson = freezeOwnedProtocolProjection(canonical.valueJson);
 
-  return Object.freeze({
+  const result = Object.freeze({
     valueJson: stableValueJson,
     semanticSizeBytes: canonical.semanticSizeBytes,
     canonicalText: canonical.canonicalText,
@@ -1874,6 +1932,8 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
     },
     evidence,
   } satisfies CanonicalSuccessfulResultV1);
+  issuedSuccessfulResults.set(result, result);
+  return result;
 });
 
 const decodeUnknownFlarexValueEnvelopeV1 = Schema.decodeUnknownEffect(

@@ -308,7 +308,8 @@ type TransactionJournalOutcomeKindV1 =
 type TransactionJournalDependencyKindV1 =
   | "present"
   | "missing_no_visible_revision"
-  | "missing_tombstone";
+  | "missing_tombstone"
+  | "generated_insertion";
 
 type IdempotencyResultState = "available" | "expired";
 
@@ -3317,7 +3318,33 @@ export const fxSystemTransactionJournalReceipts = pgTable(
   ],
 );
 
-/** One immutable OCC dependency plus deterministic same-row overlay. */
+/** One source for the durable point discriminator and its installation proof. */
+export function transactionJournalPointDependencyCheck(
+  dependencyKind: SQLWrapper, dependencyRevisionCommitSeq: SQLWrapper,
+) {
+  return sql`
+        (
+          ${dependencyKind} = 'present'
+          and ${dependencyRevisionCommitSeq} is not null
+          and ${dependencyRevisionCommitSeq} >= 1
+        )
+        or (
+          ${dependencyKind} = 'missing_no_visible_revision'
+          and ${dependencyRevisionCommitSeq} is null
+        )
+        or (
+          ${dependencyKind} = 'missing_tombstone'
+          and ${dependencyRevisionCommitSeq} is not null
+          and ${dependencyRevisionCommitSeq} >= 1
+        )
+        or (
+          ${dependencyKind} = 'generated_insertion'
+          and ${dependencyRevisionCommitSeq} is null
+        )
+      `;
+}
+
+/** One original read or generated-insertion obligation plus its same-row overlay. */
 export const fxSystemTransactionJournalPoints = pgTable(
   "fx_system_tx_journal_point",
   {
@@ -3382,22 +3409,7 @@ export const fxSystemTransactionJournalPoints = pgTable(
     ),
     check(
       "fx_system_tx_journal_point_dependency_check",
-      sql`
-        (
-          ${table.dependencyKind} = 'present'
-          and ${table.dependencyRevisionCommitSeq} is not null
-          and ${table.dependencyRevisionCommitSeq} >= 1
-        )
-        or (
-          ${table.dependencyKind} = 'missing_no_visible_revision'
-          and ${table.dependencyRevisionCommitSeq} is null
-        )
-        or (
-          ${table.dependencyKind} = 'missing_tombstone'
-          and ${table.dependencyRevisionCommitSeq} is not null
-          and ${table.dependencyRevisionCommitSeq} >= 1
-        )
-      `,
+      transactionJournalPointDependencyCheck(table.dependencyKind, table.dependencyRevisionCommitSeq),
     ),
     check(
       "fx_system_tx_journal_point_overlay_check",

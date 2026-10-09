@@ -1,7 +1,9 @@
 import { fxSystemScopeExecutionAuthorities } from "../src/schema";
 import { expect } from "vitest";
 import { Effect, Exit, Fiber } from "effect";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../src/installationLifecycle";
 import { isJsonObject } from "flarex-protocol/json";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { makeCmsHost, type CmsHostInput } from "../src/cmsTransaction/host";
@@ -105,7 +107,30 @@ export async function payloadPreferencePublicationScenario(input: {
     const failures = await create("delete-publication-failures");
     await input.seed(failures, ["rollback-a", "rollback-b"]);
     const stable = await inventory();
-    for (const step of ["tentativeRowWritten", "commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
+    const schemaName = await persistence.drizzle.transaction(async tx => {
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      try { return await runEffect(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
+      finally { closeInstallationAdmission(tx); }
+    });
+    const rowTable = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(getTableName(fxAppRowRevisions))}`).sql;
+    const rowFunction = new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier("payload_preference_row_corruption")}`).sql;
+    await persistence.query(`create function ${rowFunction}() returns trigger language plpgsql as $$
+      begin
+        if NEW."${fxAppRowRevisions.isTombstone.name}" then
+          NEW."${fxAppRowRevisions.creationTime.name}" := NEW."${fxAppRowRevisions.creationTime.name}" + 1;
+        end if;
+        return NEW;
+      end $$`);
+    try {
+      await persistence.query(`create trigger payload_preference_row_corruption before insert on ${rowTable}
+        for each row execute function ${rowFunction}()`);
+      try {
+        expect(await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.delete,
+          { collection: "posts", id: failures }))).toMatchObject({ reason: "storedCorruption" });
+        expect(await inventory()).toEqual(stable);
+      } finally { await persistence.query(`drop trigger payload_preference_row_corruption on ${rowTable}`); }
+    } finally { await persistence.query(`drop function ${rowFunction}()`); }
+    for (const step of ["commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
       failedStep = step;
       expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: failures }))))).toBe(true);
       failedStep = undefined;

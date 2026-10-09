@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
+import { Cause, Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import * as valueCodec from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
@@ -17,7 +17,7 @@ import { createRetainedHistoryFloorObservationPort, createRetainedHistoryFloorPi
 import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../persistence-postgres/src/transactionSessionActivation";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../persistence-postgres/test/transactionSessionActivationTestSupport";
 import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
-import { readFrozenFiniteCommitValues, readFrozenFiniteAttemptOrigin, readOwnedFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalFiniteFreeze";
+import { borrowFrozenFiniteCommitValues, readFrozenFiniteCommitValues, readFrozenFiniteAttemptOrigin, readOwnedFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalFiniteFreeze";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { CanonicalFlarexValueBytesV1Schema, FlarexValueSha256V1Schema, canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import { inspectLogicalParticipantAdmissionBundle, inspectFiniteOperationCommitAuthority } from "../../persistence-postgres/src/logicalDocuments/participantAdmission";
@@ -81,7 +81,7 @@ function replacement(fixture: Fixture) {
       logicalOperationProfiles: fixture.publisherOptions.logicalOperationProfiles,
     }),
     leaseDurationMilliseconds: 120_000, executionClaimDurationMilliseconds: 60_000,
-    finiteEntry: { application: fixture.application.activation,
+    finiteEntry: { application: fixture.preparedFiniteApplication,
       prepareEntry: () => prepare.call(fixture.journal).pipe(Effect.mapError(cause =>
         new PointMutationAttemptReplacementFiniteEntryError({ cause }))) },
   });
@@ -95,6 +95,32 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       const frozen = await Effect.runPromise(fixture.freeze(value));
       const projected = readFrozenFiniteAttempt(frozen);
       if (projected === undefined) throw new Error("Missing genuine frozen projection");
+      const borrowed = borrowFrozenFiniteCommitValues(frozen);
+      if (borrowed === undefined) throw new Error("Missing genuine closed-root validator projection");
+      expect(Object.keys(borrowed).sort()).toEqual(["rowIntents", "successfulResult"]);
+      expect(Object.isFrozen(borrowed)).toBe(true);
+      expect(Object.isFrozen(borrowed.rowIntents)).toBe(true);
+      expect(Reflect.set(borrowed.rowIntents, "0", undefined)).toBe(false);
+      expect(borrowed.rowIntents).toHaveLength(projected.rowIntents.length);
+      expect(Object.keys(borrowed.successfulResult)).toEqual(["valueJson"]);
+      expect(Object.isFrozen(borrowed.successfulResult)).toBe(true);
+      if (typeof borrowed.successfulResult.valueJson === "object" && borrowed.successfulResult.valueJson !== null) {
+        expect(Object.isFrozen(borrowed.successfulResult.valueJson)).toBe(true);
+        expect(Reflect.set(borrowed.successfulResult.valueJson, "borrowedMutation", true)).toBe(false);
+      }
+      for (const row of borrowed.rowIntents) {
+        expect(Object.isFrozen(row)).toBe(true);
+        expect("canonicalBytes" in row).toBe(false);
+        expect("dependency" in row).toBe(false);
+        if (row.kind === "live") {
+          expect(Object.isFrozen(row.valueJson)).toBe(true);
+          if (typeof row.valueJson !== "object" || row.valueJson === null)
+            throw new Error("Expected a canonical live document object in the validator projection");
+          expect(Reflect.set(row.valueJson, "borrowedMutation", true)).toBe(false);
+        }
+      }
+      expect(borrowFrozenFiniteCommitValues({ ...frozen })).toBeUndefined();
+      expect(readFrozenFiniteAttempt(frozen)).toEqual(projected);
       const ids = new Set<string>(projected.rowIntents.map(row => row.documentId));
       const canonicalize = vi.spyOn(valueCodec, "canonicalizeFlarexValueV1");
       try {
@@ -354,7 +380,9 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       try {
         const value = await execute(fixture);
         const steps: string[] = [];
+        const submittedQueries: string[] = [];
         const actual = createPointCommitPublisherPortV1(fixture.pointCommitPorts, { ...fixture.publisherOptions,
+          observeQuery: query => { submittedQueries.push(query.name); },
           afterTransactionStep: async event => { steps.push(event.step); } });
         let inspected = false;
         const publisher = { ...actual, publishFinite: (command: PointFiniteCommitCommand) => Effect.gen(function* () {
@@ -421,7 +449,7 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
           expect([...fixture.nativeInvokeCount.entries()]).toEqual(callbacks);
           expect(steps).toContain("sessionLocked");
           expect(steps).not.toContain("finiteParticipantDocumentValidated");
-          expect(steps).not.toContain("rowBatchWriting");
+          expect(submittedQueries).not.toContain("applyPublication");
           inspected = true;
           return yield* Effect.fromResult(verdict);
         }) };
@@ -610,9 +638,24 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       const replacer = replacement(fixture);
       const calls = Object.fromEntries(fixture.nativeInvokeCount);
       const committedBeforeReplacement = await fixture.currency.persistence.drizzle.select().from(fxSystemCommits);
+      const command = captured.command();
+      const firstProof = proofs[0];
+      if (firstProof === undefined) throw new Error("Missing authentic replacement proof");
+      const forged = await Effect.runPromise(replacer.replaceFinite({ ...command,
+        frozenAttempt: structuredClone(command.frozenAttempt), proof: firstProof }).pipe(Effect.result));
+      expect(forged).toMatchObject({ _tag: "Failure", failure: { _tag: "PointMutationAttemptReplacementCorruptionV1Error", reason: "commandInvalid" } });
+      const recoveredWithCertificate = await Effect.runPromise(replacer.replaceRecoveredFinite({
+        ...command, proof: firstProof,
+        // @ts-expect-error Recovered redispatch explicitly excludes every frozen certificate.
+        frozenAttempt: command.frozenAttempt,
+      }).pipe(Effect.result));
+      expect(recoveredWithCertificate).toMatchObject({ _tag: "Failure", failure: { reason: "replacementMutationInvalid" } });
+      expect(await session(fixture)).toEqual(fenced);
+      expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual(calls);
       const results = await Promise.all(proofs.map(proof => Effect.runPromise(
         replacer.replaceFinite({ ...captured.command(), proof }).pipe(Effect.result))));
-      expect(results.filter(Result.isSuccess)).toHaveLength(1);
+      expect(results.filter(Result.isSuccess), results.filter(Result.isFailure)
+        .map(result => Cause.pretty(Cause.fail(result.failure))).join("\n")).toHaveLength(1);
       expect(results.filter(Result.isFailure)).toHaveLength(1);
       const fresh = await session(fixture);
       expect(fresh.attemptFence).toBe(fenced.attemptFence + 1n);

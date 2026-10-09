@@ -1,4 +1,5 @@
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Exit, Result } from "effect";
+import { readPreparedPublicationDefinitions } from "../commitPublication/definitionPreparation";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { AdmittedParticipantOperation, SourceContribution } from "flarex-protocol/commit-protocol";
@@ -6,6 +7,7 @@ import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import type { TransactionAttemptFence, TransactionSessionIdV1 } from "flarex-protocol/transaction-session";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type { AcceptedApplicationBinding, ApplicationBindingInput } from "../applicationActivation";
+import { withValidatedApplicationBindingBasisInTransaction } from "../applicationActivation";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import type { DataBindingHeadToken } from "../frameworkSchema/binding/model";
@@ -19,6 +21,7 @@ import type { LogicalSearchDefinition } from "./searchEntries";
 import type { LogicalStorageReadDemand } from "./model";
 import type { PreparedFiniteMetadataProjection, FiniteMetadataComparisonExpected, FiniteMetadataError } from "../finiteMetadataDependencies";
 import type { FiniteStorageCaptureError } from "../finiteStorageCapture";
+import type { PreparedHostPreparationLifetime } from "../preparedHostRuntime";
 
 export class LogicalParticipantAdmissionError extends Data.TaggedError("LogicalParticipantAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" |
@@ -311,6 +314,9 @@ export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalPa
 declare const commitBrand: unique symbol;
 export interface LogicalParticipantCommitAuthority { readonly [commitBrand]: true }
 interface CommitState {
+  readonly publicationDefinitions: import("../commitPublication/definitionPreparation").PreparedPublicationDefinitions;
+  readonly application?: ApplicationBindingInput;
+  readonly projectApplicationFailure?: (cause: unknown) => LogicalParticipantAdmissionError;
   readonly metadataProjection?: PreparedFiniteMetadataProjection;
   readonly participant: string;
   readonly methods: ReadonlySet<string>;
@@ -334,9 +340,29 @@ interface CommitState {
     Effect.Effect<Readonly<{ indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>, LogicalParticipantAdmissionError>;
   readonly verify: (operation: AdmittedParticipantOperation, contribution: SourceContribution,
     tx: FlarexMetadataTransaction,
-    authority: TrustedScopeAuthority, clock: ScopeClockRecord) => Effect.Effect<void, LogicalParticipantAdmissionError>;
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    borrowed?: AcceptedApplicationBinding) => Effect.Effect<void, LogicalParticipantAdmissionError>;
 }
 const commits = new WeakMap<object, CommitState>();
+
+/** The publication root keeps this genuine source's Application acceptance
+ * alive while checking all ordinary source contributions. Application owns
+ * acquisition tracing; this lifetime boundary restores work without adding
+ * stack annotations to its original Cause. */
+export const withLogicalParticipantCommitApplicationBindingInTransaction = Effect.fnUntraced(
+  function* <A, E, R>(token: LogicalParticipantCommitAuthority, tx: FlarexMetadataTransaction,
+    clock: ScopeClockRecord, work: (binding: AcceptedApplicationBinding) => Effect.Effect<A, E, R>) {
+    const state = commits.get(token);
+    if (state?.application === undefined || state.projectApplicationFailure === undefined)
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    // This actual callback-lifetime boundary owns the complete work outcome.
+    // Only acquisition failures cross the source's existing projection; work
+    // failures, defects and interruption retain their original complete Cause.
+    const outcome = yield* withValidatedApplicationBindingBasisInTransaction(state.application, tx, clock,
+      (_validated, _checked, binding) => Effect.exit(work(binding))).pipe(Effect.mapError(state.projectApplicationFailure));
+    if (Exit.isFailure(outcome)) return yield* Effect.failCause(outcome.cause);
+    return outcome.value;
+  });
 
 export function prepareFiniteOperationCommitObservation(token: LogicalParticipantCommitAuthority,
   admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, participant: string, methods: readonly string[],
@@ -371,7 +397,7 @@ export const inspectFiniteOperationCommitAuthority = (
     state.tableIds.size !== issued.tableIds.size || [...state.tableIds].some(tableId => !issued.tableIds.has(tableId)) ||
     state.metadataProjection === undefined || state.prepareFiniteTables === undefined ? null : Object.freeze({
       tableIds: new Set(state.tableIds), schemaVersionId: state.schemaVersionId,
-      indexes: state.indexes, unique: state.unique, search: state.search,
+      indexes: state.indexes, unique: state.unique, search: state.search, publicationDefinitions: state.publicationDefinitions,
       metadataProjection: state.metadataProjection, validateDocument: state.validateDocument,
       root: issued.root, sourceKey: state.sourceKey, sourceSha256: state.sourceSha256, head: issued.head,
     });
@@ -385,14 +411,25 @@ export const inspectLogicalParticipantCommitMetadataProjection = (token: Logical
     ? null : state.metadataProjection ?? null;
 };
 
-export const issueLogicalParticipantCommitAuthority = (state: CommitState): LogicalParticipantCommitAuthority => {
+// Cleanup captures only the inert key, rather than retaining the issuing
+// source's state through the lifetime's disposal callback.
+const disposeCommitAuthority = (token: LogicalParticipantCommitAuthority) => () => { commits.delete(token); };
+
+export const issueLogicalParticipantCommitAuthority = (state: Omit<CommitState, "indexes" | "unique">,
+  preparationLifetime?: PreparedHostPreparationLifetime): LogicalParticipantCommitAuthority => {
   // SAFETY: this inert token carries no authority itself; only membership in
   // the private WeakMap authenticates the selected source at final commit.
   const token = Object.freeze({}) as LogicalParticipantCommitAuthority;
   if (state.participant.length === 0 || state.methods.size === 0 || state.tableIds.size === 0 ||
     [...state.methods].some(method => method.length === 0)) return token;
-  commits.set(token, Object.freeze({ ...state, methods: new Set(state.methods), tableIds: new Set(state.tableIds),
-    indexes: Object.freeze([...state.indexes]), unique: Object.freeze([...state.unique]),
+  const definitions = readPreparedPublicationDefinitions(state.publicationDefinitions);
+  if (definitions === null) return token;
+  // Source factories lend their original allocation explicitly: commit tokens
+  // are commonly issued after ambient preparation has already completed.
+  // Actual reclamation waits for retired borrowers and frozen roots to drain.
+  if (preparationLifetime !== undefined && Result.isFailure(preparationLifetime.onDispose(disposeCommitAuthority(token))))
+    return token;
+  commits.set(token, Object.freeze({ ...state, ...definitions, methods: new Set(state.methods), tableIds: new Set(state.tableIds),
     search: Object.freeze([...state.search]) }));
   return token;
 };
@@ -413,10 +450,12 @@ export const hasLogicalParticipantCommitAuthority = (
 export const inspectLogicalParticipantCommitAuthoritySource = (
   token: LogicalParticipantCommitAuthority,
 ): Readonly<{ sourceKey: string; sourceSha256: string;
+  applicationBindingAvailable: boolean;
   schemaVersionId: CatalogSchemaVersionId; tableIds: ReadonlySet<CatalogTableId>;
   methods: readonly string[] }> | null => {
   const state = typeof token === "object" && token !== null ? commits.get(token) : undefined;
   return state === undefined ? null : Object.freeze({ sourceKey: state.sourceKey,
+    applicationBindingAvailable: state.application !== undefined && state.projectApplicationFailure !== undefined,
     sourceSha256: state.sourceSha256, schemaVersionId: state.schemaVersionId,
     tableIds: new Set(state.tableIds), methods: Object.freeze([...state.methods]) });
 };
@@ -426,26 +465,28 @@ export const inspectLogicalParticipantCommitAuthority = (
   contribution: SourceContribution,
 ): Readonly<{ schemaVersionId: CatalogSchemaVersionId; tableIds: ReadonlySet<CatalogTableId>;
   indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
-  validateDocument: LogicalParticipantDocumentValidator }> | null => {
+  validateDocument: LogicalParticipantDocumentValidator;
+  publicationDefinitions: import("../commitPublication/definitionPreparation").PreparedPublicationDefinitions }> | null => {
   const state = typeof token === "object" && token !== null ? commits.get(token) : undefined;
   return state === undefined || !hasLogicalParticipantCommitAuthority(token, operation.participant, contribution) ||
     state.sourceSha256 !== contribution.sourceSha256Hex ||
     contribution.effects.some(effect => !state.tableIds.has(effect.tableId)) ? null : Object.freeze({
       schemaVersionId: state.schemaVersionId, tableIds: new Set(state.tableIds), indexes: state.indexes, unique: state.unique,
-      validateDocument: state.validateDocument,
+      validateDocument: state.validateDocument, publicationDefinitions: state.publicationDefinitions,
     });
 };
 
 export const requireLogicalParticipantCommitAuthorityEffect = Effect.fn("LogicalParticipantCommitAuthority.require")(
   function* (token: LogicalParticipantCommitAuthority, operation: AdmittedParticipantOperation,
     contribution: SourceContribution,
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
+    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    borrowed?: AcceptedApplicationBinding) {
     const state = typeof token === "object" && token !== null ? commits.get(token) : undefined;
     if (state === undefined || !hasLogicalParticipantCommitAuthority(token, operation.participant, contribution) ||
       state.sourceSha256 !== contribution.sourceSha256Hex ||
       contribution.effects.some(effect => !state.tableIds.has(effect.tableId)))
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    yield* state.verify(operation, contribution, tx, authority, clock);
+    yield* state.verify(operation, contribution, tx, authority, clock, borrowed);
     return Object.freeze({ tableIds: new Set(state.tableIds), indexes: state.indexes, unique: state.unique,
       readDefinitions: Object.freeze({ indexes: state.indexes, unique: state.unique }),
       search: state.search, validateDocument: state.validateDocument });

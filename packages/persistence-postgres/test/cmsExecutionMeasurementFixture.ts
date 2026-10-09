@@ -22,6 +22,8 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
   fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemScopeClocks, fxSystemCommits,
   fxSystemIdempotency, fxSystemCommitWakes, fxSystemCommitAppRowChanges, fxSystemTransactionSessions } from "../src/schema";
 import { cmsHostFixture } from "./cmsHostFixture";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../src/executionDiagnostics/operation";
+import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../src/pointCommitPublicationObservation";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const decodeInput = Schema.decodeUnknownResult(Schema.Union([
@@ -30,6 +32,7 @@ const decodeInput = Schema.decodeUnknownResult(Schema.Union([
 ]), { onExcessProperty: "error" });
 const decodeDocuments = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ _id: Schema.String, title: Schema.String, _creationTime: Schema.Number })));
 const decodeIds = Schema.decodeUnknownResult(Schema.Array(Schema.String));
+const decodeRemoveId = Schema.decodeUnknownResult(Schema.String);
 const decodeMove = Schema.decodeUnknownResult(Schema.Struct({ firstId: Schema.String, secondId: Schema.String, firstTitle: Schema.String, temporaryTitle: Schema.String }));
 
 /** Actual active CMS core composition; setup and assertions are outside timing. */
@@ -68,6 +71,11 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     yield* ctx.documents.patch(ctx.context, ctx.transactionId, input.secondId, { title: input.firstTitle });
     yield* ctx.documents.delete(ctx.context, ctx.transactionId, input.firstId);
     return yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: input.temporaryTitle });
+  }) });
+  const remove = defineCmsCommand({ name: "measuredDelete", mode: "write", run: Effect.fn("CmsMeasurement.delete")(function* (ctx, args) {
+    const id = yield* Effect.fromResult(decodeRemoveId(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
+    yield* ctx.documents.delete(ctx.context, ctx.transactionId, id);
+    return null;
   }) });
   const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
     deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
@@ -150,7 +158,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     return after;
   };
   const verifyInsert = (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => verifyInserts(before, [{ value, count, prefix }]);
-  return { fixture, input, host, insert, read, moveAndReuse, inventory, verifyInsert, verifyInserts, scope,
+  return { fixture, input, host, insert, read, moveAndReuse, remove, inventory, verifyInsert, verifyInserts, scope,
     priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions,
     prefixExecutionCount: (prefix: string) => prefixExecutions.get(prefix) ?? 0,
     readExecutionCount: () => readExecutions };
@@ -186,27 +194,34 @@ export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlar
     }
     expect(await tested.inventory()).toEqual(after);
   }
-  // Two memberships per new row must share one application, including the
-  // 32-transition SQL boundary. Replay must not re-enter that application.
-  const indexSteps: string[] = [];
+  // Both membership families share the actual installed stage. Native totals
+  // and final storage retain the 32-transition boundary proof.
+  const materializationEvents: PointCommitPublicationEvent[] = [];
+  let materializationStages = 0;
+  const observation = new PointCommitPublicationObservation({ detail: true, record: event => materializationEvents.push(event) });
+  const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) =>
+    name !== "ApplicationDocument.materializeAcceptedPublication" ? work : Effect.sync(() => { materializationStages++; }).pipe(Effect.andThen(work)) };
   const combined = await runEffect(makeCmsHost({ ...tested.input, materialization: {
     ...tested.input.materialization,
-    afterTransactionStep: async event => { indexSteps.push(event.step); },
+    publicationObservation: observation,
   } }));
   for (const count of [16, 17]) {
-    indexSteps.length = 0;
+    materializationEvents.length = 0;
+    materializationStages = 0;
     const before = await tested.inventory();
     const titles = Array.from({ length: count }, (_, index) => `combined-${count}-${index}`);
     const key = combined.newRequestKey();
-    const value = await runEffect(combined.run(key, tested.insert, { titles }));
+    const value = await runEffect(combined.run(key, tested.insert, { titles }).pipe(Effect.provideService(ExecutionDiagnostics, diagnostics)));
     const after = await tested.verifyInserts(before, [{ value, titles }]);
-    expect(indexSteps.filter(step => step === "indexBatchWriting")).toHaveLength(1);
-    expect(indexSteps.filter(step => step === "indexBatchWritten")).toHaveLength(1);
-    expect(indexSteps.filter(step => step === "intrinsicIndexEntryWritten")).toHaveLength(count);
-    expect(indexSteps.filter(step => step === "developerIndexEntryWritten")).toHaveLength(count);
-    const steps = [...indexSteps];
-    expect(await runEffect(combined.run(key, tested.insert, { titles }))).toEqual(value);
-    expect(indexSteps).toEqual(steps);
+    expect(materializationStages).toBe(1);
+    for (const [owner, expected] of [["rowRevisions", count], ["indexRevisions", count * 2], ["uniqueClaims", count]] as const)
+      expect(materializationEvents.reduce((total, event) => total +
+        ((event.kind === "counts" || event.kind === "batch") && event.owner === owner ? event.counts.rows ?? 0 : 0), 0)).toBe(expected);
+    observation.assertHealthy();
+    const events = [...materializationEvents];
+    expect(await runEffect(combined.run(key, tested.insert, { titles }).pipe(Effect.provideService(ExecutionDiagnostics, diagnostics)))).toEqual(value);
+    expect(materializationStages).toBe(1);
+    expect(materializationEvents).toEqual(events);
     expect(await tested.inventory()).toEqual(after);
   }
   // Preserve the actual growing-catalog failure: more stored identities than

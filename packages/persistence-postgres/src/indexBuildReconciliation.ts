@@ -1,3 +1,5 @@
+import { invalidateAcceptedApplicationBindingInTransaction } from "./applicationActivation";
+import { invalidateSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceAdmission";
 import { fxSystemIndexMaintenanceObligations } from "./schema";
 import { insertIndexBuildState } from "./indexBuildLifecycleDml";
 import { isNonBlankString } from "@flarex/utils/strings";
@@ -351,7 +353,7 @@ export const reconcilePublishedIndexBuildsV1Effect = Effect.fn(
     ports.controlDb,
     decoded,
   );
-  if (final === null || !requirementSnapshotsEqual(initial, final)) {
+  if (final === null || !publishedPhysicalRequirementSnapshotsEqual(initial, final)) {
     return yield* Effect.fail(
       new IndexBuildReconciliationDefinitionSetChangedV1Error({
         deploymentId: decoded.deploymentId,
@@ -823,6 +825,8 @@ const reconcileInTransaction = Effect.fn(
   | IndexBuildReconciliationStateV1Error
   | IndexBuildReconciliationIntegrationV1Error
 > {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
     authority.scopeId,
@@ -1211,7 +1215,7 @@ function queryEffect<Row>(
   }));
 }
 
-function requirementSnapshotsEqual(
+export function publishedPhysicalRequirementSnapshotsEqual(
   left: PublishedPhysicalRequirementSnapshotV1,
   right: PublishedPhysicalRequirementSnapshotV1,
 ): boolean {

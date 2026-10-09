@@ -35,6 +35,7 @@
     "./catalog": "./src/catalog.ts",
     "./connection": "./src/connection.ts",
     "./commit-protocol": "./src/commit-protocol.ts",
+    "./internal/owned-protocol-projection": "./src/owned-protocol-projection.ts",
     "./deployment": "./src/deployment.ts",
     "./execution": "./src/execution.ts",
     "./grant-retention-policy": "./src/grant-retention-policy.ts",

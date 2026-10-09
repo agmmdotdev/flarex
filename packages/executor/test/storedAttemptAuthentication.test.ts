@@ -1,4 +1,5 @@
 import { Cause, Deferred, Effect, Encoding, Exit, Fiber, Random, Result, Schema } from "effect";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { TestClock } from "effect/testing";
 import { createMetadataOnlyConflictFixture } from "../../persistence-postgres/test/finiteMetadataRetryTestSupport";
 import {
@@ -60,6 +61,7 @@ import {
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT,
   canonicalizeSessionJournalEffect,
+  canonicalizeAdmittedParticipantBindingV1Result,
   canonicalizeSuccessfulResultV1Effect,
   type CanonicalSessionJournal,
   type CanonicalSuccessfulResultV1,
@@ -1231,6 +1233,89 @@ describe("C04A stored-attempt authentication", () => {
       authority,
       encodeEnvelope(fixture.envelope),
     ))).resolves.toSatisfy(authentication.isAuthenticated);
+  });
+
+  it("refuses generated insertion evidence before ordinary overlay verification", async () => {
+    const fixture = await insertFixture({ name: "generated-point-refusal" });
+    for (const dependencyRevisionCommitSeq of [null, 1n]) {
+      const evidence = structuredClone(fixture.evidence);
+      Object.assign(requirePoint(evidence), {
+        dependencyKind: "generated_insertion",
+        dependencyRevisionCommitSeq,
+        // This independently invalid overlay must not hide the kind refusal.
+        overlayKind: "none",
+      });
+      const authentication = createStoredAttemptAuthenticationV1({
+        loadEffect: () => Effect.succeed(loaded(evidence)),
+      }, TEST_EXECUTION_CLAIMS);
+      const authority = await deriveAuthority(authentication);
+      const exit = await runEffect(Effect.exit(authentication.authenticate(
+        authority,
+        encodeEnvelope(fixture.envelope),
+      )));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons).toHaveLength(1);
+        const reason = exit.cause.reasons[0];
+        expect(reason !== undefined && Cause.isFailReason(reason)).toBe(true);
+        if (reason !== undefined && Cause.isFailReason(reason)) {
+          expect(reason.error).toBeInstanceOf(StoredAttemptStorageCorruptionV1Error);
+          expect(reason.error).toMatchObject({ reason: "pointEvidenceInvalid" });
+        }
+      }
+    }
+  });
+
+  it("authenticates generated insertion receipt obligations without recording an observed read", async () => {
+    const fixture = await participantInsertionFixture(false);
+    const authentication = createStoredAttemptAuthenticationV1({
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
+    }, TEST_EXECUTION_CLAIMS);
+    const authority = await deriveAuthority(authentication);
+    await expect(runEffect(authentication.authenticate(authority, encodeEnvelope(fixture.envelope))))
+      .resolves.toSatisfy(authentication.isAuthenticated);
+    expect(fixture.journal.journal.readDependencies).toEqual([]);
+    expect(fixture.evidence.root).toMatchObject({ pointDependencyCount: 1, readDocuments: 0, readSemanticBytes: 0 });
+    expect(requirePoint(fixture.evidence).dependencyKind).toBe("generated_insertion");
+  });
+
+  it("retains an earlier same-ID observation alongside the authenticated insertion obligation", async () => {
+    const fixture = await participantInsertionFixture(true);
+    const authentication = createStoredAttemptAuthenticationV1({
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
+    }, TEST_EXECUTION_CLAIMS);
+    const authority = await deriveAuthority(authentication);
+    await expect(runEffect(authentication.authenticate(authority, encodeEnvelope(fixture.envelope))))
+      .resolves.toSatisfy(authentication.isAuthenticated);
+    expect(fixture.journal.journal.readDependencies).toHaveLength(1);
+    expect(fixture.evidence.root.pointDependencyCount).toBe(1);
+    expect(requirePoint(fixture.evidence).dependencyKind).toBe("missing_no_visible_revision");
+  });
+
+  it("refuses generated insertion physical root counters that omit or double-count its point", async () => {
+    const fixture = await participantInsertionFixture(false);
+    for (const pointDependencyCount of [0, 2]) {
+      const evidence = structuredClone(fixture.evidence);
+      Object.assign(evidence.root, { pointDependencyCount });
+      const authentication = createStoredAttemptAuthenticationV1({
+        loadEffect: () => Effect.succeed(loaded(evidence)),
+      }, TEST_EXECUTION_CLAIMS);
+      const authority = await deriveAuthority(authentication);
+      const failure = await runFailure(authentication.authenticate(authority, encodeEnvelope(fixture.envelope)));
+      expect(failure).toBeInstanceOf(StoredAttemptStorageCorruptionV1Error);
+      expect(failure).toMatchObject({ reason: "journalCounterMismatch" });
+    }
+  });
+
+  it("refuses a generated marker whose original receipt names another effect ordinal", async () => {
+    const fixture = await participantInsertionFixture(false, 1);
+    const authentication = createStoredAttemptAuthenticationV1({
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
+    }, TEST_EXECUTION_CLAIMS);
+    const authority = await deriveAuthority(authentication);
+    const failure = await runFailure(authentication.authenticate(authority, encodeEnvelope(fixture.envelope)));
+    expect(failure).toBeInstanceOf(StoredAttemptStorageCorruptionV1Error);
+    expect(failure).toMatchObject({ reason: "pointEvidenceInvalid" });
   });
 
   it("correlates complete replace and terminal delete overlays", async () => {
@@ -6567,10 +6652,9 @@ function unchangedPlannerPoint(
 
 function deletedPlannerPoint(
   documentId: AppDocumentIdV1,
-  observed: Extract<
-    VerifiedCommitPointV1,
-    { readonly kind: "deleted" }
-  >["dependency"]["observed"] = Object.freeze({
+  observed: Extract<Extract<VerifiedCommitPointV1,
+    { readonly kind: "deleted" }>["dependency"],
+    { readonly kind: "appRowPoint" }>["observed"] = Object.freeze({
     kind: "present",
     revisionCommitSeq: CommitSeqSchema.make(1n),
   }),
@@ -6587,10 +6671,9 @@ function deletedPlannerPoint(
 
 async function livePlannerPoint(
   documentId: AppDocumentIdV1,
-  observed: Extract<
-    VerifiedCommitPointV1,
-    { readonly kind: "live" }
-  >["dependency"]["observed"] = Object.freeze({
+  observed: Extract<Extract<VerifiedCommitPointV1,
+    { readonly kind: "live" }>["dependency"],
+    { readonly kind: "appRowPoint" }>["observed"] = Object.freeze({
     kind: "missing",
     basis: Object.freeze({ kind: "noVisibleRevision" }),
   }),
@@ -6648,10 +6731,9 @@ function logicalPointDependency(
 
 function writableLogicalPointDependency(
   documentId: AppDocumentIdV1,
-  observed: Extract<
-    VerifiedCommitPointV1,
-    { readonly kind: "live" | "deleted" }
-  >["dependency"]["observed"],
+  observed: Extract<Extract<VerifiedCommitPointV1,
+    { readonly kind: "live" | "deleted" }>["dependency"],
+    { readonly kind: "appRowPoint" }>["observed"],
 ): Extract<
   VerifiedCommitPointV1,
   { readonly kind: "live" | "deleted" }
@@ -6756,6 +6838,46 @@ async function insertFixture(
     createdAtMilliseconds: 1_700_000_000_000,
     updatedAtMilliseconds: 1_700_000_000_000,
   }]);
+  return fixture;
+}
+
+async function participantInsertionFixture(preserveObservedRead: boolean, effectOrdinal = 0): Promise<Fixture> {
+  const native = await insertFixture({ name: "participant-generated" });
+  const point = requirePoint(native.evidence);
+  const observed = native.journal.journal.readDependencies[0];
+  if (observed === undefined || observed.kind !== "appRowPoint") throw new Error("Missing original fixture point identity");
+  const documentId = observed.documentId;
+  const rowId = decodeAppDocumentIdentityV1(documentId).rowId;
+  const sourceKey = "fixture.generated-source";
+  const bindingHead = { sequence: "1", sha256: "a".repeat(64) };
+  const binding = Result.getOrThrow(canonicalizeAdmittedParticipantBindingV1Result({
+    scopeId: SCOPE_ID, sessionId: SESSION_ID, attemptFence: ATTEMPT_FENCE,
+    snapshotCommitSeq: SNAPSHOT.commitSeq, schemaVersionId: SCHEMA_VERSION_ID,
+    principalDigest: "b".repeat(64), participant: "fixture.generated-participant", method: "insert",
+    sourceKey, sourceSha256Hex: "c".repeat(64), bindingHead,
+  }));
+  const sourceBindingSha256Hex = encodeBytesToLowercaseHex(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(binding.bytes).buffer)));
+  if (point.overlayValueJson === null || point.overlaySemanticBytes === null)
+    throw new Error("Expected the original canonical insertion document");
+  const fixture = await fixtureForJournal({
+    ...native.journal.journal,
+    readDependencies: preserveObservedRead ? native.journal.journal.readDependencies : [],
+    writes: [],
+    participantOperations: [{ syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      participant: "fixture.generated-participant", method: "insert", profileRevision: "d".repeat(64),
+      admissionBundleSha256Hex: "e".repeat(64), requestSha256Hex: "f".repeat(64),
+      resultSha256Hex: native.result.evidence.sha256Hex,
+      sourceContributions: [{ sourceKey, sourceBindingSha256Hex, sourceSha256Hex: "c".repeat(64),
+        bindingHead, methods: ["insert"],
+        effects: [{ effectOrdinal: 0, operation: "insert", tableId: point.tableId, documentId,
+          before: null, after: point.overlayValueJson }],
+        dependencyEvidence: { generatedInsertions: [{ documentId, tableId: point.tableId, rowId, effectOrdinal }] } }],
+      eventIntents: [] }],
+  });
+  Object.assign(fixture.evidence.root, { pointDependencyCount: 1, writeOperations: 1,
+    writeSemanticBytes: point.overlaySemanticBytes });
+  Reflect.apply(Array.prototype.push, fixture.evidence.points, [{ ...point,
+    dependencyKind: preserveObservedRead ? point.dependencyKind : "generated_insertion" }]);
   return fixture;
 }
 

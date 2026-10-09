@@ -288,11 +288,10 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     const originalPoint = root.snapshot().observedRows.find(row => row.value.id === productId);
     if (originalPoint === undefined) throw new Error("Missing cached native Product");
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(originalPoint.documentId));
-    const observation = root.snapshot().dependencies.find(row => row.documentId === identity.id)?.dependency.observed;
-    if (observation === undefined) throw new Error("Missing historical Product dependency");
     const overlay = yield* canonicalizeFlarexValueV1Effect({ ...originalPoint.value, handle: "app-overlay-handle" }, "appDocument");
     const originalObservation = root.snapshot().dependencies.find(row => row.documentId === identity.id);
-    if (originalObservation === undefined) throw new Error("Missing original Product observation");
+    if (originalObservation === undefined || originalObservation.dependency.kind !== "appRowPoint")
+      throw new Error("Missing original Product read observation");
     expect(Result.isSuccess(root.writePoint("product", originalObservation,
       { kind: "live", creationTime: AppCreationTimeV1Schema.make(Number(originalPoint.value._creationTime)), document: overlay }, "replace"))).toBe(true);
 
@@ -334,7 +333,7 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     expect(frozen.uniqueReads.some(read => read.owner === null && unique.some(definition =>
       definition.uniqueConstraintDefinitionId === read.constraintId &&
       definition.physicalSpec.orderedFields.length === 2))).toBe(true);
-    expect(frozen.dependencies.some(row => row.dependency.observed.kind === "present")).toBe(true);
+    expect(frozen.dependencies.some(row => row.dependency.kind === "appRowPoint" && row.dependency.observed.kind === "present")).toBe(true);
     expect(closed.attempts.some(row => row.tableName === "product")).toBe(true);
     root.close();
   }));

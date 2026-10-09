@@ -130,11 +130,15 @@ const preparedSelectedStructures = new WeakMap<object, PreparedSelectedStructure
 /** Issued by connected source preparation, with nominal Application lineage.
  * The first read still authenticates activation, candidate and complete lanes. */
 export function prepareBindingSelectedStructure(location: BindingLocation,
-  protection: ProtectedTargetMetadataEvidence, lifetime: PreparedSelectedStructureState["lifetime"]): PreparedBindingSelectedStructure {
+  protection: ProtectedTargetMetadataEvidence, lifetime: PreparedSelectedStructureState["lifetime"]): Result.Result<PreparedBindingSelectedStructure, DataBindingError> {
   // SAFETY: only the private registry recognizes the inert issued handle.
   const token = Object.freeze({}) as PreparedBindingSelectedStructure;
   preparedSelectedStructures.set(token, { location: Object.freeze({ ...location }), protection, lifetime });
-  return token;
+  const registered = lifetime?.onDispose(() => { preparedSelectedStructures.delete(token); }) ?? Result.succeed(undefined);
+  return registered.pipe(Result.mapError(cause => {
+    preparedSelectedStructures.delete(token);
+    return bindingError("resourceFailure", cause);
+  }), Result.map(() => token));
 }
 
 /** A complete accepting transaction can share its authenticated immutable

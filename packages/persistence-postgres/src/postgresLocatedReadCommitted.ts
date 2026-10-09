@@ -8,6 +8,7 @@ import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acqu
   acquireInstallationAdmission, InstallationLifecycleError, type PreparedInstallation,
   type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { recordManagedMetadataFrontierSnapshot } from "./preparedMetadataEpoch";
 import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedTransactionFailureIssueV1,
@@ -198,8 +199,13 @@ const acquireRunnerInstallationAdmission = Effect.fn("PostgresLocatedReadCommitt
       return yield* Effect.fail(new InstallationLifecycleError({ reason: "invalidCapability" }));
     if (options.directInstallation !== undefined)
       return yield* acquireInstallationAdmission(options.directInstallation.installation, options.directInstallation.database, tx);
-    if (options.managedInstallation !== undefined)
-      return yield* acquireCoLocatedInstallationAdmission(options.managedInstallation.installation, options.managedInstallation.database, tx);
+    if (options.managedInstallation !== undefined) {
+      const { installation, database } = options.managedInstallation;
+      const frontier = yield* acquireCoLocatedInstallationAdmission(installation, database, tx);
+      yield* recordManagedMetadataFrontierSnapshot(tx, database, frontier.targetInstallation, frontier.targetMetadataGeneration);
+      yield* recordManagedMetadataFrontierSnapshot(tx, database, frontier.controlInstallation, frontier.controlMetadataGeneration);
+      return frontier;
+    }
     return yield* lockInstallationForCurrentTransaction(tx);
   },
 );

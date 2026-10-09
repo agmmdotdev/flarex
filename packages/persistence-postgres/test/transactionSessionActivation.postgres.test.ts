@@ -1977,9 +1977,11 @@ describePostgres("finite running authority barrier", () => {
         expect(captures).toHaveLength(1);
         const capture = captures[0];
         if (capture === undefined) throw new Error("Missing actual named capture statement");
-        expect(capture).toContain("fx_lock_read_scope_placement");
-        expect(capture).toContain("first_gate as materialized");
-        expect(statements.filter(statement => statement.includes("fx_lock_read_scope_placement"))).toHaveLength(1);
+        expect(capture).toContain("fx_accept_finite_placement_frontier");
+        expect(capture).toContain("accepted_placement as materialized");
+        expect(capture).toContain("accepted_capture as materialized");
+        expect(statements.filter(statement => statement.includes("fx_accept_finite_placement_frontier"))).toHaveLength(1);
+        expect(capture).not.toContain("fx_lock_read_scope_placement");
         expect(capture).not.toContain("sealed_journal_bytes");
         expect(capture).not.toContain("validated_args_json");
         expect(capture).not.toContain("authorization_grant_json");

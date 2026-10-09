@@ -1,4 +1,5 @@
-import { Context, Effect, Option, Tracer } from "effect";
+import { Effect, Option } from "effect";
+import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 
 /** Own all DAL runners at the single framework boundary. Closing prevents late
@@ -6,10 +7,7 @@ import { commerceError, commerceLimits, type CommerceTransactionError } from "@f
  * and gives framework continuations a bounded opportunity to finish. */
 export function makeCommercePromiseOwner() {
   return Effect.withFiber(fiber => {
-    const tracerContext = Context.make(Tracer.Tracer, Context.get(fiber.context, Tracer.Tracer));
-    const tracingContext = fiber.currentSpan === undefined ? tracerContext
-      : Context.add(tracerContext, Tracer.ParentSpan, fiber.currentSpan);
-    const runPromise = Effect.runPromiseWith(tracingContext);
+    const tracingContext = captureExecutionDiagnosticContext(fiber);
     const controller = new AbortController();
     const runners = new Set<Promise<unknown>>();
     const callbacks = new Set<Promise<unknown>>();
@@ -29,7 +27,7 @@ export function makeCommercePromiseOwner() {
     };
     const run = <Value>(work: Effect.Effect<Value, CommerceTransactionError>): Promise<Value> => {
       if (!open) return Promise.reject(commerceError("closed"));
-      return track(runPromise(work, { signal: controller.signal }), runners);
+      return track(Effect.runPromiseWith(tracingContext)(work, { signal: controller.signal }), runners);
     };
     const callback = <Value>(work: () => Promise<Value>, signal: AbortSignal): Promise<Value> => {
       if (!open || signal.aborted) return Promise.reject(commerceError("closed"));

@@ -56,7 +56,7 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
       id: number;
       ok: boolean;
       value?: unknown;
-      error?: { message: string; code?: string };
+      error?: { message: string; code?: string; detail?: string };
     }) => {
       const item = pending.get(message.id);
       if (item === undefined) return;
@@ -67,7 +67,7 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
         item.reject(
           Object.assign(
             new Error(message.error?.message ?? "PGlite worker failure"),
-            { code: message.error?.code },
+            { code: message.error?.code, detail: message.error?.detail },
           ),
         );
     },

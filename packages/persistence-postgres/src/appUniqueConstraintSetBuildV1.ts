@@ -1,4 +1,4 @@
-import { chargeHostPreparation, PreparedHostRuntimeError } from "./preparedHostRuntime";
+import { chargeHostPreparation, registerHostPreparationDisposal, PreparedHostRuntimeError } from "./preparedHostRuntime";
 import { insertUniqueConstraintBuild } from "./indexBuildLifecycleDml";
 import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import { applyApplicationCoverage, ApplicationCoveragePersistenceError, APPLICATION_COVERAGE_MAX_ROWS, type CoverageProof, type UniqueCoverageWrite } from "./applicationDocumentMaterialization/domainCoverage";
@@ -376,6 +376,7 @@ const uniquePreparations = new WeakMap<object, Readonly<{
   snapshot: BuildSnapshot;
   tableIds: ReadonlyArray<CatalogTableId>;
   membersById: ReadonlyMap<CatalogUniqueConstraintDefinitionId, BuildSnapshot["members"][number]>;
+  definitions: readonly LocatedAppUniqueConstraintDefinitionV1[];
 }>>();
 
 /** The host allocation meters hidden catalog state without borrowing its ports. */
@@ -384,7 +385,9 @@ export const chargeUniqueConstraintPreparation = Effect.fn("AppUniqueConstraintS
     const state = uniquePreparations.get(preparation);
     return state === undefined ? Effect.fail(new PreparedHostRuntimeError({ reason: "invalidPayload" }))
       : chargeHostPreparation({ scopeId: state.scopeId, snapshot: state.snapshot, tableIds: state.tableIds,
-          definitionIds: [...state.membersById.keys()] });
+          definitionIds: [...state.membersById.keys()], definitions: state.definitions.map(definition =>
+            ({ ...definition, createdAt: definition.createdAt.getTime() })) }).pipe(
+            Effect.andThen(registerHostPreparationDisposal(() => { uniquePreparations.delete(preparation); })));
   },
 );
 
@@ -397,11 +400,64 @@ export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBu
     const closure = yield* readAppUniqueConstraintSetClosureV1Effect(state.ports.controlDb, captured.deploymentId, captured.schemaVersionId);
     if (closure === null) return Object.freeze({ status: "not_ready" as const, reason: "setNotClosed" as const,
       blocksAllTables: true, tableIds: [] as const });
+    const tableIds = uniqueConstraintTableIds(closure);
+    const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(state.ports.controlDb,
+      captured.deploymentId, captured.scopeId, captured.schemaVersionId, tableIds, closure.members.length);
+    if (definitions === null || !appUniqueConstraintDefinitionsMatchMembers(definitions, closure.members))
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
     const preparation: AppUniqueConstraintSetPreparation = Object.freeze({ [uniquePreparationBrand]: true as const });
     uniquePreparations.set(preparation, Object.freeze({ port, scopeId: captured.scopeId,
-      snapshot: buildSnapshot(captured, closure), tableIds: uniqueConstraintTableIds(closure),
+      snapshot: buildSnapshot(captured, closure), tableIds, definitions,
       membersById: new Map(closure.members.map(member => [member.uniqueConstraintDefinitionId, member])) }));
     return Object.freeze({ status: "prepared" as const, preparation });
+  },
+);
+
+/** Restore the retained catalog's exact closed set and physical bodies. This
+ * grants no eligibility; accepting owners retain all mutable build checks. */
+export const validatePreparedAppUniqueConstraintCatalog = Effect.fn("AppUniqueConstraintSetBuild.validatePreparedCatalog")(
+  function* (preparation: AppUniqueConstraintSetPreparation, controlDb: FlarexMetadataDatabase,
+    reader?: FlarexMetadataTransaction) {
+    const retained = uniquePreparations.get(preparation);
+    const owner = retained === undefined ? undefined : eligibilityPortStates.get(retained.port);
+    if (retained === undefined || owner === undefined || owner.ports.controlDb !== controlDb)
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+    const { snapshot } = retained;
+    const validate = Effect.fn("AppUniqueConstraintSetBuild.validateCatalogSnapshot")(function* (catalog: FlarexMetadataTransaction) {
+      const closure = yield* readAppUniqueConstraintSetClosureV1Effect(controlDb,
+        snapshot.deploymentId, snapshot.schemaVersionId, undefined, catalog);
+      if (closure === null || closure.closure.definitionCount !== snapshot.definitionCount ||
+        closure.closure.definitionSetSha256Hex !== snapshot.definitionSetSha256Hex ||
+        !appUniqueConstraintDefinitionsMatchMembers(retained.definitions, closure.members))
+        return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+      const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(catalog,
+        snapshot.deploymentId, retained.scopeId, snapshot.schemaVersionId, retained.tableIds, snapshot.members.length);
+      const originals = new Map(retained.definitions.map(definition => [definition.uniqueConstraintDefinitionId, definition]));
+      if (definitions === null || !appUniqueConstraintDefinitionsMatchMembers(definitions, closure.members) ||
+        definitions.length !== retained.definitions.length || definitions.some(definition => {
+          const original = originals.get(definition.uniqueConstraintDefinitionId);
+          return original === undefined || original.logicalUniqueConstraintId !== definition.logicalUniqueConstraintId ||
+            original.tableId !== definition.tableId || original.physicalSpecCodecVersion !== definition.physicalSpecCodecVersion ||
+            original.physicalSpecBytesHex !== definition.physicalSpecBytesHex || original.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex;
+        }))
+        return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+    });
+    yield* (reader !== undefined ? validate(reader) :
+      runEffectTransaction<Effect.Success<ReturnType<typeof validate>>, Effect.Error<ReturnType<typeof validate>>,
+        AppUniqueConstraintSetClosurePersistenceV1Error, FlarexMetadataTransaction>(callback => controlDb.transaction(callback),
+        "Prepared unique catalog validation rolled back", validate,
+        cause => new AppUniqueConstraintSetClosurePersistenceV1Error({ operation: "readClosureTransaction", cause })));
+  },
+);
+
+/** Lend the exact original located records; no eligibility or target verdict. */
+export const lendPreparedAppUniqueConstraintDefinitions = Effect.fn("AppUniqueConstraintSetBuild.lendPreparedDefinitions")(
+  function* (preparation: AppUniqueConstraintSetPreparation, controlDb: FlarexMetadataDatabase) {
+    const state = uniquePreparations.get(preparation);
+    const port = state === undefined ? undefined : eligibilityPortStates.get(state.port);
+    if (state === undefined || port === undefined || port.ports.controlDb !== controlDb)
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+    return state.definitions;
   },
 );
 

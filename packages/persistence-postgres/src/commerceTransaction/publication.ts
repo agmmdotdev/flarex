@@ -1,4 +1,4 @@
-import { publishCommerceAtoms } from "./publicationBoundary";
+import { acceptCommercePublication, publishCommerceAtoms } from "./publicationBoundary";
 import type { CanonicalJsonOutcome } from "../jsonOutcome";
 import { fxSystemFrameworkInitializations } from "../frameworkSchema/installation/initializationSchema";
 import { fxSystemLogicalSourceInitializations } from "../logicalStorageInitialization";
@@ -205,6 +205,6 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   }
   if (physical?.state.bootstrap || (logical !== undefined && input.kind === "logical" && input.initialization !== undefined))
     yield* publishCommerceAtoms(() => reproveScopePublicationPrefix(prefix));
-  yield* publishCommerceAtoms(() => advanceScopePublicationClock(state.tx, contribution, kernel, options));
+  yield* acceptCommercePublication(advanceScopePublicationClock(state.tx, contribution, kernel, options));
   return allocation.commitSeq;
 });

@@ -1,4 +1,7 @@
 import { sql } from "drizzle-orm";
+import type { PreparedQueryConfig } from "drizzle-orm/pg-core";
+import type { SelectedFieldsOrdered } from "drizzle-orm/pg-core/query-builders/select.types";
+import type { SelectResultFields } from "drizzle-orm/query-builders/select.types";
 import { Data, Effect } from "effect";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
@@ -7,15 +10,12 @@ import { fxSystemApplicationActiveHeads as applicationHeads } from "./applicatio
 import type { FlarexMetadataDatabase } from "./deployments";
 import { MAX_BINDING_BYTES } from "./frameworkSchema/binding/model";
 import { fxSystemDataBindingHeads as bindingHeads } from "./frameworkSchema/binding/schema";
-import { acceptCoLocatedInstallationAdmission, getCoLocatedReadInstallationReferences, coLocatedInstallationGateSource,
+import { getCoLocatedReadInstallationReferences,
   type PreparedCoLocatedReadInstallation } from "./installationLifecycle";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { fxSystemLogicalSourceInitializations as sourceInitializations } from "./logicalStorageInitialization";
-import { recordManagedMetadataEpochSnapshot } from "./preparedMetadataEpoch";
-import { epochFields, installedScopeFields, installedReceiptFields, installedClockFields } from "./scopeAuthorityControlRead";
-import { decodeScopeMetadataRecord } from "./scopeMetadata";
+import { prepareInstalledPlacementAuthority, installedClockFields } from "./scopeAuthorityControlRead";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
-import { decodeScopeAuthorityProvisioningReceipt } from "./scopeAuthorityProvisioningReceipt";
 import { resolveTrustedScopeAuthoritySnapshotResult } from "./scopeAuthorityResolution";
 import { closeExactAttemptScopeClockObservation, decodeScopeClockRecordResult,
   decodeScopeAuthorizationRevocationEpochResult, openExactAttemptScopeClockObservation } from "./scopeClock";
@@ -45,13 +45,12 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
     const refs = yield* getCoLocatedReadInstallationReferences(installation, database);
     if (physicalLocator.schemaName !== refs.target.schemaName)
       return yield* Effect.fail(failure("invalidAuthority"));
-    const target = sql.identifier(refs.target.schemaName), control = sql.identifier(refs.control.schemaName);
+    const placement = yield* Effect.fromResult(prepareInstalledPlacementAuthority(installation, database, physicalLocator));
+    const target = sql.identifier(refs.target.schemaName);
     const sourceInitialization = input.sourceInitialization === undefined ? undefined : Object.freeze({ ...input.sourceInitialization });
-    const entrySource = sql`${coLocatedInstallationGateSource(refs)} as installed
-    cross join lateral ${control}.fx_lock_read_scope_placement(${deploymentId},
-      case when installed.first_oid > 0 and installed.second_oid > 0 then ${scopeId} else null end) as placement
+    const entrySource = sql`${placement.source}
     left join lateral (select * from ${target}.fx_system_scope_execution_authority
-      where scope_id = placement.scope_id for key share) as scope_authority on true
+      where placement.reason = 'accepted' and scope_id = placement.scope_id for key share) as scope_authority on true
     left join lateral (select * from ${target}.fx_system_scope_clock
       where scope_id = scope_authority.scope_id for key share) as fx_system_scope_clock on true
     left join lateral (select * from ${target}.fx_system_data_binding_head
@@ -61,17 +60,13 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
       activation_sha256, readiness_sha256 from ${target}.fx_system_application_active_head
       where scope_id = coalesce(fx_system_data_binding_head.scope_id, fx_system_scope_clock.scope_id)
       for share) as fx_system_application_active_head on true
-    left join ${target}.fx_system_prepared_metadata_epoch as target_epoch on target_epoch.singleton_id = 1
-    left join ${control}.fx_system_prepared_metadata_epoch as control_epoch on control_epoch.singleton_id = 1
     ${sourceInitialization === undefined ? sql`` : sql`left join ${target}.fx_system_logical_source_initialization as source_initialization
       on source_initialization.scope_uuid = fx_system_scope_clock.scope_uuid
       and source_initialization.source_key = ${sourceInitialization.sourceKey}
       and source_initialization.step_id = ${sourceInitialization.stepId}`}`;
-    const entryQuery = (reader: FlarexMetadataDatabase | FlarexMetadataTransaction) => reader.select({
-        targetInstallation: sql<unknown>`installed.target_installation`,
-        controlInstallation: sql<unknown>`installed.control_installation`,
+    const fields = {
+        ...placement.fields,
         safePath: sql<string>`pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', ${refs.target.schemaName}::text), true)`,
-        scope: installedScopeFields(), receipt: installedReceiptFields(),
         clock: installedClockFields(),
         applicationHead: { sequence: sql`fx_system_application_active_head.${sql.identifier(applicationHeads.activationSequence.name)}`.mapWith(applicationHeads.activationSequence),
           readinessContractVersion: sql`fx_system_application_active_head.${sql.identifier(applicationHeads.readinessContractVersion.name)}`.mapWith(applicationHeads.readinessContractVersion),
@@ -88,7 +83,6 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
           candidateSha256: sql`fx_system_data_binding_head.${sql.identifier(bindingHeads.candidateSha256.name)}`.mapWith(bindingHeads.candidateSha256),
           canonicalBytes: sql<Uint8Array | null>`case when
           octet_length(fx_system_data_binding_head.${sql.identifier(bindingHeads.canonicalBytes.name)}) between 1 and ${MAX_BINDING_BYTES} then fx_system_data_binding_head.${sql.identifier(bindingHeads.canonicalBytes.name)} else null end` },
-        targetEpoch: epochFields("target_epoch"), controlEpoch: epochFields("control_epoch"),
         ...(sourceInitialization === undefined ? {} : { sourceInitialization: {
           sourceKey: sql<string | null>`source_initialization.source_key`,
           stepId: sql<string>`source_initialization.step_id`, sourceSha256: sql<string>`source_initialization.source_sha256`,
@@ -96,26 +90,36 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
           datasetSha256: sql<string>`source_initialization.dataset_sha256`,
           rowCount: sql`source_initialization.row_count`.mapWith(sourceInitializations.rowCount),
         } }),
-      }).from(entrySource).limit(2);
-    const statementBytes = new TextEncoder().encode(entryQuery(database).toSQL().sql);
+      };
+    const statement = Object.freeze(database.select(fields).from(entrySource).limit(2).toSQL());
+    const orderedFields: SelectedFieldsOrdered = [
+      { path: ["reason"], field: fields.reason },
+      ...Object.entries(fields.scope).map(([name, field]) => ({ path: ["scope", name], field })),
+      ...Object.entries(fields.receipt).map(([name, field]) => ({ path: ["receipt", name], field })),
+      { path: ["targetMetadataGeneration"], field: fields.targetMetadataGeneration },
+      { path: ["controlMetadataGeneration"], field: fields.controlMetadataGeneration },
+      { path: ["safePath"], field: fields.safePath },
+      ...Object.entries(fields.clock).map(([name, field]) => ({ path: ["clock", name], field })),
+      ...Object.entries(fields.applicationHead).map(([name, field]) => ({ path: ["applicationHead", name], field })),
+      ...Object.entries(fields.bindingHead).map(([name, field]) => ({ path: ["bindingHead", name], field })),
+      ...(fields.sourceInitialization === undefined ? [] : Object.entries(fields.sourceInitialization)
+        .map(([name, field]) => ({ path: ["sourceInitialization", name], field }))),
+    ];
+    const statementBytes = new TextEncoder().encode(statement.sql);
     const statementName = `fx_sr_${encodeBytesToLowercaseHex(yield* statementDigest(statementBytes,
       { maximumInputBytes: statementBytes.byteLength })).slice(0, 56)}`;
     const enter = Effect.fn("StandaloneReadTransaction.enter")(function* (tx: FlarexMetadataTransaction) {
-      const rows = yield* Effect.tryPromise({ try: () => entryQuery(tx).prepare(statementName).execute(),
+      const rows = yield* Effect.tryPromise({ try: () => tx._.session.prepareQuery<PreparedQueryConfig & {
+        execute: SelectResultFields<typeof fields>[];
+      }>(statement, orderedFields, statementName, true).execute({ deploymentId, scopeId }),
         catch: cause => failure("resourceFailure", cause) });
       const row = rows[0];
-      if (rows.length !== 1 || row === undefined || row.clock.scopeId === null)
+      if (rows.length !== 1 || row === undefined)
         return yield* Effect.fail(failure("invalidAuthority"));
-      yield* acceptCoLocatedInstallationAdmission(installation, database, tx,
-        { target: row.targetInstallation, control: row.controlInstallation });
-      yield* recordManagedMetadataEpochSnapshot(tx, database, refs.targetInstallation, row.targetEpoch);
-      yield* recordManagedMetadataEpochSnapshot(tx, database, refs.controlInstallation, row.controlEpoch);
-      const scope = yield* Effect.try({ try: () => decodeScopeMetadataRecord(row.scope),
-        catch: cause => failure("invalidAuthority", cause) });
-      const receiptScopeId = row.receipt.scopeId;
-      const receipt = receiptScopeId === null ? null : yield* Effect.try({
-        try: () => decodeScopeAuthorityProvisioningReceipt({ ...row.receipt, scopeId: receiptScopeId }),
-        catch: cause => failure("invalidAuthority", cause) });
+      if (row.reason === "resourceFailure") return yield* Effect.fail(failure("resourceFailure"));
+      if (row.reason === "accepted" && row.clock.scopeId === null) return yield* Effect.fail(failure("invalidAuthority"));
+      const { scope, receipt } = yield* placement.observe(tx, row).pipe(
+        Effect.mapError(cause => failure("reason" in cause && cause.reason === "resourceFailure" ? "resourceFailure" : "invalidAuthority", cause)));
       const clock = yield* Effect.fromResult(decodeScopeClockRecordResult(row.clock));
       const authority = yield* Effect.fromResult(resolveTrustedScopeAuthoritySnapshotResult(
         { deploymentId, scopeId }, scope, receipt, physicalLocator, clock));

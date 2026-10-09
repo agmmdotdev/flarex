@@ -1,6 +1,6 @@
 import { and, eq, getTableName, sql } from "drizzle-orm";
 import { PgDialect, parsePgArray } from "drizzle-orm/pg-core";
-import { Cause, Deferred, Effect, Exit, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Result, Schema, Tracer } from "effect";
 import { expect, vi } from "vitest";
 import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -17,31 +17,26 @@ import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1,
   decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
 import { AppUniqueConstraintSetBuildAttemptFenceV1Schema } from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import { CommitSeqSchema, ReplacementScopeIdV1Schema, ScopeEpochSchema, SnapshotTokenSchema,
-  FlarexDbV1StorageGenerationSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+  FlarexDbV1StorageGenerationSchema, StorageGenerationFenceSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { IndexBuildAttemptFenceSchema, IndexBuildCursorCodecVersionV1Schema } from "flarex-protocol/index-build-state";
 import type { FlarexPersistence } from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
-import { getAppRowAtSnapshotInTransactionEffect, readCurrentAppRowInTransactionEffect,
-  AppRowStorageCorruptionError, prepareAppRowRevisionApplicationEffect,
-  appendPreparedAppRowRevisionsInTransactionEffect,
-  type AppendPreparedLiveAppRowRevisionV1Input, type LiveAppRowRevisionV1 } from "../src/appRows";
+import { getAppRowAtSnapshotInTransactionEffect, readCurrentAppRowInTransactionEffect, AppRowStorageCorruptionError, appendPreparedAppRowRevisionsInTransactionEffect, type AppendPreparedLiveAppRowRevisionV1Input, type LiveAppRowRevisionV1 } from "../src/appRows";
 import { locateAppIndexDefinitionByIdEffect, prepareOrderedIndexDefinitionBinding,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction, type LocatedAppIndexDefinitionV1 } from "../src/appIndexDefinitions";
 import { ensureStableLogicalIndexIdentityInTransaction } from "../src/stableLogicalIndexCatalog";
 import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
 import { runEffectTransaction } from "../src/effectTransaction";
-import { projectPointCommitTransactionResult, runPointCommitInTransactionEffect } from "../src/pointCommitPromiseBoundary";
+import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import { enterLogicalDocumentMaterialization, LogicalDocumentMaterializationError } from "../src/logicalDocuments/materialization";
-import { PointCommitCorruptionV1Error } from "../src/pointCommitErrors";
+import { PointCommitCorruptionV1Error, PointCommitConflictV1Error } from "../src/pointCommitErrors";
 import { createLocatedIndexBuildReconciliationTargetV1 } from "../src/indexBuildReconciliation";
 import { getScopeMetadataByDeploymentId } from "../src/scopeMetadata";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
-import { prepareAppIndexRevisionApplicationEffect, readAppIndexMembershipHeadsInTransactionEffect,
-  appendAppIndexEntryRevisionsInTransactionEffect, InvalidAppIndexEntryInputError,
-  AppIndexEntryStorageCorruptionError } from "../src/appIndexEntries";
+import { readAppIndexMembershipHeadsInTransactionEffect, appendAppIndexEntryRevisionsInTransactionEffect, AppIndexEntryStorageCorruptionError } from "../src/appIndexEntries";
 import { lowerAppDeveloperIndexKeyV1 } from "../src/appDeveloperIndexCommitV1";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../src/appUniqueConstraintCommitV1";
 import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
@@ -54,14 +49,18 @@ import { prepareLogicalSearchApplications, maintainLogicalSearchEntries, Logical
   type LogicalSearchDefinition } from "../src/logicalDocuments/searchEntries";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission,
   requireAdmittedTargetInstallationSchema } from "../src/installationLifecycle";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect, type ScopeClockRecord } from "../src/scopeClock";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect, lockScopeClockForUpdateInTransactionEffect, type ScopeClockRecord } from "../src/scopeClock";
 import { loadPointCommitHeads, lockPointCommitIntrinsicIndexBuilds,
-  materializeApplicationDocumentRows, applyPreparedApplicationMaterializationEffect,
+  materializeAcceptedApplicationPublicationRows, loadApplicationDocumentPriorState,
   prepareApplicationDocumentSettlementEffect, lockPointCommitDeveloperIndexBuilds,
-  acceptPreparedApplicationDeveloperTransitionsEffect,
-  acceptPreparedApplicationUniqueOwnersEffect } from "../src/applicationDocumentMaterialization/materialization";
+  preparedUniqueKeyActions, compareDeveloperIndexEntryActions } from "../src/applicationDocumentMaterialization/materialization";
+import { captureOriginalApplicationPublicationBuildLocks, acceptOriginalApplicationPublicationBuildLocks } from "../src/applicationDocumentMaterialization/materialization";
 import type { ApplicationDocumentMaterializationCommand,
   ApplicationDocumentMaterializationOptions } from "../src/applicationDocumentMaterialization/model";
+import { acceptApplicationPublication, readAcceptedApplicationPublication, preparePublicationAcceptance } from "../src/applicationDocumentMaterialization/publicationAcceptance";
+import { APP_PUBLICATION_ACCEPTANCE_FUNCTION } from "../src/applicationDocumentMaterialization/publicationStagesInstallation";
+import { ExecutionDiagnostics } from "../src/executionDiagnostics/operation";
+import { prepareApplicationDocumentSettlementFromOriginalsEffect } from "../src/applicationDocumentMaterialization/settlementPlan";
 import { fxAppRowRevisions, fxAppRowCurrent, fxAppIndexEntryRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys,
   fxAppSearchEntryCurrent, fxAppJsonEntryCurrent, fxSystemSearchBuildStates,
   fxControlTables, fxControlIndexes, fxControlIndexDefinitions, fxSystemIndexBuildStates, fxSystemScopeClocks,
@@ -83,18 +82,73 @@ async function admitted<Value>(database: FlarexMetadataDatabase,
   });
 }
 
-async function throughCompositor<Value>(tx: FlarexMetadataTransaction, work: () => Promise<Value>): Promise<Value> {
+async function throughCompositor<Value>(tx: FlarexMetadataTransaction, work: () => Promise<Value>,
+  expectedPhase: "materialization" | "acceptanceRefusal" = "materialization"): Promise<Value> {
   const execute = vi.spyOn(tx, "execute");
-  try { return await work(); }
-  finally {
-    const submitted = execute.mock.calls.some(([statement]) => {
-      const text = typeof statement === "string" ? statement : new PgDialect().sqlToQuery(statement.getSQL()).sql;
-      return text.includes(".fx_apply_app_materialization(");
-    });
-    execute.mockRestore();
+  const submitted = (routine: string) => execute.mock.calls.some(([statement]) => {
+    const text = typeof statement === "string" ? statement : new PgDialect().sqlToQuery(statement.getSQL()).sql;
+    return text.includes(`.${routine}(`);
+  });
+  try {
+    const value=await work();
     // Observe the actual execute method without replacing its SQL or result.
     // This distinguishes compositor coverage from the retained owner tests.
-    expect(submitted).toBe(true);
+    expect(submitted("fx_apply_app_materialization") || submitted("fx_apply_app_publication")).toBe(true);
+    return value;
+  } finally {
+    try {
+      if (expectedPhase === "acceptanceRefusal") {
+        expect(submitted("fx_apply_app_publication")).toBe(false);
+        expect(submitted("fx_apply_app_materialization")).toBe(false);
+      }
+    } finally { execute.mockRestore(); }
+  }
+}
+
+/** Fixtures enter the same installed accepting owners as the real consumer.
+ * Native canonical reads remain before publication, with their actual Exit. */
+const publishRows = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction, input: Readonly<{
+  command: ApplicationDocumentMaterializationCommand;
+  commitSeq: import("flarex-protocol/storage-authority").CommitSeq;
+  clock: ScopeClockRecord;
+  loadedHeads: Awaited<ReturnType<typeof loadPointCommitHeads>>;
+  intrinsicBuilds: Awaited<ReturnType<typeof lockPointCommitIntrinsicIndexBuilds>>;
+  developerBuilds: Awaited<ReturnType<typeof lockPointCommitDeveloperIndexBuilds>>;
+  uniqueDefinitions: readonly import("../src/appUniqueConstraintDefinitions").LocatedAppUniqueConstraintDefinitionV1[];
+  publicationProfile: import("../src/indexBuildStates").IndexPublicationProfile;
+  options: ApplicationDocumentMaterializationOptions;
+  expectedDeveloperActions?: number;
+  searchContribution?: Result.Result<import("../src/applicationDocumentMaterialization/model").ApplicationDocumentSearchContribution, PointCommitCorruptionV1Error>;
+}> ) {
+  const originals = yield* Effect.exit(loadApplicationDocumentPriorState(tx,input.command,input.loadedHeads,
+    input.developerBuilds,input.uniqueDefinitions,null,input.options));
+  const developer=input.developerBuilds.map(index=>index.definition);
+  const intrinsic=input.intrinsicBuilds.map(index=>index.definition);
+  const settlement = yield* prepareApplicationDocumentSettlementFromOriginalsEffect(input.command,
+    Exit.isSuccess(originals) ? originals.value.originalRows??[] : [], originals,developer,input.uniqueDefinitions,null,intrinsic);
+  const clock={record:input.clock,scopeUuid:projectScopeIdUuidV1(input.command.authorityPins.scopeId).scopeUuid};
+  const accepted=yield* acceptApplicationPublication(tx,{settlement,clock,intrinsic,developer,unique:input.uniqueDefinitions,
+    relations:null,indexRanges:[],relationDependencies:[],deadline:null,candidate:false,oldestAvailableCommitSeq:0n,observeQuery:input.options.observeQuery});
+  if (input.expectedDeveloperActions!==undefined)
+    expect((yield* Effect.fromResult(readAcceptedApplicationPublication(tx,accepted))).developerActions).toHaveLength(input.expectedDeveloperActions);
+  return yield* materializeAcceptedApplicationPublicationRows(tx,{accepted,commitSeq:input.commitSeq,
+    publicationProfile:input.publicationProfile,options:input.options,
+    ...(input.searchContribution===undefined ? {} : {searchContribution:input.searchContribution})});
+});
+
+/** A competing installed row trigger proves an earlier refusal never reaches
+ * the row phase, including when the entire transaction later rolls back. */
+async function beforeRowBarrier<Value>(fixture: Awaited<ReturnType<typeof compositionFixture>>, work:()=>Promise<Value>) {
+  const table=new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxAppRowRevisions))}`).sql;
+  const routine=new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.materialization_later_row_barrier`).sql;
+  await fixture.database.execute(sql`create function ${sql.raw(routine)}() returns trigger language plpgsql as $$ begin
+    raise exception 'Later row phase reached'; end $$`);
+  try {
+    await fixture.database.execute(sql`create trigger materialization_later_row_barrier before insert on ${sql.raw(table)} for each row execute function ${sql.raw(routine)}()`);
+    return await work();
+  } finally {
+    await fixture.database.execute(sql`drop trigger if exists materialization_later_row_barrier on ${sql.raw(table)}`);
+    await fixture.database.execute(sql`drop function ${sql.raw(routine)}()`);
   }
 }
 
@@ -226,7 +280,7 @@ async function seedIndexOriginals(fixture: Awaited<ReturnType<typeof composition
       firstReadableCommitSeq: lifecycle === "enabled" ? CommitSeqSchema.make(0n) : null,
       lifecycle, cursorCodecVersion: IndexBuildCursorCodecVersionV1Schema.make(1),
       attemptFence: IndexBuildAttemptFenceSchema.make(1n),
-    })));
+    } satisfies typeof fxSystemIndexBuildStates.$inferInsert)));
     await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
       .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
     const originals: LiveAppRowRevisionV1[] = [];
@@ -239,9 +293,25 @@ async function seedIndexOriginals(fixture: Awaited<ReturnType<typeof composition
   });
 }
 
+async function initializeDeveloperBuilds(fixture: Awaited<ReturnType<typeof compositionFixture>>) {
+  await admitted(fixture.database, async tx => {
+    const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+    await tx.insert(fxSystemIndexBuildStates).values(fixture.developers.map(definition => ({
+      scopeId: fixture.scopeId, indexDefinitionId: definition.indexDefinitionId,
+      storageGeneration: Schema.decodeUnknownSync(FlarexDbV1StorageGenerationSchema)(clock.storageGeneration),
+      storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
+      startCommitSeq: CommitSeqSchema.make(0n), coveredThroughCommitSeq: CommitSeqSchema.make(0n),
+      firstReadableCommitSeq: CommitSeqSchema.make(0n), lifecycle: "enabled",
+      cursorCodecVersion: IndexBuildCursorCodecVersionV1Schema.make(1),
+      attemptFence: IndexBuildAttemptFenceSchema.make(1n),
+    } satisfies typeof fxSystemIndexBuildStates.$inferInsert)));
+  });
+}
+
 async function applyFrozenIndexRows(fixture: Awaited<ReturnType<typeof compositionFixture>>,
   originals: readonly LiveAppRowRevisionV1[], rows: readonly AppendPreparedLiveAppRowRevisionV1Input[],
-  expectedActions: number, profile: "activeApplication" | "sourceBound" = "sourceBound") {
+  expectedActions: number, profile: "activeApplication" | "sourceBound" = "sourceBound",
+  expectedPhase: "materialization" | "acceptanceRefusal" = "materialization") {
   const command = await admitted(fixture.database, async tx => {
     const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
     return commandForRows(tx, fixture, clock, rows);
@@ -256,11 +326,42 @@ async function applyFrozenIndexRows(fixture: Awaited<ReturnType<typeof compositi
     const context = { record: clock, scopeUuid: fixture.scopeUuid };
     const heads = await loadPointCommitHeads(tx, context, command, {});
     const builds = await lockPointCommitDeveloperIndexBuilds(tx, context, fixture.developers, command);
-    const actions = await runEffect(acceptPreparedApplicationDeveloperTransitionsEffect(tx, prepared, builds));
-    expect(actions).toHaveLength(expectedActions);
-    await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
-      loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: actions, developerBuilds: builds,
-      uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: profile, options: {} }));
+    const inheritedSpans: string[] = [];
+    const observedOperations: string[] = [];
+    const submittedQueries:Array<Parameters<NonNullable<ApplicationDocumentMaterializationOptions["observeQuery"]>>[0]>=[];
+    const tracer = Tracer.make({ span(span) { inheritedSpans.push(span.name); return new Tracer.NativeSpan(span); } });
+    const work=publishRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
+      loadedHeads: heads, intrinsicBuilds: [], developerBuilds: builds,
+      uniqueDefinitions: [], publicationProfile: profile, options: {observeQuery:query=>submittedQueries.push(query)},expectedDeveloperActions:expectedActions });
+    try {
+      await throughCompositor(tx, () => runEffect((expectedActions===0 && expectedPhase!=="acceptanceRefusal" ? work : work.pipe(Effect.provideService(ExecutionDiagnostics,
+        {observe:(name,selected)=>{
+          observedOperations.push(name);
+          return expectedActions===0 ? selected : selected.pipe(Effect.withSpan(name));
+        }}))).pipe(Effect.provideService(Tracer.Tracer,tracer))), expectedPhase);
+    } finally {
+      if(expectedPhase==="acceptanceRefusal") {
+        expect(observedOperations.filter(name=>name==="ApplicationDocument.acceptPublication" || name==="ApplicationDocument.materializeAcceptedPublication"))
+          .toEqual(["ApplicationDocument.acceptPublication"]);
+        const stages=submittedQueries.filter(query=>query.name==="acceptPublication"||query.name==="applyPublication");
+        expect(stages.map(query=>query.name)).toEqual(["acceptPublication"]);
+        expect(stages[0]?.sql).toContain(".fx_accept_app_publication(");
+      }
+    }
+    // Selected keys/specs are already owned by the exact accepting issuer.
+    // The real stage2 consumer must not hash them again; stale/foreign issuer
+    // rejection remains covered by the publication lifetime witnesses.
+    if (expectedActions > 0) {
+      const applying = observedOperations.indexOf("ApplicationDocument.materializeAcceptedPublication");
+      expect(applying).toBeGreaterThanOrEqual(0);
+      expect(observedOperations.slice(applying + 1)).not.toContain("AppIndexEntries.sha256");
+    }
+    const stages=submittedQueries.filter(query=>query.name==="acceptPublication"||query.name==="applyPublication");
+    expect(stages.map(query=>query.name)).toEqual(["acceptPublication","applyPublication"]);
+    expect(stages[0]?.sql).toContain(".fx_accept_app_publication(");
+    expect(stages[1]?.sql).toContain(".fx_apply_app_publication(");
+    for (const name of ["ApplicationDocument.acceptPublication","ApplicationDocument.materializeAcceptedPublication"])
+      expectedActions===0 ? expect(inheritedSpans).not.toContain(name) : expect(inheritedSpans).toContain(name);
   });
 }
 
@@ -323,10 +424,10 @@ async function verifyFrozenIntrinsicAllocationOrder(persistence: Materialization
     const heads = await loadPointCommitHeads(tx, context, command, {});
     const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, definitions, command);
     expect(builds.map(build => build.definition.access.tableId)).toEqual([higher.table.tableId, lower.table.tableId]);
-    await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: CommitSeqSchema.make(1n), clock,
-      loadedHeads: heads, intrinsicBuilds: builds, developerIndexActions: [], developerBuilds: [],
-      uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {},
-      preparedIntrinsic: prepared.intrinsic }));
+    await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: CommitSeqSchema.make(1n), clock,
+      loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
+      uniqueDefinitions: [], publicationProfile: "sourceBound", options: {},
+       })));
     await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
       .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
   });
@@ -455,20 +556,17 @@ async function verifyFrozenIntrinsicInitialMembership(persistence: Materializati
         clock: await fixture.database.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)),
         builds: await fixture.database.select().from(fxSystemIndexBuildStates).where(eq(fxSystemIndexBuildStates.scopeId, fixture.scopeId)) });
       const before = await inventory();
-      const steps: string[] = [];
-      await expect(admitted(fixture.database, async tx => {
+      await beforeRowBarrier(fixture,()=>expect(admitted(fixture.database, async tx => {
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         expect(commitSeq).toBe(clock.lastCommitSeq + 1n);
         const context = { record: clock, scopeUuid: fixture.scopeUuid };
         const heads = await loadPointCommitHeads(tx, context, command, {});
         const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command);
-        return materializeApplicationDocumentRows(tx, { command, commitSeq, clock,
-          loadedHeads: heads, intrinsicBuilds: builds, developerIndexActions: [], developerBuilds: [],
-          uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound",
-          options: { afterTransactionStep: async event => { steps.push(event.step); } }, preparedIntrinsic: prepared.intrinsic });
-      })).rejects.toMatchObject({ reason: "intrinsicIndexTransitionInvalid" });
-      expect(steps).toContain("intrinsicMembershipPreparing");
-      expect(steps).not.toContain("rowBatchWriting");
+        return runEffect(publishRows(tx, { command, commitSeq, clock,
+          loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
+          uniqueDefinitions: [], publicationProfile: "sourceBound",
+          options: {} }));
+      })).rejects.toMatchObject({ reason: "intrinsicIndexTransitionInvalid" }));
       expect(await inventory()).toEqual(before);
     } finally {
       if (guardsRemoved) await admitted(fixture.database, async tx => {
@@ -526,21 +624,18 @@ async function verifyFrozenIntrinsicMissingMembership(persistence: Materializati
         clock: await fixture.database.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)),
         builds: await fixture.database.select().from(fxSystemIndexBuildStates).where(eq(fxSystemIndexBuildStates.scopeId, fixture.scopeId)) });
       const before = await inventory();
-      const steps: string[] = [];
       const apply = () => admitted(fixture.database, async tx => {
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         const context = { record: clock, scopeUuid: fixture.scopeUuid };
         const heads = await loadPointCommitHeads(tx, context, command, {});
         const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command);
-        return materializeApplicationDocumentRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
-          loadedHeads: heads, intrinsicBuilds: builds, developerIndexActions: [], developerBuilds: [],
-          uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "activeApplication",
-          options: { afterTransactionStep: async event => { steps.push(event.step); } }, preparedIntrinsic: prepared.intrinsic });
+        return runEffect(publishRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
+          loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
+          uniqueDefinitions: [], publicationProfile: "activeApplication",
+          options: {} }));
       });
       if (lifecycle === "enabled") {
-        await expect(apply()).rejects.toMatchObject({ reason: "intrinsicIndexTransitionInvalid" });
-        expect(steps).toContain("intrinsicMembershipPreparing");
-        expect(steps).not.toContain("rowBatchWriting");
+        await beforeRowBarrier(fixture,()=>expect(apply()).rejects.toMatchObject({ reason: "intrinsicIndexTransitionInvalid" }));
         expect(await inventory()).toEqual(before);
       } else {
         await apply();
@@ -553,7 +648,6 @@ async function verifyFrozenIntrinsicMissingMembership(persistence: Materializati
         expect(after.indexPointers).toHaveLength(finalKind === "live" ? 1 : 0);
         if (finalKind === "live") expect(after.indexes[0]).toMatchObject({
           indexDefinitionId: fixture.intrinsic.indexDefinitionId, commitSeq: 2n, isTombstone: false });
-        expect(steps.indexOf("intrinsicMembershipPrepared")).toBeLessThan(steps.indexOf("rowBatchWriting"));
       }
     }
   }
@@ -569,7 +663,7 @@ async function verifyFrozenMissingMembership(persistence: MaterializationComposi
     const updated = await fixture.row(1, 2n, 1n);
     const before = await fixture.state();
     if (lifecycle === "enabled") {
-      await expect(applyFrozenIndexRows(fixture, originals, [updated], 0)).rejects
+      await expect(applyFrozenIndexRows(fixture, originals, [updated], 0, "sourceBound", "acceptanceRefusal")).rejects
         .toMatchObject({ _tag: "PointCommitCorruptionV1Error", reason: "developerIndexTransitionInvalid" });
       expect(await fixture.state()).toEqual(before);
     } else {
@@ -614,7 +708,7 @@ async function verifyFrozenActualIndexActionLimit(persistence: MaterializationCo
     const before = await fixture.state();
     expect(before.indexes).toHaveLength(257);
     if (actionCount === 257) {
-      await expect(applyFrozenIndexRows(fixture, originals, finalRows, actionCount)).rejects.toMatchObject({
+      await expect(applyFrozenIndexRows(fixture, originals, finalRows, actionCount, "sourceBound", "acceptanceRefusal")).rejects.toMatchObject({
         _tag: "PointCommitDeveloperIndexMaintenanceUnavailableV1Error", reason: "entryRevisionLimitExceeded",
         observed: 257, maximum: 256,
       });
@@ -719,36 +813,34 @@ async function verifyNativeOrderedIndexPairCapacity(persistence: Materialization
     expect(builds.map(build => build.definition.indexDefinitionId)).toEqual(developers.map(definition => definition.indexDefinitionId));
     const execute = vi.spyOn(tx, "execute");
     try {
-      const actions = await runEffect(acceptPreparedApplicationDeveloperTransitionsEffect(tx, prepared, builds));
-      expect(actions).toEqual([]);
-      await materializeApplicationDocumentRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
-        loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: actions, developerBuilds: builds,
-        uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound",
-        options: { publicationObservation: observation } });
+      const acceptancePacket=await runEffect(preparePublicationAcceptance(tx,{settlement:prepared,clock:context,intrinsic:[],developer:developers,
+        unique:[],relations:null,indexRanges:[],relationDependencies:[],candidate:false,deadline:null,oldestAvailableCommitSeq:0n}));
+      const acceptedQuery=acceptancePacket.query.toSQL();
+      await runEffect(publishRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
+        loadedHeads: heads, intrinsicBuilds: [], developerBuilds: builds,
+        uniqueDefinitions: [], publicationProfile: "sourceBound",
+        options: { publicationObservation: observation },expectedDeveloperActions:0 }));
       // Observe real driver submissions without replacing SQL or native proofs.
       const queries = execute.mock.calls.map(([statement]) => {
         if (typeof statement === "string") throw new Error("Expected typed native capacity statements");
         return new PgDialect().sqlToQuery(statement.getSQL());
       });
-      const acceptance = queries.filter(query => query.sql.includes(".fx_accept_app_index_transitions("));
-      expect(acceptance).toHaveLength(1);
-      const acceptedQuery = acceptance[0];
-      if (acceptedQuery === undefined) throw new Error("Missing actual native capacity acceptance submission");
-      expect(acceptedQuery.params).toHaveLength(17);
+      expect(acceptedQuery.sql).toContain(".fx_accept_app_publication(");
+      // The genuinely empty owner composite array is a typed SQL literal;
+      // empty byte and sequence vectors retain their constant-shape bindings.
+      expect(acceptedQuery.params).toHaveLength(APP_PUBLICATION_ACCEPTANCE_FUNCTION.inputs.length-1);
       expect(acceptedQuery.params[0]).toBe(fixture.scopeId);
       expect(acceptedQuery.params[1]).toBe(fixture.scopeUuid);
-      expect(acceptedQuery.params[16]).toBe(256);
-      expect(acceptedQuery.sql.match(/::(?:integer|text|bigint|bytea)\[\]/g)).toHaveLength(14);
+      expect(acceptedQuery.params[APP_PUBLICATION_ACCEPTANCE_FUNCTION.inputs.indexOf("p_maximum")]).toBe(256);
       // Zero-based driver ordinals correspond to the actual named SQL arguments.
-      for (const [name, ordinal] of [["p_indexes", 2], ["p_access", 3], ["p_tables", 4], ["p_codecs", 5],
-        ["p_specs", 6], ["p_ids", 7], ["p_previous", 8], ["p_previous_sha", 9], ["p_final", 10],
-        ["p_final_sha", 11], ["p_row_previous", 12], ["p_attempts", 13], ["p_epochs", 14], ["p_fences", 15]] as const) {
+      for (const name of ["p_indexes","p_access","p_tables","p_codecs","p_specs","p_ids","p_previous","p_previous_sha","p_final","p_final_sha","p_row_previous"] as const) {
+        const ordinal=APP_PUBLICATION_ACCEPTANCE_FUNCTION.inputs.indexOf(name);
         const parameter = acceptedQuery.params[ordinal];
         if (typeof parameter !== "string") throw new Error(`Native capacity ${name} is not an encoded PostgreSQL array`);
         const values: readonly unknown[] = parsePgArray(parameter);
         expect(values, `Actual ${name} driver array cardinality`).toHaveLength(65_536);
       }
-      const materialization = queries.filter(query => query.sql.includes(".fx_apply_app_materialization("));
+      const materialization = queries.filter(query => query.sql.includes(".fx_apply_app_publication("));
       expect(materialization).toHaveLength(1);
       expect(materialization[0]?.params.length).toBeLessThanOrEqual(65_535);
       await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(2n) })
@@ -756,9 +848,11 @@ async function verifyNativeOrderedIndexPairCapacity(persistence: Materialization
     } finally { execute.mockRestore(); }
   });
   observation.assertHealthy();
-  for (const [owner, expected] of [["rowRevisions", 128], ["indexRevisions", 0], ["indexCoverage", 512]] as const)
+  for (const [owner, expected] of [["rowRevisions", 128], ["indexRevisions", 0]] as const)
     expect(events.filter(event => event.kind === "batch" && event.owner === owner)
       .reduce((count, event) => count + (event.kind === "batch" ? event.counts.rows ?? 0 : 0), 0)).toBe(expected);
+  expect(events.filter(event=>event.kind==="counts"&&event.owner==="indexCoverage")
+    .reduce((count,event)=>count+(event.kind==="counts"?event.counts.rows??0:0),0)).toBe(512);
   const stored = await fixture.state();
   expect(stored.rows).toHaveLength(256);
   expect(stored.rows.filter(row => row.commitSeq === 1n)).toEqual(before.rows);
@@ -795,8 +889,8 @@ async function verifyNativeOrderedIndexPairCapacity(persistence: Materialization
 /** Actual SQL refusal must win even when a later owner's preparation has
  * already produced a genuine typed failure. No failure is manufactured here. */
 async function verifyEarlierRowRefusal(persistence: MaterializationCompositionPersistence) {
-  for (const later of ["index", "search"] as const) {
-    const fixture = await compositionFixture(persistence, later === "index" ? 101 : 102);
+  {
+    const fixture = await compositionFixture(persistence, 102);
     const row = await fixture.row(1);
     const rowTable = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxAppRowRevisions))}`).sql;
     const functionName = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.materialization_earlier_row_refusal`).sql;
@@ -811,31 +905,17 @@ async function verifyEarlierRowRefusal(persistence: MaterializationCompositionPe
           const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
           const command = await commandForRows(tx, fixture, clock, [row]);
           const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
-          if (later === "index") {
-            const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(fixture.developer, row.document, row.creationTime));
-            if (encodedKey === null) throw new Error("Missing genuine developer index key");
-            const position = { definition: fixture.developer, encodedKey, rowId: decodeOrderedIndexRowIdHexV1(row.rowId) };
-            const selection = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
-              { scopeId: fixture.scopeId, positions: [position] }));
-            const action = { kind: "live", ...position, membershipHeadEvidence: selection.evidence } as const;
-            const preparedFailure = await runEffect(Effect.result(prepareAppIndexRevisionApplicationEffect(tx,
-              [{ ...action, scopeId: fixture.scopeId, writeEpoch: fixture.writeEpoch, commitSeq: row.commitSeq },
-                { ...action, scopeId: fixture.scopeId, writeEpoch: fixture.writeEpoch, commitSeq: row.commitSeq }])));
-            expect(Result.getOrThrow(Result.flip(preparedFailure))).toBeInstanceOf(InvalidAppIndexEntryInputError);
-            await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: row.commitSeq, clock,
-              loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: [action, action], developerBuilds: [],
-              uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {} }));
-          } else {
+          {
             const definition: LogicalSearchDefinition = { kind: "text", tableId: fixture.tableId,
               logicalIndexId: decodeCatalogIndexId(2), sourceSha256: "a".repeat(64), columns: ["missing_field"], nullPredicateField: null };
             const changes = [{ kind: "live", tableId: row.tableId, rowId: row.rowId, document: row.document }] as const;
             const preparation = prepareLogicalSearchApplications([definition], changes, fixture.scopeUuid, row.commitSeq).next().value;
             if (preparation === undefined) throw new Error("Missing genuine search preparation failure");
             expect(Result.getOrThrow(Result.flip(preparation))).toBeInstanceOf(LogicalSearchMaintenanceError);
-            await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: row.commitSeq, clock,
-              loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: [], developerBuilds: [],
-              uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {},
-              searchContribution: Result.succeed({ definitions: [definition], changes }) }));
+            await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: row.commitSeq, clock,
+              loadedHeads: heads, intrinsicBuilds: [], developerBuilds: [],
+              uniqueDefinitions: [], publicationProfile: "sourceBound", options: {},
+              searchContribution: Result.succeed({ definitions: [definition], changes }) })));
           }
         })).rejects.toBeInstanceOf(AppRowStorageCorruptionError);
         expect(await fixture.state()).toEqual(before);
@@ -851,6 +931,7 @@ async function verifyEarlierRowRefusal(persistence: MaterializationCompositionPe
 async function verifySamePageReturningOrder(persistence: MaterializationCompositionPersistence) {
   for (const family of ["row", "index"] as const) {
     const fixture = await compositionFixture(persistence, family === "row" ? 402 : 403);
+    if (family === "index") await initializeDeveloperBuilds(fixture);
     const first = await fixture.row(0);
     const later = await fixture.row(1);
     const target = family === "row" ? fxAppRowRevisions : fxAppIndexEntryRevisions;
@@ -876,18 +957,11 @@ async function verifySamePageReturningOrder(persistence: MaterializationComposit
           const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
           const command = await commandForRows(tx, fixture, clock, [first, later]);
           const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
-          const positions = [first, later].map(revision => {
-            const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(fixture.developer, revision.document, revision.creationTime));
-            if (encodedKey === null) throw new Error("Missing genuine same-page developer index key");
-            return { definition: fixture.developer, encodedKey, rowId: decodeOrderedIndexRowIdHexV1(revision.rowId) };
-          });
-          const selection = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
-            { scopeId: fixture.scopeId, positions }));
-          const actions = positions.map(position => ({ kind: "live", ...position, membershipHeadEvidence: selection.evidence } as const));
-          const result = await throughCompositor(tx, () => materializeApplicationDocumentRows(tx,
+          const builds = family === "index" ? await lockPointCommitDeveloperIndexBuilds(tx,
+            { record: clock, scopeUuid: fixture.scopeUuid }, fixture.developers, command) : [];
+          const result = await throughCompositor(tx, () => runEffect(publishRows(tx,
             { command, commitSeq: first.commitSeq, clock, loadedHeads: heads, intrinsicBuilds: [],
-              developerIndexActions: family === "index" ? actions : [], developerBuilds: [], uniqueKeyActions: [],
-              uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {} }))
+              developerBuilds: builds, uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })))
             .then(() => Result.succeed(undefined), (cause: unknown) => Result.fail(cause));
           if (Result.isSuccess(result)) throw new Error("Composed materialization accepted same-page RETURNING corruption");
           if (family === "row") {
@@ -935,9 +1009,9 @@ async function verifyCompositionEarlierPageProof(persistence: MaterializationCom
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         const command = await commandForRows(tx, fixture, clock, rows);
         const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
-        const result = await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: first.commitSeq, clock,
-          loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: [], developerBuilds: [],
-          uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {} }))
+        const result = await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: first.commitSeq, clock,
+          loadedHeads: heads, intrinsicBuilds: [], developerBuilds: [],
+          uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })))
           .then(() => Result.succeed(undefined), (cause: unknown) => Result.fail(cause));
         if (Result.isSuccess(result)) throw new Error("Composed materialization accepted prior-page corruption");
         if (!(result.failure instanceof AppRowStorageCorruptionError)) throw result.failure;
@@ -953,10 +1027,16 @@ async function verifyCompositionEarlierPageProof(persistence: MaterializationCom
  * invocation-wide proof must compare full tuples, not just current pointers. */
 async function verifyCompositionEarlierIndexPageProof(persistence: MaterializationCompositionPersistence) {
   const fixture = await compositionFixture(persistence, 404);
+  await initializeDeveloperBuilds(fixture);
   const rows: AppendPreparedLiveAppRowRevisionV1Input[] = [];
   for (let ordinal = 0; ordinal < 33; ordinal++) rows.push(await fixture.row(ordinal));
-  const first = rows[0];
-  const last = rows.at(-1);
+  const actions=rows.map(revision=>{
+    const encodedKey=Result.getOrThrow(lowerAppDeveloperIndexKeyV1(fixture.developer,revision.document,revision.creationTime));
+    if(encodedKey===null)throw new Error("Missing genuine prior-page index key");
+    return {kind:"live",definition:fixture.developer,encodedKey,rowId:decodeOrderedIndexRowIdHexV1(revision.rowId)} as const;
+  }).toSorted(compareDeveloperIndexEntryActions);
+  const first=rows.find(revision=>revision.rowId===actions[0]?.rowId);
+  const last=rows.find(revision=>revision.rowId===actions.at(-1)?.rowId);
   if (first === undefined || last === undefined) throw new Error("Missing cross-page materialization index rows");
   const indexTable = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxAppIndexEntryRevisions))}`).sql;
   const functionName = new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.materialization_prior_index_page_after`).sql;
@@ -980,17 +1060,11 @@ async function verifyCompositionEarlierIndexPageProof(persistence: Materializati
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         const command = await commandForRows(tx, fixture, clock, rows);
         const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
-        const positions = rows.map(revision => {
-          const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(fixture.developer, revision.document, revision.creationTime));
-          if (encodedKey === null) throw new Error("Missing genuine cross-page developer index key");
-          return { definition: fixture.developer, encodedKey, rowId: decodeOrderedIndexRowIdHexV1(revision.rowId) };
-        });
-        const selection = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
-          { scopeId: fixture.scopeId, positions }));
-        const actions = positions.map(position => ({ kind: "live", ...position, membershipHeadEvidence: selection.evidence } as const));
-        const result = await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: first.commitSeq, clock,
-          loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: actions, developerBuilds: [],
-          uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options: {} }))
+        const builds = await lockPointCommitDeveloperIndexBuilds(tx,
+          { record: clock, scopeUuid: fixture.scopeUuid }, fixture.developers, command);
+        const result = await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: first.commitSeq, clock,
+          loadedHeads: heads, intrinsicBuilds: [], developerBuilds: builds,
+          uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })))
           .then(() => Result.succeed(undefined), (cause: unknown) => Result.fail(cause));
         if (Result.isSuccess(result)) throw new Error("Composed materialization accepted prior index-page corruption");
         if (!(result.failure instanceof AppIndexEntryStorageCorruptionError)) throw result.failure;
@@ -1000,7 +1074,8 @@ async function verifyCompositionEarlierIndexPageProof(persistence: Materializati
           detail: Schema.fromJsonString(Schema.Struct({
             reason: Schema.Literal("storedCorruption"), phase: Schema.Literal("verify"), ordinal: Schema.Literal(0),
           })),
-        })))(applicationDomainFailureDetail(result.failure.cause, "fx_apply_app_materialization"))).toEqual({
+        })))(Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({phase:Schema.Literal("materialization"),detail:Schema.String})))(
+          applicationDomainFailureDetail(result.failure.cause, "fx_apply_app_publication")).detail)).toEqual({
           family: "index", pageOffset: 32, detail: { reason: "storedCorruption", phase: "verify", ordinal: 0 },
         });
         await expect(tx.execute(sql`select 1`)).rejects.toMatchObject({ cause: { code: "25P02" } });
@@ -1013,7 +1088,7 @@ async function verifyCompositionEarlierIndexPageProof(persistence: Materializati
 const uniqueKey = (value: string): AppUniqueKeyProjectionV1 => ({ sparse: false, localeKey: null,
   values: [orderedIndexValueFromFlarexValueV1(value)] });
 
-/** An awaited release callback changes an omitted selected owner. The final
+/** A real AFTER DELETE trigger changes an omitted selected owner. The final
  * proof must cover that absence even though it emitted no release or claim. */
 async function verifyFrozenUniqueCallbackAbsence(persistence: MaterializationCompositionPersistence) {
   const fixture = await compositionFixture(persistence, 1121);
@@ -1074,59 +1149,91 @@ async function verifyFrozenUniqueCallbackAbsence(persistence: MaterializationCom
     clock: await fixture.database.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)),
     builds: await fixture.database.select().from(fxSystemUniqueConstraintBuilds).where(eq(fxSystemUniqueConstraintBuilds.scopeId, fixture.scopeId)) });
   const before = await inventory();
-  const steps: string[] = [];
-  let injected = false;
+  const contradictory=await admitted(fixture.database,async tx=> {
+    const clock=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx,fixture.scopeId));
+    return runEffect(prepareAppUniqueMutationApplicationEffect(tx,[{scopeId:fixture.scopeId,tableId:omitted.tableId,rowId:omitted.rowId,
+      writeEpoch:clock.epoch,constraintId:definition.uniqueConstraintDefinitionId,previous:null,next:contradictoryKey.projection}]));
+  });
+  const claim=contradictory.claims[0];
+  if (claim===undefined) throw new Error("Missing genuine contradictory owner claim");
+  const table=new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.${sql.identifier(getTableName(fxAppUniqueKeys))}`).sql;
+  const trigger=new PgDialect().sqlToQuery(sql`${sql.identifier(fixture.schemaName)}.materialization_omitted_unique_owner`).sql;
+  await persistence.query(`create function ${trigger}() returns trigger language plpgsql as $$ begin
+    if OLD.scope_uuid='${fixture.scopeUuid}'::uuid and OLD.constraint_id=${definition.uniqueConstraintDefinitionId} and OLD.row_id=decode('${claimed.rowId}','hex') then
+      insert into ${table}(scope_uuid,constraint_id,locale_key,canonical_key_sha256,key_codec_version,encoded_key,table_id,row_id)
+      values('${claim.scopeUuid}'::uuid,${claim.constraintId},'',decode('${encodeBytesToLowercaseHex(claim.canonicalKeySha256)}','hex'),
+        ${claim.keyCodecVersion},decode('${encodeBytesToLowercaseHex(claim.encodedKey)}','hex'),${claim.tableId},decode('${encodeBytesToLowercaseHex(claim.rowId)}','hex'));
+    end if;
+    return OLD;
+  end $$`);
+  try {
+  await persistence.query(`create trigger materialization_omitted_unique_owner after delete on ${table} for each row execute function ${trigger}()`);
   await expect(admitted(fixture.database, async tx => {
     const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
     const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
-    const actions = await runEffect(acceptPreparedApplicationUniqueOwnersEffect(tx, prepared, clock.epoch));
+    const actions = preparedUniqueKeyActions(pairs);
     expect(actions).toHaveLength(1);
     expect(actions[0]?.phase).toBe("release");
-    await materializeApplicationDocumentRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
-      loadedHeads: heads, intrinsicBuilds: [], developerIndexActions: [], developerBuilds: [],
-      uniqueKeyActions: actions, uniqueDefinitions: [definition], canonicalUniquePairs: pairs, publicationProfile: "sourceBound",
-      options: { afterTransactionStep: async event => {
-        steps.push(event.step);
-        if (event.step !== "uniqueKeyWritten") return;
-        expect(injected).toBe(false);
-        expect(await tx.select().from(fxAppUniqueKeys).where(eq(fxAppUniqueKeys.scopeUuid, fixture.scopeUuid))).toEqual([]);
-        await runEffect(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{ scopeId: fixture.scopeId,
-          tableId: omitted.tableId, rowId: omitted.rowId, writeEpoch: clock.epoch,
-          constraintId: definition.uniqueConstraintDefinitionId, previous: null, next: contradictoryKey.projection }]));
-        injected = true;
-      } }, preparedIntrinsic: prepared.intrinsic });
+    await runEffect(publishRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
+      loadedHeads: heads, intrinsicBuilds: [], developerBuilds: [],
+      uniqueDefinitions: [definition], publicationProfile: "sourceBound",
+      options: {}, searchContribution:Result.succeed({
+        definitions:[{kind:"text",tableId:fixture.tableId,logicalIndexId:decodeCatalogIndexId(2),sourceSha256:"a".repeat(64),columns:["missing_field"],nullPredicateField:null}],
+        changes:finals.map(final=>({kind:"live",tableId:final.tableId,rowId:final.rowId,document:final.document})),
+      }) }));
   })).rejects.toMatchObject({ reason: "uniqueKeyTransitionInvalid" });
-  expect(injected).toBe(true);
-  expect(steps.filter(step => step === "uniqueKeyWritten")).toHaveLength(1);
-  expect(steps).not.toContain("uniqueKeyBatchWritten");
   expect(await inventory()).toEqual(before);
+  } finally {
+    await persistence.query(`drop trigger if exists materialization_omitted_unique_owner on ${table}`);
+    await persistence.query(`drop function ${trigger}()`);
+  }
 }
 
-/** Preparation observes no parent. The same accepting statement writes the
- * parent, then requires that genuine live row for the new unique claim. */
+/** Raw missing/null parent packets are native-owner contracts. Genuine
+ * accepted publication creates its canonical parent before applying the claim. */
 async function verifyCompositionFreshUniqueParent(persistence: MaterializationCompositionPersistence) {
   const fixture = await compositionFixture(persistence, 201);
   const row = await fixture.row(1);
-  const constraintId = Result.getOrThrow(decodeAppUniqueConstraintIdV1Result(71));
+  const published = await persistence.publishAppSchemaV1({ deploymentId: fixture.deploymentId,
+    schemaVersionId: fixture.schemaVersionId, version: CatalogSchemaVersionSchema.make(1),
+    tables: [{ logicalName: "documents", definition: { kind: "appDocument", definitionVersion: 1,
+      documentType: { type: "object", value: { title: { fieldType: { type: "string" }, optional: false } } } } }], indexes: [] });
+  expect(published.manifest.tableDefinitions.tables[0]?.tableId).toBe(fixture.tableId);
+  const binding=await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(fixture.database,{
+    deploymentId:fixture.deploymentId,schemaVersionId:fixture.schemaVersionId,tableId:fixture.tableId,
+    descriptor:SchemaManifestAppIndexDescriptorSchema.make("unique_title"),physicalSpec:decodeAppUniqueConstraintPhysicalSpecV1({
+      kind:"appUniqueConstraint",specVersion:1,orderedFields:["title"],sparse:false,localePolicy:{kind:"none"},
+      keyCodecIdentity:APP_UNIQUE_KEY_CODEC_IDENTITY_V1,keyCodecVersion:APP_UNIQUE_KEY_CODEC_VERSION_V1,
+    }),
+  }));
+  const bound=await admitted(fixture.database,tx=>runEffect(ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx,binding)));
+  const definition=await runEffect(locateAppUniqueConstraintDefinitionByIdEffect(fixture.database,fixture.deploymentId,fixture.scopeId,
+    fixture.schemaVersionId,bound.definition.uniqueConstraintDefinitionId));
+  if(definition===null)throw new Error("Missing genuine fresh-parent unique definition");
+  const projection=Result.getOrThrow(lowerCanonicalAppUniqueConstraintV1Result(definition,row.document));
+  if(projection.kind!=="claim")throw new Error("Expected genuine fresh-parent canonical claim");
+  const constraintId = definition.uniqueConstraintDefinitionId;
   const mutation = { scopeId: fixture.scopeId, tableId: row.tableId, rowId: row.rowId,
-    writeEpoch: fixture.writeEpoch, constraintId, previous: null, next: uniqueKey("new_parent") };
+    writeEpoch: fixture.writeEpoch, constraintId, previous: null, next: projection.projection };
   const before = await fixture.state();
   // A unique-only block must still perform its actual parent admission.
   await expect(admitted(fixture.database, async tx => {
     await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
-    const unique = await runEffect(prepareAppUniqueMutationApplicationEffect(tx, [mutation]));
-    await throughCompositor(tx, () => runEffect(applyPreparedApplicationMaterializationEffect(tx,
-      { scopeUuid: fixture.scopeUuid, commitSeq: row.commitSeq, unique })));
+    await runEffect(applyAppUniqueKeyMutationsInTransactionEffect(tx,[mutation]));
   })).rejects.toBeInstanceOf(AppUniqueKeyParentRowError);
   expect(await fixture.state()).toEqual(before);
   await admitted(fixture.database, async tx => {
-    await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+    const clock=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
     expect((await runEffect(readCurrentAppRowInTransactionEffect(tx, row))).kind).toBe("missing");
-    const rows = await runEffect(prepareAppRowRevisionApplicationEffect(tx, [row]));
-    const unique = await runEffect(prepareAppUniqueMutationApplicationEffect(tx, [mutation]));
+    await tx.insert(fxSystemUniqueConstraintBuilds).values({scopeId:fixture.scopeId,uniqueConstraintDefinitionId:constraintId,
+      storageGeneration:Schema.decodeUnknownSync(FlarexDbV1StorageGenerationSchema)(clock.storageGeneration),
+      storageGenerationFence:clock.storageGenerationFence,epoch:clock.epoch,startCommitSeq:CommitSeqSchema.make(0n),
+      coveredThroughCommitSeq:clock.lastCommitSeq,lifecycle:"enabled",attemptFence:AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(1n)});
+    const command=await commandForRows(tx,fixture,clock,[row]);
+    const heads=await loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{});
     expect((await runEffect(readCurrentAppRowInTransactionEffect(tx, row))).kind).toBe("missing");
-    await throughCompositor(tx, () => runEffect(applyPreparedApplicationMaterializationEffect(tx,
-      { scopeUuid: fixture.scopeUuid, commitSeq: row.commitSeq, rows, unique })));
+    await throughCompositor(tx, () => runEffect(publishRows(tx,{command,commitSeq:row.commitSeq,clock,loadedHeads:heads,
+      intrinsicBuilds:[],developerBuilds:[],uniqueDefinitions:[definition],publicationProfile:"sourceBound",options:{}})));
     const parent = await runEffect(readCurrentAppRowInTransactionEffect(tx, row));
     if (parent.kind !== "live") throw new Error("Composed unique parent is not live");
     expect(parent.document.canonicalBytes).toEqual(row.document.canonicalBytes);
@@ -1159,22 +1266,18 @@ async function verifyCompositionFreshUniqueParent(persistence: MaterializationCo
       // the exact physical scalar constraint inside the same transaction.
       await tx.execute(sql`alter table ${targetTable} alter column ${sql.identifier(fault.column.name)} drop not null`);
       await tx.execute(sql`update ${targetTable} set ${sql.identifier(fault.column.name)} = null where ${fault.selection}`);
-      const unique = await runEffect(prepareAppUniqueMutationApplicationEffect(tx,
-        [{ ...mutation, previous: mutation.next }]));
-      const result = await throughCompositor(tx, () => runEffect(applyPreparedApplicationMaterializationEffect(tx,
-        { scopeUuid: fixture.scopeUuid, commitSeq: row.commitSeq, unique })))
+      const result = await runEffect(applyAppUniqueKeyMutationsInTransactionEffect(tx,
+        [{ ...mutation, previous: mutation.next }]))
         .then(() => Result.succeed(undefined), (cause: unknown) => Result.fail(cause));
       if (Result.isSuccess(result)) throw new Error(`Composed unique admission accepted a null ${fault.column.name}`);
       if (!(result.failure instanceof AppUniqueKeyStorageCorruptionError)) throw result.failure;
       expect(result.failure.cause).toMatchObject({ cause: { code: "FX001" } });
       expect(Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({
-        family: Schema.Literal("unique"), pageOffset: Schema.Literal(0),
-        detail: Schema.fromJsonString(Schema.Struct({ kind: Schema.Literal("admission"),
+        kind: Schema.Literal("admission"),
           reason: Schema.Literal("storedCorruption"), stage: Schema.Literal(fault.stage), ordinal: Schema.Literal(0),
-          actualTableId: Schema.Null, actualRowIdHex: Schema.Null })),
-      })), { onExcessProperty: "error" })(applicationDomainFailureDetail(result.failure.cause, "fx_apply_app_materialization")))
-        .toEqual({ family: "unique", pageOffset: 0, detail: { kind: "admission", reason: "storedCorruption",
-          stage: fault.stage, ordinal: 0, actualTableId: null, actualRowIdHex: null } });
+          actualTableId: Schema.Null, actualRowIdHex: Schema.Null,
+      })), { onExcessProperty: "error" })(applicationDomainFailureDetail(result.failure.cause, "fx_apply_app_unique_mutations")))
+        .toEqual({kind:"admission",reason:"storedCorruption",stage:fault.stage,ordinal:0,actualTableId:null,actualRowIdHex:null});
       await expect(tx.execute(sql`select 1`)).rejects.toMatchObject({ cause: { code: "25P02" } });
     });
     expect(await fixture.state()).toEqual(after);
@@ -1207,10 +1310,7 @@ async function verifyCompositionUniqueRefusalOrder(persistence: MaterializationC
   });
   const apply = (previous: AppUniqueKeyProjectionV1) => admitted(fixture.database, async tx => {
     await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
-    const unique = await runEffect(prepareAppUniqueMutationApplicationEffect(tx,
-      [mutation(first, previous, secondKey)]));
-    return throughCompositor(tx, () => runEffect(applyPreparedApplicationMaterializationEffect(tx,
-      { scopeUuid: fixture.scopeUuid, commitSeq: first.commitSeq, unique })));
+    return runEffect(applyAppUniqueKeyMutationsInTransactionEffect(tx,[mutation(first, previous, secondKey)]));
   });
   const before = await fixture.state();
   const conflict = await apply(uniqueKey("contradictory_previous")).then(() => {
@@ -1288,18 +1388,24 @@ async function verifyCompositionSearchPages(persistence: MaterializationComposit
   const first = rows[0];
   const last = rows.at(-1);
   if (first === undefined || last === undefined) throw new Error("Missing paged search input");
-  const proof = await admitted(fixture.database, async tx => {
-    await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
-    const preparedRows = await runEffect(prepareAppRowRevisionApplicationEffect(tx, rows));
-    const search = Array.from(prepareLogicalSearchApplications(definitions, changes(rows), fixture.scopeUuid, first.commitSeq),
-      stage => Result.getOrThrow(stage));
-    return throughCompositor(tx, () => runEffect(applyPreparedApplicationMaterializationEffect(tx,
-      { scopeUuid: fixture.scopeUuid, commitSeq: first.commitSeq, rows: preparedRows, search })));
+  const events:PointCommitPublicationEvent[]=[];
+  const observation=new PointCommitPublicationObservation({detail:true,record:event=>events.push(event)});
+  await admitted(fixture.database, async tx => {
+    const clock=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+    const command=await commandForRows(tx,fixture,clock,rows);
+    const heads=await loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{});
+    await throughCompositor(tx, () => runEffect(publishRows(tx,{command,clock,commitSeq:first.commitSeq,loadedHeads:heads,
+      intrinsicBuilds:[],developerBuilds:[],uniqueDefinitions:[],publicationProfile:"sourceBound",options:{publicationObservation:observation},
+      searchContribution:Result.succeed({definitions,changes:changes(rows)})})));
+    await tx.update(fxSystemScopeClocks).set({lastCommitSeq:first.commitSeq}).where(eq(fxSystemScopeClocks.scopeId,fixture.scopeId));
   });
-  // This is the actual returned acceptance proof, not a guessed observation
-  // based on how many definitions were submitted.
-  expect(proof.search_count).toBe(66);
-  expect(proof.search_build_count).toBe(2);
+  observation.assertHealthy();
+  // Stage2 validates the returned scalar proof before emitting these actual
+  // selected entry and accepted build counts.
+  expect(events.filter(event=>event.kind==="counts"&&event.owner==="searchInserts")
+    .reduce((count,event)=>count+(event.kind==="counts"?event.counts.entries??0:0),0)).toBe(66);
+  expect(events.filter(event=>event.kind==="batch"&&event.owner==="searchBuilds")
+    .reduce((count,event)=>count+(event.kind==="batch"?event.counts.rows??0:0),0)).toBe(2);
   const selectedIds = new Set(rows.map(row => row.rowId));
   const stored = await inventory();
   const selectedText = stored.text.filter(entry => selectedIds.has(decodeAppRowIdHexV1(encodeBytesToLowercaseHex(entry.rowId))));
@@ -1345,12 +1451,12 @@ async function verifyCompositionSearchPages(persistence: MaterializationComposit
         for each row execute function ${functionName}()`);
       try {
         await admitted(fixture.database, async tx => {
-          await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
-          const preparedRows = await runEffect(prepareAppRowRevisionApplicationEffect(tx, updated));
-          const search = Array.from(prepareLogicalSearchApplications(definitions, changes(updated), fixture.scopeUuid, CommitSeqSchema.make(2n)),
-            stage => Result.getOrThrow(stage));
-          const result = await throughCompositor(tx, () => runEffect(applyPreparedApplicationMaterializationEffect(tx,
-            { scopeUuid: fixture.scopeUuid, commitSeq: CommitSeqSchema.make(2n), rows: preparedRows, search })))
+          const clock=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+          const command=await commandForRows(tx,fixture,clock,updated);
+          const heads=await loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{});
+          const result = await throughCompositor(tx, () => runEffect(publishRows(tx,{command,clock,commitSeq:CommitSeqSchema.make(2n),loadedHeads:heads,
+            intrinsicBuilds:[],developerBuilds:[],uniqueDefinitions:[],publicationProfile:"sourceBound",options:{},
+            searchContribution:Result.succeed({definitions,changes:changes(updated)})})))
             .then(() => Result.succeed(undefined), (cause: unknown) => Result.fail(cause));
           if (Result.isSuccess(result)) throw new Error(`Composed ${family} search accepted prior-page corruption`);
           if (!(result.failure instanceof LogicalSearchMaintenanceError)) throw result.failure;
@@ -1364,14 +1470,13 @@ async function verifyCompositionSearchPages(persistence: MaterializationComposit
   }
 }
 
-/** The callback stays inside the original transaction and suspends before any
- * index effects. It observes real provisional rows through the existing reader. */
+/** The trusted outer callback awaits after the installed primitive returns.
+ * Its complete provisional row and membership effects still cannot commit. */
 async function verifyAwaitedMaterializationCallback(persistence: MaterializationCompositionPersistence) {
   const paused = await compositionFixture(persistence, 501);
   const uninterrupted = await compositionFixture(persistence, 502);
   const entered = await runEffect(Deferred.make<void>());
   const resume = await runEffect(Deferred.make<void>());
-  const steps: string[] = [];
   let provisionalObserved = false;
   let completionObserved = false;
   const materialize = async (fixture: Awaited<ReturnType<typeof compositionFixture>>, callbacks: boolean) => {
@@ -1402,9 +1507,10 @@ async function verifyAwaitedMaterializationCallback(persistence: Materialization
       const context = { record: clock, scopeUuid: fixture.scopeUuid };
       const heads = await loadPointCommitHeads(tx, context, command, {});
       const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command);
-      const options: ApplicationDocumentMaterializationOptions = callbacks ? { afterTransactionStep: async event => {
-        steps.push(event.step);
-        if (event.step !== "rowBatchWritten") return;
+      await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: revision.commitSeq, clock,
+        loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
+        uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })));
+      if (callbacks) {
         const provisional = await runEffect(readCurrentAppRowInTransactionEffect(tx, revision));
         expect(provisional.kind).toBe("live");
         if (provisional.kind !== "live") throw new Error("Provisional row was not live");
@@ -1412,14 +1518,13 @@ async function verifyAwaitedMaterializationCallback(persistence: Materialization
         expect(provisional.commitSeq).toBe(1n);
         expect(await tx.select().from(fxAppIndexEntryCurrent).where(and(
           eq(fxAppIndexEntryCurrent.scopeUuid, fixture.scopeUuid),
-          eq(fxAppIndexEntryCurrent.indexDefinitionId, fixture.intrinsic.indexDefinitionId)))).toEqual([]);
+          eq(fxAppIndexEntryCurrent.indexDefinitionId, fixture.intrinsic.indexDefinitionId)))).toHaveLength(1);
+        expect(await tx.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid,fixture.scopeUuid))).toHaveLength(1);
+        expect(await tx.select().from(fxAppIndexEntryRevisions).where(eq(fxAppIndexEntryRevisions.scopeUuid,fixture.scopeUuid))).toHaveLength(1);
         provisionalObserved = true;
         await runEffect(Deferred.succeed(entered, undefined));
         await runEffect(Deferred.await(resume));
-      } } : {};
-      await throughCompositor(tx, () => materializeApplicationDocumentRows(tx, { command, commitSeq: revision.commitSeq, clock,
-        loadedHeads: heads, intrinsicBuilds: builds, developerIndexActions: [], developerBuilds: [],
-        uniqueKeyActions: [], uniqueDefinitions: [], canonicalUniquePairs: [], publicationProfile: "sourceBound", options }));
+      }
     });
   };
   const writing = materialize(paused, true).then(() => { completionObserved = true; });
@@ -1427,13 +1532,11 @@ async function verifyAwaitedMaterializationCallback(persistence: Materialization
   // waiting for a signal which cannot arrive.
   const arrived = runEffect(Effect.raceFirst(Deferred.await(entered), Effect.tryPromise({
     try: () => writing, catch: cause => cause,
-  }).pipe(Effect.andThen(Effect.fail(new Error("Materializer completed before its awaited row callback"))))));
+  }).pipe(Effect.andThen(Effect.fail(new Error("Materializer committed before its awaited outer callback"))))));
   try {
     await arrived;
     expect(provisionalObserved).toBe(true);
     expect(completionObserved).toBe(false);
-    expect(steps).toContain("rowBatchWritten");
-    expect(steps).not.toContain("indexBatchWriting");
   } finally {
     await runEffect(Deferred.succeed(resume, undefined));
     await writing;
@@ -1452,16 +1555,15 @@ async function verifyAwaitedMaterializationCallback(persistence: Materialization
   expect(normalized(await paused.state())).toEqual(normalized(await uninterrupted.state()));
   expect((await paused.state()).rows).toHaveLength(1);
   expect((await paused.state()).indexes).toHaveLength(1);
-  expect(steps.indexOf("rowBatchWritten")).toBeLessThan(steps.indexOf("indexBatchWriting"));
-  expect(steps).toContain("intrinsicIndexEntryWritten");
 }
 
-/** A real row callback crosses the shared Promise bridge after the provisional
- * write. The logical owner translates only Fail while the transaction rolls back. */
+/** Semantic validation and the trusted outer callback retain their own Cause.
+ * Both remain inside the one transaction and refuse all provisional effects. */
 async function verifyLogicalMaterializationCauseRollback(persistence: MaterializationCompositionPersistence) {
   const variants = ["failure and defect", "failure and interruption", "defect", "failure"] as const;
+  for (const boundary of ["canonical", "outer"] as const) {
   for (const [ordinal, variant] of variants.entries()) {
-    const fixture = await compositionFixture(persistence, 1141 + ordinal);
+    const fixture = await compositionFixture(persistence, 1141 + ordinal + (boundary === "outer" ? 4 : 0));
     const revision = await fixture.row(1);
     const target = createLocatedIndexBuildReconciliationTargetV1(fixture.database,
       { kind: "shared_database", databaseKey: "materialization_composition", schemaName: fixture.schemaName });
@@ -1501,12 +1603,13 @@ async function verifyLogicalMaterializationCauseRollback(persistence: Materializ
     const cause = variant === "failure and defect" ? Cause.combine(Cause.fail(failure), Cause.die(defect))
       : variant === "failure and interruption" ? Cause.combine(Cause.fail(failure), Cause.interrupt(interruptor))
         : variant === "defect" ? Cause.die(defect) : Cause.fail(failure);
-    const steps: string[] = [];
     let provisionalObserved = false;
+    let canonicalReached = false;
     let laterWriteReached = false;
     const exit = await Effect.runPromiseExit(runEffectTransaction(
       callback => fixture.database.transaction(callback), "Materializer callback Cause rollback",
       tx => Effect.gen(function* () {
+        const read = <Value,>(query:PromiseLike<Value>)=>runDrizzleStatementEffect(query,cause=>new Error("Read provisional fixture state",{cause}));
         const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId);
         const command = yield* Effect.tryPromise({ try: () => commandForRows(tx, fixture, clock, [revision]),
           catch: cause => new Error("Capture genuine row observation", { cause }) });
@@ -1520,42 +1623,39 @@ async function verifyLogicalMaterializationCauseRollback(persistence: Materializ
             schemaVersionId: fixture.schemaVersionId }, rowIntents: [{ tableId: revision.tableId }] },
           intrinsic: [fixture.intrinsic], developer: [], unique: [], relations: null,
           requireAdmission: Effect.fromResult(requireAdmittedTargetInstallationSchema(tx)).pipe(Effect.asVoid),
-          validateWrites: () => Effect.void,
-          options: { afterTransactionStep: async event => {
-            steps.push(event.step);
-            if (event.step !== "rowBatchWritten") return;
-            const provisional = await runEffect(readCurrentAppRowInTransactionEffect(tx, revision));
-            if (provisional.kind !== "live") throw new Error("Missing actual provisional callback row");
-            expect(provisional.document.canonicalBytes).toEqual(revision.document.canonicalBytes);
-            expect(provisional.commitSeq).toBe(clock.lastCommitSeq + 1n);
-            expect(await tx.select().from(fxAppIndexEntryCurrent)
-              .where(eq(fxAppIndexEntryCurrent.scopeUuid, fixture.scopeUuid))).toEqual([]);
-            provisionalObserved = true;
-            const result = await runPointCommitInTransactionEffect(Effect.failCause(cause));
-            projectPointCommitTransactionResult(result);
-          } },
+          validateWrites: () => Effect.gen(function* () {
+            canonicalReached=true;
+            expect(yield* read(tx.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid,fixture.scopeUuid)))).toEqual([]);
+            expect(yield* read(tx.select().from(fxAppIndexEntryCurrent).where(eq(fxAppIndexEntryCurrent.scopeUuid,fixture.scopeUuid)))).toEqual([]);
+            if (boundary==="canonical") return yield* Effect.failCause(cause);
+          }),
+          options: {},
         }, tx, located.authority, clock);
         const delta = yield* materialization.prepareDelta([change], [change]);
         yield* delta.lower(CommitSeqSchema.make(clock.lastCommitSeq + 1n));
+        const provisional=yield* readCurrentAppRowInTransactionEffect(tx,revision);
+        if (provisional.kind!=="live") throw new Error("Missing full primitive provisional row");
+        expect(provisional.document.canonicalBytes).toEqual(revision.document.canonicalBytes);
+        expect(provisional.commitSeq).toBe(clock.lastCommitSeq+1n);
+        expect(yield* read(tx.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid,fixture.scopeUuid)))).toHaveLength(1);
+        expect(yield* read(tx.select().from(fxAppIndexEntryCurrent).where(eq(fxAppIndexEntryCurrent.scopeUuid,fixture.scopeUuid)))).toHaveLength(1);
+        expect(yield* read(tx.select().from(fxAppIndexEntryRevisions).where(eq(fxAppIndexEntryRevisions.scopeUuid,fixture.scopeUuid)))).toHaveLength(1);
+        provisionalObserved=true;
+        yield* Effect.failCause(cause);
         laterWriteReached = true;
         yield* Effect.tryPromise({ try: () => tx.update(fxSystemScopeClocks)
           .set({ lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq + 1n) })
           .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)), catch: cause => new Error("Later clock write", { cause }) });
       }), cause => new Error("Materializer transaction settlement", { cause }),
     ));
-    expect(provisionalObserved).toBe(true);
+    expect(canonicalReached).toBe(true);
+    expect(provisionalObserved).toBe(boundary==="outer");
     expect(laterWriteReached).toBe(false);
-    expect(steps).toContain("rowBatchWritten");
-    expect(steps).not.toContain("indexBatchWriting");
-    expect(steps).not.toContain("intrinsicIndexEntryWritten");
     if (Exit.isSuccess(exit)) throw new Error("Expected the complete callback Cause to refuse publication");
     const failures = exit.cause.reasons.filter(Cause.isFailReason);
     expect(failures).toHaveLength(variant === "defect" ? 0 : 1);
     for (const reason of failures) {
-      expect(reason.error).toBeInstanceOf(LogicalDocumentMaterializationError);
-      if (!(reason.error instanceof LogicalDocumentMaterializationError)) throw new Error("Missing logical Fail translation");
-      expect(reason.error.reason).toBe("storedCorruption");
-      expect(reason.error.cause).toBe(failure);
+      expect(reason.error).toBe(failure);
     }
     const defects = exit.cause.reasons.filter(Cause.isDieReason);
     expect(defects).toHaveLength(variant === "failure and defect" || variant === "defect" ? 1 : 0);
@@ -1565,23 +1665,161 @@ async function verifyLogicalMaterializationCauseRollback(persistence: Materializ
     expect(exit.cause.reasons).toHaveLength(cause.reasons.length);
     expect(await durableState()).toEqual(before);
   }
+  }
+}
+
+/** These capabilities come from actual installed acceptance and the original
+ * build-lock owner; copying their visible shape never grants their lifetime. */
+async function verifyPublicationIssuerLifetime(persistence: MaterializationCompositionPersistence) {
+  const fixture=await compositionFixture(persistence,1151);
+  await initializeDeveloperBuilds(fixture);
+  const issued=await admitted(fixture.database,async tx=>{
+    const record=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx,fixture.scopeId));
+    const clock={record,scopeUuid:fixture.scopeUuid};
+    const command=await commandForRows(tx,fixture,record,[]);
+    await lockPointCommitDeveloperIndexBuilds(tx,clock,fixture.developers,command);
+    const original=Result.getOrThrow(captureOriginalApplicationPublicationBuildLocks(tx,clock,[],fixture.developers));
+    expect(Result.isSuccess(acceptOriginalApplicationPublicationBuildLocks(tx,clock,original,[],fixture.developers))).toBe(true);
+    expect(Result.isFailure(acceptOriginalApplicationPublicationBuildLocks(tx,clock,{...original},[],fixture.developers))).toBe(true);
+    expect(Result.isFailure(acceptOriginalApplicationPublicationBuildLocks(tx,clock,original,[],fixture.developers.map(definition=>({...definition}))))).toBe(true);
+    const settlement=await runEffect(prepareApplicationDocumentSettlementEffect(command,[],fixture.developers,[],null,[]));
+    const accepted=await runEffect(acceptApplicationPublication(tx,{clock,settlement,intrinsic:[],developer:fixture.developers,unique:[],relations:null,
+      indexRanges:[],relationDependencies:[],deadline:null,candidate:false,oldestAvailableCommitSeq:0n,originalBuildLocks:original}));
+    expect(Result.isSuccess(readAcceptedApplicationPublication(tx,accepted))).toBe(true);
+    expect(Result.isFailure(readAcceptedApplicationPublication(tx,{...accepted}))).toBe(true);
+    const fresh=await runEffect(lockScopeClockForUpdateInTransactionEffect(tx,fixture.scopeId));
+    expect(Result.isFailure(readAcceptedApplicationPublication(tx,accepted))).toBe(true);
+    expect(Result.isFailure(acceptOriginalApplicationPublicationBuildLocks(tx,{record:fresh,scopeUuid:fixture.scopeUuid},original,[],fixture.developers))).toBe(true);
+    const execute=vi.spyOn(tx,"execute");
+    try {
+      await expect(runEffect(materializeAcceptedApplicationPublicationRows(tx,{accepted,commitSeq:CommitSeqSchema.make(1n),publicationProfile:"sourceBound",options:{}})))
+        .rejects.toMatchObject({reason:"occEvidenceInvalid"});
+      expect(execute).not.toHaveBeenCalled();
+    } finally {execute.mockRestore();}
+    return {accepted,original};
+  });
+  await admitted(fixture.database,async tx=>{
+    const record=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx,fixture.scopeId));
+    expect(Result.isFailure(readAcceptedApplicationPublication(tx,issued.accepted))).toBe(true);
+    expect(Result.isFailure(acceptOriginalApplicationPublicationBuildLocks(tx,{record,scopeUuid:fixture.scopeUuid},issued.original,[],fixture.developers))).toBe(true);
+    const execute=vi.spyOn(tx,"execute");
+    try {
+      await expect(runEffect(materializeAcceptedApplicationPublicationRows(tx,{accepted:issued.accepted,commitSeq:CommitSeqSchema.make(1n),publicationProfile:"sourceBound",options:{}})))
+        .rejects.toMatchObject({reason:"occEvidenceInvalid"});
+      expect(execute).not.toHaveBeenCalled();
+    } finally {execute.mockRestore();}
+  });
+  expect((await fixture.state()).rows).toHaveLength(0);
+}
+
+/** Installed scalar acceptance must reject its first build or point before
+ * reaching a genuine retained original-document failure or any write stage. */
+async function verifyPublicationPhaseStops(persistence: MaterializationCompositionPersistence) {
+  for(const phase of ["build","point"] as const){
+    const fixture=await compositionFixture(persistence,phase==="build"?1152:1153);
+    await initializeDeveloperBuilds(fixture);
+    const row=await fixture.row(1);
+    if(phase==="build") await fixture.database.update(fxSystemIndexBuildStates).set({storageGenerationFence:StorageGenerationFenceSchema.make(2n)})
+      .where(eq(fxSystemIndexBuildStates.scopeId,fixture.scopeId));
+    const before=await fixture.state();
+    await expect(admitted(fixture.database,async tx=>{
+      const record=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx,fixture.scopeId));
+      const actual=await commandForRows(tx,fixture,record,[row]);
+      const observed=actual.dependencies[0];const intent=actual.rowIntents[0];
+      if(observed===undefined||intent===undefined)throw new Error("Missing genuine point identity");
+      const dependency={kind:"appRowPoint",documentId:observed.documentId,observed:{kind:"present",revisionCommitSeq:CommitSeqSchema.make(1n)}} as const;
+      const command={...actual,dependencies:[{...observed,dependency}],rowIntents:[{...intent,dependency}]};
+      const settlement=await runEffect(prepareApplicationDocumentSettlementEffect(command,[],fixture.developers,[],null,[]));
+      expect(Exit.isFailure(settlement.originals)).toBe(true);
+      const execute=vi.spyOn(tx,"execute");
+      const observedOperations:string[]=[];
+      const submittedQueries:Array<Parameters<NonNullable<ApplicationDocumentMaterializationOptions["observeQuery"]>>[0]>=[];
+      try {
+        await runEffect(acceptApplicationPublication(tx,{clock:{record,scopeUuid:fixture.scopeUuid},settlement,intrinsic:[],developer:fixture.developers,unique:[],relations:null,
+          indexRanges:[],relationDependencies:[],deadline:null,candidate:true,oldestAvailableCommitSeq:0n,observeQuery:query=>submittedQueries.push(query)}).pipe(Effect.provideService(ExecutionDiagnostics,
+          {observe:(name,selected)=>{observedOperations.push(name);return selected;}})));
+      } finally {
+        const statements=execute.mock.calls.map(([statement])=>typeof statement==="string"?statement:new PgDialect().sqlToQuery(statement.getSQL()).sql);
+        expect(observedOperations).toEqual(["ApplicationDocument.acceptPublication"]);
+        expect(submittedQueries.map(query=>query.name)).toEqual(["acceptPublication"]);
+        expect(submittedQueries[0]?.sql).toContain(".fx_accept_app_publication(");
+        expect(statements.some(statement=>statement.includes(".fx_apply_app_publication("))).toBe(false);
+        execute.mockRestore();
+      }
+    })).rejects.toMatchObject(phase==="build"?{reason:"developerIndexBuildInvalid"}:{reason:"occEvidenceInvalid"});
+    expect(await fixture.state()).toEqual(before);
+  }
+}
+
+async function verifyLogicalPointConflictVerdict(persistence: MaterializationCompositionPersistence) {
+  const fixture = await compositionFixture(persistence, 1191);
+  const revision = await fixture.row(1);
+  const captured = await admitted(fixture.database, async tx => {
+    const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+    const command = await commandForRows(tx, fixture, clock, [revision]);
+    const point = command.dependencies[0];
+    if (point === undefined) throw new Error("Missing genuine initial point read");
+    return { ...point, readAt: clock.lastCommitSeq };
+  });
+  await seedIndexOriginals(fixture, [revision], "enabled");
+  const target = createLocatedIndexBuildReconciliationTargetV1(fixture.database,
+    { kind: "shared_database", databaseKey: "materialization_composition", schemaName: fixture.schemaName });
+  const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(fixture.deploymentId, {
+    scopeMetadata: { getScopeMetadataByDeploymentId: id => getScopeMetadataByDeploymentId(fixture.database, id) },
+    provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
+    scopeClockTargets: { resolve: async () => target },
+  }));
+  const before = { ...await fixture.state(), clock: await fixture.database.select().from(fxSystemScopeClocks)
+    .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)) };
+  const submitted: string[] = [];
+  let canonicalReached = false;
+  const failure = await admitted(fixture.database, tx => runEffect(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId);
+    const owner = yield* enterLogicalDocumentMaterialization({ coverage: "sourceBound",
+      command: { authorityPins: { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
+        schemaVersionId: fixture.schemaVersionId }, rowIntents: [{ tableId: fixture.tableId }] },
+      intrinsic: [], developer: [], unique: [], relations: null,
+      requireAdmission: Effect.fromResult(requireAdmittedTargetInstallationSchema(tx)).pipe(Effect.asVoid),
+      validateWrites: () => Effect.sync(() => { canonicalReached = true; }),
+      options: { observeQuery: query => { submitted.push(query.name); } },
+    }, tx, located.authority, clock);
+    yield* owner.prepareDelta([], [captured]);
+  }))).then(() => { throw new Error("A genuine changed point must refuse before lowering"); }, cause => cause);
+  expect(failure).toBeInstanceOf(LogicalDocumentMaterializationError);
+  if (!(failure instanceof LogicalDocumentMaterializationError)) throw failure;
+  expect(failure.reason).toBe("writeConflict");
+  expect(failure.cause).toBeInstanceOf(PointCommitConflictV1Error);
+  if (!(failure.cause instanceof PointCommitConflictV1Error)) throw failure;
+  expect(failure.cause.conflict).toEqual({ kind: "appRowPoint", documentId: captured.documentId });
+  expect(failure.cause.snapshotCommitSeq).toBe(0n);
+  expect(failure.cause.currentCommitSeq).toBe(1n);
+  expect(submitted).toContain("loadRowHeads");
+  expect(submitted).not.toContain("loadPriorDocuments");
+  expect(submitted).not.toContain("acceptPublication");
+  expect(submitted).not.toContain("applyPublication");
+  expect(canonicalReached).toBe(false);
+  expect({ ...await fixture.state(), clock: await fixture.database.select().from(fxSystemScopeClocks)
+    .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)) }).toEqual(before);
 }
 
 export const materializationCompositionCases = [
+  { name: "logical original point conflicts retain their precise verdict before prior bodies and publication", run: verifyLogicalPointConflictVerdict },
+  { name: "publication acceptance and original prelude evidence reject copied, foreign and refreshed lifetimes",run:verifyPublicationIssuerLifetime },
+  { name: "installed publication refuses earliest build and point before retained canonical failure and writes",run:verifyPublicationPhaseStops },
   { name: "logical materializer preserves mixed Causes and rolls back awaited provisional row writes", run: verifyLogicalMaterializationCauseRollback },
   { name: "frozen intrinsic membership follows real table identity across inverted definition allocation", run: verifyFrozenIntrinsicAllocationOrder },
-  { name: "awaited unique release callback cannot contradict an omitted selected final owner", run: verifyFrozenUniqueCallbackAbsence },
+  { name: "AFTER unique release corruption cannot contradict an omitted selected final owner", run: verifyFrozenUniqueCallbackAbsence },
   { name: "frozen initial intrinsic membership refuses both existing live and tombstone history", run: verifyFrozenIntrinsicInitialMembership },
   { name: "frozen intrinsic live and deleted rows retain enabled refusal and building missing-membership repair", run: verifyFrozenIntrinsicMissingMembership },
   { name: "frozen index pairs preserve enabled refusal and building same-key membership repair", run: verifyFrozenMissingMembership },
   { name: "native current membership counts actual 256 and 257 actions while accepting 384 no-op pairs", run: verifyFrozenActualIndexActionLimit },
   { name: "native private ordered-index capacity accepts 65,536 sparse pairs with zero actions and complete coverage", run: verifyNativeOrderedIndexPairCapacity },
-  { name: "real row refusal precedes retained index and search preparation failures", run: verifyEarlierRowRefusal },
+  { name: "real row refusal precedes retained canonical search preparation failure", run: verifyEarlierRowRefusal },
   { name: "same-page row and index RETURNING corruption precedes a later trigger failure", run: verifySamePageReturningOrder },
   { name: "unique admission reads its new parent after composed row writes", run: verifyCompositionFreshUniqueParent },
   { name: "actual unique destination conflict precedes contradictory previous ownership", run: verifyCompositionUniqueRefusalOrder },
   { name: "composed text and JSON search preserve selection, build counts and earlier-page proofs", run: verifyCompositionSearchPages },
   { name: "later-page AFTER corruption verifies full earlier materialization input and aborts", run: verifyCompositionEarlierPageProof },
   { name: "later index-page AFTER corruption verifies full earlier revision with ordinal zero and aborts", run: verifyCompositionEarlierIndexPageProof },
-  { name: "awaited callbacks observe original provisional rows before index effects", run: verifyAwaitedMaterializationCallback },
+  { name: "trusted outer callback awaits complete provisional rows and indexes before COMMIT", run: verifyAwaitedMaterializationCallback },
 ] as const;

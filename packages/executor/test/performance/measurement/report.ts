@@ -4,6 +4,7 @@ import { Data } from "effect";
 import type { MeasurementAnalysis } from "./analysis";
 import type { MeasurementEvidence } from "./artifact";
 import type { CpuEvidence, analyzeCpuEvidence } from "./cpu";
+import type { RootCounterEvidence, RootCounterPair } from "./rootCounters";
 import type { FailureEvidence } from "./failure";
 import type { TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import type { CorePerformanceScenario } from "../support/scenario";
@@ -27,16 +28,22 @@ export interface RequestReport {
   /** CPU capture survives timeline normalization failure and root-only selection. */
   readonly cpuEvidence?: CpuEvidence;
   readonly cpuAnalysis?: ReturnType<typeof analyzeCpuEvidence>;
+  /** Existing analyzer projection only; unavailable timeline/driver ledgers
+   * and driver-union values are deliberately absent in selected observation. */
+  readonly ownerResources?: Pick<MeasurementAnalysis, "diagnostic" | "incompleteReasons"> & Readonly<{
+    operations: readonly Omit<MeasurementAnalysis["operationResources"][number], "driverAwaitUnionMs" | "driverExchangeCount">[];
+  }>;
   readonly invalidEvidence?: string;
   readonly driver?: TraceInvocationRecord;
+  readonly rootCounters?: RootCounterEvidence;
 }
 
 export interface RunReport {
   readonly runId: string;
   readonly operation: "measure" | "compare";
-  readonly mode: "quiet" | "timeline" | "resources" | "database" | "cpu" | "server";
-  readonly observation?: Readonly<{ selection: "root";
-    timeline: "unavailable"; driver: "unavailable" }>;
+  readonly mode: "quiet" | "root-counters" | "timeline" | "resources" | "database" | "cpu" | "server";
+  readonly observation?: Readonly<{ selection: "complete" | "owners" | "root";
+    timeline: "collected" | "unavailable"; driver: "collected" | "unavailable" }>;
   readonly execution: "complete" | "failed" | "incomplete";
   readonly acceptance: "passed" | "failed" | "notEvaluated";
   readonly sampling: Readonly<{ requestedSamples: number; warmups: number; size: CorePerformanceSize;
@@ -45,6 +52,8 @@ export interface RunReport {
   readonly samples: readonly RequestReport[];
   readonly pairs: readonly Readonly<{ index: number; nativeMs: number; flarexMs: number; addedMs: number }>[];
   readonly observerPairs?: readonly Readonly<{ index: number; quietMs: number; diagnosticMs: number; addedMs: number }>[];
+  readonly cpuPairs?: readonly RootCounterPair[];
+  readonly counterCalibration?: readonly RootCounterEvidence[];
   readonly pairedSummary: Readonly<{ samples: number; medianAddedMs: number; p95AddedMs: number }> | null;
   readonly gates: readonly Readonly<{ name: string; passed: boolean; detail: string }>[];
   readonly setupMs: number;
@@ -92,11 +101,33 @@ function humanReport(report: RunReport): string {
     `This measures the selected ${report.sampling.size} graph: ${report.workload?.flow ?? report.sampling.scenario}. Setup, seeding, verification and command cleanup are outside request timers. Flarex's existing attempt finalizers remain inside its complete call.`, "",
     "Matched native references run independently committed framework calls; Application portions use a SQL surrogate. They do not provide Flarex's atomic mixed publication, Application OCC, revision history or durable outcome. Paired excess is a business-reference comparison, not an equal-guarantee engine comparison."];
   if (report.observation !== undefined) rows.push("",
-    `CPU observation: ${report.observation.selection}. Full operation timeline: ${report.observation.timeline}. Driver detail: ${report.observation.driver}.`);
+    `${report.mode === "cpu" ? "CPU" : "Resource"} observation: ${report.observation.selection}. Full operation timeline: ${report.observation.timeline}. Driver detail: ${report.observation.driver}.`);
   if (report.mode === "cpu" && report.observation?.selection === "root") rows.push("",
     "Root CPU/GC capture surrounds the genuine scenario call and attempt finalizers. Effect tracing and its context hook, SQL tracing, publication observation and heap sampling are absent. Profile setup and stop occur outside the timed call; profiler start/stop command windows remain in raw CPU evidence. Other acquisition and release cost is unavailable. Fixture preparation, verification and sample/command cleanup are outside capture.");
   rows.push("", "| Request | Lane | Kind | Complete call ms | Outcome |", "|---|---|---|---:|---|");
   for (const sample of report.samples) rows.push(`| ${sample.id} | ${sample.lane} | ${sample.kind} | ${sample.requestMs?.toFixed(3) ?? "unavailable"} | ${sample.outcome} |`);
+  if (report.mode === "root-counters") {
+    rows.push("", "Root counters surround the actual call and its attempt finalizers. Fixture preparation, committed-result verification, sample disposal, command disposal and artifact construction/readback are outside these CPU windows. The counter window includes two resource reads; their individual wall windows and absolute readings are retained in raw evidence. Process CPU includes sibling threads/background work. Thread CPU is unavailable on hosts without threadCpuUsage. External contention is unmeasured.", "",
+      "| Request | Counter complete | Call window ms | Process CPU µs | Thread CPU µs | Read windows ms |", "|---|---|---:|---:|---:|---:|");
+    for (const sample of report.samples) {
+      const evidence = sample.rootCounters;
+      if (evidence === undefined) continue;
+      const duration = (window: RootCounterEvidence["callWindow"]) => window === null ? "unavailable"
+        : (window.endMonotonicMs - window.startMonotonicMs).toFixed(6);
+      const total = (counter: NonNullable<RootCounterEvidence["counters"]>["thread"]) =>
+        counter === null ? "unavailable" : String(counter.user + counter.system);
+      rows.push(`| ${sample.id} | ${evidence.complete} | ${duration(evidence.callWindow)} | ${total(evidence.counters?.process ?? null)} | ${total(evidence.counters?.thread ?? null)} | ${duration(evidence.counterReads.before)} / ${duration(evidence.counterReads.after)} |`);
+    }
+    rows.push("", "| CPU pair | Added process CPU µs | Added thread CPU µs |", "|---|---:|---:|");
+    for (const pair of report.cpuPairs ?? []) rows.push(`| ${pair.index} | ${pair.process.addedTotalMicroseconds} | ${pair.thread?.addedTotalMicroseconds ?? "unavailable"} |`);
+    rows.push("", "Counter API units are microseconds; actual platform process/thread counter resolution and monotonic clock precision are unknown. Zero deltas can reflect quantization and cannot establish zero CPU or resolve a budget below counter granularity. Signed fresh-pair excess retains run variation; these observations are not quiet elapsed acceptance, nested owner sums or exclusive core CPU.", "",
+      "| Back-to-back read calibration | Wall window ms | Process CPU µs | Thread CPU µs | Complete |", "|---|---:|---:|---:|---|");
+    for (const [index, evidence] of (report.counterCalibration ?? []).entries()) {
+      const window = evidence.counters?.window;
+      rows.push(`| ${index} | ${window === undefined ? "unavailable" : (window.endMonotonicMs - window.startMonotonicMs).toFixed(6)} | ${evidence.counters === null ? "unavailable" : evidence.counters.process.user + evidence.counters.process.system} | ${evidence.counters?.thread === null || evidence.counters === null ? "unavailable" : evidence.counters.thread.user + evidence.counters.thread.system} | ${evidence.complete} |`);
+    }
+    rows.push("", "Eight synchronous back-to-back pairs calibrate resource acquisition separately from business calls. They include adapter and clock overhead and possible background work. Calibration is retained without subtraction from actual CPU or elapsed observations.");
+  }
   if (report.observerPairs !== undefined) {
     rows.push("", `| Observer pair | Quiet Flarex ms | ${report.mode === "cpu" ? "Root CPU" : "Resource"} diagnostic ms | Observed difference ms |`,
       "|---|---:|---:|---:|");
@@ -110,7 +141,7 @@ function humanReport(report: RunReport): string {
     for (const failure of failures) rows.push(`| ${failure.stage} | ${failure.outcome} | ${failure.reasons.map(reason => reason.kind).join(", ")} | ${failure.tokens.join(", ")} |`);
     rows.push("", "Original execution and cleanup causes are retained by the SDK's failed-run rejection. Artifacts retain bounded structured reason kinds and safe tags; arbitrary messages, stack contents and payloads are excluded.");
   }
-  if (report.pairedSummary !== null) rows.push("", `Paired added latency: median ${report.pairedSummary.medianAddedMs.toFixed(3)} ms; P95 ${report.pairedSummary.p95AddedMs.toFixed(3)} ms (${report.pairedSummary.samples} fresh pairs).`);
+  if (report.pairedSummary !== null) rows.push("", `${report.mode === "root-counters" ? "Counter-observed" : "Paired"} added latency: median ${report.pairedSummary.medianAddedMs.toFixed(3)} ms; P95 ${report.pairedSummary.p95AddedMs.toFixed(3)} ms (${report.pairedSummary.samples} fresh pairs).`);
   for (const sample of report.samples) {
     const analysis = sample.analysis;
     if (sample.invalidEvidence !== undefined) rows.push("", `Diagnostic ${sample.id} is invalid: ${sample.invalidEvidence}`);
@@ -119,6 +150,16 @@ function humanReport(report: RunReport): string {
       rows.push("", `## CPU diagnostic ${sample.id}`, "",
         "CPU analysis uses the collector's genuine call window. Timeline and driver accounting are unavailable for this sample; omitted observations do not establish zero work.");
       appendCpuReport(rows, cpu);
+    }
+    if (sample.ownerResources !== undefined) {
+      rows.push("", `## Selected owner resources ${sample.id}`, "",
+        `Selected collection integrity: ${sample.ownerResources.diagnostic}. Full operation timeline, deepest/context attribution, SQL counts and driver-await unions are intentionally unavailable. Omitted boundaries are not lost observations or zero work.`, "",
+        "| Observed operation | Wall ms | Process CPU ms | Thread CPU ms | Event-loop idle ms |",
+        "|---|---:|---:|---:|---:|");
+      for (const resource of sample.ownerResources.operations) rows.push(`| ${resource.name} | ${resource.wallMs.toFixed(3)} | ${resource.processCpuMs.toFixed(3)} | ${resource.threadCpuMs?.toFixed(3) ?? "unavailable"} | ${resource.eventLoopIdleMs.toFixed(3)} |`);
+      rows.push("", "These selected root, native and owner counter brackets are inclusive and overlap. Native and admission envelopes can include business execution and publication. Process CPU includes other threads; thread CPU includes observation and platform quantization. Counter resolution is unknown. Do not sum these rows or infer exclusive owner CPU. Independent async bridges retain only their explicitly supplied parents; missing fiber identity remains unavailable. Primitive-evaluation context wrapping, SQL, inspector, allocation and GC observers are absent. Fresh quiet/diagnostic pairs disclose perturbation without subtraction.");
+      if (sample.ownerResources.incompleteReasons.length > 0) rows.push("", `Missing selected observations: ${sample.ownerResources.incompleteReasons.join(", ")}.`);
+      continue;
     }
     if (analysis === undefined) continue;
     rows.push("", `## Diagnostic ${sample.id}`, "",
@@ -169,7 +210,7 @@ function humanReport(report: RunReport): string {
     }
     if (analysis.incompleteReasons.length > 0) rows.push("", `Missing observations: ${analysis.incompleteReasons.join(", ")}.`);
   }
-  rows.push("", "Effect spans report elapsed work including awaits. Driver waits do not establish server execution, lock time, network cost or scheduler CPU. Decoded JSON bytes do not measure wire traffic or heap allocation. CPU profiles, GC and allocation evidence appear only in CPU mode; coarse operation CPU counters appear in resources mode. Server counters and sampled waits appear only in server mode. Empty evidence in other lanes means unavailable. The platform clock precision is unknown. Observed instrumentation intervals cover collector callbacks; Effect context wrapping and all instrumentation cost are not fully measured. Diagnostic and quiet requests are separate; observed instrumentation cost is disclosed and never subtracted to invent quiet latency. Server calibration shares the declared server instrumentation settings; it is not an uninstrumented PostgreSQL baseline.", "",
+  rows.push("", "Effect spans report elapsed work including awaits. Driver waits do not establish server execution, lock time, network cost or scheduler CPU. Decoded JSON bytes do not measure wire traffic or heap allocation. CPU profiles, GC and allocation evidence appear only in CPU mode; coarse operation CPU counters appear in resources mode and complete-call CPU counters in root-counters mode. Server counters and sampled waits appear only in server mode. Empty evidence in other lanes means unavailable. The platform clock precision is unknown. Observed instrumentation intervals cover collector callbacks; Effect context wrapping and all instrumentation cost are not fully measured. Diagnostic and quiet requests are separate; observed instrumentation cost is disclosed and never subtracted to invent quiet latency. Server calibration shares the declared server instrumentation settings; it is not an uninstrumented PostgreSQL baseline.", "",
     "| Gate | Result | Detail |", "|---|---|---|");
   for (const gate of report.gates) rows.push(`| ${gate.name} | ${gate.passed ? "passed" : "failed"} | ${gate.detail} |`);
   rows.push("", `Command setup: ${report.setupMs.toFixed(3)} ms. Cleanup: ${report.cleanup} (${report.cleanupMs.toFixed(3)} ms).`, "");

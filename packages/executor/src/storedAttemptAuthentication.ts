@@ -626,6 +626,7 @@ interface StoredAttemptSealedRootPortV1 {
   readonly nextCreationTime: AppCreationTimeV1;
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
+  /** Physical persisted point rows, including generated insertion obligations. */
   readonly pointDependencyCount: number;
   readonly indexedQuerySyscalls: number;
   readonly indexRangeDependencyCount: number;
@@ -673,6 +674,7 @@ export interface StoredAttemptSealIdentityPortV1 {
   readonly resultSha256: Uint8Array;
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
+  /** Physical persisted point rows, including generated insertion obligations. */
   readonly pointDependencyCount: number;
   readonly indexedQuerySyscalls: number;
   readonly indexRangeDependencyCount: number;
@@ -695,7 +697,8 @@ export interface StoredAttemptPointEvidencePortV1 {
   readonly dependencyKind:
     | "present"
     | "missing_no_visible_revision"
-    | "missing_tombstone";
+    | "missing_tombstone"
+    | "generated_insertion";
   readonly dependencyRevisionCommitSeq: bigint | null;
   readonly overlayKind: "none" | "live" | "deleted";
   readonly overlayCreationTime: AppCreationTimeV1 | null;

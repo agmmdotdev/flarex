@@ -364,13 +364,16 @@ export function isDataBindingHeadFrame(
   );
 }
 
-/** Capture at the wire boundary; round-trip verification owns and freezes input. */
+/** Capture owns a detached frozen canonical frame before hashing. The domain
+ * guard is a pure shape predicate, invariant under canonical number/key order.
+ * Stored-byte verification belongs to restore; local bytes need no second hash. */
 export const captureBindingValue = Effect.fn("DataBinding.captureValue")(
   function* <Frame extends JsonObject>(
     input: unknown,
     guard: (value: unknown) => value is Frame,
   ): Effect.fn.Return<PrivateCanonicalValueSnapshot<Frame>, DataBindingError> {
-    const owned = yield* Effect.fromResult(capturePrivateJsonData(input, MAX_BINDING_BYTES, () => bindingError("invalidInput")));
+    const owned = yield* Effect.fromResult(capturePrivateJsonData(input, MAX_BINDING_BYTES,
+      () => bindingError("invalidInput"), { canonicalNumbers: true }));
     const decoded = yield* Effect.fromResult(decodeBindingFrame(owned.value, guard));
     const format = decoded.format;
     const captured = yield* capturePrivateCanonicalValue(
@@ -381,13 +384,11 @@ export const captureBindingValue = Effect.fn("DataBinding.captureValue")(
         hashFailure: (cause) => bindingError("resourceFailure", cause),
       },
     );
-    const frame = yield* restoreBindingValue(
-      captured.copyCanonicalBytes(),
-      captured.sha256Hex,
-      format,
-      guard,
-    );
-    return Object.freeze({ ...captured, frame });
+    // Preserve the intrinsic envelope check after the first hash, including its
+    // failure order for callers whose domain guard accepts a broader frame.
+    if (typeof format !== "string" || !matchesBindingVersion(decoded, bindingVersion(format)))
+      return yield* Effect.fail(bindingError("storedCorruption"));
+    return captured;
   },
 );
 function decodeBindingFrame<Frame>(
@@ -403,6 +404,18 @@ function decodeBindingFrame<Frame>(
     return Result.fail(bindingError("invalidInput"));
   }
 }
+function bindingVersion(format: string): number | readonly number[] | null {
+  // Canonical v2 activations remain immutable history. The domain guard owns
+  // the distinct candidate-epoch and accepted-epoch semantics of v2 and v3.
+  return format === "flarex.data-binding-set" ? null :
+    format === "flarex.data-binding-activation" ? [2, 3] :
+    format === "flarex.data-binding-head" ? 2 : 1;
+}
+function matchesBindingVersion(frame: JsonObject, version: number | readonly number[] | null): boolean {
+  return version === null ? !Object.hasOwn(frame, "version") :
+    typeof version === "number" ? frame.version === version :
+    typeof frame.version === "number" && version.includes(frame.version);
+}
 export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
   function* <Frame extends JsonObject>(
     bytes: unknown,
@@ -417,12 +430,7 @@ export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
         canonicalBytes: bytes,
         sha256Hex: digest,
         expectedFormat: format,
-        // Canonical v2 activations are retained immutable history. The exact
-        // guard distinguishes their candidate-epoch semantics from v3's real
-        // accepted epoch; it never fabricates a historical post-write epoch.
-        expectedVersion: format === "flarex.data-binding-set" ? null :
-          format === "flarex.data-binding-activation" ? [2, 3] :
-          format === "flarex.data-binding-head" ? 2 : 1,
+        expectedVersion: bindingVersion(format),
         maximumCanonicalBytes: MAX_BINDING_BYTES,
         expectedKeys: undefined,
         validateFrame: guard,

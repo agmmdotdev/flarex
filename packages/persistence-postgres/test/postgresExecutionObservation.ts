@@ -32,10 +32,13 @@ const families = [
     fxAppUniqueKeys,
   ].map(getTableName),
   "fx_apply_app_row_batch", "fx_apply_app_index_batch", "fx_apply_app_unique_batch",
+  "fx_accept_app_publication", "fx_apply_app_publication",
 ];
 
 export type PostgresExecutionPhase =
   | "resolveAndLock"
+  | "acceptPublication"
+  | "applyPublication"
   | PointCommitTransactionProofStepV1
   | "sessionActivation"
   | "journalOpen"

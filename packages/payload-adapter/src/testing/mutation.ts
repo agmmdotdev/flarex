@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import { ValidationError, type CollectionAfterChangeHook, type CollectionConfig } from "payload";
+import { ValidationError, type CollectionAfterChangeHook, type CollectionConfig, type PayloadRequest } from "payload";
 import { makePayloadNative } from "../runtime/native";
-import { bindPayloadDirect } from "../direct/binding";
-import { bindPayloadParticipant } from "../participant/binding";
+import { makePayloadAttempt } from "../runtime/attempt";
+import type { SessionJournalAttempt } from "@flarex/persistence-postgres/session-journal-store";
 import type { CompiledPayloadCollections } from "../collections";
 import { payloadPostsCollectionDefinition } from "./profiles";
 import { UnsupportedPayloadCapability } from "../errors";
@@ -47,11 +47,10 @@ export const mixedPayloadInspectionProfile = revision(
 type FixedProfile = "success" | "caughtFailure" | "denied" | "promisedId" | "foreignId" | "removedId" | "unresolvedId" | "inspection";
 const principalContextKey = "flarexFixedPayloadPrincipal";
 
-/** Test support only: the selected principal and hook code come from trusted
- * construction, never from admitted operation arguments or sandbox input. */
-const makeFixedRuntime = Effect.fn("PayloadMixedConformance.make")(function* (
-  compiled: CompiledPayloadCollections, selected: FixedProfile,
-) {
+/** Fixed hook state belongs to an attempt facade, including every late continuation. */
+const makeFixedAttemptState = (selected: FixedProfile) => {
+  const requests = new Set<PayloadRequest>();
+  const dataLoaders = new Set<PayloadRequest["payloadDataLoader"]>();
   let hookRuns = 0;
   let nestedReads = 0;
   let executions = 0;
@@ -62,13 +61,6 @@ const makeFixedRuntime = Effect.fn("PayloadMixedConformance.make")(function* (
   let releasePostCancelProbe: (() => void) | undefined;
   let releaseHookEntry: (() => void) | undefined;
   let releaseNestedResult: (() => void) | undefined;
-  const allowed = selected !== "denied";
-  const access: NonNullable<CollectionConfig["access"]> = {
-    read: ({ req }) => req.context[principalContextKey] === "allowed",
-    create: ({ req }) => req.context[principalContextKey] === "allowed",
-    update: ({ req }) => req.context[principalContextKey] === "allowed",
-    delete: ({ req }) => req.context[principalContextKey] === "allowed",
-  };
   const afterChange: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
     if (operation !== "create") return doc;
     hookRuns += 1;
@@ -128,24 +120,13 @@ const makeFixedRuntime = Effect.fn("PayloadMixedConformance.make")(function* (
     // The outer create result is not a substitute for a later pending read.
     return doc;
   };
-  const native = yield* makePayloadNative(compiled, {
-    hooks: selected === "denied" ? { afterChange: [] } : { afterChange: [afterChange] },
-    access,
-    requestContext: { [principalContextKey]: allowed ? "allowed" : "denied" },
-    onExecute: () => { executions += 1; },
-    onCollection: () => { collectionAdmissions += 1; },
-  });
-  const profile = selected === "success" ? mixedPayloadSuccessProfile :
-    selected === "caughtFailure" ? mixedPayloadCaughtFailureProfile :
-      selected === "denied" ? mixedPayloadDeniedProfile :
-        selected === "promisedId" ? mixedPayloadPromisedIdProfile :
-          selected === "foreignId" ? mixedPayloadForeignIdProfile :
-            selected === "removedId" ? mixedPayloadRemovedIdProfile :
-              selected === "unresolvedId" ? mixedPayloadUnresolvedIdProfile : mixedPayloadInspectionProfile;
-  return Object.freeze({ runtime: { commands: native.commands, ...bindPayloadDirect(native),
-    borrowParticipant: bindPayloadParticipant(native.commands, compiled.sourceContract.sourceKey) },
-    payload: native.payload, profile, observations: Object.freeze({
+  return Object.freeze({ afterChange, observeRequest: (req: PayloadRequest) => {
+    requests.add(req);
+    dataLoaders.add(req.payloadDataLoader);
+  }, onExecute: () => { executions += 1; },
+    onCollection: () => { collectionAdmissions += 1; }, observations: Object.freeze({
     hookRuns: () => hookRuns, nestedReads: () => nestedReads, executions: () => executions,
+    requests: () => requests.size, dataLoaders: () => dataLoaders.size,
     caughtValidationErrors: () => caughtValidationErrors,
     heldIdPending: () => releaseHeldId !== undefined,
     heldIdReadEntered: () => selected === "unresolvedId" && releaseHeldId !== undefined && collectionAdmissions >= 2,
@@ -158,6 +139,52 @@ const makeFixedRuntime = Effect.fn("PayloadMixedConformance.make")(function* (
     nestedResultHeld: () => releaseNestedResult !== undefined,
     releaseNestedResult: () => { releaseNestedResult?.(); releaseNestedResult = undefined; },
   }) });
+};
+
+/** Test-only native profile. Scope retains configuration; each facade owns fresh observations. */
+const makeFixedRuntime = Effect.fn("PayloadMixedConformance.make")(function* (
+  compiled: CompiledPayloadCollections, selected: FixedProfile,
+) {
+  const states = new WeakMap<object, ReturnType<typeof makeFixedAttemptState>>();
+  const stateContextKey = "flarexFixedPayloadAttempt";
+  const allowed = selected !== "denied";
+  const stateForRequest = (req: PayloadRequest) => {
+    const token = req.context[stateContextKey];
+    return typeof token === "object" && token !== null ? states.get(token) : undefined;
+  };
+  const allow = ({ req }: { req: PayloadRequest }) => {
+    stateForRequest(req)?.observeRequest(req);
+    return req.context[principalContextKey] === "allowed";
+  };
+  const access: NonNullable<CollectionConfig["access"]> = {
+    read: allow, create: allow, update: allow, delete: allow,
+  };
+  const afterChange: CollectionAfterChangeHook = input => {
+    const state = stateForRequest(input.req);
+    if (state === undefined) throw new UnsupportedPayloadCapability("unadmitted request");
+    return state.afterChange(input);
+  };
+  const native = yield* makePayloadNative(compiled, {
+    hooks: selected === "denied" ? { afterChange: [] } : { afterChange: [afterChange] }, access,
+  });
+  const profile = selected === "success" ? mixedPayloadSuccessProfile :
+    selected === "caughtFailure" ? mixedPayloadCaughtFailureProfile :
+      selected === "denied" ? mixedPayloadDeniedProfile :
+        selected === "promisedId" ? mixedPayloadPromisedIdProfile :
+          selected === "foreignId" ? mixedPayloadForeignIdProfile :
+            selected === "removedId" ? mixedPayloadRemovedIdProfile :
+              selected === "unresolvedId" ? mixedPayloadUnresolvedIdProfile : mixedPayloadInspectionProfile;
+  const makeAttempt = Effect.fn("PayloadMixedConformance.makeAttempt")(function* (attempt: SessionJournalAttempt) {
+    const state = makeFixedAttemptState(selected);
+    const token = Object.freeze({});
+    states.set(token, state);
+    const runtime = yield* makePayloadAttempt(native, compiled.sourceContract.sourceKey, attempt, {
+      requestContext: { [principalContextKey]: allowed ? "allowed" : "denied", [stateContextKey]: token },
+      onExecute: state.onExecute, onCollection: state.onCollection,
+    });
+    return Object.freeze({ runtime, payload: native.payload, profile, observations: state.observations });
+  });
+  return Object.freeze({ makeAttempt, payload: native.payload, profile });
 });
 
 export const makeMixedPayloadSuccessRuntime = (compiled: CompiledPayloadCollections) => makeFixedRuntime(compiled, "success");

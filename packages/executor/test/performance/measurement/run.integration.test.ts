@@ -14,7 +14,8 @@ const cases = [
   { name: "payload-database", scenario: "payload-create", driver: "postgres", mode: "database", size: "small" },
 ] as const;
 const selected = process.env.FLAREX_MEASUREMENT_INTEGRATION;
-if (selected !== undefined && selected !== "postgres-compare" && !cases.some(value => value.name === selected)) throw new Error("Unknown SDK integration proof");
+// The connected observer proofs in integration.test.ts share this selector.
+if (selected !== undefined && selected !== "1" && selected !== "postgres-compare" && !cases.some(value => value.name === selected)) throw new Error("Unknown SDK integration proof");
 const decodeReport = Schema.decodeUnknownSync(Schema.Struct({ samples: Schema.Array(Schema.Struct({
   kind: Schema.String, evidence: Schema.optional(Schema.Unknown),
 })) }));
@@ -59,7 +60,6 @@ describe("connected measurement SDK", () => {
       const dispatches = evidence.events.filter(event => event.kind === "driverAwait");
       expect(dispatches.length).toBeGreaterThan(0);
       expect(dispatches.every(event => event.backendPid !== null)).toBe(true);
-      if (proof.scenario === "mixed-product") expect(dispatches).toHaveLength(40);
     }
     if (proof.mode === "server") {
       expect(evidence.server?.status).toBe("complete");

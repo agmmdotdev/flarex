@@ -1,5 +1,5 @@
 import { validateCmsDocumentContribution } from "./contribution";
-import { prepareApplicationDocumentParticipant, enterApplicationDocumentParticipant } from "../applicationDocumentMaterialization/participant";
+import { prepareApplicationDocumentParticipant, enterApplicationDocumentParticipant, readPreparedApplicationDocumentParticipant, type PreparedApplicationParticipant } from "../applicationDocumentMaterialization/participant";
 import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock,
   reproveScopePublicationPrefix } from "../commitPublication/pointCommitProjection";
 import type { ApplicationDocumentMaterializationOptions } from "../applicationDocumentMaterialization/model";
@@ -16,18 +16,20 @@ import type { ApplicationRelationAdjacencyChange } from "../applicationRelationC
 import type { LogicalDocumentChanges } from "../logicalDocuments/workingSet";
 
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
-import { requireCmsAdmission, type CmsAdmission, type PreparedCmsApplication } from "../cmsTransaction/admission";
+import { requireCmsAdmission, requirePreparedCmsApplication, type CmsAdmission, type PreparedCmsApplication } from "../cmsTransaction/admission";
 import { consumeCmsDocumentClosure, type CmsDocumentClosure } from "../cmsTransaction/documents";
 import { consumeSourceCmsDocumentClosure, type SourceCmsDocumentClosure } from "../cmsTransaction/documents";
 import { requireLogicalDocumentSourceAdmission, type LogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
-import { prepareSourceCmsDocumentDelta } from "./contribution";
+import { prepareSourceCmsDocumentDelta, requireSourceCmsDocumentMaterialization, type PreparedSourceCmsDocumentMaterialization } from "./contribution";
 import type { CmsRequestLifetime } from "../cmsTransaction/lifetime";
 import { applyPayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "../payloadPreferences/cleanup";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../payloadPreferences/factsSchema";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { cmsError, type CmsTransactionError } from "../cmsTransaction/model";
 
-import { Effect } from "effect";
+import { Cause, Effect, Result } from "effect";
+import { captureHostPreparationLifetime, type PreparedHostPreparationLifetime } from "../preparedHostRuntime";
+import type { AppSchemaCandidateWriteGuardPlanningHead } from "../appSchemaCandidateValidation";
 
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 
@@ -46,19 +48,45 @@ import type { ScopePublicationOptions } from "../commitPublication/scopePublicat
 export type CmsMaterializationOptions =
   ApplicationDocumentMaterializationOptions & ScopePublicationOptions;
 
+declare const cmsCommitPreparationBrand: unique symbol;
+export interface PreparedCmsCommit { readonly [cmsCommitPreparationBrand]: true }
+interface CmsCommitPreparation {
+  readonly application: PreparedCmsApplication;
+  readonly core: PreparedApplicationParticipant;
+  readonly options: CmsMaterializationOptions;
+  readonly lifetime: PreparedHostPreparationLifetime;
+}
+const cmsPreparations = new WeakMap<PreparedCmsCommit, CmsCommitPreparation>();
+const commitDisposal = (token: PreparedCmsCommit) => () => { cmsPreparations.delete(token); };
+export const readPreparedCmsApplicationCommit = Effect.fn("CmsCommit.readPreparation")(function* (token: PreparedCmsCommit) {
+  const state = cmsPreparations.get(token);
+  if (state === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+  yield* Effect.fromResult(state.lifetime.checkOpen()).pipe(Effect.mapError(cause => cmsError("closed", cause)));
+  return state;
+});
+
 export const prepareCmsApplicationCommit = Effect.fn("CmsCommit.prepare")(
   function* (application: PreparedCmsApplication, controlDb: FlarexMetadataDatabase, authority: TrustedScopeAuthority,
-    ports: PointMutationSessionAuthorityResolutionPortsV1, options: CmsMaterializationOptions) {
-    const core = yield* prepareApplicationDocumentParticipant(application.schema, controlDb, authority, ports, options,
-      application.schema.writePolicy?.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId) ?? [])
+    ports: PointMutationSessionAuthorityResolutionPortsV1, options: CmsMaterializationOptions,
+    planningHead: AppSchemaCandidateWriteGuardPlanningHead | undefined) {
+    const state = yield* requirePreparedCmsApplication(application);
+    const allocation = yield* captureHostPreparationLifetime();
+    if (state.controlDb !== controlDb || allocation === undefined || allocation.charge !== state.lifetime.charge ||
+      allocation.onDispose !== state.lifetime.onDispose) return yield* Effect.fail(cmsError("invalidAuthority"));
+    const core = yield* prepareApplicationDocumentParticipant(state.schema, controlDb, authority, ports, options,
+      [...state.tableIds], { intrinsic: state.intrinsicDefinitions, developer: state.indexDefinitions, unique: state.uniqueDefinitions,
+        relations: state.relations, planningHead })
       .pipe(Effect.catchTag("LogicalDocumentMaterializationError", error => Effect.fail(cmsError(error.reason, error.cause))));
-    const prepared = Object.freeze({ application, core, options });
-    cmsPreparations.add(prepared);
+    // SAFETY: only this original private issuer authenticates the inert identity.
+    const prepared = Object.freeze({}) as PreparedCmsCommit;
+    cmsPreparations.set(prepared, Object.freeze({ application, core, options, lifetime: allocation }));
+    const dispose = commitDisposal(prepared);
+    const registered = allocation.onDispose(dispose);
+    if (Result.isFailure(registered)) dispose();
+    yield* Effect.fromResult(registered).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
     return prepared;
   });
-const cmsPreparations = new WeakSet<object>();
-type PreparedCmsCommit = Effect.Success<ReturnType<typeof prepareCmsApplicationCommit>>;
-const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({ try: work, catch: cause => {
+const projectCmsPublicationFailure = (cause: unknown) => {
   if (cause instanceof ScopePublicationUnsupportedProfileError) return cmsError("unsupportedProfile", cause);
   if (cause instanceof ScopePublicationReferenceConstraintError) return cmsError(
     cause.reason === "targetNotLive" ? "relationTargetMissing" :
@@ -66,7 +94,8 @@ const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({ try
   if (cause instanceof ScopePublicationReferenceCapacityError) return cmsError("limitExceeded", cause);
   const failure = mapTransactionFailure(cause);
   return cmsError(failure instanceof PointCommitSqlErrorV1 ? "statementFailure" : failure instanceof AppUniqueKeyConflictError ? "uniqueConflict" : "storedCorruption", failure);
-}});
+};
+const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({ try: work, catch: projectCmsPublicationFailure });
 
 type PreferenceFact = Omit<typeof fxSystemCommitPayloadPreferenceDeletions.$inferInsert, "commitSeq" | "changeOrdinal">;
 
@@ -132,7 +161,8 @@ const publishCmsOutcome = Effect.fn("CmsCommit.publishOutcome")(function* (input
   if (hooks?.afterPreferenceFacts !== undefined) yield* hooks.afterPreferenceFacts();
   if (preferenceFacts.length > 0 || hooks?.afterPreferenceFacts !== undefined)
     yield* cmsKernel(() => reproveScopePublicationPrefix(prefix));
-  yield* cmsKernel(() => advanceScopePublicationClock(tx, contribution, kernel, options));
+  yield* advanceScopePublicationClock(tx, contribution, kernel, options).pipe(
+    Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCmsPublicationFailure))));
   return allocation.commitSeq;
 });
 
@@ -143,10 +173,14 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
     lifetime: CmsRequestLifetime,
   ) {
     const state = yield* requireCmsAdmission(admission);
+    const preparation = yield* readPreparedCmsApplicationCommit(prepared);
+    const application = yield* requirePreparedCmsApplication(preparation.application);
+    const participant = yield* readPreparedApplicationDocumentParticipant(preparation.core).pipe(
+      Effect.catchTag("LogicalDocumentMaterializationError", error => Effect.fail(cmsError(error.reason, error.cause))));
     if (
-      !cmsPreparations.has(prepared) ||
-      state.schema !== prepared.application.schema ||
-      state.authority.scopeId !== prepared.core.command.authorityPins.scopeId
+      state.preparation !== application ||
+      state.schema !== application.schema ||
+      state.authority.scopeId !== participant.command.authorityPins.scopeId
     )
       return yield* Effect.fail(cmsError("invalidAuthority"));
     const scope = yield* Effect.fromResult(
@@ -190,7 +224,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
         return yield* Effect.fail(cmsError("invalidAuthority"));
       }
       const clock = { record: current, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
-      const core = yield* enterApplicationDocumentParticipant(prepared.core, state.tx, state.authority, current, state.schema)
+      const core = yield* enterApplicationDocumentParticipant(preparation.core, state.tx, state.authority, current, state.schema)
         .pipe(Effect.catchTag("LogicalDocumentMaterializationError", error => Effect.fail(cmsError(error.reason, error.cause))));
       const { dependencies } = yield* validateCmsDocumentContribution(admission, closed);
       const delta = yield* core.prepareDelta(closed.changes, dependencies)
@@ -224,13 +258,13 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
             contentRowId: appRowIdHexV1ToBytes(content.rowId),
           });
       }
-      return yield* publishCmsOutcome({ tx: state.tx, scopeId: scope.scopeId, clock, options: prepared.options,
+      return yield* publishCmsOutcome({ tx: state.tx, scopeId: scope.scopeId, clock, options: preparation.options,
         identity, result, resultSha256, changes: closed.changes, attempts: closed.attempts,
         lifetime, preferenceFacts, lower: commitSeq => delta.lower(commitSeq).pipe(
           Effect.catchTag("LogicalDocumentMaterializationError", error => Effect.fail(cmsError(error.reason, error.cause)))),
         ...(hooks === undefined ? {} : { hooks }) });
     });
-    return Object.freeze({ uniqueDefinitions: prepared.core.unique, indexDefinitions: prepared.core.developer, finalize });
+    return Object.freeze({ uniqueDefinitions: participant.unique, indexDefinitions: participant.developer, finalize });
   },
 );
 
@@ -239,9 +273,11 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
 export const enterSourceCmsCommit = Effect.fn("CmsCommit.enterSource")(function* (
   admission: LogicalDocumentSourceAdmission, tx: FlarexMetadataTransaction,
   lifetime: CmsRequestLifetime, options: CmsMaterializationOptions,
+  prepared: PreparedSourceCmsDocumentMaterialization,
 ) {
   const state = yield* requireLogicalDocumentSourceAdmission(admission, tx).pipe(
     Effect.mapError(cause => cmsError("invalidAuthority", cause)));
+  const template = yield* requireSourceCmsDocumentMaterialization(prepared, admission, tx);
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(
     Effect.mapError(cause => cmsError("invalidAuthority", cause)));
   const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(state.clock.epoch)).pipe(
@@ -269,7 +305,7 @@ export const enterSourceCmsCommit = Effect.fn("CmsCommit.enterSource")(function*
       current.oldestAvailableCommitSeq !== state.clock.oldestAvailableCommitSeq ||
       current.lastCommitSeq < state.clock.lastCommitSeq) return yield* Effect.fail(cmsError("invalidAuthority"));
     const clock = { record: current, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
-    const delta = yield* prepareSourceCmsDocumentDelta(admission, tx, current, closed, options);
+    const delta = yield* prepareSourceCmsDocumentDelta(admission, tx, current, closed, prepared);
     if (hooks?.afterPreferenceCleanup !== undefined) yield* hooks.afterPreferenceCleanup([]);
     return yield* publishCmsOutcome({ tx, scopeId: scope.scopeId, clock, options,
       identity, result, resultSha256, changes: closed.changes, attempts: closed.attempts,
@@ -277,5 +313,5 @@ export const enterSourceCmsCommit = Effect.fn("CmsCommit.enterSource")(function*
       ...(hooks === undefined ? {} : { hooks }) });
   });
   return Object.freeze({ uniqueDefinitions: state.unique,
-    indexDefinitions: state.indexes.filter(index => index.access.kind === "developer"), finalize });
+    indexDefinitions: template.input.developer, finalize });
 });

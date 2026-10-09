@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result } from "effect";
+import { getTableName, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -7,7 +9,8 @@ import { compilePayloadCollections } from "../../payload-adapter/src/collections
 import { prepareLogicalDocumentSourceAdmission, requireLogicalDocumentSourceAdmission,
   type LogicalDocumentSourceAdmission } from "../../persistence-postgres/src/logicalDocuments/documentAdmission";
 import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../../persistence-postgres/src/cmsTransaction/documents";
-import { prepareSourceCmsDocumentDelta, validateSourceCmsDocumentContribution } from "../../persistence-postgres/src/cmsTransaction/contribution";
+import { prepareSourceCmsDocumentDelta, prepareSourceCmsDocumentMaterialization, validateSourceCmsDocumentContribution } from "../../persistence-postgres/src/cmsTransaction/contribution";
+import { retainPreparedHost } from "../../persistence-postgres/src/preparedHostRuntime";
 import { cmsError, cmsLimits } from "../../persistence-postgres/src/cmsTransaction/model";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
 import { defineCmsCommand } from "../../persistence-postgres/src/cmsTransaction/commands";
@@ -22,7 +25,8 @@ import { resolveLocatedTrustedScopeAuthorityEffect } from "../../persistence-pos
 import { prepareLogicalApplicationSourceAdmission, requireLogicalApplicationSourceAdmission } from "../../persistence-postgres/src/logicalDocuments/applicationAdmission";
 import { makeSourceApplicationInsertParticipant, applicationCommandError } from "../../persistence-postgres/src/applicationDocumentMaterialization/insertParticipant";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../persistence-postgres/src/scopeClock";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryRevisions } from "../../persistence-postgres/src/schema";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../../persistence-postgres/src/installationLifecycle";
 import { runDrizzleStatementEffect } from "../../persistence-postgres/src/drizzleStatementEffect";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
 import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
@@ -107,16 +111,21 @@ describe("native Currency on the selected shared logical schema", () => {
           const mutablePorts = { ...ports };
           const mutableInput = { ...input };
           const select = fixture.control.drizzle.select.bind(fixture.control.drizzle);
-          const prepared = yield* Effect.acquireUseRelease(
-            Effect.sync(() => vi.spyOn(fixture.control.drizzle, "select").mockImplementationOnce(fields => {
-              mutablePorts.controlDb = db;
-              mutableInput.deploymentId = "changed-deployment";
-              mutableInput.schemaVersionId = decodeCatalogSchemaVersionId("changed-payload-version");
-              return select(fields);
-            })),
-            () => prepareLogicalDocumentSourceAdmission(mutablePorts,
-              fixture.application.uniqueConstraintEligibility, mutableInput, source, { kind: "standalone" }),
-            firstRead => Effect.sync(() => firstRead.mockRestore()));
+          const sourceLease = yield* Effect.acquireRelease(retainPreparedHost(preparedHostTestRuntime(db), Effect.gen(function* () {
+            const prepared = yield* Effect.acquireUseRelease(
+              Effect.sync(() => vi.spyOn(fixture.control.drizzle, "select").mockImplementationOnce(fields => {
+                mutablePorts.controlDb = db;
+                mutableInput.deploymentId = "changed-deployment";
+                mutableInput.schemaVersionId = decodeCatalogSchemaVersionId("changed-payload-version");
+                return select(fields);
+              })),
+              () => prepareLogicalDocumentSourceAdmission(mutablePorts,
+                fixture.application.uniqueConstraintEligibility, mutableInput, source, { kind: "standalone" }),
+              firstRead => Effect.sync(() => firstRead.mockRestore()));
+            const sourceTemplate = yield* prepareSourceCmsDocumentMaterialization(yield* prepared.lendPreparation(), {});
+            return { prepared, sourceTemplate };
+          })), lease => lease.close);
+          const { prepared, sourceTemplate } = yield* sourceLease.use(value => Effect.succeed(value));
           expect(yield* Effect.result(prepareLogicalDocumentSourceAdmission(ports,
             fixture.application.uniqueConstraintEligibility, input, { ...source, evidence: {} }, { kind: "standalone" })))
             .toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
@@ -214,7 +223,7 @@ describe("native Currency on the selected shared logical schema", () => {
                   const closed = yield* consumeSourceCmsDocumentClosure(yield* working.close(), admission, tx, lifetime);
                   const contribution = yield* validateSourceCmsDocumentContribution(admission, tx, closed);
                   expect(contribution.changes).toEqual(closed.changes);
-                  const delta = yield* prepareSourceCmsDocumentDelta(admission, tx, clock, closed, {});
+                  const delta = yield* prepareSourceCmsDocumentDelta(admission, tx, clock, closed, sourceTemplate);
                   expect(delta.changes).toEqual(closed.changes);
                   const change = closed.changes[0];
                   if (change?.kind !== "live") throw new Error("Missing Payload pending row");
@@ -234,8 +243,11 @@ describe("native Currency on the selected shared logical schema", () => {
                 .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
               return yield* Effect.fail(new Error("Deliberate Payload lowering rollback"));
             })), cause => new Error("Payload logical source transaction", { cause })));
-          expect(lowered).toBe(true);
+          expect(lowered, Exit.isFailure(rolledBack) ? Cause.pretty(rolledBack.cause) : "Unexpected successful settlement").toBe(true);
           expect(Exit.isFailure(rolledBack)).toBe(true);
+          yield* sourceLease.close;
+          expect(yield* Effect.result(sourceTemplate.read))
+            .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
         })));
         expect(await db.select().from(fxAppRowCurrent)).toEqual(before);
       } finally {
@@ -260,28 +272,74 @@ describe("native Currency on the selected shared logical schema", () => {
         const before = await db.select().from(fxAppRowCurrent);
         const durableBefore = await logicalCurrencyInventory(fixture);
         let reachedMaterialization = false;
+        const latePublicationFault = new Error("Late source CMS publication fault");
         const hostInput = { hostRuntime: preparedHostTestRuntime(db), database: db,
           controlDatabase: fixture.control.drizzle, session: fixture.session, deploymentId: fixture.deploymentId,
           scopeId: fixture.application.authority.scopeId,
           authority: fixture.application.authorityPorts,
           application: fixture.application.activation, commands: [create, read], identityAndAccessPolicy: { profile: "logical-news" },
           materialization: { afterTransactionStep: async ({ step }: { readonly step: string }) => {
-            if (step === "indexBatchWritten") { reachedMaterialization = true; throw new Error("Late CMS materialization fault"); }
+            if (step === "commitHeaderWritten") { reachedMaterialization = true; throw latePublicationFault; }
           } }, expectedContentIdentity: compiled.contentIdentity,
           logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
             unique: fixture.application.uniqueConstraintEligibility, schemaVersionId: fixture.schemaVersionId,
             source: compiled.sourceContract } };
-        const unavailable = await Effect.runPromise(makeCmsHost({ ...hostInput,
-          application: { readActive: () => Effect.fail(new DataBindingError({ reason: "resourceFailure" })) } }));
-        cleanup.push(() => Effect.runPromise(unavailable.close));
-        expect(await Effect.runPromise(Effect.result(unavailable.run(unavailable.newRequestKey(), create, { title: "unavailable" }))))
-          .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure" } });
+        expect(await Effect.runPromise(Effect.result(makeCmsHost({ ...hostInput,
+          application: { readActive: () => Effect.fail(new DataBindingError({ reason: "resourceFailure" })) } }))))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
         const failing = await Effect.runPromise(makeCmsHost(hostInput));
         cleanup.push(() => Effect.runPromise(failing.close));
         const key = failing.newRequestKey();
         const input = { title: "Source-owned news", createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z" };
+        const schemaName = await db.transaction(async tx => {
+          await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
+          try { return await Effect.runPromise(Effect.fromResult(requireAdmittedTargetInstallationSchema(tx))); }
+          finally { closeInstallationAdmission(tx); }
+        });
+        const qualified = (name: string) => new PgDialect().sqlToQuery(sql`${sql.identifier(schemaName)}.${sql.identifier(name)}`).sql;
+        const indexTable = qualified(getTableName(fxAppIndexEntryRevisions));
+        const currentTable = qualified(getTableName(fxAppRowCurrent));
+        const historyTable = qualified(getTableName(fxAppRowRevisions));
+        const triggerFunction = qualified("source_cms_late_index_fault");
+        const indexFaultMessage = "Source CMS late index trigger fault after provisional row/history";
+        await fixture.persistence.query(`create function ${triggerFunction}() returns trigger language plpgsql as $$
+          begin
+            if exists (select 1 from ${currentTable} c join ${historyTable} r
+                on r."${fxAppRowRevisions.scopeUuid.name}"=c."${fxAppRowCurrent.scopeUuid.name}"
+                and r."${fxAppRowRevisions.tableId.name}"=c."${fxAppRowCurrent.tableId.name}"
+                and r."${fxAppRowRevisions.rowId.name}"=c."${fxAppRowCurrent.rowId.name}"
+                and r."${fxAppRowRevisions.commitSeq.name}"=c."${fxAppRowCurrent.commitSeq.name}"
+              where c."${fxAppRowCurrent.scopeUuid.name}"=NEW."${fxAppIndexEntryRevisions.scopeUuid.name}"
+                and c."${fxAppRowCurrent.tableId.name}"=NEW."${fxAppIndexEntryRevisions.tableId.name}"
+                and c."${fxAppRowCurrent.rowId.name}"=NEW."${fxAppIndexEntryRevisions.rowId.name}"
+                and c."${fxAppRowCurrent.commitSeq.name}"=NEW."${fxAppIndexEntryRevisions.commitSeq.name}") then
+              raise exception '${indexFaultMessage}';
+            end if;
+            raise exception 'Source CMS index trigger lacked provisional row/history';
+          end $$`);
+        try {
+          await fixture.persistence.query(`create trigger source_cms_late_index_fault before insert on ${indexTable}
+            for each row execute function ${triggerFunction}()`);
+          try {
+            const indexFailure = await Effect.runPromise(Effect.exit(failing.run(key, create, input)));
+            expect(Exit.isFailure(indexFailure)).toBe(true);
+            if (Exit.isFailure(indexFailure)) {
+              expect(indexFailure.cause.reasons.every(Cause.isFailReason)).toBe(true);
+              const errors = indexFailure.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error);
+              expect(errors.map(error => error.reason)).toEqual(driver === "postgres"
+                ? ["statementFailure", "resourceFailure"] : ["statementFailure"]);
+              // PostgreSQL retains the same rejected native query in its
+              // callback and tracked drain channels; neither evidence is lost.
+              for (const error of errors) expect(Cause.pretty(Cause.fail(error))).toContain(indexFaultMessage);
+            }
+            expect(reachedMaterialization).toBe(false);
+            expect(await logicalCurrencyInventory(fixture)).toEqual(durableBefore);
+          } finally { await fixture.persistence.query(`drop trigger source_cms_late_index_fault on ${indexTable}`); }
+        } finally { await fixture.persistence.query(`drop function ${triggerFunction}()`); }
         const failed = await Effect.runPromise(Effect.exit(failing.run(key, create, input)));
         expect(Exit.isFailure(failed)).toBe(true);
+        if (Exit.isFailure(failed)) expect(failed.cause.reasons.some(reason =>
+          Cause.isDieReason(reason) && reason.defect === latePublicationFault)).toBe(true);
         expect(reachedMaterialization).toBe(true);
         expect(await logicalCurrencyInventory(fixture)).toEqual(durableBefore);
         const host = await Effect.runPromise(makeCmsHost({ ...hostInput, materialization: {} }));

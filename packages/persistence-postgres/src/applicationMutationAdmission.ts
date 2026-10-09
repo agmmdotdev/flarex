@@ -31,9 +31,10 @@ import {
   readPreparedFiniteApplicationAuthority,
   withPreparedFiniteActiveApplicationInTransaction,
   type AcceptedApplicationBinding,
-  type validateApplicationBindingBasisInTransaction,
+  type CurrentApplicationFiniteEntry,
   type PreparedFiniteActiveApplication,
   type ApplicationActiveSelection,
+  type ApplicationBindingInput,
   type ApplicationActivationRepository,
   type ApplicationActivationError,
   type ApplicationExecutableActiveSelection,
@@ -78,7 +79,7 @@ import {
 import { runLocatedReadCommittedEffect } from
   "./locatedReadCommittedEffect";
 import { runApplicationAdmissionQuery } from "./applicationAdmissionQuery";
-import { chargeHostPreparation } from "./preparedHostRuntime";
+import { chargeHostPreparation, registerHostPreparationDisposal } from "./preparedHostRuntime";
 
 export interface ApplicationMutationAdmission {
   readonly selection: ApplicationActiveSelection;
@@ -126,11 +127,11 @@ const finiteMutationPreparations = new WeakMap<PreparedFiniteApplicationMutation
 export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   "ApplicationMutationAdmission.prepareFinite",
 )(function* (activationRepository: ApplicationActivationRepository<unknown, unknown>, functionPath: string,
-  context: ApplicationMutationAdmissionContext) {
+  context: ApplicationMutationAdmissionContext, originalGenerationBinding?: ApplicationBindingInput) {
   if (!isNonBlankString(functionPath)) return yield* failure("invalidFunction");
   if (!hasApplicationActivationPlanningComposition(activationRepository, context.controlDb,
     context.schema, context.authority)) return yield* failure("invalidComposition");
-  const active = yield* prepareFiniteActiveApplication(activationRepository);
+  const active = yield* prepareFiniteActiveApplication(activationRepository, originalGenerationBinding);
   const { basis, schema } = yield* Effect.fromResult(readPreparedFiniteApplicationMutationConstruction(active));
   if (basis.deploymentId !== context.deploymentId ||
     !hasApplicationSchemaAuthorityComposition(context.schema, context.controlDb) ||
@@ -153,6 +154,8 @@ export const prepareFiniteApplicationMutationAdmission = Effect.fn(
   // SAFETY: only the issuing owner registry authenticates this inert nominal handle.
   const result = Object.freeze({}) as PreparedFiniteApplicationMutationAdmission;
   finiteMutationPreparations.set(result, Object.freeze({ active, context, inputs }));
+  yield* registerHostPreparationDisposal(() => { finiteMutationPreparations.delete(result); }).pipe(
+    Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
   return result;
 });
 
@@ -196,7 +199,7 @@ export function readPreparedFiniteApplicationMutationAuthority(prepared: Prepare
 }
 
 export type PreparedFiniteApplicationMutationAdmissionAcceptanceError = ApplicationMutationAdmissionError |
-  Effect.Error<ReturnType<typeof validateApplicationBindingBasisInTransaction>>;
+  Effect.Error<ReturnType<typeof withPreparedFiniteActiveApplicationInTransaction>>;
 
 /** The sole live Application frontier owns its observation through the exact entry/source union. */
 export const withPreparedFiniteApplicationMutationAdmissionInTransaction = Effect.fn(
@@ -204,12 +207,12 @@ export const withPreparedFiniteApplicationMutationAdmissionInTransaction = Effec
 )(function* <Value, Failure, Requirements>(prepared: PreparedFiniteApplicationMutationAdmission,
   context: ApplicationMutationAdmissionContext, tx: AppRowTransaction, clock: ScopeClockRecord,
   work: (accepted: Omit<ApplicationMutationAdmission, "schema">, binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
-  finiteEntry?: FiniteEntryObservation) {
+  finiteEntry?: FiniteEntryObservation, currentEntry?: CurrentApplicationFiniteEntry) {
   const state = finiteMutationPreparations.get(prepared);
   if (state === undefined || state.context !== context) return yield* failure("invalidComposition");
   return yield* withPreparedFiniteActiveApplicationInTransaction(state.active, tx, clock,
     (accepted, binding) => work(Object.freeze({ basis: accepted.basis, selection: accepted.selection,
-      executionAuthority: structuredClone(state.inputs.executionAuthority) }), binding), finiteEntry);
+      executionAuthority: structuredClone(state.inputs.executionAuthority) }), binding), finiteEntry, currentEntry);
 });
 
 export class ApplicationMutationAdmissionError extends Data.TaggedError(

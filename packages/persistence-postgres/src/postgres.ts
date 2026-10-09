@@ -48,7 +48,8 @@ import {
   FINITE_STORAGE_CAPTURE_DRIVER,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
 } from "./transactionSessionActivation";
-import { makePostgresPhysicalSessionDriver } from "./physicalSession/postgres";
+import { makePostgresPhysicalSessionDriver, type PostgresPhysicalSessionDriver } from "./physicalSession/postgres";
+import type { PhysicalSessionErrors } from "./physicalSession/model";
 import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
 import { FiniteStorageCaptureError } from "./finiteStorageCapture";
 import { physicalSessionErrors } from "./physicalSession/errors";
@@ -80,6 +81,38 @@ import { flarexSchema } from "./schema";
 // Code-defined extraction and dialect belong to this database adapter. Each
 // checkout still constructs fresh database/transaction views for its own client.
 const physicalSessionAccess = makePhysicalSessionAccess(flarexSchema);
+
+const finiteCapturePhysicalErrors: PhysicalSessionErrors<FiniteStorageCaptureError, FiniteStorageCaptureError> = {
+  resource: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
+  deadline: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
+  invariant: physicalSessionErrors.invariant,
+  cleanup: physicalSessionErrors.cleanup,
+};
+type FiniteCaptureDriver = PostgresPhysicalSessionDriver<FiniteStorageCaptureError>;
+type PhysicalObservationResolver = () => PhysicalSessionObservation | undefined;
+// These are the real pool's immutable physical mechanics, not a located target
+// or a serving verdict. Each operation acquires and releases a fresh checkout.
+// Weak resolver identity isolates optional diagnostics without retaining a
+// request through the pool; a closed pool still refuses at actual acquisition.
+const finiteCaptureDrivers = new WeakMap<Pool, Readonly<{ quiet: FiniteCaptureDriver;
+  observed: WeakMap<PhysicalObservationResolver, FiniteCaptureDriver> }>>();
+function finiteCaptureDriver(pool: Pool, observation?: PhysicalObservationResolver): FiniteCaptureDriver {
+  let retained = finiteCaptureDrivers.get(pool);
+  if (retained === undefined) {
+    retained = Object.freeze({ quiet: makePostgresPhysicalSessionDriver(pool, {
+      access: physicalSessionAccess, errors: finiteCapturePhysicalErrors,
+    }), observed: new WeakMap<PhysicalObservationResolver, FiniteCaptureDriver>() });
+    finiteCaptureDrivers.set(pool, retained);
+  }
+  if (observation === undefined) return retained.quiet;
+  const existing = retained.observed.get(observation);
+  if (existing !== undefined) return existing;
+  const driver = makePostgresPhysicalSessionDriver(pool, {
+    access: physicalSessionAccess, errors: finiteCapturePhysicalErrors,
+  }, { observation });
+  retained.observed.set(observation, driver);
+  return driver;
+}
 
 export {
   makeTaskSystemRunAttemptStoreV1,
@@ -181,15 +214,7 @@ export function createPostgresLocatedPointMutationSessionActivationTargetV1(
     physicalLocator,
     {
       ...activationOptions,
-      [FINITE_STORAGE_CAPTURE_DRIVER]: makePostgresPhysicalSessionDriver(persistence.pool, {
-        access: physicalSessionAccess,
-        errors: {
-          resource: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
-          deadline: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
-          invariant: physicalSessionErrors.invariant,
-          cleanup: physicalSessionErrors.cleanup,
-        },
-      }, physicalSessionObservation === undefined ? {} : { observation: physicalSessionObservation }),
+      [FINITE_STORAGE_CAPTURE_DRIVER]: finiteCaptureDriver(persistence.pool, physicalSessionObservation),
       [LOCATED_READ_COMMITTED_RUNNER_V1]:
         createPostgresLocatedReadCommittedTransactionRunnerV1(
           persistence.pool,
