@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
-  "../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
+  "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";

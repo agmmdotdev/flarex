@@ -1,6 +1,6 @@
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { TraceFingerprintOwner, TraceInvocationRecord } from "../../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import type { TraceFingerprintOwner, TraceInvocationRecord } from "../../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { MeasurementEventSchema, MeasurementObserverSchema, type MeasurementEvent } from "../artifact";
 import { databaseEvents } from "./database";
 

@@ -37,17 +37,17 @@ mutations. SQL counts alone neither attribute CPU nor prove a latency cause.
 
 The predecessor publication reconstructed complete table/index identity catalogues
 once, three times and six times on those graphs. In that source,
-[`pointCommitTransaction.ts`](../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+[`pointCommitTransaction.ts`](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
 iterates operation/source contributions; `readFiniteCommitClosure` in
-[`sourceAdmission.ts`](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts)
+[`sourceAdmission.ts`](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
 loads complete published physical requirements before selecting touched tables.
 This is a responsibility/lifetime defect to replace, not merely batch.
 
-The shared [`rootEvaluator.ts`](../../packages/persistence-postgres/src/logicalDocuments/rootEvaluator.ts)
+The shared [`rootEvaluator.ts`](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts)
 already owned native pending rows/dependencies. Application `finite.points`,
 `appPoints` hydration seeds, detached native contributions, `finite.entries`,
 `prepareFiniteRootRows` and sealed SQL journal reconstruction in
-[`sessionJournalStore.ts`](../../packages/persistence-postgres/src/sessionJournalStore.ts)
+[`sessionJournalStore.ts`](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
 formed distinct representations. That source proves their duplication; it does
 not establish its exclusive CPU share or quadratic growth.
 

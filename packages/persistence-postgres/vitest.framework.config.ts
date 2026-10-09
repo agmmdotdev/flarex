@@ -1,3 +1,3 @@
-import { frameworkTestConfiguration } from "./test/frameworkTestConfiguration";
+import { frameworkTestConfiguration } from "./test/support/frameworkTestConfiguration";
 
 export default frameworkTestConfiguration("pglite");

@@ -201,7 +201,7 @@ the remaining transitional debt:
 - Executor verification owns key, crypto, time, policy, and pin decisions.
   When that flow is Effect-native, prefer a named `Effect.fn`, tagged failures,
   and clear guards inside its dependent orchestration.
-- WeakMap-backed inspectors in `packages/executor/src/transactionGrant.ts`
+- WeakMap-backed inspectors in `packages/executor/src/mutation/authentication/transactionGrant.ts`
   prove process-local capability authenticity. Schema must not replace them.
 - Promise/throw canonicalizers wrapped by broad `tryPromise` catches remain a
   migration seam. Prefer typed Effect-native protocol operations.

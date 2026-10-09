@@ -7,18 +7,18 @@ import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { locateAppIndexDefinitionByIdEffect } from "../../persistence-postgres/src/appIndexDefinitions";
-import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
-import { readBindingSelectedEvidence } from "../../persistence-postgres/src/frameworkSchema/binding/repository";
-import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalFiniteFreeze";
-import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/indexBuildReconciliation";
-import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { locateAppIndexDefinitionByIdEffect } from "../../persistence-postgres/src/storage/indexes/appIndexDefinitions";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/installation/frameworkSchema/binding/host";
+import { readBindingSelectedEvidence } from "../../persistence-postgres/src/installation/frameworkSchema/binding/repository";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalFiniteFreeze";
+import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
+import { readLogicalStorageRequirements } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
+import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
 import { fxAppRowRevisions, fxSystemIndexBuildStates, fxSystemScopeClocks,
-  fxSystemScopeExecutionAuthorities, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
+  fxSystemScopeExecutionAuthorities, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),

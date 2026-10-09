@@ -198,7 +198,7 @@ Gate A already needs an additional core contract: separate confined Product and
 Sales Channel profiles must both be authorized against one configured installation,
 even when their commands run in separate transactions.
 
-The shared owner is `packages/persistence-postgres/src/frameworkSchema/binding`,
+The shared owner is `packages/persistence-postgres/src/installation/frameworkSchema/binding`,
 with profile authentication and per-request confinement in `commerceTransaction`.
 The [approved core correction](./51-commerce-installation-profile-bindings.md)
 replaces repeated commerce role triplets with one installation coverage set and

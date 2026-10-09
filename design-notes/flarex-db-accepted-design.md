@@ -2848,9 +2848,9 @@ Convex-first references inspected for the design:
 
 Current Flarex implementation evidence:
 
-- `packages/persistence-postgres/src/schema.ts`
+- `packages/persistence-postgres/src/database/schema.ts`
   - current document/index, invoke-session, subscription, and outbox baseline.
-- `packages/executor/src/sessions.ts`
+- `packages/executor/src/invocation/sessions.ts`
   - current session finish, commit, and best-effort post-commit wake boundary.
 - `packages/flarex-backend/src/connectionDO.ts`
   - current query execution followed by registration, which exposes the

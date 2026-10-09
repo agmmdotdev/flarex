@@ -7,9 +7,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import type { PostgresFlarexPersistence } from "../../persistence-postgres/src/postgres";
+import type { PostgresFlarexPersistence } from "../../persistence-postgres/src/database/postgres";
 import { createMixedMutationPerformanceTrace, type MixedMutationPerformanceTrace,
-  type TraceFingerprintOwner, type TraceInvocationRecord } from "../../persistence-postgres/test/mixedMutationPerformanceTrace";
+  type TraceFingerprintOwner, type TraceInvocationRecord } from "../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { prepareStandaloneProductLaunchPerformanceSeries } from
   "../../medusa-adapter/test/support/product-launch-performance-fixture";
 import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationWorkerdFixture";

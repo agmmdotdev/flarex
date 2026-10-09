@@ -109,9 +109,9 @@ measured owner is **checked operation composition**: combine pre-callback
 source/bundle verification with working-set construction and pending hydration
 in one short checked transaction, and combine a pure read's leading admission
 with its historical read in one checked transaction. The current
-[participant admission](../../packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts)
+[participant admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
 starts with an empty checked transaction before invoking work;
-[working-set construction and operations](../../packages/persistence-postgres/src/logicalDocuments/workingSet.ts)
+[working-set construction and operations](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts)
 and later reads acquire separate checked transactions. Preserve refusal and
 evaluation order, fresh checks for later state-only or cached operations and
 after separate I/O, the final metadata guard, and the rule against holding SQL
@@ -295,9 +295,9 @@ OCC retry analogy.
 
 | Existing owner/caller | Replacement question and disposition |
 | --- | --- |
-| [Participant/source/document admission](../../packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts), [sourceAdmission](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts), [working set](../../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Extend the existing checked-read and transaction-local projection owner. Replace duplicate per-child admission only with a proven root operation boundary; retain live checks on state-only paths and each later short transaction. |
-| [Transaction activation](../../packages/persistence-postgres/src/transactionSessionActivation.ts), [journal store](../../packages/persistence-postgres/src/sessionJournalStore.ts) and point commit owners | Replace per-child durable ACK for newly admitted finite effect-free roots with tentative local child results and one durable root outcome. Prove root claim/fence, precommit abort, exact final-COMMIT uncertainty resolution and no duplicate effects. Inventory existing externally acknowledged child consumers and outstanding attempts; retain their protocol until migrated or drained, never reinterpret open durable rows. |
-| [Borrowed Product](../../packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts), [borrowed workflow](../../packages/persistence-postgres/src/commerceTransaction/borrowedWorkflowAttempt.ts), [Payload](../../packages/persistence-postgres/src/cmsTransaction/borrowedLogicalAttempt.ts), [Product adapter](../../packages/medusa-adapter/src/product-attempt.ts), [workflow adapter](../../packages/medusa-adapter/src/product-launch-workflow.ts) and [Payload adapter](../../packages/payload-adapter/src/adapter.ts) | Migrate all admitted finite-root callers in one connected slice to the new root capability. Retain native validation/hooks/service/workflow semantics; remove displaced mixed-profile helper paths, exports and duplicate transaction lifetimes. Ordinary Application and separately settling native profiles have independent named callers and retain their current durable obligations until separately scoped. |
+| [Participant/source/document admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts), [sourceAdmission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts), [working set](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts) | Extend the existing checked-read and transaction-local projection owner. Replace duplicate per-child admission only with a proven root operation boundary; retain live checks on state-only paths and each later short transaction. |
+| [Transaction activation](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts), [journal store](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts) and point commit owners | Replace per-child durable ACK for newly admitted finite effect-free roots with tentative local child results and one durable root outcome. Prove root claim/fence, precommit abort, exact final-COMMIT uncertainty resolution and no duplicate effects. Inventory existing externally acknowledged child consumers and outstanding attempts; retain their protocol until migrated or drained, never reinterpret open durable rows. |
+| [Borrowed Product](../../packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedLogicalAttempt.ts), [borrowed workflow](../../packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts), [Payload](../../packages/persistence-postgres/src/frameworks/cmsTransaction/borrowedLogicalAttempt.ts), [Product adapter](../../packages/medusa-adapter/src/product-attempt.ts), [workflow adapter](../../packages/medusa-adapter/src/product-launch-workflow.ts) and [Payload adapter](../../packages/payload-adapter/src/adapter.ts) | Migrate all admitted finite-root callers in one connected slice to the new root capability. Retain native validation/hooks/service/workflow semantics; remove displaced mixed-profile helper paths, exports and duplicate transaction lifetimes. Ordinary Application and separately settling native profiles have independent named callers and retain their current durable obligations until separately scoped. |
 | [Exact Worker core](../../packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts), [host](../../packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeHost.ts) and benchmark harness | Keep one invocation per Worker and fresh-host comparison. First reuse existing immutable loader/prepared-host construction; a pre-readied single-use Worker is a separate measured host choice with refill, isolation, memory and queue costs. No same-Worker second invocation by default. |
 
 Before runtime changes, enumerate the exact public/internal type signatures,
@@ -312,11 +312,11 @@ framework-specific entity branch in the evaluator.
 
 The cutover inventory must start from the actual format owners:
 [commit protocol](../../packages/flarex-protocol/src/commit-protocol.ts),
-[per-syscall journal](../../packages/executor/src/pointMutationJournal.ts),
-[journal RPC](../../packages/executor/src/pointMutationJournalRpc.ts),
-[persistent acceptance/seal](../../packages/persistence-postgres/src/sessionJournalStore.ts),
-[attempt activation](../../packages/persistence-postgres/src/transactionSessionActivation.ts),
-[commit transaction](../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+[per-syscall journal](../../packages/executor/src/mutation/journal/pointMutationJournal.ts),
+[journal RPC](../../packages/executor/src/mutation/journal/pointMutationJournalRpc.ts),
+[persistent acceptance/seal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts),
+[attempt activation](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts),
+[commit transaction](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
 and the corresponding schema/migration rows. Inventory root, child receipt,
 point/index/relation and event rows, accepted sequence and sealed outcome
 decoders, and recovery readers before changing their format. The new profile

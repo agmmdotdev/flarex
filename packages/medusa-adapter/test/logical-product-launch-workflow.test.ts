@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareProductLaunchWorkflow, preparePrivateProductLaunchAttempt } from "../src/product-launch-workflow";
 import { captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants,
-  type AtomicCommerceParticipantInput, type PreparedAtomicCommerceLogicalParticipant } from "../../persistence-postgres/src/atomicCommerce/participants";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
+  type AtomicCommerceParticipantInput, type PreparedAtomicCommerceLogicalParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/participants";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { productVariantPricingResources } from "../src/workflow/policy";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";

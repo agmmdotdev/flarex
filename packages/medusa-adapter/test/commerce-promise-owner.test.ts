@@ -2,8 +2,8 @@ import { Clock, Context, Deferred, Effect, Option, References, Scope, Tracer } f
 import { describe, expect, it } from "vitest";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
-import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
 import { ExecutionDiagnostics, observeExecution, withExecutionDiagnosticDefaults, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { withCommerceService } from "../src/commerce-service-bridge";

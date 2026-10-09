@@ -1,4 +1,4 @@
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
@@ -16,17 +16,17 @@ import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemCommits, fxSystemIndexBuildStates, fxSystemIdempotency, fxSystemScopeClocks } from
-  "../../persistence-postgres/src/schema";
-import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
-import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/indexBuildReconciliation";
+  "../../persistence-postgres/src/database/schema";
+import { readLogicalStorageRequirements } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
+import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { admittedCommerceEventGroup } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
+import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
 

@@ -3,23 +3,23 @@ import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
 import { payloadScalarContentIdentity } from "../../payload-adapter/src/testing/profiles";
-import { defineCmsCommand } from "../../persistence-postgres/src/cmsTransaction/commands";
-import { makeCurrencyAnnouncementHost, type CurrencyAnnouncementHostInput } from "../../persistence-postgres/src/crossDomainCommand/host";
-import type { CurrencyAnnouncementTestHooks } from "../../persistence-postgres/src/crossDomainCommand/testSupport";
-import { preparedHostTestRuntime } from "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
+import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsTransaction/commands";
+import { makeCurrencyAnnouncementHost, type CurrencyAnnouncementHostInput } from "../../persistence-postgres/src/frameworks/crossDomainCommand/host";
+import type { CurrencyAnnouncementTestHooks } from "../../persistence-postgres/src/frameworks/crossDomainCommand/testSupport";
+import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { issueRelationalSession, makePostgresRelationalSession, runRelationalSession } from
-  "../../persistence-postgres/src/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { compositeError } from "../../persistence-postgres/src/crossDomainCommand/model";
+  "../../persistence-postgres/src/database/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import { compositeError } from "../../persistence-postgres/src/frameworks/crossDomainCommand/model";
 import { currencyAnnouncementWrite } from "../src/currency-service";
-import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
+import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
-import { postgresFailureCode } from "../../persistence-postgres/test/postgresFailureCode";
+import { postgresFailureCode } from "../../persistence-postgres/test/support/postgresFailureCode";
 import { prepareNativeApplicationJournalOnLogicalScope } from
-  "../../persistence-postgres/test/nativeApplicationJournalOnLogicalScope";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
+  "../../persistence-postgres/test/execution/nativeApplicationJournalOnLogicalScope";
+import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 const causedBy = (value: unknown, expected: Error): boolean => {

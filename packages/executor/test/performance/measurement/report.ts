@@ -6,7 +6,7 @@ import type { MeasurementEvidence } from "./artifact";
 import type { CpuEvidence, analyzeCpuEvidence } from "./cpu";
 import type { RootCounterEvidence, RootCounterPair } from "./rootCounters";
 import type { FailureEvidence } from "./failure";
-import type { TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import type { TraceInvocationRecord } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import type { CorePerformanceScenario } from "../support/scenario";
 import type { CorePerformanceScenarioName, CorePerformanceSize } from "../support/scenarioCatalog";
 

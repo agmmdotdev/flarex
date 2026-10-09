@@ -54,10 +54,10 @@ stack or a latency prediction.
 
 ## Baseline evidence and current integrity boundary
 
-The [attempt kernel](../../packages/persistence-postgres/src/transactionSessionActivation.ts)
+The [attempt kernel](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
 checks the target scope clock, session, snapshot lease, journal, execution
-claim, server time and final protected epoch. [Participant admission](../../packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts)
-and [source admission](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts)
+claim, server time and final protected epoch. [Participant admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
+and [source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
 read the framework data-binding head, selected activation, candidate and
 physical-lane sidecars; then authenticate the Application head, activation,
 revision schema and selected logical storage readiness. The target-side
@@ -192,7 +192,7 @@ the current full attestation. Do not use a TTL or a host-local authority flag.
    conflict/OCC validation, fencing, materialization and one committed outcome
    under its existing owner. Neither transaction spans framework callbacks.
    The existing
-   [publisher](../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+   [publisher](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
    loops participant contributions through source admission in one locked
    transaction. Reuse its existing
    `withSharedLogicalSourceBindingChecks` scope around that loop so equivalent
@@ -202,7 +202,7 @@ the current full attestation. Do not use a TTL or a host-local authority flag.
 5. In the existing publication transaction, share and combine selected
    table-frontier reads and batch equivalent selected index/unique build
    coverage advances in
-   [materialization](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
+   [materialization](../../packages/persistence-postgres/src/storage/materialization/materialization.ts)
    and its current index/unique owners. Index/unique coverage updates use
    batches of at most 32 selected rows; selected table-frontier reads use
    their existing owner and at-most-64-table batches. Preserve the
@@ -229,9 +229,9 @@ or public authoring contract.
 
 | Contract and owner | Cutover and retained obligation |
 | --- | --- |
-| Tentative admitted-child record in [sessionJournalStore](../../packages/persistence-postgres/src/sessionJournalStore.ts) | Retain the issuer-owned admission capability only in the process-local finite-root record so aggregate seal can reauthenticate the exact selected sources and readiness. Do not clone or serialize that capability, derive authority from a stored digest, or reuse entry admission as the seal verdict. Stored receipt/event schemas, the `finiteRoot` marker and fresh-process recovery remain unchanged. |
+| Tentative admitted-child record in [sessionJournalStore](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts) | Retain the issuer-owned admission capability only in the process-local finite-root record so aggregate seal can reauthenticate the exact selected sources and readiness. Do not clone or serialize that capability, derive authority from a stored digest, or reuse entry admission as the seal verdict. Stored receipt/event schemas, the `finiteRoot` marker and fresh-process recovery remain unchanged. |
 | Private native Product invocation in [product-attempt](../../packages/medusa-adapter/src/product-attempt.ts) | Run input selection inside the existing `withinDeadline` gate and failure latch without another call charge. Route native `captureLocalEvent` through the framework-owned policy decoder inside one existing borrowed `lifetime.operation`, after context/root/call/bytes/event limit checks. Check the same lifetime after native execution and before existing journal result capture. Preserve the selected command, native Product lifecycle, event policy and failure order; every database access retains fresh core admission and `durableOperations` remains unchanged. |
-| Root lifetime in [boundedRequestLifetime](../../packages/persistence-postgres/src/boundedRequestLifetime.ts) | Add a post-callback checkpoint of the same active borrowed context without a second call charge. Recheck deadline, closure/cancellation and the existing failure latch before accepting callback output; retain the one root budget and lifetime. This grants no database or settlement authority and does not open an admission transaction. |
+| Root lifetime in [boundedRequestLifetime](../../packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts) | Add a post-callback checkpoint of the same active borrowed context without a second call charge. Recheck deadline, closure/cancellation and the existing failure latch before accepting callback output; retain the one root budget and lifetime. This grants no database or settlement authority and does not open an admission transaction. |
 
 Aggregate seal reauthenticates every admitted child's issuer capability,
 request participant/method/profile and exact selected source pins under its

@@ -57,7 +57,7 @@ infer those capabilities from this candidate or silently choose an ordered codec
 
 ## Catalog And Stored Data Diff
 
-[Admission](../../packages/persistence-postgres/src/logicalSchemaAdmission.ts)
+[Admission](../../packages/persistence-postgres/src/storage/catalog/logicalSchemaAdmission.ts)
 reuses `fx_control_table` and `fx_control_schema_version`. **There are no SQL
 table, column, constraint or FK changes in this slice.** Existing rows, active
 heads, histories and framework installation metadata are not rewritten or reset.
@@ -75,7 +75,7 @@ reuses the stable table allocator and persists one immutable schema artifact.
 Compilation and native source loading finish before SQL. Bounded owned metadata
 encoding/digest work occurs during admission after IDs resolve. The existing
 control settlement/recovery implementation has moved to
-[catalogControlSession](../../packages/persistence-postgres/src/catalogControlSession.ts);
+[catalogControlSession](../../packages/persistence-postgres/src/database/catalogControlSession.ts);
 both framework artifact admission and shared candidates use it. There is no
 new journal, allocator, transaction/recovery implementation or active head.
 

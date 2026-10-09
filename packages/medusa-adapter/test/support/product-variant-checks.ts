@@ -5,11 +5,11 @@ import { Effect } from "effect";
 import { ProductEvents } from "@medusajs/utils/product/events";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
-  "../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
+  "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";

@@ -462,7 +462,7 @@ rows in one submission. Rebuilding those caches or promising fewer exchanges is
 not the selected direction.
 
 The displaced source-established repetition was in
-[`finiteStorageCapture.ts`](../../packages/persistence-postgres/src/finiteStorageCapture.ts):
+[`finiteStorageCapture.ts`](../../packages/persistence-postgres/src/execution/finiteStorageCapture.ts):
 the generic result mapper restored every slot of a query row. The
 genuine `indexRows` projection has 138 positional columns, including first-row
 authority/build/frontier groups and both index and document fields. Conditional
@@ -811,17 +811,17 @@ must replace a named owner contract, not wrap the displaced path.
 
 | Boundary | Owning implementation | Replacement contract |
 | --- | --- | --- |
-| Bounded immutable preparation | [prepared host runtime](../../packages/persistence-postgres/src/preparedHostRuntime.ts), [source admission](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts), definition issuers | Retain genuine definitions, validators and decoded immutable bodies. Account exact allocation and close/drain; preparation grants no permission, transaction or settlement. |
-| Fresh accepting evidence | [active-head reader](../../packages/persistence-postgres/src/applicationActiveHeadRead.ts), [readiness fold](../../packages/persistence-postgres/src/applicationRelationReadinessFold.ts), CMS/commerce/finite admission | The actual outer owner issues one common Application basis for the exact accepting transaction and compatible requested sources. Source owners consume it and retain their own checked heads, permissions and closures. |
-| Values and pending state | [logical working set](../../packages/persistence-postgres/src/logicalDocuments/workingSet.ts), protocol codecs, framework capture owners | Capture foreign values at real ownership crossings. Retain owned canonical values, measured limits and original/pending state; direct trusted handoff does not recapture the whole graph. |
-| Final contributions | [Application participant](../../packages/persistence-postgres/src/applicationDocumentMaterialization/participant.ts), logical materialization, current profile publishers | Preparation consumes genuine retained definitions and owned contributions. Fresh acceptance, complete write maintenance and settlement remain with their actual owners. |
+| Bounded immutable preparation | [prepared host runtime](../../packages/persistence-postgres/src/execution/preparation/preparedHostRuntime.ts), [source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts), definition issuers | Retain genuine definitions, validators and decoded immutable bodies. Account exact allocation and close/drain; preparation grants no permission, transaction or settlement. |
+| Fresh accepting evidence | [active-head reader](../../packages/persistence-postgres/src/application/applicationActiveHeadRead.ts), [readiness fold](../../packages/persistence-postgres/src/application/relations/applicationRelationReadinessFold.ts), CMS/commerce/finite admission | The actual outer owner issues one common Application basis for the exact accepting transaction and compatible requested sources. Source owners consume it and retain their own checked heads, permissions and closures. |
+| Values and pending state | [logical working set](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts), protocol codecs, framework capture owners | Capture foreign values at real ownership crossings. Retain owned canonical values, measured limits and original/pending state; direct trusted handoff does not recapture the whole graph. |
+| Final contributions | [Application participant](../../packages/persistence-postgres/src/storage/materialization/participant.ts), logical materialization, current profile publishers | Preparation consumes genuine retained definitions and owned contributions. Fresh acceptance, complete write maintenance and settlement remain with their actual owners. |
 
 ### Preparation identity and lifetime
 
 Reuse requires the actual database/issuer, installation incarnation and generation,
 deployment/scope, source/schema artifact and complete selected definition identity.
 Record relevant membership, tombstones and last-changed metadata sequence through
-the existing [finite metadata dependency owner](../../packages/persistence-postgres/src/finiteMetadataDependencies.ts).
+the existing [finite metadata dependency owner](../../packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts).
 Equal digests or copied definition records do not authenticate a capability.
 Control and target databases retain separate evidence and fenced placement;
 there is no implied joint snapshot.
@@ -847,7 +847,7 @@ of one genuine common basis where complete identities and the transaction agree.
 Product, Pricing and Link still supply three genuine source proofs and three
 source-owned working sets. Nine workflow calls currently reuse those sets; this
 plan does not diagnose nine new roots or promise to remove distinct source work.
-The [relational admission issuer](../../packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts)
+The [relational admission issuer](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission.ts)
 already prepares table/index/unique/access/foreign-key mechanics. Its full
 standalone profile must carry these genuine mechanics to the working-set and
 participant owners, rather than force them to reconstruct the same table profile.
@@ -857,8 +857,8 @@ must invalidate the old basis or refuse final acceptance.
 
 ### Installation and framework evidence
 
-[Managed installation lifecycle](../../packages/persistence-postgres/src/installationLifecycle.ts)
-and [framework installation runtime](../../packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts)
+[Managed installation lifecycle](../../packages/persistence-postgres/src/installation/installationLifecycle.ts)
+and [framework installation runtime](../../packages/persistence-postgres/src/installation/frameworkSchema/installation/runtime.ts)
 protect different evidence. The Application protected epoch does not automatically
 protect the framework runtime's retained installation/migration evidence sections.
 Mutable build coverage is not immutable metadata.
@@ -912,23 +912,23 @@ first-failure order with broad Promise catches or uninterruptible loops.
 
 The concrete CPU replacements belong inside the connected packages:
 
-- The [binding canonical owner](../../packages/persistence-postgres/src/frameworkSchema/binding/canonical.ts)
+- The [binding canonical owner](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/canonical.ts)
   currently constructs canonical bytes and then restores them through another
   validation/hash pass. Issue and retain its genuine checked frame directly;
   stored foreign bytes still require exact decoding and hashing. Mutable native
   data, copied hashes and shallow freezing cannot become retained evidence.
 - Full standalone relational admission carries its already prepared write
-  mechanics into the working set and [commerce logical participant](../../packages/persistence-postgres/src/commerceTransaction/logicalParticipant.ts).
+  mechanics into the working set and [commerce logical participant](../../packages/persistence-postgres/src/frameworks/commerceTransaction/logicalParticipant.ts).
   Remove duplicate table/foreign-key/profile construction while retaining each
   source's confinement, initialization rules and current acceptance.
 - Replace whole-activity clones followed by per-call slices and another
-  [closed-contribution copy](../../packages/persistence-postgres/src/logicalDocuments/detachChanges.ts)
+  [closed-contribution copy](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/detachChanges.ts)
   with immutable owner-issued activity ranges and one authenticated closed
   transfer. Preserve exact source/call observations, no-final-write decisions,
   dependency order and single consumption. The finite publisher's already
   removed final recanonicalization is not a new optimization opportunity.
-- The [atomic commerce result](../../packages/persistence-postgres/src/atomicCommerce/execution.ts),
-  [outcome encoder](../../packages/persistence-postgres/src/jsonOutcome.ts) and
+- The [atomic commerce result](../../packages/persistence-postgres/src/frameworks/atomicCommerce/execution.ts),
+  [outcome encoder](../../packages/persistence-postgres/src/values/jsonOutcome.ts) and
   [workflow value owner](../../packages/medusa-adapter/src/workflow-value.ts)
   consume genuine captured-value evidence instead of reflectively walking the
   same unchanged trusted tree again. Every existing ordered accounting boundary

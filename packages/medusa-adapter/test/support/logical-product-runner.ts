@@ -11,17 +11,17 @@ import { captureCommerceInput } from "../../src/commerce-input";
 import { prepareProductReadInput } from "../../src/product-service-input";
 import { commerceError, logicalCommerceBatchResources, type Json, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceCommand } from "../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import { makeCommerceReadHost, type CommerceReadHost } from "../../../persistence-postgres/src/commerceTransaction/read/host";
-import { getCommerceCommand, type CommerceCommand } from "../../../persistence-postgres/src/commerceTransaction/commands";
-import { fxSystemCommitEvents } from "../../../persistence-postgres/src/commitEvents/schema";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceCommand } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { makeCommerceReadHost, type CommerceReadHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/read/host";
+import { getCommerceCommand, type CommerceCommand } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { fxSystemCommitEvents } from "../../../persistence-postgres/src/commit/events/schema";
 import type { ProductRunnerOptions, ProductTestService } from "./runner-contract";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalProductHost } from "./logical-product-fixture";
-import type { LogicalReadMetadataScale } from "../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
+import type { LogicalReadMetadataScale } from "../../../persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport";
 
 type Fixture = {
   currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;

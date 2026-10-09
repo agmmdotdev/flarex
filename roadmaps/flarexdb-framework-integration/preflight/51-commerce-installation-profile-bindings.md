@@ -23,7 +23,7 @@ one installed Product + Sales Channel schema, two explicitly authorized and
 table-confined service profiles, independently executed through the existing
 commerce host. This does not make their separate transactions atomic.
 
-`packages/persistence-postgres/src/frameworkSchema/binding` owns canonical
+`packages/persistence-postgres/src/installation/frameworkSchema/binding` owns canonical
 binding values, activation and durable membership. `commerceTransaction` owns
 authentication of the loaded profile, table capabilities and request admission.
 The Medusa adapter owns configured metadata and native services. Neither owner

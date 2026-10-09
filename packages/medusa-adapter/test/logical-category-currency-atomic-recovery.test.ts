@@ -2,17 +2,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { Json } from "flarex-protocol/json";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand, type AtomicCommerceContext } from
-  "../../persistence-postgres/src/atomicCommerce/commands";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from
-  "../../persistence-postgres/src/atomicCommerce/host";
-import { expireCommerceResult } from "../../persistence-postgres/test/commerceInventory";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { expireCommerceResult } from "../../persistence-postgres/test/frameworks/commerceTransaction/commerceInventory";
+import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { issueRelationalSession, makePostgresRelationalSession, runRelationalSession } from
-  "../../persistence-postgres/src/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { postgresFailureCode } from "../../persistence-postgres/test/postgresFailureCode";
+  "../../persistence-postgres/src/database/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import { postgresFailureCode } from "../../persistence-postgres/test/support/postgresFailureCode";
 import { prepareNativeApplicationJournalOnLogicalScope } from
-  "../../persistence-postgres/test/nativeApplicationJournalOnLogicalScope";
+  "../../persistence-postgres/test/execution/nativeApplicationJournalOnLogicalScope";
 import { logicalCategoryCurrencyFixture, logicalCategoryCurrencyInventory } from "./support/logical-category-currency-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";

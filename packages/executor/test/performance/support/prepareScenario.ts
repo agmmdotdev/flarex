@@ -1,4 +1,4 @@
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
 import { corePerformanceScenarios, type CorePerformanceFamily, type CorePerformanceSize } from "./scenarioCatalog";
 import type { PreparedPerformanceFamily } from "./scenarioLifetime";
 

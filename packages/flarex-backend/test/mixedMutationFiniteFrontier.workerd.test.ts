@@ -6,21 +6,21 @@ import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/p
 import { CommitSeqSchema, projectScopeIdUuidV1Result, projectScopeEpochUuidV1Result } from "flarex-protocol/storage-authority";
 import { appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { OrderedIndexBoundHexV1Schema } from "flarex-protocol/ordered-index";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
 import { inspectLogicalParticipantAdmissionBundle, inspectLogicalParticipantAttemptAdmission } from
-  "../../persistence-postgres/src/logicalDocuments/participantAdmission";
-import { captureFiniteStorageEffect } from "../../persistence-postgres/src/finiteStorageCapture";
-import { decodeCapturedAppIndexSnapshotPageEffect } from "../../persistence-postgres/src/appIndexEntries";
-import { consumeCapturedAppRowsAtSnapshotEffect, prepareAppRowsSnapshotReadEffect } from "../../persistence-postgres/src/appRows";
+  "../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
+import { captureFiniteStorageEffect } from "../../persistence-postgres/src/execution/finiteStorageCapture";
+import { decodeCapturedAppIndexSnapshotPageEffect } from "../../persistence-postgres/src/storage/indexes/appIndexEntries";
+import { consumeCapturedAppRowsAtSnapshotEffect, prepareAppRowsSnapshotReadEffect } from "../../persistence-postgres/src/storage/documents/appRows";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { fxAppIndexEntryRevisions, fxAppRowCurrent, fxAppRowRevisions,
-  fxSystemCommits, fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+  fxSystemCommits, fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect, closeExactAttemptScopeClockObservation } from
-  "../../persistence-postgres/src/scopeClock";
-import { closeInstallationAdmission } from "../../persistence-postgres/src/installationLifecycle";
+  "../../persistence-postgres/src/scope/scopeClock";
+import { closeInstallationAdmission } from "../../persistence-postgres/src/installation/installationLifecycle";
 import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
-  "../../persistence-postgres/src/transactionSessionActivation";
+  "../../persistence-postgres/src/execution/transactionSessionActivation";
 
 type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined

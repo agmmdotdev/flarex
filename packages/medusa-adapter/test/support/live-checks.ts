@@ -4,17 +4,17 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { withCurrencyService, currencyCommands, makeCurrencyService } from "../../src/currency-service";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import { issueRelationalSession, runRelationalSession } from "../../../persistence-postgres/src/relationalTransaction/session";
-import { RelationalSessionError } from "../../../persistence-postgres/src/relationalTransaction/model";
-import { runEffect, runEffectFailure } from "../../../persistence-postgres/test/effectTestRuntime";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { issueRelationalSession, runRelationalSession } from "../../../persistence-postgres/src/database/relationalTransaction/session";
+import { RelationalSessionError } from "../../../persistence-postgres/src/database/relationalTransaction/model";
+import { runEffect, runEffectFailure } from "../../../persistence-postgres/test/support/effectTestRuntime";
 import { createRetainedHistoryMaintenancePort, runRetainedHistoryMaintenanceEffect,
   type RetainedHistoryMaintenanceContinuation, type RetainedHistoryMaintenanceReceipt } from
-  "../../../persistence-postgres/src/retainedHistoryMaintenance";
+  "../../../persistence-postgres/src/storage/history/retainedHistoryMaintenance";
 import { createLocatedRetainedHistoryFloorTargetInternal } from
-  "../../../persistence-postgres/src/retainedHistoryFloorObservation";
+  "../../../persistence-postgres/src/storage/history/retainedHistoryFloorObservation";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
-  "../../../persistence-postgres/src/transactionSessionActivation";
+  "../../../persistence-postgres/src/execution/transactionSessionActivation";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { registerLiveBoundaryChecks } from "./live-boundary-checks";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";

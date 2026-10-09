@@ -3,14 +3,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Result } from "effect";
 import { createHash } from "node:crypto";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData, type StepExecutionContext } from "@medusajs/workflows-sdk";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
-import { makeCommitEventPump } from "../../persistence-postgres/src/commitEvents/pump";
-import { CommitEventSubscriberFailure } from "../../persistence-postgres/src/commitEvents/model";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
+import { makeCommitEventPump } from "../../persistence-postgres/src/commit/events/pump";
+import { CommitEventSubscriberFailure } from "../../persistence-postgres/src/commit/events/model";
+import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
 
 
 

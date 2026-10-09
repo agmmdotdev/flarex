@@ -105,14 +105,14 @@ Native Application execution records exact reads and logical writes, validates
 OCC and enters its existing materialization/publication transaction. CMS and
 commerce use the shared relational session and bounded request lifetime while
 retaining their admitted SQL execution profiles. Artifact control and relational
-sessions compose one [neutral physical owner](../../packages/persistence-postgres/src/physicalSession/postgres.ts),
+sessions compose one [neutral physical owner](../../packages/persistence-postgres/src/database/physicalSession/postgres.ts),
 with owner-supplied schema views and error projections.
 
 One source-private publisher supplies common publication mechanics. Commerce
 finalization is a trusted commerce participant. The source-private
-[CMS participant](../../packages/persistence-postgres/src/cmsTransaction/publication.ts)
+[CMS participant](../../packages/persistence-postgres/src/frameworks/cmsTransaction/publication.ts)
 authenticates pending closures and receipts, and shares one
-[Application materializer](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
+[Application materializer](../../packages/persistence-postgres/src/storage/materialization/materialization.ts)
 with native commit. Native OCC no longer imports CMS lifecycle policy.
 The framework hosts share uncertain-outcome routing and retain fresh authority,
 binding, outcome lookup and participant-specific completion checks.

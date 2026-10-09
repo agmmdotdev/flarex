@@ -4,10 +4,10 @@ import { expect } from "vitest";
 import { isJsonObject, commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant,
   type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import type { RelationalSession } from "../../../persistence-postgres/src/relationalTransaction/session";
+import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import type { RelationalSession } from "../../../persistence-postgres/src/database/relationalTransaction/session";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import type { logicalCurrencyFixture } from "./logical-currency-fixture";

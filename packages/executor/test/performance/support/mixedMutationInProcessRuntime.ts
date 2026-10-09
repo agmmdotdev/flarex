@@ -8,7 +8,7 @@ import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { decodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/internal/admitted-framework-operation-v1";
 import { ApplicationRevisionSyscallDocumentValidationV1Error } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import { isCanonicalFlarexRuntimeObjectV1, normalizeFlarexValueV1 } from "flarex-protocol/value";
-import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 
 /** Test-only transport port. The core fixture owns all trusted journal work;
  * host adapters supply only invocation of the selected application source. */

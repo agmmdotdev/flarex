@@ -90,10 +90,10 @@ constraints; the implemented replacement and removal disposition are below.
 | `packages/analysis/src/applicationWritePolicy/model.ts` | Revision 3 commits scalar defaults, native field order, collection slug mapping, timestamp mode, and unique intent. Scalar fields remain required. Relation/join descriptors remain exact `posts` shapes. | Reuse the existing declarative analysis owner; runtime/binding activation remains gated. |
 | `packages/analysis/src/applicationWritePolicy/schemaCompatibility.ts` | Requires exact flat stored fields and verifies current relation declarations. | Compiled schema and configuration must still agree; optional-field or relationship expansion is not implicit. |
 | `packages/analysis/src/index.ts`, `applicationAnalysisV2.ts`, `applicationAnalysisV3.ts` | Reads own-data `writePolicies`, verifies them against analyzed tables, then builds/verifies the existing policy-bearing manifest. | Reuse this path. A compiler-returned object/hash is not authenticated publication authority. |
-| `packages/persistence-postgres/src/payloadPreferences/binding.ts` | The opaque profile issuer requires exactly four identities with relation counts 0, 1, 2, 2. | Generalize the trusted issuer's admitted descriptor set; preserve copying, freezing, registry identity, and exact content/lifecycle verification. Do not replace the token with a caller-owned map. |
-| `packages/persistence-postgres/src/cmsTransaction/admission.ts` | Matches fixed profile names to relation counts before admitting the runtime. | Evaluate the admitted capability contract and exact compiled identity; preserve active selection, scope lock, binding, and readiness checks. |
-| `packages/persistence-postgres/src/cmsTransaction/documents.ts`, `payloadPreferences/cleanup.ts` | Pending deletion evidence requires table name `posts`; cleanup accepts only `collection-posts-...`. | This requires a narrow correction at those owners. An adapter string rewrite, SQL bypass, or successful no-op cleanup is forbidden. |
-| `packages/persistence-postgres/test/applicationWritePolicyFixture.ts`, `cmsHostFixture.ts` | Tests construct policy-bearing manifests. Unique definitions now come from trusted publication, while fixtures orchestrate existing readiness owners. | New compiler tests must not call manual manifest synthesis the real configuration pipeline. Integration proof must consume compiler output through shared analysis. |
+| `packages/persistence-postgres/src/frameworks/payloadPreferences/binding.ts` | The opaque profile issuer requires exactly four identities with relation counts 0, 1, 2, 2. | Generalize the trusted issuer's admitted descriptor set; preserve copying, freezing, registry identity, and exact content/lifecycle verification. Do not replace the token with a caller-owned map. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/admission.ts` | Matches fixed profile names to relation counts before admitting the runtime. | Evaluate the admitted capability contract and exact compiled identity; preserve active selection, scope lock, binding, and readiness checks. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts`, `payloadPreferences/cleanup.ts` | Pending deletion evidence requires table name `posts`; cleanup accepts only `collection-posts-...`. | This requires a narrow correction at those owners. An adapter string rewrite, SQL bypass, or successful no-op cleanup is forbidden. |
+| `packages/persistence-postgres/test/application/ownership/applicationWritePolicyFixture.ts`, `cmsHostFixture.ts` | Tests construct policy-bearing manifests. Unique definitions now come from trusted publication, while fixtures orchestrate existing readiness owners. | New compiler tests must not call manual manifest synthesis the real configuration pipeline. Integration proof must consume compiler output through shared analysis. |
 
 The executing adapter dependency was checked at
 `packages/payload-adapter/node_modules/payload/package.json`: Payload 3.88.0,
@@ -295,7 +295,7 @@ Previous behavior: the fold returned `ready`. This witness exercises readiness,
 not a claim that duplicate Local API writes or activation were executed.
 
 The retained regression is
-`packages/persistence-postgres/test/payloadUniqueAdmissionGapScenario.ts`, with
+`packages/persistence-postgres/test/integration/payload/payloadUniqueAdmissionGapScenario.ts`, with
 PGlite and ordinary-role PostgreSQL entry points named
 `payloadUniqueAdmissionGap.test.ts` and
 `payloadUniqueAdmissionGap.postgres.test.ts`. Publication now creates the declared

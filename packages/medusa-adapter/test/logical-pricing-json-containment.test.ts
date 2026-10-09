@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
-import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { defaultCommerceResources } from "../../persistence-postgres/src/commerceTransaction/resources";
-import { fxAppJsonEntryCurrent, fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { selectLogicalJsonSearchDefinition } from "../../persistence-postgres/src/logicalDocuments/searchEntries";
+import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
+import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { defaultCommerceResources } from "../../persistence-postgres/src/frameworks/commerceTransaction/resources";
+import { fxAppJsonEntryCurrent, fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { selectLogicalJsonSearchDefinition } from "../../persistence-postgres/src/storage/documents/logicalDocuments/searchEntries";
 import { compilePricingDefinition } from "../src/pricing-schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 

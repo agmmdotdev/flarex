@@ -56,10 +56,10 @@ require Application-owned policy before an editable CMS overlay exists.
 | --- | --- |
 | [Application schema definitions](../../../packages/application-schema-definition/src/ApplicationSchema.ts) carry validators/indexes; [Manifest V2](../../../packages/analysis/src/applicationAnalysisV2.ts) adds relations but strictly accepts no policy field. | Add an authenticated policy-bearing Application contract; an adapter table-name denylist or unknown field ignored by analysis cannot enforce ownership. |
 | [Schema publication frames](../../../packages/analysis/src/applicationPublicationFramesV2.ts) commit the Application schema. | Policy must affect canonical Application schema/publication identity, not mutable UI metadata. |
-| [Payload content binding](../../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) already names per-table `writePolicySha256`; [binding evidence](../../../packages/persistence-postgres/src/frameworkSchema/binding/evidence.ts) rejects Payload profiles. | A digest-shaped value is not an issuer. Keep Payload admission closed while implementing Application denial and authenticated evidence. |
-| [Application mutation admission](../../../packages/persistence-postgres/src/applicationMutationAdmission.ts) selects function/schema authority; the [point commit kernel](../../../packages/persistence-postgres/src/pointCommitTransaction.ts) independently validates and lowers row intents under the scope clock. | Reject early for normal callers and decisively again on the actual write transaction. A trusted admission object alone cannot protect an escaped or forged journal. |
+| [Payload content binding](../../../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts) already names per-table `writePolicySha256`; [binding evidence](../../../packages/persistence-postgres/src/installation/frameworkSchema/binding/evidence.ts) rejects Payload profiles. | A digest-shaped value is not an issuer. Keep Payload admission closed while implementing Application denial and authenticated evidence. |
+| [Application mutation admission](../../../packages/persistence-postgres/src/application/applicationMutationAdmission.ts) selects function/schema authority; the [point commit kernel](../../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts) independently validates and lowers row intents under the scope clock. | Reject early for normal callers and decisively again on the actual write transaction. A trusted admission object alone cannot protect an escaped or forged journal. |
 | The point commit kernel treats `application_v1` and `legacy_dynamic_worker_v1` differently during active-schema validation. | Put the ownership backstop before generation-specific early returns. Do not assume all physical Application-row writes came through the new Application facade. |
-| [Activation](../../../packages/persistence-postgres/src/applicationActivation.ts) atomically persists target history/head from exact readiness. | Install and retain ownership claims in that same transaction; an overlay activated later must never be the event that first removes Application write permission. |
+| [Activation](../../../packages/persistence-postgres/src/application/applicationActivation.ts) atomically persists target history/head from exact readiness. | Install and retain ownership claims in that same transaction; an overlay activated later must never be the event that first removes Application write permission. |
 
 Rejected alternatives are an adapter-local allowlist, policy stored only in
 `DataBindingSet`, a boolean supplied by the mutation caller, and a second CMS
@@ -240,7 +240,7 @@ the scope clock and revalidating the relevant active authority. It checks the
 complete materialized write set and any operation evidence needed to account for
 attempted managed writes before any row, index, unique-key or relation mutation.
 An early SDK/runtime check or a final net-zero result does not substitute for
-this verification. The current [point planner](../../../packages/executor/src/storedAttemptAuthentication/pointCommitPlanning.ts)
+this verification. The current [point planner](../../../packages/executor/src/mutation/authentication/stored/pointCommitPlanning.ts)
 coalesces verified point state into final row intents, so those intents alone
 cannot prove which tables were targeted. The trusted stored-attempt verifier
 must retain the distinct attempted table identities from the authenticated

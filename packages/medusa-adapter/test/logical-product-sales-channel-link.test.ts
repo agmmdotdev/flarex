@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductSalesChannelLinkHost } from "./support/logical-product-sales-channel-link-fixture";

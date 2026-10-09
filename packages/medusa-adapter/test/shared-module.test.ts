@@ -7,8 +7,8 @@ import { prepareCommerceModule, prepareCommerceInternalService } from "../src/co
 import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
 import { commerceRepositoryContext } from "../src/commerce-repository-context";
 import { withCommerceService } from "../src/commerce-service-bridge";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
-import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 
 const Volume = model.define("Volume", { isbn: model.text().primaryKey(), title: model.text() });
 const Edition = model.define("Edition", { serial: model.text().primaryKey() });

@@ -199,7 +199,7 @@ without a consumer. Resolve Trigger organization/project/environment lookups to
 trusted Flarex identities and runtime projections; do not fabricate product
 records or simply rename `organizationId` to `tenantId`.
 
-Our current [logical store](../packages/persistence-postgres/src/logicalDocuments/model.ts)
+Our current [logical store](../packages/persistence-postgres/src/storage/documents/logicalDocuments/model.ts)
 provides bounded reads, paging, count, limited aggregation, writes, deletes and
 lifecycle operations. That is a foundation, not proof that it satisfies task
 claims, queue reservations or the full RunStore query contract. Missing
@@ -329,7 +329,7 @@ record an outbox intent atomically and create the run idempotently. A plain
 after-commit callback leaves a crash gap. Cross-database placement requires a
 durable handoff, not an implied distributed transaction.
 
-Current [Application run creation](../packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts)
+Current [Application run creation](../packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts)
 owns a separate transaction; atomic business mutation plus task enqueue is not
 already established. Medusa's committed event/delivery machinery is a candidate
 handoff owner. Prove and extend the shared publication capability rather than

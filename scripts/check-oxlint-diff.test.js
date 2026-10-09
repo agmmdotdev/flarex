@@ -16,6 +16,8 @@ import {
   normalizeRepositoryPath,
   OXLINT_SOURCE_ROOTS,
   parseChangedLines,
+  parseRenamedPaths,
+  partitionOxlintFiles,
   readArguments,
   selectChangedLineDiagnostics,
 } from "./check-oxlint-diff.mjs";
@@ -53,6 +55,29 @@ const createPolicyRepository = () => {
   return repositoryRoot;
 };
 
+describe("partitionOxlintFiles", () => {
+  it("preserves every long path in order within the native command-line budget", () => {
+    const fixed = ["node", "oxlint", "--config", "a config with spaces.ts", "--format=json"];
+    const files = Array.from({ length: 1000 }, (_, index) => `C:/workspace with spaces/${"long-directory/".repeat(8)}file-${index}.ts`);
+    const batches = partitionOxlintFiles(files, fixed);
+    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.flat()).toEqual(files);
+    for (const batch of batches) {
+      expect([...fixed, ...batch].reduce((total, argument) => total + 2 * argument.length + 3, 0)).toBeLessThanOrEqual(24_000);
+    }
+  });
+
+  it("keeps a small invocation intact and does not create an empty invocation", () => {
+    expect(partitionOxlintFiles(["a.ts", "b.ts"], ["node"])).toEqual([["a.ts", "b.ts"]]);
+    expect(partitionOxlintFiles([], ["node"])).toEqual([]);
+  });
+
+  it("refuses an oversized fixed command or a single oversized path", () => {
+    expect(() => partitionOxlintFiles(["a.ts"], ["node"], 5)).toThrow("fixed arguments");
+    expect(() => partitionOxlintFiles(["a very long path.ts"], ["node"], 30)).toThrow("path exceeds");
+  });
+});
+
 describe("parseChangedLines", () => {
   it("records every new-side line in zero-context hunks", () => {
     const lines = parseChangedLines(
@@ -63,6 +88,41 @@ describe("parseChangedLines", () => {
 
   it("does not invent a line for deletion-only hunks", () => {
     expect([...parseChangedLines("@@ -4,2 +4,0 @@\n-old\n-old\n")]).toEqual([]);
+  });
+});
+
+describe("rename-aware changed lines", () => {
+  it("retains old paths for moves, including spaces, Unicode and copies", () => {
+    const paths = parseRenamedPaths("M\0ordinary.ts\0R098\0old file.ts\0owner/မြန်မာ.ts\0C100\0source.ts\0copy.ts\0A\0new.ts\0");
+    expect([...paths]).toEqual([["owner/မြန်မာ.ts", "old file.ts"]]);
+    expect(() => parseRenamedPaths("R100\0old.ts\0")).toThrow("Incomplete Git rename");
+  });
+
+  it("checks edited lines after a real move without treating preserved code as additions", () => {
+    const repositoryRoot = createPolicyRepository();
+    const old = "old file.ts";
+    const current = "moved file.ts";
+    const git = (/** @type {string[]} */ args) => {
+      const result = spawnSync("git", args, { cwd: repositoryRoot, encoding: "utf8", windowsHide: true });
+      if (result.error !== undefined) throw result.error;
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout;
+    };
+    try {
+      const source = 'import { value } from "./old";\n' + "export const preserved = 1;\n".repeat(40);
+      writeFileSync(join(repositoryRoot, old), source);
+      git(["add", old]);
+      git(["commit", "--quiet", "-m", "source"]);
+      rmSync(join(repositoryRoot, old));
+      writeFileSync(join(repositoryRoot, current), source.replace('./old', './owner'));
+      git(["add", old, current]);
+      const previous = parseRenamedPaths(git(["diff", "--cached", "--name-status", "-z", "--find-renames"])).get(current);
+      expect(previous).toBe(old);
+      const diff = git(["diff", "--cached", "--unified=0", "--find-renames", "--", previous ?? current, current]);
+      expect([...parseChangedLines(diff)]).toEqual([1]);
+    } finally {
+      rmSync(repositoryRoot, { recursive: true, force: true });
+    }
   });
 });
 

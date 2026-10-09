@@ -61,7 +61,7 @@ Primary implementation anchors:
   adapter;
 - [`packages/executor/src`](../packages/executor/src) for active package,
   function, schema, scope, session, and syscall validation;
-- [`packages/persistence-postgres/src/validation.ts`](../packages/persistence-postgres/src/validation.ts),
+- [`packages/persistence-postgres/src/values/validation.ts`](../packages/persistence-postgres/src/values/validation.ts),
   schema/artifact codecs, and catalog modules for commit and stored-state
   validation; and
 - focused tests beside each of those packages.

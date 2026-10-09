@@ -1,12 +1,12 @@
 import { count, eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { createPostgresPersistence } from "../../persistence-postgres/src/postgres";
-import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import { createPostgresPersistence } from "../../persistence-postgres/src/database/postgres";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemTransactionSessions } from
-  "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+  "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture, type MixedMutationFinalEntryTestContext } from
   "./support/mixedMutationWorkerdFixture";
 

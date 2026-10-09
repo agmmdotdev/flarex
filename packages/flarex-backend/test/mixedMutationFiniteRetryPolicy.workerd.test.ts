@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { createPointCommitPublisherPortV1, PointCommitConflictV1Error, PointCommitCorruptionV1Error,
   PointFiniteAttemptRetryBudgetExhaustedError } from
-  "../../persistence-postgres/src/pointCommitTransaction";
-import { fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
+  "../../persistence-postgres/src/commit/pointCommitTransaction";
+import { fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;

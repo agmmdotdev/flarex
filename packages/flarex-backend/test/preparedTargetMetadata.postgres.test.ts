@@ -5,27 +5,27 @@ import { describe, expect, it, vi } from "vitest";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 import { logicalCurrencyFixture } from "../../medusa-adapter/test/support/logical-currency-fixture";
-import { prepareApplicationBindingSelection, readApplicationBindingTargetProtection } from "../../persistence-postgres/src/applicationActivation";
-import { prepareLogicalSourceEvidence, withSharedLogicalSourceBindingChecks } from "../../persistence-postgres/src/logicalDocuments/sourceAdmission";
-import * as hostPreparation from "../../persistence-postgres/src/preparedHostRuntime";
+import { prepareApplicationBindingSelection, readApplicationBindingTargetProtection } from "../../persistence-postgres/src/application/applicationActivation";
+import { prepareLogicalSourceEvidence, withSharedLogicalSourceBindingChecks } from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
+import * as hostPreparation from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
 import { prepareApplicationActiveHeadStructure, readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedApplicationSchemaForHeadForShareInTransactionEffect, releaseCheckedApplicationActiveHead } from
-  "../../persistence-postgres/src/applicationActiveHeadRead";
-import { applicationActivationFrame, applicationActiveHeadFrame } from "../../persistence-postgres/src/applicationActivationFrames";
-import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/applicationActivationSchema";
-import { fxSystemApplicationRevisionSchemasV1, fxSystemIndexBuildStates } from "../../persistence-postgres/src/schema";
-import { lockScopeClockForShareInTransactionEffect, type ScopeClockRecord } from "../../persistence-postgres/src/scopeClock";
+  "../../persistence-postgres/src/application/applicationActiveHeadRead";
+import { applicationActivationFrame, applicationActiveHeadFrame } from "../../persistence-postgres/src/application/applicationActivationFrames";
+import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/application/applicationActivationSchema";
+import { fxSystemApplicationRevisionSchemasV1, fxSystemIndexBuildStates } from "../../persistence-postgres/src/database/schema";
+import { lockScopeClockForShareInTransactionEffect, type ScopeClockRecord } from "../../persistence-postgres/src/scope/scopeClock";
 import { openProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
-  closeProtectedMetadataFinalGuardScope } from "../../persistence-postgres/src/preparedMetadataEpoch";
-import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
+  closeProtectedMetadataFinalGuardScope } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
 import { prepareBindingSelectedStructure, readBindingSelectedEvidence, readBindingActivation } from
-  "../../persistence-postgres/src/frameworkSchema/binding/repository";
+  "../../persistence-postgres/src/installation/frameworkSchema/binding/repository";
 import { captureBindingValue, isDataBindingActivationFrame, isDataBindingHeadFrame } from
-  "../../persistence-postgres/src/frameworkSchema/binding/canonical";
+  "../../persistence-postgres/src/installation/frameworkSchema/binding/canonical";
 import { fxSystemDataBindingActivations, fxSystemDataBindingHeads } from
-  "../../persistence-postgres/src/frameworkSchema/binding/schema";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
+  "../../persistence-postgres/src/installation/frameworkSchema/binding/schema";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/installation/frameworkSchema/binding/host";
 
 const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL ? describe : describe.skip;
 const bytes = (frame: unknown) => {

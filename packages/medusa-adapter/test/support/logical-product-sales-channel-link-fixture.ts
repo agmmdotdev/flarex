@@ -1,8 +1,8 @@
 import { Effect } from "effect";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
+import { makeCommerceHost, type LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { prepareProductSalesChannelLink } from "../../src/product-sales-channel-link-service";
-import type { CommerceHost } from "../../../persistence-postgres/src/commerceTransaction/commands";
+import type { CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
 interface LogicalProductSalesChannelLinkHostFixture {

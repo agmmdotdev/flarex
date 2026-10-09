@@ -1,12 +1,12 @@
 import { vi } from "vitest";
 import { Effect } from "effect";
-import { observeCommerceQueries } from "../../../persistence-postgres/test/commerceQueryObservation";
+import { observeCommerceQueries } from "../../../persistence-postgres/test/frameworks/commerceTransaction/commerceQueryObservation";
 
 const queries = observeCommerceQueries();
 
 // Observe the real owner. No budget, clock, result, failure or settlement is replaced.
 vi.mock("../../../persistence-postgres/src/boundedRequestLifetime", async importOriginal => {
-  const actual = await importOriginal<typeof import("../../../persistence-postgres/src/boundedRequestLifetime")>();
+  const actual = await importOriginal<typeof import("../../../persistence-postgres/src/execution/preparation/boundedRequestLifetime")>();
   return { ...actual,
     makeBoundedRequestLifetime: (...args: Parameters<typeof actual.makeBoundedRequestLifetime>) =>
       actual.makeBoundedRequestLifetime(...args).pipe(Effect.map(lifetime => {

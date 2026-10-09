@@ -47,8 +47,8 @@ allowed boundary categories are:
   - `packages/flarex-backend/src/scheduler/InternalRouteBoundary.ts`
   - `packages/flarex-backend/src/partitionDO.ts`
 - Public Promise-shaped backend and executor compatibility APIs:
-  - `packages/executor/src/health.ts`
-  - `packages/executor/src/sessions.ts`
+  - `packages/executor/src/runtime/health.ts`
+  - `packages/executor/src/invocation/sessions.ts`
   - `packages/flarex-backend/src/invoke.ts`
   - `packages/flarex-backend/src/transaction.ts`
   - `packages/flarex-backend/src/liveQueryDelivery.ts`
@@ -58,9 +58,9 @@ allowed boundary categories are:
   - `packages/flarex-backend/src/deliveryDO.ts`
   - `packages/flarex-backend/src/schedulerDO.ts`
 - Postgres driver and Drizzle transaction callbacks that require Promises:
-  - `packages/persistence-postgres/src/postgresRuntime.ts`
-  - `packages/persistence-postgres/src/stableTableCatalog.ts`
-  - `packages/persistence-postgres/src/transactionSessionActivation.ts`
+  - `packages/persistence-postgres/src/database/postgresRuntime.ts`
+  - `packages/persistence-postgres/src/storage/catalog/stableTableCatalog.ts`
+  - `packages/persistence-postgres/src/execution/transactionSessionActivation.ts`
 - Local development, analyzer, artifact materializer, executor HTTP, and
   backend push adapter APIs:
   - `packages/flarex-dev/src/analyze.ts`

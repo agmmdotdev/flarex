@@ -14,12 +14,12 @@ import {
   ADMITTED_FRAMEWORK_OPERATION_VERSION_V1,
   encodeAdmittedFrameworkOperationV1Result,
 } from "flarex-protocol/internal/admitted-framework-operation-v1";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
-  fxSystemTransactionJournals, fxSystemTransactionSessions, fxSystemCommits } from "../../persistence-postgres/src/schema";
-import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
+  fxSystemTransactionJournals, fxSystemTransactionSessions, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
 

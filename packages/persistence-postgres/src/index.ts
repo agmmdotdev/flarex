@@ -2,25 +2,25 @@ import type { SQLWrapper } from "drizzle-orm";
 import type {
   DeploymentPackageMetadataRecord,
   InsertDeploymentPackageMetadataInput,
-} from "./deploymentPackages";
+} from "./application/deploymentPackages";
 import type {
   ListDeploymentMetadataInput,
   ListDeploymentMetadataResult,
   DeploymentMetadataRecord,
   InsertDeploymentMetadataInput,
   UpdateDeploymentMetadataActivationInput,
-} from "./deployments";
+} from "./application/deployments";
 import type {
   InsertScopeMetadataInput,
   ListScopeMetadataInput,
   ListScopeMetadataResult,
   ScopeMetadataRecord,
-} from "./scopeMetadata";
-import type { ScopeClockRecord } from "./scopeClock";
+} from "./scope/scopeMetadata";
+import type { ScopeClockRecord } from "./scope/scopeClock";
 import type {
   DocumentRevisionRecord,
   InsertDocumentRevisionInput,
-} from "./documents";
+} from "./storage/documents/documents";
 import type {
   AbortInvokeSessionMetadataInput,
   AbortStaleInvokeSessionsMetadataInput,
@@ -28,7 +28,7 @@ import type {
   FinishInvokeSessionMetadataInput,
   InsertInvokeSessionMetadataInput,
   InvokeSessionMetadataRecord,
-} from "./invokeSessions";
+} from "./legacy/invokeSessions";
 import type {
   InsertOutboxEventInput,
   ListOutboxEventsInput,
@@ -37,9 +37,9 @@ import type {
   MarkOutboxEventsDeliveredInput,
   MarkOutboxEventsDeliveredResult,
   OutboxEventRecord,
-} from "./outbox";
-import type { HasIndexEntryAfterTsInput } from "./indexEntries";
-import type { LegacyV1AppDataStore } from "./legacyV1AppDataEngine";
+} from "./commit/outbox";
+import type { HasIndexEntryAfterTsInput } from "./storage/indexes/indexEntries";
+import type { LegacyV1AppDataStore } from "./legacy/legacyV1AppDataEngine";
 import type {
   ApplyFreshnessCommitInput,
   ApplyFreshnessCommitResult,
@@ -47,7 +47,7 @@ import type {
   FreshnessOutboxEventKey,
   FreshnessProcessedEventRecord,
   TableFreshnessVersionRecord,
-} from "./freshness";
+} from "./sync/freshness";
 import type {
   DeleteLiveQuerySubscriptionResult,
   ListLiveQuerySubscriptionsInput,
@@ -59,7 +59,7 @@ import type {
   RecordLiveQueryRerunResultInput,
   RecordLiveQueryRerunResultResult,
   UpsertLiveQuerySubscriptionInput,
-} from "./liveQuerySubscriptions";
+} from "./sync/liveQuerySubscriptions";
 import type {
   CloseLiveQueryConnectionInput,
   DeleteExpiredLiveQuerySubscriptionsInput,
@@ -70,7 +70,7 @@ import type {
   LiveQueryConnectionRecord,
   UpsertLiveQueryConnectionLeaseInput,
   UpsertLiveQuerySubscriptionWithLeaseInput,
-} from "./liveQueryConnections";
+} from "./sync/liveQueryConnections";
 import type {
   ClaimLiveQueryDeliveriesInput,
   ClaimLiveQueryDeliveriesResult,
@@ -88,15 +88,15 @@ import type {
   MarkLiveQueryDeliveriesDeliveredResult,
   RecordLiveQueryDeliveryFailureInput,
   RecordLiveQueryDeliveryFailureResult,
-} from "./liveQueryDeliveries";
+} from "./sync/liveQueryDeliveries";
 import type {
   EnsureAppTableDefinitionsArtifactV1Input,
   EnsureAppTableDefinitionsArtifactV1Result,
-} from "./appTableDefinitionsArtifacts";
+} from "./storage/catalog/appTableDefinitionsArtifacts";
 import type {
   PublishAppSchemaV1Input,
   PublishAppSchemaV1Result,
-} from "./appSchemaPublication";
+} from "./storage/catalog/appSchemaPublication";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -276,10 +276,10 @@ export interface FlarexPersistenceCheck {
   status: "ok";
 }
 
-export * from "./deploymentPackages";
-export * from "./deployments";
-export * from "./scopeMetadata";
-export * from "./scopeMetadataTypes";
+export * from "./application/deploymentPackages";
+export * from "./application/deployments";
+export * from "./scope/scopeMetadata";
+export * from "./scope/scopeMetadataTypes";
 export {
   TrustedScopeAuthorityResolutionError,
   TrustedScopeAuthorityPortError,
@@ -296,7 +296,7 @@ export {
   type TrustedScopeAuthorityPortOperation,
   type TrustedScopeAuthorityResolutionFailure,
   type TrustedScopeAuthorityResolutionPorts,
-} from "./scopeAuthorityResolution";
+} from "./scope/scopeAuthorityResolution";
 export {
   CurrentScopeAuthorizationEpochPortError,
   CurrentScopeAuthorizationEpochResolutionError,
@@ -305,12 +305,12 @@ export {
   type CurrentScopeAuthorizationEpochError,
   type CurrentScopeAuthorizationEpochResolutionFailure,
   type CurrentScopeAuthorizationEpochResolutionPorts,
-} from "./scopeAuthorizationEpochAuthority";
+} from "./scope/scopeAuthorizationEpochAuthority";
 export {
   createAppDataSnapshotResolver,
   type AppDataSnapshotResolver,
   type ResolvedAppDataSnapshot,
-} from "./appDataSnapshot";
+} from "./storage/documents/appDataSnapshot";
 export {
   getSchemaVersionArtifactByIdEffect,
   getSchemaVersionArtifactByVersionEffect,
@@ -327,7 +327,7 @@ export {
   type SchemaVersionArtifact,
   type SchemaVersionArtifactConflict,
   type SchemaVersionArtifactIdentity,
-} from "./schemaVersionArtifacts";
+} from "./storage/catalog/schemaVersionArtifacts";
 export {
   getStableTableIdentityByIdEffect,
   getStableTableIdentityByNameEffect,
@@ -341,7 +341,7 @@ export {
   type GetStableTableIdentityError,
   type StableTableIdentity,
   type StableTableIdentityName,
-} from "./stableTableCatalog";
+} from "./storage/catalog/stableTableCatalog";
 export {
   getStableLogicalIndexIdentityByIdEffect,
   getStableLogicalIndexIdentityByNameEffect,
@@ -351,7 +351,7 @@ export {
   type GetStableLogicalIndexIdentityError,
   type StableLogicalIndexIdentity,
   type StableLogicalIndexIdentityName,
-} from "./stableLogicalIndexCatalog";
+} from "./storage/catalog/stableLogicalIndexCatalog";
 export {
   AppCreationTimeIndexDefinitionChecksumCollisionError,
   AppCreationTimeIndexDefinitionParentError,
@@ -379,8 +379,8 @@ export {
   type InvalidAppIndexDefinitionBindingInputIssue,
   type ReadAppIndexDefinitionError,
   type ReadAppSchemaVersionIndexBindingError,
-} from "./appIndexDefinitions";
-export { StableLogicalIndexCatalogIdExhaustedError } from "./stableLogicalIndexCatalogAllocation";
+} from "./storage/indexes/appIndexDefinitions";
+export { StableLogicalIndexCatalogIdExhaustedError } from "./storage/catalog/stableLogicalIndexCatalogAllocation";
 export {
   IndexBuildStateClockNotFoundError,
   IndexBuildStateCorruptionError,
@@ -395,7 +395,7 @@ export {
   type InvalidIndexBuildStateReadInputIssue,
   type ReadFencedIndexBuildStateError,
   type ReadFencedIndexBuildStateInput,
-} from "./indexBuildStates";
+} from "./storage/indexes/indexBuildStates";
 export {
   AppTableDefinitionsArtifactV1RetryExhaustedError,
   InvalidAppTableDefinitionsArtifactV1InputError,
@@ -403,30 +403,30 @@ export {
   type EnsureAppTableDefinitionsArtifactV1Input,
   type EnsureAppTableDefinitionsArtifactV1Result,
   type InvalidAppTableDefinitionsArtifactV1InputIssue,
-} from "./appTableDefinitionsArtifacts";
+} from "./storage/catalog/appTableDefinitionsArtifacts";
 export {
   AppSchemaPublicationV1RetryExhaustedError,
   MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS,
   type AppSchemaPublicationV1Stale,
   type PublishAppSchemaV1Input,
   type PublishAppSchemaV1Result,
-} from "./appSchemaPublication";
+} from "./storage/catalog/appSchemaPublication";
 export {
   InvalidAppSchemaPublicationV1InputError,
   type InvalidAppSchemaPublicationV1InputIssue,
-} from "./appSchemaPublicationPreparation";
+} from "./storage/catalog/appSchemaPublicationPreparation";
 export {
   InvalidSchemaManifestAppSchemaBindingInputError,
   type InvalidSchemaManifestAppSchemaBindingInputIssue,
-} from "./schemaManifestAppSchemaBindings";
+} from "./storage/catalog/schemaManifestAppSchemaBindings";
 export {
   SchemaManifestTableBindingCorruptionError,
-} from "./schemaManifestTableBindings";
+} from "./storage/catalog/schemaManifestTableBindings";
 export {
   AppSchemaPublicationV1ProjectionError,
   type AppSchemaPublicationV1Result,
   type AppSchemaPublicationV1ProjectionIssue,
-} from "./appSchemaPublicationTransaction";
+} from "./storage/catalog/appSchemaPublicationTransaction";
 export {
   AppSchemaPublicationV1QuotaExceededError,
   MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
@@ -434,12 +434,12 @@ export {
   MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
   MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
   type AppSchemaPublicationV1QuotaIssue,
-} from "./appSchemaPublicationPolicy";
+} from "./storage/catalog/appSchemaPublicationPolicy";
 export {
   ScopeClockCorruptionError,
   type ScopeClockRecord,
-} from "./scopeClock";
-export * from "./documents";
+} from "./scope/scopeClock";
+export * from "./storage/documents/documents";
 export {
   type CommitInvokeSessionWritesInput,
   type CommitInvokeSessionWritesResult,
@@ -452,19 +452,19 @@ export {
   InvokeSessionReplaceTargetError,
   InvokeSessionTableOccConflictError,
   InvokeSessionUnsupportedStagedWriteError,
-} from "./commits";
-export * from "./indexEntries";
-export * from "./invokeSessions";
-export * from "./invokeSessionReads";
-export * from "./invokeSessionTableReads";
-export * from "./invokeSessionIndexReads";
-export * from "./invokeSessionWrites";
-export * from "./outbox";
-export * from "./freshness";
-export * from "./liveQueryConnections";
-export * from "./liveQuerySubscriptions";
-export * from "./liveQueryDeliveries";
-export * from "./validation";
+} from "./commit/commits";
+export * from "./storage/indexes/indexEntries";
+export * from "./legacy/invokeSessions";
+export * from "./legacy/invokeSessionReads";
+export * from "./legacy/invokeSessionTableReads";
+export * from "./legacy/invokeSessionIndexReads";
+export * from "./legacy/invokeSessionWrites";
+export * from "./commit/outbox";
+export * from "./sync/freshness";
+export * from "./sync/liveQueryConnections";
+export * from "./sync/liveQuerySubscriptions";
+export * from "./sync/liveQueryDeliveries";
+export * from "./values/validation";
 
 /**
  * Historical package-root schema surface. New transaction-authority tables
@@ -510,4 +510,4 @@ export {
   persistenceGlobals,
   readOnly,
   tableFreshnessVersions,
-} from "./schema";
+} from "./database/schema";

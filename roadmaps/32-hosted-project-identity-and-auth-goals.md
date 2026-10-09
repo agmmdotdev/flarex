@@ -220,14 +220,14 @@ Initial constraints:
 
 Files changed:
 
-- `packages/persistence-postgres/src/schema.ts`
-- `packages/persistence-postgres/src/invokeSessions.ts`
+- `packages/persistence-postgres/src/database/schema.ts`
+- `packages/persistence-postgres/src/legacy/invokeSessions.ts`
 - `packages/persistence-postgres/drizzle/0015_silent_hercules.sql`
-- `packages/executor/src/types.ts`
-- `packages/executor/src/sessions.ts`
+- `packages/executor/src/invocation/types.ts`
+- `packages/executor/src/invocation/sessions.ts`
 - `packages/executor-http/src/requestDecoders.ts`
 - `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
-- `packages/executor/test/sessions.test.ts`
+- `packages/executor/test/invocation/sessions.test.ts`
 - `packages/executor-http/test/http.test.ts`
 - `packages/flarex-dev/test/runtimeMaterializer.test.ts`
 
@@ -515,14 +515,14 @@ Previous completed checkpoint:
 
 Files changed:
 
-- `packages/persistence-postgres/src/schema.ts`
-- `packages/persistence-postgres/src/liveQuerySubscriptions.ts`
-- `packages/persistence-postgres/src/liveQueryConnections.ts`
+- `packages/persistence-postgres/src/database/schema.ts`
+- `packages/persistence-postgres/src/sync/liveQuerySubscriptions.ts`
+- `packages/persistence-postgres/src/sync/liveQueryConnections.ts`
 - `packages/persistence-postgres/drizzle/0016_volatile_kang.sql`
 - `packages/persistence-postgres/drizzle/meta/_journal.json`
 - `packages/persistence-postgres/drizzle/meta/0016_snapshot.json`
-- `packages/executor/src/types.ts`
-- `packages/executor/src/liveQueries.ts`
+- `packages/executor/src/invocation/types.ts`
+- `packages/executor/src/sync/liveQueries.ts`
 - `packages/executor-http/src/requestDecoders.ts`
 - `packages/flarex-protocol/src/auth.ts`
 - `packages/flarex-protocol/src/live-query.ts`

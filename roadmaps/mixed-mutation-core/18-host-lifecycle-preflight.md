@@ -39,7 +39,7 @@ explicit accepted-design and host decision.
 | [Exact mutation Worker source](../../packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerSource.ts) and [exact runtime](../../packages/flarex-backend/src/artifactRuntime/pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-execution-v1.ts) | Exact content-addressed source, one-invocation isolation and restricted attempt capability lifecycle |
 | [Artifact runtime Worker](../../apps/artifact-runtime/src/worker.ts) | Source/Worker loading and transport adaptation; no journal, database or commit authority |
 | [Executor Worker](../../apps/executor/src/worker.ts), [HTTP adapter](../../packages/executor-http/src) and [executor core](../../packages/executor/src) | Invocation-owned host resources around trusted root/retry/settlement; no host-owned second lifetime or outcome ledger |
-| [Attempt kernel](../../packages/persistence-postgres/src/transactionSessionAttemptKernel.ts) and [journal](../../packages/persistence-postgres/src/sessionJournalStore.ts) | Exact scope/fence/claim lifetime and retained recovery remain authoritative despite changed transport |
+| [Attempt kernel](../../packages/persistence-postgres/src/execution/transactionSessionAttemptKernel.ts) and [journal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts) | Exact scope/fence/claim lifetime and retained recovery remain authoritative despite changed transport |
 
 Native Product, selected Payload Local API and finite Medusa workflow callbacks
 keep their current owners and trust levels. Reusing source compilation or trusted

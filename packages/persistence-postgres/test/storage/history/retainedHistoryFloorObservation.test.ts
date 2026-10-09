@@ -1,0 +1,742 @@
+import { setTimeout as delay } from "node:timers/promises";
+
+import { Effect, Fiber, Result } from "effect";
+import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
+import {
+  ReplacementScopeIdV1Schema,
+  CommitSeqSchema,
+  decodeReplacementScopeIdV1,
+  type CommitSeq,
+} from "flarex-protocol/storage-authority";
+import { TransactionGrantDeploymentIdV1Schema } from
+  "flarex-protocol/transaction-grant";
+import { TransactionAuthorizationRevocationEpochSchema } from "flarex-protocol/transaction-session";
+import { beforeAll, describe, expect, it } from "vitest";
+
+import {
+  createPGliteLocatedPointMutationSessionActivationTargetV1,
+  createPGliteLocatedRetainedHistoryFloorTarget,
+  createPGlitePersistence,
+  createPGliteSharedScopeAuthorityProvisioner,
+  type PGliteFlarexPersistence,
+} from "../../../src/database/pglite";
+import {
+  MAX_RETAINED_FLOOR_COMMIT_ROWS,
+  createLocatedRetainedHistoryFloorTargetInternal,
+  createRetainedHistoryFloorObservationPort,
+  createRetainedHistoryFloorPinFacet,
+  createRetainedHistoryFloorPublicationPort,
+  createTestNoReconnectRetainedHistoryFloorPublicationPinFacet,
+  observeRetainedHistoryFloorCandidateEffect,
+  publishRetainedHistoryFloorEffect,
+} from "../../../src/storage/history/retainedHistoryFloorObservation";
+import type { LocatedScopeClockReader } from
+  "../../../src/scope/scopeAuthorityResolution";
+import type {
+  ScopePhysicalLocator,
+  SharedDatabaseScopePhysicalLocator,
+} from
+  "../../../src/scope/scopeMetadataTypes";
+import {
+  createPointMutationSessionActivationPersistenceV1,
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../../../src/execution/transactionSessionActivation";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+  type RunLocatedReadCommittedTransactionV1,
+} from
+  "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  activatePointMutationSession,
+  pointMutationSessionActivationFixture,
+  setFlarexActivationClock,
+} from "../../execution/transactionSessionActivationTestSupport";
+import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { lockScopeClockForUpdateInTransactionEffect, lockScopeClockForSnapshotReadInTransactionEffect,
+  openExactAttemptScopeClockObservation, closeExactAttemptScopeClockObservation } from "../../../src/scope/scopeClock";
+import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
+
+const sharedLocator = Object.freeze({
+  kind: "shared_database",
+  databaseKey: "retained-floor-observation-primary",
+  schemaName: "public",
+}) satisfies SharedDatabaseScopePhysicalLocator;
+
+const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
+  maximumGrantLifetimeMilliseconds: 1_000,
+  maximumFutureIssuedAtSkewMilliseconds: 0,
+  maximumLiveSnapshotRetentionMilliseconds: 10_000,
+}));
+
+describe("O11-B/C retained-history floor", () => {
+  let persistence: PGliteFlarexPersistence;
+  let uuidCounter = 1;
+
+  beforeAll(async () => {
+    persistence = await createPGlitePersistence();
+    await persistence.migrate();
+  });
+
+  function nextUuid(): string {
+    const suffix = uuidCounter.toString().padStart(12, "0");
+    uuidCounter += 1;
+    return `97000000-0000-4000-8000-${suffix}`;
+  }
+
+  async function provision(label: string) {
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+      `deployment_retained_floor_${label}`,
+    );
+    const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      { physicalLocator: sharedLocator, randomUuid: () => nextUuid() },
+    ).ensure({
+      deploymentId,
+      projectId: `project_retained_floor_${label}`,
+    });
+    const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
+    await setFlarexActivationClock(persistence, scopeId);
+    return { deploymentId, scopeId };
+  }
+
+  function authorityPorts(targetCopy = false) {
+    return {
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error("Shared scope must not read split receipts.");
+        },
+      },
+      scopeClockTargets: {
+        resolve: async (physicalLocator: ScopePhysicalLocator) => {
+          const target = createPGliteLocatedRetainedHistoryFloorTarget(
+            persistence,
+            physicalLocator,
+          );
+          return targetCopy ? { ...target } : target;
+        },
+      },
+    };
+  }
+
+  function observationPort(
+    pin = createRetainedHistoryFloorPinFacet("test", { kind: "absent" }),
+    targetCopy = false,
+  ) {
+    return createRetainedHistoryFloorObservationPort({
+      authority: authorityPorts(targetCopy),
+      grantRetentionPolicy: retentionPolicy,
+      pinFacets: [pin],
+    });
+  }
+
+  function publicationPort(
+    runReadCommitted?: RunLocatedReadCommittedTransactionV1,
+  ) {
+    return createRetainedHistoryFloorPublicationPort({
+      authority: runReadCommitted === undefined
+        ? authorityPorts()
+        : {
+            ...authorityPorts(),
+            scopeClockTargets: {
+              resolve: async (locator) =>
+                createLocatedRetainedHistoryFloorTargetInternal(
+                  persistence.drizzle,
+                  locator,
+                  runReadCommitted,
+                ),
+            },
+          },
+      grantRetentionPolicy: retentionPolicy,
+      pinFacets: [
+        createTestNoReconnectRetainedHistoryFloorPublicationPinFacet(),
+      ],
+    });
+  }
+
+  async function seedCommits(
+    scopeId: ReturnType<typeof ReplacementScopeIdV1Schema.make>,
+  ): Promise<void> {
+    await persistence.query(
+      `insert into fx_system_commit
+         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       select scope_uuid, epoch_uuid, values.commit_seq, 0,
+              clock_timestamp() - values.age
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
+            (values
+              (1::bigint, interval '30 seconds'),
+              (2::bigint, interval '20 seconds'),
+              (3::bigint, interval '1 second')
+            ) as values(commit_seq, age)
+       where scope_id = $1`,
+      [scopeId],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock set last_commit_seq = 3 where scope_id = $1`,
+      [scopeId],
+    );
+  }
+
+  it("takes the minimum of the time window and an authenticated pin", async () => {
+    const context = await provision("minimum");
+    await seedCommits(context.scopeId);
+    await persistence.query(
+      `update fx_system_commit
+       set epoch_uuid = '97000000-0000-4000-8000-888888888888'
+       where scope_uuid = (
+         select scope_uuid from fx_system_scope_clock where scope_id = $1
+       ) and commit_seq = 2`,
+      [context.scopeId],
+    );
+    const mutablePin: {
+      kind: "pinned";
+      minimumCommitSeq: CommitSeq;
+    } = {
+      kind: "pinned",
+      minimumCommitSeq: CommitSeqSchema.make(1n),
+    };
+    const pin = createRetainedHistoryFloorPinFacet("test", mutablePin);
+    mutablePin.minimumCommitSeq = CommitSeqSchema.make(3n);
+
+    await expect(runEffect(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(pin),
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      disposition: "advanceable",
+      currentFloor: 0n,
+      lastCommitSeq: 3n,
+      candidateFloor: 1n,
+      leaseCeiling: 3n,
+      timeWindowCeiling: 2n,
+      additionalPinCeiling: 1n,
+      holdReasons: [],
+    });
+  });
+
+  it("keeps a live lease pinned and releases it after database-time expiry", async () => {
+    const context = await provision("lease");
+    await persistence.query(
+      `insert into fx_system_commit
+         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       select scope_uuid, epoch_uuid, 1, 0, clock_timestamp() - interval '30 seconds'
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
+      [context.scopeId],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1`,
+      [context.scopeId],
+    );
+    const activation = createPointMutationSessionActivationPersistenceV1({
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error("Shared scope must not read split receipts.");
+        },
+      },
+      scopeSessionTargets: {
+        resolve: async (physicalLocator): Promise<LocatedScopeClockReader> =>
+          createPGliteLocatedPointMutationSessionActivationTargetV1(
+            persistence,
+            physicalLocator,
+          ),
+      },
+    }, {
+      leaseDurationMilliseconds: 60_000,
+      randomUuid: () => nextUuid(),
+    });
+    const activated = await activatePointMutationSession(
+      activation,
+      pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ),
+    );
+    await persistence.query(
+      `insert into fx_system_commit
+         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       select scope_uuid, epoch_uuid, values.commit_seq, 0,
+              clock_timestamp() - values.age
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
+            (values
+              (2::bigint, interval '20 seconds'),
+              (3::bigint, interval '1 second')
+            ) as values(commit_seq, age)
+       where scope_id = $1`,
+      [context.scopeId],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock set last_commit_seq = 3 where scope_id = $1`,
+      [context.scopeId],
+    );
+
+    await expect(runEffect(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(),
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      candidateFloor: 1n,
+      leaseCeiling: 1n,
+      timeWindowCeiling: 2n,
+    });
+
+    await persistence.query(
+      `update fx_system_snapshot_lease
+       set snapshot_epoch_uuid = '97000000-0000-4000-8000-999999999999'
+       where session_id = $1`,
+      [activated.anchor.sessionId],
+    );
+    await expect(runEffect(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(),
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      disposition: "held",
+      candidateFloor: 0n,
+      holdReasons: ["liveLeaseAuthorityUnavailable"],
+    });
+
+    await persistence.query(
+      `update fx_system_snapshot_lease
+       set lease_expires_at = '2000-01-01T00:00:00.000Z',
+           snapshot_epoch_uuid = '97000000-0000-4000-8000-999999999999',
+           snapshot_commit_seq = 999
+       where session_id = $1`,
+      [activated.anchor.sessionId],
+    );
+    await expect(runEffect(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(),
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      candidateFloor: 2n,
+      leaseCeiling: 3n,
+      timeWindowCeiling: 2n,
+    });
+  });
+
+  it("advances past an expired lease backlog while bounding live pins", async () => {
+    const context = await provision("lease_backlog");
+    await seedRetainedFloorLeaseCommit(persistence.drizzle, context.scopeId);
+    const activation = createPointMutationSessionActivationPersistenceV1({
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => { throw new Error("Shared scope must not read split receipts."); },
+      },
+      scopeSessionTargets: {
+        resolve: async locator => createPGliteLocatedPointMutationSessionActivationTargetV1(persistence, locator),
+      },
+    }, { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid });
+    const activated = await activatePointMutationSession(activation,
+      pointMutationSessionActivationFixture(context.deploymentId, context.scopeId));
+    await retainedHistoryFloorLeaseScenario({
+      database: persistence.drizzle,
+      sessionId: activated.anchor.sessionId,
+      deploymentId: context.deploymentId,
+      observation: observationPort(),
+      publication: publicationPort(),
+    });
+  }, 120_000);
+
+  it("holds for unavailable pins and rejects copied ports or targets", async () => {
+    const context = await provision("composition");
+    await seedCommits(context.scopeId);
+    const unavailable = createRetainedHistoryFloorPinFacet("reconnect", {
+      kind: "unavailable",
+    });
+    await expect(runEffect(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(unavailable),
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      disposition: "held",
+      candidateFloor: 0n,
+      holdReasons: ["requiredPinUnavailable"],
+    });
+
+    const port = observationPort();
+    await expect(runEffectFailure(observeRetainedHistoryFloorCandidateEffect(
+      { ...port },
+      context.deploymentId,
+    ))).resolves.toMatchObject({ reason: "invalidPort" });
+    await expect(runEffectFailure(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(undefined, true),
+      context.deploymentId,
+    ))).resolves.toMatchObject({ reason: "invalidTarget" });
+    const missingPinPort = createRetainedHistoryFloorObservationPort({
+      authority: authorityPorts(),
+      grantRetentionPolicy: retentionPolicy,
+      pinFacets: [],
+    });
+    await expect(runEffectFailure(observeRetainedHistoryFloorCandidateEffect(
+      missingPinPort,
+      context.deploymentId,
+    ))).resolves.toMatchObject({ reason: "invalidPort" });
+    const authenticPin = createRetainedHistoryFloorPinFacet("test", {
+      kind: "absent",
+    });
+    const copiedPinPort = createRetainedHistoryFloorObservationPort({
+      authority: authorityPorts(),
+      grantRetentionPolicy: retentionPolicy,
+      pinFacets: [{ ...authenticPin }],
+    });
+    await expect(runEffectFailure(observeRetainedHistoryFloorCandidateEffect(
+      copiedPinPort,
+      context.deploymentId,
+    ))).resolves.toMatchObject({ reason: "invalidPort" });
+  });
+
+  it("holds instead of scanning beyond the bounded commit directory", async () => {
+    const context = await provision("commit_limit");
+    const count = MAX_RETAINED_FLOOR_COMMIT_ROWS + 1;
+    await persistence.query(
+      `insert into fx_system_commit
+         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       select scope_uuid, epoch_uuid, series.commit_seq, 0,
+              clock_timestamp() - interval '1 second'
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
+            generate_series(1, $2::bigint) as series(commit_seq)
+       where scope_id = $1`,
+      [context.scopeId, count],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock set last_commit_seq = $2 where scope_id = $1`,
+      [context.scopeId, count],
+    );
+
+    await expect(runEffect(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(),
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      disposition: "held",
+      candidateFloor: 0n,
+      holdReasons: ["commitDirectoryLimit"],
+    });
+  });
+
+  it("rejects a commit timestamp later than authoritative database time", async () => {
+    const context = await provision("future_commit");
+    await persistence.query(
+      `insert into fx_system_commit
+         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       select scope_uuid, epoch_uuid, 1, 0,
+              clock_timestamp() + interval '1 minute'
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
+      [context.scopeId],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1`,
+      [context.scopeId],
+    );
+
+    await expect(runEffectFailure(observeRetainedHistoryFloorCandidateEffect(
+      observationPort(),
+      context.deploymentId,
+    ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
+  });
+
+  it("publishes the exact candidate monotonically and replays as a hold", async () => {
+    const context = await provision("publication");
+    await seedCommits(context.scopeId);
+    const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle);
+    let observedFloor: bigint | undefined;
+    const port = publicationPort(work => runner(async tx => {
+      const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, context.scopeId));
+      openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
+      try {
+        const result = await work(tx);
+        observedFloor = (await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, context.scopeId))).oldestAvailableCommitSeq;
+        return result;
+      } finally { closeExactAttemptScopeClockObservation(tx); }
+    }));
+
+    await expect(runEffect(publishRetainedHistoryFloorEffect(
+      port,
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      status: "published",
+      disposition: "advanced",
+      previousFloor: 0n,
+      currentFloor: 2n,
+      candidateFloor: 2n,
+      leaseCeiling: 3n,
+      timeWindowCeiling: 2n,
+      additionalPinCeiling: 3n,
+      holdReasons: [],
+    });
+    await expect(readFloor(context.scopeId)).resolves.toBe(2n);
+    expect(observedFloor).toBe(2n);
+
+    await expect(runEffect(publishRetainedHistoryFloorEffect(
+      port,
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      disposition: "held",
+      previousFloor: 2n,
+      currentFloor: 2n,
+      candidateFloor: 2n,
+    });
+    await expect(readFloor(context.scopeId)).resolves.toBe(2n);
+
+    await expect(runEffectFailure(publishRetainedHistoryFloorEffect(
+      { ...port },
+      context.deploymentId,
+    ))).resolves.toMatchObject({ reason: "invalidPort" });
+    const authenticPin =
+      createTestNoReconnectRetainedHistoryFloorPublicationPinFacet();
+    const copiedPinPort = createRetainedHistoryFloorPublicationPort({
+      authority: authorityPorts(),
+      grantRetentionPolicy: retentionPolicy,
+      pinFacets: [{ ...authenticPin }],
+    });
+    await expect(runEffectFailure(publishRetainedHistoryFloorEffect(
+      copiedPinPort,
+      context.deploymentId,
+    ))).resolves.toMatchObject({ reason: "invalidPort" });
+  });
+
+  it("re-reads a live snapshot lease before publishing", async () => {
+    const context = await provision("publication_live_lease");
+    await persistence.query(
+      `insert into fx_system_commit
+         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       select scope_uuid, epoch_uuid, 1, 0,
+              clock_timestamp() - interval '30 seconds'
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id) where scope_id = $1`,
+      [context.scopeId],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1`,
+      [context.scopeId],
+    );
+    const activation = createPointMutationSessionActivationPersistenceV1({
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error("Shared scope must not read split receipts.");
+        },
+      },
+      scopeSessionTargets: {
+        resolve: async (locator): Promise<LocatedScopeClockReader> =>
+          createPGliteLocatedPointMutationSessionActivationTargetV1(
+            persistence,
+            locator,
+          ),
+      },
+    }, {
+      leaseDurationMilliseconds: 60_000,
+      randomUuid: () => nextUuid(),
+    });
+    await activatePointMutationSession(
+      activation,
+      pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ),
+    );
+    await persistence.query(
+      `insert into fx_system_commit
+         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       select scope_uuid, epoch_uuid, values.commit_seq, 0,
+              clock_timestamp() - values.age
+       from fx_system_scope_clock join fx_system_scope_execution_authority using (scope_id),
+            (values
+              (2::bigint, interval '20 seconds'),
+              (3::bigint, interval '1 second')
+            ) as values(commit_seq, age)
+       where scope_id = $1`,
+      [context.scopeId],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock set last_commit_seq = 3 where scope_id = $1`,
+      [context.scopeId],
+    );
+
+    await expect(runEffect(publishRetainedHistoryFloorEffect(
+      publicationPort(),
+      context.deploymentId,
+    ))).resolves.toMatchObject({
+      disposition: "advanced",
+      previousFloor: 0n,
+      currentFloor: 1n,
+      candidateFloor: 1n,
+      leaseCeiling: 1n,
+      timeWindowCeiling: 2n,
+    });
+    await expect(readFloor(context.scopeId)).resolves.toBe(1n);
+  });
+
+  it("rolls back a post-publication defect and settles caller interruption", async () => {
+    const rollback = await provision("publication_rollback");
+    await seedCommits(rollback.scopeId);
+    const rollbackRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(
+      persistence.drizzle,
+    );
+    await expect(runEffectFailure(publishRetainedHistoryFloorEffect(
+      publicationPort(async work => rollbackRunner(async tx => {
+        await work(tx);
+        throw new Error("post-publication rollback");
+      })),
+      rollback.deploymentId,
+    ))).resolves.toMatchObject({ issue: { kind: "callbackRolledBack" } });
+    await expect(readFloor(rollback.scopeId)).resolves.toBe(0n);
+
+    const interrupted = await provision("publication_interruption");
+    await seedCommits(interrupted.scopeId);
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const interruptionRunner =
+      createDefaultLocatedReadCommittedTransactionRunnerV1(
+        persistence.drizzle,
+      );
+    const fiber = Effect.runFork(publishRetainedHistoryFloorEffect(
+      publicationPort(async work => interruptionRunner(async tx => {
+        const value = await work(tx);
+        entered.resolve();
+        await release.promise;
+        return value;
+      })),
+      interrupted.deploymentId,
+    ));
+    await entered.promise;
+    let settled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      settled = true;
+      return exit;
+    });
+    try {
+      await delay(25);
+      expect(settled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(settled).toBe(true);
+    await expect(readFloor(interrupted.scopeId)).resolves.toBe(2n);
+  });
+
+  it("rejects stale authority and recovers a committed uncertain decision", async () => {
+    const stale = await provision("publication_stale");
+    await seedCommits(stale.scopeId);
+    let rotateBeforeTransaction = true;
+    const stalePort = createRetainedHistoryFloorPublicationPort({
+      authority: {
+        ...authorityPorts(),
+        scopeClockTargets: {
+          resolve: async (locator) => {
+            const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+              persistence.drizzle,
+            );
+            return createLocatedRetainedHistoryFloorTargetInternal(
+              persistence.drizzle,
+              locator,
+              async work => {
+                if (rotateBeforeTransaction) {
+                  rotateBeforeTransaction = false;
+                  await persistence.query(
+                    `update fx_system_scope_execution_authority
+                     set epoch = $2 where scope_id = $1`,
+                    [
+                      stale.scopeId,
+                      "epoch_97000000-0000-4000-8000-777777777777",
+                    ],
+                  );
+                }
+                return base(work);
+              },
+            );
+          },
+        },
+      },
+      grantRetentionPolicy: retentionPolicy,
+      pinFacets: [
+        createTestNoReconnectRetainedHistoryFloorPublicationPinFacet(),
+      ],
+    });
+    await expect(runEffectFailure(publishRetainedHistoryFloorEffect(
+      stalePort,
+      stale.deploymentId,
+    ))).resolves.toMatchObject({ reason: "staleAuthority" });
+    await expect(readFloor(stale.scopeId)).resolves.toBe(0n);
+
+    const uncertain = await provision("publication_uncertain");
+    await seedCommits(uncertain.scopeId);
+    let reportUncertain = true;
+    const uncertainPort = createRetainedHistoryFloorPublicationPort({
+      authority: {
+        ...authorityPorts(),
+        scopeClockTargets: {
+          resolve: async (locator) => {
+            const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+              persistence.drizzle,
+            );
+            return createLocatedRetainedHistoryFloorTargetInternal(
+              persistence.drizzle,
+              locator,
+              async work => {
+                const value = await base(work);
+                if (reportUncertain) {
+                  reportUncertain = false;
+                  throw new LocatedReadCommittedTransactionFailureV1(
+                    Object.freeze({
+                      kind: "decisionUncertain" as const,
+                      settlementCause: new Error("lost commit response"),
+                    }),
+                  );
+                }
+                return value;
+              },
+            );
+          },
+        },
+      },
+      grantRetentionPolicy: retentionPolicy,
+      pinFacets: [
+        createTestNoReconnectRetainedHistoryFloorPublicationPinFacet(),
+      ],
+    });
+    await expect(runEffectFailure(publishRetainedHistoryFloorEffect(
+      uncertainPort,
+      uncertain.deploymentId,
+    ))).resolves.toMatchObject({ issue: { kind: "decisionUncertain" } });
+    await expect(readFloor(uncertain.scopeId)).resolves.toBe(2n);
+    await expect(runEffect(publishRetainedHistoryFloorEffect(
+      uncertainPort,
+      uncertain.deploymentId,
+    ))).resolves.toMatchObject({
+      disposition: "held",
+      previousFloor: 2n,
+      currentFloor: 2n,
+      candidateFloor: 2n,
+    });
+  });
+
+  async function readFloor(
+    scopeId: ReturnType<typeof ReplacementScopeIdV1Schema.make>,
+  ): Promise<bigint> {
+    const result = await persistence.query<{
+      oldest_available_commit_seq: string;
+    }>(
+      `select oldest_available_commit_seq::text
+       from fx_system_scope_execution_authority where scope_id = $1`,
+      [scopeId],
+    );
+    const value = result.rows[0]?.oldest_available_commit_seq;
+    if (value === undefined) throw new Error("Scope clock is missing.");
+    return BigInt(value);
+  }
+});
+
+function deferred<Value>(): {
+  readonly promise: Promise<Value>;
+  readonly resolve: (value: Value) => void;
+} {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: (value) => {
+      if (resolvePromise === undefined) throw new Error("Deferred not ready.");
+      resolvePromise(value);
+    },
+  };
+}

@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { captureHistoricalRead } from "./historicalCapture";
-import { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/finiteStorageCapture";
+import { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/execution/finiteStorageCapture";
 
 vi.mock("../support/historicalCaptureFixture", () => ({ createHistoricalCaptureFixture: vi.fn() }));
 

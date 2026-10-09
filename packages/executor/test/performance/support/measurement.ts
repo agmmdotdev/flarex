@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { captureExecutionDiagnosticContext } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import type { PhysicalSessionObservation } from "../../../../persistence-postgres/src/physicalSession/observation";
-import type { MixedMutationPerformanceTrace, TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import type { PhysicalSessionObservation } from "../../../../persistence-postgres/src/database/physicalSession/observation";
+import type { MixedMutationPerformanceTrace, TraceInvocationRecord } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 
 /** Test composition capability. It decorates existing runtimes, without owning
  * business services, clocks, resources or settlement. Quiet callers omit it. */

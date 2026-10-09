@@ -3,10 +3,10 @@ import { Effect } from "effect";
 import { createHash } from "node:crypto";
 import { isJsonObject, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
-  "../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { seedNativeProductAttemptGraph } from "./support/native-product-attempt-seed";

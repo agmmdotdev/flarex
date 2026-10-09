@@ -32,7 +32,7 @@ const standardApplicationTaskRunListQueryPath =
 const standardApplicationTaskReadQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskReadQuery.ts";
 const persistencePostgresApplicationTaskReadStorePath =
-  "packages/persistence-postgres/src/applicationTaskAttemptHistoryStore.ts";
+  "packages/persistence-postgres/src/application/tasks/applicationTaskAttemptHistoryStore.ts";
 const standardApplicationTaskResultQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskResultQuery.ts";
 const standardApplicationTaskCancellationPath =
@@ -91,67 +91,67 @@ const flarexBackendImmutableR2SourcePrefix =
 const flarexBackendDeclarativeV2RuntimeArtifactStorePath =
   "packages/flarex-backend/src/artifactRuntime/DeclarativeV2RuntimeArtifactStore.ts";
 const persistencePostgresSchemaPath =
-  "packages/persistence-postgres/src/schema.ts";
+  "packages/persistence-postgres/src/database/schema.ts";
 const persistencePostgresTaskRunAttemptStorePath =
-  "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts";
 const persistencePostgresTaskAttemptLifecycleGatewayPath =
-  "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts";
+  "packages/persistence-postgres/src/tasks/taskAttemptLifecycleGateway.ts";
 const persistencePostgresTaskExternalEffectAuthorityPath =
-  "packages/persistence-postgres/src/taskExternalEffectAuthority.ts";
+  "packages/persistence-postgres/src/tasks/taskExternalEffectAuthority.ts";
 const persistencePostgresPostgresTaskExternalEffectAuthorityPath =
-  "packages/persistence-postgres/src/postgresTaskExternalEffectAuthority.ts";
+  "packages/persistence-postgres/src/tasks/postgresTaskExternalEffectAuthority.ts";
 const persistencePostgresTaskLifecycleLedgerCorrelationPath =
-  "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemLifecycleLedgerCorrelationV1.ts";
 const persistencePostgresTaskRunCreationPath =
-  "packages/persistence-postgres/src/taskSystemRunCreationV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunCreationV1.ts";
 const persistencePostgresApplicationTaskRunCreationPath =
-  "packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts";
+  "packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts";
 const persistencePostgresApplicationTaskRunListStorePath =
-  "packages/persistence-postgres/src/applicationTaskRunListStore.ts";
+  "packages/persistence-postgres/src/application/tasks/applicationTaskRunListStore.ts";
 const persistencePostgresTaskSystemRunRowPath =
-  "packages/persistence-postgres/src/taskSystemRunRowV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunRowV1.ts";
 const persistencePostgresTaskSystemRequestedEffectRowPath =
-  "packages/persistence-postgres/src/taskSystemRequestedEffectRowV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRequestedEffectRowV1.ts";
 const persistencePostgresTaskSystemRunReadPath =
-  "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts";
 const persistencePostgresTaskComputeDeliveryEvidencePath =
-  "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryEvidenceV1.ts";
 const persistencePostgresTaskComputeDeliveryRepositoryPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts";
 const persistencePostgresTaskComputeDeliveryDiscoveryPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryDiscovery.ts";
 const persistencePostgresTaskComputeDeliveryControlDirectoryPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectory.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryControlDirectory.ts";
 const persistencePostgresTaskComputeDeliveryControlDirectoryTargetPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectoryTarget.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryControlDirectoryTarget.ts";
 const persistencePostgresTaskComputeDeliveryControlDirectoryTargetSystemTestPath =
-  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectoryTargetSystemTest.ts";
+  "packages/persistence-postgres/src/tasks/taskComputeDeliveryControlDirectoryTargetSystemTest.ts";
 const persistencePostgresPostgresTaskComputeDeliveryControlDirectoryPath =
-  "packages/persistence-postgres/src/postgresTaskComputeDeliveryControlDirectory.ts";
+  "packages/persistence-postgres/src/tasks/postgresTaskComputeDeliveryControlDirectory.ts";
 const persistencePostgresPGlitePath =
-  "packages/persistence-postgres/src/pglite.ts";
+  "packages/persistence-postgres/src/database/pglite.ts";
 const persistencePostgresPhysicalDefinitionRetirementPinsPath =
-  "packages/persistence-postgres/src/physicalDefinitionRetirementPins.ts";
+  "packages/persistence-postgres/src/installation/physicalDefinitionRetirementPins.ts";
 const flarexBackendTaskComputeDeliveryTrustedDirectoryPath =
   "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerDirectoryV1.ts";
 const persistencePostgresTaskWakeSchedulerRepairDirectoryPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerRepairDirectoryV1.ts";
 const persistencePostgresTaskWakeSchedulerResolverPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerResolverV1.ts";
 const persistencePostgresTaskWakeSchedulerCompositionPath =
-  "packages/persistence-postgres/src/taskSystemWakeSchedulerCompositionV1.ts";
+  "packages/persistence-postgres/src/tasks/taskSystemWakeSchedulerCompositionV1.ts";
 const executorTaskQueueWakePath =
-  "packages/executor/src/taskQueueWakeV1.ts";
+  "packages/executor/src/tasks/taskQueueWakeV1.ts";
 const executorTaskRepairSweepPath =
-  "packages/executor/src/taskRepairSweepV1.ts";
+  "packages/executor/src/tasks/taskRepairSweepV1.ts";
 const executorTaskRepairSweepContinuationCodecPath =
-  "packages/executor/src/taskRepairSweepContinuationCodecV1.ts";
+  "packages/executor/src/tasks/taskRepairSweepContinuationCodecV1.ts";
 const executorTaskRepairSchedulerRunPath =
-  "packages/executor/src/taskRepairSchedulerRunV1.ts";
+  "packages/executor/src/tasks/taskRepairSchedulerRunV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =

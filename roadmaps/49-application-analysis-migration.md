@@ -34,10 +34,10 @@ inventory, accepted contract cut, migration sequence, and exit criteria.
 - [`../packages/standard-application-analysis/src/v1.ts`](../packages/standard-application-analysis/src/v1.ts)
   exposes the current historical static-verifier result. It must not be
   reinterpreted as the replacement result.
-- [`../packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts`](../packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts),
-  [`../packages/persistence-postgres/src/applicationRevisionReadinessV1.ts`](../packages/persistence-postgres/src/applicationRevisionReadinessV1.ts),
+- [`../packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts`](../packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts),
+  [`../packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts`](../packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts),
   and
-  [`../packages/persistence-postgres/src/applicationRevisionActivationV1.ts`](../packages/persistence-postgres/src/applicationRevisionActivationV1.ts)
+  [`../packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts`](../packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts)
   own the current persisted registration, readiness, and activation contracts.
 - [`43-first-flarexdb-system-api-vertical.md`](./43-first-flarexdb-system-api-vertical.md)
   and roadmaps 44 through 48 own the private runtime consumers that must be
@@ -410,7 +410,7 @@ is:
 - 24 focused analyzer tests and 10 finalized-source-reader tests passing;
 - `flarex-backend` typecheck and the workspace Effect-boundary check passing;
   analyzer-app typecheck blocked only by the separately owned concurrent error
-  at `packages/persistence-postgres/src/appRows.ts:434`;
+  at `packages/persistence-postgres/src/storage/documents/appRows.ts:434`;
 - the complete analyzer suite at 61 of 62 tests, with the unchanged legacy
   Declarative V2 long-path nested-cause assertion failing; and
 - both required final staged-diff reviewers approving with no findings.
@@ -543,7 +543,7 @@ The final proof receipt is:
   `9fd549d245a42ef119e0dbf7c56c11449a9f5faed86323fd45fed5458d2c92c2`;
 - the workspace Effect-boundary check passes; analyzer typecheck still reaches
   only the separately owned concurrent error at
-  `packages/persistence-postgres/src/appRows.ts:434`; and
+  `packages/persistence-postgres/src/storage/documents/appRows.ts:434`; and
 - the complete analyzer suite is 62 of 63 tests, with the unchanged legacy
   Declarative V2 long-path nested-cause assertion failing. Both required final
   reviewers approved the exact corrected five-file diff after the Miniflare
@@ -793,7 +793,7 @@ check, and two clean reproductions of private analyzer identity
 The broad analysis test command did not finish within the five-minute validation
 ceiling and reported no assertion failure; the directly affected owner test and
 typecheck passed. Analyzer package typecheck remains blocked only by the
-pre-existing untouched `packages/persistence-postgres/src/appRows.ts:434`
+pre-existing untouched `packages/persistence-postgres/src/storage/documents/appRows.ts:434`
 `noUncheckedIndexedAccess` error.
 
 This checkpoint is still private and inactive. Its database evidence is PGlite

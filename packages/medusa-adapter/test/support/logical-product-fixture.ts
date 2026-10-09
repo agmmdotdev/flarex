@@ -1,12 +1,12 @@
 import { Effect } from "effect";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { capturePrivateCanonicalValue } from "../../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { makeLocalProductCommands } from "../../src/product-service";
-import type { LogicalCommerceHostInput } from "../../../persistence-postgres/src/commerceTransaction/host";
-import type { CommerceReadHostInput } from "../../../persistence-postgres/src/commerceTransaction/read/configuration";
-import { getCommerceCommand, type CommerceHost } from "../../../persistence-postgres/src/commerceTransaction/commands";
+import type { LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import type { CommerceReadHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/read/configuration";
+import { getCommerceCommand, type CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { captureLogicalCommerceSelection, prepareLogicalCommerceContract } from
-  "../../../persistence-postgres/src/commerceTransaction/logicalSelection";
+  "../../../persistence-postgres/src/frameworks/commerceTransaction/logicalSelection";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
 interface LogicalProductHostFixture {

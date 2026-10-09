@@ -1,4 +1,4 @@
-import type { TraceFingerprintOwner, TraceInvocationRecord } from "../../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import type { TraceFingerprintOwner, TraceInvocationRecord } from "../../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import type { MeasurementEvent, MeasurementObserver } from "../artifact";
 
 /** Translate the existing driver observer once, after settlement. No database

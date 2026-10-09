@@ -10,7 +10,7 @@ import { decodeProductQuery } from "../src/product-query-profile";
 import { findProductRelated } from "../src/product-related";
 import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/commerce-relations";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { prepareProductReadInput, productReadFilters } from "../src/product-service-input";
 
 

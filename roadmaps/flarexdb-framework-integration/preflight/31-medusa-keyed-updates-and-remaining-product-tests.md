@@ -32,9 +32,9 @@ relationship replacement, cascade deletion or increased row limits.
 ## Pre-implementation Source Evidence
 
 The shared
-[`profile issuer`](../../../packages/persistence-postgres/src/commerceTransaction/profile.ts)
+[`profile issuer`](../../../packages/persistence-postgres/src/frameworks/commerceTransaction/profile.ts)
 currently registers every local Product table as `readInsert`. The
-[`store`](../../../packages/persistence-postgres/src/commerceTransaction/store.ts)
+[`store`](../../../packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts)
 explicitly refuses update/upsert for that mode and permits delete only under
 the existing scalar profile. The scalar issuer admits a single restricted
 table without business relationships; registering the Product layout as scalar

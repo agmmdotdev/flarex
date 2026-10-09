@@ -3,25 +3,25 @@ import { Cause, Data, Deferred, Duration, Effect, Exit, Result, Scope } from "ef
 import { inspectVerifiedApplicationMutationGrantV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { describe, expect, it, vi } from "vitest";
-import { createPostgresPersistence, createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../persistence-postgres/src/postgres";
-import { createFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { createApplicationNativeMutationPostgresFixture } from "../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
-import { applicationMutationActivationEvidenceFixture } from "../../persistence-postgres/test/applicationMutationActivationFixture";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../persistence-postgres/test/transactionSessionActivationTestSupport";
-import { preparedHostTestRuntime } from "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
-import { retainPreparedHost } from "../../persistence-postgres/src/preparedHostRuntime";
-import { prepareProtectedMetadata } from "../../persistence-postgres/src/preparedMetadataEpoch";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../persistence-postgres/src/transactionSessionAttemptKernel";
-import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from "../../persistence-postgres/src/applicationMutationAdmission";
-import { createSessionJournalStorePersistence } from "../../persistence-postgres/src/sessionJournalStore";
-import { createApplicationMutationSessionActivationPersistenceV1, PointMutationSessionActivationV1Error } from "../../persistence-postgres/src/transactionSessionActivation";
-import { getFiniteAttemptMetadataProjection } from "../../persistence-postgres/src/logicalDocuments/sourceAdmission";
-import { FiniteMetadataError, prepareFiniteMetadataEntryComparison, type FiniteMetadataComparisonExpected } from "../../persistence-postgres/src/finiteMetadataDependencies";
-import { preparedFiniteEntries } from "../../persistence-postgres/src/sessionJournalFiniteEntry";
+import { createPostgresPersistence, createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../persistence-postgres/src/database/postgres";
+import { createFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import { createApplicationNativeMutationPostgresFixture } from "../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
+import { applicationMutationActivationEvidenceFixture } from "../../persistence-postgres/test/application/applicationMutationActivationFixture";
+import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
+import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
+import { retainPreparedHost } from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
+import { prepareProtectedMetadata } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import { isLocatedReadCommittedAttemptTargetV1 } from "../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
+import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from "../../persistence-postgres/src/application/applicationMutationAdmission";
+import { createSessionJournalStorePersistence } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import { createApplicationMutationSessionActivationPersistenceV1, PointMutationSessionActivationV1Error } from "../../persistence-postgres/src/execution/transactionSessionActivation";
+import { getFiniteAttemptMetadataProjection } from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
+import { FiniteMetadataError, prepareFiniteMetadataEntryComparison, type FiniteMetadataComparisonExpected } from "../../persistence-postgres/src/execution/finiteMetadataDependencies";
+import { preparedFiniteEntries } from "../../persistence-postgres/src/execution/sessionJournalFiniteEntry";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemMetadataContractObservations, fxSystemPreparedMetadataEpoch,
   fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims, fxSystemTransactionJournals,
-  fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+  fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture, type MixedMutationFinalEntryTestContext } from "./support/mixedMutationWorkerdFixture";
 
 type EntryState = NonNullable<ReturnType<typeof preparedFiniteEntries.get>>;

@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Deferred, Effect, Result } from "effect";
-import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { logicalCommerceBatchResources } from "../../persistence-postgres/src/commerceTransaction/resources";
+import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { logicalCommerceBatchResources } from "../../persistence-postgres/src/frameworks/commerceTransaction/resources";
 import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { sumLogicalRows } from "../../persistence-postgres/src/logicalDocuments/aggregate";
+import { sumLogicalRows } from "../../persistence-postgres/src/storage/documents/logicalDocuments/aggregate";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { currencyCommands } from "../src/currency-service";
 

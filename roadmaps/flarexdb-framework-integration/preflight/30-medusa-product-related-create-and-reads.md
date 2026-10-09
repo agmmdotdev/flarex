@@ -161,7 +161,7 @@ joins or unrestricted Medusa filtering.
 ### Shared core and local events
 
 The current shared
-[`commerce store`](../../../packages/persistence-postgres/src/commerceTransaction/store.ts)
+[`commerce store`](../../../packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts)
 already supplies scoped multi-table read/insert and declared-key facts. No
 shared-owner defect has been demonstrated by this preflight. The expected work
 is adapter metadata, repositories, command admission, relation queries, local

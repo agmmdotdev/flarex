@@ -747,12 +747,12 @@ DTE02-D is complete with these conclusions:
 
 This decision is grounded in:
 
-- `packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts`;
-- `packages/persistence-postgres/src/candidateRuntimeProjectionV1.ts`;
-- `packages/persistence-postgres/src/candidateRuntimePublicationRepositoryV1.ts`;
-- `packages/persistence-postgres/src/applicationRevisionReadinessV1.ts`;
-- `packages/persistence-postgres/src/applicationRevisionActivationV1.ts`;
-- `packages/persistence-postgres/src/applicationRevisionActiveSelectionStateV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts`;
+- `packages/persistence-postgres/src/application/candidateRuntimeProjectionV1.ts`;
+- `packages/persistence-postgres/src/application/candidateRuntimePublicationRepositoryV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts`;
+- `packages/persistence-postgres/src/application/revision/applicationRevisionActiveSelectionStateV1.ts`;
 - current mutation/query application-revision runtime-target adapters;
 - current candidate-bound runtime-target protocol and backend loaders;
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md);

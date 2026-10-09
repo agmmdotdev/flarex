@@ -106,9 +106,9 @@ write authority.
 All declarations and operations remain source-private under:
 
 ```text
-packages/persistence-postgres/src/migrationCoordination/
-packages/persistence-postgres/src/frameworkSchema/installation/
-packages/persistence-postgres/src/relationalSchema/physical/
+packages/persistence-postgres/src/installation/migrationCoordination/
+packages/persistence-postgres/src/installation/frameworkSchema/installation/
+packages/persistence-postgres/src/storage/relationalSchema/physical/
 ```
 
 The Drizzle declarations are re-exported only from `src/drizzleSchema.ts` for

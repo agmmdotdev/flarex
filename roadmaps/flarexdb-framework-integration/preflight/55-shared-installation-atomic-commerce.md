@@ -34,7 +34,7 @@ subsequent key/lifecycle/publication contract. Do not build a new workflow engin
 
 ## Resolved Core Limitation And Retained Witness
 
-Before B1, `packages/persistence-postgres/src/atomicCommerce/participants.ts` rejected any
+Before B1, `packages/persistence-postgres/src/frameworks/atomicCommerce/participants.ts` rejected any
 second participant with the same `installationSha256`, before authenticating its
 profile. Distinct Product and Sales Channel tokens with disjoint, bound profiles
 on the completed fourteen-table candidate therefore could not compose atomically.

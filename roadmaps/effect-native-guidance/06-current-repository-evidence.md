@@ -47,7 +47,7 @@ every throw, Promise, switch, or nullable value mechanically.
 
 ### Executor
 
-[`../../packages/executor/src/pointMutationJournal.ts`](../../packages/executor/src/pointMutationJournal.ts)
+[`../../packages/executor/src/mutation/journal/pointMutationJournal.ts`](../../packages/executor/src/mutation/journal/pointMutationJournal.ts)
 already has several good choices: named `Effect.fn` operations, a generator for
 the multi-step seal flow, typed errors, semaphore-based serialization, and narrow
 `tryPromise` calls around the current persistence port.
@@ -63,7 +63,7 @@ Its transitional debt is equally instructive:
 - `Semaphore.makeUnsafe` is used even though construction already happens in
   an Effect operation.
 
-[`../../packages/executor/src/pointMutationSessionActivation.ts`](../../packages/executor/src/pointMutationSessionActivation.ts)
+[`../../packages/executor/src/mutation/session/pointMutationSessionActivation.ts`](../../packages/executor/src/mutation/session/pointMutationSessionActivation.ts)
 shows the directly connected older style: Promise-returning services and plain
 `Error` subclasses. The mismatch explains why the new journal needs an adapter;
 it should not become precedent for another Effect-native operation.
@@ -74,7 +74,7 @@ an evidence gap, not proof that a Layer is currently required.
 
 ### Postgres Persistence
 
-[`../../packages/persistence-postgres/src/sessionJournalStore.ts`](../../packages/persistence-postgres/src/sessionJournalStore.ts)
+[`../../packages/persistence-postgres/src/execution/sessionJournalStore.ts`](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
 defines a Promise/throw `SessionJournalStorePersistenceV1` port even though its
 errors use `Data.TaggedError`. Expected capability and input errors, driver
 rejections, trusted corruption, and internal invariant throws all travel
@@ -86,7 +86,7 @@ in selected planners. Some raw `Error` throws correctly represent impossible
 trusted invariants, but broad Promise catches can accidentally normalize those
 defects unless the new Effect boundary classifies them deliberately.
 
-[`../../packages/persistence-postgres/src/postgres.ts`](../../packages/persistence-postgres/src/postgres.ts)
+[`../../packages/persistence-postgres/src/database/postgres.ts`](../../packages/persistence-postgres/src/database/postgres.ts)
 also demonstrates behavior that must survive a port: connection acquisition,
 transaction ownership, rollback-error capture, and release in `finally`.
 Effect adoption must strengthen typed composition without weakening this

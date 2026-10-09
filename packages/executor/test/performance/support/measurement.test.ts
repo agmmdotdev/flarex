@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { Pool } from "pg";
-import { createMixedMutationPerformanceTrace, type TraceInvocationRecord } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import { createMixedMutationPerformanceTrace, type TraceInvocationRecord } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { failureTokens, latencySummary, sqlSummary, traceMixedMutationEffect } from "./measurement";
 
 describe("core performance report", () => {

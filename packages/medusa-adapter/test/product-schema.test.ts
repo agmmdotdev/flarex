@@ -10,10 +10,10 @@ import { compileLogicalSourceIndexes, compileLogicalSourceUniqueConstraints } fr
 import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
-import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/relationalSchema/artifact";
-import { prepareLogicalRelationalRows, relationalTextIdentity } from "../../persistence-postgres/src/logicalDocuments/relationalRows";
-import { compileLogicalRelationalRead } from "../../persistence-postgres/src/logicalDocuments/relationalQuery";
-import { prepareLogicalRelationalForeignKeys } from "../../persistence-postgres/src/logicalDocuments/relationalForeignKeys";
+import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/storage/relationalSchema/artifact";
+import { prepareLogicalRelationalRows, relationalTextIdentity } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalRows";
+import { compileLogicalRelationalRead } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery";
+import { prepareLogicalRelationalForeignKeys } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalForeignKeys";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 
 const compiled = () =>

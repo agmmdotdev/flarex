@@ -102,18 +102,18 @@ user code trusted. Admit supported hook location, lifetime and effects explicitl
 ## Current Reuse And Concrete Consolidation Candidates
 
 Both framework hosts use
-[the relational session owner](../packages/persistence-postgres/src/relationalTransaction/session.ts)
+[the relational session owner](../packages/persistence-postgres/src/database/relationalTransaction/session.ts)
 and shared bounded request-lifetime mechanics. They preserve acknowledged
 commit, rollback, cleanup failure and uncertain settlement as distinct outcomes.
 Commerce executes SQL writes during service execution and captures authentic
 row facts; CMS stages native documents while some lifecycle work, including
 preference cleanup, executes inside the same bounded SQL transaction.
 
-See the [commerce host](../packages/persistence-postgres/src/commerceTransaction/host.ts),
-[CMS host](../packages/persistence-postgres/src/cmsTransaction/host.ts),
-[CMS working set](../packages/persistence-postgres/src/cmsTransaction/documents.ts),
-[preference cleanup](../packages/persistence-postgres/src/payloadPreferences/cleanup.ts)
-and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts).
+See the [commerce host](../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts),
+[CMS host](../packages/persistence-postgres/src/frameworks/cmsTransaction/host.ts),
+[CMS working set](../packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts),
+[preference cleanup](../packages/persistence-postgres/src/frameworks/payloadPreferences/cleanup.ts)
+and [commit owner](../packages/persistence-postgres/src/commit/pointCommitTransaction.ts).
 These paths already share substantial infrastructure. The
 [completed extraction](../roadmaps/flarexdb-framework-integration/preflight/36-shared-publication-and-request-recovery.md)
 gives common publication a private owner, moves commerce finalization to its
@@ -179,9 +179,9 @@ rows, sidecars, facts, result or events.
 
 Named composition can use shared SQL settlement without first implementing
 general relational OCC. Extend the
-[single commerce binding](../packages/persistence-postgres/src/frameworkSchema/binding/model.ts)
+[single commerce binding](../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts)
 only when the selected command needs multiple installations. The
-[relational fact reader](../packages/persistence-postgres/src/commitPublication/relationalFacts.ts)
+[relational fact reader](../packages/persistence-postgres/src/commit/publication/relationalFacts.ts)
 currently validates a commit against one installation/layout; multi-installation
 publication needs full-directory validation before participant projection.
 Feed consumer support is another explicit capability, not an automatic result
@@ -244,7 +244,7 @@ and installations before deciding a deletion list.
 
 Preference-deletion evidence links the preference to an exact content revision;
 ordinary relational change identities do not replace that contract. Any change
-must cover the [retained-commit compactor](../packages/persistence-postgres/src/retainedCommitHistoryCompaction.ts)
+must cover the [retained-commit compactor](../packages/persistence-postgres/src/storage/history/retainedCommitHistoryCompaction.ts)
 and all readers. Payload drafts/business versions have a different retention
 purpose from native OCC revisions.
 

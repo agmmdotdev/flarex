@@ -50,24 +50,24 @@ Select tests from the changed call graph and admitted profiles. Preserve
 original framework assertions and source/title guards. Representative existing
 evidence includes:
 
-- [Native PostgreSQL commit tests](../../packages/persistence-postgres/test/pointCommitTransaction.postgres.test.ts):
+- [Native PostgreSQL commit tests](../../packages/persistence-postgres/test/commit/pointCommitTransaction.postgres.test.ts):
   OCC, publication, constraints and transaction failure behavior.
-- [CMS scenario](../../packages/persistence-postgres/test/cmsHostScenario.ts) and
-  [preference publication](../../packages/persistence-postgres/test/payloadPreferencePublicationScenario.ts):
+- [CMS scenario](../../packages/persistence-postgres/test/frameworks/cmsTransaction/cmsHostScenario.ts) and
+  [preference publication](../../packages/persistence-postgres/test/frameworks/payloadPreferences/payloadPreferencePublicationScenario.ts):
   pending state, native materialization, exact facts and atomic rollback.
 - [Commerce publication](../../packages/persistence-postgres/test/commercePublicationScenario.ts):
   initialization, complete relational facts, replay and failure checkpoints.
-- [Recovery routing](../../packages/persistence-postgres/test/requestRecovery.test.ts):
+- [Recovery routing](../../packages/persistence-postgres/test/database/requestRecovery.test.ts):
   one recovery-only lookup, complete causes and participant cleanup ordering.
-- [Physical PostgreSQL transactions](../../packages/persistence-postgres/test/relationalTransaction.postgres.test.ts):
+- [Physical PostgreSQL transactions](../../packages/persistence-postgres/test/database/relationalTransaction.postgres.test.ts):
   locks, cancellation, settlement and resource lifetime.
-- [Neutral composition](../../packages/persistence-postgres/test/physicalSession.test.ts):
+- [Neutral composition](../../packages/persistence-postgres/test/database/physicalSession.test.ts):
   shared deadline mechanics, exact adapter error identities, schema separation
   and neutral resource failure without callback execution or leaked checkout.
-- [Artifact physical sessions](../../packages/persistence-postgres/test/catalogControlSession.postgres.test.ts):
+- [Artifact physical sessions](../../packages/persistence-postgres/test/database/catalogControlSession.postgres.test.ts):
   read/reset, initial/recovery, drain, quarantine, late acquisition, interruption,
   full cleanup causes and exact physical identity exclusion required by R1.
-- [Native located runner](../../packages/persistence-postgres/test/postgresLocatedReadCommitted.test.ts):
+- [Native located runner](../../packages/persistence-postgres/test/database/postgresLocatedReadCommitted.test.ts):
   pool and externally owned connected-client lifecycle and failure classification.
 - [Logical Product native runner](../../packages/medusa-adapter/test/support/logical-product-runner.ts)
   retains the pinned lifecycle and event cases. The

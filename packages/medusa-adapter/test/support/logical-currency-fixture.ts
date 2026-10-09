@@ -1,62 +1,62 @@
-import type { ApplicationActivationTargetProfile } from "../../../persistence-postgres/src/applicationReadiness";
-import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../../persistence-postgres/src/postgres";
-import type { PhysicalSessionObservation } from "../../../persistence-postgres/src/physicalSession/observation";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/transactionSessionAttemptKernel";
+import type { ApplicationActivationTargetProfile } from "../../../persistence-postgres/src/application/applicationReadiness";
+import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../../persistence-postgres/src/database/postgres";
+import type { PhysicalSessionObservation } from "../../../persistence-postgres/src/database/physicalSession/observation";
+import { isLocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
 import { Effect, Result } from "effect";
 import { prepareLogicalSchemaCandidate, readPreparedLogicalSchemaCandidate } from "../../../analysis/src/logicalSchemaCandidate";
 import { prepareLogicalReadMetadataScalingCandidate, logicalReadMetadataCounts, type LogicalReadMetadataScale } from
-  "../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
+  "../../../persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport";
 import { makeSchemaComposer } from "../../src/schemaComposition";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture, type ApplicationNativeMutationPGliteFixture,
   type ApplicationNativeMutationPostgresFixture, type ApplicationNativeMutationFixtureOptions } from
-  "../../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
-import { createMigratedPGlitePersistence } from "../../../persistence-postgres/test/pgliteTestFixture";
-import { createRelationalPGliteFixture } from "../../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
+  "../../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
+import { createMigratedPGlitePersistence } from "../../../persistence-postgres/test/support/pgliteTestFixture";
+import { createRelationalPGliteFixture } from "../../../persistence-postgres/test/database/relationalPGliteWorkerTestSupport";
 import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture, type PostgresFixtureEndpoints } from
-  "../../../persistence-postgres/test/postgresHelpers";
-import { createCoLocatedReadInstallationFixture } from "../../../persistence-postgres/test/postgresHelpers";
+  "../../../persistence-postgres/test/support/postgresHelpers";
+import { createCoLocatedReadInstallationFixture } from "../../../persistence-postgres/test/support/postgresHelpers";
 import type { ProtectedMetadataPreparation } from
-  "../../../persistence-postgres/src/preparedMetadataEpoch";
-import { loadManagedInstallation, getCoLocatedReadInstallationReferences, type PreparedInstallation, type PreparedCoLocatedReadInstallation } from "../../../persistence-postgres/src/installationLifecycle";
-import { prepareProtectedMetadata } from "../../../persistence-postgres/src/preparedMetadataEpoch";
-import type { LogicalSourceReadPin } from "../../../persistence-postgres/src/logicalStorageDefinitions";
+  "../../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import { loadManagedInstallation, getCoLocatedReadInstallationReferences, type PreparedInstallation, type PreparedCoLocatedReadInstallation } from "../../../persistence-postgres/src/installation/installationLifecycle";
+import { prepareProtectedMetadata } from "../../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import type { LogicalSourceReadPin } from "../../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from
-  "../../../persistence-postgres/test/frameworkSchemaArtifactAdmissionTestSupport";
-import { makeApplicationAnalysisRepository } from "../../../persistence-postgres/src/applicationAnalysisRegistration";
+  "../../../persistence-postgres/test/installation/frameworkSchema/frameworkSchemaArtifactAdmissionTestSupport";
+import { makeApplicationAnalysisRepository } from "../../../persistence-postgres/src/application/applicationAnalysisRegistration";
 import { makeCatalogControlSessionStarter, startCatalogControlDeadline } from
-  "../../../persistence-postgres/src/catalogControlSession";
-import { makePostgresCatalogControlSessionDriver } from "../../../persistence-postgres/src/postgresCatalogControlSession";
-import { makeLogicalSchemaAdmission } from "../../../persistence-postgres/src/logicalSchemaAdmission";
-import { ensureLogicalStorageDefinitions } from "../../../persistence-postgres/src/logicalStorageDefinitions";
+  "../../../persistence-postgres/src/database/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../../../persistence-postgres/src/database/postgresCatalogControlSession";
+import { makeLogicalSchemaAdmission } from "../../../persistence-postgres/src/storage/catalog/logicalSchemaAdmission";
+import { ensureLogicalStorageDefinitions } from "../../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { prepareAppUniqueConstraintSetClosureV1Effect,
   closeAppUniqueConstraintSetV1InTransactionEffect } from
-  "../../../persistence-postgres/src/appUniqueConstraintSetClosureV1";
-import { reconcilePublishedIndexBuildsV1Effect } from "../../../persistence-postgres/src/indexBuildReconciliation";
-import { locateAppIndexDefinitionByIdEffect } from "../../../persistence-postgres/src/appIndexDefinitions";
+  "../../../persistence-postgres/src/storage/unique/appUniqueConstraintSetClosureV1";
+import { reconcilePublishedIndexBuildsV1Effect } from "../../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
+import { locateAppIndexDefinitionByIdEffect } from "../../../persistence-postgres/src/storage/indexes/appIndexDefinitions";
 import { buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect } from
-  "../../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
+  "../../../persistence-postgres/src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import { reconcileAppUniqueConstraintSetBuildV1Effect,
   advanceAppUniqueConstraintSetBackfillV1Effect } from
-  "../../../persistence-postgres/src/appUniqueConstraintSetBuildV1";
-import { runEffectTransaction } from "../../../persistence-postgres/src/effectTransaction";
-import type { FlarexMetadataTransaction } from "../../../persistence-postgres/src/metadataTransaction";
-import { makeFrameworkSchemaTarget } from "../../../persistence-postgres/src/frameworkSchema/target";
-import type { FrameworkSchemaTarget } from "../../../persistence-postgres/src/frameworkSchema/target";
+  "../../../persistence-postgres/src/storage/unique/appUniqueConstraintSetBuildV1";
+import { runEffectTransaction } from "../../../persistence-postgres/src/database/effectTransaction";
+import type { FlarexMetadataTransaction } from "../../../persistence-postgres/src/database/metadataTransaction";
+import { makeFrameworkSchemaTarget } from "../../../persistence-postgres/src/installation/frameworkSchema/target";
+import type { FrameworkSchemaTarget } from "../../../persistence-postgres/src/installation/frameworkSchema/target";
 import { makeDataBindingHost, dataBindingActivationRequest } from
-  "../../../persistence-postgres/src/frameworkSchema/binding/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import type { LogicalCommerceHostInput } from "../../../persistence-postgres/src/commerceTransaction/host";
-import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../persistence-postgres/src/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/transactionSessionAttemptKernel";
-import type { CommerceHost } from "../../../persistence-postgres/src/commerceTransaction/commands";
-import type { PGliteFlarexPersistence } from "../../../persistence-postgres/src/pglite";
-import type { PostgresFlarexPersistence } from "../../../persistence-postgres/src/postgres";
+  "../../../persistence-postgres/src/installation/frameworkSchema/binding/host";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import type { LogicalCommerceHostInput } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../persistence-postgres/src/scope/scopeAuthorityResolution";
+import type { LocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
+import type { CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import type { PGliteFlarexPersistence } from "../../../persistence-postgres/src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../persistence-postgres/src/database/postgres";
 import { makePostgresRelationalSession } from
-  "../../../persistence-postgres/src/relationalTransaction/session";
-import type { RelationalSession } from "../../../persistence-postgres/src/relationalTransaction/session";
-import { preparedHostTestRuntime } from "../../../persistence-postgres/test/preparedHostRuntimeTestSupport";
+  "../../../persistence-postgres/src/database/relationalTransaction/session";
+import type { RelationalSession } from "../../../persistence-postgres/src/database/relationalTransaction/session";
+import { preparedHostTestRuntime } from "../../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
 import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { LogicalSchemaExtension, LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";

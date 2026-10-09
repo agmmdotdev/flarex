@@ -4,7 +4,7 @@ import type { replaceProductRows } from "../src/product-mutation";
 import { Effect, Result, Schema, type Scope } from "effect";
 import { commerceError, defaultCommerceResources, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { commerceDecoder } from "../src/commerce-decoder";
 import type { CommerceRelation } from "../src/commerce-relations";
 import { captureGraph, insertGraphRows } from "../src/write/create";

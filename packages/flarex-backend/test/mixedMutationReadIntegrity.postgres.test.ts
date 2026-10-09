@@ -3,16 +3,16 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { fxControlScopes, fxSystemTransactionJournalReceipts } from "../../persistence-postgres/src/schema";
-import { withInstallationMaintenance } from "../../persistence-postgres/src/postgresInstallationMaintenance";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
+import { fxControlScopes, fxSystemTransactionJournalReceipts } from "../../persistence-postgres/src/database/schema";
+import { withInstallationMaintenance } from "../../persistence-postgres/src/database/postgresInstallationMaintenance";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { createMixedMutationProductFixture, prepareMixedMutationPerformanceSeries } from "./support/mixedMutationWorkerdFixture";
 import { getCoLocatedReadInstallationReferences, loadCoLocatedReadInstallation, requireCoLocatedInstallationAdmission,
-  isManagedInstallationTransaction } from "../../persistence-postgres/src/installationLifecycle";
-import { prepareProtectedMetadata } from "../../persistence-postgres/src/preparedMetadataEpoch";
-import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
-import { createLocatedPointMutationSessionActivationTargetV1 } from "../../persistence-postgres/src/transactionSessionActivation";
+  isManagedInstallationTransaction } from "../../persistence-postgres/src/installation/installationLifecycle";
+import { prepareProtectedMetadata } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
+import { createLocatedPointMutationSessionActivationTargetV1 } from "../../persistence-postgres/src/execution/transactionSessionActivation";
 
 const cases = ["placement", "escapedPlacement", "controlPolicy", "targetPolicy", "controlMaintenance", "targetMaintenance",
   "controlLogin", "controlNamespace", "controlIncarnation", "controlEpoch", "targetEpoch",

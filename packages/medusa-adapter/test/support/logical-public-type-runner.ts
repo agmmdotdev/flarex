@@ -7,10 +7,10 @@ import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { captureCommerceInput } from "../../src/commerce-input";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
-  "../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
+  "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalProductHost } from "./logical-product-fixture";
 import type { ProductRunnerOptions, ProductTestService } from "./runner-contract";

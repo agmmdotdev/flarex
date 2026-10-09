@@ -930,7 +930,7 @@ R01 consumer inventory:
   and host;
 - V1-only analysis registration: `apps/analyzer/src/ApplicationAnalysisComposition.ts`,
   `packages/standard-application-analysis/src/application.ts`, and
-  `packages/persistence-postgres/src/applicationAnalysisRegistration.ts`;
+  `packages/persistence-postgres/src/application/applicationAnalysisRegistration.ts`;
 - V1-only publication/lifecycle: analysis `applicationPublicationFramesV1` and
   persistence `applicationPublication`, `applicationSchemaAuthority`,
   `applicationReadiness`, `applicationActivation`, `applicationActionAdmission`,
@@ -989,7 +989,7 @@ Exit gates:
 Completion receipt (2026-08-23):
 
 - The retained private harness is
-  `packages/persistence-postgres/test/relationSnapshotSupportPreflight.ts`,
+  `packages/persistence-postgres/test/application/relations/relationSnapshotSupportPreflight.ts`,
   with a seven-case PGlite semantic lane and a fail-closed PostgreSQL physical
   lane. Its candidate tables are created only inside a disposable schema; no
   production migration, package export, runtime caller, compiler, or reader was

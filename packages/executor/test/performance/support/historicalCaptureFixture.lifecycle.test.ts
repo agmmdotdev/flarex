@@ -2,7 +2,7 @@ import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeBoundedRequestLifetime } from "../../../../persistence-postgres/src/boundedRequestLifetime";
+import { makeBoundedRequestLifetime } from "../../../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { runHistoricalCaptureInvocation } from "./historicalCaptureFixture";
 
 const makeLifetime = () => makeBoundedRequestLifetime(commerceError,

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
-import { expireEventClaims, makeEventRetriesDue, corruptEventCount, replaceEventEnvelope, explainSparseEventDirectory } from "../../persistence-postgres/test/commitEventTestSupport";
+import { expireEventClaims, makeEventRetriesDue, corruptEventCount, replaceEventEnvelope, explainSparseEventDirectory } from "../../persistence-postgres/test/commit/commitEventTestSupport";
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import type { Json } from "flarex-protocol/json";
@@ -11,16 +11,16 @@ import { currencyCommands, currencyWorkflowModule } from "../src/currency-servic
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/commerceInventory";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
-import { makeCommitEventPump, type CommitEventHandler } from "../../persistence-postgres/src/commitEvents/pump";
-import { makeCommitEventStore, type CommitEventQuery } from "../../persistence-postgres/src/commitEvents/store";
-import { CommitEventSubscriberFailure, type CommitEventMessage } from "../../persistence-postgres/src/commitEvents/model";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/frameworks/commerceTransaction/commerceInventory";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
+import { makeCommitEventPump, type CommitEventHandler } from "../../persistence-postgres/src/commit/events/pump";
+import { makeCommitEventStore, type CommitEventQuery } from "../../persistence-postgres/src/commit/events/store";
+import { CommitEventSubscriberFailure, type CommitEventMessage } from "../../persistence-postgres/src/commit/events/model";
+import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { commerceDecoder } from "../src/commerce-decoder";

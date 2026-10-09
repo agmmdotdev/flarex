@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { decodeRelationalSchemaMetadata, normalizeRelationalSchema, relationalSchemaSourceFromDefinition } from "flarex-protocol/internal/relational-schema";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 import { compileProductDefinition } from "../src/product-definition";
-import { prepareLogicalRelationalRowValues } from "../../persistence-postgres/src/logicalDocuments/relationalRows";
+import { prepareLogicalRelationalRowValues } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalRows";
 
 it("decodes an authenticated Product row projection while retaining derived columns and exact row contracts", async () => {
   const { schema } = await Effect.runPromise(compileProductDefinition());

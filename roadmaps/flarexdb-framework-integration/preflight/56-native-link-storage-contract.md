@@ -90,7 +90,7 @@ reason to reproduce an identity map or deferred flush engine in Flarex.
 
 ## Accepted Shared-Owner Correction
 
-Current owners are `packages/persistence-postgres/src/commerceTransaction/`
+Current owners are `packages/persistence-postgres/src/frameworks/commerceTransaction/`
 and `commitPublication/relationalRowKey.ts`, with invocation/event validation in
 `atomicCommerce/`. The approved correction stays within these owners.
 

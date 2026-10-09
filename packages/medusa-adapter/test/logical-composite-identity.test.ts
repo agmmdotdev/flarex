@@ -4,29 +4,29 @@ import { captureLogicalSchemaSource, prepareLogicalSchemaCandidate, readPrepared
   "@flarex/analysis/internal/logical-schema-candidate";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { makeSchemaComposer } from "../src/schemaComposition";
-import { makeApplicationAnalysisRepository } from "../../persistence-postgres/src/applicationAnalysisRegistration";
-import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
-import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../persistence-postgres/test/postgresHelpers";
+import { makeApplicationAnalysisRepository } from "../../persistence-postgres/src/application/applicationAnalysisRegistration";
+import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/support/pgliteTestFixture";
+import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../persistence-postgres/test/support/postgresHelpers";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence, createApplicationNativeMutationPostgresFixture,
-  type ApplicationNativeMutationFixture } from "../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
-import type { PGliteFlarexPersistence } from "../../persistence-postgres/src/pglite";
-import type { PostgresFlarexPersistence } from "../../persistence-postgres/src/postgres";
-import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "../../persistence-postgres/test/frameworkSchemaArtifactAdmissionTestSupport";
-import { logicalSchemaBindingScenario } from "../../persistence-postgres/test/logicalSchemaBindingScenario";
-import type { CatalogControlSessionStarter } from "../../persistence-postgres/src/catalogControlSession";
-import { makeCatalogControlSessionStarter } from "../../persistence-postgres/src/catalogControlSession";
-import { makePostgresCatalogControlSessionDriver } from "../../persistence-postgres/src/postgresCatalogControlSession";
+  type ApplicationNativeMutationFixture } from "../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
+import type { PGliteFlarexPersistence } from "../../persistence-postgres/src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../persistence-postgres/src/database/postgres";
+import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "../../persistence-postgres/test/installation/frameworkSchema/frameworkSchemaArtifactAdmissionTestSupport";
+import { logicalSchemaBindingScenario } from "../../persistence-postgres/test/storage/catalog/logicalSchemaBindingScenario";
+import type { CatalogControlSessionStarter } from "../../persistence-postgres/src/database/catalogControlSession";
+import { makeCatalogControlSessionStarter } from "../../persistence-postgres/src/database/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../../persistence-postgres/src/database/postgresCatalogControlSession";
 import { compileCurrencyDefinition } from "../src/currency-schema";
-import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
+import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { preparedHostTestRuntime, openPreparedHostTestRuntime, closePreparedHostTestRuntime } from
-  "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
+  "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
 import { issueRelationalSession, makePostgresRelationalSession, type RelationalSession } from
-  "../../persistence-postgres/src/relationalTransaction/session";
-import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
-import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
-import { relationalTextIdentity } from "../../persistence-postgres/src/logicalDocuments/relationalRows";
+  "../../persistence-postgres/src/database/relationalTransaction/session";
+import { runEffectTransaction } from "../../persistence-postgres/src/database/effectTransaction";
+import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
+import { relationalTextIdentity } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalRows";
 
 const options = { runtimeHostIdentity: "flarex.test/composite-identity", compatibilityDate: "2026-09-23" };
 const origin = (sourceId: string) => ({ kind: "synthetic", sourceId });

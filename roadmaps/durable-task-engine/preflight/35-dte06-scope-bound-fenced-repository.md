@@ -119,14 +119,14 @@ transaction?
   existing lifecycle decisions;
 - `packages/durable-task/src/computeProvider` for the exact dispatch,
   acceptance, cancellation, receipt, and typed provider-failure contracts;
-- `packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts`,
+- `packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts`,
   `taskSystemRunRowV1.ts`, `taskSystemRequestedEffectRowV1.ts`, and
   `taskSystemScopeAuthorityV1.ts` for the existing Task transaction, row-codec,
   ledger-correlation, and locked-scope patterns;
-- `packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts` and the
+- `packages/persistence-postgres/src/tasks/taskComputeDeliveryEvidenceV1.ts` and the
   DTE06-C1 tables in `schema.ts` for the canonical evidence and legal stored
   states;
-- `packages/persistence-postgres/src/postgresLocatedReadCommitted.ts` and the
+- `packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts` and the
   DTE05-E2 checkpoint/deadline work for settlement classification, checked-out
   connection ownership, timeout, and quarantine evidence; and
 - the pinned Trigger.dev source only for duplicate delivery, lost response,

@@ -6,8 +6,8 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { lockFiniteAttemptAnchorRowByIdentityInTransaction } from "../../persistence-postgres/src/finiteAttemptAnchor";
-import { fxAppRowRevisions, fxControlTables, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
+import { lockFiniteAttemptAnchorRowByIdentityInTransaction } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
+import { fxAppRowRevisions, fxControlTables, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const generatedUuid = "6f000000-0000-4000-8000-000000000001";

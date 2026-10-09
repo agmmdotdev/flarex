@@ -4,11 +4,11 @@ import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant,
-  type AtomicCommerceCommand } from "../../persistence-postgres/src/atomicCommerce/commands";
+  type AtomicCommerceCommand } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } from
-  "../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { decodeCategoryProjection } from "../src/product-category-projection";

@@ -73,9 +73,9 @@ Product installation/binding setup is removed from this fixture.
 
 The obsolete mixed physical statement-budget assertion is covered by the
 shared physical command-budget test in
-`packages/persistence-postgres/test/commerceAdmittedWrites.test.ts`.
+`packages/persistence-postgres/test/frameworks/commerceTransaction/commerceAdmittedWrites.test.ts`.
 The physical fact/binding-removal witness moved to the shared installation
-test in `packages/persistence-postgres/test/atomicCommerceSharedInstallation.test.ts`.
+test in `packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts`.
 Its durable obligation belongs to physical installation history, not to the
 logical Category/Currency command. The separate physical Product runner remains
 for its named unported methods. This selected composition is bounded and does

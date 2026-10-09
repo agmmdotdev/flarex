@@ -62,13 +62,13 @@ per-commit progress updates. Remaining concerns include broad commit exclusion,
 execution evidence across the request, and the cost of validating continuous
 maintenance. These are source-derived risks, not measured regressions.
 
-[Materialization](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
-and the [point commit owner](../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+[Materialization](../../packages/persistence-postgres/src/storage/materialization/materialization.ts)
+and the [point commit owner](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
 are the initial investigation boundaries. The existing
-[publisher](../../packages/persistence-postgres/src/commitPublication/publication.ts)
+[publisher](../../packages/persistence-postgres/src/commit/publication/publication.ts)
 already batches some fact families. The
-[physical owner](../../packages/persistence-postgres/src/physicalSession/postgres.ts)
-and [request recovery](../../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts)
+[physical owner](../../packages/persistence-postgres/src/database/physicalSession/postgres.ts)
+and [request recovery](../../packages/persistence-postgres/src/database/relationalTransaction/requestRecovery.ts)
 retain cancellation and authoritative decision handling. Do not replace these
 owners with benchmark-local production logic.
 

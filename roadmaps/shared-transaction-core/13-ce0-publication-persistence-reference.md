@@ -7,7 +7,7 @@ integration or production execution path and does not complete CE0 by itself.
 ## Decision And Evidence
 
 Compare `writeScopePublicationPrefix` and `advanceScopePublicationClock` in
-`packages/persistence-postgres/src/commitPublication/publication.ts` with a
+`packages/persistence-postgres/src/commit/publication/publication.ts` with a
 test-only explicit-SQL implementation of their admitted Application row-fact
 profile. The existing `scopePublicationBatchScenario.ts` already tests the actual
 owner at zero rows and the 500-change statement boundary, including corrupted

@@ -3,7 +3,7 @@ import { Result, Schema } from "effect";
 import { captureCommerceInput } from "../src/commerce-input";
 import { registerNativePricingTests, seedPriceSetData, type NativePricingTestService } from "./support/pricing-native-tests";
 import { logicalPricingTestHost } from "./support/logical-pricing-test-host";
-import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
+import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const cleanup: Array<() => Promise<void>> = [];
 let fixture: Awaited<ReturnType<typeof logicalPricingTestHost>>;

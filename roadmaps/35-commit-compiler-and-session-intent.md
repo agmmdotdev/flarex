@@ -75,19 +75,19 @@ Use these sources in order:
    the distinct live-query freshness rule and deferred committed-read caches.
 7. Current code and decisive tests prove exact implemented behavior. The active
    replacement session-start boundary is:
-   - [`packages/executor/src/pointMutationSessionActivation.ts`](../packages/executor/src/pointMutationSessionActivation.ts)
-   - [`packages/persistence-postgres/src/transactionSessionActivation.ts`](../packages/persistence-postgres/src/transactionSessionActivation.ts)
+   - [`packages/executor/src/mutation/session/pointMutationSessionActivation.ts`](../packages/executor/src/mutation/session/pointMutationSessionActivation.ts)
+   - [`packages/persistence-postgres/src/execution/transactionSessionActivation.ts`](../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
    The older prototype behavior remains visible in:
-   - [`packages/executor/src/sessions.ts`](../packages/executor/src/sessions.ts)
-   - [`packages/executor/src/retry.ts`](../packages/executor/src/retry.ts)
-   - [`packages/persistence-postgres/src/commits.ts`](../packages/persistence-postgres/src/commits.ts)
-   - [`packages/persistence-postgres/src/invokeSessions.ts`](../packages/persistence-postgres/src/invokeSessions.ts)
-   - [`packages/persistence-postgres/src/invokeSessionReads.ts`](../packages/persistence-postgres/src/invokeSessionReads.ts)
-   - [`packages/persistence-postgres/src/invokeSessionTableReads.ts`](../packages/persistence-postgres/src/invokeSessionTableReads.ts)
-   - [`packages/persistence-postgres/src/invokeSessionIndexReads.ts`](../packages/persistence-postgres/src/invokeSessionIndexReads.ts)
-   - [`packages/persistence-postgres/src/invokeSessionWrites.ts`](../packages/persistence-postgres/src/invokeSessionWrites.ts)
-   - [`packages/executor/test/sessions.test.ts`](../packages/executor/test/sessions.test.ts)
-   - [`packages/executor/test/postgresRetry.test.ts`](../packages/executor/test/postgresRetry.test.ts)
+   - [`packages/executor/src/invocation/sessions.ts`](../packages/executor/src/invocation/sessions.ts)
+   - [`packages/executor/src/invocation/retry.ts`](../packages/executor/src/invocation/retry.ts)
+   - [`packages/persistence-postgres/src/commit/commits.ts`](../packages/persistence-postgres/src/commit/commits.ts)
+   - [`packages/persistence-postgres/src/legacy/invokeSessions.ts`](../packages/persistence-postgres/src/legacy/invokeSessions.ts)
+   - [`packages/persistence-postgres/src/legacy/invokeSessionReads.ts`](../packages/persistence-postgres/src/legacy/invokeSessionReads.ts)
+   - [`packages/persistence-postgres/src/legacy/invokeSessionTableReads.ts`](../packages/persistence-postgres/src/legacy/invokeSessionTableReads.ts)
+   - [`packages/persistence-postgres/src/legacy/invokeSessionIndexReads.ts`](../packages/persistence-postgres/src/legacy/invokeSessionIndexReads.ts)
+   - [`packages/persistence-postgres/src/legacy/invokeSessionWrites.ts`](../packages/persistence-postgres/src/legacy/invokeSessionWrites.ts)
+   - [`packages/executor/test/invocation/sessions.test.ts`](../packages/executor/test/invocation/sessions.test.ts)
+   - [`packages/executor/test/invocation/postgresRetry.test.ts`](../packages/executor/test/invocation/postgresRetry.test.ts)
 
 [`../design-notes/flarex-instant-like-medusa-storage.md`](../design-notes/flarex-instant-like-medusa-storage.md)
 is a condensed research archive. Its historical mixed-transaction and

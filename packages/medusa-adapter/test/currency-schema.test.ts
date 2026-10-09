@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
-import { compileLogicalRelationalRead } from "../../persistence-postgres/src/logicalDocuments/relationalQuery";
-import { prepareLogicalRelationalRows } from "../../persistence-postgres/src/logicalDocuments/relationalRows";
+import { compileLogicalRelationalRead } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery";
+import { prepareLogicalRelationalRows } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalRows";
 import { Currency } from "@medusajs/currency/models";
 import { model } from "@medusajs/utils/dml/model";
 import {

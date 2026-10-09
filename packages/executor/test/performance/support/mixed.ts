@@ -2,10 +2,10 @@ import { Schema } from "effect";
 import { expect } from "vitest";
 import { prepareMixedMutationPerformanceSeries } from "./mixedMutationProductFixture";
 import type { CorePerformanceScenario } from "./scenario";
-import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { verifyProductLaunchWorkflow } from "./workflowResult";
 import { verifyMixedProductResult } from "./mixedProductResult";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
 const decodePayload = Schema.decodeUnknownSync(Schema.Struct({
   created: Schema.Struct({ id: Schema.String, title: Schema.String, score: Schema.Number, enabled: Schema.Boolean }),
   afterHook: Schema.Struct({ id: Schema.String, title: Schema.String, score: Schema.Number, enabled: Schema.Boolean }),

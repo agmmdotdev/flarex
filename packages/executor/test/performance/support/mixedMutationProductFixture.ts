@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { awaitEffectTransactionSettlement } from "../../../../persistence-postgres/src/effectTransaction";
+import { awaitEffectTransactionSettlement } from "../../../../persistence-postgres/src/database/effectTransaction";
 import { maxCorePerformanceSeriesSamples } from "./measurementPlan";
 import { inspect } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
@@ -9,7 +9,7 @@ import { commerceError, isJsonObject, type CommerceTransactionError, type Json }
   "@flarex/persistence-postgres/internal/commerce-values";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { inspectFiniteOperationCommitAuthority, inspectLogicalParticipantAdmissionBundle } from "../../../../persistence-postgres/src/logicalDocuments/participantAdmission";
+import { inspectFiniteOperationCommitAuthority, inspectLogicalParticipantAdmissionBundle } from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { requirePointMutationArgumentSemanticSizeV1 } from
@@ -17,27 +17,27 @@ import { requirePointMutationArgumentSemanticSizeV1 } from
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1, normalizeFlarexValueV1 } from "flarex-protocol/value";
 import { decodeAppDocumentIdentityV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { fxAppRowRevisions } from "../../../../persistence-postgres/src/schema";
-import type { ApplicationNativeMutationUserDocument } from "../../../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
+import { fxAppRowRevisions } from "../../../../persistence-postgres/src/database/schema";
+import type { ApplicationNativeMutationUserDocument } from "../../../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from
-  "../../../../persistence-postgres/src/applicationMutationAdmission";
-import { claimApplicationActiveSelection, prepareCurrentApplicationBinding, type CurrentApplicationFiniteEntry } from "../../../../persistence-postgres/src/applicationActivation";
+  "../../../../persistence-postgres/src/application/applicationMutationAdmission";
+import { claimApplicationActiveSelection, prepareCurrentApplicationBinding, type CurrentApplicationFiniteEntry } from "../../../../persistence-postgres/src/application/applicationActivation";
 import { prepareLogicalRelationalAdmission } from
-  "../../../../persistence-postgres/src/logicalDocuments/relationalAdmission";
+  "../../../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
 import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from
-  "../../../../persistence-postgres/src/logicalStorageReadiness";
+  "../../../../persistence-postgres/src/storage/catalog/logicalStorageReadiness";
 import { createApplicationMutationSessionActivationPersistenceV1,
   createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
-  "../../../../persistence-postgres/src/transactionSessionActivation";
+  "../../../../persistence-postgres/src/execution/transactionSessionActivation";
 import { createPointMutationExecutionClaimLivenessV1 } from
-  "../../../../persistence-postgres/src/transactionExecutionClaimLiveness";
+  "../../../../persistence-postgres/src/execution/claims/transactionExecutionClaimLiveness";
 import { createSessionJournalStorePersistence, readFrozenFiniteAttempt } from
-  "../../../../persistence-postgres/src/sessionJournalStore";
-import { preparedFiniteEntries } from "../../../../persistence-postgres/src/sessionJournalFiniteEntry";
+  "../../../../persistence-postgres/src/execution/sessionJournalStore";
+import { preparedFiniteEntries } from "../../../../persistence-postgres/src/execution/sessionJournalFiniteEntry";
 import type { LogicalParticipantBorrow, SessionJournalAttempt } from
   "@flarex/persistence-postgres/session-journal-store";
 import type { PerformanceSettlementLedger } from "./mixedMutationMeasurementContracts";
@@ -50,57 +50,57 @@ interface MixedMutationPublicationObserver {
 }
 import { createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1,
   PointMutationAttemptReplacementFiniteEntryError } from
-  "../../../../persistence-postgres/src/pointCommitTransaction";
+  "../../../../persistence-postgres/src/commit/pointCommitTransaction";
 import type { PointCommitPublicationObservation, PointCommitPublicationResultV1 } from
   "@flarex/persistence-postgres/point-commit-transaction";
-import { makeCommerceHost } from "../../../../persistence-postgres/src/commerceTransaction/host";
+import { makeCommerceHost } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { makeCmsHost } from "@flarex/persistence-postgres/internal/cms-adapter";
-import { createPostgresPersistence } from "../../../../persistence-postgres/src/postgres";
+import { createPostgresPersistence } from "../../../../persistence-postgres/src/database/postgres";
 import { makePostgresRelationalSession } from
-  "../../../../persistence-postgres/src/relationalTransaction/session";
+  "../../../../persistence-postgres/src/database/relationalTransaction/session";
 import { preparedHostTestRuntime } from
-  "../../../../persistence-postgres/test/preparedHostRuntimeTestSupport";
-import { retainPreparedHost, type PreparedHostRuntimeError } from "../../../../persistence-postgres/src/preparedHostRuntime";
+  "../../../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
+import { retainPreparedHost, type PreparedHostRuntimeError } from "../../../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
 import type { LogicalReadMetadataScale } from
-  "../../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
+  "../../../../persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from
-  "../../../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
+  "../../../../persistence-postgres/src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from
-  "../../../../persistence-postgres/src/appDeveloperIndexCommitV1";
+  "../../../../persistence-postgres/src/storage/indexes/appDeveloperIndexCommitV1";
 import { createAppSchemaCandidateWriteGuardPort, prepareFiniteAppSchemaCandidateWriteGuardPortEffect } from
-  "../../../../persistence-postgres/src/appSchemaCandidateValidation";
+  "../../../../persistence-postgres/src/storage/catalog/appSchemaCandidateValidation";
 import { createAppUniqueConstraintDefinitionPortV1 } from
-  "../../../../persistence-postgres/src/appUniqueConstraintCommitV1";
+  "../../../../persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1";
 import { createAppUniqueConstraintSetEligibilityPortV1 } from
-  "../../../../persistence-postgres/src/appUniqueConstraintSetBuildV1";
+  "../../../../persistence-postgres/src/storage/unique/appUniqueConstraintSetBuildV1";
 import { createPointMutationJournalV1 } from
-  "../../../src/pointMutationJournal";
+  "../../../src/mutation/journal/pointMutationJournal";
 import { createPointMutationExecutionClaimVaultV1 } from
-  "../../../src/pointMutationExecutionClaim";
+  "../../../src/mutation/claims/pointMutationExecutionClaim";
 import { ApplicationPointMutationRunnerHostV1Error } from
-  "../../../src/storedAttemptAuthentication";
+  "../../../src/mutation/authentication/storedAttemptAuthentication";
 import type { PointMutationOccBoundJournalV1,
   PointMutationOccRuntimeNeutralRunnerInputV1,
   PointMutationOccRuntimeNeutralRunnerV1 } from
-  "../../../src/storedAttemptAuthentication";
+  "../../../src/mutation/authentication/storedAttemptAuthentication";
 import { createFinitePointMutationExecution, type AuthenticatedFiniteEntry as AuthenticatedFiniteInitialEntry } from
-  "../../../src/finitePointMutationExecution";
+  "../../../src/mutation/execution/finitePointMutationExecution";
 import { createApplicationMutationGrantVerificationKernelV1 } from
-  "../../../src/applicationMutationGrantVerificationKernel";
+  "../../../src/mutation/authentication/applicationMutationGrantVerificationKernel";
 import { createApplicationPointMutationSessionActivationV1, inspectActivatedPointMutationSessionV1 } from
-  "../../../src/pointMutationSessionActivation";
+  "../../../src/mutation/session/pointMutationSessionActivation";
 import { decodePointMutationSessionAttemptSelectorV1 } from
-  "../../../src/pointMutationSessionAttemptSelector";
+  "../../../src/mutation/session/pointMutationSessionAttemptSelector";
 import { bindPointMutationOccJournal } from
-  "../../../src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
+  "../../../src/mutation/authentication/stored/exactPointMutationExecutionOperations";
 import { deriveApplicationSyscallValidator } from
   "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import { applicationMutationActivationEvidenceFixture } from
-  "../../../../persistence-postgres/test/applicationMutationActivationFixture";
+  "../../../../persistence-postgres/test/application/applicationMutationActivationFixture";
 import type { MixedMutationPerformanceTrace } from
-  "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+  "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from
-  "../../../../persistence-postgres/test/transactionSessionActivationTestSupport";
+  "../../../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
 import { logicalCurrencyFixture } from
   "../../../../medusa-adapter/test/support/logical-currency-fixture";
 import { prepareLogicalProductHost } from
@@ -142,7 +142,7 @@ import {
 } from "@flarex/payload-adapter/internal/testing";
 import { ApplicationRevisionSyscallDocumentValidationV1Error } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import { runMixedMutationInProcess, type MixedMutationExecutionHost } from "./mixedMutationInProcessRuntime";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
 const MixedMutationJournalMessageSchema = Schema.Struct({
   kind: Schema.String, tableName: Schema.optional(Schema.String), sequence: Schema.optional(Schema.String),
   operation: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)), frame: Schema.optional(Schema.Unknown),
@@ -171,8 +171,8 @@ export interface MixedMutationProductFixtureHooks {
   /** Diagnostic-only observation at the existing typed storage capture seam.
    * The original capture is forwarded once with its exact input and outcome. */
   readonly observeProductStorageCapture?: (method: string,
-    operation: import("../../../../persistence-postgres/src/finiteStorageCapture").FiniteStorageCaptureOperation,
-    demand: import("../../../../persistence-postgres/src/logicalDocuments/model").LogicalStorageReadDemand) => void;
+    operation: import("../../../../persistence-postgres/src/execution/finiteStorageCapture").FiniteStorageCaptureOperation,
+    demand: import("../../../../persistence-postgres/src/storage/documents/logicalDocuments/model").LogicalStorageReadDemand) => void;
   readonly beforeWorkflowBorrow?: () => Effect.Effect<void, CommerceTransactionError>;
   readonly beforeNative?: (method: string) => Effect.Effect<void, CommerceTransactionError>;
   readonly afterProductBorrow?: (method: string, borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>,
@@ -253,8 +253,8 @@ export interface MixedMutationProductFixture {
   readonly application: CurrencyFixture["application"];
   readonly active: Pick<Effect.Success<ReturnType<CurrencyFixture["application"]["activation"]["readActive"]>>, "selection" | "basis">;
   readonly activation: CreatedActivation;
-  readonly replayFiniteActivation: () => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError>;
-  readonly activateCompetingFiniteRequest: (suffix: string) => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError | PreparedHostRuntimeError>;
+  readonly replayFiniteActivation: () => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/mutation/session/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError>;
+  readonly activateCompetingFiniteRequest: (suffix: string) => Effect.Effect<AuthenticatedFiniteInitialEntry["activation"], import("../../../src/mutation/session/pointMutationSessionActivation").ApplicationPointMutationFiniteStartError | PreparedHostRuntimeError>;
   /** A distinct genuine attempt over this fixture's retained context and seed. */
   readonly openCompetingFiniteFixture: (suffix: string) => Promise<MixedMutationProductFixture>;
   readonly prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>;

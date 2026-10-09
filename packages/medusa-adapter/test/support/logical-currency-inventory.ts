@@ -2,12 +2,12 @@ import { fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppRowCurrent,
   fxAppRowRevisions, fxAppUniqueKeys, fxSystemCommitAppRowChanges, fxSystemCommits,
   fxSystemCommitWakes, fxSystemIdempotency, fxSystemIndexBuildStates,
   fxSystemScopeClocks, fxSystemUniqueConstraintBuilds, fxAppSearchEntryCurrent,
-  fxSystemSearchBuildStates } from "../../../persistence-postgres/src/schema";
+  fxSystemSearchBuildStates } from "../../../persistence-postgres/src/database/schema";
 import { fxSystemCommitRelationalChanges } from
-  "../../../persistence-postgres/src/commitPublication/relationalFactsSchema";
-import { fxSystemCommitEvents } from "../../../persistence-postgres/src/commitEvents/schema";
+  "../../../persistence-postgres/src/commit/publication/relationalFactsSchema";
+import { fxSystemCommitEvents } from "../../../persistence-postgres/src/commit/events/schema";
 import { fxSystemLogicalSourceInitializations } from
-  "../../../persistence-postgres/src/logicalStorageInitialization";
+  "../../../persistence-postgres/src/storage/catalog/logicalStorageInitialization";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
 /** The durable families a logical Currency request can change in this scope. */

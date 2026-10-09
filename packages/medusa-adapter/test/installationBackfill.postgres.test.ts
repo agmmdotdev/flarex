@@ -4,19 +4,19 @@ import { join } from "node:path";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
-import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations, fxSystemApplicationReadBindings } from "../../persistence-postgres/src/applicationActivationSchema";
-import { fxSystemApplicationReadiness } from "../../persistence-postgres/src/applicationRelationSchema";
+import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations, fxSystemApplicationReadBindings } from "../../persistence-postgres/src/application/applicationActivationSchema";
+import { fxSystemApplicationReadiness } from "../../persistence-postgres/src/application/relations/applicationRelationSchema";
 import { fxControlSchemaVersions, fxSystemApplicationReadinessV1,
   fxControlLogicalReadSources, fxControlLogicalReadTables, fxControlLogicalReadAccess,
-  fxSystemMetadataContractObservations, fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
-import { acquireInstallationAdmission, loadManagedInstallation } from "../../persistence-postgres/src/installationLifecycle";
+  fxSystemMetadataContractObservations, fxSystemScopeClocks } from "../../persistence-postgres/src/database/schema";
+import { acquireInstallationAdmission, loadManagedInstallation } from "../../persistence-postgres/src/installation/installationLifecycle";
 import { captureProtectedMetadataEpoch, prepareProtectedMetadata,
-  type ProtectedMetadataEpochIdentity, type PreparedMetadataEpochError } from "../../persistence-postgres/src/preparedMetadataEpoch";
-import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
-import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
+  type ProtectedMetadataEpochIdentity, type PreparedMetadataEpochError } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
+import { runEffectTransaction } from "../../persistence-postgres/src/database/effectTransaction";
 import { backfillInstallationMetadataBindings, backfillInstallationLogicalReadProjections,
-  publishVerifiedInstallation, runInstallationMigrations, withInstallationMaintenance } from "../../persistence-postgres/src/postgresInstallationMaintenance";
-import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
+  publishVerifiedInstallation, runInstallationMigrations, withInstallationMaintenance } from "../../persistence-postgres/src/database/postgresInstallationMaintenance";
+import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 
 const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL ? describe : describe.skip;
 const endpointPolicy = "protected-postgres-fixture";

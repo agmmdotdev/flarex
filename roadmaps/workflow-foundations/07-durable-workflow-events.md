@@ -23,12 +23,12 @@ commit/feed authority.
 | Existing owner | Reuse and limit |
 | --- | --- |
 | [Product local policy](../../packages/medusa-adapter/src/product-local-events.ts) | Reuse payload capture and row/lifecycle correlation. It validates module events and invokes a supplied local destination; it has no durable event record. |
-| [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Its local buffer is delivered after acknowledged completion and discarded during uncertain-result recovery. Preserve that supported profile; select durable mode explicitly. |
-| [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Admits selected participant/event definitions explicitly; the event-free profile still refuses capture. |
-| [Shared publication](../../packages/persistence-postgres/src/commitPublication/publication.ts) | Reuse one sequence, header, retained result, common wake and physical commit. Consumes the authenticated single-use event contribution in that same publication. |
-| [Commit wake](../../packages/persistence-postgres/src/commitWakeOutbox.ts) | Its kind and claims serve deployment-sync wakes. Fencing, database time and retry mechanics are useful reference; its acknowledgement is not a business-subscriber acknowledgement. |
-| [Task delivery](../../packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts) | Records reference Task definitions, runs and requested effects. Do not create Tasks or relabel Task evidence just to deliver atomic workflow events. |
-| [Legacy outbox](../../packages/persistence-postgres/src/outbox.ts) | Carries legacy deployment commit/document summaries. It is not the new relational business-event payload owner. |
+| [Commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts) | Its local buffer is delivered after acknowledged completion and discarded during uncertain-result recovery. Preserve that supported profile; select durable mode explicitly. |
+| [Atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Admits selected participant/event definitions explicitly; the event-free profile still refuses capture. |
+| [Shared publication](../../packages/persistence-postgres/src/commit/publication/publication.ts) | Reuse one sequence, header, retained result, common wake and physical commit. Consumes the authenticated single-use event contribution in that same publication. |
+| [Commit wake](../../packages/persistence-postgres/src/commit/commitWakeOutbox.ts) | Its kind and claims serve deployment-sync wakes. Fencing, database time and retry mechanics are useful reference; its acknowledgement is not a business-subscriber acknowledgement. |
+| [Task delivery](../../packages/persistence-postgres/src/tasks/taskComputeDeliveryRepositoryV1.ts) | Records reference Task definitions, runs and requested effects. Do not create Tasks or relabel Task evidence just to deliver atomic workflow events. |
+| [Legacy outbox](../../packages/persistence-postgres/src/commit/outbox.ts) | Carries legacy deployment commit/document summaries. It is not the new relational business-event payload owner. |
 
 The accepted [publication architecture](../flarexdb-framework-integration/04-transactions-and-commit-publication.md)
 requires typed event intents tied to the same commit and common wake. The private atomic profile implements that contract; standalone local Product

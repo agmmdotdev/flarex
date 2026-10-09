@@ -89,10 +89,10 @@ Original baseline findings:
 - the executor Wrangler configuration owns `HYPERDRIVE_CACHE_DISABLED`, and
   its request lifecycle already requires `FLAREX_EXECUTOR_TOKEN` before
   opening a request-scoped client;
-- [`commitFeed.ts`](../../../packages/persistence-postgres/src/commitFeed.ts)
+- [`commitFeed.ts`](../../../packages/persistence-postgres/src/commit/commitFeed.ts)
   exposes a bounded authoritative page but not the complete portable
   `ReplayableChangeSource` correlation;
-- [`scopeSyncActiveHeadObservationV1.ts`](../../../packages/persistence-postgres/src/scopeSyncActiveHeadObservationV1.ts)
+- [`scopeSyncActiveHeadObservationV1.ts`](../../../packages/persistence-postgres/src/sync/scopeSyncActiveHeadObservationV1.ts)
   observes the current head through trusted scope authority, but today it is a
   separate operation from the feed page; and
 - no production `QueryEvaluator`, `ResultPublisher`, wake dispatcher,

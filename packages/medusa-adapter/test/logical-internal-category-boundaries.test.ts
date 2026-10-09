@@ -7,11 +7,11 @@ import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { productCallReceipts } from "../src/product-local-events";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
-  "../../persistence-postgres/src/atomicCommerce/commands";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { defineCommerceCommand, type CommerceHost } from "../../persistence-postgres/src/commerceTransaction/commands";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { defineCommerceCommand, type CommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";

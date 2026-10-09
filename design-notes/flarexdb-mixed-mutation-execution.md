@@ -117,13 +117,13 @@ framework operation or historical text search.
 
 | Owner | Reusable foundation | Baseline or later-admission gap |
 | --- | --- | --- |
-| [Native session journal](../packages/persistence-postgres/src/sessionJournalStore.ts) and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts) | Attempt identity, snapshot reads, pending point/index state, authenticated sealing, OCC and recovery | Authenticate framework operations and their complete dependencies without granting ordinary Application writes to framework-owned tables |
-| [Logical working set](../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting; selected Product/Payload and finite multi-source workflow borrowed historical reads are implemented in isolated scopes | Broader query forms need their own exact pending and dependency proofs |
-| [Shared index/search definitions and entries](../packages/persistence-postgres/src/logicalDocuments/searchEntries.ts) | Ordered and unique access, current text/JSON search, atomic maintenance and scoped readiness | Establish snapshot candidate selection and complete conflict evidence for each admitted access path; current-search entries alone do not provide historical search |
-| [Shared materialization](../packages/persistence-postgres/src/logicalDocuments/materialization.ts) | Generic row/index/constraint preparation and lowering | Validate one combined mutation contribution across authenticated semantic owners |
+| [Native session journal](../packages/persistence-postgres/src/execution/sessionJournalStore.ts) and [commit owner](../packages/persistence-postgres/src/commit/pointCommitTransaction.ts) | Attempt identity, snapshot reads, pending point/index state, authenticated sealing, OCC and recovery | Authenticate framework operations and their complete dependencies without granting ordinary Application writes to framework-owned tables |
+| [Logical working set](../packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting; selected Product/Payload and finite multi-source workflow borrowed historical reads are implemented in isolated scopes | Broader query forms need their own exact pending and dependency proofs |
+| [Shared index/search definitions and entries](../packages/persistence-postgres/src/storage/documents/logicalDocuments/searchEntries.ts) | Ordered and unique access, current text/JSON search, atomic maintenance and scoped readiness | Establish snapshot candidate selection and complete conflict evidence for each admitted access path; current-search entries alone do not provide historical search |
+| [Shared materialization](../packages/persistence-postgres/src/storage/documents/logicalDocuments/materialization.ts) | Generic row/index/constraint preparation and lowering | Validate one combined mutation contribution across authenticated semantic owners |
 | [Medusa repository context](../packages/medusa-adapter/src/commerce-repository-context.ts) and [Payload adapter](../packages/payload-adapter/src/adapter.ts) | Opaque manager/request propagation and framework translation | Borrow mutation-attempt capabilities instead of independently executing a root command |
 | [Workflow runner](../packages/medusa-workflows-sdk/src/runtime.ts) and [adapter runtime](../packages/medusa-adapter/src/workflow-runtime.ts) | Finite ordered steps, child frames, captured results and caller-owned execution | Participate in a native attempt and its whole-mutation retry contract |
-| [Committed event store](../packages/persistence-postgres/src/commitEvents/store.ts) | Durable event intent and delivery evidence | Bind selected framework events to the mixed attempt and its one final outcome |
+| [Committed event store](../packages/persistence-postgres/src/commit/events/store.ts) | Durable event intent and delivery evidence | Bind selected framework events to the mixed attempt and its one final outcome |
 
 The private [Currency/CMS/Application command](../roadmaps/shared-transaction-core/05-named-command-preflight.md)
 proves explicit trusted composition under one SQL transaction. Its Application
@@ -299,7 +299,7 @@ every execution profile or expose a developer search API.
 | Medusa Product `q` | [Shared text search](../roadmaps/shared-logical-storage/45-core-indexed-text-search.md) over current declared fields using trigram GIN and exact native matching. |
 | JSON containment | [Shared JSON access](../roadmaps/shared-logical-storage/46-core-json-containment-index.md) over explicitly declared current fields using GIN with `jsonb_path_ops` and exact containment checks. |
 
-The [physical schemas](../packages/persistence-postgres/src/schema.ts) use generic
+The [physical schemas](../packages/persistence-postgres/src/database/schema.ts) use generic
 families shared across scopes and logical definitions. Product `q` uses
 `gin_trgm_ops`; `btree_gin` supplies scalar operator classes for scope and index
 identifiers inside the composite GIN path. It is not ordinary B-tree substring
@@ -316,7 +316,7 @@ agree and admit each consumer's query contract explicitly.
 ### Snapshot Search Is A Required Design Decision
 
 The current text and JSON families retain current entries tied to row revisions.
-The working set merges pending rows and [revalidates captured search membership](../packages/persistence-postgres/src/logicalDocuments/contribution.ts)
+The working set merges pending rows and [revalidates captured search membership](../packages/persistence-postgres/src/storage/documents/logicalDocuments/contribution.ts)
 at settlement. Those mechanics do not alone implement an older native attempt
 snapshot across separate physical transactions.
 

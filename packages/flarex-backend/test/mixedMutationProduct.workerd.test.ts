@@ -1,12 +1,12 @@
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
 import { documentValidationRecoverySource } from "../../executor/test/performance/support/documentValidationRecoverySource";
-import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/indexBuildReconciliation";
-import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
+import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
+import { readLogicalStorageRequirements } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Option, Result, Schema } from "effect";
-import { locateAppIndexDefinitionByIdEffect } from "../../persistence-postgres/src/appIndexDefinitions";
-import { selectLogicalIndex } from "../../persistence-postgres/src/logicalDocuments/query";
+import { locateAppIndexDefinitionByIdEffect } from "../../persistence-postgres/src/storage/indexes/appIndexDefinitions";
+import { selectLogicalIndex } from "../../persistence-postgres/src/storage/documents/logicalDocuments/query";
 import { describe, expect, it, vi } from "vitest";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
@@ -17,15 +17,15 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemTransactionSessions,
   fxSystemTransactionJournalPoints, fxSystemTransactionJournalWriteEvents,
-  fxSystemIndexBuildStates, fxSystemCommits, fxSystemScopeClocks, fxSystemIdempotency } from "../../persistence-postgres/src/schema";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitErrors";
+  fxSystemIndexBuildStates, fxSystemCommits, fxSystemScopeClocks, fxSystemIdempotency } from "../../persistence-postgres/src/database/schema";
+import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitErrors";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { APPLICATION_EXECUTION_METADATA_OWNER } from "../../persistence-postgres/src/finiteMetadataDependencies";
+import { APPLICATION_EXECUTION_METADATA_OWNER } from "../../persistence-postgres/src/execution/finiteMetadataDependencies";
 import { MiniflareApplicationAnalysisWorkerLoader, makeStandardApplicationCurrentAnalysisV1 } from "../../system-test/support/standardApplicationCurrentAnalysisHarness";
 import { changedMixedMutationExecutableSource } from "./support/mixedMutationApplicationSource";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { commerceError, logicalCommerceError } from "../../persistence-postgres/src/commerceTransaction/model";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { commerceError, logicalCommerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { defineCommerceCommand } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { executePrivateProductAttemptOperation } from "../../medusa-adapter/src/product-attempt";

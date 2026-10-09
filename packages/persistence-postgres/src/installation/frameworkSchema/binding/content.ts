@@ -1,0 +1,75 @@
+import { readApplicationSelectionOwnershipInTransaction, type ApplicationActiveSelection } from "../../../application/applicationActivation";
+import { readAcceptedApplicationBinding, type AcceptedApplicationBinding } from "../../../application/applicationActivation";
+import type { ScopeClockRecord } from "../../../scope/scopeClock";
+import type { CanonicalApplicationWriteOwnership } from "../../../application/ownership/Model";
+import { Effect } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
+import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
+import type { FlarexMetadataDatabase } from "../../../application/deployments";
+import { ApplicationWriteOwnershipHistoryBudget } from "../../../application/ownership/Policy";
+import { sameBindingValue } from "./canonical";
+import { bindingError } from "./errors";
+import type { DataBindingSetFrame } from "./model";
+
+/** Called only after the binding host has pinned the Application under its scope lock. */
+export const verifyPayloadContentBinding = Effect.fn("DataBindingContent.verify")(
+  function* (tx: FlarexMetadataTransaction, frame: DataBindingSetFrame, selection: ApplicationActiveSelection, targetDatabase: FlarexMetadataDatabase) {
+    const content = frame.payloadContent;
+    if (content === null) return;
+    if (
+      frame.application.readiness.kind !== "policy" ||
+      frame.application.readiness.relationCount > 2 ||
+      !sameBindingValue(content.application, frame.application)
+    ) {
+      return yield* Effect.fail(bindingError("unsupportedProfile"));
+    }
+    const { ownership } = yield* readApplicationSelectionOwnershipInTransaction(
+      selection, tx,
+      ScopeIdSchema.make(frame.application.scopeId),
+      new ApplicationWriteOwnershipHistoryBudget(),
+      targetDatabase,
+    ).pipe(Effect.mapError(cause => bindingError(
+      cause.reason === "resourceFailure" ? "resourceFailure" : "invalidAuthority",
+      cause,
+    )));
+    yield* verifyContentOwnership(frame, ownership);
+  },
+);
+
+export const verifyAcceptedPayloadContentBinding = Effect.fn("DataBindingContent.verifyAccepted")(
+  function* (tx: FlarexMetadataTransaction, clock: ScopeClockRecord, frame: DataBindingSetFrame, binding: AcceptedApplicationBinding) {
+    const basis = yield* Effect.fromResult(readAcceptedApplicationBinding(binding, tx, clock))
+      .pipe(Effect.mapError(cause => bindingError("invalidAuthority", cause)));
+    yield* verifyContentOwnership(frame, basis.writeOwnership);
+  },
+);
+
+const verifyContentOwnership = Effect.fn("DataBindingContent.verifyOwnership")(
+  function* (frame: DataBindingSetFrame, ownership: CanonicalApplicationWriteOwnership | null) {
+    const content = frame.payloadContent;
+    if (content === null) return;
+    if (frame.application.readiness.kind !== "policy" || frame.application.readiness.relationCount > 2 ||
+      !sameBindingValue(content.application, frame.application)) return yield* Effect.fail(bindingError("unsupportedProfile"));
+    if (
+      ownership === null ||
+      ownership.sha256Hex !== frame.application.readiness.writeOwnershipSha256 ||
+      ownership.frame.writePolicySetSha256 !== frame.application.readiness.writePolicySetSha256 ||
+      ownership.frame.claims.length === 0 ||
+      content.tables.length !== ownership.frame.claims.length
+    ) {
+      return yield* Effect.fail(bindingError("invalidAuthority"));
+    }
+    for (const [ordinal, claim] of ownership.frame.claims.entries()) {
+      const table = content.tables[ordinal];
+      if (
+        claim.policy.owner !== "payload" ||
+        claim.policy.configSha256 !== content.configSha256 ||
+        claim.policy.provenanceSha256 !== content.provenanceSha256 ||
+        table?.tableId !== claim.policy.tableId.toString() ||
+        table.writePolicySha256 !== claim.policy.writePolicySha256
+      ) {
+        return yield* Effect.fail(bindingError("invalidAuthority"));
+      }
+    }
+  },
+);

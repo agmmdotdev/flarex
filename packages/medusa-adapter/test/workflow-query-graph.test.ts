@@ -3,7 +3,7 @@ import { Effect, Result, Schema } from "effect";
 import { createWorkflow, transform, WorkflowResponse, type WorkflowContainer } from "@medusajs/workflows-sdk";
 import { executeWorkflow, type WorkflowExecutionPort } from "@medusajs/workflows-sdk/native";
 import { useQueryGraphStep, type WorkflowGraphResource, type QueryGraphInput } from "@medusajs/core-flows/common/use-query-graph";
-import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
+import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const input = { entity: "variant", fields: ["id", "thumbnail"], filters: { id: "v" } };
 const execute = (query: WorkflowGraphResource, config: QueryGraphInput) => {

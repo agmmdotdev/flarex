@@ -105,7 +105,7 @@ Flarex command and database transaction
 The [schema adapter](../packages/medusa-adapter/src/product-schema.ts),
 [service composition](../packages/medusa-adapter/src/product-service.ts),
 [shared repository context](../packages/medusa-adapter/src/commerce-repository-context.ts)
-and [core command contract](../packages/persistence-postgres/src/commerceTransaction/commands.ts)
+and [core command contract](../packages/persistence-postgres/src/frameworks/commerceTransaction/commands.ts)
 show these boundaries. The adapter is private and capability-limited. Importing
 a model or installing all its tables does not admit every service operation.
 The working tree may contain unfinished slices; code presence alone is not a

@@ -5,9 +5,9 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { fxAppRowRevisions } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
+import { fxAppRowRevisions } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;

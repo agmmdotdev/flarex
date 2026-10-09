@@ -4,7 +4,7 @@ import { Client, Pool } from "pg";
 import { Cause, Effect, Exit, Schema } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { diagnoseHistoricalCaptures, HistoricalCaptureRunFailure } from "./historicalCapture";
-import { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/finiteStorageCapture";
+import { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/execution/finiteStorageCapture";
 import type { createHistoricalCaptureFixture, HistoricalCaptureObserver } from "../support/historicalCaptureFixture";
 import { serverLimits, type ServerMeasurementEvidence } from "./server";
 import { serverPlanLimits, SERVER_PLAN_LOG_PREFIX } from "./collectors/plans";

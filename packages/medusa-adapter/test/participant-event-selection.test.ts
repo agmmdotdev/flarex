@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Result } from "effect";
-import { admitParticipantEvents, captureAtomicCommerceEvents, captureParticipantEvents, defineCommerceEventContract, prepareAtomicCommerceEvents } from "../../persistence-postgres/src/atomicCommerce/events";
-import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
+import { admitParticipantEvents, captureAtomicCommerceEvents, captureParticipantEvents, defineCommerceEventContract, prepareAtomicCommerceEvents } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 describe("participant event configuration capture", () => {
   const revision = "a".repeat(64);

@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result } from "effect";
 import { createHook, createStep, createWorkflow, transform, when, StepResponse, WorkflowResponse, type StepOutput, type WorkflowData, type WorkflowDefinition } from "@medusajs/workflows-sdk";
 import { executeWorkflow, type WorkflowExecutionPort } from "@medusajs/workflows-sdk/native";
-import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
+import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const port: WorkflowExecutionPort<Error> = {
   checkpoint: Effect.void, capture: value => Effect.sync(() => structuredClone(value)),

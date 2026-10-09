@@ -34,19 +34,19 @@ same end-to-end request boundary. It does not promise the product targets.
 
 ## Baseline owners and challenged alternatives
 
-At approval, the [participant admission owner](../../packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts)
+At approval, the [participant admission owner](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
 opened a checked transaction and verified the source or ordered bundle before
 returning control to its `work` callback. Its leading read executed an empty
-body. [Relational admission](../../packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts)
-delegated to that owner. Borrowed [Product](../../packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts),
-[workflow](../../packages/persistence-postgres/src/commerceTransaction/borrowedWorkflowAttempt.ts),
-and [Payload](../../packages/persistence-postgres/src/cmsTransaction/borrowedLogicalAttempt.ts)
+body. [Relational admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission.ts)
+delegated to that owner. Borrowed [Product](../../packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedLogicalAttempt.ts),
+[workflow](../../packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts),
+and [Payload](../../packages/persistence-postgres/src/frameworks/cmsTransaction/borrowedLogicalAttempt.ts)
 constructed framework-local lifetimes and working sets after admission. The
-[working set](../../packages/persistence-postgres/src/logicalDocuments/workingSet.ts)
+[working set](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts)
 performed another construction admission and, for ordinary operations, a fresh
 `runOperation` admission before later `runRead` historical I/O. Relational
 table-handle acquisition was also a checked operation.
-[Source admission](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts)
+[Source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
 already shares selected binding evidence when checks run inside one
 transaction; reuse this owner instead of adding another evidence cache.
 
@@ -154,7 +154,7 @@ mixed callers. Extend the neutral participant admission and working-set
 owners, migrate the three borrowed consumer constructions together, and
 remove displaced leading empty transactions and superseded internal callback
 shapes in the same slice. The [same-transaction source binding
-check](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts)
+check](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
 is retained and reused. Existing `durableOperations` roots, independently
 settling native Application/Medusa/Payload commands, and public framework
 contracts are retained for their named callers; they are not silently

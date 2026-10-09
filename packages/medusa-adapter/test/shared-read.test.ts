@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Option, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 import { commerceDecoder } from "../src/commerce-decoder";
 import type { CommerceRelation } from "../src/commerce-relations";
 import { makeReadCatalog, type ReadTable } from "../src/query/catalog";
@@ -10,7 +10,7 @@ import { compileProjection, projectRows, type ProjectionPolicy } from "../src/qu
 import { executeRead } from "../src/query/read";
 import { currencyRepository } from "../src/currency-repository";
 import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
-import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
+import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 import { commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 

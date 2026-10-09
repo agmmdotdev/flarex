@@ -10,11 +10,11 @@ import { prepareProductTagUpdateWorkflow } from "../src/product-tag-update-workf
 import { prepareProductTagDeleteWorkflow } from "../src/product-tag-delete-workflow";
 
 
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import type { AtomicWorkflowExecution } from "../src/workflow/host";

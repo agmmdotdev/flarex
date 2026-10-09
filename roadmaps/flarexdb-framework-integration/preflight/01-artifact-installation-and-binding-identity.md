@@ -77,12 +77,12 @@ generic framework lifecycle:
 | Concern | Current authority | Consequence |
 | --- | --- | --- |
 | Application source artifact | [`applicationAnalysisV2.ts`](../../../packages/analysis/src/applicationAnalysisV2.ts) owns `ApplicationManifest` | The manifest remains Application-owned and is not widened into a framework schema union |
-| Managed Application schema | [`applicationSchemaAuthority.ts`](../../../packages/persistence-postgres/src/applicationSchemaAuthority.ts) and [`applicationRelationSchemaAuthority.ts`](../../../packages/persistence-postgres/src/applicationRelationSchemaAuthority.ts) | Existing schema IDs, manifests, table bindings, and relation bindings remain unchanged |
-| Stored schema-version artifact | [`schemaVersionArtifacts.ts`](../../../packages/persistence-postgres/src/schemaVersionArtifacts.ts) | Its canonical strict-JSON container is generic, but `SchemaVersionArtifactIdentity` is only deployment plus schema-version ID and the current authoritative publishers/bindings interpret it as Application schema evidence |
-| Scope placement and fencing | [`scopeMetadataTypes.ts`](../../../packages/persistence-postgres/src/scopeMetadataTypes.ts), [`scopeAuthorityResolution.ts`](../../../packages/persistence-postgres/src/scopeAuthorityResolution.ts), and `TrustedScopeAuthority` | Reuse the exact physical locator and current generation, fence, and epoch; do not invent another placement authority |
-| Application readiness | [`applicationReadiness.ts`](../../../packages/persistence-postgres/src/applicationReadiness.ts) and [`applicationRelationReadinessFold.ts`](../../../packages/persistence-postgres/src/applicationRelationReadinessFold.ts) | Both relation-free and relation-bearing readiness contracts must be projected faithfully |
-| Application selection | [`applicationActivation.ts`](../../../packages/persistence-postgres/src/applicationActivation.ts), [`applicationActivationSchema.ts`](../../../packages/persistence-postgres/src/applicationActivationSchema.ts), and [`applicationActiveHeadRead.ts`](../../../packages/persistence-postgres/src/applicationActiveHeadRead.ts) | One scope-keyed Application head serves both readiness contracts; its exact CAS token is `{ activationSequence, headSha256 }` |
-| Stable table identity | [`catalog.ts`](../../../packages/flarex-protocol/src/catalog.ts) and [`stableTableCatalog.ts`](../../../packages/persistence-postgres/src/stableTableCatalog.ts) | Existing stable table IDs may be referenced, but catalog namespace is not semantic schema ownership |
+| Managed Application schema | [`applicationSchemaAuthority.ts`](../../../packages/persistence-postgres/src/application/applicationSchemaAuthority.ts) and [`applicationRelationSchemaAuthority.ts`](../../../packages/persistence-postgres/src/application/relations/applicationRelationSchemaAuthority.ts) | Existing schema IDs, manifests, table bindings, and relation bindings remain unchanged |
+| Stored schema-version artifact | [`schemaVersionArtifacts.ts`](../../../packages/persistence-postgres/src/storage/catalog/schemaVersionArtifacts.ts) | Its canonical strict-JSON container is generic, but `SchemaVersionArtifactIdentity` is only deployment plus schema-version ID and the current authoritative publishers/bindings interpret it as Application schema evidence |
+| Scope placement and fencing | [`scopeMetadataTypes.ts`](../../../packages/persistence-postgres/src/scope/scopeMetadataTypes.ts), [`scopeAuthorityResolution.ts`](../../../packages/persistence-postgres/src/scope/scopeAuthorityResolution.ts), and `TrustedScopeAuthority` | Reuse the exact physical locator and current generation, fence, and epoch; do not invent another placement authority |
+| Application readiness | [`applicationReadiness.ts`](../../../packages/persistence-postgres/src/application/applicationReadiness.ts) and [`applicationRelationReadinessFold.ts`](../../../packages/persistence-postgres/src/application/relations/applicationRelationReadinessFold.ts) | Both relation-free and relation-bearing readiness contracts must be projected faithfully |
+| Application selection | [`applicationActivation.ts`](../../../packages/persistence-postgres/src/application/applicationActivation.ts), [`applicationActivationSchema.ts`](../../../packages/persistence-postgres/src/application/applicationActivationSchema.ts), and [`applicationActiveHeadRead.ts`](../../../packages/persistence-postgres/src/application/applicationActiveHeadRead.ts) | One scope-keyed Application head serves both readiness contracts; its exact CAS token is `{ activationSequence, headSha256 }` |
+| Stable table identity | [`catalog.ts`](../../../packages/flarex-protocol/src/catalog.ts) and [`stableTableCatalog.ts`](../../../packages/persistence-postgres/src/storage/catalog/stableTableCatalog.ts) | Existing stable table IDs may be referenced, but catalog namespace is not semantic schema ownership |
 
 The current Application flow is therefore:
 
@@ -926,7 +926,7 @@ are forbidden.
 The first code checkpoint belongs privately under:
 
 ```text
-packages/persistence-postgres/src/frameworkSchema/artifact/
+packages/persistence-postgres/src/installation/frameworkSchema/artifact/
   model.ts
   policy.ts
   canonical.ts

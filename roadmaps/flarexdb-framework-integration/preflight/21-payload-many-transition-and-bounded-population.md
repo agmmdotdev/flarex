@@ -30,13 +30,13 @@ Repository paths in this record are relative to the workspace root.
 | Evidence at preflight | Consequence |
 | --- | --- |
 | `packages/analysis/src/applicationRelationAnalysis.ts`, `sourceValidatorMatchesDeclaration` | Native many declarations require a nonoptional array validator. `minItems: 0` permits an empty array, not an absent field. |
-| `packages/persistence-postgres/src/applicationRelationCommit/Policy.ts`, `extractRelationOccurrencesResult` | Missing/null many values fail. The same lowerer reads prior and final documents and is reused by relation building. |
-| `packages/persistence-postgres/src/applicationWriteOwnership/Successor.ts` | The authenticated exception is exactly scalar-to-optional-one. It does not authorize an arbitrary same-owner configuration change. |
-| `packages/persistence-postgres/src/applicationRelationBinding/Policy.ts` | Cardinality changes are classified explicitly; reusing the optional-one physical identity for a many field is not an additive transition. |
+| `packages/persistence-postgres/src/application/relations/commit/Policy.ts`, `extractRelationOccurrencesResult` | Missing/null many values fail. The same lowerer reads prior and final documents and is reused by relation building. |
+| `packages/persistence-postgres/src/application/ownership/Successor.ts` | The authenticated exception is exactly scalar-to-optional-one. It does not authorize an arbitrary same-owner configuration change. |
+| `packages/persistence-postgres/src/application/relations/binding/Policy.ts` | Cardinality changes are classified explicitly; reusing the optional-one physical identity for a many field is not an additive transition. |
 | `packages/payload-adapter/src/runtime.ts` and `adapter.ts` | Public command arguments fix depth zero; adapter predicates admit only ID/title equality, and nonempty projections/joins are rejected. |
-| `packages/persistence-postgres/src/cmsTransaction/host.ts` | A standalone read holds the existing scope-clock share lock through admission, callback and result capture. It has one request-owned document view. |
-| `packages/persistence-postgres/src/cmsTransaction/documents.ts` | ID lookup, pending-row visibility and limits have a single owner. General `find` scans a bounded table; filtering that scan is not a population batch implementation. |
-| `packages/persistence-postgres/src/cmsTransaction/lifetime.ts` | Overlapping document operations are refused. Concurrent loader callbacks must not open parallel operations on the same transaction. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/host.ts` | A standalone read holds the existing scope-clock share lock through admission, callback and result capture. It has one request-owned document view. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts` | ID lookup, pending-row visibility and limits have a single owner. General `find` scans a bounded table; filtering that scan is not a population batch implementation. |
+| `packages/persistence-postgres/src/frameworks/cmsTransaction/lifetime.ts` | Overlapping document operations are refused. Concurrent loader callbacks must not open parallel operations on the same transaction. |
 
 Pinned upstream remains `payload@3.88.0`, with installed distribution checked
 alongside release commit `fea6f8a47a50ff1330d8a5071b43e7dcffb97b22`:

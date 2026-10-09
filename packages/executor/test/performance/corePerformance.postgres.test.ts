@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { Schema } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
-import { createMixedMutationPerformanceTrace } from "../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import { createMixedMutationPerformanceTrace } from "../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { failureTokens, latencySummary, sqlSummary } from "./support/measurement";
 import type { CorePerformanceScenario } from "./support/scenario";
 import { BenchmarkCpuProfiler, summarizeBenchmarkCpuProfile, type BenchmarkCpuProfileEvidence } from "./support/benchmarkCpuProfiler";

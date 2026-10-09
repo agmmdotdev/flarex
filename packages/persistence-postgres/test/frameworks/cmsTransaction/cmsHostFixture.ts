@@ -1,0 +1,62 @@
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
+import { makeFrameworkSchemaTarget } from "../../../src/installation/frameworkSchema/target";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../../src/installation/frameworkSchema/binding/host";
+
+
+import { relationReadinessFixture, prepareReadinessEvidence } from "../../application/relations/applicationRelationReadinessFixture";
+import { runEffect } from "../../support/effectTestRuntime";
+import { makePayloadConformanceProfiles } from "../../../../payload-adapter/src/testing/profiles";
+import { makePayloadContentProfiles } from "../../../../payload-adapter/src/profile";
+import type { CompiledPayloadCollections } from "../../../../payload-adapter/src/collections";
+import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
+import { makeApplicationManifest, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
+import { createHash } from "node:crypto";
+
+export async function compiledPayloadManifest(compiled: CompiledPayloadCollections) {
+  const analysis = await runEffect(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: compiled.schemaDefinition }));
+  const result = await runEffect(makeApplicationManifest(analysis, {
+    rootSha256: "1".repeat(64), executionModulePath: "_flarex/execution.js", schemaModulePath: "_flarex/schema.js",
+    modules: [{ path: "_flarex/execution.js", roles: 8, sourceSha256: "2".repeat(64), sourceByteLength: 48 },
+      { path: "_flarex/schema.js", roles: 2, sourceSha256: "3".repeat(64), sourceByteLength: 64 }],
+  }));
+  const canonical = await runEffect(verifyApplicationManifestV3(result.manifest));
+  return { manifest: canonical.manifest, manifestSha256: createHash("sha256").update(canonical.canonicalBytes).digest("hex") };
+}
+
+export async function cmsHostFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  options: Parameters<typeof relationReadinessFixture>[0] = {}, compiled?: CompiledPayloadCollections) {
+  const fixture = await relationReadinessFixture({ persistence, writePolicy: true, bindingAdmission: true, cmsIndexes: true,
+    cmsFields: [{ name: "title", kind: "text", unique: true }], ...options,
+    ...(compiled === undefined ? {} : { cmsManifest: await compiledPayloadManifest(compiled) }) });
+  await prepareReadinessEvidence(fixture);
+  await runEffect(fixture.fold.settle(fixture.input));
+  await runEffect(fixture.relationActivation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
+  const active = await runEffect(fixture.relationActivation.readActive());
+  const targetInput = { deploymentId: fixture.deploymentId, canonicalPhysicalDatabaseIdentity: "cms-host-fixture", physicalLocator: active.basis.authority.physicalLocator };
+  const target = await runEffect(makeFrameworkSchemaTarget({ ...targetInput, database: persistence.drizzle }));
+  const payloadProfiles = await runEffect(compiled === undefined ? makePayloadConformanceProfiles() : makePayloadContentProfiles(compiled));
+  const bindings = await runEffect(makeDataBindingHost({ database: persistence.drizzle,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId }, target,
+    authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles }));
+  const reference = await runEffect(bindings.readApplicationReference());
+  const policy = fixture.relation.binding;
+  if (policy.version !== 3) throw new Error("Expected V3 write policy");
+  const claims = policy.writePolicies.filter(policy => policy.owner === "payload");
+  const first = claims[0];
+  if (first?.owner !== "payload") throw new Error("Expected CMS ownership");
+  const candidate = await runEffect(bindings.prepare({ format: "flarex.data-binding-set", logicalSchema: null, application: reference,
+    payloadContent: { application: reference, configSha256: first.configSha256, provenanceSha256: first.provenanceSha256,
+      tables: claims.map(claim => ({ tableId: claim.tableId.toString(), writePolicySha256: claim.writePolicySha256 })) },
+    payloadLifecycle: null, commerce: [], crossDomainReferences: [] }));
+  await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "cms-host-activate", candidate.sha256, null)));
+
+  return { fixture, tables: fixture.relation.binding.tables, bindings, reference, candidate, target, payloadProfiles };
+}
+
+export async function prepareCmsFixtureReadiness(fixture: Awaited<ReturnType<typeof relationReadinessFixture>>) {
+  const posts = fixture.relation.binding.tables.find(table => table.logicalName === "posts");
+  if (posts === undefined) throw new Error("Expected posts binding");
+  await prepareReadinessEvidence(fixture);
+  return posts;
+}

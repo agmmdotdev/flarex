@@ -84,9 +84,9 @@ snapshot, OCC, commit, idempotency, feed, outbox, and persistence authority.
 
 Current behavior must be verified against:
 
-- [`packages/executor/src/storedAttemptAuthentication.ts`](../packages/executor/src/storedAttemptAuthentication.ts)
+- [`packages/executor/src/mutation/authentication/storedAttemptAuthentication.ts`](../packages/executor/src/mutation/authentication/storedAttemptAuthentication.ts)
   for `PointMutationOccRuntimeNeutralRunnerV1`;
-- [`packages/executor/src/pointMutationExactRuntimeRunner.ts`](../packages/executor/src/pointMutationExactRuntimeRunner.ts)
+- [`packages/executor/src/mutation/runtime/pointMutationExactRuntimeRunner.ts`](../packages/executor/src/mutation/runtime/pointMutationExactRuntimeRunner.ts)
   for the structural artifact-host binding and executor-side journal
   settlement;
 - [`packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts`](../packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts)
@@ -95,7 +95,7 @@ Current behavior must be verified against:
   for current ordinary generated `ctx.db`, query builder, nested-call, and
   executor syscall semantics;
 - [`packages/flarex-backend/test/pointMutationExactRuntime.workerd.test.ts`](../packages/flarex-backend/test/pointMutationExactRuntime.workerd.test.ts),
-  [`packages/executor/test/pointMutationExactRuntimeRunner.workerd.test.ts`](../packages/executor/test/pointMutationExactRuntimeRunner.workerd.test.ts),
+  [`packages/executor/test/mutation/runtime/pointMutationExactRuntimeRunner.workerd.test.ts`](../packages/executor/test/mutation/runtime/pointMutationExactRuntimeRunner.workerd.test.ts),
   and adjacent tests for current workerd and adapter evidence;
 - [`06-dynamic-worker-execution.md`](./06-dynamic-worker-execution.md) for
   Dynamic Worker capabilities, isolation, materialization, identity, and

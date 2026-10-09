@@ -17,16 +17,16 @@ import { defineWorkflowMethod, defineWorkflowModule, workflowMethodDefinition,
   workflowModuleDefinition } from "../src/workflow/module";
 import { commerceDecoder } from "../src/commerce-decoder";
 import { findCollectionMembershipProducts } from "../src/product-collection-membership";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 

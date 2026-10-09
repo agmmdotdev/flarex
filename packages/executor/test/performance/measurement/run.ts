@@ -17,7 +17,7 @@ import { MeasurementInfrastructureError, MeasurementRunFailure, persistMeasureme
 import { describeFailure, type FailureEvidence } from "./failure";
 import { measurementSourceDigest } from "./source";
 import { failureTokens } from "../support/measurement";
-import { createMixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import { createMixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import type { CorePerformanceScenario } from "../support/scenario";
 import type { PreparedPerformanceFamily } from "../support/scenarioLifetime";
 import { corePerformanceScenarios } from "../support/scenarioCatalog";

@@ -1,13 +1,13 @@
 import { eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { createPointCommitPublisherPortV1, type PointFiniteCommitCommand } from "../../persistence-postgres/src/pointCommitTransaction";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
-import { projectOriginalFinitePublicationSession, readConfirmedFiniteRootEntryCapture } from "../../persistence-postgres/src/sessionJournalFiniteEntry";
-import { fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/applicationActivationSchema";
+import { createPointCommitPublisherPortV1, type PointFiniteCommitCommand } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import { projectOriginalFinitePublicationSession, readConfirmedFiniteRootEntryCapture } from "../../persistence-postgres/src/execution/sessionJournalFiniteEntry";
+import { fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/application/applicationActivationSchema";
 import { fxControlSchemaVersions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
-  fxSystemTransactionSessions, fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
+  fxSystemTransactionSessions, fxSystemScopeClocks } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined

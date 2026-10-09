@@ -1,0 +1,791 @@
+import type {
+  PointMutationSessionActivationPersistenceV1,
+  PointMutationSessionActivationEffectErrorV1,
+  PointMutationSessionActivationResultV1,
+  ApplicationMutationSessionActivationPersistenceV1,
+  PointMutationSessionAttemptLoadEffectErrorV1,
+  PointMutationSessionAttemptLoadPersistenceV1,
+  PointMutationSessionAttemptLoadResultV1,
+  PointMutationSessionAttemptSelectorV1,
+  PointMutationSessionAttemptTerminalizationEffectErrorV1,
+  PointMutationSessionAttemptTerminalizationPersistenceV1,
+  PointMutationSessionAttemptTerminalizationResultV1,
+  PreparedPointMutationSessionActivationV1,
+  PreparedApplicationMutationSessionActivationV1,
+  PreparedFiniteApplicationMutationSessionActivation,
+} from "@flarex/persistence-postgres/transaction-session-activation";
+import type { PointMutationJournalV1 } from "../journal/pointMutationJournal";
+import { readPreparedFiniteApplicationMutationActivationInputs } from "@flarex/persistence-postgres/internal/application-mutation-admission";
+import { isJsonObjectFromUnknown, jsonEqual } from "flarex-protocol/json";
+import type { PointMutationAttemptReplacementObservationV1 } from "@flarex/persistence-postgres/point-commit-transaction";
+import { readFiniteRecoveryAttempt, type FiniteRecoveryAttempt } from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+  type CanonicalApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
+import {
+  inspectVerifiedApplicationMutationGrantV1,
+  InvalidVerifiedApplicationMutationGrantV1Error,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
+import {
+  transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
+} from "flarex-protocol/transaction-grant";
+import {
+  FlarexDbV1StorageGenerationSchema,
+  SnapshotTokenSchema,
+  StorageGenerationFenceSchema,
+  type FlarexDbV1StorageGeneration,
+  type SnapshotToken,
+  type StorageGenerationFence,
+} from "flarex-protocol/storage-authority";
+import {
+  decodeCatalogSchemaVersionId,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
+import {
+  TransactionRequestKeyV1Schema,
+  type TransactionRequestKeyV1,
+} from
+  "flarex-protocol/transaction-session";
+import { Effect, Result } from "effect";
+
+import {
+  getLoadedPointMutationSessionAttemptInspectionV1,
+  registerLoadedPointMutationSessionAttemptStateV1,
+} from "./pointMutationSessionAttemptState";
+import {
+  decodePointMutationSessionAttemptSelectorV1Result,
+  InvalidPointMutationSessionAttemptSelectorV1Error,
+  type PointMutationSessionAttemptSelectorIssueV1,
+} from "./pointMutationSessionAttemptSelector";
+import {
+  inspectAdmittedPointMutationStartResultV1,
+  type AdmittedPointMutationStartInspectionV1,
+  type AdmittedPointMutationStartV1,
+  type InvalidAdmittedPointMutationStartV1Error,
+} from "../authentication/transactionGrant";
+import {
+  InvalidPointMutationExecutionClaimV1Error,
+  type PointMutationExecutionClaimV1,
+  type PointMutationExecutionScopeV1,
+  type PointMutationExecutionClaimAdmissionV1,
+  type PointMutationExecutionClaimIssuerV1,
+} from "../claims/pointMutationExecutionClaim";
+import {
+  getActivatedPointMutationSessionStateV1,
+  registerActivatedPointMutationSessionStateV1,
+  type ActivatedApplicationMutationSessionPreparationV1,
+  type ActivatedPointMutationSessionPreparationV1,
+} from "./pointMutationSessionActivationState";
+import {
+  capturePointMutationSessionAttemptTerminalizationResultV1,
+  PointMutationSessionAttemptTerminalizationContractV1Error,
+  type PointMutationSessionAttemptTerminalizationContractIssueV1,
+} from "./pointMutationSessionAttemptTerminalizationContract";
+
+const activatedPointMutationSessionBrand: unique symbol = Symbol(
+  "FlarexExecutor/ActivatedPointMutationSessionV1",
+);
+
+/** Private B1 capability. It carries no caller-authored session authority. */
+export interface ActivatedPointMutationSessionV1 {
+  readonly [activatedPointMutationSessionBrand]: true;
+}
+
+/** The replacement transaction's original entry issuer authenticates the new
+ * anchor before this owner grants permission to execute its callback. */
+export function activateConfirmedFiniteReplacement(original: ActivatedPointMutationSessionV1,
+  observation: PointMutationAttemptReplacementObservationV1, journal: PointMutationJournalV1,
+  claims: PointMutationExecutionClaimIssuerV1) {
+  const previous = getActivatedPointMutationSessionStateV1(original);
+  return previous === undefined ? Result.fail(new ApplicationPointMutationSessionActivationContractV1Error()) :
+    activateFiniteReplacementFromEvidence(previous.prepared, previous.inspection.anchor, observation, journal, claims);
+}
+
+export function activateConfirmedFiniteRecoveryReplacement(capture: FiniteRecoveryAttempt,
+  prepared: ActivatedApplicationMutationSessionPreparationV1, observation: PointMutationAttemptReplacementObservationV1,
+  journal: PointMutationJournalV1, claims: PointMutationExecutionClaimIssuerV1) {
+  return readFiniteRecoveryAttempt(capture).pipe(Result.flatMap(previous =>
+    activateFiniteReplacementFromEvidence(prepared, previous.anchor, observation, journal, claims)));
+}
+
+function activateFiniteReplacementFromEvidence(prepared: ActivatedPointMutationSessionPreparationV1,
+  before: PointMutationSessionActivationResultV1["anchor"], observation: PointMutationAttemptReplacementObservationV1,
+  journal: PointMutationJournalV1, claims: PointMutationExecutionClaimIssuerV1) {
+  return Result.gen(function* () {
+    if (observation.kind !== "replaced" || observation.finiteEntry === undefined ||
+      journal.inspectFiniteExecutionEntry === undefined)
+      return yield* Result.fail(new ApplicationPointMutationSessionActivationContractV1Error());
+    const finite = observation.finiteEntry;
+    const entry = yield* journal.inspectFiniteExecutionEntry(finite.capture, finite.preparation);
+    const anchor = entry.context.anchor;
+    if (anchor.deploymentId !== before.deploymentId || anchor.scopeId !== before.scopeId ||
+      anchor.sessionId !== before.sessionId || observation.previousAttemptFence !== before.attemptFence ||
+      anchor.attemptFence !== observation.attemptFence || anchor.attemptFence !== before.attemptFence + 1n ||
+      entry.context.executionClaim.claimOwner !== observation.executionClaim.claimOwner ||
+      entry.context.executionClaim.claimFence !== observation.executionClaim.claimFence)
+      return yield* Result.fail(new ApplicationPointMutationSessionActivationContractV1Error());
+    const executionClaim = claims.mint({ selector: { deploymentId: anchor.deploymentId, scopeId: anchor.scopeId,
+      sessionId: anchor.sessionId, attemptFence: anchor.attemptFence }, observation: observation.executionClaim, mode: "execute" });
+    const handle = Object.freeze({ [activatedPointMutationSessionBrand]: true as const });
+    registerActivatedPointMutationSessionStateV1(handle, { prepared,
+      inspection: { status: "created", anchor, executionClaim: observation.executionClaim }, executionClaim,
+      finiteEntry: { ...finite, journal, executionClaim } });
+    return handle;
+  });
+}
+
+export type ActivatedPointMutationSessionInspectionV1 =
+  PointMutationSessionActivationResultV1;
+
+const loadedPointMutationSessionAttemptBrand: unique symbol = Symbol(
+  "FlarexExecutor/LoadedPointMutationSessionAttemptV1",
+);
+
+/** Private B2a capability. WeakMap membership, not structure, is proof. */
+export interface LoadedPointMutationSessionAttemptV1 {
+  readonly [loadedPointMutationSessionAttemptBrand]: true;
+}
+
+export interface PointMutationSessionAttemptSelectorWireV1 {
+  readonly deploymentId: string;
+  readonly scopeId: string;
+  readonly sessionId: string;
+  readonly attemptFence: string;
+}
+
+export interface LoadedPointMutationSessionAttemptInspectionV1 {
+  readonly selector: PointMutationSessionAttemptSelectorV1;
+  readonly storageGeneration: FlarexDbV1StorageGeneration;
+  readonly storageGenerationFence: StorageGenerationFence;
+  /** Snapshot observed during load; consumers must revalidate current liveness. */
+  readonly snapshotToken: SnapshotToken;
+  /** Immutable schema artifact pinned by the authoritative exact attempt. */
+  readonly schemaVersionId: CatalogSchemaVersionId;
+}
+
+export class InvalidActivatedPointMutationSessionV1Error extends Error {
+  readonly _tag = "InvalidActivatedPointMutationSessionV1Error" as const;
+  readonly name = "InvalidActivatedPointMutationSessionV1Error";
+
+  constructor() {
+    super("Value is not a process-local activated point-mutation session.");
+  }
+}
+
+export class ActivatedPointMutationSessionBusyV1Error extends Error {
+  readonly _tag = "ActivatedPointMutationSessionBusyV1Error" as const;
+  readonly name = "ActivatedPointMutationSessionBusyV1Error";
+
+  constructor() {
+    super("The point-mutation attempt already has a live execution owner.");
+  }
+}
+
+export {
+  InvalidPointMutationSessionAttemptSelectorV1Error,
+  type PointMutationSessionAttemptSelectorIssueV1,
+};
+
+export class InvalidLoadedPointMutationSessionAttemptV1Error extends Error {
+  readonly _tag = "InvalidLoadedPointMutationSessionAttemptV1Error" as const;
+  readonly name = "InvalidLoadedPointMutationSessionAttemptV1Error";
+
+  constructor() {
+    super("Value is not a process-local loaded point-mutation attempt.");
+  }
+}
+
+export class PointMutationSessionAttemptLoadContractV1Error extends Error {
+  readonly _tag = "PointMutationSessionAttemptLoadContractV1Error" as const;
+  readonly name = "PointMutationSessionAttemptLoadContractV1Error";
+
+  constructor() {
+    super("Attempt-load persistence returned authority outside its selector.");
+  }
+}
+
+export {
+  PointMutationSessionAttemptTerminalizationContractV1Error,
+  type PointMutationSessionAttemptTerminalizationContractIssueV1,
+};
+
+export interface PointMutationSessionActivationV1 {
+  readonly activate: (
+    admittedStart: AdmittedPointMutationStartV1,
+  ) => Effect.Effect<
+    ActivatedPointMutationSessionV1,
+    PointMutationSessionActivationExecutionV1Error
+  >;
+}
+
+export interface ApplicationPointMutationSessionActivationV1 {
+  readonly withFiniteStart: <A, E, R>(prepared: PreparedFiniteApplicationMutationSessionActivation,
+    continueEntry: (activated: ActivatedPointMutationSessionV1) => Effect.Effect<A, E, R>) => Effect.Effect<A,
+    E | ApplicationPointMutationFiniteStartError, R>;
+  readonly activate: (
+    prepared: PreparedApplicationMutationSessionActivationV1,
+  ) => Effect.Effect<
+    ActivatedPointMutationSessionV1,
+    ApplicationPointMutationSessionActivationExecutionV1Error
+  >;
+}
+export type ApplicationPointMutationFiniteStartError = ApplicationPointMutationSessionActivationExecutionV1Error |
+  Effect.Error<ReturnType<NonNullable<PointMutationJournalV1["prepareFiniteEntry"]>>> |
+  Effect.Error<ReturnType<ApplicationMutationSessionActivationPersistenceV1["activateFiniteEffect"]>>;
+
+export class ApplicationPointMutationSessionActivationContractV1Error
+  extends Error {
+  readonly _tag = "ApplicationPointMutationSessionActivationContractV1Error" as const;
+  readonly name = "ApplicationPointMutationSessionActivationContractV1Error";
+
+  constructor() {
+    super("Application point-mutation activation input is not retainable.");
+  }
+}
+
+export type ApplicationPointMutationSessionActivationExecutionV1Error =
+  | Effect.Error<
+      ReturnType<ApplicationMutationSessionActivationPersistenceV1["activateEffect"]>
+    >
+  | InvalidVerifiedApplicationMutationGrantV1Error
+  | ApplicationPointMutationSessionActivationContractV1Error;
+
+export type PointMutationSessionActivationExecutionV1Error =
+  | InvalidAdmittedPointMutationStartV1Error
+  | PointMutationSessionActivationEffectErrorV1;
+
+export interface PointMutationSessionAttemptLoadingV1 {
+  readonly load: (
+    selector: unknown,
+  ) => Effect.Effect<
+    LoadedPointMutationSessionAttemptV1,
+    PointMutationSessionAttemptLoadingExecutionV1Error
+  >;
+}
+
+export type PointMutationSessionAttemptLoadingExecutionV1Error =
+  | InvalidPointMutationSessionAttemptSelectorV1Error
+  | PointMutationSessionAttemptLoadEffectErrorV1
+  | PointMutationSessionAttemptLoadContractV1Error;
+
+export interface PointMutationSessionAttemptTerminalizationV1 {
+  readonly abort: (
+    attempt: LoadedPointMutationSessionAttemptV1,
+    executionClaim: PointMutationExecutionScopeV1,
+  ) => Effect.Effect<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationExecutionV1Error
+  >;
+  readonly expire: (
+    selector: unknown,
+  ) => Effect.Effect<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationExecutionV1Error
+  >;
+}
+
+export type PointMutationSessionAttemptTerminalizationExecutionV1Error =
+  | InvalidLoadedPointMutationSessionAttemptV1Error
+  | InvalidPointMutationExecutionClaimV1Error
+  | InvalidPointMutationSessionAttemptSelectorV1Error
+  | PointMutationSessionAttemptTerminalizationEffectErrorV1
+  | PointMutationSessionAttemptTerminalizationContractV1Error;
+
+export function createPointMutationSessionActivationV1(
+  persistence: Pick<
+    PointMutationSessionActivationPersistenceV1,
+    "activateEffect"
+  >,
+  executionClaims: PointMutationExecutionClaimIssuerV1,
+): PointMutationSessionActivationV1 {
+  const activate: PointMutationSessionActivationV1["activate"] = Effect.fn(
+    "ExecutorPointMutationSessionActivation.activate",
+  )(function* (admittedStart) {
+    const admitted = yield* Effect.fromResult(
+      inspectAdmittedPointMutationStartResultV1(admittedStart),
+    );
+    const prepared = preparePersistenceActivation(admitted);
+    const retainedPrepared = snapshotPreparedActivation(prepared);
+    const result = yield* persistence.activateEffect(prepared);
+    const handle = Object.freeze({
+      [activatedPointMutationSessionBrand]: true as const,
+    });
+    const executionClaim = result.status === "created"
+      ? executionClaims.mint({
+          selector: Object.freeze({
+            deploymentId: result.anchor.deploymentId,
+            scopeId: result.anchor.scopeId,
+            sessionId: result.anchor.sessionId,
+            attemptFence: result.anchor.attemptFence,
+          }),
+          observation: result.executionClaim,
+          mode: "execute",
+        })
+      : undefined;
+    registerActivatedPointMutationSessionStateV1(handle, Object.freeze({
+      inspection: result,
+      prepared: retainedPrepared,
+      ...(executionClaim === undefined ? {} : { executionClaim }),
+    }));
+    return handle;
+  });
+
+  return Object.freeze({ activate });
+}
+
+export function createApplicationPointMutationSessionActivationV1(
+  persistence: ApplicationMutationSessionActivationPersistenceV1,
+  executionClaims: PointMutationExecutionClaimIssuerV1,
+  journal?: PointMutationJournalV1,
+): ApplicationPointMutationSessionActivationV1 {
+  const activate: ApplicationPointMutationSessionActivationV1["activate"] =
+    Effect.fn("ExecutorApplicationPointMutationSessionActivation.activate")(
+      function* (input) {
+        const captured = yield* capturePreparedApplicationActivation(input);
+        const result = yield* persistence.activateEffect(captured.activation);
+        const handle = Object.freeze({
+          [activatedPointMutationSessionBrand]: true as const,
+        });
+        const executionClaim = result.status === "created"
+          ? executionClaims.mint({
+              selector: Object.freeze({
+                deploymentId: result.anchor.deploymentId,
+                scopeId: result.anchor.scopeId,
+                sessionId: result.anchor.sessionId,
+                attemptFence: result.anchor.attemptFence,
+              }),
+              observation: result.executionClaim,
+              mode: "execute",
+            })
+          : undefined;
+        registerActivatedPointMutationSessionStateV1(handle, Object.freeze({
+          inspection: result,
+          prepared: captured.retained,
+          ...(executionClaim === undefined ? {} : { executionClaim }),
+        }));
+        return handle;
+      },
+    );
+
+  const withFiniteStart: ApplicationPointMutationSessionActivationV1["withFiniteStart"] =
+    Effect.fn("ExecutorApplicationPointMutationSessionActivation.withFiniteStart")(function* (input, continueEntry) {
+      if (journal?.prepareFiniteEntry === undefined || journal.openConfirmedFiniteEntry === undefined)
+        return yield* Effect.fail(new ApplicationPointMutationSessionActivationContractV1Error());
+      const original = yield* Effect.fromResult(readPreparedFiniteApplicationMutationActivationInputs(input.preparedAdmission, input.admissionContext));
+      const captured = yield* capturePreparedApplicationActivationEvidence(input, original.executionAuthority);
+      const prepareFiniteEntry = journal.prepareFiniteEntry.bind(journal);
+      return yield* Effect.scoped(Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+        const preparation = yield* prepareFiniteEntry();
+        const result = yield* restore(persistence.activateFiniteEffect({ ...input, evidence: captured.activation.evidence }, preparation));
+        const handle = Object.freeze({ [activatedPointMutationSessionBrand]: true as const });
+        const executionClaim = result.activation.status === "created" ? executionClaims.mint({
+          selector: Object.freeze({ deploymentId: result.activation.anchor.deploymentId, scopeId: result.activation.anchor.scopeId,
+            sessionId: result.activation.anchor.sessionId, attemptFence: result.activation.anchor.attemptFence }),
+          observation: result.activation.executionClaim, mode: "execute",
+        }) : undefined;
+        registerActivatedPointMutationSessionStateV1(handle, Object.freeze({ inspection: result.activation, prepared: captured.retained,
+          ...(executionClaim === undefined ? {} : { executionClaim }),
+          ...(result.entry === undefined || executionClaim === undefined ? {} : {
+            finiteEntry: Object.freeze({ capture: result.entry, preparation, journal, executionClaim }),
+          }),
+        }));
+        // Build the trusted continuation and its exact cleanup while masked;
+        // cancellation resumes only after ownership has transferred to it.
+        const continuation = continueEntry(handle);
+        return yield* restore(continuation);
+      })));
+    });
+  return Object.freeze({ activate, withFiniteStart });
+}
+
+export function createPointMutationSessionAttemptLoadingV1(
+  persistence: PointMutationSessionAttemptLoadPersistenceV1,
+): PointMutationSessionAttemptLoadingV1 {
+  const load = Effect.fn("ExecutorPointMutationSessionAttemptLoading.load")(
+    function* (
+      input: unknown,
+    ): Effect.fn.Return<
+      LoadedPointMutationSessionAttemptV1,
+      PointMutationSessionAttemptLoadingExecutionV1Error
+    > {
+      const selector = yield* Effect.fromResult(
+        decodePointMutationSessionAttemptSelectorV1Result(input),
+      );
+      const result = yield* persistence.loadEffect(selector);
+      const captured = yield* Effect.fromResult(
+        captureLoadedAttemptInspection(selector, result),
+      );
+      const handle = Object.freeze({
+        [loadedPointMutationSessionAttemptBrand]: true as const,
+      });
+      registerLoadedPointMutationSessionAttemptStateV1(
+        handle,
+        captured.inspection,
+        captured.requestKey,
+        captured.attemptFacet,
+        captured.lastMetadataSequence,
+      );
+      return handle;
+    },
+  );
+
+  return Object.freeze({ load });
+}
+
+export function createPointMutationSessionAttemptTerminalizationV1(
+  persistence: PointMutationSessionAttemptTerminalizationPersistenceV1,
+  executionClaims: PointMutationExecutionClaimAdmissionV1,
+): PointMutationSessionAttemptTerminalizationV1 {
+  const abort = Effect.fn("ExecutorPointMutationSessionTerminalization.abort")(
+    function* (
+      attempt: LoadedPointMutationSessionAttemptV1,
+      executionClaim: PointMutationExecutionScopeV1,
+    ): Effect.fn.Return<
+      PointMutationSessionAttemptTerminalizationResultV1,
+      PointMutationSessionAttemptTerminalizationExecutionV1Error
+    > {
+      const inspection = yield* Effect.fromResult(
+        inspectLoadedPointMutationSessionAttemptResultV1(attempt),
+      );
+      const claim = yield* Effect.fromResult(
+        executionClaims.inspect(executionClaim, "execute"),
+      );
+      if (!loadedAttemptMatchesClaimSelector(inspection, claim.selector)) {
+        return yield* Effect.fail(
+          new InvalidPointMutationExecutionClaimV1Error({
+            reason: "notSameFactory",
+          }),
+        );
+      }
+      const result = yield* persistence.abortEffect({
+        selector: inspection.selector,
+        expectedSnapshotToken: inspection.snapshotToken,
+        executionClaim: Object.freeze({
+          claimOwner: claim.observation.claimOwner,
+          claimFence: claim.observation.claimFence,
+        }),
+      });
+      yield* Effect.fromResult(
+        executionClaims.consume(executionClaim, "execute"),
+      );
+      return yield* Effect.fromResult(
+        capturePointMutationSessionAttemptTerminalizationResultV1(
+          inspection.selector,
+          result,
+        ),
+      );
+    },
+  );
+
+  const expire = Effect.fn(
+    "ExecutorPointMutationSessionTerminalization.expire",
+  )(function* (
+    input: unknown,
+  ): Effect.fn.Return<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationExecutionV1Error
+  > {
+    const selector = yield* Effect.fromResult(
+      decodePointMutationSessionAttemptSelectorV1Result(input),
+    );
+    const result = yield* persistence.expireEffect(selector);
+    return yield* Effect.fromResult(
+      capturePointMutationSessionAttemptTerminalizationResultV1(
+        selector,
+        result,
+      ),
+    );
+  });
+
+  return Object.freeze({ abort, expire });
+}
+
+export function inspectActivatedPointMutationSessionV1(
+  value: unknown,
+): ActivatedPointMutationSessionInspectionV1 {
+  if (typeof value !== "object" || value === null) {
+    throw new InvalidActivatedPointMutationSessionV1Error();
+  }
+  // SAFETY: registry membership, not the brand property, proves a valid
+  // handle; a non-member yields undefined and is rejected below.
+  const state = getActivatedPointMutationSessionStateV1(
+    value as ActivatedPointMutationSessionV1,
+  );
+  if (state === undefined) {
+    throw new InvalidActivatedPointMutationSessionV1Error();
+  }
+  return state.inspection;
+}
+
+export function pointMutationExecutionClaimV1FromActivated(
+  value: ActivatedPointMutationSessionV1,
+): PointMutationExecutionClaimV1 {
+  if (typeof value !== "object" || value === null) {
+    throw new InvalidActivatedPointMutationSessionV1Error();
+  }
+  const state = getActivatedPointMutationSessionStateV1(value);
+  if (state === undefined) {
+    throw new InvalidActivatedPointMutationSessionV1Error();
+  }
+  if (state.executionClaim === undefined) {
+    throw new ActivatedPointMutationSessionBusyV1Error();
+  }
+  return state.executionClaim;
+}
+
+export function pointMutationSessionAttemptSelectorV1FromActivated(
+  activated: ActivatedPointMutationSessionV1,
+): PointMutationSessionAttemptSelectorWireV1 {
+  const anchor = inspectActivatedPointMutationSessionV1(activated).anchor;
+  return Object.freeze({
+    deploymentId: anchor.deploymentId,
+    scopeId: anchor.scopeId,
+    sessionId: anchor.sessionId,
+    attemptFence: anchor.attemptFence.toString(),
+  });
+}
+
+export function inspectLoadedPointMutationSessionAttemptV1(
+  value: unknown,
+): LoadedPointMutationSessionAttemptInspectionV1 {
+  return Result.getOrThrow(
+    inspectLoadedPointMutationSessionAttemptResultV1(value),
+  );
+}
+
+function inspectLoadedPointMutationSessionAttemptResultV1(
+  value: unknown,
+): Result.Result<
+  LoadedPointMutationSessionAttemptInspectionV1,
+  InvalidLoadedPointMutationSessionAttemptV1Error
+> {
+  if (typeof value !== "object" || value === null) {
+    return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
+  }
+  // SAFETY: registry membership, not the brand property, proves a valid
+  // handle; a non-member yields undefined and is rejected below.
+  const inspection = getLoadedPointMutationSessionAttemptInspectionV1(
+    value as LoadedPointMutationSessionAttemptV1,
+  );
+  if (inspection === undefined) {
+    return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
+  }
+  return Result.succeed(inspection);
+}
+
+function loadedAttemptMatchesClaimSelector(
+  inspection: LoadedPointMutationSessionAttemptInspectionV1,
+  selector: PointMutationSessionAttemptSelectorV1,
+): boolean {
+  return selector.deploymentId === inspection.selector.deploymentId &&
+    selector.scopeId === inspection.selector.scopeId &&
+    selector.sessionId === inspection.selector.sessionId &&
+    selector.attemptFence === inspection.selector.attemptFence;
+}
+
+function captureLoadedAttemptInspection(
+  selector: PointMutationSessionAttemptSelectorV1,
+  result: PointMutationSessionAttemptLoadResultV1,
+): Result.Result<
+  Readonly<{
+    readonly inspection: LoadedPointMutationSessionAttemptInspectionV1;
+    readonly requestKey: TransactionRequestKeyV1;
+    readonly attemptFacet: PointMutationSessionAttemptLoadResultV1["attemptFacet"];
+    readonly lastMetadataSequence: PointMutationSessionAttemptLoadResultV1["lastMetadataSequence"];
+  }>,
+  PointMutationSessionAttemptLoadContractV1Error
+> {
+  return Result.try({
+    try: () => {
+      const anchor = result.anchor;
+      if (
+        result.status !== "loaded" ||
+        anchor.deploymentId !== selector.deploymentId ||
+        anchor.scopeId !== selector.scopeId ||
+        anchor.sessionId !== selector.sessionId ||
+        anchor.attemptFence !== selector.attemptFence ||
+        anchor.snapshotToken.scopeId !== selector.scopeId ||
+        (result.attemptFacet.kind !== "pristineOpen" &&
+          result.attemptFacet.kind !== "nonPristine")
+      ) {
+        throw new PointMutationSessionAttemptLoadContractV1Error();
+      }
+      const inspection = Object.freeze({
+        selector,
+        storageGeneration: FlarexDbV1StorageGenerationSchema.make(
+          anchor.storageGeneration,
+        ),
+        storageGenerationFence: StorageGenerationFenceSchema.make(
+          anchor.storageGenerationFence,
+        ),
+        snapshotToken: Object.freeze(
+          SnapshotTokenSchema.make({
+            scopeId: anchor.snapshotToken.scopeId,
+            epoch: anchor.snapshotToken.epoch,
+            commitSeq: anchor.snapshotToken.commitSeq,
+          }),
+        ),
+        schemaVersionId: decodeCatalogSchemaVersionId(
+          result.executionPin.schemaVersionId,
+        ),
+      });
+      return Object.freeze({
+        inspection,
+        requestKey: TransactionRequestKeyV1Schema.make(anchor.requestKey),
+        lastMetadataSequence: result.lastMetadataSequence,
+        attemptFacet: Object.freeze({ kind: result.attemptFacet.kind }),
+      });
+    },
+    catch: (cause) => cause instanceof
+        PointMutationSessionAttemptLoadContractV1Error
+      ? cause
+      : new PointMutationSessionAttemptLoadContractV1Error(),
+  });
+}
+
+function preparePersistenceActivation(
+  admitted: AdmittedPointMutationStartInspectionV1,
+): PreparedPointMutationSessionActivationV1 {
+  const preparedStart = admitted.preparedStart;
+  const pins = preparedStart.logicalPins;
+  const grant = admitted.verifiedGrant.evidence;
+  const payload = grant.payload;
+
+  return Object.freeze({
+    deploymentId: pins.deploymentId,
+    scopeId: pins.scopeId,
+    evidence: Object.freeze({
+      packageId: pins.packageId,
+      artifactRuntime: pins.artifactRuntime,
+      artifactId: pins.artifactId,
+      sourcePackageHash: pins.sourcePackageHash,
+      executionModule: pins.executionModule,
+      functionPath: pins.functionPath,
+      functionKind: pins.functionKind,
+      schemaVersionId: pins.schemaVersionId,
+      policyVersion: payload.policyVersion,
+      identityAccessPolicySha256:
+        transactionGrantIdentityAccessPolicySha256BytesV1FromHex(
+          payload.identityAccessPolicySha256,
+        ),
+      validatedArgsJson: preparedStart.validatedArguments.valueJson,
+      validatedArgsValueCodecVersion:
+        pins.validatedArgsValueCodecVersion,
+      validatedArgsCanonicalBytes:
+        preparedStart.validatedArguments.canonicalBytes,
+      validatedArgsSha256: preparedStart.validatedArguments.sha256,
+      authorizationGrantId: grant.authorizationGrantId,
+      authorizationGrantJson: grant.authorizationGrantJson,
+      authorizationGrantValueCodecVersion:
+        grant.authorizationGrantValueCodecVersion,
+      authorizationGrantCanonicalBytes:
+        grant.authorizationGrantCanonicalBytes,
+      authorizationGrantSha256: grant.authorizationGrantSha256,
+      authorizationRevocationEpoch: grant.authorizationRevocationEpoch,
+      authorizationGrantExpiresAt: new Date(
+        grant.authorizationGrantExpiresAt,
+      ),
+      requestKey: pins.requestKey,
+      requestSha256: preparedStart.requestEvidence.sha256,
+    }),
+  } satisfies PreparedPointMutationSessionActivationV1);
+}
+
+function snapshotPreparedActivation(
+  value: PreparedPointMutationSessionActivationV1,
+): ActivatedPointMutationSessionPreparationV1 {
+  const snapshot = structuredClone(value);
+  return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+    deploymentId: snapshot.deploymentId,
+    scopeId: snapshot.scopeId,
+    evidence: Object.freeze({ ...snapshot.evidence }),
+  });
+}
+
+const capturePreparedApplicationActivation = Effect.fn(
+  "ExecutorApplicationPointMutationSessionActivation.capture",
+)(function* (input: PreparedApplicationMutationSessionActivationV1) {
+  const captured = yield* capturePreparedApplicationActivationEvidence(input);
+  return Object.freeze({ ...captured, activation: Object.freeze({ ...captured.activation, activeSelection: input.activeSelection }) });
+});
+const capturePreparedApplicationActivationEvidence = Effect.fn(
+  "ExecutorApplicationPointMutationSessionActivation.captureEvidence",
+)(function* (input: Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection">,
+  original?: CanonicalApplicationMutationExecutionAuthorityV1) {
+  const executionAuthority = original ?? (yield* canonicalizeApplicationMutationExecutionAuthorityV1(input.evidence.executionAuthority));
+  if (original !== undefined && (!isJsonObjectFromUnknown(input.evidence.executionAuthority) ||
+    !jsonEqual(input.evidence.executionAuthority, original.authorityJson)))
+    return yield* Effect.fail(new ApplicationPointMutationSessionActivationContractV1Error());
+  const grant = yield* Effect.try({
+    try: () => inspectVerifiedApplicationMutationGrantV1(
+      input.evidence.verifiedGrant,
+    ),
+    catch: cause => cause instanceof InvalidVerifiedApplicationMutationGrantV1Error
+      ? cause
+      : new ApplicationPointMutationSessionActivationContractV1Error(),
+  });
+  const captured = yield* Effect.try({
+    try: () => structuredClone({
+      deploymentId: input.deploymentId,
+      scopeId: input.scopeId,
+      evidence: {
+        functionPath: input.evidence.functionPath,
+        functionKind: input.evidence.functionKind,
+        schemaVersionId: input.evidence.schemaVersionId,
+        policyVersion: input.evidence.policyVersion,
+        identityAccessPolicySha256:
+          input.evidence.identityAccessPolicySha256,
+        validatedArgsJson: input.evidence.validatedArgsJson,
+        validatedArgsValueCodecVersion:
+          input.evidence.validatedArgsValueCodecVersion,
+        validatedArgsCanonicalBytes:
+          input.evidence.validatedArgsCanonicalBytes,
+        validatedArgsSha256: input.evidence.validatedArgsSha256,
+        requestKey: input.evidence.requestKey,
+        requestSha256: input.evidence.requestSha256,
+      },
+    }),
+    catch: () => new ApplicationPointMutationSessionActivationContractV1Error(),
+  });
+  const activation = Object.freeze({
+    deploymentId: captured.deploymentId,
+    scopeId: captured.scopeId,
+    evidence: Object.freeze({
+      ...captured.evidence,
+      executionAuthority: executionAuthority.authority,
+      verifiedGrant: input.evidence.verifiedGrant,
+    }),
+  });
+  const retained: ActivatedApplicationMutationSessionPreparationV1 = Object.freeze({
+    executionAuthorityGeneration: "application_v1" as const,
+    deploymentId: activation.deploymentId,
+    scopeId: activation.scopeId,
+    evidence: Object.freeze({
+      functionPath: activation.evidence.functionPath,
+      functionKind: activation.evidence.functionKind,
+      schemaVersionId: activation.evidence.schemaVersionId,
+      policyVersion: activation.evidence.policyVersion,
+      identityAccessPolicySha256: structuredClone(
+        activation.evidence.identityAccessPolicySha256,
+      ),
+      validatedArgsJson: structuredClone(
+        activation.evidence.validatedArgsJson,
+      ),
+      validatedArgsValueCodecVersion:
+        activation.evidence.validatedArgsValueCodecVersion,
+      validatedArgsCanonicalBytes: structuredClone(
+        activation.evidence.validatedArgsCanonicalBytes,
+      ),
+      validatedArgsSha256: structuredClone(
+        activation.evidence.validatedArgsSha256,
+      ),
+      requestKey: activation.evidence.requestKey,
+      requestSha256: structuredClone(activation.evidence.requestSha256),
+      executionAuthority,
+      grant,
+    }),
+  });
+  return Object.freeze({ activation, retained });
+});

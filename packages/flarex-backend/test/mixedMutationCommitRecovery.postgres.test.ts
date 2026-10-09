@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { fxSystemCommits, fxSystemTransactionSessions, fxSystemSnapshotLeases,
-  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../persistence-postgres/src/schema";
-import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { createPointCommitPublisherPortV1 } from "../../persistence-postgres/src/pointCommitTransaction";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
+  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../persistence-postgres/src/database/schema";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { createPointCommitPublisherPortV1 } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
 

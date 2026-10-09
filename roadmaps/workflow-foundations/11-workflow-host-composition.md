@@ -56,7 +56,7 @@ This capability changes their assembly and adapter validation boundaries.
 | [Shared binding](../../packages/medusa-adapter/src/workflow/binding.ts) | Create the native and Medusa compatibility views over the same scoped functions. |
 | [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Business input, actual core-flow sequence, hook adaptation and event correlation. |
 | [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Foreign callbacks, borrowed runners, cancellation, pending-work detection and closure, including resource-construction failure. |
-| [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Authentic command/installations/scope admission, root accounting, settlement and recovery. |
+| [Atomic host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Authentic command/installations/scope admission, root accounting, settlement and recovery. |
 
 The Medusa reference remains the exact revision in
 [SOURCE.json](../../third_party/medusa/SOURCE.json). The pinned step handler takes

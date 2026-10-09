@@ -4,15 +4,15 @@ import { isJsonObject } from "flarex-protocol/json";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand } from
-  "../../persistence-postgres/src/atomicCommerce/commands";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
+import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { defineCommerceEventContract, type AtomicCommerceEvents } from
-  "../../persistence-postgres/src/atomicCommerce/events";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { logicalCategoryCurrencyFixture, logicalCategoryCurrencyInventory } from "./support/logical-category-currency-fixture";
 import type { LocalGraphQuery } from "../src/local-graph/model";
 

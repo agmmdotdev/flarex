@@ -1,4 +1,4 @@
-import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { createHash } from "node:crypto";
 import { and, asc, eq, getTableName, sql } from "drizzle-orm";
 import { Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
@@ -9,7 +9,7 @@ import { CommerceTransactionError } from
 import { LogicalParticipantInvocationError } from
   "@flarex/persistence-postgres/internal/logical-participant-admission";
 import { makeCommerceHost } from
-  "../../persistence-postgres/src/commerceTransaction/host";
+  "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { decodePointMutationExactRuntimeResultV1Effect } from
@@ -19,7 +19,7 @@ import { ADMITTED_FRAMEWORK_OPERATION_FORMAT_V1,
   encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { fxSystemCommitEvents } from
-  "../../persistence-postgres/src/commitEvents/schema";
+  "../../persistence-postgres/src/commit/events/schema";
 import {
   fxAppRowRevisions,
   fxSystemTransactionJournalReceipts,
@@ -28,16 +28,16 @@ import {
   fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals, fxSystemTransactionSessions,
-} from "../../persistence-postgres/src/schema";
+} from "../../persistence-postgres/src/database/schema";
 import { createMixedMutationProductFixture } from
   "./support/mixedMutationWorkerdFixture";
 import { selectorFromRelationAnchor } from
-  "../../persistence-postgres/test/pointCommitRelationTestSupport";
+  "../../persistence-postgres/test/commit/pointCommitRelationTestSupport";
 import { createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
-  "../../persistence-postgres/src/transactionSessionActivation";
+  "../../persistence-postgres/src/execution/transactionSessionActivation";
 import { type PostgresLocatedReadCommittedRunnerOptionsV1 } from
-  "../../persistence-postgres/src/postgresLocatedReadCommitted";
+  "../../persistence-postgres/src/database/postgresLocatedReadCommitted";
 
 type PostgresClient = Parameters<NonNullable<
   PostgresLocatedReadCommittedRunnerOptionsV1["afterAcquire"]>>[0];

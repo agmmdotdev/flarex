@@ -1,0 +1,223 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
+import {
+  hasPointCommitDeveloperIndexMaintenanceV1,
+  hasPointCommitUniqueConstraintEligibilityV1,
+  hasPointCommitUniqueConstraintMaintenanceV1,
+  RESOLVE_POINT_COMMIT_OUTCOME_V1,
+  type PointCommitFinishingTransitionPortV1,
+  type PointCommitOutcomeResolutionPortV1,
+  type PointCommitPublisherPortV1,
+  type PointCommitRollbackProofPortV1,
+  type PointMutationAttemptReplacementPortV1,
+  type RunningRelationConflictAttemptReplacementPortV1,
+  type RunningRelationConflictRecoveryPort,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+import type { StoredOccExecutionEvidenceLoaderV1 } from
+  "@flarex/persistence-postgres/stored-occ-execution";
+import type { PointMutationExecutionClaimLivenessV1 } from
+  "@flarex/persistence-postgres/transaction-execution-claim-liveness";
+import { Data } from "effect";
+
+import type { PointMutationExecutionClaimDispatchAcquisitionV1 } from
+  "../../claims/pointMutationExecutionClaimAcquisition";
+import type {
+  PointMutationJournalRelationConflictRecovery,
+  PointMutationJournalV1,
+} from "../../journal/pointMutationJournal";
+import type {
+  PointMutationSessionAttemptLoadingV1,
+  PointMutationSessionAttemptTerminalizationV1,
+} from "../../session/pointMutationSessionActivation";
+import type { PointMutationSessionAttemptDispositionV1 } from
+  "../../session/pointMutationSessionAttemptDisposition";
+
+export type StoredPointMutationCapabilityStageV1 =
+  | "authentication"
+  | "planning"
+  | "rollbackProof"
+  | "publisher"
+  | "finishingTransition"
+  | "executor"
+  | "attemptReplacement"
+  | "occRerunAuthorization"
+  | "occRerunExecution"
+  | "initialExecution"
+  | "crashRedispatch";
+
+export type StoredPointMutationCapabilityRequirementV1 =
+  | "commitAuthority"
+  | "pointCommitRollbackProof"
+  | "pointCommitPublisher"
+  | "pointCommitFinishing"
+  | "finishingEvidenceLoader"
+  | "pointCommitOutcomeResolution"
+  | "pointMutationAttemptReplacement"
+  | "runningRelationConflictRecovery"
+  | "pointMutationOccAttemptLoading"
+  | "pointMutationOccExecutionEvidence"
+  | "pointMutationOccJournal"
+  | "pointMutationJournalRelationConflictRecovery"
+  | "pointMutationOccTerminalization"
+  | "pointMutationOccContextFactory"
+  | "pointMutationOccRunner"
+  | "pointMutationOccLiveness"
+  | "pointMutationOccHeartbeatInterval"
+  | "pointMutationRedispatchAcquisition"
+  | "pointMutationRedispatchDisposition";
+
+export class StoredPointMutationCapabilityConfigurationV1Defect
+  extends Data.TaggedError(
+    "StoredPointMutationCapabilityConfigurationV1Defect",
+  )<{
+    readonly stage: StoredPointMutationCapabilityStageV1;
+    readonly missing: StoredPointMutationCapabilityRequirementV1;
+  }> {}
+
+export function requireStoredPointMutationCapabilityDependencyV1<Value>(
+  stage: StoredPointMutationCapabilityStageV1,
+  missing: StoredPointMutationCapabilityRequirementV1,
+  value: Value | undefined,
+): Value {
+  if (value === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing,
+    });
+  }
+  return value;
+}
+
+export function isPointCommitRollbackProofPortV1(
+  value: unknown,
+): value is PointCommitRollbackProofPortV1 {
+  return isNonArrayRecord(value) && typeof value.prove === "function";
+}
+
+export function isPointCommitPublisherPortV1(
+  value: unknown,
+): value is PointCommitPublisherPortV1 {
+  return isPointCommitRollbackProofPortV1(value) &&
+    typeof Reflect.get(value, "publish") === "function";
+}
+
+export function supportsPointCommitDeveloperIndexMaintenanceV1(
+  value: unknown,
+): boolean {
+  return hasPointCommitDeveloperIndexMaintenanceV1(value);
+}
+
+export function supportsPointCommitUniqueConstraintMaintenanceV1(
+  value: unknown,
+): boolean {
+  return hasPointCommitUniqueConstraintMaintenanceV1(value);
+}
+
+export function supportsPointCommitUniqueConstraintEligibilityV1(
+  value: unknown,
+): boolean {
+  return hasPointCommitUniqueConstraintEligibilityV1(value);
+}
+
+export function isPointCommitOutcomeResolutionPortV1(
+  value: unknown,
+): value is PointCommitOutcomeResolutionPortV1 {
+  return isNonArrayRecord(value) && typeof Reflect.get(
+    value,
+    RESOLVE_POINT_COMMIT_OUTCOME_V1,
+  ) === "function";
+}
+
+export function isPointCommitFinishingTransitionPortV1(
+  value: unknown,
+): value is PointCommitFinishingTransitionPortV1 {
+  return isNonArrayRecord(value) &&
+    typeof value.enterFinishing === "function";
+}
+
+export function isPointMutationAttemptReplacementPortV1(
+  value: unknown,
+): value is PointMutationAttemptReplacementPortV1 {
+  return isNonArrayRecord(value) && typeof value.replace === "function";
+}
+
+export function isRunningRelationConflictAttemptReplacementPortV1(
+  value: unknown,
+): value is RunningRelationConflictAttemptReplacementPortV1 {
+  return isNonArrayRecord(value) &&
+    typeof value.replaceRunningRelationConflict === "function";
+}
+
+export function isRunningRelationConflictRecoveryPort(
+  value: unknown,
+): value is RunningRelationConflictRecoveryPort {
+  return isNonArrayRecord(value) &&
+    typeof value.recoverRunningRelationConflict === "function";
+}
+
+export function isPointMutationSessionAttemptLoadingV1(
+  value: unknown,
+): value is PointMutationSessionAttemptLoadingV1 {
+  return isNonArrayRecord(value) && typeof value.load === "function";
+}
+
+export function isStoredOccExecutionEvidenceLoaderV1(
+  value: unknown,
+): value is StoredOccExecutionEvidenceLoaderV1 {
+  return isNonArrayRecord(value) && typeof value.loadEffect === "function";
+}
+
+export function isPointMutationJournalV1(
+  value: unknown,
+): value is PointMutationJournalV1 {
+  return (
+    isNonArrayRecord(value) &&
+    typeof value.openAttempt === "function" &&
+    typeof value.resolvePointTable === "function" &&
+    typeof value.runPointOperation === "function" &&
+    typeof value.resolveDeveloperIndex === "function" &&
+    typeof value.runIndexedQuery === "function" &&
+    typeof value.resolveApplicationRelationRead === "function" &&
+    typeof value.runApplicationRelationIncomingRead === "function" &&
+    typeof value.claimPersistedRelationConflictForRetry === "function" &&
+    typeof value.sealSuccessfulResult === "function"
+  );
+}
+
+export function isPointMutationJournalRelationConflictRecovery(
+  value: unknown,
+): value is PointMutationJournalRelationConflictRecovery {
+  return isNonArrayRecord(value) &&
+    typeof value.captureRecoveredRelationConflict === "function";
+}
+
+export function isPointMutationSessionAttemptTerminalizationV1(
+  value: unknown,
+): value is PointMutationSessionAttemptTerminalizationV1 {
+  return (
+    isNonArrayRecord(value) &&
+    typeof value.abort === "function" &&
+    typeof value.expire === "function"
+  );
+}
+
+export function isPointMutationExecutionClaimLivenessV1(
+  value: unknown,
+): value is PointMutationExecutionClaimLivenessV1 {
+  return isNonArrayRecord(value) &&
+    isNonArrayRecord(Reflect.get(value, "configuration")) &&
+    typeof Reflect.get(value, "renewEffect") === "function";
+}
+
+export function isPointMutationExecutionClaimDispatchAcquisitionV1(
+  value: unknown,
+): value is PointMutationExecutionClaimDispatchAcquisitionV1 {
+  return isNonArrayRecord(value) &&
+    typeof Reflect.get(value, "acquireEffect") === "function";
+}
+
+export function isPointMutationSessionAttemptDispositionV1(
+  value: unknown,
+): value is PointMutationSessionAttemptDispositionV1 {
+  return isNonArrayRecord(value) &&
+    typeof Reflect.get(value, "disposeAbortOnly") === "function";
+}

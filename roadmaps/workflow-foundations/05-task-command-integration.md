@@ -25,8 +25,8 @@ Product can provide the first commerce example without defining the native API.
 
 - [Identity](./01-execution-identity-and-replay.md) and [recovery](./02-durable-operations-and-recovery.md)
 - [Existing Application Task mutation authority](../../packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts)
-- [Commerce command contract](../../packages/persistence-postgres/src/commerceTransaction/commands.ts)
-- [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts)
+- [Commerce command contract](../../packages/persistence-postgres/src/frameworks/commerceTransaction/commands.ts)
+- [Commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts)
 - [Shared transaction ownership](../shared-transaction-core/README.md)
 
 ## Outcome To Establish

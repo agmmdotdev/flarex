@@ -64,22 +64,22 @@ into core. Runtime optimization follows this storage decision.
   reference. Both candidates use PostgreSQL; no second production engine is planned.
 - [Package boundaries](../16-package-boundaries.md) own dependency placement.
 - [Application evolution planner](../../packages/managed-schema/src/Planning.ts),
-  [Application apply/build composition](../../packages/persistence-postgres/src/applicationManagedSchemaApplication.ts),
-  [framework coordinator](../../packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts)
-  and [framework migration metadata](../../packages/persistence-postgres/src/migrationCoordination/schema.ts)
+  [Application apply/build composition](../../packages/persistence-postgres/src/application/applicationManagedSchemaApplication.ts),
+  [framework coordinator](../../packages/persistence-postgres/src/installation/migrationCoordination/freshCoordinator.ts)
+  and [framework migration metadata](../../packages/persistence-postgres/src/installation/migrationCoordination/schema.ts)
   are the starting owners for logical evolution consolidation.
-- [Schema](../../packages/persistence-postgres/src/schema.ts),
+- [Schema](../../packages/persistence-postgres/src/database/schema.ts),
   [ordered index codec](../../packages/flarex-protocol/src/ordered-index.ts),
-  [index persistence](../../packages/persistence-postgres/src/appIndexEntries.ts)
-  and [relation repository](../../packages/persistence-postgres/src/appRelationEdges/Repository.ts)
+  [index persistence](../../packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts)
+  and [relation repository](../../packages/persistence-postgres/src/storage/relations/Repository.ts)
   establish the current generic foundation.
-- [Commerce physical naming](../../packages/persistence-postgres/src/relationalSchema/physical/canonical.ts),
-  [commerce store](../../packages/persistence-postgres/src/commerceTransaction/store.ts),
-  [CMS documents](../../packages/persistence-postgres/src/cmsTransaction/documents.ts)
+- [Commerce physical naming](../../packages/persistence-postgres/src/storage/relationalSchema/physical/canonical.ts),
+  [commerce store](../../packages/persistence-postgres/src/frameworks/commerceTransaction/store.ts),
+  [CMS documents](../../packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts)
   and [Payload compilation](../../packages/payload-adapter/src/collections.ts)
   establish the current replacement gaps.
-- Existing [ordered-index database tests](../../packages/persistence-postgres/test/orderedIndexKeyCodec.postgres.test.ts),
-  [index repository tests](../../packages/persistence-postgres/test/appIndexEntries.postgres.test.ts),
+- Existing [ordered-index database tests](../../packages/persistence-postgres/test/storage/indexes/orderedIndexKeyCodec.postgres.test.ts),
+  [index repository tests](../../packages/persistence-postgres/test/storage/indexes/appIndexEntries.postgres.test.ts),
   [Payload collection contracts](../../packages/payload-adapter/test/collections.test.ts)
   and [connected Variant/Pricing workflow](../../packages/medusa-adapter/test/logical-product-variant-pricing-workflow.test.ts)
   provide regression inputs for remaining query and cutover gates.

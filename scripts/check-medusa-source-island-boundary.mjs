@@ -79,29 +79,29 @@ const preparedTargetMetadataTestImports = new Map([
 // and capture normalization to prove the real core gate runs first.
 // These edges grant no permission to adjacent tests or production consumers.
 const finiteContractTestImports = new Map([
-  ["packages/persistence-postgres/test/atomicCommerceSharedInstallation.test.ts", {
-    specifier: "../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
+  ["packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts", {
+    specifier: "../../../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
   }],
-  ["packages/persistence-postgres/test/borrowedWorkflowCapture.test.ts", {
-    specifier: "../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
+  ["packages/persistence-postgres/test/frameworks/atomicCommerce/borrowedWorkflowCapture.test.ts", {
+    specifier: "../../../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
   }],
   ["packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts", {
     specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts",
   }],
-  ["packages/persistence-postgres/test/applicationFiniteBindingCorrelation.test.ts", {
-    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  ["packages/persistence-postgres/test/application/applicationFiniteBindingCorrelation.test.ts", {
+    specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
-  ["packages/persistence-postgres/test/bindingMetadataBackfillScenario.ts", {
-    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  ["packages/persistence-postgres/test/application/bindingMetadataBackfillScenario.ts", {
+    specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
-  ["packages/persistence-postgres/test/finiteSourceCommitClosure.test.ts", {
-    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  ["packages/persistence-postgres/test/execution/finiteSourceCommitClosure.test.ts", {
+    specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
-  ["packages/persistence-postgres/test/sessionJournalMultiSource.test.ts", {
-    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  ["packages/persistence-postgres/test/execution/sessionJournalMultiSource.test.ts", {
+    specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
-  ["packages/persistence-postgres/test/appSchemaCandidateValidation.postgres.test.ts", {
-    specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  ["packages/persistence-postgres/test/storage/catalog/appSchemaCandidateValidation.postgres.test.ts", {
+    specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
 ]);
 // Existing publication measurements reuse the authored observer through these

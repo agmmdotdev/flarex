@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { Data, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
-import { structuralSql } from "../../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import { structuralSql } from "../../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 
 export class HistoricalCaptureDiagnosticError extends Data.TaggedError("HistoricalCaptureDiagnosticError")<{
   readonly stage: string; readonly cause?: unknown;

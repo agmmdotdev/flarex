@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PricingModuleService } from "@medusajs/pricing/services";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { logicalPricingTestHost } from "./support/logical-pricing-test-host";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const cleanup: Array<() => Promise<void>> = [];
 let fixture: Awaited<ReturnType<typeof logicalPricingTestHost>>;

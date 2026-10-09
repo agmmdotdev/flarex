@@ -1,6 +1,6 @@
 import { Cause, Tracer } from "effect";
 import { expect } from "vitest";
-import { PreparedMetadataEpochError } from "../../../persistence-postgres/src/preparedMetadataEpoch";
+import { PreparedMetadataEpochError } from "../../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
 
 function hasSerializationFailure(value: unknown): boolean {
   const visited = new Set<object>();

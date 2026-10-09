@@ -5,12 +5,12 @@ import { describe, expect, it } from "vitest";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { captureFiniteMetadataReservation } from "../../persistence-postgres/src/finiteMetadataReservation";
-import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
+import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { captureFiniteMetadataReservation } from "../../persistence-postgres/src/execution/finiteMetadataReservation";
+import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemTransactionSessions,
-  fxSystemTransactionJournalReceipts } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+  fxSystemTransactionJournalReceipts } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined

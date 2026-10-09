@@ -46,33 +46,33 @@ latency promise or permission to suppress a check.
 
 ## Owners and trust boundary
 
-The [journal store](../../packages/persistence-postgres/src/sessionJournalStore.ts)
+The [journal store](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
 starts a checked operation through the
-[activation kernel](../../packages/persistence-postgres/src/transactionSessionActivation.ts),
+[activation kernel](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts),
 which authenticates the exact running attempt, current scope clock, session,
 claim and journal position and flushes protected metadata guards at the
 successful transaction tail. The [participant admission
-owner](../../packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts)
+owner](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
 verifies each source in that transaction. The [source binding
-owner](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts)
+owner](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
 already shares selected binding head/candidate evidence for multiple sources
 inside one transaction and discards it at the boundary; it never licenses a
 later call.
 
-The [Application binding projection](../../packages/persistence-postgres/src/applicationBindingProjection.ts)
-calls [active selection validation](../../packages/persistence-postgres/src/applicationActivation.ts)
+The [Application binding projection](../../packages/persistence-postgres/src/application/applicationBindingProjection.ts)
+calls [active selection validation](../../packages/persistence-postgres/src/application/applicationActivation.ts)
 to read a coherent head and activation under `FOR SHARE`. The
-[active-head reader](../../packages/persistence-postgres/src/applicationActiveHeadRead.ts)
+[active-head reader](../../packages/persistence-postgres/src/application/applicationActiveHeadRead.ts)
 owns decoding, revision-schema correlation and lock semantics. The
-[readiness owner](../../packages/persistence-postgres/src/logicalStorageReadiness.ts)
+[readiness owner](../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts)
 checks selected index coverage, closed unique sets and search readiness.
-[Index coverage](../../packages/persistence-postgres/src/indexBuildStates.ts)
+[Index coverage](../../packages/persistence-postgres/src/storage/indexes/indexBuildStates.ts)
 owned a second coherent head/schema read and its transaction-bound
-`IndexCoverageContext` at approval. [Unique coverage](../../packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts)
+`IndexCoverageContext` at approval. [Unique coverage](../../packages/persistence-postgres/src/storage/unique/appUniqueConstraintSetBuildV1.ts)
 could read another such context and selected table frontiers. The
-[Application readiness owner](../../packages/persistence-postgres/src/applicationReadiness.ts)
+[Application readiness owner](../../packages/persistence-postgres/src/application/applicationReadiness.ts)
 also checks selected physical build coverage while restoring an active
-binding. The [search owner](../../packages/persistence-postgres/src/logicalSearchBuild.ts)
+binding. The [search owner](../../packages/persistence-postgres/src/storage/search/logicalSearchBuild.ts)
 retains a physical `pg_index` probe. These are real owners with distinct
 error mapping; one new universal admission cache is not proposed.
 

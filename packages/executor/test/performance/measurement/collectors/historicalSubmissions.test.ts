@@ -1,6 +1,6 @@
 import { Client, Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
-import { structuralSql } from "../../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import { structuralSql } from "../../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { createHistoricalSubmissionObserver } from "./historicalSubmissions";
 
 describe("scoped historical submissions", () => {

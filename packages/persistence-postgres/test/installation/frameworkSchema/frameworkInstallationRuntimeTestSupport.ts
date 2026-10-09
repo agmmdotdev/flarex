@@ -1,0 +1,232 @@
+import { eq, sql } from "drizzle-orm";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
+import { collectInstallationEvidence, readInstallationEvidence } from "../../../src/installation/frameworkSchema/installation/runtimeEvidence";
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
+import { Effect, Exit, Result, Scope, Tracer } from "effect";
+import { expect, vi } from "vitest";
+import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
+import * as runtimeData from "../../../src/installation/frameworkSchema/installation/runtimeData";
+import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
+import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedInstallationRuntime } from "../../../src/installation/frameworkSchema/installation/runtime";
+import { fxSystemFrameworkSchemaInstallations as installations } from "../../../src/installation/frameworkSchema/installation/schema";
+import { fxSystemFrameworkMigrationPlans as plans, fxSystemFrameworkMigrationPlanStepDependencies as dependencies,
+  fxSystemRelationalPhysicalNameAssignments as names } from "../../../src/installation/migrationCoordination/schema";
+import { makeFrameworkSchemaTarget } from "../../../src/installation/frameworkSchema/target";
+import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvailabilityHead } from "../../../src/installation/frameworkSchema/installation/canonical";
+import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../../../src/installation/frameworkSchema/installation/availabilityHistoryRepository";
+import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect } from "../../../src/installation/frameworkSchema/installation/availabilityHeadRepository";
+import { createInstallationAcceptanceFixture } from "./frameworkInstallationAcceptanceTestSupport";
+import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
+import { runEffect } from "../../support/effectTestRuntime";
+import { makePreparedHostRuntime, retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
+import * as installationLifecycle from "../../../src/installation/installationLifecycle";
+
+export async function exerciseColdInstallationAdmission(database: FlarexMetadataDatabase) {
+  const runtime = await createInstallationRuntimeFixture(database);
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  const prepare = () => runEffect(prepareInstallationRuntime(database, runtime.target, runtime.reference)
+    .pipe(Effect.provideService(Tracer.Tracer, tracer)));
+  const close = vi.spyOn(installationLifecycle, "closeInstallationAdmission");
+  try {
+    await database.execute(sql`update fx_system_installation set state='unverified'`);
+    try {
+      await expect(prepare()).rejects.toMatchObject({ reason: "invalidAuthority", cause: { reason: "inactive" } });
+      expect(spans).toContain("InstallationLifecycle.lockCurrent");
+      expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
+      expect(spans).not.toContain("InstallationRuntime.readEvidence");
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally { await database.execute(sql`update fx_system_installation set state='active'`); }
+    spans.length = 0;
+    const prepared = await prepare();
+    expect(spans.indexOf("InstallationLifecycle.lockCurrent")).toBeGreaterThanOrEqual(0);
+    expect(spans.indexOf("InstallationLifecycle.lockCurrent")).toBeLessThan(spans.indexOf("DataBindingEvidence.lockInstallation"));
+    expect(close).toHaveBeenCalledTimes(2);
+    for (const [tx] of close.mock.calls) expect(Result.isFailure(installationLifecycle.requireAdmittedTargetInstallationSchema(tx))).toBe(true);
+    expect(await runtime.accept(prepared)).toEqual(await runtime.accept());
+  } finally { close.mockRestore(); }
+}
+
+export async function exerciseMismatchedInstallationNamespace(database: FlarexMetadataDatabase) {
+  const runtime = await createInstallationRuntimePreparation(database, "uninstalled_framework_namespace");
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  await expect(runEffect(prepareInstallationRuntime(database, runtime.target, runtime.reference)
+    .pipe(Effect.provideService(Tracer.Tracer, tracer)))).rejects.toMatchObject({ reason: "invalidAuthority" });
+  expect(spans).toContain("InstallationLifecycle.lockCurrent");
+  expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
+  expect(spans).not.toContain("InstallationRuntime.readEvidence");
+}
+
+async function createInstallationRuntimePreparation(database: FlarexMetadataDatabase, schemaName?: string) {
+  const [namespace] = await database.select({ name: sql<string>`current_schema()` }).from(sql`(values (1)) as actual_namespace(value)`);
+  if (namespace === undefined) throw new Error("Missing installation runtime fixture namespace");
+  const stored = await createInstallationAcceptanceFixture(database, schemaName ?? namespace.name);
+  const identity = stored.installation.installation.frame.identity;
+  // This reader fixture does not execute migrations; preparation owns its database transaction.
+  const makeTarget = () => runEffect(makeFrameworkSchemaTarget({ database,
+    deploymentId: identity.targetNamespace.deploymentId,
+    canonicalPhysicalDatabaseIdentity: identity.targetNamespace.physicalDatabaseIdentity, physicalLocator: identity.physicalLocator }));
+  const target = await makeTarget();
+  const reference = installationBindingReference(stored);
+  const prepare = () => runEffect(prepareInstallationRuntime(database, target, reference));
+  return { stored, target, reference, prepare, makeTarget };
+}
+
+export async function createInstallationRuntimeFixture(database: FlarexMetadataDatabase) {
+  const fixture = await createInstallationRuntimePreparation(database);
+  const prepared = await fixture.prepare();
+  const accept = (token = prepared) => database.transaction(tx => runEffect(acceptPreparedInstallation(token, fixture.target, fixture.reference, tx)));
+  return { ...fixture, prepared, accept };
+}
+
+export async function exerciseInstallationRuntime(database: FlarexMetadataDatabase) {
+  const fixture = await createInstallationRuntimeFixture(database);
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  const accepted = await database.transaction(tx => runEffect(acceptPreparedInstallation(fixture.prepared, fixture.target, fixture.reference, tx)
+    .pipe(Effect.provideService(Tracer.Tracer, tracer))));
+  // The construction allocation must cross the native transaction bridge:
+  // without its real charge this one-byte host incorrectly prepares successfully.
+  await expect(runEffect(Effect.scoped(Effect.gen(function* () {
+    const owner = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 1 });
+    return yield* retainPreparedHost(owner, prepareInstallationRuntime(database, fixture.target, fixture.reference));
+  })))).rejects.toMatchObject({ reason: "resourceFailure", cause: { reason: "capacityExceeded" } });
+  const retainedScope = await runEffect(Scope.make());
+  try {
+    const owner = await runEffect(makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 })
+      .pipe(Scope.provide(retainedScope)));
+    const retained = await runEffect(retainPreparedHost(owner, prepareInstallationRuntime(database, fixture.target, fixture.reference)));
+    const escaped = await runEffect(retained.use(value => Effect.succeed(value)));
+    expect((await runEffect(Effect.fromResult(retained.readUsage()))).chargedBytes).toBeGreaterThan(0);
+    expect(await fixture.accept(escaped)).toEqual(accepted);
+    await runEffect(retained.close);
+    await expect(fixture.accept(escaped)).rejects.toMatchObject({ reason: "invalidAuthority" });
+    expect(await fixture.accept()).toBe(accepted);
+  } finally { await runEffect(Scope.close(retainedScope, Exit.succeed(undefined))); }
+  // Inject at the pure runtime-data conversion boundary: data alone exactly fits
+  // the old budget, but the complete retained payload must refuse construction.
+  const maximum = 8_388_608;
+  const base = { ...accepted, physicalLayoutCanonicalJson: "" };
+  const measured = measureCanonicalJsonUtf8Bytes(base, maximum);
+  if (measured.kind !== "success") throw new Error("Unexpected fixture size");
+  const large = { ...base, physicalLayoutCanonicalJson: "x".repeat(maximum - measured.bytes) };
+  expect(measureCanonicalJsonUtf8Bytes(large, maximum)).toEqual({ kind: "success", bytes: maximum });
+  const conversion = vi.spyOn(runtimeData, "installationRuntimeData").mockReturnValue(large);
+  try {
+    await expect(fixture.prepare()).rejects.toMatchObject({ reason: "resourceFailure" });
+    expect(await fixture.accept()).toEqual(accepted);
+  } finally { conversion.mockRestore(); }
+  expect(await fixture.accept(await fixture.prepare())).toEqual(accepted);
+  expect(accepted.readiness).toEqual(fixture.stored.readiness.readiness.frame);
+  expect(Object.keys(accepted).sort()).toEqual(["admissionProfile", "physicalLayout", "physicalLayoutCanonicalJson", "planVersion", "readiness"]);
+  expect(accepted.physicalLayout).toEqual(fixture.stored.installation.plan.plan.physicalLayout.frame);
+  expect(accepted.planVersion).toBe(1);
+  expect(Object.isFrozen(accepted.physicalLayout.tables)).toBe(true);
+  expect(spans.filter(name => name === "InstallationRuntime.readEvidence")).toHaveLength(1);
+  expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
+  expect(spans).not.toContain("FrameworkMigrationPlanRepository.loadSidecars");
+  expect(await fixture.accept()).toBe(accepted);
+  const independent = await fixture.prepare();
+  expect(independent).not.toBe(fixture.prepared);
+  expect(await fixture.accept(independent)).toEqual(accepted);
+  const evidence = await database.transaction(tx => runEffect(Effect.gen(function* () {
+    const coordinates = yield* collectInstallationEvidence(tx, fixture.stored);
+    return yield* readInstallationEvidence(tx, coordinates);
+  })));
+  const missingReceipts = Object.fromEntries(Object.entries(evidence).filter(([key]) => key !== "receipts"));
+  for (const rows of [[], [{}], [missingReceipts], [{ ...evidence, receipts: "invalid" }],
+    [{ ...evidence, unexpected: "0".repeat(64) }], [evidence, evidence]]) {
+    await expect(database.transaction(tx => runEffect(acceptPreparedInstallation(
+      fixture.prepared, fixture.target, fixture.reference, evidenceResultTransaction(tx, rows),
+    )))).rejects.toMatchObject({ reason: "storedCorruption" });
+  }
+  // Deliberately forged capability at the public boundary under test.
+  await expect(fixture.accept(Object.freeze({}) as PreparedInstallationRuntime)).rejects.toMatchObject({ reason: "invalidAuthority" });
+  await expect(database.transaction(tx => runEffect(acceptPreparedInstallation(fixture.prepared, fixture.target,
+    { ...fixture.reference, availabilitySequence: "2" }, tx)))).rejects.toMatchObject({ reason: "invalidAuthority" });
+  const otherTarget = await fixture.makeTarget();
+  await expect(database.transaction(tx => runEffect(acceptPreparedInstallation(fixture.prepared, otherTarget,
+    fixture.reference, tx)))).rejects.toMatchObject({ reason: "invalidAuthority" });
+
+  const planId = fixture.stored.installation.plan.storageId;
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan"], tx =>
+    tx.update(plans).set({ locatorDatabaseKey: "changed-after-preparation" }).where(eq(plans.planStorageId, planId)));
+  await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
+  await expect(fixture.prepare()).rejects.toMatchObject({ reason: "storedCorruption" });
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan"], tx =>
+    tx.update(plans).set({ locatorDatabaseKey: fixture.reference.installation.physicalLocator.databaseKey }).where(eq(plans.planStorageId, planId)));
+  expect(await fixture.accept()).toEqual(accepted);
+
+  const bytes = new TextEncoder().encode(fixture.stored.installation.installation.canonicalJson);
+  const changed = bytes.slice(); changed[0] = 32;
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_schema_installation"], tx =>
+    tx.update(installations).set({ canonicalBytes: changed }).where(eq(installations.installationStorageId, fixture.stored.installation.storageId)));
+  await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_schema_installation"], tx =>
+    tx.update(installations).set({ canonicalBytes: bytes }).where(eq(installations.installationStorageId, fixture.stored.installation.storageId)));
+
+  const assignment = (await database.select().from(names).where(eq(names.collisionStorageId, fixture.stored.installation.collision.storageId)).limit(1))[0];
+  if (assignment === undefined) throw new Error("Missing physical name assignment fixture");
+  const alteredName = Uint8Array.from(assignment.canonicalBytes); alteredName[0] = 32;
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_relational_physical_name_assignment"], tx =>
+    tx.update(names).set({ canonicalBytes: alteredName }).where(eq(names.assignmentStorageId, assignment.assignmentStorageId)));
+  await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_relational_physical_name_assignment"], tx =>
+    tx.update(names).set({ canonicalBytes: assignment.canonicalBytes }).where(eq(names.assignmentStorageId, assignment.assignmentStorageId)));
+
+  const sidecars = await database.select().from(dependencies).where(eq(dependencies.planStorageId, planId));
+  expect(sidecars.length).toBeGreaterThan(0);
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], tx =>
+    tx.delete(dependencies).where(eq(dependencies.planStorageId, planId)));
+  await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], tx =>
+    tx.insert(dependencies).values(sidecars));
+  expect(await fixture.accept()).toEqual(accepted);
+  const first = sidecars[0];
+  if (first === undefined) throw new Error("Missing dependency fixture");
+  const sameSource = sidecars.filter(row => row.sourceStepId === first.sourceStepId);
+  const extra = sidecars.find(row => row.dependencyStepId !== first.sourceStepId &&
+    !sameSource.some(existing => existing.dependencyStepId === row.dependencyStepId));
+  if (extra === undefined) throw new Error("Missing extra-dependency fixture candidate");
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], tx =>
+    tx.insert(dependencies).values({ ...extra, sourceStepId: first.sourceStepId,
+      dependencyOrdinal: Math.max(...sameSource.map(row => row.dependencyOrdinal)) + 1 }));
+  await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], async tx => {
+    await tx.delete(dependencies).where(eq(dependencies.planStorageId, planId));
+    await tx.insert(dependencies).values(sidecars);
+  });
+  expect(await fixture.accept()).toEqual(accepted);
+
+  await database.transaction(tx => runEffect(Effect.gen(function* () {
+    const history = yield* captureFrameworkSchemaAvailabilityHistory({ readiness: fixture.stored.readiness.readiness,
+      previous: fixture.stored.history.history, status: "withdrawn", reasonSha256: "f".repeat(64), recordedAt: new Date().toISOString() });
+    const stored = yield* appendFrameworkSchemaAvailabilityHistoryInTransactionEffect(tx, fixture.stored.readiness, fixture.stored.history, history);
+    const head = yield* captureFrameworkSchemaAvailabilityHead(stored.history);
+    yield* compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(tx, fixture.stored, stored, head);
+  })));
+  await expect(fixture.accept()).rejects.toMatchObject({ reason: "unavailableInstallation" });
+  await expect(fixture.prepare()).rejects.toMatchObject({ reason: "unavailableInstallation" });
+}
+
+/** Fault injection at the foreign driver's result boundary. All other queries,
+ * including the accepting head lock, use the real transaction. */
+function evidenceResultTransaction(
+  transaction: FlarexMetadataTransaction,
+  rows: readonly unknown[],
+): FlarexMetadataTransaction {
+  return new Proxy(transaction, {
+    get(target, property, receiver) {
+      const member = Reflect.get(target, property, receiver);
+      if (property !== "select" || typeof member !== "function") return member;
+      return (selection: unknown) => {
+        if (isNonArrayRecord(selection) && Object.hasOwn(selection, "receiptDependencies")) {
+          return { from: () => Promise.resolve(rows) };
+        }
+        return Reflect.apply(member, target, [selection]);
+      };
+    },
+  });
+}

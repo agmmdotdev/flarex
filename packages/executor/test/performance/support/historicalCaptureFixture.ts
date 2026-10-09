@@ -8,13 +8,13 @@ import { makeBorrowedLogicalAttempt } from "@flarex/persistence-postgres/interna
 import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { LogicalParticipantInvocationError } from "@flarex/persistence-postgres/internal/logical-participant-admission";
 import type { FiniteStorageCaptureEnvelopes, FiniteStorageCaptureError,
-  FiniteStorageCaptureOperation } from "../../../../persistence-postgres/src/finiteStorageCapture";
-import type { LogicalFiniteStorageCapture, LogicalStorageReadDemand } from "../../../../persistence-postgres/src/logicalDocuments/model";
-import type { FiniteSessionJournalParticipantSelection } from "../../../../persistence-postgres/src/sessionJournalStore";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
+  FiniteStorageCaptureOperation } from "../../../../persistence-postgres/src/execution/finiteStorageCapture";
+import type { LogicalFiniteStorageCapture, LogicalStorageReadDemand } from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/model";
+import type { FiniteSessionJournalParticipantSelection } from "../../../../persistence-postgres/src/execution/sessionJournalStore";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
 import { inspectLogicalParticipantAttemptAdmission,
-  projectFiniteStorageCaptureFailure } from "../../../../persistence-postgres/src/logicalDocuments/participantAdmission";
-import { projectCommerceRequestFailure } from "../../../../persistence-postgres/src/commerceTransaction/request";
+  projectFiniteStorageCaptureFailure } from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
+import { projectCommerceRequestFailure } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/request";
 import { findProducts } from "../../../../medusa-adapter/src/product-query";
 import type { ProductRuntimeMetadata } from "../../../../medusa-adapter/src/product-runtime-metadata";
 import { createMixedMutationProductFixture } from "./mixedMutationProductFixture";

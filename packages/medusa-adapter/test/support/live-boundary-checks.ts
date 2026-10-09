@@ -4,8 +4,8 @@ import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/com
 import { commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
 import { withCurrencyService } from "../../src/currency-service";
 import { captureCurrencyInput } from "../../src/currency-values";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import { runEffect } from "../../../persistence-postgres/test/effectTestRuntime";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { runEffect } from "../../../persistence-postgres/test/support/effectTestRuntime";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 

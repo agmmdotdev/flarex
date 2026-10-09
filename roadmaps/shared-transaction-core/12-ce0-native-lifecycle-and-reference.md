@@ -37,7 +37,7 @@ independently measured percentiles to derive request phases.
 
 ## Explicit SQL Reference Profile
 
-The [reference](../../packages/persistence-postgres/test/ce0RowInsertReference.ts)
+The [reference](../../packages/persistence-postgres/test/performance/ce0RowInsertReference.ts)
 compares the existing prepared row-append owner with bounded SQL batches against the same
 `fx_app_row_rev`, `fx_app_row_current` and scope-clock tables. Both use the existing
 located READ COMMITTED runner for acquisition, settlement and release. Canonical

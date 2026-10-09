@@ -3,12 +3,12 @@ import { Effect, Result, Schema } from "effect";
 import type { ModuleJoinerConfig } from "@medusajs/framework/types";
 import { normalizeRelationalSchema, type RelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
-import { makeCommerceHost, type LogicalCommerceHostInput } from "../../persistence-postgres/src/commerceTransaction/host";
-import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
-import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
+import { makeCommerceHost, type LogicalCommerceHostInput } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureLinkMetadata } from "../src/link-schema";
@@ -20,7 +20,7 @@ import { commerceDecoder } from "../src/commerce-decoder";
 import { lowerDmlSchema } from "../src/schema/lower";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
-import { fxAppRowCurrent, fxControlTables } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxControlTables } from "../../persistence-postgres/src/database/schema";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 
 const definition = { serviceName: "AssetGroupLink", isLink: true,

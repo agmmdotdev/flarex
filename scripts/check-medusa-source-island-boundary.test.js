@@ -339,10 +339,12 @@ describe("Medusa source-island boundary checker", () => {
         specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" },
       { importer: "packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts",
         specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts" },
-      ...["applicationFiniteBindingCorrelation.test.ts", "bindingMetadataBackfillScenario.ts", "finiteSourceCommitClosure.test.ts",
-        "appSchemaCandidateValidation.postgres.test.ts", "sessionJournalMultiSource.test.ts"]
+      ...["application/applicationFiniteBindingCorrelation.test.ts", "application/bindingMetadataBackfillScenario.ts", "execution/finiteSourceCommitClosure.test.ts",
+        "storage/catalog/appSchemaCandidateValidation.postgres.test.ts", "execution/sessionJournalMultiSource.test.ts"]
         .map(file => ({ importer: `packages/persistence-postgres/test/${file}`,
-          specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" })),
+          specifier: posix.relative(posix.dirname(`packages/persistence-postgres/test/${file}`),
+            "packages/medusa-adapter/test/support/logical-currency-fixture.ts").replace(/\.ts$/u, ""),
+          target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" })),
       ...["logical-currency-fixture", "logical-product-fixture"].map(fixture => ({
         importer: "packages/executor/test/performance/support/productFlows.ts",
         specifier: `../../../../medusa-adapter/test/support/${fixture}`, target: `packages/medusa-adapter/test/support/${fixture}.ts`,
@@ -550,10 +552,10 @@ describe("Medusa source-island boundary checker", () => {
       packages: [{ path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [] }],
       files: [{ target, targetSha256: "pinned", classification: "authored" }],
     };
-    const specifier = "../../medusa-adapter/src/workflow-value";
+    const specifier = "../../../../medusa-adapter/src/workflow-value";
     const text = `import { captureWorkflowValue } from ${JSON.stringify(specifier)};`;
-    for (const relativePath of ["packages/persistence-postgres/test/atomicCommerceSharedInstallation.test.ts",
-      "packages/persistence-postgres/test/borrowedWorkflowCapture.test.ts"]) {
+    for (const relativePath of ["packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts",
+      "packages/persistence-postgres/test/frameworks/atomicCommerce/borrowedWorkflowCapture.test.ts"]) {
       const input = { ...emptyInput, currencyPromotion: promotion, rootSources: [{ relativePath, text }] };
       expect(analyzeMedusaSourceIslandBoundary(input).errors).toEqual([]);
       expect(analyzeMedusaSourceIslandBoundary({ ...input,
@@ -565,8 +567,9 @@ describe("Medusa source-island boundary checker", () => {
     }
     for (const relativePath of ["packages/persistence-postgres/test/adjacentCapture.test.ts",
       "packages/persistence-postgres/src/workflowCapture.ts"]) {
+      const adjacentSpecifier = posix.relative(posix.dirname(relativePath), target).replace(/\.ts$/u, "");
       expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
-        rootSources: [{ relativePath, text }],
+        rootSources: [{ relativePath, text: `import { captureWorkflowValue } from ${JSON.stringify(adjacentSpecifier)};` }],
       }).errors.length).toBeGreaterThan(0);
     }
   });

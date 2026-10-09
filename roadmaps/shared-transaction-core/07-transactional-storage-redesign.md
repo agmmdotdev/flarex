@@ -137,9 +137,9 @@ meaning remains accurate; renaming alone is not an optimization.
 
 ### Application Value Representation
 
-The [row DDL](../../packages/persistence-postgres/src/schema.ts) stores canonical
+The [row DDL](../../packages/persistence-postgres/src/database/schema.ts) stores canonical
 Value Codec V1 bytes and SHA-256 for each live revision. The
-[row reader](../../packages/persistence-postgres/src/appRows.ts) and developer
+[row reader](../../packages/persistence-postgres/src/storage/documents/appRows.ts) and developer
 index builder use the existing protocol owner's document-evidence decoder. It
 parses, recanonicalizes, and checks exact bytes, digest, document profile, `_id`
 and immutable `_creationTime`, then returns the existing decoded canonical value.
@@ -167,7 +167,7 @@ This replacement does not synthesize a
 hybrid old-analyzer/new-storage migration profile. Current C07, native mutation,
 relational and cooking consumers exercise the selected row contract.
 
-The standalone [representation experiment](../../packages/persistence-postgres/test/rowRepresentationBenchmark.ts)
+The standalone [representation experiment](../../packages/persistence-postgres/test/performance/rowRepresentationBenchmark.ts)
 compares JSONB+bytes+digest, bytes+digest and JSONB+digest with identical cohorts,
 three row revisions, tombstones, primary indexes and exact current-pointer FKs.
 It measures point, batch, current and append/CAS shapes, including codec and
@@ -198,10 +198,10 @@ making those claims. Compression and TOAST prevent a fixed percentage guarantee.
 
 ### Membership History Instead Of Row-Revision Mirroring
 
-The [materialization owner](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
+The [materialization owner](../../packages/persistence-postgres/src/storage/materialization/materialization.ts)
 compares prior and final keys and authenticates the latest membership's complete
 key/spec/digest evidence and exact current pointer before omitting unchanged
-writes. The [append owner](../../packages/persistence-postgres/src/appIndexEntries.ts)
+writes. The [append owner](../../packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts)
 accepts only monotonic live/absent transitions, checks the stable row identity,
 and retains the existing current-scope epoch fence for ordinary writes. Historical
 builders authenticate exact row/fact epochs at their existing boundary.
@@ -221,8 +221,8 @@ Implemented rules:
   range dependencies for consumed membership intervals. A non-key update to a
   returned row must still conflict through the point dependency.
 
-The existing [query reader](../../packages/persistence-postgres/src/applicationQuerySnapshot.ts)
-and [mutation journal reader](../../packages/persistence-postgres/src/sessionJournalStore.ts)
+The existing [query reader](../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts)
+and [mutation journal reader](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
 already hydrate rows independently at their snapshots. Mutation queries already
 record returned-row point dependencies. Those are reuse points, not permission
 to omit phantom, empty-range, pagination, or overlay proofs.
@@ -313,7 +313,7 @@ latest-body commit-sequence fields whose role is to mirror the owning revision.
 The claim persists while the same row owns the same key; a body-only update does
 not update it. No unique-history table is added.
 
-This is coupled to the [claim owner](../../packages/persistence-postgres/src/appUniqueKeys.ts)
+This is coupled to the [claim owner](../../packages/persistence-postgres/src/storage/unique/appUniqueKeys.ts)
 and materializer: current same-key `advance` checks the previous row sequence,
 and builders validate the same provenance. Replace those checks with exact
 key/row ownership. Keep batched releases before claims for swaps, deletion and
@@ -392,7 +392,7 @@ commit history and is not deleted. The
 [journal domain](../35-commit-compiler-and-session-intent.md) separately records
 the hosted bounded-reclamation requirement.
 
-[Floor observation](../../packages/persistence-postgres/src/retainedHistoryFloorObservation.ts)
+[Floor observation](../../packages/persistence-postgres/src/storage/history/retainedHistoryFloorObservation.ts)
 filters `lease_expires_at > captured_database_time` before its bounded directory
 read. Existing expiry indexes support this filtered read, including the
 `(scope, expiry, session)` index matching its scoped order.
@@ -499,7 +499,7 @@ transaction utilities respect an already supplied request transaction ID.
 The adapter calls real Local API operations through
 [operations](../../packages/payload-adapter/src/operations.ts), then
 [adapter methods](../../packages/payload-adapter/src/adapter.ts) call
-[CMS capabilities](../../packages/persistence-postgres/src/cmsAdapter.ts).
+[CMS capabilities](../../packages/persistence-postgres/src/frameworks/cmsTransaction/cmsAdapter.ts).
 
 Medusa uses promoted workspace packages from the fork provenance in
 [SOURCE.json](../../third_party/medusa/SOURCE.json), not an independently chosen
@@ -574,18 +574,18 @@ transaction/storage change. A source count or a passing unit test does not prove
 database behavior. Start from these existing witnesses, preserving their
 intended semantics while revising assertions for deliberately replaced storage:
 
-- [Native commit](../../packages/persistence-postgres/test/pointCommitTransaction.postgres.test.ts):
+- [Native commit](../../packages/persistence-postgres/test/commit/pointCommitTransaction.postgres.test.ts):
   zero-row success, multi-row rollback, unchanged/moved keys, unique conflicts,
   same-scope serialization, duplicate requests, late failure, uncertain COMMIT.
-- [Index snapshots](../../packages/persistence-postgres/src/applicationQuerySnapshot.ts),
-  [journal queries](../../packages/persistence-postgres/test/sessionJournalStore.postgres.test.ts),
-  and [index compaction](../../packages/persistence-postgres/test/retainedIndexHistoryCompaction.postgres.test.ts):
+- [Index snapshots](../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts),
+  [journal queries](../../packages/persistence-postgres/test/execution/sessionJournalStore.postgres.test.ts),
+  and [index compaction](../../packages/persistence-postgres/test/storage/history/retainedIndexHistoryCompaction.postgres.test.ts):
   returned-row dependencies, phantoms, pagination, overlay and retained anchors.
-- [Wake claims](../../packages/persistence-postgres/test/commitWakeOutbox.postgres.test.ts)
-  and [recovery](../../packages/persistence-postgres/test/requestRecovery.test.ts):
+- [Wake claims](../../packages/persistence-postgres/test/commit/commitWakeOutbox.postgres.test.ts)
+  and [recovery](../../packages/persistence-postgres/test/database/requestRecovery.test.ts):
   exact claims, expiry, old epochs, compaction races, complete causes, no callback replay.
-- [CMS](../../packages/persistence-postgres/test/cmsHostScenario.ts),
-  [Payload preference publication](../../packages/persistence-postgres/test/payloadPreferencePublicationScenario.ts),
+- [CMS](../../packages/persistence-postgres/test/frameworks/cmsTransaction/cmsHostScenario.ts),
+  [Payload preference publication](../../packages/persistence-postgres/test/frameworks/payloadPreferences/payloadPreferencePublicationScenario.ts),
   [commerce publication](../../packages/persistence-postgres/test/commercePublicationScenario.ts),
   and [named composition](./05-named-command-preflight.md): connected late rollback,
   same-request visibility, net-zero writes and shared finalization.
@@ -593,8 +593,8 @@ intended semantics while revising assertions for deliberately replaced storage:
   [Medusa admitted tests](../../packages/medusa-adapter/test): preserve native
   lifecycle/result assertions. Include the affected Product and stored-link
   consumers when changing their shared publication/recovery path.
-- [Claim liveness](../../packages/persistence-postgres/test/transactionExecutionClaimLiveness.postgres.test.ts)
-  and [retained-floor observation](../../packages/persistence-postgres/test/retainedHistoryFloorObservation.test.ts):
+- [Claim liveness](../../packages/persistence-postgres/test/execution/claims/transactionExecutionClaimLiveness.postgres.test.ts)
+  and [retained-floor observation](../../packages/persistence-postgres/test/storage/history/retainedHistoryFloorObservation.test.ts):
   renewal, takeover, expiry, terminal evidence and progress under backlog.
 
 Batch witnesses include 0/1/499/500/501/1000 app facts, within the caller's admitted
@@ -624,14 +624,14 @@ selected deletion; agree latency/storage acceptance margins before measurement.
   current live-key updates and invalidation evidence, including unchanged keys.
 - [Convex write set](../../../../crates/database/src/writes.rs): final per-document
   write set with cumulative attempted-write accounting.
-- [Shared publisher](../../packages/persistence-postgres/src/commitPublication/publication.ts),
-  [Application materializer](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts),
-  [CMS participant](../../packages/persistence-postgres/src/cmsTransaction/publication.ts),
-  [commerce participant](../../packages/persistence-postgres/src/commerceTransaction/publication.ts).
-- [Journal store](../../packages/persistence-postgres/src/sessionJournalStore.ts),
-  [session owner](../../packages/persistence-postgres/src/transactionSessionActivation.ts),
-  [stored evidence](../../packages/persistence-postgres/src/storedAttemptEvidence.ts),
-  [independent verifier](../../packages/executor/src/storedAttemptAuthentication/authenticationVerification.ts).
+- [Shared publisher](../../packages/persistence-postgres/src/commit/publication/publication.ts),
+  [Application materializer](../../packages/persistence-postgres/src/storage/materialization/materialization.ts),
+  [CMS participant](../../packages/persistence-postgres/src/frameworks/cmsTransaction/publication.ts),
+  [commerce participant](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts).
+- [Journal store](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts),
+  [session owner](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts),
+  [stored evidence](../../packages/persistence-postgres/src/execution/storedAttemptEvidence.ts),
+  [independent verifier](../../packages/executor/src/mutation/authentication/stored/authenticationVerification.ts).
 
 This proposal closes the design inventory, not optimization or deployment
 readiness. Implementation is complete only when the selected obsolete state and

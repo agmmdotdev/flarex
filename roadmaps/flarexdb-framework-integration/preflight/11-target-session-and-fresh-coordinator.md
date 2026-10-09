@@ -109,7 +109,7 @@ copying the PGlite lifecycle.
 ## Completed Slice 1 Functional Evidence
 
 The focused
-`packages/persistence-postgres/test/frameworkCoordinatorTargetSession.test.ts`
+`packages/persistence-postgres/test/installation/frameworkSchema/frameworkCoordinatorTargetSession.test.ts`
 PGlite lane covers, without exporting the implementation:
 
 - opaque frozen target snapshots and sequential plus concurrently competing
@@ -184,7 +184,7 @@ they do not admit caller SQL.
 ## Completed Slice 2 PGlite Functional Evidence
 
 The focused
-`packages/persistence-postgres/test/frameworkCoordinatorRelationalStructuralRunner.test.ts`
+`packages/persistence-postgres/test/installation/frameworkSchema/frameworkCoordinatorRelationalStructuralRunner.test.ts`
 lane passes all fifteen tests and proves:
 
 - one exact seven-step fresh synthetic plan in deterministic order: two table
@@ -500,10 +500,10 @@ is required by this new private native test capability.
   reviews. Missing native database access leaves native acceptance incomplete.
 
 The test/code anchors are under `packages/persistence-postgres/src/` at the
-owners above, plus `test/frameworkCoordinatorTargetSession.test.ts`,
-`test/frameworkCoordinatorRelationalStructuralRunner.test.ts`,
-`test/frameworkCoordinatorFreshCoordinator.test.ts`, and
-`test/catalogControlSession.postgres.test.ts`. PostgreSQL's
+owners above, plus `test/installation/frameworkSchema/frameworkCoordinatorTargetSession.test.ts`,
+`test/installation/frameworkSchema/frameworkCoordinatorRelationalStructuralRunner.test.ts`,
+`test/installation/frameworkSchema/frameworkCoordinatorFreshCoordinator.test.ts`, and
+`test/database/catalogControlSession.postgres.test.ts`. PostgreSQL's
 [explicit-locking contract](https://www.postgresql.org/docs/18/explicit-locking.html)
 governs row-lock and deadlock expectations.
 

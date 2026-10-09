@@ -1,11 +1,11 @@
 import { expect } from "vitest";
 import { count } from "drizzle-orm";
-import { fxSystemCommits } from "../../../../persistence-postgres/src/schema";
+import { fxSystemCommits } from "../../../../persistence-postgres/src/database/schema";
 import { prepareStandaloneProductLaunchPerformanceSeries } from "../../../../medusa-adapter/test/support/product-launch-performance-fixture";
 import type { CorePerformanceScenario } from "./scenario";
 import { verifyProductLaunchWorkflow } from "./workflowResult";
 import type { MixedMutationEffectDiagnostics } from "./measurement";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
 
 export async function prepareStandaloneMedusaScenario(driver: "postgres" | "pglite" = "postgres",
   postgresEndpoints?: PostgresFixtureEndpoints): Promise<CorePerformanceScenario> {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import type { PostgresFixtureEndpoints } from "../../../persistence-postgres/test/postgresHelpers";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
+import type { PostgresFixtureEndpoints } from "../../../persistence-postgres/test/support/postgresHelpers";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { prepareProductLaunchWorkflow } from "../../src/product-launch-workflow";
 import { prepareAtomicWorkflowHost } from "../../src/workflow/host";
 import { productVariantPricingResources } from "../../src/workflow/policy";

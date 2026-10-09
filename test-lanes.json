@@ -1,124 +1,124 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
-    "framework-payload-joins-pglite": ["test/payloadJoin.test.ts", "test/payloadJoinValues.test.ts"],
-    "framework-payload-joins-postgres": ["test/payloadJoin.postgres.test.ts"],
-    "framework-payload-many-pglite": ["test/payloadMany.test.ts", "test/payloadManyUpgrade.test.ts", "test/payloadManyValues.test.ts"],
-    "framework-payload-many-postgres": ["test/payloadMany.postgres.test.ts"],
-    "framework-payload-population-postgres": ["test/payloadPopulation.postgres.test.ts"],
-    "framework-payload-population-pglite": ["test/payloadPopulation.test.ts", "test/payloadPopulationValues.test.ts"],
-    "framework-payload-relations-postgres": ["test/payloadRelation.postgres.test.ts"],
-    "framework-payload-relations-pglite": ["test/payloadRelation.test.ts", "test/payloadRelationValues.test.ts"],
-    "framework-payload-preferences-postgres": ["test/payloadPreferenceBinding.postgres.test.ts"],
-    "framework-payload-preferences-pglite": ["test/payloadPreferenceBinding.test.ts", "test/payloadPreferenceCleanupValues.test.ts"],
-    "framework-payload-scalar-postgres": ["test/payloadScalar.postgres.test.ts"],
-    "framework-payload-scalar-pglite": ["test/payloadScalarProfile.test.ts", "test/payloadScalar.test.ts"],
-    "framework-cms-pglite": ["test/cmsRequestLifetime.test.ts", "test/cmsHost.test.ts"],
-    "framework-cms-postgres": ["test/cmsHost.postgres.test.ts"],
+    "framework-payload-joins-pglite": ["test/integration/payload/payloadJoin.test.ts", "test/integration/payload/payloadJoinValues.test.ts"],
+    "framework-payload-joins-postgres": ["test/integration/payload/payloadJoin.postgres.test.ts"],
+    "framework-payload-many-pglite": ["test/integration/payload/payloadMany.test.ts", "test/integration/payload/payloadManyUpgrade.test.ts", "test/integration/payload/payloadManyValues.test.ts"],
+    "framework-payload-many-postgres": ["test/integration/payload/payloadMany.postgres.test.ts"],
+    "framework-payload-population-postgres": ["test/integration/payload/payloadPopulation.postgres.test.ts"],
+    "framework-payload-population-pglite": ["test/integration/payload/payloadPopulation.test.ts", "test/integration/payload/payloadPopulationValues.test.ts"],
+    "framework-payload-relations-postgres": ["test/integration/payload/payloadRelation.postgres.test.ts"],
+    "framework-payload-relations-pglite": ["test/integration/payload/payloadRelation.test.ts", "test/integration/payload/payloadRelationValues.test.ts"],
+    "framework-payload-preferences-postgres": ["test/frameworks/payloadPreferences/payloadPreferenceBinding.postgres.test.ts"],
+    "framework-payload-preferences-pglite": ["test/frameworks/payloadPreferences/payloadPreferenceBinding.test.ts", "test/frameworks/payloadPreferences/payloadPreferenceCleanupValues.test.ts"],
+    "framework-payload-scalar-postgres": ["test/integration/payload/payloadScalar.postgres.test.ts"],
+    "framework-payload-scalar-pglite": ["test/integration/payload/payloadScalarProfile.test.ts", "test/integration/payload/payloadScalar.test.ts"],
+    "framework-cms-pglite": ["test/frameworks/cmsTransaction/cmsRequestLifetime.test.ts", "test/frameworks/cmsTransaction/cmsHost.test.ts"],
+    "framework-cms-postgres": ["test/frameworks/cmsTransaction/cmsHost.postgres.test.ts"],
     "framework-coordinator-fresh-postgres": [
-      "test/retainedPhysicalInstallation.postgres.test.ts",
-      "test/frameworkCoordinatorMetadataProtection.postgres.test.ts",
-      "test/frameworkCoordinatorTextSet.test.ts"
+      "test/installation/frameworkSchema/retainedPhysicalInstallation.postgres.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMetadataProtection.postgres.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorTextSet.test.ts"
     ],
     "framework-coordinator-fresh-pglite": [
-      "test/frameworkCoordinatorFreshCoordinator.test.ts"
+      "test/installation/frameworkSchema/frameworkCoordinatorFreshCoordinator.test.ts"
     ],
     "framework-coordinator-structural-runner-pglite": [
-      "test/frameworkCoordinatorRelationalStructuralRunner.test.ts"
+      "test/installation/frameworkSchema/frameworkCoordinatorRelationalStructuralRunner.test.ts"
     ],
     "framework-coordinator-target-session-pglite": [
-      "test/frameworkCoordinatorTargetSession.test.ts"
+      "test/installation/frameworkSchema/frameworkCoordinatorTargetSession.test.ts"
     ],
     "framework-coordinator-checkpoint2-pglite": [
-      "test/frameworkCoordinatorGraphReadPass.test.ts",
-      "test/privateCanonicalValue.test.ts",
-      "test/relationalSchemaPhysical.test.ts",
-      "test/migrationCoordinationValues.test.ts",
-      "test/frameworkSchemaInstallationValues.test.ts",
-      "test/frameworkCoordinatorMetadataStorage.test.ts",
-      "test/frameworkCoordinatorStoredRestoration.test.ts",
-      "test/frameworkCoordinatorColdReopen.test.ts",
-      "test/frameworkCoordinatorTargetCollisionRepository.test.ts",
-      "test/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
-      "test/frameworkCoordinatorMigrationPlanRepository.test.ts",
-      "test/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
-      "test/frameworkCoordinatorMigrationAttemptRepository.test.ts",
-      "test/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
-      "test/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
-      "test/frameworkCoordinatorSchemaInstallationRepository.test.ts",
-      "test/frameworkCoordinatorSchemaReadinessRepository.test.ts",
-      "test/frameworkCoordinatorMigrationEventRepository.test.ts",
-      "test/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
-      "test/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
-      "test/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts"
+      "test/installation/frameworkSchema/frameworkCoordinatorGraphReadPass.test.ts",
+      "test/values/privateCanonicalValue.test.ts",
+      "test/storage/relationalSchema/relationalSchemaPhysical.test.ts",
+      "test/installation/migrationCoordinationValues.test.ts",
+      "test/installation/frameworkSchema/frameworkSchemaInstallationValues.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMetadataStorage.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorStoredRestoration.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorColdReopen.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorTargetCollisionRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationPlanRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationAttemptRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaInstallationRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaReadinessRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationEventRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts"
     ],
     "c08-b2-o09-b-pglite": [
-      "test/appUniqueKeys.test.ts",
-      "test/storedAttemptEvidence.test.ts"
+      "test/storage/unique/appUniqueKeys.test.ts",
+      "test/execution/storedAttemptEvidence.test.ts"
     ],
     "c08-b2-o09-b-postgres": [
-      "test/appUniqueKeys.postgres.test.ts",
-      "test/pointCommitTransaction.postgres.test.ts"
+      "test/storage/unique/appUniqueKeys.postgres.test.ts",
+      "test/commit/pointCommitTransaction.postgres.test.ts"
     ],
     "framework-coordinator-additive-pglite": [
-      "test/frameworkCoordinatorAdditive.test.ts",
-      "test/frameworkCoordinatorAdditiveLimits.test.ts",
-      "test/frameworkCoordinatorAdditiveMetadata.test.ts"
+      "test/installation/frameworkSchema/frameworkCoordinatorAdditive.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorAdditiveLimits.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorAdditiveMetadata.test.ts"
     ],
     "framework-coordinator-pglite": [
-      "test/frameworkCoordinatorGraphReadPass.test.ts",
-      "test/privateCanonicalValue.test.ts",
-      "test/relationalSchemaPhysical.test.ts",
-      "test/migrationCoordinationValues.test.ts",
-      "test/frameworkSchemaInstallationValues.test.ts",
-      "test/frameworkCoordinatorMetadataStorage.test.ts",
-      "test/frameworkCoordinatorStoredRestoration.test.ts",
-      "test/frameworkCoordinatorColdReopen.test.ts",
-      "test/frameworkCoordinatorTargetCollisionRepository.test.ts",
-      "test/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
-      "test/frameworkCoordinatorMigrationPlanRepository.test.ts",
-      "test/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
-      "test/frameworkCoordinatorMigrationAttemptRepository.test.ts",
-      "test/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
-      "test/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
-      "test/frameworkCoordinatorSchemaInstallationRepository.test.ts",
-      "test/frameworkCoordinatorSchemaReadinessRepository.test.ts",
-      "test/frameworkCoordinatorMigrationEventRepository.test.ts",
-      "test/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
-      "test/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
-      "test/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts",
-      "test/frameworkCoordinatorRelationalStructuralRunner.test.ts",
-      "test/frameworkCoordinatorTargetSession.test.ts",
-      "test/frameworkCoordinatorFreshCoordinator.test.ts",
-      "test/frameworkCoordinatorAdditive.test.ts",
-      "test/frameworkCoordinatorAdditiveLimits.test.ts",
-      "test/frameworkCoordinatorAdditiveMetadata.test.ts",
-      "test/frameworkTestWorkers.test.ts"
+      "test/installation/frameworkSchema/frameworkCoordinatorGraphReadPass.test.ts",
+      "test/values/privateCanonicalValue.test.ts",
+      "test/storage/relationalSchema/relationalSchemaPhysical.test.ts",
+      "test/installation/migrationCoordinationValues.test.ts",
+      "test/installation/frameworkSchema/frameworkSchemaInstallationValues.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMetadataStorage.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorStoredRestoration.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorColdReopen.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorTargetCollisionRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationPlanRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationAttemptRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaInstallationRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaReadinessRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationEventRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorRelationalStructuralRunner.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorTargetSession.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorFreshCoordinator.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorAdditive.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorAdditiveLimits.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorAdditiveMetadata.test.ts",
+      "test/support/frameworkTestWorkers.test.ts"
     ],
     "framework-coordinator-postgres": [
-      "test/retainedPhysicalInstallation.postgres.test.ts",
-      "test/frameworkCoordinatorMetadataProtection.postgres.test.ts",
-      "test/frameworkCoordinatorTextSet.test.ts",
-      "test/postgresFileScopedFixture.postgres.test.ts"
+      "test/installation/frameworkSchema/retainedPhysicalInstallation.postgres.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMetadataProtection.postgres.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorTextSet.test.ts",
+      "test/support/postgresFileScopedFixture.postgres.test.ts"
     ],
     "framework-bindings-pglite": [
-      "test/frameworkDataBindingValues.test.ts",
-      "test/frameworkSyntheticMedusaProfile.test.ts",
-      "test/migrationCoordinationValues.test.ts",
-      "test/frameworkDataBindings.test.ts",
-      "test/frameworkContentBindings.test.ts"
+      "test/installation/frameworkSchema/frameworkDataBindingValues.test.ts",
+      "test/installation/frameworkSchema/frameworkSyntheticMedusaProfile.test.ts",
+      "test/installation/migrationCoordinationValues.test.ts",
+      "test/installation/frameworkSchema/frameworkDataBindings.test.ts",
+      "test/installation/frameworkSchema/frameworkContentBindings.test.ts"
     ],
     "framework-bindings-postgres": [
-      "test/frameworkDataBindings.postgres.test.ts",
-      "test/frameworkContentBindings.postgres.test.ts"
+      "test/installation/frameworkSchema/frameworkDataBindings.postgres.test.ts",
+      "test/installation/frameworkSchema/frameworkContentBindings.postgres.test.ts"
     ],
     "framework-scalar-store-pglite": [
-      "test/relationalTransaction.test.ts",
-      "test/relationalData.test.ts",
-      "test/publicationReceipts.test.ts"
+      "test/database/relationalTransaction.test.ts",
+      "test/storage/relationalSchema/relationalData.test.ts",
+      "test/commit/publicationReceipts.test.ts"
     ],
     "framework-scalar-store-postgres": [
-      "test/relationalTransaction.postgres.test.ts"
+      "test/database/relationalTransaction.postgres.test.ts"
     ],
     "framework-application-preservation-pglite": [
       "test/integration/applicationNativeMutation.test.ts",
@@ -840,11 +840,11 @@
             "--exclude",
             "test/**/*.postgres.test.ts",
             "--exclude",
-            "test/postgres.test.ts",
+            "test/database/postgres.test.ts",
             "--exclude",
-            "test/postgresClient.test.ts",
+            "test/database/postgresClient.test.ts",
             "--exclude",
-            "test/postgresConcurrency.test.ts",
+            "test/database/postgresConcurrency.test.ts",
             "--fileParallelism",
             "--maxWorkers=2"
           ]
@@ -882,7 +882,7 @@
             "vitest",
             "run",
             "--config=vitest.framework.config.ts",
-            "test/pglite.migrations.test.ts",
+            "test/database/pglite.migrations.test.ts",
             "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
             "--testTimeout=180000"
           ]
@@ -896,7 +896,7 @@
             "vitest",
             "run",
             "--config=vitest.framework.config.ts",
-            "test/pglite.migrations.test.ts",
+            "test/database/pglite.migrations.test.ts",
             "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
             "--testTimeout=180000"
           ]
@@ -952,53 +952,53 @@
             "exec",
             "vitest",
             "run",
-            "test/postgres.test.ts",
-            "test/postgresFileScopedFixture.postgres.test.ts",
-            "test/postgresClient.test.ts",
-            "test/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts",
-            "test/postgresConcurrency.test.ts",
-            "test/scopeExecution.postgres.test.ts",
-            "test/scopeClock.postgres.test.ts",
-            "test/scopeAuthorityProvisioning.postgres.test.ts",
-            "test/scopeAuthorityBootstrap.postgres.test.ts",
-            "test/scopeAuthorityProvisioningReceipt.postgres.test.ts",
-            "test/splitScopeAuthorityProvisioning.postgres.test.ts",
-            "test/appDataSnapshot.postgres.test.ts",
-            "test/appRows.postgres.test.ts",
-            "test/appIndexEntries.postgres.test.ts",
-            "test/appUniqueKeys.postgres.test.ts",
-            "test/appRelationEdges.postgres.test.ts",
-            "test/sessionAuthoritySchema.postgres.test.ts",
-            "test/transactionSessionActivation.postgres.test.ts",
-            "test/sessionJournalStore.postgres.test.ts",
-            "test/storedAttemptEvidence.postgres.test.ts",
-            "test/pointCommitTransaction.postgres.test.ts",
-            "test/pointCommitFinishingTransition.postgres.test.ts",
-            "test/stableTableCatalog.postgres.test.ts",
-            "test/schemaVersionArtifacts.postgres.test.ts",
-            "test/schemaManifestTableBindings.postgres.test.ts",
-            "test/appTableDefinitionsArtifacts.postgres.test.ts",
-            "test/schemaManifestAppSchemaBindings.postgres.test.ts",
-            "test/appIndexDefinitions.postgres.test.ts",
-            "test/appSchemaPublication.postgres.test.ts",
-            "test/indexBuildStates.postgres.test.ts",
-            "test/orderedIndexKeyCodec.postgres.test.ts",
-            "test/commitFeedSchema.postgres.test.ts",
-            "test/commitFeed.postgres.test.ts",
-            "test/idempotencySchema.postgres.test.ts",
-            "test/committedPointOutcome.postgres.test.ts",
-            "test/commitWakeOutbox.postgres.test.ts",
-            "test/transactionExecutionClaimSchema.postgres.test.ts",
-            "test/pointMutationAttemptDiscovery.postgres.test.ts",
-            "test/pointMutationRedeliveryScopeDiscovery.postgres.test.ts",
-            "test/pointMutationRedeliverySchedulerCheckpoint.postgres.test.ts",
-            "test/declarativeV2InertRepository.postgres.test.ts",
-            "test/declarativeV2VerifierProgressV1Retirement.postgres.test.ts",
-            "test/applicationRevisionRegistrationV1.postgres.test.ts",
-            "test/applicationAnalysisRegistration.postgres.test.ts",
-            "test/applicationRelationBinding.postgres.test.ts",
-            "test/applicationReadiness.postgres.test.ts",
-            "test/applicationActivationMigration.postgres.test.ts",
+            "test/database/postgres.test.ts",
+            "test/support/postgresFileScopedFixture.postgres.test.ts",
+            "test/database/postgresClient.test.ts",
+            "test/database/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts",
+            "test/database/postgresConcurrency.test.ts",
+            "test/scope/scopeExecution.postgres.test.ts",
+            "test/scope/scopeClock.postgres.test.ts",
+            "test/scope/scopeAuthorityProvisioning.postgres.test.ts",
+            "test/scope/scopeAuthorityBootstrap.postgres.test.ts",
+            "test/scope/scopeAuthorityProvisioningReceipt.postgres.test.ts",
+            "test/scope/splitScopeAuthorityProvisioning.postgres.test.ts",
+            "test/storage/documents/appDataSnapshot.postgres.test.ts",
+            "test/storage/documents/appRows.postgres.test.ts",
+            "test/storage/indexes/appIndexEntries.postgres.test.ts",
+            "test/storage/unique/appUniqueKeys.postgres.test.ts",
+            "test/storage/relations/appRelationEdges.postgres.test.ts",
+            "test/execution/sessionAuthoritySchema.postgres.test.ts",
+            "test/execution/transactionSessionActivation.postgres.test.ts",
+            "test/execution/sessionJournalStore.postgres.test.ts",
+            "test/execution/storedAttemptEvidence.postgres.test.ts",
+            "test/commit/pointCommitTransaction.postgres.test.ts",
+            "test/commit/pointCommitFinishingTransition.postgres.test.ts",
+            "test/storage/catalog/stableTableCatalog.postgres.test.ts",
+            "test/storage/catalog/schemaVersionArtifacts.postgres.test.ts",
+            "test/storage/catalog/schemaManifestTableBindings.postgres.test.ts",
+            "test/storage/catalog/appTableDefinitionsArtifacts.postgres.test.ts",
+            "test/storage/catalog/schemaManifestAppSchemaBindings.postgres.test.ts",
+            "test/storage/indexes/appIndexDefinitions.postgres.test.ts",
+            "test/storage/catalog/appSchemaPublication.postgres.test.ts",
+            "test/storage/indexes/indexBuildStates.postgres.test.ts",
+            "test/storage/indexes/orderedIndexKeyCodec.postgres.test.ts",
+            "test/commit/commitFeedSchema.postgres.test.ts",
+            "test/commit/commitFeed.postgres.test.ts",
+            "test/legacy/idempotencySchema.postgres.test.ts",
+            "test/commit/committedPointOutcome.postgres.test.ts",
+            "test/commit/commitWakeOutbox.postgres.test.ts",
+            "test/execution/claims/transactionExecutionClaimSchema.postgres.test.ts",
+            "test/execution/recovery/pointMutationAttemptDiscovery.postgres.test.ts",
+            "test/execution/recovery/pointMutationRedeliveryScopeDiscovery.postgres.test.ts",
+            "test/execution/recovery/pointMutationRedeliverySchedulerCheckpoint.postgres.test.ts",
+            "test/legacy/declarativeV2InertRepository.postgres.test.ts",
+            "test/legacy/declarativeV2VerifierProgressV1Retirement.postgres.test.ts",
+            "test/application/revision/applicationRevisionRegistrationV1.postgres.test.ts",
+            "test/application/applicationAnalysisRegistration.postgres.test.ts",
+            "test/application/relations/applicationRelationBinding.postgres.test.ts",
+            "test/application/applicationReadiness.postgres.test.ts",
+            "test/application/applicationActivationMigration.postgres.test.ts",
             "--no-file-parallelism"
           ]
         }
@@ -1022,9 +1022,9 @@
             "exec",
             "vitest",
             "run",
-            "test/postgresRetry.test.ts",
-            "test/deploymentAuthority.postgres.test.ts",
-            "test/transactionGrantVerifier.test.ts"
+            "test/invocation/postgresRetry.test.ts",
+            "test/deployment/deploymentAuthority.postgres.test.ts",
+            "test/mutation/authentication/transactionGrantVerifier.test.ts"
           ]
         }
       ]
@@ -1047,7 +1047,7 @@
             "exec",
             "vitest",
             "run",
-            "test/appUniqueConstraintSetBuildV1.postgres.test.ts",
+            "test/storage/unique/appUniqueConstraintSetBuildV1.postgres.test.ts",
             "--no-file-parallelism",
             "--testTimeout=180000"
           ]
@@ -1068,8 +1068,8 @@
             "exec",
             "vitest",
             "run",
-            "test/taskRepairSchedulerCheckpointV1.test.ts",
-            "test/pointMutationRedeliverySchedulerCheckpoint.test.ts",
+            "test/tasks/taskRepairSchedulerCheckpointV1.test.ts",
+            "test/execution/recovery/pointMutationRedeliverySchedulerCheckpoint.test.ts",
             "--no-file-parallelism",
             "--testTimeout=120000"
           ]
@@ -1090,7 +1090,7 @@
             "exec",
             "vitest",
             "run",
-            "test/appUniqueConstraintDefinitions.test.ts",
+            "test/storage/unique/appUniqueConstraintDefinitions.test.ts",
             {
               "testFileGroup": "c08-b2-o09-b-pglite"
             },
@@ -1141,7 +1141,7 @@
             "exec",
             "vitest",
             "run",
-            "test/appUniqueConstraintDefinitions.postgres.test.ts",
+            "test/storage/unique/appUniqueConstraintDefinitions.postgres.test.ts",
             {
               "testFileGroup": "c08-b2-o09-b-postgres"
             },
@@ -1298,7 +1298,7 @@
             "vitest",
             "run",
             "--config=vitest.framework.config.ts",
-            "test/pglite.migrations.test.ts",
+            "test/database/pglite.migrations.test.ts",
             "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
             "--testTimeout=180000"
           ]
@@ -1312,7 +1312,7 @@
             "vitest",
             "run",
             "--config=vitest.framework.config.ts",
-            "test/pglite.migrations.test.ts",
+            "test/database/pglite.migrations.test.ts",
             "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
             "--testTimeout=180000"
           ]

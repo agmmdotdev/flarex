@@ -14,7 +14,7 @@ export default defineConfig({
   resolve: { conditions: ["source"], alias: [
     { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/sales-channel-runner.ts", import.meta.url)) },
     { find: /^@services$/, replacement: fileURLToPath(new URL("../medusa-sales-channel/src/services/index.ts", import.meta.url)) },
-    { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/cloudflareWorkersStub.ts", import.meta.url)) },
+    { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/support/cloudflareWorkersStub.ts", import.meta.url)) },
   ] },
   test: { globals: false, maxWorkers: 1, fileParallelism: false,
     include: ["../medusa-sales-channel/integration-tests/__tests__/services/sales-channel-module.spec.ts"],

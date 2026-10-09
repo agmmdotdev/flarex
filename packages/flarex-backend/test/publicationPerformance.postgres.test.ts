@@ -6,10 +6,10 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { PointCommitPublicationObservation } from "@flarex/persistence-postgres/point-commit-transaction";
 import { createMixedMutationPerformanceTrace, type TraceInvocationRecord } from
-  "../../persistence-postgres/test/mixedMutationPerformanceTrace";
+  "../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { openRetrievalServerObserver, readRetrievalRuntimeSettings } from
   "../../medusa-adapter/benchmarks/core-performance/native-retrieval/server";
-import { createPostgresPersistence } from "../../persistence-postgres/src/postgres";
+import { createPostgresPersistence } from "../../persistence-postgres/src/database/postgres";
 import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationWorkerdFixture";
 import { measuredSourcePaths } from "./support/mixedMutationPerformanceSources";
 import { admitPublicationServerLogCopies, filterPublicationServerLog, PublicationPerformanceServer } from "./support/publicationPerformanceServer";
@@ -33,10 +33,10 @@ const sourcePaths = [...new Set([...measuredSourcePaths,
   "packages/flarex-backend/test/support/mixedMutationPerformanceSources.ts",
   "packages/flarex-backend/test/support/publicationPerformanceReport.ts",
   "packages/flarex-backend/test/support/publicationPerformanceServer.ts",
-  "packages/persistence-postgres/src/pointCommitPublicationObservation.ts",
-  "packages/persistence-postgres/src/pointCommitTransactionApi.ts",
-  "packages/persistence-postgres/src/appIndexDefinitions.ts",
-  "packages/executor/src/storedAttemptAuthentication/finishingOperations.ts",
+  "packages/persistence-postgres/src/commit/pointCommitPublicationObservation.ts",
+  "packages/persistence-postgres/src/commit/pointCommitTransactionApi.ts",
+  "packages/persistence-postgres/src/storage/indexes/appIndexDefinitions.ts",
+  "packages/executor/src/mutation/authentication/stored/finishingOperations.ts",
   "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
 ])];
 

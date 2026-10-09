@@ -5,8 +5,8 @@ import { appDocumentIdV1FromRowIdentity, decodeAppDocumentIdentityV1Result,
   decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { makePayloadManagedReadAccessRuntime } from "@flarex/payload-adapter/internal/testing";
-import { CmsTransactionError } from "../../persistence-postgres/src/cmsTransaction/model";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
+import { CmsTransactionError } from "../../persistence-postgres/src/frameworks/cmsTransaction/model";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 
 describe.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)("managed Payload Local API reads", () => {

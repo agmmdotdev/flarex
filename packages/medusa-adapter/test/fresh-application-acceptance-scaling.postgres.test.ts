@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Effect, Schema, Tracer } from "effect";
 import { expect, it, vi } from "vitest";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import { readLogicalStorageRequirements } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { currencyCommands } from "../src/currency-service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { observeRetrievalPgClients, type RetrievalObservation } from
@@ -24,18 +24,18 @@ const variants = [
 ] as const;
 const sourcePaths = ["packages/medusa-adapter/test/fresh-application-acceptance-scaling.postgres.test.ts",
   "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
-  "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
+  "packages/persistence-postgres/test/application/applicationNativeMutationTestFixture.ts",
   "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
-  "packages/persistence-postgres/src/applicationActivation.ts",
-  "packages/persistence-postgres/src/applicationBindingProjection.ts",
-  "packages/persistence-postgres/src/applicationMutationAdmission.ts",
-  "packages/persistence-postgres/src/applicationReadiness.ts",
-  "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
-  "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
-  "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
-  "packages/persistence-postgres/src/commerceTransaction/host.ts",
-  "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
-  "packages/persistence-postgres/src/exactRunningAttemptTail.ts", "pnpm-lock.yaml"];
+  "packages/persistence-postgres/src/application/applicationActivation.ts",
+  "packages/persistence-postgres/src/application/applicationBindingProjection.ts",
+  "packages/persistence-postgres/src/application/applicationMutationAdmission.ts",
+  "packages/persistence-postgres/src/application/applicationReadiness.ts",
+  "packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts",
+  "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission.ts",
+  "packages/persistence-postgres/src/storage/documents/logicalDocuments/documentAdmission.ts",
+  "packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts",
+  "packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts",
+  "packages/persistence-postgres/src/execution/exactRunningAttemptTail.ts", "pnpm-lock.yaml"];
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 async function sourceEvidence() {
   return Promise.all(sourcePaths.map(async path => ({ path,

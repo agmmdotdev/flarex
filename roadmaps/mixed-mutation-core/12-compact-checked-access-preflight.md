@@ -64,7 +64,7 @@ remain deferred contract changes, not unfinished phases of this cutover.
 
 ## Checked kernel contract and correction
 
-[transactionSessionActivation](../../packages/persistence-postgres/src/transactionSessionActivation.ts)
+[transactionSessionActivation](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
 owns `loadLockedRunningAttempt`: scope clock, session, snapshot lease,
 journal root, execution claim, then database time after locking. Its exact
 reload and replay callers observe the facet after those checks. Preserve that acquisition
@@ -85,9 +85,9 @@ The current read/seal kernel checks session fences, generation, revocation and
 expiries, request key, schema pin and the named lifecycle/lease/journal/claim
 facts. It does **not** authenticate/hash argument or grant
 bodies, despite fetching them. Activation replay's `sessionEvidenceMatches`,
-the [stored evidence loader](../../packages/persistence-postgres/src/storedAttemptEvidence.ts)
-and executor [commit authority verification](../../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts)
-own separate body validation. [Point publication](../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+the [stored evidence loader](../../packages/persistence-postgres/src/execution/storedAttemptEvidence.ts)
+and executor [commit authority verification](../../packages/executor/src/mutation/authentication/stored/commitAuthorityVerification.ts)
+own separate body validation. [Point publication](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
 `lockPointCommitSession` checks scalar pins and body lengths after that
 authentication; this alone does not prove refusal of a same-length body edit
 that preserves its stored digest after authentication. This is a static proof
@@ -111,18 +111,18 @@ kernel. The owner accepted this private callback contract change.
 
 ## Full selected evidence and query candidates
 
-[sourceAdmission](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts)
+[sourceAdmission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
 orchestrates the binding repository, Application binding projection and
-logical readiness owners. [Participant admission](../../packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts)
+logical readiness owners. [Participant admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
 still checks each source's pinned head and contract. Existing evidence sharing
 lasts only for the exact checked transaction and is revoked at scope exit.
 
 | Existing owner and candidate | Proof retained and feasibility gate |
 | --- | --- |
 | Checked kernel: narrow session SELECT and omit unused callback facet SQL. | Preserve every consumed scalar, expiry/revocation comparison and ordered lock; reload/acquisition/recovery still observe pristine eligibility. |
-| [Binding repository](../../packages/persistence-postgres/src/frameworkSchema/binding/repository.ts): head plus selected activation; candidate plus complete physical-lane sidecars. | Return full canonical bytes/length/digest and correlation fields. Authenticate head, activation, candidate and exact sidecar membership through current decoders. Preserve share locking and strong-reference endpoint correlation. |
-| [Application active-head reader](../../packages/persistence-postgres/src/applicationActiveHeadRead.ts) and [binding projection](../../packages/persistence-postgres/src/applicationBindingProjection.ts): coherent head, selected activation and revision-schema evidence. | Preserve full frame hashing/canonical comparison, readiness/version/policy correlation and schema selection. Reuse the nominal checked-active evidence under the accepting callback only. |
-| [Logical readiness](../../packages/persistence-postgres/src/logicalStorageReadiness.ts), index/unique/search owners: consolidate selected state/frontier projections where equivalent. | Preserve exact required rows, lifecycle/authority/maintenance decoding, table and clock frontiers, snapshot coverage, live `pg_index` identity/operator checks and the three-observation READ COMMITTED refresh bound. |
+| [Binding repository](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/repository.ts): head plus selected activation; candidate plus complete physical-lane sidecars. | Return full canonical bytes/length/digest and correlation fields. Authenticate head, activation, candidate and exact sidecar membership through current decoders. Preserve share locking and strong-reference endpoint correlation. |
+| [Application active-head reader](../../packages/persistence-postgres/src/application/applicationActiveHeadRead.ts) and [binding projection](../../packages/persistence-postgres/src/application/applicationBindingProjection.ts): coherent head, selected activation and revision-schema evidence. | Preserve full frame hashing/canonical comparison, readiness/version/policy correlation and schema selection. Reuse the nominal checked-active evidence under the accepting callback only. |
+| [Logical readiness](../../packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts), index/unique/search owners: consolidate selected state/frontier projections where equivalent. | Preserve exact required rows, lifecycle/authority/maintenance decoding, table and clock frontiers, snapshot coverage, live `pg_index` identity/operator checks and the three-observation READ COMMITTED refresh bound. |
 
 These are concrete query-reduction candidates, not a promised dispatch total.
 Inventory before/after dispatches per owner as an implementation gate, including
@@ -231,7 +231,7 @@ writer proof and a quarantine-first, resume-last barrier.
 
 ## Protected epoch and connection decision
 
-[preparedMetadataEpoch](../../packages/persistence-postgres/src/preparedMetadataEpoch.ts)
+[preparedMetadataEpoch](../../packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts)
 and [migration 0119](../../packages/persistence-postgres/drizzle/0119_protected_metadata_epoch.sql)
 protect exactly the ten legacy Application candidate, analysis, revision,
 publication, function, task-catalog, task-definition, revision-schema,
@@ -243,7 +243,7 @@ full catalog attestation and fail closed on epoch contention or change.
 
 The preparation token binds the database object and login/database-name/schema
 OID/incarnation, not an exact checked-out backend. The
-[physical-session owner](../../packages/persistence-postgres/src/physicalSession/postgres.ts)
+[physical-session owner](../../packages/persistence-postgres/src/database/physicalSession/postgres.ts)
 has per-`PoolClient` identity for quarantine/recovery exclusion; it is not a
 catalog-attestation capability. A pool switch or reconnect cannot inherit an
 earlier proof. The cache-disabled Hyperdrive request lifecycle also does not

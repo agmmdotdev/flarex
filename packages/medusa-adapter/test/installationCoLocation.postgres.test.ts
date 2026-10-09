@@ -1,20 +1,20 @@
 import { sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
-import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
 import { acquireInstallationAdmission, closeInstallationAdmission,
-  getCoLocatedReadInstallationReferences, loadManagedInstallation, requireCoLocatedInstallationAdmission } from "../../persistence-postgres/src/installationLifecycle";
+  getCoLocatedReadInstallationReferences, loadManagedInstallation, requireCoLocatedInstallationAdmission } from "../../persistence-postgres/src/installation/installationLifecycle";
 import { acceptProtectedMetadataFinalGuardBatch, captureProtectedMetadataEpoch, closeProtectedMetadataFinalGuardScope,
   openProtectedMetadataFinalGuardScope, prepareProtectedMetadata, prepareProtectedMetadataFinalGuardBatch,
-  recordManagedMetadataEpochSnapshot, registerProtectedMetadataFinalGuard } from "../../persistence-postgres/src/preparedMetadataEpoch";
-import { publishVerifiedInstallation, withInstallationMaintenance } from "../../persistence-postgres/src/postgresInstallationMaintenance";
-import { fxSystemPreparedMetadataEpoch } from "../../persistence-postgres/src/schema";
-import { getScopeMetadata } from "../../persistence-postgres/src/scopeMetadata";
-import { getScopeAuthorityProvisioningReceipt } from "../../persistence-postgres/src/scopeAuthorityProvisioningReceipt";
-import { prepareInstalledPairAuthority, prepareInstalledPlacementAuthority } from "../../persistence-postgres/src/scopeAuthorityControlRead";
+  recordManagedMetadataEpochSnapshot, registerProtectedMetadataFinalGuard } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import { publishVerifiedInstallation, withInstallationMaintenance } from "../../persistence-postgres/src/database/postgresInstallationMaintenance";
+import { fxSystemPreparedMetadataEpoch } from "../../persistence-postgres/src/database/schema";
+import { getScopeMetadata } from "../../persistence-postgres/src/scope/scopeMetadata";
+import { getScopeAuthorityProvisioningReceipt } from "../../persistence-postgres/src/scope/scopeAuthorityProvisioningReceipt";
+import { prepareInstalledPairAuthority, prepareInstalledPlacementAuthority } from "../../persistence-postgres/src/scope/scopeAuthorityControlRead";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { createCoLocatedReadInstallationFixture, createFileScopedPostgresFixture,
-  createProtectedFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
+  createProtectedFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 
 const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL ? describe : describe.skip;
 const endpointPolicy = "protected-postgres-fixture";

@@ -413,4 +413,4 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
   return lines.join("\n");
 }
 import type { TraceFingerprintOwner, TraceInvocationRecord, TracePhaseSpan } from
-  "../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+  "../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";

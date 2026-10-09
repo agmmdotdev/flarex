@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client, Pool, type PoolClient } from "pg";
 import { Cause, Data, Effect, Exit, Fiber, Schema, Scope } from "effect";
-import type { PostgresFixtureEndpoints } from "../../../../../persistence-postgres/test/postgresHelpers";
+import type { PostgresFixtureEndpoints } from "../../../../../persistence-postgres/test/support/postgresHelpers";
 import { openRetrievalServerObserver, readRetrievalRuntimeSettings, retrievalServerDifference,
   type RetrievalDatabaseIdentity, type RetrievalServerSnapshot } from
   "../../../../../medusa-adapter/benchmarks/core-performance/native-retrieval/server";

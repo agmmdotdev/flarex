@@ -89,12 +89,12 @@ optional compatibility lane.
 
 Current implementation evidence:
 
-- [`packages/executor/src/sessions.ts`](../../packages/executor/src/sessions.ts)
+- [`packages/executor/src/invocation/sessions.ts`](../../packages/executor/src/invocation/sessions.ts)
   uses wall-clock `beginTs` and Postgres staging.
-- [`packages/executor/src/retry.ts`](../../packages/executor/src/retry.ts)
+- [`packages/executor/src/invocation/retry.ts`](../../packages/executor/src/invocation/retry.ts)
   currently combines OCC and SQL serialization into one full-attempt retry and
   does not yet model deadlock or uncertain-decision recovery correctly.
-- [`packages/persistence-postgres/src/commits.ts`](../../packages/persistence-postgres/src/commits.ts)
+- [`packages/persistence-postgres/src/commit/commits.ts`](../../packages/persistence-postgres/src/commit/commits.ts)
   is the legacy all-in-one commit path.
 
 Convex-first implementation references:
@@ -1500,17 +1500,17 @@ Path classification remains clean replacement:
 
 - keep the current O08-A/B1/B2a behavior, B2b1/C06-A claim-fenced composition,
   and B2b2a private safe-state composer in
-  `packages/executor/src/storedAttemptAuthentication.ts`;
+  `packages/executor/src/mutation/authentication/storedAttemptAuthentication.ts`;
 - keep the separate B2b2b2a capability and disposition operation in
-  `packages/executor/src/pointMutationExecutionClaim.ts` and
-  `packages/executor/src/pointMutationSessionAttemptDisposition.ts`, with
+  `packages/executor/src/mutation/claims/pointMutationExecutionClaim.ts` and
+  `packages/executor/src/mutation/session/pointMutationSessionAttemptDisposition.ts`, with
   acquisition and terminalization persistence remaining owned by
-  `packages/persistence-postgres/src/transactionSessionActivation.ts`;
+  `packages/persistence-postgres/src/execution/transactionSessionActivation.ts`;
 - keep the claim-fenced journal admission in `sessionJournalStore.ts`; later
   B2b2b2b/C06-B work must compose these owners rather than adding parallel
   authority;
 - keep `commitWakeOutbox.ts` and its S09-B post-commit claim separate; and
-- delete rather than port `packages/executor/src/retry.ts` and the legacy
+- delete rather than port `packages/executor/src/invocation/retry.ts` and the legacy
   session/commit/runtime-persistence path at target activation.
 
 No compatibility bridge or dual authority is accepted.

@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
-  "../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
+  "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { decodeCategoryProjection } from "../../src/product-category-projection";
 import { productCallReceipts } from "../../src/product-local-events";
 import { captureProductSchema } from "../../src/product-schema";

@@ -1,6 +1,6 @@
 import { ProductStatus } from "@medusajs/framework/utils/portable";
 import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
-import type { LogicalReadMetadataScale } from "../../../../persistence-postgres/test/logicalReadMetadataScalingTestSupport";
+import type { LogicalReadMetadataScale } from "../../../../persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport";
 
 export const nativeRetrievalMetadataVariants: readonly LogicalReadMetadataScale[] =
   (["tables", "indexes", "relations", "otherSourceDefinitions"] as const)

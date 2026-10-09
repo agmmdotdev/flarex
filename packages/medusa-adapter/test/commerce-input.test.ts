@@ -1,7 +1,7 @@
 import { Result } from "effect";
 import { expect, it } from "vitest";
 import { captureCommerceInput } from "../src/commerce-input";
-import { inspectCapturedPrivateJsonData } from "../../persistence-postgres/src/privateJsonData";
+import { inspectCapturedPrivateJsonData } from "../../persistence-postgres/src/values/privateJsonData";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 
 const captured = (input: unknown): Json => {

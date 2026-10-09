@@ -4,10 +4,10 @@ import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils
 import type { ISalesChannelModuleService } from "@medusajs/framework/types";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "../../src/commerce-input";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalSalesChannelHost } from "./logical-sales-channel-fixture";
 

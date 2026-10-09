@@ -51,14 +51,14 @@ const productionSourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js"
 const allowedRunPromiseSites = new Map([
   [siteKey("packages/executor-http/src/liveQueryDelivery.ts", "runFlarexBackendLiveQueryPromise"), 1],
   [siteKey("packages/executor-http/src/routeEffects.ts", "handleExecutorHttpDecodedBody"), 1],
-  [siteKey("packages/executor/src/health.ts", "getExecutorHealth"), 1],
+  [siteKey("packages/executor/src/runtime/health.ts", "getExecutorHealth"), 1],
   // Public executor methods and native host/framework callbacks require Promises.
-  [siteKey("packages/executor/src/liveQueries.ts", "runLiveQueryPromise"), 1],
-  [siteKey("packages/executor/src/liveQueryDeliveries.ts", "runLiveQueryDeliveryPromise"), 1],
-  [siteKey("packages/executor/src/maintenance.ts", "runMaintenancePromise"), 1],
-  [siteKey("packages/executor/src/outbox.ts", "runOutboxPromise"), 1],
-  [siteKey("packages/executor/src/sessions.ts", "runInvokeSessionPromise"), 1],
-  [siteKey("packages/executor/src/transactionGrant.ts", "verify"), 1],
+  [siteKey("packages/executor/src/sync/liveQueries.ts", "runLiveQueryPromise"), 1],
+  [siteKey("packages/executor/src/sync/liveQueryDeliveries.ts", "runLiveQueryDeliveryPromise"), 1],
+  [siteKey("packages/executor/src/maintenance/maintenance.ts", "runMaintenancePromise"), 1],
+  [siteKey("packages/executor/src/sync/outbox.ts", "runOutboxPromise"), 1],
+  [siteKey("packages/executor/src/invocation/sessions.ts", "runInvokeSessionPromise"), 1],
+  [siteKey("packages/executor/src/mutation/authentication/transactionGrant.ts", "verify"), 1],
   [siteKey("packages/flarex-backend/src/artifactRuntime.ts", "ServiceBindingExecutionArtifactRuntime.invoke"), 1],
   [siteKey("packages/flarex-backend/src/artifactRuntime.ts", "fetch"), 1],
   [siteKey("packages/flarex-backend/src/artifactRuntime/ApplicationWorkerCore.ts", "runWorkerProtocolDecoder"), 1],
@@ -101,53 +101,53 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
   [siteKey("packages/medusa-adapter/src/currency-service.ts", "promise"), 1],
-  [siteKey("packages/persistence-postgres/src/appSchemaPublication.ts", "runPreparedAppSchemaPublicationTransactionEffect"), 1],
-  [siteKey("packages/persistence-postgres/src/appSchemaCandidateValidation.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],
-  [siteKey("packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts", "runRegistrationTransactionAttempt"), 1],
-  [siteKey("packages/persistence-postgres/src/indexBuildReconciliation.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/applicationRevisionReadinessV1.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/applicationRevisionActivationV1.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/locatedEffectTransaction.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/applicationPointQuerySnapshotV1.ts", "startReadTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/intrinsicCreationTimeIndexBuildV1.ts", "startAppOrderedIndexBuildTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/physicalDefinitionLifecycle.ts", "startLocatedTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/catalog/appSchemaPublication.ts", "runPreparedAppSchemaPublicationTransactionEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/catalog/appSchemaCandidateValidation.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/catalog/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionRegistrationV1.ts", "runRegistrationTransactionAttempt"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/indexes/indexBuildReconciliation.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/unique/appUniqueConstraintSetBuildV1.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionReadinessV1.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/database/locatedEffectTransaction.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/application/applicationPointQuerySnapshotV1.ts", "startReadTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/indexes/intrinsicCreationTimeIndexBuildV1.ts", "startAppOrderedIndexBuildTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/installation/physicalDefinitionLifecycle.ts", "startLocatedTransaction"), 1],
   // Each named transaction callback owns admission and closes it before returning.
-  [siteKey("packages/persistence-postgres/src/commitFeed.ts", "captureCommitFeedRows"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/commitFeed.ts", "captureCommitFeedRows"), 1],
   // Claim-for-commit, claim-batch and settle-claim are distinct transaction callbacks.
-  [siteKey("packages/persistence-postgres/src/commitWakeOutbox.ts", "claimForCommit"), 1],
-  [siteKey("packages/persistence-postgres/src/commitWakeOutbox.ts", "claimReadyBatch"), 1],
-  [siteKey("packages/persistence-postgres/src/commitWakeOutbox.ts", "settleClaim"), 1],
-  [siteKey("packages/persistence-postgres/src/postgresLocatedReadCommitted.ts", "runLocatedReadCommittedWithPoolClient"), 1],
-  [siteKey("packages/persistence-postgres/src/postgresLocatedReadCommitted.ts", "createPostgresClientLocatedReadCommittedTransactionRunnerV1"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/commitWakeOutbox.ts", "claimForCommit"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/commitWakeOutbox.ts", "claimReadyBatch"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/commitWakeOutbox.ts", "settleClaim"), 1],
+  [siteKey("packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts", "runLocatedReadCommittedWithPoolClient"), 1],
+  [siteKey("packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts", "createPostgresClientLocatedReadCommittedTransactionRunnerV1"), 1],
   // Compatibility maintenance owns migration and canonical backfills together;
   // the final bridge initializes a genuinely fresh unverified installation.
-  [siteKey("packages/persistence-postgres/src/pglite.ts", "migrate"), 2],
-  [siteKey("packages/persistence-postgres/src/postgres.ts", "migrate"), 1],
-  [siteKey("packages/persistence-postgres/src/scopeAuthorityBootstrap.ts", "captureBootstrapFrontier"), 1],
+  [siteKey("packages/persistence-postgres/src/database/pglite.ts", "migrate"), 2],
+  [siteKey("packages/persistence-postgres/src/database/postgres.ts", "migrate"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/scopeAuthorityBootstrap.ts", "captureBootstrapFrontier"), 1],
   // One bounded page-read transaction and a separate atomic provisioning transaction.
-  [siteKey("packages/persistence-postgres/src/scopeAuthorityBootstrap.ts", "runBootstrapBatch"), 2],
-  [siteKey("packages/persistence-postgres/src/scopeAuthorityBootstrap.ts", "verifyBootstrapFrontier"), 1],
-  [siteKey("packages/persistence-postgres/src/scopeAuthorityControlRead.ts", "read"), 1],
-  [siteKey("packages/persistence-postgres/src/scopeAuthorityProvisioning.ts", "ensure"), 1],
-  [siteKey("packages/persistence-postgres/src/scopeAuthorizationEpochAuthority.ts", "getCurrentClock"), 1],
-  [siteKey("packages/persistence-postgres/src/runtimePersistence.ts", "ensureAppTableDefinitionsArtifactV1"), 1],
-  [siteKey("packages/persistence-postgres/src/runtimePersistence.ts", "publishAppSchemaV1"), 1],
-  [siteKey("packages/persistence-postgres/src/postgresRuntime.ts", "runPostgresTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/scopeAuthorizationEpochAuthority.ts", "runScopeAuthorizationEpochEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/scopeAuthorityBootstrap.ts", "runBootstrapBatch"), 2],
+  [siteKey("packages/persistence-postgres/src/scope/scopeAuthorityBootstrap.ts", "verifyBootstrapFrontier"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/scopeAuthorityControlRead.ts", "read"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/scopeAuthorityProvisioning.ts", "ensure"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/scopeAuthorizationEpochAuthority.ts", "getCurrentClock"), 1],
+  [siteKey("packages/persistence-postgres/src/database/runtimePersistence.ts", "ensureAppTableDefinitionsArtifactV1"), 1],
+  [siteKey("packages/persistence-postgres/src/database/runtimePersistence.ts", "publishAppSchemaV1"), 1],
+  [siteKey("packages/persistence-postgres/src/database/postgresRuntime.ts", "runPostgresTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/scopeAuthorizationEpochAuthority.ts", "runScopeAuthorizationEpochEffectTransaction"), 1],
   // Promise-only Drizzle callbacks own transaction admission and its final cleanup.
-  [siteKey("packages/persistence-postgres/src/splitScopeAuthorityProvisioning.ts", "ensure"), 1],
-  [siteKey("packages/persistence-postgres/src/splitScopeAuthorityProvisioning.ts", "reserveNewControlAuthority"), 1],
-  [siteKey("packages/persistence-postgres/src/splitScopeAuthorityProvisioning.ts", "publishExactControlAuthority"), 1],
-  [siteKey("packages/persistence-postgres/src/splitScopeAuthorityProvisioning.ts", "readExactControlAuthorityState"), 1],
-  [siteKey("packages/persistence-postgres/src/splitScopeClockTarget.ts", "ensureInitialClock"), 1],
-  [siteKey("packages/persistence-postgres/src/splitScopeClockTarget.ts", "getCurrentClock"), 1],
-  [siteKey("packages/persistence-postgres/src/stableTableCatalog.ts", "runStableTableCatalogEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "[LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]"), 1],
-  [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "[RUN_LOCATED_REPEATABLE_READ_V1]"), 1],
-  [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "[TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]"), 1],
-  [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "createDefaultLocatedReadCommittedTransactionRunnerV1"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/splitScopeAuthorityProvisioning.ts", "ensure"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/splitScopeAuthorityProvisioning.ts", "reserveNewControlAuthority"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/splitScopeAuthorityProvisioning.ts", "publishExactControlAuthority"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/splitScopeAuthorityProvisioning.ts", "readExactControlAuthorityState"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/splitScopeClockTarget.ts", "ensureInitialClock"), 1],
+  [siteKey("packages/persistence-postgres/src/scope/splitScopeClockTarget.ts", "getCurrentClock"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/catalog/stableTableCatalog.ts", "runStableTableCatalogEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/execution/transactionSessionActivation.ts", "[LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]"), 1],
+  [siteKey("packages/persistence-postgres/src/execution/transactionSessionActivation.ts", "[RUN_LOCATED_REPEATABLE_READ_V1]"), 1],
+  [siteKey("packages/persistence-postgres/src/execution/transactionSessionActivation.ts", "[TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]"), 1],
+  [siteKey("packages/persistence-postgres/src/execution/transactionSessionActivation.ts", "createDefaultLocatedReadCommittedTransactionRunnerV1"), 1],
   [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.revalidate"), 1],
   [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.readPointDocument"), 1],
   [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.queryIndexRange"), 1],
@@ -158,30 +158,30 @@ const allowedRunPromiseSites = new Map([
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitSites = new Map([
   // Journal RPC owners retain full callback Cause across their Promise protocol.
-  [siteKey("packages/executor/src/applicationPointMutationJournalCapability.ts", "runJournalEffect"), 1],
-  [siteKey("packages/executor/src/pointMutationJournalRpc.ts", "PointMutationJournalRpcSessionStateV1.#run"), 1],
+  [siteKey("packages/executor/src/mutation/journal/applicationPointMutationJournalCapability.ts", "runJournalEffect"), 1],
+  [siteKey("packages/executor/src/mutation/journal/pointMutationJournalRpc.ts", "PointMutationJournalRpcSessionStateV1.#run"), 1],
   // Native RpcTarget callbacks own deadline, cancellation and wire-result projection.
   [siteKey("packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskQueryCallback.ts", "ApplicationTaskQueryCallbackTarget.invoke"), 1],
   [siteKey("packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskMutationCallback.ts", "ApplicationTaskMutationCallbackTarget.invoke"), 1],
   // These located transaction owners retain full Cause until native settlement.
-  [siteKey("packages/persistence-postgres/src/applicationActivation.ts", "runLocatedTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/applicationReadiness.ts", "runLocatedTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts", "runEffectInTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/application/applicationActivation.ts", "runLocatedTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/application/applicationReadiness.ts", "runLocatedTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts", "runEffectInTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
   // Dedicated installation maintenance owns draining and page settlement.
-  [siteKey("packages/persistence-postgres/src/postgresInstallationMaintenance.ts", "verifyAndPublish"), 1],
-  [siteKey("packages/persistence-postgres/src/logicalStorageDefinitions.ts", "backfillLogicalReadProjections"), 1],
+  [siteKey("packages/persistence-postgres/src/database/postgresInstallationMaintenance.ts", "verifyAndPublish"), 1],
+  [siteKey("packages/persistence-postgres/src/storage/catalog/logicalStorageDefinitions.ts", "backfillLogicalReadProjections"), 1],
 ]);
 
 /** @type {Map<string, number>} */
 const allowedRunPromiseExitWithSites = new Map([
   // Existing transaction bridges lend only the captured diagnostic policy,
   // tracer/parent and explicit tracing flags, never business services or Clock.
-  [siteKey("packages/persistence-postgres/src/effectTransaction.ts", "runEffectTransactionSettlement"), 1],
-  [siteKey("packages/persistence-postgres/src/locatedReadCommittedEffect.ts", "startLocatedRead"), 1],
-  [siteKey("packages/persistence-postgres/src/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/database/effectTransaction.ts", "runEffectTransactionSettlement"), 1],
+  [siteKey("packages/persistence-postgres/src/database/locatedReadCommittedEffect.ts", "startLocatedRead"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
   // Physical settlement lends the captured context and bounded cancellation signal.
-  [siteKey("packages/persistence-postgres/src/physicalSession/postgres.ts", "runCallbackEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/database/physicalSession/postgres.ts", "runCallbackEffect"), 1],
 ]);
 
 /** @type {Map<string, number>} */
@@ -201,7 +201,10 @@ if (isCliEntrypoint()) {
   const productionSourceFiles = Array.from(walk(sourceRoot))
     .filter(isSupportedProductionSourceFile)
     .filter(file => normalizePath(file).includes("/src/"))
-    .filter(file => !normalizePath(file).includes("/test/"));
+    // Preserve the existing test-only fixture exclusion after its folder move.
+    .filter(file => !normalizePath(file).includes("/test/") &&
+      normalizePath(file) !== normalizePath(path.join(sourceRoot,
+        "persistence-postgres/src/testing/applicationRelationQuerySystemTestFixture.ts")));
   const report = analyzeEffectRuntimeBoundaries(
     productionSourceFiles.map(file => ({
       relativePath: normalizePath(path.relative(repoRoot, file)),

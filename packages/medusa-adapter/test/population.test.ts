@@ -7,7 +7,7 @@ import { commerceDecoder } from "../src/commerce-decoder";
 import { makeReadCatalog } from "../src/query/catalog";
 import { compilePopulationWhere } from "../src/query/population";
 import type { WherePolicy } from "../src/query/predicate";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
 
 const toOne = (name: string): CommerceRelation => ({ name, sourcePrimaryKeys: ["id"], targetTable: "people", targetPrimaryKeys: ["id"], join: { type: "belongsTo", foreignKeys: ["person_id"] } });
 const catalog = Result.getOrThrow(makeReadCatalog([

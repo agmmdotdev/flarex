@@ -9,12 +9,12 @@ import { captureShippingProfileMetadata } from "../src/shipping-profile-schema";
 import { registerNativeShippingProfileTests, type NativeShippingProfileRow } from "./support/shipping-profile-native-tests";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalShippingProfileHost } from "./support/logical-shipping-profile-fixture";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid ShippingProfile test driver");

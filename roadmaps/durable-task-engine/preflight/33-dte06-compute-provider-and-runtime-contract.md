@@ -26,9 +26,9 @@ authority, and supporting deterministic in-memory and Cloudflare adapters?
   attempt, fence, lease, heartbeat, completion, cancellation, and requested-
   effect contracts;
 - `packages/durable-task/src/runCreation` for immutable input references;
-- `packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts` for the
+- `packages/persistence-postgres/src/tasks/taskSystemRunAttemptStoreV1.ts` for the
   scope-bound lifecycle transaction adapter;
-- `packages/persistence-postgres/src/taskSystemRunReadV1.ts` for read-only due
+- `packages/persistence-postgres/src/tasks/taskSystemRunReadV1.ts` for read-only due
   and requested-effect capabilities; and
 - Roadmaps 04 and 05 for durable-state, wake, repair, and effect ownership.
 

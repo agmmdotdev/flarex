@@ -50,11 +50,11 @@ Use these sources in order:
    sketches are not accepted merely because they are documented.
 6. Current code and decisive tests prove what is implemented:
    - [`packages/executor/src/index.ts`](../packages/executor/src/index.ts)
-   - [`packages/executor/src/pointMutationSessionActivation.ts`](../packages/executor/src/pointMutationSessionActivation.ts)
-   - [`packages/persistence-postgres/src/schema.ts`](../packages/persistence-postgres/src/schema.ts)
+   - [`packages/executor/src/mutation/session/pointMutationSessionActivation.ts`](../packages/executor/src/mutation/session/pointMutationSessionActivation.ts)
+   - [`packages/persistence-postgres/src/database/schema.ts`](../packages/persistence-postgres/src/database/schema.ts)
    - [`packages/persistence-postgres/src/index.ts`](../packages/persistence-postgres/src/index.ts)
-   - [`packages/persistence-postgres/src/postgresClient.ts`](../packages/persistence-postgres/src/postgresClient.ts)
-   - [`packages/persistence-postgres/src/transactionSessionActivation.ts`](../packages/persistence-postgres/src/transactionSessionActivation.ts)
+   - [`packages/persistence-postgres/src/database/postgresClient.ts`](../packages/persistence-postgres/src/database/postgresClient.ts)
+   - [`packages/persistence-postgres/src/execution/transactionSessionActivation.ts`](../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
    - [`apps/executor/src/worker.ts`](../apps/executor/src/worker.ts)
    - [`apps/executor/src/requestLifecycle.ts`](../apps/executor/src/requestLifecycle.ts)
    - [`packages/executor/test`](../packages/executor/test)

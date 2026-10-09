@@ -7,7 +7,7 @@ import { currencyGraph } from "../src/currency-service";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import { prepareLocalGraph, decodeGraphCount } from "../src/local-graph/query";
 import type { GraphModuleDefinition, PreparedLocalGraph } from "../src/local-graph/model";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 
 const participant = defineAtomicCommerceParticipant("graph-unit");
 const query = (entity: string, fields: string[] = ["id"]) => ({ entity, fields, pagination: { take: 2 } });

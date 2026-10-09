@@ -8,8 +8,8 @@ import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
 import { productRepository } from "../src/product-repository";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
-import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
+import { makeCommerceCommandContext } from "../../persistence-postgres/src/frameworks/commerceTransaction/context";
 
 const fixture = Effect.gen(function* () {
   const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);

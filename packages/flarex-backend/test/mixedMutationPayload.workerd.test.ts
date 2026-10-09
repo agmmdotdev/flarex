@@ -10,9 +10,9 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { fxAppRowRevisions, fxSystemIdempotency, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemTransactionSessions } from
-  "../../persistence-postgres/src/schema";
-import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/finiteAttemptAnchor";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+  "../../persistence-postgres/src/database/schema";
+import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 

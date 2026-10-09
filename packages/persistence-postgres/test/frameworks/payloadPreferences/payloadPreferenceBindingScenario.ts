@@ -1,0 +1,300 @@
+import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
+import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
+import { administrativelyRepairFrameworkMetadata } from "../../installation/frameworkSchema/frameworkMetadataRepairTestSupport";
+import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
+import { payloadJoinScenario } from "../../integration/payload/payloadJoinScenario";
+import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGenerationSchema } from "flarex-protocol/storage-authority";
+import { isJsonObject } from "flarex-protocol/json";
+import { eq, ne } from "drizzle-orm";
+import { expect } from "vitest";
+import { Effect, Option, Result, Schema, Tracer } from "effect";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
+import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
+import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
+import { defineCmsCommand, type CmsCommandContext } from "../../../src/frameworks/cmsTransaction/commands";
+import { cmsError, cmsLimits } from "../../../src/frameworks/cmsTransaction/model";
+import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
+import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
+import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
+  fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys, fxAppIndexEntryCurrent } from "../../../src/database/schema";
+import { type PayloadContentProfiles } from "../../../src/frameworks/payloadPreferences/binding";
+import { capturePayloadPreferenceRecord } from "../../../src/frameworks/payloadPreferences/value";
+import { payloadPreferenceSchemaInput } from "../../../src/frameworks/payloadPreferences/schema";
+import { captureRelationalSchemaArtifact } from "../../../src/storage/relationalSchema/artifact";
+import { captureRelationalPhysicalLayout } from "../../../src/storage/relationalSchema/physical/canonical";
+import { captureFreshRelationalMigrationPlan } from "../../../src/installation/migrationCoordination/canonical";
+import { frameworkSchemaTargetSnapshot } from "../../../src/installation/frameworkSchema/target";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../../src/installation/frameworkSchema/binding/host";
+import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
+import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvailabilityHead } from "../../../src/installation/frameworkSchema/installation/canonical";
+import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../../../src/installation/frameworkSchema/installation/availabilityHistoryRepository";
+import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect, lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect } from "../../../src/installation/frameworkSchema/installation/availabilityHeadRepository";
+import { fxSystemFrameworkSchemaInstallations } from "../../../src/installation/frameworkSchema/installation/schema";
+import { payloadScalarFields, payloadScalarConfiguration } from "../../../../payload-adapter/src/testing/profiles";
+import { payloadScalarContentIdentity } from "../../../../payload-adapter/src/testing/profiles";
+import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
+import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
+import { createAppSchemaCandidateWriteGuardPort } from "../../../src/storage/catalog/appSchemaCandidateValidation";
+import { cmsHostFixture } from "../cmsTransaction/cmsHostFixture";
+import { installationBindingReference } from "../../installation/frameworkSchema/frameworkDataBindingPhysicalTestSupport";
+import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { payloadPreferencePublicationScenario } from "./payloadPreferencePublicationScenario";
+import { payloadRelationScenario } from "../../integration/payload/payloadRelationScenario";
+import { payloadPopulationScenario } from "../../integration/payload/payloadPopulationScenario";
+import { payloadManyScenario } from "../../integration/payload/payloadManyScenario";
+import { payloadManyUpgradeScenario } from "../../integration/payload/payloadManyUpgradeScenario";
+import { payloadRelationManifest } from "../../integration/payload/payloadRelationFixture";
+import { policyManifestFixture } from "../../application/ownership/applicationWritePolicyFixture";
+import { createHash } from "node:crypto";
+const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
+
+export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: boolean | "population" | "many" | "many-upgrade" | "joins" = false, reopen?: () => Promise<void>) {
+  const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
+  if (schemaName === undefined) throw new Error("Missing fixture schema");
+  const scalar = await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration);
+  const many = (relationOnly === "many" || relationOnly === "joins") ? await payloadRelationManifest(scalar.manifest, true, relationOnly === "joins") : null;
+  const { fixture, target, bindings, reference, candidate: contentCandidate, payloadProfiles } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
+    cmsManifest: many === null ? scalar : { manifest: many.manifest, manifestSha256: createHash("sha256").update(many.canonicalBytes).digest("hex") },
+    physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
+  const { profile, availability, table } = await installPayloadPreferenceFixture(persistence, target, fixture.deploymentId);
+  const record = await runEffect(capturePayloadPreferenceRecord({ id: "preference-a", key: "collection-posts-a", user: { relationTo: "users", value: "user-a" },
+    value: { nested: [true, null, String.fromCodePoint(0x1f600), 1.5] }, createdAt: "2026-01-01", updatedAt: "2026-01-01" }));
+  await persistence.drizzle.insert(table).values({ scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration, id: record.id, key: record.key,
+    userCollection: record.user.relationTo, userId: record.user.value, value: record.value, createdAt: record.createdAt, updatedAt: record.updatedAt });
+  const retained = await persistence.drizzle.select().from(table);
+  expect(retained[0]).toMatchObject({ id: record.id, key: record.key, userCollection: "users", userId: "user-a", value: record.value });
+  expect(Date.parse(retained[0]?.createdAt ?? "")).toBe(Date.parse(record.createdAt));
+  await runEffectFailure(capturePayloadPreferenceRecord({ ...record, user: { relationTo: "admins", value: "user-a" } }));
+  await runEffectFailure(capturePayloadPreferenceRecord({ ...record, extra: true }));
+  for (const invalid of [String.fromCharCode(0), String.fromCharCode(0xd800), String.fromCharCode(0xdc00)]) {
+    for (const bad of [{ ...record, id: invalid }, { ...record, key: invalid }, { ...record, user: { relationTo: "users", value: invalid } },
+      { ...record, value: { nested: [invalid] } }, { ...record, value: { [invalid]: true } }]) {
+      expect(await runEffectFailure(capturePayloadPreferenceRecord(bad))).toMatchObject({ reason: "invalidInput" });
+    }
+  }
+  const lifecycle = { ...installationBindingReference(availability), profiles: [profile.profile] };
+  const frame = { ...contentCandidate.frame, payloadLifecycle: lifecycle };
+  const before = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
+  const candidate = await runEffect(bindings.prepare(frame));
+  const unprofiled = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
+    authority: fixture.authorityPorts, application: fixture.relationActivation }));
+  expect(await runEffectFailure(unprofiled.prepare(frame))).toMatchObject({ reason: "unsupportedProfile" });
+  const forgedProfiles: PayloadContentProfiles = Object.freeze({ ...payloadProfiles });
+  const forged = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
+    authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles: forgedProfiles }));
+  expect(await runEffectFailure(forged.prepare(frame))).toMatchObject({ reason: "unsupportedProfile" });
+  const request = dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "activate-preferences", candidate.sha256, before.head);
+  expect(await runEffectFailure(forged.activate(request))).toMatchObject({ reason: "unsupportedProfile" });
+  await runEffect(bindings.activate(request));
+  expect((await runEffect(bindings.withCurrent(readAdmittedDataBinding))).frame).toEqual(frame);
+  expect(await runEffectFailure(forged.withCurrent(readAdmittedDataBinding))).toMatchObject({ reason: "unsupportedProfile" });
+  const cold = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
+    authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles }));
+  expect((await runEffect(cold.withCurrent(readAdmittedDataBinding))).frame).toEqual(frame);
+  for (const changed of [{ ...frame, payloadContent: null }, { ...frame, payloadLifecycle: { ...lifecycle, profiles: [] } },
+    { ...frame, payloadLifecycle: { ...lifecycle, profiles: [{ ...profile.profile, contractSha256: "0".repeat(64) }] } },
+    { ...frame, payloadLifecycle: { ...lifecycle, readinessSha256: "0".repeat(64) } }]) await runEffectFailure(bindings.prepare(changed));
+  let calls = 0;
+  const probe = defineCmsCommand({ name: "preference-binding-probe", mode: "read", run: () => Effect.sync(() => { calls += 1; return null; }) });
+  const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
+    deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+    authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority, application: fixture.relationActivation, commands: [probe], identityAndAccessPolicy: { profile: "preference-binding-only" },
+    expectedContentIdentity: payloadScalarContentIdentity,
+    materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
+      uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle), candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
+  const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent),
+    // Corruption fixtures restore row bodies; physical heap order is not observable history.
+    revisions: await persistence.drizzle.select().from(fxAppRowRevisions).orderBy(
+      fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
+    commits: await persistence.drizzle.select().from(fxSystemCommits), outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
+    wakes: await persistence.drizzle.select().from(fxSystemCommitWakes), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
+    clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
+
+  if (relationOnly) {
+    const scenario = relationOnly === "joins" ? payloadJoinScenario : relationOnly === "many-upgrade" ? payloadManyUpgradeScenario : relationOnly === "many" ? payloadManyScenario : relationOnly === "population" ? payloadPopulationScenario : payloadRelationScenario;
+    await scenario({ persistence, fixture, bindings, payloadProfiles, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory, ...(reopen === undefined ? {} : { reopen }),
+      seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({
+        scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
+        id: preferenceId, key: `collection-posts-${id}`, userCollection: "users", userId: "user-a", value: { retained: true },
+        createdAt: record.createdAt, updatedAt: record.updatedAt })));
+      } });
+    return;
+  }
+  const disabled = await runEffect(makeCmsHost(hostInput));
+  expect(await runEffectFailure(disabled.read(probe, {}))).toMatchObject({ reason: "unsupportedProfile" });
+  const { expectedContentIdentity: _expectedContentIdentity, ...hostWithoutContentIdentity } = hostInput;
+  expect(await runEffectFailure(makeCmsHost({ ...hostWithoutContentIdentity, payloadPreferenceTarget: target }))).toMatchObject({ reason: "invalidAuthority" });
+  const mismatched = await runEffect(makeCmsHost({ ...hostInput, expectedContentIdentity: {
+    ...payloadScalarContentIdentity, configSha256: "0".repeat(64),
+  }, payloadPreferenceTarget: target }));
+  expect(await runEffectFailure(mismatched.read(probe, {}))).toMatchObject({ reason: "invalidAuthority" });
+  const host = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
+  const installationWhere = eq(fxSystemFrameworkSchemaInstallations.installationStorageId, availability.installation.storageId);
+  const originalBytes = new TextEncoder().encode(availability.installation.installation.canonicalJson);
+  const changedBytes = originalBytes.slice(); changedBytes[0] = 32;
+  await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: changedBytes }).where(installationWhere));
+  try {
+    await runEffectFailure(host.read(probe, {}));
+    await runEffectFailure(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
+    expect(calls).toBe(0);
+  } finally {
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: originalBytes }).where(installationWhere));
+  }
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  expect(await runEffect(host.read(probe, {}).pipe(Effect.provideService(Tracer.Tracer, tracer)))).toBe(null);
+  expect(spans.filter(name => name === "InstallationRuntime.readEvidence")).toHaveLength(1);
+  expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
+  expect(spans).not.toContain("FrameworkMigrationPlanRepository.loadSidecars");
+  expect(calls).toBe(1);
+  // Reuse this installed fixture for the transaction/receipt slice on both drivers.
+  let activeTx: FlarexMetadataTransaction | undefined;
+  let escaped: CmsCommandContext | undefined;
+  let observedIds: readonly (string | null)[] = [];
+  let settledIds: readonly (string | null)[] = [];
+  let cleanupCompletions = 0;
+  const closedReceipts: unknown[] = [];
+  let sawCleanup = false;
+  const create = defineCmsCommand({ name: "preference-create-post", mode: "write", run: Effect.fn("PreferenceTest.create")(
+    ctx => ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: "cleanup-post", score: 0, enabled: false,
+      publishedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" })) });
+  const cleanupRun = Effect.fn("PreferenceTest.cleanup")(function* (ctx: CmsCommandContext, args: import("flarex-protocol/json").Json) {
+    if (!isJsonObject(args) || typeof args.id !== "string") return yield* Effect.fail(cmsError("invalidInput"));
+    escaped = ctx;
+    if (args.beforeDelete !== true) yield* ctx.documents.delete(ctx.context, ctx.transactionId, args.id);
+    const cleanup = ctx.preferences.deleteForPendingDocument(ctx.context, args.foreignId === true ? "foreign" : ctx.transactionId, "posts",
+      args.selector ?? { key: { in: [`collection-posts-${args.id}`] } });
+    if (args.catchFailure === true) yield* cleanup.pipe(Effect.catchTag("CmsTransactionError", () => Effect.void));
+    else yield* cleanup;
+    cleanupCompletions += 1;
+    if (activeTx === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+    observedIds = (yield* runDrizzleStatementEffect(activeTx.select({ id: table.id }).from(table), cause => cmsError("statementFailure", cause))).map(row => row.id);
+    if (args.failAfter === true) return yield* Effect.fail(cmsError("invalidInput"));
+    return null;
+  });
+  const cleanup = defineCmsCommand({ name: "preference-cleanup-post", mode: "write", run: cleanupRun });
+  const cleanupRead = defineCmsCommand({ name: "preference-cleanup-read", mode: "read", run: cleanupRun });
+  const cleanupHost = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target, commands: [create, cleanup, cleanupRead] }, {
+    afterAdmission: tx => Effect.sync(() => { activeTx = tx; sawCleanup = false; }),
+    afterPreferenceCleanup: evidence => Effect.gen(function* () {
+      closedReceipts.push(evidence); sawCleanup = evidence.length > 0;
+      if (activeTx === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+      settledIds = (yield* runDrizzleStatementEffect(activeTx.select({ id: table.id }).from(table), cause => cmsError("statementFailure", cause))).map(row => row.id);
+    }),
+    afterPreferenceFacts: () => sawCleanup ? Effect.fail(cmsError("unsupportedProfile")) : Effect.void,
+  }));
+  const post = await runEffect(cleanupHost.run(cleanupHost.newRequestKey(), create, {}));
+  if (!isJsonObject(post) || typeof post._id !== "string") throw new Error("Missing cleanup post");
+  const postId = post._id;
+  const selector = { key: { in: [`collection-posts-${postId}`] } };
+
+  const foreignScope = ScopeIdSchema.make(`scope_${crypto.randomUUID()}`);
+  const foreignGeneration = await runEffect(decodeGeneration(reference.storageGeneration));
+  await persistence.drizzle.transaction(async tx => {
+    await tx.insert(fxSystemScopeClocks).values({ scopeId: foreignScope });
+    await tx.insert(fxSystemScopeExecutionAuthorities).values({ scopeId: foreignScope, storageGeneration: foreignGeneration, epoch: ScopeEpochSchema.make(reference.epoch) });
+  });
+  const publicationBefore = await inventory();
+  // A real zero-match query produces a receipt, then the closed publication gate rolls back.
+  expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId }))).toMatchObject({ reason: "unsupportedProfile" });
+  expect(cleanupCompletions).toBe(1);
+  expect(closedReceipts.at(-1)).toEqual([{ collectionSlug: "posts", documentId: postId, key: selector.key.in[0], preferenceIds: [] }]);
+  const seed = { scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
+    key: selector.key.in[0], userCollection: "users", userId: "user-a", value: { retained: true }, createdAt: record.createdAt, updatedAt: record.updatedAt };
+  await persistence.drizzle.insert(table).values([{ ...seed, id: "matching-a" }, { ...seed, id: "matching-b" },
+    { ...seed, id: "other-key", key: "collection-posts-unrelated" }, { ...seed, id: "other-generation", generation: "legacy_v1" },
+    { ...seed, id: "other-scope", scope: Result.getOrThrow(projectScopeIdUuidV1Result(foreignScope)).scopeUuid }]);
+  const preferencesBefore = await persistence.drizzle.select().from(table);
+  for (const args of [{ id: postId }, { id: postId, failAfter: true }]) {
+    const receiptCount = closedReceipts.length;
+    await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, args));
+    expect(observedIds).toEqual(expect.arrayContaining(["matching-a", "matching-b"]));
+    if ("failAfter" in args) expect(closedReceipts).toHaveLength(receiptCount);
+    else {
+      expect(closedReceipts).toHaveLength(receiptCount + 1);
+      expect(settledIds).not.toContain("matching-a");
+      expect(settledIds).not.toContain("matching-b");
+      expect(settledIds).toEqual(expect.arrayContaining([record.id, "other-key", "other-generation", "other-scope"]));
+    }
+    expect(observedIds).toEqual(expect.arrayContaining([record.id, "other-key", "other-generation", "other-scope"]));
+    expect(await persistence.drizzle.select().from(table)).toEqual(preferencesBefore);
+  }
+  const completedBeforeRefusals = cleanupCompletions;
+  expect(closedReceipts.at(-1)).toEqual([{ collectionSlug: "posts", documentId: postId, key: selector.key.in[0], preferenceIds: ["matching-a", "matching-b"] }]);
+  for (const args of [{ id: postId, beforeDelete: true }, { id: postId, foreignId: true },
+    ...[{ key: { equals: selector.key.in[0] } }, { key: { in: [] } }, { key: { in: [selector.key.in[0], "extra"] } },
+      { key: { in: ["collection-users-a"] } }, { key: { in: ["collection-posts-not-pending"] } }, { ...selector, extra: true }].map(selector => ({ id: postId, selector }))]) {
+    await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, args));
+  }
+  expect(cleanupCompletions).toBe(completedBeforeRefusals);
+  await runEffectFailure(cleanupHost.read(cleanupRead, { id: postId, beforeDelete: true }));
+  if (escaped === undefined) throw new Error("Missing escaped request");
+  await runEffectFailure(escaped.preferences.deleteForPendingDocument(escaped.context, escaped.transactionId, "posts", selector));
+  // The existing host rejects output charging once a caught operation has latched rollback.
+  expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, selector: {}, catchFailure: true }))).toMatchObject({ reason: "closed" });
+  // Selection now happens during settlement: callback-local catch cannot suppress
+  // overflow, and the bounded selection still refuses before DELETE.
+  await persistence.drizzle.insert(table).values(Array.from({ length: cmsLimits.identities - 1 }, (_, index) => ({ ...seed, id: `overflow-${index}` })));
+  const overflowBefore = await persistence.drizzle.select().from(table);
+  expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, catchFailure: true }))).toMatchObject({ reason: "limitExceeded" });
+  expect(observedIds).toContain("matching-a");
+  expect(await persistence.drizzle.select().from(table)).toEqual(overflowBefore);
+  expect(await inventory()).toEqual(publicationBefore);
+  // Remove only test seeds so the original withdrawal/retention assertion remains exact.
+  await persistence.drizzle.delete(table).where(ne(table.id, record.id));
+  await payloadPreferencePublicationScenario({ persistence, hostInput: { ...hostInput, payloadPreferenceTarget: target },
+    retentionAuthority: fixture.authorityPorts,
+    seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({ ...seed, id: preferenceId, key: `collection-posts-${id}` }))); },
+    readPreferenceIds: async () => (await persistence.drizzle.select({ id: table.id }).from(table)).map(row => row.id), inventory });
+  await persistence.drizzle.delete(table).where(ne(table.id, record.id));
+  const schema = payloadPreferenceSchemaInput();
+  const malformed = await runEffect(captureRelationalSchemaArtifact({ deploymentId: fixture.deploymentId, provenance: profile.artifact.provenance, schema: { ...schema, tables: schema.tables.map(table => ({ ...table, indexes: [] })) } }));
+  const snapshot = frameworkSchemaTargetSnapshot(target);
+  if (snapshot === undefined) throw new Error("Missing target snapshot");
+  const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: malformed.artifact, targetNamespace: snapshot.namespace, physicalLocator: snapshot.physicalLocator }));
+  await runEffectFailure(captureFreshRelationalMigrationPlan({ artifact: malformed.artifact, physicalLayout: layout }));
+  const beforeWithdrawal = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
+  await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+    const history = yield* captureFrameworkSchemaAvailabilityHistory({ readiness: availability.readiness.readiness, previous: availability.history.history,
+      status: "withdrawn", reasonSha256: "f".repeat(64), recordedAt: "2026-09-06T00:00:00.000Z" });
+    const stored = yield* appendFrameworkSchemaAvailabilityHistoryInTransactionEffect(tx, availability.readiness, availability.history, history);
+    yield* compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(tx, availability, stored, yield* captureFrameworkSchemaAvailabilityHead(stored.history));
+  })));
+  await runEffectFailure(host.read(probe, {}));
+  const completedBeforeWithdrawal = cleanupCompletions;
+  await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId }));
+  expect(cleanupCompletions).toBe(completedBeforeWithdrawal);
+  await runEffectFailure(cold.withCurrent(readAdmittedDataBinding));
+  expect(calls).toBe(1);
+  expect(await persistence.drizzle.select().from(table)).toEqual(retained);
+  // Unavailable construction cannot publish a host. Returning to ready changes
+  // the installation reference and requires an explicit new bind.
+  await runEffectFailure(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
+  const replacement = await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+    const current = yield* lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect(tx, availability.installation.installation.frame.identity);
+    if (Option.isNone(current)) throw new Error("Missing withdrawn availability");
+    const history = yield* captureFrameworkSchemaAvailabilityHistory({ readiness: current.value.readiness.readiness,
+      previous: current.value.history.history, status: "ready", reasonSha256: null, recordedAt: "2026-09-07T00:00:00.000Z" });
+    const stored = yield* appendFrameworkSchemaAvailabilityHistoryInTransactionEffect(tx, current.value.readiness, current.value.history, history);
+    yield* compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(tx, current.value, stored, yield* captureFrameworkSchemaAvailabilityHead(stored.history));
+    const ready = yield* lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect(tx, availability.installation.installation.frame.identity);
+    if (Option.isNone(ready)) throw new Error("Missing replacement availability");
+    return ready.value;
+  })));
+  const reboundCandidate = await runEffect(bindings.prepare({ ...frame,
+    payloadLifecycle: { ...installationBindingReference(replacement), profiles: [profile.profile] } }));
+  await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
+    "rebind-preferences", reboundCandidate.sha256, beforeWithdrawal.head)));
+  await runEffectFailure(host.read(probe, {}));
+  await runEffectFailure(disabled.read(probe, {}));
+  expect(calls).toBe(1);
+  const rebound = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
+  expect(await runEffect(rebound.read(probe, {}))).toBe(null);
+  expect(calls).toBe(2);
+  expect(await persistence.drizzle.select().from(table)).toEqual(retained);
+}

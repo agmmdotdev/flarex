@@ -55,8 +55,8 @@ Current implementation evidence includes:
   for private Standard preparation and source production;
 - [`../../packages/standard-application-invocation/src/ApplicationRelationQuerySystem.ts`](../../packages/standard-application-invocation/src/ApplicationRelationQuerySystem.ts)
   for the private incoming relation operation;
-- [`../../packages/persistence-postgres/src/applicationRelationCommit/`](../../packages/persistence-postgres/src/applicationRelationCommit/)
-  and [`../../packages/persistence-postgres/src/applicationRelationRead/`](../../packages/persistence-postgres/src/applicationRelationRead/)
+- [`../../packages/persistence-postgres/src/application/relations/commit/`](../../packages/persistence-postgres/src/application/relations/commit/)
+  and [`../../packages/persistence-postgres/src/application/relations/read/`](../../packages/persistence-postgres/src/application/relations/read/)
   for authoritative commit and read mechanics; and
 - [`../../packages/system-test/test/integration/applicationRelationalCore.test.ts`](../../packages/system-test/test/integration/applicationRelationalCore.test.ts)
   plus its PostgreSQL peer for the private end-to-end relation vertical; and

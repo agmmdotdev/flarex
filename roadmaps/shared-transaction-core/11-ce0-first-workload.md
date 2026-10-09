@@ -11,7 +11,7 @@ neither constitutes a complete request/reference comparison. This is the first b
 ## Selected Path
 
 Start with the existing private native point publisher and its actual
-[PostgreSQL witnesses](../../packages/persistence-postgres/test/pointCommitTransaction.postgres.test.ts).
+[PostgreSQL witnesses](../../packages/persistence-postgres/test/commit/pointCommitTransaction.postgres.test.ts).
 It calls the shared materializer and publisher. Do not label this final-commit
 kernel as complete user-code execution or charge its native journal to Medusa.
 Candidate compilation/admission is a separate control-plane workload and is
@@ -34,7 +34,7 @@ establish the historical failure's cause or complete native execution acceptance
 
 ## Observation Owners And Limits
 
-The test-only [pool observer](../../packages/persistence-postgres/test/postgresExecutionObservation.ts)
+The test-only [pool observer](../../packages/persistence-postgres/test/performance/postgresExecutionObservation.ts)
 instruments each actual checkout of an exclusively owned, idle pool and restores
 its query method at release. It covers publication metadata reads as well as
 the transaction, including BEGIN/COMMIT and materializer work absent from the

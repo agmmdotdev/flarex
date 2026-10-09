@@ -9,7 +9,7 @@ export default defineConfig({
         find: "cloudflare:workers",
         replacement: fileURLToPath(
           new URL(
-            "../persistence-postgres/test/cloudflareWorkersStub.ts",
+            "../persistence-postgres/test/support/cloudflareWorkersStub.ts",
             import.meta.url,
           ),
         ),

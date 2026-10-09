@@ -52,7 +52,7 @@ in `prepareCoordinatorGraphInTransaction` before any business command runs.
 Expected: independent module installations coexist under the same placement.
 Actual: [DML lowering](../../packages/medusa-adapter/src/schema/lower.ts)
 hardcoded `lineageId: "commerce"` for both modules. The
-[migration coordinator](../../packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts)
+[migration coordinator](../../packages/persistence-postgres/src/installation/migrationCoordination/freshCoordinator.ts)
 correctly treats their different fresh artifacts as competing heads of the same
 lineage. This is an adapter identity limitation, not evidence that the core
 conflict check should be weakened. The initial source preflight missed it.
@@ -110,14 +110,14 @@ The source island remains reference-only until promotion gates pass.
 
 | Inspected source | Finding and consequence |
 | --- | --- |
-| [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
-| [Commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
-| [Composite host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
-| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host selects at most eight logical participants, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
-| [Relational fact reader](../../packages/persistence-postgres/src/commitPublication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
+| [Commerce host](../../packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
+| [Commerce publication](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
+| [Composite host](../../packages/persistence-postgres/src/frameworks/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
+| [Binding model](../../packages/persistence-postgres/src/installation/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/frameworks/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host selects at most eight logical participants, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
+| [Relational fact reader](../../packages/persistence-postgres/src/commit/publication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
 | [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
 | [Read execution](../../packages/medusa-adapter/src/query/read.ts) and [catalog](../../packages/medusa-adapter/src/query/catalog.ts) | Relation filtering, root selection, population, count and projection are reusable semantics; they do not produce native relational OCC dependencies. |
-| [Native journal](../../packages/persistence-postgres/src/sessionJournalStore.ts) and [internal calls](../45-private-internal-user-code-calls.md) | Native calls share an attempt and overlay. These admitted native operations do not establish arbitrary relational query support. |
+| [Native journal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts) and [internal calls](../45-private-internal-user-code-calls.md) | Native calls share an attempt and overlay. These admitted native operations do not establish arbitrary relational query support. |
 | [Application command invocation](../shared-transaction-core/06-application-command-invocation-preflight.md) | The Action-to-trusted-command boundary is proposed, not implemented. The private host is not an ordinary application API. |
 
 The tests linked below establish the implemented private scope. There is no
@@ -286,9 +286,9 @@ retains its existing input and `newRequestKey`/`run` API. Callers do not assembl
 stores, lifetimes, replay evidence or publication capabilities. No new package
 export, process-global service, transaction owner or persisted format is added.
 
-[Definitions](../../packages/persistence-postgres/src/atomicCommerce/commands.ts)
+[Definitions](../../packages/persistence-postgres/src/frameworks/atomicCommerce/commands.ts)
 hold opaque participant and command identities. The
-[host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) registers
+[host](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) registers
 each participant with its authentic profile, installation, allowed commands and
 required local event/fact validator. Definitions alone grant no installation or
 transaction authority. Core registration contains no Product or Currency names.
@@ -404,10 +404,10 @@ Currency/CMS/Application composite proves the native overlap-conflict assertion.
 PostgreSQL-specific cases use
 independent connections and verify duplicate keys, lock contention and recovery
 on a fresh backend. The
-[binding value tests](../../packages/persistence-postgres/test/frameworkDataBindingValues.test.ts)
+[binding value tests](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindingValues.test.ts)
 pin both persisted formats and reject malformed sets. The existing
-[binding lifecycle](../../packages/persistence-postgres/test/frameworkDataBindings.test.ts)
-and [ordinary-role PostgreSQL lifecycle](../../packages/persistence-postgres/test/frameworkDataBindings.postgres.test.ts)
+[binding lifecycle](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindings.test.ts)
+and [ordinary-role PostgreSQL lifecycle](../../packages/persistence-postgres/test/installation/frameworkSchema/frameworkDataBindings.postgres.test.ts)
 retain activation, physical evidence and replay checks.
 
 Compatibility remains pinned by the original internal/public Category suites,

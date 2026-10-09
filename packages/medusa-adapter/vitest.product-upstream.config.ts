@@ -247,7 +247,7 @@ export default defineConfig({
     { find: /^@services$/, replacement: fileURLToPath(new URL("../medusa-product/src/services/index.ts", import.meta.url)) },
     { find: /^@models$/, replacement: fileURLToPath(new URL("../medusa-product/src/models/index.ts", import.meta.url)) },
     { find: /^@types$/, replacement: fileURLToPath(new URL("../medusa-product/src/types/index.ts", import.meta.url)) },
-    { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/cloudflareWorkersStub.ts", import.meta.url)) },
+    { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/support/cloudflareWorkersStub.ts", import.meta.url)) },
   ] },
   test: { globals: false, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
     reporters: ["default", productCoverage(admittedProductCases)],

@@ -135,7 +135,7 @@ runner later reaches `callbackCleanupFailed` and its discard path, but a real
 host could already have an unhandled error event.
 
 Affected owner: the shared located PostgreSQL connection lifecycle in
-`packages/persistence-postgres/src/postgresLocatedReadCommitted.ts`, not the
+`packages/persistence-postgres/src/database/postgresLocatedReadCommitted.ts`, not the
 Task deadline-policy encoder or the E2C2 test harness. Lock-timeout and
 statement-timeout cases already pass and prove rollback settlement plus safe
 same-connection reuse; only the required session-termination path exposes this

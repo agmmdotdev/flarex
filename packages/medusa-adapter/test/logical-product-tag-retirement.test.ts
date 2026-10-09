@@ -14,12 +14,12 @@ import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/schema";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { fxAppRowCurrent, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 

@@ -1,6 +1,6 @@
 import type { PointCommitPublicationEvent, PointCommitPublicationPhase } from
   "@flarex/persistence-postgres/point-commit-transaction";
-import type { TraceFingerprintOwner, TraceInvocationRecord } from "../../../persistence-postgres/test/mixedMutationPerformanceTrace";
+import type { TraceFingerprintOwner, TraceInvocationRecord } from "../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import type { PerformanceSettlementLedger } from "./mixedMutationPerformanceReport";
 import type { admitPublicationServerLogCopies, PublicationPerformanceServer } from "./publicationPerformanceServer";
 import type { readRetrievalRuntimeSettings } from

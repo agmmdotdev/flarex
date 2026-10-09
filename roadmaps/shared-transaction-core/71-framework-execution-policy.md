@@ -43,7 +43,7 @@ adapter consumers and their boundary witnesses.
 
 ## Where To Change A Setting
 
-Use `packages/persistence-postgres/src/frameworkExecutionPolicy.ts` for common
+Use `packages/persistence-postgres/src/execution/preparation/frameworkExecutionPolicy.ts` for common
 transaction timings, default request calls/bytes, CMS page/document limits and
 Commerce resource ceilings. The existing `cmsLimits`, `commerceLimits` and
 `relationalLimits` facades project these values for their consumers. Rebuild and

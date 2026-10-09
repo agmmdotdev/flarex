@@ -1,8 +1,8 @@
 import { Cause, Clock, Deferred, Effect, Exit, Fiber, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
-import { observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
+import { observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "../../../../../persistence-postgres/src/commit/pointCommitPublicationObservation";
 import { createEffectMeasurementCollector } from "./effect";
-import { observePhysicalSessionEffect, PhysicalSessionObservation } from "../../../../../persistence-postgres/src/physicalSession/observation";
+import { observePhysicalSessionEffect, PhysicalSessionObservation } from "../../../../../persistence-postgres/src/database/physicalSession/observation";
 import { observeExecution, withExecutionDiagnosticDefaults } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 
 describe("diagnostic Effect measurement collector", () => {

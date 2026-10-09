@@ -307,14 +307,14 @@ suffixes produces 126 multi-lane filename groups:
 
 | Surface | Lines | Initial action |
 | --- | ---: | --- |
-| [`storedAttemptEvidence.test.ts`](../packages/persistence-postgres/test/storedAttemptEvidence.test.ts) | 9,316 | Boundary, Application-authority, lease/lifecycle, and authority-integrity registrar slices implemented; continue by exact loader invariant boundary and do not infer duplicate coverage from its PostgreSQL peer |
+| [`storedAttemptEvidence.test.ts`](../packages/persistence-postgres/test/execution/storedAttemptEvidence.test.ts) | 9,316 | Boundary, Application-authority, lease/lifecycle, and authority-integrity registrar slices implemented; continue by exact loader invariant boundary and do not infer duplicate coverage from its PostgreSQL peer |
 | [`sync.test.ts`](../packages/flarex-backend/test/sync.test.ts) | 7,883 | First separate retained Legacy, forward sync, projection, and delivery invariants |
-| [`storedAttemptAuthentication.test.ts`](../packages/executor/test/storedAttemptAuthentication.test.ts) | 6,550 | Compare executor authentication/recovery ownership with persistence stored-evidence coverage before moving fixtures |
-| [`storedAttemptEvidence.postgres.test.ts`](../packages/persistence-postgres/test/storedAttemptEvidence.postgres.test.ts) | 5,041 | Preserve genuine PostgreSQL authority and transaction evidence; coordinate with the PGlite decomposition only at exact fixture seams |
-| [`pointCommitTransaction.postgres.test.ts`](../packages/persistence-postgres/test/pointCommitTransaction.postgres.test.ts) | 4,830 | Database correctness concentration; size alone does not justify splitting transaction histories |
-| [`applicationReadiness.test.ts`](../packages/persistence-postgres/test/applicationReadiness.test.ts) | 4,462 | Classify repository contract, migration, and lifecycle assertions before decomposition |
-| [`sessionJournalStore.test.ts`](../packages/persistence-postgres/test/sessionJournalStore.test.ts) | 4,439 | Preserve suspendable/fiber and fixture-lifetime isolation while separating portable repository behavior |
-| [`pglite.runtime.test.ts`](../packages/persistence-postgres/test/pglite.runtime.test.ts) | 4,298 | Inventory facade, retry, migration, and driver-compatibility invariants before parameterization |
+| [`storedAttemptAuthentication.test.ts`](../packages/executor/test/mutation/authentication/storedAttemptAuthentication.test.ts) | 6,550 | Compare executor authentication/recovery ownership with persistence stored-evidence coverage before moving fixtures |
+| [`storedAttemptEvidence.postgres.test.ts`](../packages/persistence-postgres/test/execution/storedAttemptEvidence.postgres.test.ts) | 5,041 | Preserve genuine PostgreSQL authority and transaction evidence; coordinate with the PGlite decomposition only at exact fixture seams |
+| [`pointCommitTransaction.postgres.test.ts`](../packages/persistence-postgres/test/commit/pointCommitTransaction.postgres.test.ts) | 4,830 | Database correctness concentration; size alone does not justify splitting transaction histories |
+| [`applicationReadiness.test.ts`](../packages/persistence-postgres/test/application/applicationReadiness.test.ts) | 4,462 | Classify repository contract, migration, and lifecycle assertions before decomposition |
+| [`sessionJournalStore.test.ts`](../packages/persistence-postgres/test/execution/sessionJournalStore.test.ts) | 4,439 | Preserve suspendable/fiber and fixture-lifetime isolation while separating portable repository behavior |
+| [`pglite.runtime.test.ts`](../packages/persistence-postgres/test/database/pglite.runtime.test.ts) | 4,298 | Inventory facade, retry, migration, and driver-compatibility invariants before parameterization |
 | [`http.test.ts`](../packages/executor-http/test/http.test.ts) | 4,182 | Candidate for domain-named route/codec matrices, not a generic HTTP harness |
 | [`managedSchemaCookingHarness.ts`](../packages/system-test/support/managedSchemaCookingHarness.ts) | 2,999 | Prevent new schema gates from adding more aggregate proof flags; reuse exact environment mechanics only |
 

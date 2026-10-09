@@ -9,6 +9,13 @@ Future implementation work should follow [AGENTS.md](./AGENTS.md). Domain
 decisions and implementation records live in [roadmaps/](./roadmaps/), split by
 feature area with Convex references and Cloudflare differences.
 
+To understand the current core, start with the
+[execution flow and ownership map](roadmaps/execution-architecture/architecture.md),
+then the [Postgres source/test guide](packages/persistence-postgres/README.md) and
+[Application executor guide](packages/executor/README.md). The
+[organization roadmap](roadmaps/execution-architecture/README.md) separates
+completed local capabilities from remaining construction and performance work.
+
 ## Prototype Workspace
 
 - `packages/flarex`: schema validators, Convex-style function authoring

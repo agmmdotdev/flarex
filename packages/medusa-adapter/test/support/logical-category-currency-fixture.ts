@@ -3,14 +3,14 @@ import { makeCategoryCurrencyAtomicCommand } from "../../src/category-currency-a
 
 
 
-import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../../persistence-postgres/src/atomicCommerce/host";
-import type { AtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/commands";
-import { runEffect } from "../../../persistence-postgres/test/effectTestRuntime";
+import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import type { AtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { runEffect } from "../../../persistence-postgres/test/support/effectTestRuntime";
 import { logicalCurrencyFixture, type LogicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalProductHost } from "./logical-product-fixture";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
-import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
-import type { CommerceHost } from "../../../persistence-postgres/src/commerceTransaction/commands";
+import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import type { CommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";
 import { decodeCategoryProjection } from "../../src/product-category-projection";
 
 interface LogicalCategoryCurrencyFixture {

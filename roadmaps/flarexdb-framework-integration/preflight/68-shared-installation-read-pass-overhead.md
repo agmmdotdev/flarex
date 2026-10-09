@@ -9,7 +9,7 @@ ShippingProfile capability completion remains paused in [record 66](./66-connect
 Evaluate reducing redundant nested read-pass instrumentation in the shared
 migration restoration path without changing what it authenticates or when it may reuse
 evidence. The first implementation owner is
-`packages/persistence-postgres/src/migrationCoordination/graphReadPass.ts`.
+`packages/persistence-postgres/src/installation/migrationCoordination/graphReadPass.ts`.
 Its existing graph-pass tests own lifetime/capacity preservation; the unchanged
 seventeen-table ShippingProfile fixture supplies the larger consumer witness.
 

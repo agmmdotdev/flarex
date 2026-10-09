@@ -179,13 +179,13 @@ Read this plan with:
   which own the canonical function and current `ActionCtx` shapes;
 - [`../packages/analysis/src/declarativeV2VerifierV1.contract.ts`](../packages/analysis/src/declarativeV2VerifierV1.contract.ts),
   which owns the current analyzer capability matrix and syscall catalog;
-- [`../packages/persistence-postgres/src/candidateRuntimeProjectionV1.ts`](../packages/persistence-postgres/src/candidateRuntimeProjectionV1.ts),
-  [`../packages/persistence-postgres/src/candidateRuntimePublicationRepositoryV1.ts`](../packages/persistence-postgres/src/candidateRuntimePublicationRepositoryV1.ts),
+- [`../packages/persistence-postgres/src/application/candidateRuntimeProjectionV1.ts`](../packages/persistence-postgres/src/application/candidateRuntimeProjectionV1.ts),
+  [`../packages/persistence-postgres/src/application/candidateRuntimePublicationRepositoryV1.ts`](../packages/persistence-postgres/src/application/candidateRuntimePublicationRepositoryV1.ts),
   and
   [`../packages/flarex-backend/src/artifactRuntime/DeclarativeV2ColdMaterializationProbe.ts`](../packages/flarex-backend/src/artifactRuntime/DeclarativeV2ColdMaterializationProbe.ts),
   which own `edge_action` publication references, relationships, and verified R2
   loading;
-- [`../packages/persistence-postgres/src/applicationRevisionActivationV1.ts`](../packages/persistence-postgres/src/applicationRevisionActivationV1.ts),
+- [`../packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts`](../packages/persistence-postgres/src/application/revision/applicationRevisionActivationV1.ts),
   which owns coherent Scope-revoked active selection; and
 - the current query and mutation System composers under
   [`../packages/standard-application-invocation/src/`](../packages/standard-application-invocation/src/),

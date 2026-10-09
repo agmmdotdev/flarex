@@ -1,6 +1,6 @@
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { PostgresLocatedReadCommittedRunnerOptionsV1 } from
-  "../../../persistence-postgres/src/postgresLocatedReadCommitted";
+  "../../../persistence-postgres/src/database/postgresLocatedReadCommitted";
 import type { createMixedMutationProductFixture } from "./mixedMutationWorkerdFixture";
 import type { MixedMutationFinalEntryTestContext } from "./mixedMutationWorkerdFixture";
 

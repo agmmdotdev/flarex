@@ -2,17 +2,17 @@ import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { expect } from "vitest";
 import { count } from "drizzle-orm";
-import { fxSystemCommits } from "../../../../persistence-postgres/src/schema";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../../../persistence-postgres/src/atomicCommerce/events";
-import { makeAtomicCommerceHost } from "../../../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../../../persistence-postgres/src/commerceTransaction/host";
+import { fxSystemCommits } from "../../../../persistence-postgres/src/database/schema";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../../../persistence-postgres/src/frameworks/atomicCommerce/events";
+import { makeAtomicCommerceHost } from "../../../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { makeCommerceHost } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { logicalCurrencyFixture } from "../../../../medusa-adapter/test/support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "../../../../medusa-adapter/test/support/logical-product-fixture";
 import type { CorePerformanceScenario } from "./scenario";
 import type { MixedMutationEffectDiagnostics } from "./measurement";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
 import { selectedCorePerformanceScenarios, type CorePerformanceScenarioName, type CorePerformanceSize } from "./scenarioCatalog";
 
 /** Only fixture composition lives here. Native commands and their receipt

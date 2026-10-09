@@ -7,15 +7,15 @@ import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, getAtomicCommerceCommand,
-  type AtomicCommerceContext } from "../../persistence-postgres/src/atomicCommerce/commands";
+  type AtomicCommerceContext } from "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from
-  "../../persistence-postgres/src/atomicCommerce/host";
+  "../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineCommerceCommand, type CommerceCommandContext } from
-  "../../persistence-postgres/src/commerceTransaction/commands";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
+  "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, type CommerceTransactionError } from
-  "../../persistence-postgres/src/commerceTransaction/model";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+  "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { runEffect, runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { logicalCategoryCurrencyFixture, logicalCategoryCurrencyInventory } from "./support/logical-category-currency-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";

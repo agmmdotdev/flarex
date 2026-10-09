@@ -51,8 +51,8 @@ flowchart TD
 | [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Select module resources, validate native input/hook views and correlate workflow event IDs with successful creation output. |
 | [Shared workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Derive participants, command allowlists, graph/event bindings and scoped resources from module-owned registrations. |
 | [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Own foreign callbacks and scoped service runners, charge root budgets and preserve sticky refusal/cancellation. |
-| [Atomic commerce](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Authenticate installations, share one lifetime and transaction, validate participant facts, seal the result and event contribution, and use existing root recovery. |
-| [Committed events](../../packages/persistence-postgres/src/commitEvents/store.ts) | Durable intent, completeness verification, fresh scope authority, fenced delivery claims and retained subscriber outcomes. |
+| [Atomic commerce](../../packages/persistence-postgres/src/frameworks/atomicCommerce/host.ts) | Authenticate installations, share one lifetime and transaction, validate participant facts, seal the result and event contribution, and use existing root recovery. |
+| [Committed events](../../packages/persistence-postgres/src/commit/events/store.ts) | Durable intent, completeness verification, fresh scope authority, fenced delivery claims and retained subscriber outcomes. |
 
 The author defines steps, transforms, the response and exposed hooks. Trusted
 host assembly supplies the reviewed code/hook revision and subscriber revisions.

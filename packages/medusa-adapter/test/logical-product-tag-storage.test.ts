@@ -8,10 +8,10 @@ import { currencyWorkflowModule } from "../src/currency-service";
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
 
 
-import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
-import { runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { runEffectFailure } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 

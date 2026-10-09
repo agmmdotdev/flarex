@@ -28,23 +28,23 @@ fixed nested hooks; full CRUD awaits the [preference lifecycle extension](./19-p
 
 ## Implemented Owners And Proofs
 
-- [CMS host](../../../packages/persistence-postgres/src/cmsTransaction/host.ts)
+- [CMS host](../../../packages/persistence-postgres/src/frameworks/cmsTransaction/host.ts)
   owns fixed command registration, authenticated admission, one physical session,
   canonical request identity and retained-result recovery.
-- [Request lifetime](../../../packages/persistence-postgres/src/cmsTransaction/lifetime.ts)
+- [Request lifetime](../../../packages/persistence-postgres/src/frameworks/cmsTransaction/lifetime.ts)
   owns exact context and ID resolution, nested lifetimes, rollback-only state,
   active-call closure and cumulative resource limits.
-- [Pending documents](../../../packages/persistence-postgres/src/cmsTransaction/documents.ts)
+- [Pending documents](../../../packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts)
   owns schema-validated scalar operations, base-plus-pending reads, exact count
   and deterministic pages, and an opaque one-use working-set closure.
-- [Application commit owner](../../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+- [Application commit owner](../../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
   owns final transition budgets, OCC, index/unique/candidate maintenance,
   authenticated materialization receipts and the shared publication tail.
   The package's existing facade exposes no CMS issuer or general publisher.
-- The [shared driver scenario](../../../packages/persistence-postgres/test/cmsHostScenario.ts)
+- The [shared driver scenario](../../../packages/persistence-postgres/test/frameworks/cmsTransaction/cmsHostScenario.ts)
   covers scalar changes, uniqueness, nesting, bounded reads, receipt attacks,
   rollback at publication steps, replay and result retention. The
-  [native scenario](../../../packages/persistence-postgres/test/cmsHost.postgres.test.ts)
+  [native scenario](../../../packages/persistence-postgres/test/frameworks/cmsTransaction/cmsHost.postgres.test.ts)
   adds concurrent duplicate keys, lost COMMIT acknowledgement resolved on a
   different backend, active statement cancellation, combined callback/cleanup
   failures, scope/build lock contenders, binding activation and distinct-scope
@@ -103,12 +103,12 @@ tests at the changed boundary.
 
 | Current owner | Finding and disposition |
 | --- | --- |
-| [Application mutation admission](../../../packages/persistence-postgres/src/applicationMutationAdmission.ts) | Selects a published Application function and its active authority. Keep it for Application invocation; a CMS operation must not impersonate a function or mint a Worker grant. |
-| [Application query snapshots](../../../packages/persistence-postgres/src/applicationQuerySnapshot.ts) | Opening an ordinary snapshot requires a published public query function. Reuse underlying document/snapshot validation through a CMS-owned admission facade; do not fabricate a query function to call this facade unchanged. |
-| [Scope execution](../../../packages/persistence-postgres/src/scopeExecution/ScopeExecution.ts) and [scoped operations](../../../packages/persistence-postgres/src/scopeExecution/ScopedTransaction.ts) | Own scope-first locking and opaque registered operations, but remain Application-operation-shaped. Share owned mechanisms without exposing `AppRowTransaction` to adapters. |
-| [Application row persistence](../../../packages/persistence-postgres/src/appRows.ts) | Owns revision chains, creation time and current-head CAS. Append-only history is not a mutable framework row store; repeated edits in one request need a bounded pending document representation before materialization. |
-| [Point commit transaction](../../../packages/persistence-postgres/src/pointCommitTransaction.ts) | Its kernel validates session/journal/OCC evidence and maintains rows, indexes, uniqueness and relations. Its publication tail writes header, facts, result and wake, then deletes the journal/lease, commits the session and advances the scope clock. These responsibilities cannot all be handed to CMS unchanged. |
-| [Receipt collection](../../../packages/persistence-postgres/src/commitPublication/collection.ts) | Establishes private exact-set authentication and single-use closure for reserved scalar SQL. Preserve that rejecting family. A CMS Application materialization needs its own issuer; scalar relational tokens do not become Application-row authority. |
+| [Application mutation admission](../../../packages/persistence-postgres/src/application/applicationMutationAdmission.ts) | Selects a published Application function and its active authority. Keep it for Application invocation; a CMS operation must not impersonate a function or mint a Worker grant. |
+| [Application query snapshots](../../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts) | Opening an ordinary snapshot requires a published public query function. Reuse underlying document/snapshot validation through a CMS-owned admission facade; do not fabricate a query function to call this facade unchanged. |
+| [Scope execution](../../../packages/persistence-postgres/src/scope/execution/ScopeExecution.ts) and [scoped operations](../../../packages/persistence-postgres/src/scope/execution/ScopedTransaction.ts) | Own scope-first locking and opaque registered operations, but remain Application-operation-shaped. Share owned mechanisms without exposing `AppRowTransaction` to adapters. |
+| [Application row persistence](../../../packages/persistence-postgres/src/storage/documents/appRows.ts) | Owns revision chains, creation time and current-head CAS. Append-only history is not a mutable framework row store; repeated edits in one request need a bounded pending document representation before materialization. |
+| [Point commit transaction](../../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts) | Its kernel validates session/journal/OCC evidence and maintains rows, indexes, uniqueness and relations. Its publication tail writes header, facts, result and wake, then deletes the journal/lease, commits the session and advances the scope clock. These responsibilities cannot all be handed to CMS unchanged. |
+| [Receipt collection](../../../packages/persistence-postgres/src/commit/publication/collection.ts) | Establishes private exact-set authentication and single-use closure for reserved scalar SQL. Preserve that rejecting family. A CMS Application materialization needs its own issuer; scalar relational tokens do not become Application-row authority. |
 
 The [execution-profile decision](./14-transaction-execution-profiles.md) and
 [pinned Payload audit](./07-payload-release-and-adapter-contract.md) retain their
@@ -251,7 +251,7 @@ result, header, facts, wake and clock together.
 
 Do not rerun a Payload operation automatically. Capture a stable private
 command request key before execution. Use the existing scope-scoped
-[idempotency storage](../../../packages/persistence-postgres/src/schema.ts)
+[idempotency storage](../../../packages/persistence-postgres/src/database/schema.ts)
 for successful result evidence; no second result ledger is proposed.
 
 The CMS operation name occupies the existing nonblank operation-path field as
@@ -272,7 +272,7 @@ first and publish a second result for the same request.
 
 After a lost COMMIT response, quarantine the uncertain connection and use a new
 authenticated transaction to resolve the exact outcome. Reuse the existing
-[retention-aware outcome validation](../../../packages/persistence-postgres/src/committedPointOutcome.ts):
+[retention-aware outcome validation](../../../packages/persistence-postgres/src/commit/committedPointOutcome.ts):
 an authenticated retained outcome and canonical result prove success, with
 header correlation where history is retained. A missing header below
 `oldestAvailableCommitSeq` is permitted by that existing contract; header

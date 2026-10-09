@@ -110,15 +110,15 @@ interleaved master order in [README.md](./README.md).
 
 Current implementation evidence:
 
-- [`packages/executor/src/sessions.ts`](../../packages/executor/src/sessions.ts)
+- [`packages/executor/src/invocation/sessions.ts`](../../packages/executor/src/invocation/sessions.ts)
   delegates mutation finish directly to persistence.
-- [`packages/persistence-postgres/src/commits.ts`](../../packages/persistence-postgres/src/commits.ts)
+- [`packages/persistence-postgres/src/commit/commits.ts`](../../packages/persistence-postgres/src/commit/commits.ts)
   currently mixes logical planning, read validation, timestamp allocation,
   physical writes, index maintenance, commit/outbox publication, and session
   completion.
-- [`packages/executor/src/retry.ts`](../../packages/executor/src/retry.ts)
+- [`packages/executor/src/invocation/retry.ts`](../../packages/executor/src/invocation/retry.ts)
   currently combines retry classes.
-- [`packages/executor/src/types.ts`](../../packages/executor/src/types.ts)
+- [`packages/executor/src/invocation/types.ts`](../../packages/executor/src/invocation/types.ts)
   currently spans metadata, sessions, app storage, commits, outbox, and live
   query delivery in one persistence interface.
 

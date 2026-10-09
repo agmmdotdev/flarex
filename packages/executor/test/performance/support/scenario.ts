@@ -1,7 +1,7 @@
 import type { LogicalCurrencyPreparationTiming } from "../../../../medusa-adapter/test/support/logical-currency-fixture";
 import type { Pool } from "pg";
-import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/mixedMutationPerformanceTrace";
-import type { PointCommitPublicationObservation } from "../../../../persistence-postgres/src/pointCommitPublicationObservation";
+import type { MixedMutationPerformanceTrace } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
+import type { PointCommitPublicationObservation } from "../../../../persistence-postgres/src/commit/pointCommitPublicationObservation";
 import type { MixedMutationEffectDiagnostics } from "./measurement";
 
 export type { CorePerformanceScenarioName } from "./scenarioCatalog";

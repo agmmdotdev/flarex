@@ -5,19 +5,19 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from
-  "../../persistence-postgres/src/finiteAttemptAnchor";
+  "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemSnapshotLeases, fxSystemTransactionSessions,
-  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { PointCommitConflictV1Error } from
-  "../../persistence-postgres/src/pointCommitTransaction";
-import { PointMutationAttemptReplacementFiniteEntryError } from "../../persistence-postgres/src/pointCommitTransaction";
-import { ApplicationMutationAdmissionError } from "../../persistence-postgres/src/applicationMutationAdmission";
+  "../../persistence-postgres/src/commit/pointCommitTransaction";
+import { PointMutationAttemptReplacementFiniteEntryError } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import { ApplicationMutationAdmissionError } from "../../persistence-postgres/src/application/applicationMutationAdmission";
 import { PointMutationJournalAdmittedOperationRejectedV1Error } from
-  "../../executor/src/pointMutationJournal";
+  "../../executor/src/mutation/journal/pointMutationJournal";
 import { admittedCommerceEventGroup } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";

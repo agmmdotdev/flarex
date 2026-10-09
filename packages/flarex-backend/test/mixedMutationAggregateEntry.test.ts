@@ -1,20 +1,20 @@
 import { count, eq, sql } from "drizzle-orm";
 import { Cause, Data, Deferred, Duration, Effect, Exit, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { createPostgresPersistence } from "../../persistence-postgres/src/postgres";
+import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
+import { createPostgresPersistence } from "../../persistence-postgres/src/database/postgres";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims,
-  fxSystemTransactionJournals, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+  fxSystemTransactionJournals, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture,
   type MixedMutationFinalEntryTestContext, type MixedMutationProductFixtureHooks } from "./support/mixedMutationWorkerdFixture";
-import { preparedFiniteEntries } from "../../persistence-postgres/src/sessionJournalFiniteEntry";
-import { FiniteAttemptAnchorError } from "../../persistence-postgres/src/finiteAttemptAnchor";
-import { FiniteStorageCaptureError } from "../../persistence-postgres/src/finiteStorageCapture";
-import { SessionJournalPersistenceV1Error } from "../../persistence-postgres/src/sessionJournalStore";
-import { LogicalParticipantAdmissionError } from "../../persistence-postgres/src/logicalDocuments/participantAdmission";
+import { preparedFiniteEntries } from "../../persistence-postgres/src/execution/sessionJournalFiniteEntry";
+import { FiniteAttemptAnchorError } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
+import { FiniteStorageCaptureError } from "../../persistence-postgres/src/execution/finiteStorageCapture";
+import { SessionJournalPersistenceV1Error } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import { LogicalParticipantAdmissionError } from "../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { createPointMutationSessionAttemptTerminalizationPersistenceV1, PointMutationSessionAttemptTerminalizationV1Error } from "../../persistence-postgres/src/transactionSessionActivation";
+import { createPointMutationSessionAttemptTerminalizationPersistenceV1, PointMutationSessionAttemptTerminalizationV1Error } from "../../persistence-postgres/src/execution/transactionSessionActivation";
 import { installOneEntryCommitResponseFault } from "./support/postgresCommitResponseFault";
 
 type EntryParticipants = Parameters<NonNullable<MixedMutationProductFixtureHooks["transformFiniteEntrySources"]>>[0];

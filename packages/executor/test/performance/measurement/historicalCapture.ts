@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { Data, Effect, Exit, Result, Schema } from "effect";
-import type { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/finiteStorageCapture";
+import type { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/execution/finiteStorageCapture";
 import { createHistoricalCaptureFixture, type HistoricalCaptureCase } from "../support/historicalCaptureFixture";
 import { acquireServerMeasurementResource } from "./collectors/server";
 import { createServerPlanCapture, SERVER_PLAN_LOG_PREFIX } from "./collectors/plans";

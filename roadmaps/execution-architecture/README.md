@@ -9,10 +9,14 @@ contract breaks, caller migration and cleanup are authorized. This roadmap owns
 that organization and reuse; it does not claim every operation is implemented.
 
 The first slice is [direct read capabilities](01-direct-read-capabilities.md).
-The [architecture map](architecture.md) explains entry points, ownership, folder
-direction and current coverage. Read it before the individual implementation plans.
+The [architecture map](architecture.md) explains complete flows, entry points,
+ownership and current coverage. The [persistence guide](../../packages/persistence-postgres/README.md)
+and [executor guide](../../packages/executor/README.md) connect those flows to
+source and tests. Read them before the individual implementation plans.
 
-Performance tuning is paused at the accepted standalone-read measurements.
+Performance tuning remains paused at the source/test organization checkpoint.
+The layout and flow guides are complete; consumer construction/API replacement
+remains the next organization contract under its focused plan.
 The local standalone-read and retained installation cutover is complete. Public authoring
 APIs, hosted activation, arbitrary framework admission and general schema
 evolution retain their owning gates.
@@ -102,6 +106,12 @@ unproved or separately gated; accepted local measurements do not close them.
 The paused publication experiment is archived separately and supplies no accepted
 successor runtime contract.
 
+Browser-target Workerd journal/exact-runner witnesses retain a startup gap:
+their journal value imports reach Node crypto through persistence capture and
+installation SQL construction. This is an existing dependency/runtime boundary,
+not closed by source organization. Its core/host contract must be resolved before
+those witnesses establish Worker runtime support.
+
 ## Target Direction And Ordered Gates
 
 1. **Direct read capabilities (complete for the admitted local profiles):** independently construct typed read hosts for
@@ -111,7 +121,11 @@ successor runtime contract.
    construction from conformance fixtures, organize direct and borrowed bindings,
    reuse native operations and completed Medusa module/workflow construction.
    Prove selected create/update/read both directly and inside the existing root.
-3. **Execution and persistence organization:** inventory the actual callers of
+3. **Execution and persistence organization (layout complete; construction/API replacement pending):** the
+   [source/test ownership cutover](04-source-and-test-ownership.md) organizes
+   current owners and migrates imports, exports, test lanes and resource paths.
+   The [consumer construction/API replacement](03-consumer-construction-and-domain-apis.md)
+   remains a distinct pending contract change. Inventory the actual callers of
    Commerce/CMS, atomic Commerce, cross-domain commands and Application attempt
    owners. Move orchestration and database mechanics to their correct existing
    packages, consolidate genuine duplicates, remove displaced entry points.

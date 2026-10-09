@@ -25,7 +25,7 @@ uncertain side effects without duplicating committed mutations.
 
 - [Identity and replay](./01-execution-identity-and-replay.md)
 - [Task system persistence](../durable-task-engine/04-task-system-api-and-postgres.md)
-- [Task external-effect authority](../../packages/persistence-postgres/src/taskExternalEffectAuthority.ts)
+- [Task external-effect authority](../../packages/persistence-postgres/src/tasks/taskExternalEffectAuthority.ts)
 - [Existing settlement reconciliation](../durable-task-engine/preflight/45-dte06-task-mutation-settlement-reconciliation.md)
 
 ## Outcome To Establish

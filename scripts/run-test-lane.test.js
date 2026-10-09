@@ -97,7 +97,7 @@ describe("test lane manifest and runner", () => {
       "exec",
       "vitest",
       "run", "--config=vitest.framework.config.ts",
-      "test/pglite.migrations.test.ts",
+      "test/database/pglite.migrations.test.ts",
       "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
       "--testTimeout=180000",
     ]);
@@ -105,7 +105,7 @@ describe("test lane manifest and runner", () => {
       "exec",
       "vitest",
       "run", "--config=vitest.framework.config.ts",
-      "test/pglite.migrations.test.ts",
+      "test/database/pglite.migrations.test.ts",
       "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
       "--testTimeout=180000",
     ]);
@@ -115,32 +115,32 @@ describe("test lane manifest and runner", () => {
       "exec",
       "vitest",
       "run", "--config=vitest.framework.config.ts",
-      "test/frameworkCoordinatorGraphReadPass.test.ts",
-      "test/privateCanonicalValue.test.ts",
-      "test/relationalSchemaPhysical.test.ts",
-      "test/migrationCoordinationValues.test.ts",
-      "test/frameworkSchemaInstallationValues.test.ts",
-      "test/frameworkCoordinatorMetadataStorage.test.ts",
-      "test/frameworkCoordinatorStoredRestoration.test.ts",
-      "test/frameworkCoordinatorColdReopen.test.ts",
-      "test/frameworkCoordinatorTargetCollisionRepository.test.ts",
-      "test/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
-      "test/frameworkCoordinatorMigrationPlanRepository.test.ts",
-      "test/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
-      "test/frameworkCoordinatorMigrationAttemptRepository.test.ts",
-      "test/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
-      "test/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
-      "test/frameworkCoordinatorSchemaInstallationRepository.test.ts",
-      "test/frameworkCoordinatorSchemaReadinessRepository.test.ts",
-      "test/frameworkCoordinatorMigrationEventRepository.test.ts",
-      "test/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
-      "test/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
-      "test/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorGraphReadPass.test.ts",
+      "test/values/privateCanonicalValue.test.ts",
+      "test/storage/relationalSchema/relationalSchemaPhysical.test.ts",
+      "test/installation/migrationCoordinationValues.test.ts",
+      "test/installation/frameworkSchema/frameworkSchemaInstallationValues.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMetadataStorage.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorStoredRestoration.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorColdReopen.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorTargetCollisionRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationPlanRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationAttemptRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaInstallationRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaReadinessRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationEventRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts",
       "--testTimeout=180000",
     ]);
 
     const migrationSource = readFileSync(
-      "packages/persistence-postgres/test/pglite.migrations.test.ts",
+      "packages/persistence-postgres/test/database/pglite.migrations.test.ts",
       "utf8",
     );
     expect(migrationSource).toContain(
@@ -165,7 +165,7 @@ describe("test lane manifest and runner", () => {
       ? ["framework-coordinator-checkpoint2-pglite", "framework-coordinator-structural-runner-pglite",
         "framework-coordinator-target-session-pglite", "framework-coordinator-fresh-pglite", "framework-coordinator-additive-pglite"]
       : ["framework-coordinator-fresh-postgres"];
-    const helper = driver === "pglite" ? "test/frameworkTestWorkers.test.ts" : "test/postgresFileScopedFixture.postgres.test.ts";
+    const helper = driver === "pglite" ? "test/support/frameworkTestWorkers.test.ts" : "test/support/postgresFileScopedFixture.postgres.test.ts";
     const expected = [...new Set([...groups.flatMap(group => manifest.testFileGroups[group] ?? []), helper])];
     const id = `framework-coordinator-${driver}`;
     expect(manifest.testFileGroups[id]).toEqual(expected);
@@ -204,7 +204,7 @@ describe("test lane manifest and runner", () => {
       "exec",
       "vitest",
       "run", "--config=vitest.framework.config.ts",
-      "test/frameworkCoordinatorRelationalStructuralRunner.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorRelationalStructuralRunner.test.ts",
       "--testTimeout=180000",
     ]);
 
@@ -231,9 +231,9 @@ describe("test lane manifest and runner", () => {
     const step = lane?.steps[0];
     if (step === undefined) throw new Error("Native coordinator lane is missing");
     expect(resolveTestLaneStepArguments(manifest, step)).toEqual([
-      "exec", "vitest", "run", "--config=vitest.framework.postgres.config.ts", "test/retainedPhysicalInstallation.postgres.test.ts",
-      "test/frameworkCoordinatorMetadataProtection.postgres.test.ts",
-      "test/frameworkCoordinatorTextSet.test.ts",
+      "exec", "vitest", "run", "--config=vitest.framework.postgres.config.ts", "test/installation/frameworkSchema/retainedPhysicalInstallation.postgres.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorMetadataProtection.postgres.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorTextSet.test.ts",
       "--testTimeout=300000", "--reporter=verbose", "--bail=1",
     ]);
     const packageManifest = JSON.parse(readFileSync("packages/persistence-postgres/package.json", "utf8"));
@@ -257,7 +257,7 @@ describe("test lane manifest and runner", () => {
       "exec",
       "vitest",
       "run", "--config=vitest.framework.config.ts",
-      "test/frameworkCoordinatorFreshCoordinator.test.ts",
+      "test/installation/frameworkSchema/frameworkCoordinatorFreshCoordinator.test.ts",
       "--testTimeout=180000",
     ]);
 
@@ -286,9 +286,9 @@ describe("test lane manifest and runner", () => {
           "exec",
           "vitest",
           "run",
-          "test/appUniqueConstraintDefinitions.test.ts",
-          "test/appUniqueKeys.test.ts",
-          "test/storedAttemptEvidence.test.ts",
+          "test/storage/unique/appUniqueConstraintDefinitions.test.ts",
+          "test/storage/unique/appUniqueKeys.test.ts",
+          "test/execution/storedAttemptEvidence.test.ts",
           "--no-file-parallelism",
           "--testTimeout=180000",
         ],
@@ -299,8 +299,8 @@ describe("test lane manifest and runner", () => {
           "exec",
           "vitest",
           "run",
-          "test/appUniqueKeys.test.ts",
-          "test/storedAttemptEvidence.test.ts",
+          "test/storage/unique/appUniqueKeys.test.ts",
+          "test/execution/storedAttemptEvidence.test.ts",
           "--no-file-parallelism",
           "--testTimeout=180000",
         ],
@@ -311,9 +311,9 @@ describe("test lane manifest and runner", () => {
           "exec",
           "vitest",
           "run",
-          "test/appUniqueConstraintDefinitions.postgres.test.ts",
-          "test/appUniqueKeys.postgres.test.ts",
-          "test/pointCommitTransaction.postgres.test.ts",
+          "test/storage/unique/appUniqueConstraintDefinitions.postgres.test.ts",
+          "test/storage/unique/appUniqueKeys.postgres.test.ts",
+          "test/commit/pointCommitTransaction.postgres.test.ts",
           "--no-file-parallelism",
           "--testTimeout=180000",
         ],
@@ -324,8 +324,8 @@ describe("test lane manifest and runner", () => {
           "exec",
           "vitest",
           "run",
-          "test/appUniqueKeys.postgres.test.ts",
-          "test/pointCommitTransaction.postgres.test.ts",
+          "test/storage/unique/appUniqueKeys.postgres.test.ts",
+          "test/commit/pointCommitTransaction.postgres.test.ts",
           "--no-file-parallelism",
           "--testTimeout=180000",
         ],
@@ -494,9 +494,9 @@ describe("test lane manifest and runner", () => {
 
     const pgliteArguments = pglite.steps[0].args;
     expect(pgliteArguments).toEqual(expect.arrayContaining([
-      "test/postgres.test.ts",
-      "test/postgresClient.test.ts",
-      "test/postgresConcurrency.test.ts",
+      "test/database/postgres.test.ts",
+      "test/database/postgresClient.test.ts",
+      "test/database/postgresConcurrency.test.ts",
     ]));
   });
 

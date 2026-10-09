@@ -1,0 +1,289 @@
+import { selectScopeClockRows } from "../../../src/scope/scopeClock";
+import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
+import { Effect, Result, Schema } from "effect";
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
+import { appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
+import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
+import { and, eq } from "drizzle-orm";
+import { expect } from "vitest";
+import type { Json } from "flarex-protocol/json";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
+import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
+import { makeCmsHost, type CmsHostInput } from "../../../src/frameworks/cmsTransaction/host";
+import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
+import { type CmsHostTestHooks } from "../../../src/frameworks/cmsTransaction/testSupport";
+import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
+import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
+import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
+import { createAppSchemaCandidateWriteGuardPort } from "../../../src/storage/catalog/appSchemaCandidateValidation";
+import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppUniqueKeys,
+  fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemScopeClocks, fxSystemCommits,
+  fxSystemIdempotency, fxSystemCommitWakes, fxSystemCommitAppRowChanges, fxSystemTransactionSessions } from "../../../src/database/schema";
+import { cmsHostFixture } from "./cmsHostFixture";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../../src/execution/diagnostics/operation";
+import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../../../src/commit/pointCommitPublicationObservation";
+import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+
+const decodeInput = Schema.decodeUnknownResult(Schema.Union([
+  Schema.Struct({ count: Schema.Literals([0, 1, 8, 32]), prefix: Schema.NonEmptyString }),
+  Schema.Struct({ titles: Schema.Array(Schema.String).check(Schema.isMaxLength(32)) }),
+]), { onExcessProperty: "error" });
+const decodeDocuments = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ _id: Schema.String, title: Schema.String, _creationTime: Schema.Number })));
+const decodeIds = Schema.decodeUnknownResult(Schema.Array(Schema.String));
+const decodeRemoveId = Schema.decodeUnknownResult(Schema.String);
+const decodeMove = Schema.decodeUnknownResult(Schema.Struct({ firstId: Schema.String, secondId: Schema.String, firstTitle: Schema.String, temporaryTitle: Schema.String }));
+
+/** Actual active CMS core composition; setup and assertions are outside timing. */
+export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession,
+  hooks?: CmsHostTestHooks) {
+  const { fixture } = await cmsHostFixture(persistence);
+  const scope = Result.getOrThrow(projectScopeIdUuidV1Result(fixture.authority.scopeId));
+  let executions = 0;
+  const prefixExecutions = new Map<string, number>();
+  let readExecutions = 0;
+  let priorDocumentReads = 0;
+  const insert = defineCmsCommand({ name: "measuredInsert", mode: "write", run: Effect.fn("CmsMeasurement.insert")(function* (ctx, args) {
+    const input = yield* Effect.fromResult(decodeInput(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
+    executions++;
+    const documents: Json[] = [];
+    if ("titles" in input) {
+      for (const title of input.titles) documents.push(yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title }));
+    } else {
+      prefixExecutions.set(input.prefix, (prefixExecutions.get(input.prefix) ?? 0) + 1);
+      for (let index = 0; index < input.count; index++) {
+        documents.push(yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: `${input.prefix}-${index.toString().padStart(2, "0")}` }));
+      }
+    }
+    return documents;
+  }) });
+  const read = defineCmsCommand({ name: "measuredReadback", mode: "read", run: Effect.fn("CmsMeasurement.readback")(function* (ctx, args) {
+    const ids = yield* Effect.fromResult(decodeIds(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
+    readExecutions++;
+    const documents: Json[] = [];
+    for (const id of ids) documents.push(yield* ctx.documents.get(ctx.context, undefined, id));
+    return documents;
+  }) });
+  const moveAndReuse = defineCmsCommand({ name: "moveAndReuse", mode: "write", run: Effect.fn("CmsMeasurement.moveAndReuse")(function* (ctx, args) {
+    const input = yield* Effect.fromResult(decodeMove(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
+    yield* ctx.documents.patch(ctx.context, ctx.transactionId, input.firstId, { title: input.temporaryTitle });
+    yield* ctx.documents.patch(ctx.context, ctx.transactionId, input.secondId, { title: input.firstTitle });
+    yield* ctx.documents.delete(ctx.context, ctx.transactionId, input.firstId);
+    return yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: input.temporaryTitle });
+  }) });
+  const remove = defineCmsCommand({ name: "measuredDelete", mode: "write", run: Effect.fn("CmsMeasurement.delete")(function* (ctx, args) {
+    const id = yield* Effect.fromResult(decodeRemoveId(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
+    yield* ctx.documents.delete(ctx.context, ctx.transactionId, id);
+    return null;
+  }) });
+  const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
+    deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+    authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
+    application: fixture.relationActivation, commands: [insert, read, moveAndReuse], identityAndAccessPolicy: { subject: "ce2-measurement", policy: "cms-scalar" },
+    materialization: {
+      observeQuery: query => { if (query.name === "loadPriorDocuments") priorDocumentReads++; },
+      intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
+      developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
+      uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
+      candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }),
+    } } satisfies CmsHostInput<unknown>;
+  const host = await runEffect(makeCmsHost(input, hooks));
+  // Multiple active scopes may share this fixture's physical schema. Each
+  // inventory observes only its scope and is never included in telemetry.
+  const inventory = async () => ({
+    rows: await persistence.drizzle.select().from(fxAppRowCurrent).where(eq(fxAppRowCurrent.scopeUuid, scope.scopeUuid)).orderBy(fxAppRowCurrent.rowId),
+    revisions: await persistence.drizzle.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, scope.scopeUuid)).orderBy(fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
+    indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent).where(eq(fxAppIndexEntryCurrent.scopeUuid, scope.scopeUuid)).orderBy(fxAppIndexEntryCurrent.indexDefinitionId, fxAppIndexEntryCurrent.rowId),
+    indexRevisions: await persistence.drizzle.select().from(fxAppIndexEntryRevisions).where(eq(fxAppIndexEntryRevisions.scopeUuid, scope.scopeUuid)).orderBy(fxAppIndexEntryRevisions.indexDefinitionId, fxAppIndexEntryRevisions.rowId, fxAppIndexEntryRevisions.commitSeq),
+    claims: await persistence.drizzle.select().from(fxAppUniqueKeys).where(eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid)).orderBy(fxAppUniqueKeys.constraintId, fxAppUniqueKeys.rowId),
+    builds: await persistence.drizzle.select().from(fxSystemIndexBuildStates).where(eq(fxSystemIndexBuildStates.scopeId, scope.scopeId)).orderBy(fxSystemIndexBuildStates.indexDefinitionId),
+    uniqueBuilds: await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).where(eq(fxSystemUniqueConstraintBuilds.scopeId, scope.scopeId)).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId),
+    clock: await selectScopeClockRows(persistence.drizzle).where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId)),
+    commits: await persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommits.commitSeq),
+    outcomes: await persistence.drizzle.select().from(fxSystemIdempotency).where(eq(fxSystemIdempotency.scopeUuid, scope.scopeUuid)).orderBy(fxSystemIdempotency.commitSeq),
+    wakes: await persistence.drizzle.select().from(fxSystemCommitWakes).where(eq(fxSystemCommitWakes.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitWakes.commitSeq),
+    facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges).where(eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.rowId),
+    sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.scopeUuid, scope.scopeUuid)),
+  });
+  const verifyInserts = async (before: Awaited<ReturnType<typeof inventory>>, inserts: readonly (
+    { readonly value: Json; readonly count: number; readonly prefix: string } |
+    { readonly value: Json; readonly titles: readonly string[] }
+  )[]) => {
+    const allIds: string[] = [];
+    for (const insertion of inserts) {
+      const { value } = insertion;
+      const titles = "titles" in insertion ? insertion.titles : Array.from({ length: insertion.count }, (_, index) => `${insertion.prefix}-${index.toString().padStart(2, "0")}`);
+      const documents = decodeDocuments(value);
+      expect(documents.map(document => document.title)).toEqual(titles);
+      expect(documents).toHaveLength(titles.length);
+      allIds.push(...documents.map(document => document._id));
+      expect(await runEffect(host.read(read, documents.map(document => document._id)))).toEqual(value);
+    }
+    const count = inserts.reduce((sum, insert) => sum + ("titles" in insert ? insert.titles.length : insert.count), 0);
+    expect(new Set(allIds).size).toBe(count);
+    const after = await inventory();
+    expect(after.rows.length - before.rows.length).toBe(count);
+    expect(after.revisions.length - before.revisions.length).toBe(count);
+    expect(after.claims.length - before.claims.length).toBe(count);
+    expect(after.facts.length - before.facts.length).toBe(count);
+    expect(after.indexes.length - before.indexes.length).toBe(count * 2);
+    expect(after.indexRevisions.length - before.indexRevisions.length).toBe(count * 2);
+    if (count === 0) {
+      for (const family of ["rows", "revisions", "indexes", "indexRevisions", "claims", "facts"] as const) {
+        expect(after[family]).toEqual(before[family]);
+      }
+    }
+    const priorSequence = before.clock[0]?.lastCommitSeq;
+    if (priorSequence === undefined) throw new Error("Missing scope clock");
+    const sequences = inserts.map((_, index) => priorSequence + BigInt(index + 1));
+    for (const family of ["commits", "outcomes", "wakes"] as const) {
+      expect(after[family].length - before[family].length).toBe(inserts.length);
+      expect(after[family].filter(row => row.commitSeq > priorSequence).map(row => row.commitSeq)).toEqual(sequences);
+    }
+    for (const commit of after.commits.filter(row => row.commitSeq > priorSequence)) {
+      expect(commit).toMatchObject({
+        changeCount: after.facts.filter(fact => fact.commitSeq === commit.commitSeq).length,
+        relationAdjacencyChangeCount: 0, payloadPreferenceDeletionCount: 0, relationalChangeCount: 0, eventCount: 0, eventSha256: null,
+      });
+    }
+    expect(after.clock[0]?.lastCommitSeq).toBe(priorSequence + BigInt(inserts.length));
+    expect(before.builds.length).toBeGreaterThan(0);
+    expect(before.uniqueBuilds.length).toBeGreaterThan(0);
+    expect(before.builds.every(build => build.maintenanceActivationSequence !== null)).toBe(true);
+    expect(before.uniqueBuilds.every(build => build.maintenanceActivationSequence !== null)).toBe(true);
+    expect(after.builds).toEqual(before.builds);
+    expect(after.uniqueBuilds).toEqual(before.uniqueBuilds);
+    expect(after.sessions).toEqual(before.sessions);
+    return after;
+  };
+  const verifyInsert = (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => verifyInserts(before, [{ value, count, prefix }]);
+  return { fixture, input, host, insert, read, moveAndReuse, remove, inventory, verifyInsert, verifyInserts, scope,
+    priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions,
+    prefixExecutionCount: (prefix: string) => prefixExecutions.get(prefix) ?? 0,
+    readExecutionCount: () => readExecutions };
+}
+
+export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
+  const tested = await cmsExecutionMeasurementFixture(persistence, session);
+  for (const count of [1, 0, 8, 32]) {
+    const before = await tested.inventory();
+    const args = { count, prefix: `correct-${count}` };
+    const key = tested.host.newRequestKey();
+    const value = await runEffect(tested.host.run(key, tested.insert, args));
+    let after = await tested.verifyInsert(before, value, count, args.prefix);
+    const executed = tested.executionCount();
+    expect(await runEffect(tested.host.run(key, tested.insert, args))).toEqual(value);
+    expect(tested.executionCount()).toBe(executed);
+    expect(await tested.inventory()).toEqual(after);
+    if (count === 0) {
+      // Identical empty results do not make different request inputs equivalent.
+      expect(await runEffectFailure(tested.host.run(key, tested.insert, { ...args, prefix: "different-empty-request" })))
+        .toMatchObject({ reason: "requestConflict" });
+      expect(tested.executionCount()).toBe(executed);
+      const reads = tested.readExecutionCount();
+      expect(await runEffect(tested.host.read(tested.read, []))).toEqual([]);
+      expect(await runEffect(tested.host.read(tested.read, []))).toEqual([]);
+      expect(tested.readExecutionCount()).toBe(reads + 2);
+      expect(await tested.inventory()).toEqual(after);
+      const fresh = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, args));
+      expect(tested.executionCount()).toBe(executed + 1);
+      after = await tested.verifyInsert(after, fresh, count, args.prefix);
+    } else {
+      expect(await runEffectFailure(tested.host.run(tested.host.newRequestKey(), tested.insert, args))).toMatchObject({ reason: "uniqueConflict" });
+    }
+    expect(await tested.inventory()).toEqual(after);
+  }
+  // Both membership families share the actual installed stage. Native totals
+  // and final storage retain the 32-transition boundary proof.
+  const materializationEvents: PointCommitPublicationEvent[] = [];
+  let materializationStages = 0;
+  const observation = new PointCommitPublicationObservation({ detail: true, record: event => materializationEvents.push(event) });
+  const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) =>
+    name !== "ApplicationDocument.materializeAcceptedPublication" ? work : Effect.sync(() => { materializationStages++; }).pipe(Effect.andThen(work)) };
+  const combined = await runEffect(makeCmsHost({ ...tested.input, materialization: {
+    ...tested.input.materialization,
+    publicationObservation: observation,
+  } }));
+  for (const count of [16, 17]) {
+    materializationEvents.length = 0;
+    materializationStages = 0;
+    const before = await tested.inventory();
+    const titles = Array.from({ length: count }, (_, index) => `combined-${count}-${index}`);
+    const key = combined.newRequestKey();
+    const value = await runEffect(combined.run(key, tested.insert, { titles }).pipe(Effect.provideService(ExecutionDiagnostics, diagnostics)));
+    const after = await tested.verifyInserts(before, [{ value, titles }]);
+    expect(materializationStages).toBe(1);
+    for (const [owner, expected] of [["rowRevisions", count], ["indexRevisions", count * 2], ["uniqueClaims", count]] as const)
+      expect(materializationEvents.reduce((total, event) => total +
+        ((event.kind === "counts" || event.kind === "batch") && event.owner === owner ? event.counts.rows ?? 0 : 0), 0)).toBe(expected);
+    observation.assertHealthy();
+    const events = [...materializationEvents];
+    expect(await runEffect(combined.run(key, tested.insert, { titles }).pipe(Effect.provideService(ExecutionDiagnostics, diagnostics)))).toEqual(value);
+    expect(materializationStages).toBe(1);
+    expect(materializationEvents).toEqual(events);
+    expect(await tested.inventory()).toEqual(after);
+  }
+  // Preserve the actual growing-catalog failure: more stored identities than
+  // the request budget must not prevent a selective unique insert or conflict.
+  for (let batch = 0; batch < 9; batch++) {
+    const before = await tested.inventory();
+    const prefix = `growth-${batch}`;
+    const value = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 32, prefix }));
+    await tested.verifyInsert(before, value, 32, prefix);
+  }
+  const large = await tested.inventory();
+  expect(large.rows.length).toBeGreaterThan(256);
+  const final = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 1, prefix: "after-growth" }));
+  const afterGrowth = await tested.verifyInsert(large, final, 1, "after-growth");
+  expect(await runEffectFailure(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 1, prefix: "correct-1" })))
+    .toMatchObject({ reason: "uniqueConflict" });
+  expect(await tested.inventory()).toEqual(afterGrowth);
+
+  const pair = decodeDocuments(await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 8, prefix: "pending" })));
+  const first = pair[0]; const second = pair[1];
+  if (first === undefined || second === undefined) throw new Error("Expected pending reuse inputs");
+  const priorReadsBefore = tested.priorDocumentReadCount();
+  const reused = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.moveAndReuse,
+    { firstId: first._id, secondId: second._id, firstTitle: first.title, temporaryTitle: "reused-title" }));
+  expect(tested.priorDocumentReadCount() - priorReadsBefore).toBe(1);
+  const readback = await runEffect(tested.host.read(tested.read, [first._id, second._id]));
+  expect(readback).toEqual([null, { ...second, title: first.title }]);
+  expect(reused).toMatchObject({ title: "reused-title" });
+
+  const finalDocument = decodeDocuments(final)[0];
+  if (finalDocument === undefined) throw new Error("Expected single-row insert");
+  const finalIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(finalDocument._id));
+  const original = (await tested.inventory()).claims.find(claim => claim.tableId === finalIdentity.tableId &&
+    bytesEqualFullScan(claim.rowId, appRowIdHexV1ToBytes(finalIdentity.rowId)));
+  if (original === undefined) throw new Error("Expected durable claim");
+  const identity = and(eq(fxAppUniqueKeys.scopeUuid, original.scopeUuid), eq(fxAppUniqueKeys.constraintId, original.constraintId),
+    eq(fxAppUniqueKeys.localeKey, original.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, original.canonicalKeySha256));
+  // The key lookup must authenticate bytes even if the digest slot still matches.
+  const damaged = new Uint8Array(original.encodedKey);
+  damaged[damaged.length - 1] = (damaged[damaged.length - 1] ?? 0) ^ 1;
+  await persistence.drizzle.update(fxAppUniqueKeys).set({ encodedKey: damaged }).where(identity);
+  try {
+    const corrupted = await tested.inventory();
+    expect(await runEffectFailure(tested.host.run(tested.host.newRequestKey(), tested.insert,
+      { count: 1, prefix: "after-growth" }))).toMatchObject({ reason: "storedCorruption" });
+    expect(await tested.inventory()).toEqual(corrupted);
+  } finally { await persistence.drizzle.update(fxAppUniqueKeys).set({ encodedKey: original.encodedKey }).where(identity); }
+  const secondIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(second._id));
+  const otherClaim = (await tested.inventory()).claims.find(claim => claim.tableId === secondIdentity.tableId &&
+    bytesEqualFullScan(claim.rowId, appRowIdHexV1ToBytes(secondIdentity.rowId)));
+  if (otherClaim === undefined) throw new Error("Expected another durable claim");
+  const otherSlot = and(eq(fxAppUniqueKeys.scopeUuid, otherClaim.scopeUuid), eq(fxAppUniqueKeys.constraintId, otherClaim.constraintId),
+    eq(fxAppUniqueKeys.localeKey, otherClaim.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, otherClaim.canonicalKeySha256));
+  await persistence.drizzle.delete(fxAppUniqueKeys).where(otherSlot);
+  try {
+    await persistence.drizzle.update(fxAppUniqueKeys).set({ rowId: otherClaim.rowId }).where(identity);
+    const corrupted = await tested.inventory();
+    expect(await runEffectFailure(tested.host.run(tested.host.newRequestKey(), tested.insert,
+      { count: 1, prefix: "after-growth" }))).toMatchObject({ reason: "storedCorruption" });
+    expect(await tested.inventory()).toEqual(corrupted);
+  } finally {
+    await persistence.drizzle.update(fxAppUniqueKeys).set({ rowId: original.rowId }).where(identity);
+    await persistence.drizzle.insert(fxAppUniqueKeys).values(otherClaim);
+  }
+}

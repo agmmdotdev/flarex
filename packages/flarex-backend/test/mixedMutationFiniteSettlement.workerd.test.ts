@@ -5,26 +5,26 @@ import * as valueCodec from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1,
   PointCommitConflictV1Error, PointMutationAttemptReplacementFiniteEntryError,
-  type PointFiniteCommitCommand } from "../../persistence-postgres/src/pointCommitTransaction";
+  type PointFiniteCommitCommand } from "../../persistence-postgres/src/commit/pointCommitTransaction";
 import { fxControlScopes, fxControlSchemaVersions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
-  fxSystemTransactionSessions, fxSystemSnapshotLeases } from "../../persistence-postgres/src/schema";
-import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
-import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../persistence-postgres/src/scopeClock";
-import { createPGliteLocatedRetainedHistoryFloorTarget } from "../../persistence-postgres/src/pglite";
-import { createPostgresLocatedRetainedHistoryFloorTarget } from "../../persistence-postgres/src/postgres";
+  fxSystemTransactionSessions, fxSystemSnapshotLeases } from "../../persistence-postgres/src/database/schema";
+import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
+import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../persistence-postgres/src/scope/scopeClock";
+import { createPGliteLocatedRetainedHistoryFloorTarget } from "../../persistence-postgres/src/database/pglite";
+import { createPostgresLocatedRetainedHistoryFloorTarget } from "../../persistence-postgres/src/database/postgres";
 import { createRetainedHistoryFloorObservationPort, createRetainedHistoryFloorPinFacet,
-  observeRetainedHistoryFloorCandidateEffect } from "../../persistence-postgres/src/retainedHistoryFloorObservation";
-import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../persistence-postgres/src/transactionSessionActivation";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../persistence-postgres/test/transactionSessionActivationTestSupport";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalStore";
-import { borrowFrozenFiniteCommitValues, readFrozenFiniteCommitValues, readFrozenFiniteAttemptOrigin, readOwnedFrozenFiniteAttempt } from "../../persistence-postgres/src/sessionJournalFiniteFreeze";
+  observeRetainedHistoryFloorCandidateEffect } from "../../persistence-postgres/src/storage/history/retainedHistoryFloorObservation";
+import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../persistence-postgres/src/execution/transactionSessionActivation";
+import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
+import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import { borrowFrozenFiniteCommitValues, readFrozenFiniteCommitValues, readFrozenFiniteAttemptOrigin, readOwnedFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalFiniteFreeze";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { CanonicalFlarexValueBytesV1Schema, FlarexValueSha256V1Schema, canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
-import { inspectLogicalParticipantAdmissionBundle, inspectFiniteOperationCommitAuthority } from "../../persistence-postgres/src/logicalDocuments/participantAdmission";
-import { finiteMetadataTableKey } from "../../persistence-postgres/src/finiteMetadataDependencies";
+import { inspectLogicalParticipantAdmissionBundle, inspectFiniteOperationCommitAuthority } from "../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
+import { finiteMetadataTableKey } from "../../persistence-postgres/src/execution/finiteMetadataDependencies";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { fxAppRowRevisions, fxAppRowCurrent, fxAppIndexEntryRevisions, fxAppUniqueKeys,
-  fxSystemScopeClocks, fxSystemMetadataContractObservations } from "../../persistence-postgres/src/schema";
+  fxSystemScopeClocks, fxSystemMetadataContractObservations } from "../../persistence-postgres/src/database/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault, installOneFiniteFenceCommitResponseFault } from "./support/postgresCommitResponseFault";
 

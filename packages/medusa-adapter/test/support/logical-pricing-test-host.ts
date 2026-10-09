@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { pricingLogicalCreateEventPolicy } from "../../src/pricing-events";
-import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
+import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
-  "../../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
+  "../../../persistence-postgres/src/frameworks/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../../persistence-postgres/src/frameworks/atomicCommerce/events";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalPricingHost } from "./logical-pricing-fixture";

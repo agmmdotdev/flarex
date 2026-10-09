@@ -4,8 +4,8 @@ import { mixedPayloadSuccessProfile } from "../../../../payload-adapter/src/test
 import { prepareMixedMutationPerformanceSeries } from "./mixedMutationProductFixture";
 import type { CorePerformanceScenario } from "./scenario";
 import type { CorePerformanceScenarioName, CorePerformanceSize } from "./scenarioCatalog";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/postgresHelpers";
-import type { PointCommitPublicationObservation } from "../../../../persistence-postgres/src/pointCommitPublicationObservation";
+import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
+import type { PointCommitPublicationObservation } from "../../../../persistence-postgres/src/commit/pointCommitPublicationObservation";
 
 const resultSchema = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, finalName: Schema.String,
   pending: Schema.optional(Schema.Struct({ id: Schema.String, title: Schema.String })),
