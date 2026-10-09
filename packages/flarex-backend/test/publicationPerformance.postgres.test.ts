@@ -4,7 +4,9 @@ import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { PointCommitPublicationObservation } from "@flarex/persistence-postgres/point-commit-transaction";
+import {
+  PointCommitPublicationObservation,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 import { createMixedMutationPerformanceTrace, type TraceInvocationRecord } from
   "../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { openRetrievalServerObserver, readRetrievalRuntimeSettings } from
@@ -33,7 +35,7 @@ const sourcePaths = [...new Set([...measuredSourcePaths,
   "packages/flarex-backend/test/support/mixedMutationPerformanceSources.ts",
   "packages/flarex-backend/test/support/publicationPerformanceReport.ts",
   "packages/flarex-backend/test/support/publicationPerformanceServer.ts",
-  "packages/persistence-postgres/src/commit/pointCommitPublicationObservation.ts",
+  "packages/persistence-postgres/src/commit/point/observation.ts",
   "packages/persistence-postgres/src/commit/pointCommitTransactionApi.ts",
   "packages/persistence-postgres/src/storage/indexes/appIndexDefinitions.ts",
   "packages/executor/src/mutation/authentication/stored/finishingOperations.ts",

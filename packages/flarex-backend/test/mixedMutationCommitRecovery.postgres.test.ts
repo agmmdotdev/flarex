@@ -8,7 +8,9 @@ import { fxSystemCommits, fxSystemTransactionSessions, fxSystemSnapshotLeases,
   fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../persistence-postgres/src/database/schema";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { createPointCommitPublisherPortV1 } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../../persistence-postgres/src/commit/point/construction";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";

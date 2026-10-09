@@ -4,8 +4,13 @@ import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { projectScopeIdUuidV1, projectScopeEpochUuidV1 } from "flarex-protocol/storage-authority";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import {
-  AppRowRevisionAlreadyExistsError, AppRowScopeAuthorityUnavailableError, InvalidAppRowBatchInputError,
-  type AppendPreparedLiveAppRowRevisionV1Input, type LiveAppRowRevisionV1,
+  AppRowRevisionAlreadyExistsError,
+  AppRowScopeAuthorityUnavailableError,
+} from "../../src/storage/documents/appRowErrors";
+import {
+  InvalidAppRowBatchInputError,
+  type AppendPreparedLiveAppRowRevisionV1Input,
+  type LiveAppRowRevisionV1,
 } from "../../src/storage/documents/appRows";
 
 // Independent comparison policy, checked against actual core statement scaling.

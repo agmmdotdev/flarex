@@ -11,7 +11,9 @@ import { appUniqueConstraintEligibilityFrame } from "../../storage/unique/appUni
 import { readUniqueMaintenanceRequirements } from "../../storage/unique/appUniqueConstraintSetBuildV1";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { UniqueMaintenanceError } from "../../storage/indexes/indexMaintenanceModel";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../execution/transactionSessionAttemptKernel";
 import { isManagedInstallationTransaction } from "../../installation/installationLifecycle";
 import { ApplicationWriteOwnershipError } from "../ownership/Model";
 import { readApplicationWriteOwnershipInTransaction } from "../ownership/Repository";
@@ -138,10 +140,14 @@ import {
   preparePointCommitUniqueConstraintSet,
   acceptPreparedPointCommitUniqueConstraintSet,
   validatePointCommitUniqueConstraintEligibilityInTransactionV1Effect,
+} from "../../commit/point/uniqueEligibility";
+import {
   type LoadPointCommitUniqueConstraintEligibilityV1Error,
   type ValidatePointCommitUniqueConstraintEligibilityV1Error,
+} from "../../commit/point/errors";
+import {
   type PointCommitPublisherPortV1,
-} from "../../commit/pointCommitTransaction";
+} from "../../commit/point/contracts";
 import type { AppUniqueConstraintSetEligibilityResultV1, AppUniqueConstraintSetPreparation } from
   "../../storage/unique/appUniqueConstraintSetBuildV1";
 import {
@@ -174,6 +180,8 @@ import {
 } from "../../database/schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../execution/readCommittedTransactionFailure";
+import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../execution/transactionSessionAttemptKernel";
 

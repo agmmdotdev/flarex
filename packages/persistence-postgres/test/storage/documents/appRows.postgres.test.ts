@@ -20,6 +20,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   AppRowRevisionChainConflictError,
+} from "../../../src/storage/documents/appRowErrors";
+import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
   getAppRowAtSnapshotInTransactionEffect,
   readAppRowAtSnapshotInTransactionEffect,

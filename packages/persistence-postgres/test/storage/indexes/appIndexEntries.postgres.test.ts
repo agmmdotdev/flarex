@@ -34,6 +34,8 @@ import { describe, expect, it } from "vitest";
 import {
   AppIndexEntryRevisionAlreadyExistsError,
   AppIndexEntryStorageCorruptionError,
+} from "../../../src/storage/indexes/appIndexEntryErrors";
+import {
   appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,

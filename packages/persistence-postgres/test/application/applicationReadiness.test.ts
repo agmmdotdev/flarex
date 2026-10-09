@@ -241,6 +241,8 @@ import { createStoredOccExecutionEvidenceLoaderV1 } from
   "../../src/execution/storedOccExecution";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
@@ -259,8 +261,9 @@ import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
 } from "../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createPointCommitPublisherPortV1 } from
-  "../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../../src/commit/point/construction";
 import {
   beginPhysicalDefinitionDrainingEffect,
   cancelPhysicalDefinitionDrainingEffect,

@@ -24,7 +24,16 @@ import { IndexBuildAttemptFenceSchema, IndexBuildCursorCodecVersionV1Schema } fr
 import type { FlarexPersistence } from "../../../src";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
-import { getAppRowAtSnapshotInTransactionEffect, readCurrentAppRowInTransactionEffect, AppRowStorageCorruptionError, appendPreparedAppRowRevisionsInTransactionEffect, type AppendPreparedLiveAppRowRevisionV1Input, type LiveAppRowRevisionV1 } from "../../../src/storage/documents/appRows";
+import {
+  getAppRowAtSnapshotInTransactionEffect,
+  readCurrentAppRowInTransactionEffect,
+  appendPreparedAppRowRevisionsInTransactionEffect,
+  type AppendPreparedLiveAppRowRevisionV1Input,
+  type LiveAppRowRevisionV1,
+} from "../../../src/storage/documents/appRows";
+import {
+  AppRowStorageCorruptionError,
+} from "../../../src/storage/documents/appRowErrors";
 import { locateAppIndexDefinitionByIdEffect, prepareOrderedIndexDefinitionBinding,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction, type LocatedAppIndexDefinitionV1 } from "../../../src/storage/indexes/appIndexDefinitions";
 import { ensureStableLogicalIndexIdentityInTransaction } from "../../../src/storage/catalog/stableLogicalIndexCatalog";
@@ -32,29 +41,56 @@ import { ensureStableTableIdentityEffect } from "../../../src/storage/catalog/st
 import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
 import { enterLogicalDocumentMaterialization, LogicalDocumentMaterializationError } from "../../../src/storage/documents/logicalDocuments/materialization";
-import { PointCommitCorruptionV1Error, PointCommitConflictV1Error } from "../../../src/commit/pointCommitErrors";
+import {
+  PointCommitCorruptionV1Error,
+  PointCommitConflictV1Error,
+} from "../../../src/commit/point/errors";
 import { createLocatedIndexBuildReconciliationTargetV1 } from "../../../src/storage/indexes/indexBuildReconciliation";
 import { getScopeMetadataByDeploymentId } from "../../../src/scope/scopeMetadata";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../../src/scope/scopeAuthorityResolution";
-import { readAppIndexMembershipHeadsInTransactionEffect, appendAppIndexEntryRevisionsInTransactionEffect, AppIndexEntryStorageCorruptionError } from "../../../src/storage/indexes/appIndexEntries";
+import {
+  readAppIndexMembershipHeadsInTransactionEffect,
+  appendAppIndexEntryRevisionsInTransactionEffect,
+} from "../../../src/storage/indexes/appIndexEntries";
+import {
+  AppIndexEntryStorageCorruptionError,
+} from "../../../src/storage/indexes/appIndexEntryErrors";
 import { lowerAppDeveloperIndexKeyV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
 import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   locateAppUniqueConstraintDefinitionByIdEffect } from "../../../src/storage/unique/appUniqueConstraintDefinitions";
-import { prepareAppUniqueMutationApplicationEffect, applyAppUniqueKeyMutationsInTransactionEffect,
-  AppUniqueKeyParentRowError, AppUniqueKeyConflictError, AppUniqueKeyPreviousClaimMismatchError,
-  AppUniqueKeyStorageCorruptionError } from "../../../src/storage/unique/appUniqueKeys";
+import {
+  prepareAppUniqueMutationApplicationEffect,
+  applyAppUniqueKeyMutationsInTransactionEffect,
+  AppUniqueKeyParentRowError,
+  AppUniqueKeyPreviousClaimMismatchError,
+  AppUniqueKeyStorageCorruptionError,
+} from "../../../src/storage/unique/appUniqueKeys";
+import {
+  AppUniqueKeyConflictError,
+} from "../../../src/storage/unique/appUniqueKeyErrors";
 import { decodeAppUniqueConstraintIdV1Result, type AppUniqueKeyProjectionV1 } from "../../../src/storage/unique/appUniqueKeyContract";
 import { prepareLogicalSearchApplications, maintainLogicalSearchEntries, LogicalSearchMaintenanceError,
   type LogicalSearchDefinition } from "../../../src/storage/documents/logicalDocuments/searchEntries";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission,
   requireAdmittedTargetInstallationSchema } from "../../../src/installation/installationLifecycle";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect, lockScopeClockForUpdateInTransactionEffect, type ScopeClockRecord } from "../../../src/scope/scopeClock";
-import { loadPointCommitHeads, lockPointCommitIntrinsicIndexBuilds,
-  materializeAcceptedApplicationPublicationRows, loadApplicationDocumentPriorState,
-  prepareApplicationDocumentSettlementEffect, lockPointCommitDeveloperIndexBuilds,
-  preparedUniqueKeyActions, compareDeveloperIndexEntryActions } from "../../../src/storage/materialization/materialization";
-import { captureOriginalApplicationPublicationBuildLocks, acceptOriginalApplicationPublicationBuildLocks } from "../../../src/storage/materialization/materialization";
+import {
+  loadPointCommitHeads,
+  lockPointCommitIntrinsicIndexBuilds,
+  materializeAcceptedApplicationPublicationRows,
+  loadApplicationDocumentPriorState,
+  prepareApplicationDocumentSettlementEffect,
+  lockPointCommitDeveloperIndexBuilds,
+} from "../../../src/storage/materialization/materialization";
+import {
+  preparedUniqueKeyActions,
+  compareDeveloperIndexEntryActions,
+} from "../../../src/storage/materialization/sidecarPolicy";
+import {
+  captureOriginalApplicationPublicationBuildLocks,
+  acceptOriginalApplicationPublicationBuildLocks,
+} from "../../../src/storage/materialization/originalBuildLocks";
 import type { ApplicationDocumentMaterializationCommand,
   ApplicationDocumentMaterializationOptions } from "../../../src/storage/materialization/model";
 import { acceptApplicationPublication, readAcceptedApplicationPublication, preparePublicationAcceptance } from "../../../src/storage/materialization/publicationAcceptance";
@@ -68,7 +104,10 @@ import { fxAppRowRevisions, fxAppRowCurrent, fxAppIndexEntryRevisions, fxAppInde
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { runEffect } from "../../support/effectTestRuntime";
 import { applicationDomainFailureDetail } from "../../../src/storage/materialization/domainApplication";
-import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../../../src/commit/pointCommitPublicationObservation";
+import {
+  PointCommitPublicationObservation,
+  type PointCommitPublicationEvent,
+} from "../../../src/commit/point/observation";
 
 export type MaterializationCompositionPersistence = Pick<FlarexPersistence,
   "query" | "insertDeploymentMetadata" | "insertScopeMetadata" | "publishAppSchemaV1"> & Readonly<{ drizzle: FlarexMetadataDatabase }>;
@@ -1740,7 +1779,7 @@ async function verifyPublicationPhaseStops(persistence: MaterializationCompositi
           {observe:(name,selected)=>{observedOperations.push(name);return selected;}})));
       } finally {
         const statements=execute.mock.calls.map(([statement])=>typeof statement==="string"?statement:new PgDialect().sqlToQuery(statement.getSQL()).sql);
-        expect(observedOperations).toEqual(["ApplicationDocument.acceptPublication"]);
+        expect(observedOperations).toEqual(["ApplicationDocument.acceptPublication", "AppIndexEntries.prepareMembershipPositions"]);
         expect(submittedQueries.map(query=>query.name)).toEqual(["acceptPublication"]);
         expect(submittedQueries[0]?.sql).toContain(".fx_accept_app_publication(");
         expect(statements.some(statement=>statement.includes(".fx_apply_app_publication("))).toBe(false);

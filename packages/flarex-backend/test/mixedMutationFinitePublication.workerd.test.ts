@@ -3,8 +3,10 @@ import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   createPointCommitPublisherPortV1,
+} from "../../persistence-postgres/src/commit/point/construction";
+import {
   type PointFiniteCommitCommand,
-} from "../../persistence-postgres/src/commit/pointCommitTransaction";
+} from "../../persistence-postgres/src/commit/point/contracts";
 import {
   readFrozenFiniteAttempt,
 } from "../../persistence-postgres/src/testing/sessionJournalInspection";

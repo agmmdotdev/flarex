@@ -9,10 +9,21 @@ import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { canonicalizeAppUniqueKeyV1Result, decodeAppUniqueConstraintIdV1Result,
   type AppUniqueKeyProjectionV1 } from "../../../src/storage/unique/appUniqueKeyContract";
-import { AppUniqueKeyStorageCorruptionError, CanonicalAppUniqueKeyHashCollisionError,
-  applyAppUniqueKeyMutationsInTransactionEffect, withCommittedAppUniqueKeyRowInTransactionEffect } from "../../../src/storage/unique/appUniqueKeys";
-import { AppRowStorageCorruptionError, InvalidAppRowReadInputError,
-  appendPreparedAppRowRevisionsInTransactionEffect } from "../../../src/storage/documents/appRows";
+import {
+  AppUniqueKeyStorageCorruptionError,
+  applyAppUniqueKeyMutationsInTransactionEffect,
+  withCommittedAppUniqueKeyRowInTransactionEffect,
+} from "../../../src/storage/unique/appUniqueKeys";
+import {
+  CanonicalAppUniqueKeyHashCollisionError,
+} from "../../../src/storage/unique/appUniqueKeyErrors";
+import {
+  AppRowStorageCorruptionError,
+} from "../../../src/storage/documents/appRowErrors";
+import {
+  InvalidAppRowReadInputError,
+  appendPreparedAppRowRevisionsInTransactionEffect,
+} from "../../../src/storage/documents/appRows";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import { fxAppRowRevisions, fxAppUniqueKeys, fxSystemScopeClocks } from "../../../src/database/schema";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";

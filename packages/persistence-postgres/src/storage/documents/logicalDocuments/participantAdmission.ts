@@ -79,6 +79,25 @@ export type LogicalParticipantDocumentValidator = (tableId: CatalogTableId, docu
 
 declare const attemptBrand: unique symbol;
 export interface LogicalParticipantAttemptAdmission { readonly [attemptBrand]: true }
+
+/** Retained table membership exposes the immutable view, never its private Set. */
+export interface LogicalParticipantTableMembership {
+  readonly size: number;
+  has(value: CatalogTableId): boolean;
+  entries(): IterableIterator<[CatalogTableId, CatalogTableId]>;
+  keys(): IterableIterator<CatalogTableId>;
+  values(): IterableIterator<CatalogTableId>;
+  [Symbol.iterator](): IterableIterator<CatalogTableId>;
+  forEach(
+    callback: (
+      value: CatalogTableId,
+      key: CatalogTableId,
+      membership: LogicalParticipantTableMembership,
+    ) => void,
+    thisArg?: unknown,
+  ): void;
+}
+
 interface AttemptState {
   readonly preparedSource: object;
   readonly attempt: SessionJournalAttempt;
@@ -91,7 +110,7 @@ interface AttemptState {
   readonly sourceKey: string;
   readonly sourceSha256: string;
   readonly head: DataBindingHeadToken;
-  readonly tableIds: ReadonlySet<CatalogTableId>;
+  readonly tableIds: LogicalParticipantTableMembership;
   readonly indexes: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
 }
@@ -117,13 +136,13 @@ export function inspectFiniteParticipantStorageDemand(input: FiniteParticipantSt
   return Result.succeed(Object.freeze({ root: state.root, demand, definition, uniqueDefinition,
     metadata: state.metadata }));
 }
-const tableMembershipView = (input: ReadonlySet<CatalogTableId>): ReadonlySet<CatalogTableId> => {
+const tableMembershipView = (input: LogicalParticipantTableMembership): LogicalParticipantTableMembership => {
   const members = new Set(input);
-  const view: ReadonlySet<CatalogTableId> = Object.freeze({ size: members.size,
+  const view: LogicalParticipantTableMembership = Object.freeze({ size: members.size,
     has: (value: CatalogTableId) => members.has(value),
     entries: () => members.entries(), keys: () => members.keys(), values: () => members.values(),
     [Symbol.iterator]: () => members[Symbol.iterator](),
-    forEach: (callback: (value: CatalogTableId, key: CatalogTableId, set: ReadonlySet<CatalogTableId>) => void, thisArg?: unknown) =>
+    forEach: (callback: (value: CatalogTableId, key: CatalogTableId, set: LogicalParticipantTableMembership) => void, thisArg?: unknown) =>
       members.forEach(value => callback.call(thisArg, value, value, view)),
   });
   return view;
@@ -153,7 +172,7 @@ export const inspectLogicalParticipantAttemptAdmission = (
 ): Readonly<{ root: LogicalParticipantAttemptRoot; sourceKey: string; sourceSha256: string;
   preparedSource: object;
   metadata?: FiniteAttemptMetadata;
-  bindingHead: DataBindingHeadToken; tableIds: ReadonlySet<CatalogTableId>;
+  bindingHead: DataBindingHeadToken; tableIds: LogicalParticipantTableMembership;
   indexes: readonly LocatedAppIndexDefinitionV1[];
   unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }> | null => {
   const state = typeof admission === "object" && admission !== null ? attempts.get(admission) : undefined;
@@ -293,11 +312,11 @@ const requireLogicalParticipantAttemptReadAdmissionInTransactionEffect = Effect.
 export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalParticipantAttemptAdmission.with")(
   function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttempt, method: string,
-    prepare: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: ReadonlySet<CatalogTableId> }>,
+    prepare: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: LogicalParticipantTableMembership }>,
       tx: FlarexMetadataTransaction | undefined,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Prepared, PreparationFailure>,
-    work: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: ReadonlySet<CatalogTableId> }>,
+    work: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: LogicalParticipantTableMembership }>,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>, demand?: LogicalStorageReadDemand) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>, prepared: Prepared) => Effect.Effect<Value, Failure, Requirements>) {
     const state = typeof admission === "object" && admission !== null ? attempts.get(admission) : undefined;

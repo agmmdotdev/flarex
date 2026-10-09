@@ -17,7 +17,9 @@ import type {
 import type { PointMutationJournalV1 } from "../journal/pointMutationJournal";
 import { readPreparedFiniteApplicationMutationActivationInputs } from "@flarex/persistence-postgres/internal/application-mutation-admission";
 import { isJsonObjectFromUnknown, jsonEqual } from "flarex-protocol/json";
-import type { PointMutationAttemptReplacementObservationV1 } from "@flarex/persistence-postgres/point-commit-transaction";
+import {
+  type PointMutationAttemptReplacementObservationV1,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 import { readFiniteRecoveryAttempt, type FiniteRecoveryAttempt } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,

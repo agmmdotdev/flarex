@@ -1,3 +1,4 @@
+import { ScopeClockCorruptionError, ScopeClockNotFoundError } from "./scopeClockErrors";
 import { observeDrizzleQuery } from "../database/drizzleQueryObservation";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
@@ -197,28 +198,6 @@ export const lockScopeClockRowsForOrdinaryWriteInTransactionEffect = Effect.fn("
 
 export function closeExactAttemptScopeClockObservation(tx: FlarexMetadataTransaction): void {
   exactAttemptClockObservations.delete(tx);
-}
-
-export class ScopeClockNotFoundError extends Error {
-  readonly _tag = "ScopeClockNotFoundError" as const;
-
-  constructor(readonly scopeId: ScopeId) {
-    super(`Scope clock does not exist: ${scopeId}`);
-    this.name = "ScopeClockNotFoundError";
-  }
-}
-
-export class ScopeClockCorruptionError extends Error {
-  readonly _tag = "ScopeClockCorruptionError" as const;
-
-  constructor(
-    readonly scopeId: string,
-    readonly reason: string,
-    options?: ErrorOptions,
-  ) {
-    super(`Scope clock ${scopeId} is invalid: ${reason}`, options);
-    this.name = "ScopeClockCorruptionError";
-  }
 }
 
 export class ScopeAuthorizationRevocationEpochExhaustedError extends Error {

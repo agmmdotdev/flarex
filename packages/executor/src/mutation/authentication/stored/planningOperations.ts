@@ -3,6 +3,8 @@ import { Data, Effect } from "effect";
 
 import {
   loadPointCommitUniqueConstraintEligibilityV1Effect,
+} from "@flarex/persistence-postgres/internal/point-commit-eligibility";
+import {
   type AppUniqueConstraintSetEligibilityResultV1,
   type LoadPointCommitUniqueConstraintEligibilityV1Error,
 } from "@flarex/persistence-postgres/point-commit-transaction";

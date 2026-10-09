@@ -5,7 +5,9 @@ import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
-import { findSqlState } from "../../../src/commit/pointCommitErrors";
+import {
+  findSqlState,
+} from "../../../src/commit/point/sqlFailures";
 import { CmsTransactionError } from "../../../src/frameworks/cmsTransaction/model";
 import { ScopeAuthorizationRevocationEpochPersistenceError } from "../../../src/scope/scopeClock";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";

@@ -29,16 +29,18 @@ import { canonicalizeAppUniqueKeyV1Result, decodeAppUniqueConstraintIdV1Result }
 import {
   applyAppUniqueKeyMutationsInTransactionEffect,
   type ApplyAppUniqueKeyMutationV1Input,
-  AppUniqueKeyConflictError,
   AppUniqueKeyStorageCorruptionError,
-  AppUniqueKeyPersistenceError,
   AppUniqueKeyScopeAuthorityUnavailableError,
   AppUniqueKeyPreviousClaimMismatchError,
   InvalidAppUniqueKeyMutationV1Error,
-  CanonicalAppUniqueKeyHashCollisionError,
   prepareAppUniqueMutationApplicationEffect,
   preparedAppUniqueApplicationFailure,
 } from "../../../src/storage/unique/appUniqueKeys";
+import {
+  AppUniqueKeyConflictError,
+  AppUniqueKeyPersistenceError,
+  CanonicalAppUniqueKeyHashCollisionError,
+} from "../../../src/storage/unique/appUniqueKeyErrors";
 import { runEffect } from "../../support/effectTestRuntime";
 import { fxAppUniqueKeys, fxAppRowRevisions, fxAppRowCurrent } from "../../../src/database/schema";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";

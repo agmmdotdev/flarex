@@ -52,6 +52,8 @@ import {
 } from "../../src/tasks/taskRepairPostgresDeadlinePolicyV1";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
+import {
   type RunLocatedReadCommittedTransactionV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";

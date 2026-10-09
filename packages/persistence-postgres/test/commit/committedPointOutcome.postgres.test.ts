@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   CommittedPointOutcomeCorruptionErrorV1,
+} from "../../src/commit/committedPointOutcomeErrors";
+import {
   createCommittedPointOutcomeResolverV1,
   type CommittedPointOutcomeResolverQueryV1,
 } from "../../src/commit/committedPointOutcome";
@@ -134,8 +136,16 @@ describePostgres("real Postgres O07-A committed point outcome resolver", () => {
         value: { ok: true },
       });
       await seedPlanOutcomes(persistence);
+      for (let index = 1; index <= 512; index += 1) {
+        const suffix = index.toString(16).padStart(12, "0");
+        const scopeUuid = `97000000-0000-4000-8000-${suffix}`;
+        const epochUuid = `98000000-0000-4000-8000-${suffix}`;
+        await insertOutcomeScope(persistence, { scopeUuid, epochUuid, lastCommitSeq: 1n });
+        await insertOutcomeHeader(persistence, { scopeUuid, epochUuid });
+      }
       await persistence.query(`analyze fx_system_idempotency`);
       await persistence.query(`analyze fx_system_scope_clock`);
+      await persistence.query(`analyze fx_system_scope_execution_authority`);
       await persistence.query(`analyze fx_system_commit`);
 
       let observed: CommittedPointOutcomeResolverQueryV1 | undefined;
@@ -179,6 +189,7 @@ describePostgres("real Postgres O07-A committed point outcome resolver", () => {
         "fx_system_idempotency_scope_uuid_request_key_pk",
       );
       expect(plan).toContain("fx_system_scope_clock_scope_uuid_unique");
+      expect(plan).toContain(`"Index Cond":"(fx_system_scope_clock.scope_uuid = '${OUTCOME_SCOPE_A}'::uuid)"`);
       expect(plan).toContain("fx_system_commit_scope_uuid_commit_seq_pk");
     });
   }, 30_000);
@@ -210,8 +221,6 @@ async function explainObservedQuery(
   const client = await persistence.pool.connect();
   try {
     await client.query("begin");
-    await client.query("set local enable_seqscan = off");
-    await client.query("set local enable_bitmapscan = off");
     const explained = await client.query(
       `explain (format json, verbose) ${query.sql}`,
       [...query.params],

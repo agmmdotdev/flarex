@@ -1,6 +1,8 @@
 import { Deferred, Effect, Fiber, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { createPointCommitPublisherPortV1 } from "../../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../../../src/commit/point/construction";
 import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { prepareNativeRangePublication } from "../nativeCommandPublicationScenario";

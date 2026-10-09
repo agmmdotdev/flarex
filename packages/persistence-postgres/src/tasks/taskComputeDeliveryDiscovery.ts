@@ -27,6 +27,8 @@ import type { LocatedTaskComputeDeliveryTargetV1 } from
   "./taskComputeDeliveryRepositoryV1";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
 } from "../execution/transactionSessionAttemptKernel";
 import {

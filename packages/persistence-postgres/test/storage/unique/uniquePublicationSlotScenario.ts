@@ -10,8 +10,14 @@ import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema, projectScopeEpochUuid
 import { decodeAppUniqueConstraintIdV1Result } from "../../../src/storage/unique/appUniqueKeyContract";
 import { AppUniqueKeyStorageCorruptionError, applyAppUniqueKeyMutationsInTransactionEffect,
   withAppUniqueKeySlotsInTransactionEffect, readAppUniqueKeySlotInTransactionEffect } from "../../../src/storage/unique/appUniqueKeys";
-import { AppRowStorageCorruptionError, appendPreparedAppRowRevisionsInTransactionEffect,
-  readBoundedCurrentAppRowsInTransactionEffect, readBoundedPublicationAppRowsInTransactionEffect } from "../../../src/storage/documents/appRows";
+import {
+  AppRowStorageCorruptionError,
+} from "../../../src/storage/documents/appRowErrors";
+import {
+  appendPreparedAppRowRevisionsInTransactionEffect,
+  readBoundedCurrentAppRowsInTransactionEffect,
+  readBoundedPublicationAppRowsInTransactionEffect,
+} from "../../../src/storage/documents/appRows";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import { fxSystemCommits, fxSystemCommitAppRowChanges } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";

@@ -6,8 +6,8 @@ import {
 import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Exit, Result, Schema } from "effect";
 
-import type {
-  PointCommitOutcomeResolutionV1Error,
+import {
+  type PointCommitOutcomeResolutionV1Error,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import {

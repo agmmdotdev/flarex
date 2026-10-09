@@ -1,3 +1,4 @@
+
 import { Cause, Data, Effect } from "effect";
 import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
@@ -103,60 +104,6 @@ export const LOCATED_READ_COMMITTED_RUNNER_V1: unique symbol = Symbol(
 
 export const RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1: unique symbol =
   Symbol("FlarexDB/resolveLocatedCommittedPointOutcomeV1");
-
-export type LocatedReadCommittedTransactionFailureIssueV1 =
-  | Readonly<{
-      readonly kind: "infrastructureFailure";
-      readonly phase: "acquire" | "beginOrConfigure";
-      readonly cause: unknown;
-      readonly releaseCause?: unknown;
-      readonly quarantineCause?: unknown;
-    }>
-  | Readonly<{
-      readonly kind: "callbackRolledBack";
-      readonly callbackCause: unknown;
-    }>
-  | Readonly<{
-      readonly kind: "callbackCleanupFailed";
-      readonly callbackCause: unknown;
-      readonly transactionCause: unknown;
-      readonly releaseCause?: unknown;
-      readonly quarantineCause?: unknown;
-    }>
-  | Readonly<{
-      readonly kind: "decisionUncertain";
-      readonly settlementCause: unknown;
-      readonly releaseCause?: unknown;
-      readonly quarantineCause?: unknown;
-    }>;
-
-export class LocatedReadCommittedTransactionFailureV1 extends Error {
-  readonly name = "LocatedReadCommittedTransactionFailureV1";
-
-  constructor(
-    readonly issue: LocatedReadCommittedTransactionFailureIssueV1,
-  ) {
-    super(
-      "Located READ COMMITTED transaction settlement failed.",
-      { cause: locatedReadCommittedFailureCause(issue) },
-    );
-  }
-}
-
-function locatedReadCommittedFailureCause(
-  issue: LocatedReadCommittedTransactionFailureIssueV1,
-): unknown {
-  switch (issue.kind) {
-    case "infrastructureFailure":
-      return issue.cause;
-    case "callbackRolledBack":
-      return issue.callbackCause;
-    case "callbackCleanupFailed":
-      return issue.callbackCause;
-    case "decisionUncertain":
-      return issue.settlementCause;
-  }
-}
 
 export type RunLocatedReadCommittedTransactionV1 = <Result>(
   work: (tx: AppRowTransaction) => Promise<Result>,

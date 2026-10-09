@@ -6,8 +6,12 @@ import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/p
 import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { APPLICATION_EXECUTION_METADATA_OWNER } from "../../persistence-postgres/src/execution/finiteMetadataDependencies";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitErrors";
-import { PointMutationAttemptReplacementFiniteEntryError } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
+import {
+  PointMutationAttemptReplacementFiniteEntryError,
+} from "../../persistence-postgres/src/commit/point/errors";
 import { PointMutationExecutionClaimAcquisitionStaleV1Error } from "../../persistence-postgres/src/execution/transactionSessionActivation";
 import type { FiniteMetadataReservation } from "../../persistence-postgres/src/execution/finiteMetadataReservation";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";

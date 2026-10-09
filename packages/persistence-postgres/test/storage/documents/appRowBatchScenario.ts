@@ -23,14 +23,16 @@ import type { FlarexPersistence } from "../../../src";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
-  AppRowCreationTimeConflictError,
-  AppRowRevisionChainConflictError,
-  AppRowStorageCorruptionError,
   AppRowWritePersistenceError,
   InvalidAppRowBatchInputError,
   readAppRowAtSnapshotInTransactionEffect,
   type AppendPreparedAppRowRevisionV1Input,
 } from "../../../src/storage/documents/appRows";
+import {
+  AppRowCreationTimeConflictError,
+  AppRowRevisionChainConflictError,
+  AppRowStorageCorruptionError,
+} from "../../../src/storage/documents/appRowErrors";
 import { runEffect } from "../../support/effectTestRuntime";
 import { fxAppRowCurrent, fxAppRowRevisions } from "../../../src/database/schema";
 import { applicationDomainFailureDetail } from "../../../src/storage/materialization/domainApplication";

@@ -1,0 +1,1 @@
+export const MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1 = 128n;

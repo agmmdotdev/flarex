@@ -15,6 +15,8 @@ import {
   CommittedPointOutcomeInputErrorV1,
   CommittedPointOutcomeRequestKeyReuseErrorV1,
   CommittedPointOutcomeSqlErrorV1,
+} from "../../src/commit/committedPointOutcomeErrors";
+import {
   createCommittedPointOutcomeResolverV1,
   type CommittedPointOutcomeResolverV1,
 } from "../../src/commit/committedPointOutcome";

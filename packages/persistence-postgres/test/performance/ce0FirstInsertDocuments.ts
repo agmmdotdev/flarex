@@ -28,9 +28,11 @@ import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../src/storage/u
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../../src/storage/unique/appUniqueConstraintCommitV1";
 import {
   readAppUniqueKeySlotInTransactionEffect,
+} from "../../src/storage/unique/appUniqueKeys";
+import {
   AppUniqueKeyPersistenceError,
   AppUniqueKeyHashError,
-} from "../../src/storage/unique/appUniqueKeys";
+} from "../../src/storage/unique/appUniqueKeyErrors";
 import { capturePrivateJsonData } from "../../src/values/privateJsonData";
 import {
   requireCmsAdmission,

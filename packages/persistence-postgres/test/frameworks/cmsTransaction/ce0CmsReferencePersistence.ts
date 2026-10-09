@@ -3,7 +3,7 @@ import { PhysicalSessionDeadlineIssue } from "../../../src/database/physicalSess
 import {
   CommittedPointOutcomeRequestKeyReuseErrorV1,
   CommittedPointOutcomeCorruptionErrorV1,
-} from "../../../src/commit/committedPointOutcome";
+} from "../../../src/commit/committedPointOutcomeErrors";
 import { Effect } from "effect";
 import { PreparedHostRuntimeError } from "../../../src/execution/preparation/preparedHostRuntime";
 import { TrustedScopeAuthorityPortError } from "../../../src/scope/scopeAuthorityResolution";
@@ -11,8 +11,10 @@ import { cmsError, CmsTransactionError } from "../../../src/frameworks/cmsTransa
 import { rethrowPublicationFailure } from "../../../src/commit/publication/pointCommitProjection";
 import {
   mapTransactionFailure,
+} from "../../../src/commit/point/sqlFailures";
+import {
   PointCommitSqlErrorV1,
-} from "../../../src/commit/pointCommitErrors";
+} from "../../../src/commit/point/errors";
 
 /** Borrowed transaction's existing kernel failure projection; never settles. */
 export const projectCe0KernelFailure = (

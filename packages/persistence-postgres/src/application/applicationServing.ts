@@ -22,7 +22,9 @@ import { createAppUniqueConstraintSetEligibilityPortV1 } from "../storage/unique
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../storage/indexes/appDeveloperIndexCommitV1";
 import { createPhysicalDefinitionLifecyclePort } from "../installation/physicalDefinitionLifecycle";
-import { createPointCommitPublisherPortV1 } from "../commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../commit/point/construction";
 import { makeInstallationProtectedScopeAuthorityControlReader } from "../scope/scopeAuthorityControlRead";
 import type { LocatedScopeClockReader, TrustedScopeAuthorityResolutionPorts, ExactTrustedScopeAuthorityResolutionPorts } from "../scope/scopeAuthorityResolution";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../execution/transactionSessionActivation";

@@ -51,7 +51,7 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedTransactionFailureIssueV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/execution/readCommittedTransactionFailure";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   ACCEPTED_ATTEMPT_UUID,

@@ -23,7 +23,6 @@ export type PointCommitPublicationMetric = "rows" | "liveRows" | "tombstones" |
   "constraints" | "ranges" | "pages" | "uniqueReads" | "entries" | "textBytes" |
   "endpoints" | "affectedRows";
 
-/** Diagnostic scalars only. This is neither a persistence input nor authority. */
 export type PointCommitPublicationEvent = Readonly<{
   kind: "phase"; phase: PointCommitPublicationPhase; edge: "begin" | "end";
 }> | Readonly<{
@@ -31,15 +30,11 @@ export type PointCommitPublicationEvent = Readonly<{
   counts: Readonly<Partial<Record<PointCommitPublicationMetric, number>>>;
 }>;
 
-/** A trusted diagnostic composition may replace phase delivery with Effect's
- * injected tracer. It must retain the work's channels and cannot own settlement. */
 export interface PointCommitPublicationEffectDecorator {
   <Value, Failure, Requirements>(phase: PointCommitPublicationPhase,
     work: Effect.Effect<Value, Failure, Requirements>): Effect.Effect<Value, Failure, Requirements>;
 }
 
-/** One test observation. Delivery faults are diagnosed after the real owner
- * settles, so an observer cannot change business failure, interruption or COMMIT. */
 export class PointCommitPublicationObservation {
   readonly detail: boolean;
   private readonly deliver: (event: PointCommitPublicationEvent) => void;
@@ -47,8 +42,10 @@ export class PointCommitPublicationObservation {
   private failureCount = 0;
   private firstFailure: unknown;
 
-  constructor(input: Readonly<{ detail: boolean; record: (event: PointCommitPublicationEvent) => void;
-    traceEffect?: PointCommitPublicationEffectDecorator }>) {
+  constructor(input: Readonly<{
+    detail: boolean; record: (event: PointCommitPublicationEvent) => void;
+    traceEffect?: PointCommitPublicationEffectDecorator
+  }>) {
     this.detail = input.detail;
     this.deliver = input.record;
     this.traceEffect = input.traceEffect;

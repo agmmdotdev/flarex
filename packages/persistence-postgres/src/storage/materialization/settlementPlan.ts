@@ -11,7 +11,8 @@ import { lowerCanonicalAppUniqueConstraintV1Result } from "../unique/appUniqueCo
 import { hasPreparedApplicationRelationCommitAuthority, prepareApplicationRelationCommitResult,
   ApplicationRelationCommitCorruptionError, type ApplicationRelationRowTransition } from "../../application/relations/applicationRelationCommit";
 import { corruption, PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
-  PointCommitUniqueConstraintMaintenanceUnavailableV1Error, type PointCommitCorruptionV1Error, type PointCommitSqlFailureMarkerV1 } from "../../commit/pointCommitErrors";
+  PointCommitUniqueConstraintMaintenanceUnavailableV1Error, type PointCommitCorruptionV1Error } from "../../commit/point/errors";
+import type { PointCommitSqlFailureMarkerV1 } from "../../commit/point/sqlFailures";
 import type { LiveAppRowRevisionV1 } from "../documents/appRows";
 import type { LocatedAppIndexDefinitionV1 } from "../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../unique/appUniqueConstraintDefinitions";

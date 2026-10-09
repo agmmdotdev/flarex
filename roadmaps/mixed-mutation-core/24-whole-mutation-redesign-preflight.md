@@ -37,7 +37,7 @@ mutations. SQL counts alone neither attribute CPU nor prove a latency cause.
 
 The predecessor publication reconstructed complete table/index identity catalogues
 once, three times and six times on those graphs. In that source,
-[`pointCommitTransaction.ts`](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+[Point publication](../../packages/persistence-postgres/src/commit/point/README.md)
 iterates operation/source contributions; `readFiniteCommitClosure` in
 [`sourceAdmission.ts`](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)
 loads complete published physical requirements before selecting touched tables.

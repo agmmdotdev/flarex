@@ -32,28 +32,34 @@ import {
   decodeCanonicalFlarexValueEvidenceV1,
 } from "flarex-protocol/value";
 
-import type {
-  PointCommitAttemptScalarCommandV1,
-  PointCommitConflictEvidenceV1,
-  PointCommitDependencyV1,
-  PointCommitFinishingTransitionCommandV1,
-  PointCommitRowIntentV1,
-  PointCommitSessionScalarsV1,
-  PointCommitTransactionCommandV1,
-  PointMutationAttemptReplacementCommandV1,
-  RunningRelationConflictAttemptReplacementCommandV1,
-  RunningRelationConflictRecoveryCommand,
-  RecoveredRunningRelationConflictEvidence,
-} from "../../src/commit/pointCommitTransaction";
+import {
+  type PointCommitAttemptScalarCommandV1,
+  type PointCommitFinishingTransitionCommandV1,
+  type PointCommitSessionScalarsV1,
+  type PointCommitTransactionCommandV1,
+  type PointMutationAttemptReplacementCommandV1,
+  type RunningRelationConflictAttemptReplacementCommandV1,
+  type RunningRelationConflictRecoveryCommand,
+} from "../../../../src/commit/point/contracts";
+import {
+  type PointCommitConflictEvidenceV1,
+} from "../../../../src/commit/point/errors";
+import {
+  type PointCommitDependencyV1,
+  type PointCommitRowIntentV1,
+} from "../../../../src/storage/materialization/model";
+import {
+  type RecoveredRunningRelationConflictEvidence,
+} from "../../../../src/commit/point/capabilities";
 import type {
   StoredAttemptEvidenceAuthorityV1,
   StoredAttemptEvidenceV1,
   StoredAttemptPointEvidenceV1,
-} from "../../src/execution/storedAttemptEvidence";
+} from "../../../../src/execution/storedAttemptEvidence";
 import type {
   StoredOccExecutionEvidenceAuthorityV1,
   StoredOccExecutionEvidenceV1,
-} from "../../src/execution/storedOccExecution";
+} from "../../../../src/execution/storedOccExecution";
 
 export function runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1(
   authority: StoredOccExecutionEvidenceAuthorityV1,

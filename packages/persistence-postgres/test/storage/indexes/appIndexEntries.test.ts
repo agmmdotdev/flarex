@@ -41,8 +41,10 @@ import {
   AppIndexEntryParentRowError,
   AppIndexEntryStorageCorruptionError,
   AppIndexEntryReadPersistenceError,
-  readAppIndexMembershipHeadsInTransactionEffect,
   InvalidAppIndexEntryInputError,
+} from "../../../src/storage/indexes/appIndexEntryErrors";
+import {
+  readAppIndexMembershipHeadsInTransactionEffect,
   appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,

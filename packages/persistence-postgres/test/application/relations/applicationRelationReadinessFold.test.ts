@@ -64,11 +64,13 @@ import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
+} from "../../../src/commit/point/construction";
+import {
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
   PointCommitStaleAuthorityV1Error,
   PointMutationAttemptReplacementStaleAuthorityV1Error,
-} from "../../../src/commit/pointCommitTransaction";
+} from "../../../src/commit/point/errors";
 import type { SplitScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import {
   lockScopeClockForShareInTransactionEffect,
@@ -116,14 +118,14 @@ import {
 import {
   relationAuthorityFromAnchor,
   selectorFromRelationAnchor,
-} from "../../commit/pointCommitRelationTestSupport";
+} from "../../commit/point/support/relations";
 import {
   pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
   pointMutationAttemptReplacementCommandFromPointCommitCommandV1,
   runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1,
   runningRelationConflictRecoveryCommandFromStoredOccExecutionV1,
-} from "../../commit/pointCommitTransactionTestSupport";
+} from "../../commit/point/support/commandEvidence";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,

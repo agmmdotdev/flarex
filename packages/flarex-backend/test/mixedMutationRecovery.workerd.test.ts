@@ -33,7 +33,7 @@ import {
 import { createMixedMutationProductFixture } from
   "./support/mixedMutationWorkerdFixture";
 import { selectorFromRelationAnchor } from
-  "../../persistence-postgres/test/commit/pointCommitRelationTestSupport";
+  "../../persistence-postgres/test/commit/point/support/relations";
 import { createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
   "../../persistence-postgres/src/execution/transactionSessionActivation";

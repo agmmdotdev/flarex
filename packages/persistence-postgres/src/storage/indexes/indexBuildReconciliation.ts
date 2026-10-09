@@ -85,11 +85,13 @@ import { fxSystemIndexBuildStates } from "../../database/schema";
 import { snapshotSchemaManifestValue } from "../catalog/schemaManifestValueSnapshot";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
-  LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../execution/readCommittedTransactionFailure";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "../../execution/transactionSessionActivation";

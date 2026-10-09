@@ -7,15 +7,29 @@ import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
 import type { AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
-import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
-  MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "../../materialization/materialization";
+import {
+  MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+  MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
+} from "../../materialization/limits";
 import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type LiveAppRowRevisionV1 } from "../appRows";
-import { scanCurrentAppIndexInTransactionEffect, countCurrentAppIndexRangeUpToLimitInTransactionEffect,
-  AppIndexEntryReadPersistenceError, AppIndexEntryHashError } from "../../indexes/appIndexEntries";
+import {
+  scanCurrentAppIndexInTransactionEffect,
+  countCurrentAppIndexRangeUpToLimitInTransactionEffect,
+} from "../../indexes/appIndexEntries";
+import {
+  AppIndexEntryReadPersistenceError,
+  AppIndexEntryHashError,
+} from "../../indexes/appIndexEntryErrors";
 import { lowerAppDeveloperIndexKeyV1 } from "../../indexes/appDeveloperIndexCommitV1";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect, ScopeClockNotFoundError,
-  ScopeAuthorizationRevocationEpochPersistenceError, type ScopeClockRecord } from "../../../scope/scopeClock";
+import {
+  lockScopeClockForOrdinaryWriteInTransactionEffect,
+  ScopeAuthorizationRevocationEpochPersistenceError,
+  type ScopeClockRecord,
+} from "../../../scope/scopeClock";
+import {
+  ScopeClockNotFoundError,
+} from "../../../scope/scopeClockErrors";
 import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect, readRequiredEnabledIndexBuildsInTransactionEffect,
   IndexBuildStatePersistenceError } from "../../indexes/indexBuildStates";

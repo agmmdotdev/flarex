@@ -31,9 +31,11 @@ import { lockScopeClockForUpdateInTransactionEffect } from "../../../scope/scope
 import { runLocatedReadCommittedEffect } from "../../../database/locatedReadCommittedEffect";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
-  LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../../execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../execution/readCommittedTransactionFailure";
 import {
   frameworkSchemaTargetSnapshot,
   hasFrameworkSchemaTargetDatabase,

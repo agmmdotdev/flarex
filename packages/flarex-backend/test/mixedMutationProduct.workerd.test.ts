@@ -28,7 +28,9 @@ import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemTransactionSessions,
   fxSystemTransactionJournalPoints, fxSystemTransactionJournalWriteEvents,
   fxSystemIndexBuildStates, fxSystemCommits, fxSystemScopeClocks, fxSystemIdempotency } from "../../persistence-postgres/src/database/schema";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitErrors";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import {
   APPLICATION_EXECUTION_METADATA_OWNER,

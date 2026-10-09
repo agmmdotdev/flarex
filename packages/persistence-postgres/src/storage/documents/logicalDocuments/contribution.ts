@@ -5,9 +5,11 @@ import {
 } from "../appRows";
 import {
   consumeAppUniqueKeySlotsInTransactionEffect,
+} from "../../unique/appUniqueKeys";
+import {
   AppUniqueKeyPersistenceError,
   AppUniqueKeyHashError,
-} from "../../unique/appUniqueKeys";
+} from "../../unique/appUniqueKeyErrors";
 import type { LogicalDocumentChanges } from "./workingSet";
 import type { LogicalDocumentFailure } from "./model";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";

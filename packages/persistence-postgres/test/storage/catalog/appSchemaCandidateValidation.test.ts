@@ -60,8 +60,9 @@ import { lockScopeClockForUpdateInTransactionEffect } from
   "../../../src/scope/scopeClock";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
   "../../../src/execution/transactionSessionActivation";
-import { LocatedReadCommittedTransactionFailureV1 } from
-  "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const LOCATOR = Object.freeze({

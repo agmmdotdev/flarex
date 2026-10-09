@@ -44,6 +44,8 @@ import {
 import { readFiniteAttemptAnchorRow } from "../../execution/finiteAttemptAnchor";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,

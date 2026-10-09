@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 
-import type {
-  PointCommitPublicationCommandV1,
-  PointCommitPublisherPortV1,
-  PointCommitRollbackProofPortV1,
-  PointCommitTransactionCommandV1,
+import {
+  type PointCommitPublicationCommandV1,
+  type PointCommitPublisherPortV1,
+  type PointCommitRollbackProofPortV1,
+  type PointCommitTransactionCommandV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 
 import type {

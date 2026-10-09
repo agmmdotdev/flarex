@@ -31,13 +31,15 @@ import {
 import {
   appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
+  type AppendAppIndexEntryRevisionV1Input,
+} from "../../../src/storage/indexes/appIndexEntries";
+import {
   AppIndexEntryStorageCorruptionError,
   AppIndexEntryParentRowError,
   AppIndexEntryScopeAuthorityUnavailableError,
   AppIndexEntryRevisionAlreadyExistsError,
   InvalidAppIndexEntryInputError,
-  type AppendAppIndexEntryRevisionV1Input,
-} from "../../../src/storage/indexes/appIndexEntries";
+} from "../../../src/storage/indexes/appIndexEntryErrors";
 import { runEffect } from "../../support/effectTestRuntime";
 import { fxAppIndexEntryCurrent, fxAppIndexEntryRevisions } from "../../../src/database/schema";
 import { applicationDomainFailureDetail } from "../../../src/storage/materialization/domainApplication";

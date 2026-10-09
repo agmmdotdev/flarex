@@ -30,7 +30,9 @@ import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
 import { defineCmsCommand, type CmsCommandContext } from "../../../src/frameworks/cmsTransaction/commands";
 import { cmsError, cmsLimits } from "../../../src/frameworks/cmsTransaction/model";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
-import type { PointCommitTransactionProofStepV1 } from "../../../src/commit/pointCommitTransaction";
+import {
+  type PointCommitTransactionProofStepV1,
+} from "../../../src/commit/point/constructionContracts";
 import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
 import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemTransactionSessions, fxSystemCommitAppRowChanges, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxAppIndexEntryRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemAppSchemaCandidateValidations } from "../../../src/database/schema";
 

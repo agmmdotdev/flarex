@@ -167,7 +167,7 @@ const allowedRunPromiseExitSites = new Map([
   [siteKey("packages/persistence-postgres/src/application/applicationActivation.ts", "runLocatedTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/application/applicationReadiness.ts", "runLocatedTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts", "runEffectInTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/commit/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/point/promiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
   // Dedicated installation maintenance owns draining and page settlement.
   [siteKey("packages/persistence-postgres/src/database/postgresInstallationMaintenance.ts", "verifyAndPublish"), 1],
   [siteKey("packages/persistence-postgres/src/storage/catalog/logicalStorageDefinitions.ts", "backfillLogicalReadProjections"), 1],
@@ -179,7 +179,7 @@ const allowedRunPromiseExitWithSites = new Map([
   // tracer/parent and explicit tracing flags, never business services or Clock.
   [siteKey("packages/persistence-postgres/src/database/effectTransaction.ts", "runEffectTransactionSettlement"), 1],
   [siteKey("packages/persistence-postgres/src/database/locatedReadCommittedEffect.ts", "startLocatedRead"), 1],
-  [siteKey("packages/persistence-postgres/src/commit/pointCommitPromiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/commit/point/promiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
   // Physical settlement lends the captured context and bounded cancellation signal.
   [siteKey("packages/persistence-postgres/src/database/physicalSession/postgres.ts", "runCallbackEffect"), 1],
 ]);

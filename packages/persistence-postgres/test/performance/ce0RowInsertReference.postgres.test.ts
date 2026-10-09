@@ -23,12 +23,14 @@ import {
 } from "flarex-protocol/storage-authority";
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
+  type AppendPreparedLiveAppRowRevisionV1Input,
+} from "../../src/storage/documents/appRows";
+import {
   AppRowRevisionAlreadyExistsError,
   AppRowRevisionChainConflictError,
   AppRowStorageCorruptionError,
   AppRowScopeAuthorityUnavailableError,
-  type AppendPreparedLiveAppRowRevisionV1Input,
-} from "../../src/storage/documents/appRows";
+} from "../../src/storage/documents/appRowErrors";
 import { createPostgresLocatedReadCommittedTransactionRunnerV1 } from "../../src/database/postgresLocatedReadCommitted";
 import type { PostgresFlarexPersistence } from "../../src/database/postgres";
 import { fxSystemScopeClocks } from "../../src/database/schema";

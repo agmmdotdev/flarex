@@ -74,6 +74,8 @@ import {
 import { fxSystemApplicationFunctions } from "./relations/applicationRelationSchema";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../execution/readCommittedTransactionFailure";
+import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../execution/transactionSessionAttemptKernel";
 import { runLocatedReadCommittedEffect } from

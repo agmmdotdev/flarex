@@ -7,7 +7,9 @@ import type { FlarexMetadataTransaction } from "../../../database/metadataTransa
 import { requireAdmittedTargetInstallationSchema } from "../../../installation/installationLifecycle";
 import { applicationDomainFailureDetail, buildAppSearchBatchStatement } from "../../materialization/domainApplication";
 import { rowsFromDriverExecuteResult } from "../../../database/driverExecuteResult";
-import type { PointCommitPublicationObservation } from "../../../commit/pointCommitPublicationObservation";
+import {
+  type PointCommitPublicationObservation,
+} from "../../../commit/point/observation";
 import { fxAppJsonEntryCurrent, fxAppSearchEntryCurrent } from "../../../database/schema";
 
 export interface LogicalSearchDefinition {

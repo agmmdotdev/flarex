@@ -1,5 +1,7 @@
 import { Data } from "effect";
-import type { PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
+import {
+  type PointCommitPublicationObservation,
+} from "../point/observation";
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import type { CommitSeq, ReplacementScopeIdV1, ScopeUuidV1, ScopeEpochUuidV1 } from "flarex-protocol/storage-authority";
 import type { TransactionRequestKeyV1, TransactionFunctionPathV1 } from "flarex-protocol/transaction-session";

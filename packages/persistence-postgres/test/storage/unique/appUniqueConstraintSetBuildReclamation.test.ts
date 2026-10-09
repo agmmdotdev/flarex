@@ -40,7 +40,7 @@ import {
 } from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
 import {
   LocatedReadCommittedTransactionFailureV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/execution/readCommittedTransactionFailure";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "../../../src/execution/transactionSessionActivation";

@@ -19,7 +19,9 @@ import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 import { postgresFailureCode } from "../../persistence-postgres/test/support/postgresFailureCode";
 import { prepareNativeApplicationJournalOnLogicalScope } from
   "../../persistence-postgres/test/execution/nativeApplicationJournalOnLogicalScope";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 const causedBy = (value: unknown, expected: Error): boolean => {

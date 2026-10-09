@@ -10,7 +10,9 @@ import type { PostgresFlarexPersistence } from "../../src/database/postgres";
 import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import { cmsLimits } from "../../src/frameworks/cmsTransaction/model";
 import { fxAppRowRevisions } from "../../src/database/schema";
-import { AppDocumentInsertionConflictError } from "../../src/commit/pointCommitErrors";
+import {
+  AppDocumentInsertionConflictError,
+} from "../../src/commit/point/errors";
 import { makeCmsHost } from "../../src/frameworks/cmsTransaction/host";
 import { cmsExecutionMeasurementFixture } from "../frameworks/cmsTransaction/cmsExecutionMeasurementFixture";
 import { makeCe0CmsMutationReference } from "../frameworks/cmsTransaction/ce0CmsMutationReference";

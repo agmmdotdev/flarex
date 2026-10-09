@@ -68,7 +68,7 @@ the Payload adapter.
 | Logical storage | logicalDocuments/, appRows.ts, appIndexDefinitions/Entries, unique owners, appRelationEdges/ | Snapshot reads, attempt-owned pending state and canonical storage contributions. |
 | Application lifecycle/serving | applicationActivation.ts, applicationReadiness.ts, applicationRelationReadiness/, application schema/task binding owners | Registration/readiness/activation and trusted serving construction with their actual authority. |
 | Attempt execution | sessionJournalStore.ts, finite/session helpers, transactionSessionActivation.ts, storedOccExecution/ | Entry, journal/pending observations, admission and conflict evidence for an owned attempt. |
-| Publication/recovery | pointCommitTransaction.ts, commitPublication/, storedCommitAuthority/, committedPointOutcome.ts, commitEvents/ | Atomic settlement, durable outcome resolution and supported publication/event evidence. |
+| Publication/recovery | commit/point/, commit/publication/, commit/authority/, committedPointOutcome.ts, commit/events/ | Atomic settlement, durable outcome resolution and supported publication/event evidence; contracts, trusted construction and eligibility have distinct routes. |
 | Framework execution | cmsTransaction/, commerceTransaction/, atomicCommerce/, crossDomainCommand/ | Restricted direct or borrowed capabilities using shared storage/settlement owners. |
 | Tasks/sync | Task System repositories, compute/wake repositories, commit feed and live-query repositories | Separate durable domain capabilities; task lifecycle and sync policy retain their existing domain owners. |
 

@@ -29,10 +29,12 @@ import {
 } from "../../../src/storage/unique/appUniqueKeyContract";
 import {
   AppUniqueKeyConflictError,
+  CanonicalAppUniqueKeyHashCollisionError,
+} from "../../../src/storage/unique/appUniqueKeyErrors";
+import {
   AppUniqueKeyStorageCorruptionError,
   AppUniqueKeyParentRowError,
   AppUniqueKeyPreviousClaimMismatchError,
-  CanonicalAppUniqueKeyHashCollisionError,
   applyAppUniqueKeyMutationsInTransactionEffect,
   type ApplyAppUniqueKeyMutationV1Input,
   type AppUniqueKeySha256V1,

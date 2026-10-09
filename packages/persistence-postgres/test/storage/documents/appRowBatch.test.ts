@@ -4,9 +4,11 @@ import { createPGlitePersistence } from "../../../src/database/pglite";
 import { verifyAppRowBatches, verifyAppRowBatchBindings } from "./appRowBatchScenario";
 import {
   readCurrentAppRowInTransactionEffect,
-  AppRowStorageCorruptionError,
   type AppRowTransaction,
 } from "../../../src/storage/documents/appRows";
+import {
+  AppRowStorageCorruptionError,
+} from "../../../src/storage/documents/appRowErrors";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";

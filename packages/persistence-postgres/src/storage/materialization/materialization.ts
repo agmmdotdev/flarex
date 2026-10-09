@@ -1,141 +1,276 @@
-import { fxSystemIndexMaintenanceObligations } from "../../database/schema";
-export { prepareApplicationDocumentSettlementEffect, preparedApplicationDocumentSettlementHasFailure,
-  type PreparedApplicationDocumentSettlement } from "./settlementPlan";
-import { indexApplicationDocumentRowIntents, type ApplicationDocumentOriginals, prepareRelationTransitionsResult } from "./settlementPlan";
-import { observePointCommitPublicationEffect, type PointCommitPublicationObservation } from "../../commit/pointCommitPublicationObservation";
-import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
-import { MAX_SCHEMA_MANIFEST_APP_INDEXES } from "flarex-protocol/schema-manifest";
-import { readIndexCoverageContextInTransactionEffect, validateIndexBuildStateFrontierResult } from "../indexes/indexBuildStates";
-import { sqlCall, pointCommitSqlCallFailure } from "../../commit/pointCommitErrors";
-import { projectPointCommitTransactionResult } from "../../commit/pointCommitPromiseBoundary";
-import { ApplicationDocumentDefinitionComposition, ApplicationDocumentMaterializationOptions, PointCommitDependencyV1, PreparedPointCommitRowIntentV1, ApplicationDocumentDefinitionCommand, ApplicationDocumentMaterializationCommand, ApplicationDocumentMaterializationClock, PreparedPointCommitCandidateSchemaWriteGuard, PreparedPointCommitApplicationRelations, LocatedPreparedPointCommitApplicationRelations, LoadedPointCommitHeadV1, PreparedPointCommitApplicationRelationPlan, PointCommitApplicationRelationMaintenanceError, LockedPointCommitDeveloperIndexV1, PointCommitDeveloperIndexEntryActionV1, PointCommitDeveloperIndexDocumentRequestV1, PointCommitUniqueKeyPlanV1, PointCommitUniqueKeyActionV1, LockedPointCommitIntrinsicIndexV1 } from "./model";
-
-import { PointCommitConflictV1Error, PointCommitCorruptionV1Error, PointCommitIntrinsicIndexDefinitionUnavailableV1Error, PointCommitDeveloperIndexMaintenanceUnavailableV1Error, PointCommitUniqueConstraintMaintenanceUnavailableV1Error, PointCommitSqlFailureMarkerV1, corruption } from "../../commit/pointCommitErrors";
-
-import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
-import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { Data, Effect, Encoding, Exit, Result, Schema } from "effect";
-import { readAcceptedApplicationPublication, type AcceptedApplicationPublication } from "./publicationAcceptance";
-import { appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-definition";
-import { appUniqueConstraintSpecSha256HexV1ToBytes } from "flarex-protocol/app-unique-constraint-definition";
-
-import { AppCreationTimeV1Schema, decodeCanonicalAppDocumentEvidenceV1Effect } from "flarex-protocol/app-document";
-
 import {
-  appRowIdHexV1ToBytes,
-  appDocumentIdV1FromRowIdentity,
-  type AppDocumentIdV1,
-  type AppRowIdHexV1,
-} from "flarex-protocol/app-document-id";
-import { type CatalogTableId } from "flarex-protocol/catalog";
-
-import { type OrderedIndexKeyHexV1 } from "flarex-protocol/ordered-index";
-
-import {
-  MAX_PERSISTED_SIGNED_INT64_V1,
-  CommitSeqSchema,
-  projectScopeIdUuidV1Result,
-  type CommitSeq,
-  type ReplacementScopeIdV1,
-  type ScopeEpoch,
-} from "flarex-protocol/storage-authority";
-
-import {
-  type CanonicalFlarexValueV1,
-} from "flarex-protocol/value";
-import {
-  type LocateAppDeveloperIndexDefinitionsV1Error,
-} from "../indexes/appDeveloperIndexCommitV1";
-
-import {
-  hasAppUniqueConstraintDefinitionAuthorityV1,
-} from "../unique/appUniqueConstraintCommitV1";
-import {
-  isLocatedAppUniqueConstraintDefinitionV1,
-  type LocatedAppUniqueConstraintDefinitionV1,
-} from "../unique/appUniqueConstraintDefinitions";
-import type { ReadAppUniqueConstraintSetClosureV1Error } from "../unique/appUniqueConstraintSetClosureV1";
-import { AppUniqueKeyConflictError, AppUniqueKeyHashError, AppUniqueKeyPersistenceError, AppUniqueKeyParentRowError, AppUniqueKeyPreviousClaimMismatchError, AppUniqueKeyStorageCorruptionError, AppUniqueKeyScopeAuthorityUnavailableError, InvalidAppUniqueKeyMutationV1Error, CanonicalAppUniqueKeyHashCollisionError, preparedAppUniqueApplicationFailure, recordPreparedAppUniqueApplication, type PreparedAppUniqueMutationApplication, prepareAppUniqueCanonicalMutationApplicationEffect, applyPreparedAppUniqueMutationApplicationEffect } from "../unique/appUniqueKeys";
-import { AppIndexEntryWritePersistenceError, AppIndexEntryReadPersistenceError, AppIndexEntryStorageCorruptionError, prepareAppIndexRevisionApplicationEffect, preparedAppIndexApplicationFailure, type PreparedAppIndexRevisionApplication, prepareAppIndexKeyTransitionAcceptanceInTransactionEffect, publicationAppIndexApplicationFailure } from "../indexes/appIndexEntries";
+  Effect,
+  Result,
+  Data,
+  Schema,
+  Exit,
+  Encoding,
+} from "effect";
+import type {
+  ApplicationDocumentDefinitionCommand,
+  ApplicationDocumentMaterializationOptions,
+  ApplicationDocumentDefinitionComposition,
+  PreparedPointCommitApplicationRelations,
+  PointCommitDependencyV1,
+  ApplicationDocumentMaterializationCommand,
+  LocatedPreparedPointCommitApplicationRelations,
+  PreparedPointCommitApplicationRelationPlan,
+  PointCommitApplicationRelationMaintenanceError,
+  ApplicationDocumentMaterializationClock,
+  LoadedPointCommitHeadV1,
+  LockedPointCommitDeveloperIndexV1,
+  PointCommitUniqueKeyPlanV1,
+  PointCommitDeveloperIndexDocumentRequestV1,
+  PreparedPointCommitCandidateSchemaWriteGuard,
+  LockedPointCommitIntrinsicIndexV1,
+  PreparedPointCommitRowIntentV1,
+} from "./model";
 import type {
   LocatedAppIndexDefinitionV1,
   ReadAppIndexDefinitionError,
 } from "../indexes/appIndexDefinitions";
-import { AppRowWritePersistenceError, type AppendPreparedAppRowRevisionV1Input, type AppRowIdentityV1, type AppRowPointDependencyV1, type AppRowTransaction, type LiveAppRowRevisionV1, prepareAppRowRevisionApplicationEffect, preparedAppRowApplicationFailure, type PreparedAppRowRevisionApplication } from "../documents/appRows";
-import { AppRelationEdgePersistenceError } from "../relations";
 import {
+  PointCommitIntrinsicIndexDefinitionUnavailableV1Error,
+  type PointCommitCorruptionV1Error,
+  corruption,
+  PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
+  PointCommitUniqueConstraintMaintenanceUnavailableV1Error,
+  PointCommitConflictV1Error,
+} from "../../commit/point/errors";
+import {
+  type CatalogTableId,
+  CatalogIndexDefinitionIdSchema,
+  CatalogUniqueConstraintDefinitionIdSchema,
+} from "flarex-protocol/catalog";
+import {
+  observePointCommitPublicationEffect,
+  type PointCommitPublicationObservation,
+} from "../../commit/point/observation";
+import type {
+  LocateAppDeveloperIndexDefinitionsV1Error,
+} from "../indexes/appDeveloperIndexCommitV1";
+import {
+  MAX_SCHEMA_MANIFEST_APP_INDEXES,
+  CatalogSchemaVersionIdSchema,
+} from "flarex-protocol/schema-manifest";
+import {
+  type LocatedAppUniqueConstraintDefinitionV1,
+  isLocatedAppUniqueConstraintDefinitionV1,
+} from "../unique/appUniqueConstraintDefinitions";
+import type {
+  ReadAppUniqueConstraintSetClosureV1Error,
+} from "../unique/appUniqueConstraintSetClosureV1";
+import {
+  hasAppUniqueConstraintDefinitionAuthorityV1,
+} from "../unique/appUniqueConstraintCommitV1";
+import {
+  MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
+} from "./limits";
+import {
+  ApplicationRelationCommitUnavailableError,
+  ApplicationRelationCommitCorruptionError,
+  type PreparedApplicationRelationCommit,
+  ApplicationRelationTargetNotLiveError,
   applyApplicationRelationCommitEdgesInTransactionEffect,
   assertApplicationRelationRestrictProbesInTransactionEffect,
-  ApplicationRelationCommitCorruptionError,
-  ApplicationRelationCommitUnavailableError,
   ApplicationRelationTargetDeleteRestrictedError,
-  ApplicationRelationTargetNotLiveError,
-  type PreparedApplicationRelationCommit,
 } from "../../application/relations/applicationRelationCommit";
-
-import { ReadApplicationRelationBindingError } from "../../application/relations/binding";
 import {
-  applyAppSchemaCandidateWriteGuardInTransactionEffect,
-  prepareAppSchemaCandidateWriteGuardEffect,
-  prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
-  AppSchemaCandidateWriteGuardError,
+  ReadApplicationRelationBindingError,
+} from "../../application/relations/binding";
+import {
   type AppSchemaCandidateWriteGuardPort,
   type PreparedAppSchemaCandidateWriteGuard,
+  prepareAppSchemaCandidateWriteGuardEffect,
+  prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
+  applyAppSchemaCandidateWriteGuardInTransactionEffect,
 } from "../catalog/appSchemaCandidateValidation";
-
 import {
-  decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate,
+  AppSchemaCandidateWriteGuardError,
+} from "../catalog/appSchemaCandidateWriteGuardErrors";
+import {
+  type CommitSeq,
+  ScopeEpochSchema,
+  StorageGenerationFenceSchema,
+  projectScopeIdUuidV1Result,
+  type ReplacementScopeIdV1,
+  ScopeUuidV1Schema,
+  ScopeEpochUuidV1Schema,
+  CommitSeqSchema,
+  type ScopeEpoch,
+} from "flarex-protocol/storage-authority";
+import {
+  type PreparedAppRowRevisionApplication,
+  preparedAppRowApplicationFailure,
+  type AppRowTransaction,
+  type AppendPreparedAppRowRevisionV1Input,
+  prepareAppRowRevisionApplicationEffect,
+  AppRowWritePersistenceError,
+  type AppRowPointDependencyV1,
+  type LiveAppRowRevisionV1,
+} from "../documents/appRows";
+import {
+  type PreparedAppIndexRevisionApplication,
+  preparedAppIndexApplicationFailure,
+  prepareAppIndexKeyTransitionAcceptanceInTransactionEffect,
+  prepareAppIndexRevisionApplicationEffect,
+  publicationAppIndexApplicationFailure,
+} from "../indexes/appIndexEntries";
+import {
+  type PreparedAppUniqueMutationApplication,
+  preparedAppUniqueApplicationFailure,
+  recordPreparedAppUniqueApplication,
+  prepareAppUniqueCanonicalMutationApplicationEffect,
+  AppUniqueKeyParentRowError,
+  AppUniqueKeyPreviousClaimMismatchError,
+  AppUniqueKeyStorageCorruptionError,
+  AppUniqueKeyScopeAuthorityUnavailableError,
+  InvalidAppUniqueKeyMutationV1Error,
+} from "../unique/appUniqueKeys";
+import {
+  type IndexCoverageWrite,
+  type UniqueCoverageWrite,
+  applicationCoverageFailure,
+  ApplicationCoverageRefusal,
+  type CoverageProof,
+  applyApplicationCoverage,
+  ApplicationCoveragePersistenceError,
+} from "./domainCoverage";
+import {
+  type PreparedLogicalSearchApplication,
+  searchApplicationFailure,
+  prepareLogicalSearchApplications,
+} from "../documents/logicalDocuments/searchEntries";
+import {
+  type ApplicationMaterializationValues,
+  applicationDomainFailureDetail,
+  applicationIndexTransitionScalarArray,
+  applicationIndexTransitionByteArray,
+  applicationMaterializationParameters,
+  applicationIndexCoverageArray,
+} from "./domainApplication";
+import {
+  type AcceptedApplicationPublication,
+  readAcceptedApplicationPublication,
+} from "./publicationAcceptance";
+import {
+  IndexBuildAttemptFenceSchema,
+} from "flarex-protocol/index-build-state";
+import {
+  AppUniqueConstraintSetBuildAttemptFenceV1Schema,
+} from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import {
+  readIndexCoverageContextInTransactionEffect,
   publicationModeForIndex,
-  type IndexBuildStateRecord, type IndexBuildStateRow,
+  publicationModeForTable,
+  indexBuildStateSelection,
+  indexMaintenanceBindingPredicate,
+  type IndexBuildStateRow,
+  decodeIndexBuildStateRowResult,
+  validateIndexBuildStateFrontierResult,
+  type IndexBuildStateRecord,
 } from "../indexes/indexBuildStates";
-import { validateAppRowPointOccV1 } from "../documents/appRowPointOcc";
+import {
+  PointCommitSqlFailureMarkerV1,
+  pointCommitSqlCallFailure,
+  sqlCall,
+} from "../../commit/point/sqlFailures";
+import {
+  appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+  type AppDocumentIdV1,
+  type AppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import {
+  requireAdmittedTargetInstallationSchema,
+} from "../../installation/installationLifecycle";
+import {
+  fxSystemIndexBuildStates,
+  fxAppRowRevisions,
+  fxControlIndexDefinitions,
+  fxControlUniqueConstraintDefinitions,
+  fxControlSchemaVersionUniqueConstraintBindings,
+  fxSystemIndexMaintenanceObligations,
+} from "../../database/schema";
+import {
+  sql,
+  and,
+  eq,
+  inArray,
+} from "drizzle-orm";
+import {
+  appIndexPhysicalSpecSha256HexV1ToBytes,
+} from "flarex-protocol/index-definition";
+import {
+  appUniqueConstraintSpecSha256HexV1ToBytes,
+} from "flarex-protocol/app-unique-constraint-definition";
+import {
+  AppIndexEntryReadPersistenceError,
+  AppIndexEntryStorageCorruptionError,
+  AppIndexEntryWritePersistenceError,
+} from "../indexes/appIndexEntryErrors";
+import {
+  observeDrizzleRawQuery,
+} from "../../database/drizzleQueryObservation";
+import {
+  runDrizzleStatementEffect,
+} from "../../database/drizzleStatementEffect";
+import {
+  observeExecution,
+} from "../../execution/diagnostics/operation";
+import {
+  AppUniqueKeyPersistenceError,
+  AppUniqueKeyConflictError,
+  AppUniqueKeyHashError,
+  CanonicalAppUniqueKeyHashCollisionError,
+} from "../unique/appUniqueKeyErrors";
+import {
+  mapPointCommitUniqueKeyFailure,
+} from "./uniqueKeyFailures";
+import {
+  closeExactAttemptScopeClockObservation,
+  type ScopeClockRecord,
+} from "../../scope/scopeClock";
+import {
+  prepareRelationTransitionsResult,
+  type ApplicationDocumentOriginals,
+  indexApplicationDocumentRowIntents,
+} from "./settlementPlan";
+import {
+  isNonArrayRecord,
+} from "@flarex/utils/records";
+import {
+  parseNullableCommitSeqTextResult,
+  decodePointCommitHeadResult,
+  freezeRowIdentity,
+} from "./headEvidence";
+import {
+  AppRelationEdgePersistenceError,
+} from "../relations";
+import {
+  rowsFromDriverExecuteResult,
+} from "../../database/driverExecuteResult";
+import {
+  projectPointCommitTransactionResult,
+} from "../../commit/point/promiseBoundary";
+import {
+  validateAppRowPointOccV1,
+} from "../documents/appRowPointOcc";
+import {
+  recordOriginalPublicationBuildLocks,
+} from "./originalBuildLocks";
+import type {
+  CanonicalFlarexValueV1,
+} from "flarex-protocol/value";
+import {
+  decodeCanonicalAppDocumentEvidenceV1Effect,
+} from "flarex-protocol/app-document";
+import type {
+  TrustedScopeAuthority,
+} from "../../scope/scopeAuthorityResolution";
 
-import { rowsFromDriverExecuteResult } from "../../database/driverExecuteResult";
-import { requireAdmittedTargetInstallationSchema } from "../../installation/installationLifecycle";
-import { applicationDomainFailureDetail, applicationIndexCoverageArray, applicationMaterializationParameters, applicationIndexTransitionScalarArray, applicationIndexTransitionByteArray, type ApplicationMaterializationValues } from "./domainApplication";
-import { observeDrizzleRawQuery } from "../../database/drizzleQueryObservation";
-import { applyApplicationCoverage, applicationCoverageFailure, ApplicationCoverageRefusal, ApplicationCoveragePersistenceError, type IndexCoverageWrite, type UniqueCoverageWrite, type CoverageProof } from "./domainCoverage";
-import { prepareLogicalSearchApplications, searchApplicationFailure, type PreparedLogicalSearchApplication } from "../documents/logicalDocuments/searchEntries";
-
-import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservationIdentity, type ScopeClockRecord } from "../../scope/scopeClock";
-import { type TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
-
-import { fxAppRowRevisions, fxSystemIndexBuildStates, fxControlIndexDefinitions,fxControlUniqueConstraintDefinitions,
-  fxControlSchemaVersionUniqueConstraintBindings } from "../../database/schema";
-import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
-import { observeExecution } from "../../execution/diagnostics/operation";
-import { publicationModeForTable } from "../indexes/indexBuildStates";
-import { CatalogIndexDefinitionIdSchema, CatalogUniqueConstraintDefinitionIdSchema } from "flarex-protocol/catalog";
-import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
-import { IndexBuildAttemptFenceSchema } from "flarex-protocol/index-build-state";
-import { AppUniqueConstraintSetBuildAttemptFenceV1Schema } from "flarex-protocol/internal/app-unique-constraint-set-v1";
-import { ScopeEpochSchema, StorageGenerationFenceSchema, ScopeUuidV1Schema, ScopeEpochUuidV1Schema } from "flarex-protocol/storage-authority";
-
-const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
-
-const MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH =
-  MAX_SIGNED_COMMIT_SEQ.toString().length;
-
-export const decodePointCommitCreationTimeResult = Schema.decodeUnknownResult(
-  Schema.toType(AppCreationTimeV1Schema),
-);
-
-export const decodePointCommitSeqResult = Schema.decodeUnknownResult(
-  Schema.toType(CommitSeqSchema),
-);
-
-export const MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 = 256;
-
-/**
- * The unique owner applies bounded statement batches in the borrowed transaction.
- * Allow one constraint transition per material row at the core row ceiling;
- * additional constraints consume the same aggregate budget. A transition may
- * release one previous claim and acquire one replacement claim.
- */
-export const MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 = MAX_POINT_COMMIT_MATERIAL_ROWS_V1;
-
-export const MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1 = 2 * MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1;
+export { prepareApplicationDocumentSettlementEffect, preparedApplicationDocumentSettlementHasFailure,
+  type PreparedApplicationDocumentSettlement } from "./settlementPlan";
 
 export const prepareIntrinsicIndexDefinitions = Effect.fn(
   "PointCommitTransaction.prepareIntrinsicIndexDefinitions",
@@ -1090,65 +1225,6 @@ function capturePointCommitHeadsResult(
   });
 }
 
-export function decodePointCommitHeadResult(
-  raw: unknown,
-  expectedOrdinal: number,
-  dependency: PointCommitDependencyV1 | undefined,
-  scopeId: ReplacementScopeIdV1,
-  lastCommitSeq: CommitSeq,
-): Result.Result<LoadedPointCommitHeadV1, PointCommitCorruptionV1Error> {
-  if (dependency === undefined || !isNonArrayRecord(raw)) {
-    return Result.fail(corruption("rowHeadInvalid"));
-  }
-  return Result.gen(function* () {
-    const ordinal = yield* parseNonNegativeIntegerTextResult(raw.ordinalText);
-    const pointerCommitSeq = yield* parseNullableCommitSeqTextResult(
-      raw.pointerCommitSeqText,
-    );
-    const latestCommitSeq = yield* parseNullableCommitSeqTextResult(
-      raw.latestCommitSeqText,
-    );
-    if (
-      ordinal !== expectedOrdinal ||
-      (pointerCommitSeq === null) !== (latestCommitSeq === null) ||
-      pointerCommitSeq !== latestCommitSeq
-    ) {
-      return yield* Result.fail(corruption("rowHeadInvalid"));
-    }
-    const identity = freezeRowIdentity(dependency, scopeId);
-    if (latestCommitSeq === null) {
-      if (
-        raw.latestIsTombstone !== null ||
-        raw.latestCreationTimeText !== null
-      ) {
-        return yield* Result.fail(corruption("rowHeadInvalid"));
-      }
-      return Object.freeze({
-        head: Object.freeze({ kind: "missing", identity }),
-        creationTime: null,
-      });
-    }
-    if (
-      latestCommitSeq > lastCommitSeq ||
-      typeof raw.latestIsTombstone !== "boolean" ||
-      typeof raw.latestCreationTimeText !== "string"
-    ) {
-      return yield* Result.fail(corruption("rowHeadInvalid"));
-    }
-    const creationTime = yield* decodePointCommitCreationTimeResult(
-      Number(raw.latestCreationTimeText),
-    ).pipe(Result.mapError(() => corruption("rowHeadInvalid")));
-    return Object.freeze({
-      head: Object.freeze({
-        kind: raw.latestIsTombstone ? "tombstone" : "live",
-        identity,
-        revisionCommitSeq: latestCommitSeq,
-      }),
-      creationTime,
-    });
-  });
-}
-
 export function validatePointCommitDependenciesResult(
   command: Pick<
     ApplicationDocumentMaterializationCommand,
@@ -1251,43 +1327,6 @@ function adaptPointDependency(
   }
 }
 
-const originalBuildLocksBrand: unique symbol = Symbol("OriginalApplicationPublicationBuildLocks");
-export interface OriginalApplicationPublicationBuildLocks { readonly [originalBuildLocksBrand]: true }
-interface OriginalPublicationBuildLockState {
-  readonly tx: AppRowTransaction;
-  readonly clockIdentity: symbol;
-  readonly intrinsic: Set<LocatedAppIndexDefinitionV1>;
-  readonly developer: Set<LocatedAppIndexDefinitionV1>;
-}
-const originalPublicationBuildLocks = new WeakMap<AppRowTransaction,OriginalPublicationBuildLockState>();
-const originalPublicationBuildLockHandles = new WeakMap<OriginalApplicationPublicationBuildLocks,OriginalPublicationBuildLockState>();
-function recordOriginalPublicationBuildLocks(tx:AppRowTransaction,clock:ApplicationDocumentMaterializationClock,
-  family:"intrinsic"|"developer",definitions:readonly LocatedAppIndexDefinitionV1[]) {
-  const clockIdentity=exactScopeWriteClockObservationIdentity(tx,clock.record.scopeId);
-  if (clockIdentity===undefined) return;
-  const previous=originalPublicationBuildLocks.get(tx);
-  const state=previous?.clockIdentity===clockIdentity ? previous : {tx,clockIdentity,intrinsic:new Set<LocatedAppIndexDefinitionV1>(),developer:new Set<LocatedAppIndexDefinitionV1>()};
-  for (const definition of definitions) state[family].add(definition);
-  originalPublicationBuildLocks.set(tx,state);
-}
-export function captureOriginalApplicationPublicationBuildLocks(tx:AppRowTransaction,clock:ApplicationDocumentMaterializationClock,
-  intrinsic:readonly LocatedAppIndexDefinitionV1[],developer:readonly LocatedAppIndexDefinitionV1[]) {
-  const state=originalPublicationBuildLocks.get(tx);
-  if (state===undefined || state.clockIdentity!==exactScopeWriteClockObservationIdentity(tx,clock.record.scopeId) ||
-    intrinsic.some(definition=>!state.intrinsic.has(definition)) || developer.some(definition=>!state.developer.has(definition)))
-    return Result.fail(corruption("developerIndexBuildInvalid"));
-  const handle=Object.freeze({[originalBuildLocksBrand]:true as const});
-  originalPublicationBuildLockHandles.set(handle,state);
-  return Result.succeed(handle);
-}
-export function acceptOriginalApplicationPublicationBuildLocks(tx:AppRowTransaction,clock:ApplicationDocumentMaterializationClock,
-  handle:OriginalApplicationPublicationBuildLocks,intrinsic:readonly LocatedAppIndexDefinitionV1[],developer:readonly LocatedAppIndexDefinitionV1[]) {
-  const state=originalPublicationBuildLockHandles.get(handle);
-  return state?.tx===tx && state.clockIdentity===exactScopeWriteClockObservationIdentity(tx,clock.record.scopeId) &&
-    intrinsic.every(definition=>state.intrinsic.has(definition)) && developer.every(definition=>state.developer.has(definition))
-    ? Result.succeed(undefined) : Result.fail(corruption("developerIndexBuildInvalid"));
-}
-
 export async function lockPointCommitDeveloperIndexBuilds(
   tx: AppRowTransaction,
   clock: ApplicationDocumentMaterializationClock,
@@ -1365,50 +1404,6 @@ function uniqueCanonicalTransitions(plans: readonly PointCommitUniqueKeyPlanV1[]
   return plans.map(plan => ({ constraintId: plan.definition.uniqueConstraintDefinitionId, tableId: plan.definition.tableId,
     rowId: plan.rowId, localeKey: plan.previousCanonical?.localeKey ?? plan.nextCanonical?.localeKey ?? "",
     previous: plan.previousCanonical, next: plan.nextCanonical, rowPrevCommitSeq: plan.rowPrevCommitSeq }));
-}
-export function preparedUniqueKeyActions(plans: readonly PointCommitUniqueKeyPlanV1[]): readonly PointCommitUniqueKeyActionV1[] {
-  const actions: PointCommitUniqueKeyActionV1[] = [];
-  for (const plan of plans) {
-    const previous = plan.previousCanonical?.kind === "claim" ? plan.previousCanonical : null;
-    const next = plan.nextCanonical?.kind === "claim" ? plan.nextCanonical : null;
-    if (previous !== null && next !== null && previous.encodedKey === next.encodedKey) continue;
-    if (previous !== null) actions.push(uniqueKeyAction("release", plan, previous.encodedKey));
-    if (next !== null) actions.push(uniqueKeyAction("claim", plan, next.encodedKey));
-  }
-  return Object.freeze(actions.toSorted(comparePointCommitUniqueKeyActions));
-}
-
-function uniqueKeyAction(
-  phase: PointCommitUniqueKeyActionV1["phase"],
-  plan: PointCommitUniqueKeyPlanV1,
-  sortKey: OrderedIndexKeyHexV1,
-): PointCommitUniqueKeyActionV1 {
-  return Object.freeze({
-    phase,
-    definition: plan.definition,
-    rowId: plan.rowId,
-    sortKey,
-  });
-}
-
-function pointCommitUniqueKeyPhaseRank(
-  phase: PointCommitUniqueKeyActionV1["phase"],
-): number {
-  return phase === "release" ? 0 : 1;
-}
-
-function comparePointCommitUniqueKeyActions(
-  left: PointCommitUniqueKeyActionV1,
-  right: PointCommitUniqueKeyActionV1,
-): number {
-  return (
-    pointCommitUniqueKeyPhaseRank(left.phase) -
-      pointCommitUniqueKeyPhaseRank(right.phase) ||
-    left.definition.uniqueConstraintDefinitionId -
-      right.definition.uniqueConstraintDefinitionId ||
-    left.sortKey.localeCompare(right.sortKey) ||
-    left.rowId.localeCompare(right.rowId)
-  );
 }
 
 export type ApplicationDocumentPriorState = ApplicationDocumentOriginals;
@@ -1581,35 +1576,6 @@ const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPri
   }
   return {documents,originalRows};
 });
-
-export function compareDeveloperIndexEntryActions(
-  left: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">,
-  right: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">,
-): number {
-  return (
-    left.definition.indexDefinitionId - right.definition.indexDefinitionId ||
-    left.encodedKey.localeCompare(right.encodedKey) ||
-    left.rowId.localeCompare(right.rowId) ||
-    (left.kind === right.kind ? 0 : left.kind === "tombstone" ? -1 : 1)
-  );
-}
-
-export function mapPointCommitUniqueKeyFailure(
-  failure: Effect.Error<
-    ReturnType<typeof prepareAppUniqueCanonicalMutationApplicationEffect> | ReturnType<typeof applyPreparedAppUniqueMutationApplicationEffect>
-  >,
-) {
-  if (
-    failure instanceof AppUniqueKeyConflictError ||
-    failure instanceof AppUniqueKeyHashError ||
-    failure instanceof CanonicalAppUniqueKeyHashCollisionError
-  )
-    return failure;
-  if (failure instanceof AppUniqueKeyPersistenceError) {
-    return new PointCommitSqlFailureMarkerV1("writeUniqueKey", failure.cause);
-  }
-  return corruption("uniqueKeyTransitionInvalid");
-}
 
 export const runCandidateSchemaWriteGuard = Effect.fn(
   "ApplicationDocumentMaterialization.runCandidateSchemaWriteGuard",
@@ -1809,17 +1775,6 @@ function prepareTentativePointCommitRowResult(
   });
 }
 
-function freezeRowIdentity(
-  input: Pick<PointCommitDependencyV1, "tableId" | "rowId">,
-  scopeId: ReplacementScopeIdV1,
-): Readonly<AppRowIdentityV1> {
-  return Object.freeze({
-    scopeId,
-    tableId: input.tableId,
-    rowId: input.rowId,
-  });
-}
-
 export async function emitTransactionStep<Step extends string>(
   options: {
     readonly afterTransactionStep?: (event: {
@@ -1837,38 +1792,5 @@ export async function emitTransactionStep<Step extends string>(
       scopeId: command.authorityPins.scopeId,
       step,
     }),
-  );
-}
-
-export function parseNonNegativeIntegerTextResult(
-  value: unknown,
-): Result.Result<number, PointCommitCorruptionV1Error> {
-  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) {
-    return Result.fail(corruption("rowHeadInvalid"));
-  }
-  const parsed = Number(value);
-  if (!isNonNegativeSafeInteger(parsed)) {
-    return Result.fail(corruption("rowHeadInvalid"));
-  }
-  return Result.succeed(parsed);
-}
-
-export function parseNullableCommitSeqTextResult(
-  value: unknown,
-): Result.Result<CommitSeq | null, PointCommitCorruptionV1Error> {
-  if (value === null) return Result.succeed(null);
-  if (
-    typeof value !== "string" ||
-    value.length > MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH ||
-    !/^[1-9][0-9]*$/.test(value)
-  ) {
-    return Result.fail(corruption("rowHeadInvalid"));
-  }
-  const parsed = BigInt(value);
-  if (parsed > MAX_SIGNED_COMMIT_SEQ) {
-    return Result.fail(corruption("rowHeadInvalid"));
-  }
-  return decodePointCommitSeqResult(parsed).pipe(
-    Result.mapError(() => corruption("rowHeadInvalid")),
   );
 }

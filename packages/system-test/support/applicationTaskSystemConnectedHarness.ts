@@ -119,9 +119,10 @@ import {
   "@flarex/persistence-postgres/internal/system-test/transactionSessionActivation";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
+import {
   type RunLocatedReadCommittedTransactionV1,
-} from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
 import {
   makeApplicationNativeMutationTestLayer,
 } from "./applicationNativeMutationHarness";

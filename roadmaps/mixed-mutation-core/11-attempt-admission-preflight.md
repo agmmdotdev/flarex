@@ -192,7 +192,7 @@ the current full attestation. Do not use a TTL or a host-local authority flag.
    conflict/OCC validation, fencing, materialization and one committed outcome
    under its existing owner. Neither transaction spans framework callbacks.
    The existing
-   [publisher](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+   [publisher](../../packages/persistence-postgres/src/commit/point/README.md)
    loops participant contributions through source admission in one locked
    transaction. Reuse its existing
    `withSharedLogicalSourceBindingChecks` scope around that loop so equivalent

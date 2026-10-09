@@ -52,8 +52,9 @@ import {
 } from "../../../src/database/postgres";
 import { createPostgresLocatedReadCommittedTransactionRunnerV1 } from
   "../../../src/database/postgresLocatedReadCommitted";
-import { LocatedReadCommittedTransactionFailureV1 } from
-  "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";

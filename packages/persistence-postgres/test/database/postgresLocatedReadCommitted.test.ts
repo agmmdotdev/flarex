@@ -8,7 +8,7 @@ import {
 } from "../../src/database/postgresLocatedReadCommitted";
 import {
   LocatedReadCommittedTransactionFailureV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/execution/readCommittedTransactionFailure";
 
 describe("Postgres located READ COMMITTED settlement provenance", () => {
   it("returns only a fully settled success", () => {

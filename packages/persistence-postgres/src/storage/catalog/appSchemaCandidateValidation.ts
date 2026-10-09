@@ -1,3 +1,4 @@
+import { AppSchemaCandidateWriteGuardError } from "./appSchemaCandidateWriteGuardErrors";
 import { readFiniteEntryPlanningObservation, type FiniteEntryObservation } from "../../execution/finiteEntryObservation";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import { runEffectTransaction } from "../../database/effectTransaction";
@@ -117,14 +118,8 @@ import {
 import {
   fxSystemAppSchemaCandidateValidations,
 } from "../../database/schema";
-import {
-  LocatedReadCommittedTransactionFailureV1,
-  RUN_LOCATED_READ_COMMITTED_V1,
-  registerLocatedReadCommittedTargetDatabaseV1,
-  isLocatedReadCommittedAttemptTargetV1,
-  type LocatedReadCommittedAttemptTargetV1,
-  type RunLocatedReadCommittedTransactionV1,
-} from "../../execution/transactionSessionAttemptKernel";
+import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCommittedTransactionFailure";
+import { RUN_LOCATED_READ_COMMITTED_V1, registerLocatedReadCommittedTargetDatabaseV1, isLocatedReadCommittedAttemptTargetV1, type LocatedReadCommittedAttemptTargetV1, type RunLocatedReadCommittedTransactionV1 } from "../../execution/transactionSessionAttemptKernel";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
   "../../execution/transactionSessionActivation";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from
@@ -1006,18 +1001,6 @@ function hasApplicationPointCommitAuthorityOwnDataKeys(
 }> {
   return hasExactOwnDataKeys(value, APPLICATION_POINT_COMMIT_AUTHORITY_KEYS);
 }
-
-export class AppSchemaCandidateWriteGuardError extends Data.TaggedError(
-  "AppSchemaCandidateWriteGuardError",
-)<{
-  readonly reason:
-    | "notIssued"
-    | "compositionMismatch"
-    | "concurrentStateChange"
-    | "corruption"
-    | "persistence";
-  readonly cause?: unknown;
-}> {}
 
 export interface AppSchemaCandidateWriteGuardLiveRow {
   readonly tableId: CatalogTableId;

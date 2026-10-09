@@ -28,50 +28,56 @@ import {
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
-} from "../../src/database/pglite";
+} from "../../../src/database/pglite";
 import type { LocatedScopeClockReader } from
-  "../../src/scope/scopeAuthorityResolution";
+  "../../../src/scope/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from
-  "../../src/scope/scopeMetadataTypes";
+  "../../../src/scope/scopeMetadataTypes";
 import { TransactionExecutionClaimOwnerV1Schema } from
-  "../../src/execution/claims/transactionExecutionClaimModel";
+  "../../../src/execution/claims/transactionExecutionClaimModel";
 import { createPointMutationExecutionClaimLivenessV1 } from
-  "../../src/execution/claims/transactionExecutionClaimLiveness";
+  "../../../src/execution/claims/transactionExecutionClaimLiveness";
 import {
   createSessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../../src/execution/sessionJournalStore";
 import {
   type SessionJournalAttempt,
   type SessionJournalStorePersistence,
-} from "../../src/execution/journal/api";
+} from "../../../src/execution/journal/api";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
-} from "../../src/execution/storedAttemptEvidence";
+} from "../../../src/execution/storedAttemptEvidence";
 import {
   PointCommitCorruptionV1Error,
   PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
+} from "../../../src/commit/point/errors";
+import {
   createPointCommitFinishingTransitionPortV1,
+} from "../../../src/commit/point/construction";
+import {
   type PointCommitFinishingTransitionCommandV1,
+} from "../../../src/commit/point/contracts";
+import {
   type PointCommitTransactionProofOptionsV1,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../../src/commit/point/constructionContracts";
 import {
   createPointMutationSessionActivationPersistenceV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/transactionSessionActivation";
 import { pointCommitFinishingCommandFromStoredAttemptV1 } from
-  "./pointCommitTransactionTestSupport";
+  "./support/commandEvidence";
 import { runEffect, runEffectFailure as runFailure } from
-  "../support/effectTestRuntime";
+  "../../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   executionClaimForAnchor,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
-} from "../execution/transactionSessionActivationTestSupport";
+} from "../../execution/transactionSessionActivationTestSupport";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",

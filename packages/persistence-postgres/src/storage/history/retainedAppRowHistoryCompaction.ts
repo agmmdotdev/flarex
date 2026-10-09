@@ -45,8 +45,9 @@ import {
   type TrustedScopeSelection,
 } from "../../scope/scopeAuthorityResolution";
 import { fxAppRowRevisions } from "../../database/schema";
-import { LocatedReadCommittedTransactionFailureV1 } from
-  "../../execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../execution/readCommittedTransactionFailure";
 
 export const MAX_RETAINED_APP_ROW_HISTORY_PAGE_REVISIONS = 128;
 

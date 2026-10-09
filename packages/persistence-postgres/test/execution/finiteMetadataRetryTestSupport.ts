@@ -2,7 +2,9 @@ import { Effect, Result } from "effect";
 import type { CommitSeq, ScopeEpoch, ScopeId } from "flarex-protocol/storage-authority";
 import { applyFiniteMetadataActivationProjection, captureFiniteMetadataDependency, finiteMetadataContractKey,
   prepareFiniteMetadataProjection, requireCurrentFiniteMetadataProjection, validateConsumedMetadataDependencies } from "../../src/execution/finiteMetadataDependencies";
-import { PointCommitConflictV1Error } from "../../src/commit/pointCommitErrors";
+import {
+  PointCommitConflictV1Error,
+} from "../../src/commit/point/errors";
 import { createPGlitePersistence } from "../../src/database/pglite";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { insertCurrentScopeClockFixture } from "../scope/scopeClockFixture";

@@ -14,7 +14,9 @@ import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueCon
 import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
 import { prepareRelationalUniqueDeclarations, ensureRelationalOrderedDefinitions } from "../../../src/storage/catalog/relationalStorageDefinitions";
-import { findSqlState } from "../../../src/commit/pointCommitErrors";
+import {
+  findSqlState,
+} from "../../../src/commit/point/sqlFailures";
 import { ensureLogicalStorageDefinitions, readLogicalStorageRequirements } from "../../../src/storage/catalog/logicalStorageDefinitions";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../../src/storage/indexes/indexBuildReconciliation";
 import { prepareAppUniqueConstraintSetClosureV1Effect, closeAppUniqueConstraintSetV1InTransactionEffect } from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";

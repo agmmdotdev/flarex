@@ -63,12 +63,14 @@ import { createStoredCommitAuthorityEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/internal/stored-commit-authority-evidence-v1";
 import {
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
+  type PointCommitOutcomeResolutionV1Error,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointMutationAttemptReplacementPortV1,
-  type PointCommitOutcomeResolutionV1Error,
   type PointCommitTransactionProofOptionsV1,
-} from "@flarex/persistence-postgres/point-commit-transaction";
+} from "@flarex/persistence-postgres/internal/point-commit-construction";
 import {
   createSessionJournalStorePersistence,
 } from "@flarex/persistence-postgres/session-journal-store";
@@ -130,8 +132,9 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { Json } from "flarex-protocol/json";
 import type { TransactionGrantDeploymentIdV1 } from
   "flarex-protocol/transaction-grant";
-import type { CommittedPointOutcomeResolutionV1 } from
-  "@flarex/persistence-postgres/point-commit-transaction";
+import {
+  type CommittedPointOutcomeResolutionV1,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 
 export interface ApplicationPointMutationRouteIndependentDispatcherV1 {
   readonly bind: (

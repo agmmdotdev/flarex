@@ -32,7 +32,9 @@ import type { ExactRunningAttemptKernelInputV1 } from "./transactionSessionAttem
 import { resolveLocatedTrustedScopeAuthorityByIdEffect, resolveLocatedTrustedScopeAuthorityEffect,
   TrustedScopeAuthorityPortError, type LocatedScopeClockReader, type ExactTrustedScopeAuthorityResolutionPorts } from "../scope/scopeAuthorityResolution";
 import type { LocatedTrustedScopeAuthority, TrustedScopeAuthorityError } from "../scope/scopeAuthorityResolution";
-import { ScopeClockCorruptionError } from "../scope/scopeClock";
+import {
+  ScopeClockCorruptionError,
+} from "../scope/scopeClockErrors";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "./transactionSessionAttemptKernel";
 
 import { decodeCapturedApplicationWriteOwnershipEffect } from "../application/ownership/Repository";

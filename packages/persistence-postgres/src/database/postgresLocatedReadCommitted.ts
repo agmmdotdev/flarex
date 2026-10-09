@@ -12,6 +12,8 @@ import { recordManagedMetadataFrontierSnapshot } from "../execution/preparation/
 import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedTransactionFailureIssueV1,
+} from "../execution/readCommittedTransactionFailure";
+import {
   type RunLocatedReadCommittedTransactionV1,
 } from "../execution/transactionSessionAttemptKernel";
 

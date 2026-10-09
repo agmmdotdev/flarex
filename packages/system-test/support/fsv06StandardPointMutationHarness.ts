@@ -41,6 +41,8 @@ import {
 } from "flarex-protocol/transaction-session";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type RunLocatedReadCommittedTransactionV1,
 } from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
@@ -55,8 +57,9 @@ import {
 } from "@flarex/persistence-postgres/internal/session-journal-construction";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/postgres";
-import type { PointCommitTransactionProofStepV1 } from
-  "@flarex/persistence-postgres/internal/system-test/pointCommitTransaction";
+import {
+  type PointCommitTransactionProofStepV1,
+} from "@flarex/persistence-postgres/internal/point-commit-construction";
 import {
   activateApplicationRevisionV1,
   claimActiveApplicationRevisionInvocationBasisV1,

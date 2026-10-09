@@ -53,10 +53,12 @@ import {
 } from "../../src/execution/transactionSessionActivation";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-  LocatedReadCommittedTransactionFailureV1,
   LOCATED_READ_COMMITTED_RUNNER_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
 import { runEffect } from "../support/effectTestRuntime";
 import { runEffectTransaction } from "../../src/database/effectTransaction";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../src/scope/scopeClock";

@@ -21,15 +21,19 @@ import {
   createAppDeveloperIndexDefinitionPortV1,
 } from "../../src/storage/indexes/appDeveloperIndexCommitV1";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../src/execution/storedAttemptEvidence";
-import { createPointCommitFinishingTransitionPortV1 } from "../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitFinishingTransitionPortV1,
+} from "../../src/commit/point/construction";
 import {
   createPointCommitPublisherPortV1,
+} from "../../src/commit/point/construction";
+import {
   PointCommitConflictV1Error,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../src/commit/point/errors";
 import {
   pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
-} from "../commit/pointCommitTransactionTestSupport";
+} from "../commit/point/support/commandEvidence";
 import { selectApplicationMutationAdmission } from "../../src/application/applicationMutationAdmission";
 import { makeApplicationSchemaAuthorityPublisher } from "../../src/application/applicationSchemaAuthority";
 import {
@@ -39,7 +43,7 @@ import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionA
 import {
   selectorFromRelationAnchor,
   relationAuthorityFromAnchor,
-} from "../commit/pointCommitRelationTestSupport";
+} from "../commit/point/support/relations";
 import {
   createIntrinsicCreationTimeIndexDefinitionPortV1,
 } from "../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";

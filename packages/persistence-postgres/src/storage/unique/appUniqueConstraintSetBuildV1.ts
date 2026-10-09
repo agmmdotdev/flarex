@@ -1,6 +1,8 @@
 import { chargeHostPreparation, registerHostPreparationDisposal, PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 import { insertUniqueConstraintBuild } from "../indexes/indexBuildLifecycleDml";
-import type { PointCommitPublicationObservation } from "../../commit/pointCommitPublicationObservation";
+import {
+  type PointCommitPublicationObservation,
+} from "../../commit/point/observation";
 import { applyApplicationCoverage, ApplicationCoveragePersistenceError, APPLICATION_COVERAGE_MAX_ROWS, type CoverageProof, type UniqueCoverageWrite } from "../materialization/domainCoverage";
 import type { Json } from "flarex-protocol/json";
 import {
@@ -147,6 +149,8 @@ import { captureScopePhysicalLocator } from "../../scope/scopePhysicalLocator";
 import { fxSystemUniqueConstraintBuilds, fxSystemUniqueMaintenanceObligations } from "../../database/schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,

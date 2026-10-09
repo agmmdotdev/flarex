@@ -22,10 +22,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AppRowReadPersistenceError,
-  AppRowCreationTimeConflictError,
-  AppRowRevisionAlreadyExistsError,
-  AppRowRevisionChainConflictError,
-  AppRowStorageCorruptionError,
   InvalidAppRowReadInputError,
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
   appendPreparedAppRowRevisionsInTransactionEffect,
@@ -39,6 +35,12 @@ import {
   type AppRowValueEvidenceV1,
   type ReadAppRowError,
 } from "../../../src/storage/documents/appRows";
+import {
+  AppRowCreationTimeConflictError,
+  AppRowRevisionAlreadyExistsError,
+  AppRowRevisionChainConflictError,
+  AppRowStorageCorruptionError,
+} from "../../../src/storage/documents/appRowErrors";
 import {
   createPGlitePersistence,
   type PGliteFlarexPersistence,

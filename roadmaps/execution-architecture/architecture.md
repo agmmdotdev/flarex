@@ -136,8 +136,11 @@ external effects. Durable workflow/task progression remains a separate owner.
    [closed-root owner](../../packages/persistence-postgres/src/execution/journal/freezeClosedRoot.ts)
    issues the one authentic frozen capability; executor validation reads bounded
    values through the consumer API. Full frozen evidence remains with publication.
-   The [point commit owner](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+   The [point publication owner](../../packages/persistence-postgres/src/commit/point/README.md)
    validates required conflict evidence and publishes one atomic outcome.
+   Its contracts and authentic claims are separate from trusted construction;
+   readiness imports the actual eligibility owner. Preparation, acceptance,
+   OCC, lowering, settlement and recovery retain their distinct responsibilities.
 6. [Finite recovery](../../packages/executor/src/mutation/recovery/finitePointMutationRecovery.ts)
    resolves the stored outcome. An admitted conflict retry reruns a fresh complete
    attempt; commit uncertainty is not permission to replay arbitrary hooks.

@@ -16,9 +16,11 @@ import {
 import {
   inspectTransactionExecutionClaimV1Result,
   requireLiveTransactionExecutionClaimV1Result,
+} from "../../../src/execution/claims/transactionExecutionClaimPersistence";
+import {
   TransactionExecutionClaimCorruptionV1Error,
   TransactionExecutionClaimStaleV1Error,
-} from "../../../src/execution/claims/transactionExecutionClaimPersistence";
+} from "../../../src/execution/claims/transactionExecutionClaimErrors";
 
 const SCOPE_ID = ScopeIdSchema.make("scope:execution-claim-result");
 const CLAIM_OWNER = TransactionExecutionClaimOwnerV1Schema.make(

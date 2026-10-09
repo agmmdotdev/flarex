@@ -113,7 +113,7 @@ See the [commerce host](../packages/persistence-postgres/src/frameworks/commerce
 [CMS host](../packages/persistence-postgres/src/frameworks/cmsTransaction/host.ts),
 [CMS working set](../packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts),
 [preference cleanup](../packages/persistence-postgres/src/frameworks/payloadPreferences/cleanup.ts)
-and [commit owner](../packages/persistence-postgres/src/commit/pointCommitTransaction.ts).
+and [commit owner](../packages/persistence-postgres/src/commit/point/README.md).
 These paths already share substantial infrastructure. The
 [completed extraction](../roadmaps/flarexdb-framework-integration/preflight/36-shared-publication-and-request-recovery.md)
 gives common publication a private owner, moves commerce finalization to its

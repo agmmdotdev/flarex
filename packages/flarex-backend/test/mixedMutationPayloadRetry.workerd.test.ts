@@ -14,7 +14,9 @@ import {
 } from "../../persistence-postgres/src/database/schema";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
 import {
   PointMutationJournalAdmittedOperationRejectedV1Error,
 } from "../../executor/src/mutation/journal/errors";

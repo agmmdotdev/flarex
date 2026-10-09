@@ -13,7 +13,9 @@ import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUni
 import { logicalIndexReadFailureReason, readLogicalIndexPage } from "./indexReads";
 import { decodeLogicalParticipantDependencyEvidence, logicalParticipantEvidenceError } from "./journalEvidence";
 import type { LogicalDocumentFailureReason } from "./model";
-import type { PointCommitPublicationObservation } from "../../../commit/pointCommitPublicationObservation";
+import {
+  type PointCommitPublicationObservation,
+} from "../../../commit/point/observation";
 
 const decodeIndexId = Schema.decodeUnknownResult(Schema.toType(CatalogIndexDefinitionIdSchema));
 const decodeUniqueId = Schema.decodeUnknownResult(Schema.toType(CatalogUniqueConstraintDefinitionIdSchema));

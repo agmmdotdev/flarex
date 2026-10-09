@@ -2,12 +2,12 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Duration, Effect, Random, Result } from "effect";
 import { logicalMetadataDependencyIdentity } from "flarex-protocol/commit-protocol";
 
-import type {
-  CommittedPointOutcomeResolutionV1,
-  PointCommitDecisionUncertainV1Error,
-  PointCommitOutcomeResolutionV1Error,
-  PointCommitPublicationCommandV1,
-  PointCommitConflictV1Error,
+import {
+  type CommittedPointOutcomeResolutionV1,
+  type PointCommitDecisionUncertainV1Error,
+  type PointCommitOutcomeResolutionV1Error,
+  type PointCommitPublicationCommandV1,
+  type PointCommitConflictV1Error,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationSessionAttemptSelectorV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";

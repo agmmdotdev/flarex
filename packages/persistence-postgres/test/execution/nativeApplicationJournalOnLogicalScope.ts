@@ -8,13 +8,15 @@ import { createApplicationMutationSessionActivationPersistenceV1 } from "../../s
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../src/execution/storedAttemptEvidence";
-import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from
-  "../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitFinishingTransitionPortV1,
+  createPointCommitPublisherPortV1,
+} from "../../src/commit/point/construction";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../../src/storage/unique/appUniqueConstraintCommitV1";
 import { applicationMutationActivationFixture } from "../application/applicationMutationActivationFixture";
-import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "../commit/pointCommitRelationTestSupport";
+import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "../commit/point/support/relations";
 import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
-  pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/pointCommitTransactionTestSupport";
+  pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/point/support/commandEvidence";
 import { issueSetupSeededSyscallValidatorProofV1 } from "../application/revision/applicationRevisionSyscallValidatorTestSupport";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
 import type { ApplicationNativeMutationPGliteFixture,

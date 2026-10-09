@@ -5,7 +5,9 @@ import { Client, type Pool, type PoolClient } from "pg";
 import { Schema } from "effect";
 import { getTableName, isTable } from "drizzle-orm";
 import * as schema from "../../src/database/drizzleSchema";
-import type { PointCommitTransactionProofStepV1 } from "../../src/commit/pointCommitTransaction";
+import {
+  type PointCommitTransactionProofStepV1,
+} from "../../src/commit/point/constructionContracts";
 import {
   fxAppRowRevisions,
   fxAppRowCurrent,

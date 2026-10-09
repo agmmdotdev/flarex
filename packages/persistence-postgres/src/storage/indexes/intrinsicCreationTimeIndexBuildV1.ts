@@ -48,15 +48,17 @@ import {
 
 import {
   appendBuiltAppIndexEntryRevisionInTransactionEffect,
-  AppIndexEntryWritePersistenceError,
-  AppIndexEntryReadPersistenceError,
   readCurrentAppIndexEntriesForRowInTransactionEffect,
   readAppIndexMembershipHeadsInTransactionEffect,
-  AppIndexEntryHashError,
-  type AppendAppIndexEntryRevisionV1Error,
   type AppIndexEntryTransaction,
   type ReadAppIndexRangeV1Error,
 } from "./appIndexEntries";
+import {
+  AppIndexEntryWritePersistenceError,
+  AppIndexEntryReadPersistenceError,
+  AppIndexEntryHashError,
+  type AppendAppIndexEntryRevisionV1Error,
+} from "./appIndexEntryErrors";
 import { lowerAppDeveloperIndexKeyV1 } from "./appDeveloperIndexCommitV1";
 import {
   locateAppCreationTimeIndexDefinitionForTableEffect,
@@ -104,6 +106,8 @@ import {
 } from "../../database/schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../execution/transactionSessionAttemptKernel";

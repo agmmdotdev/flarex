@@ -58,9 +58,10 @@ import {
   "@flarex/persistence-postgres/internal/app-schema-candidate-validation";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
+} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import {
   LocatedReadCommittedTransactionFailureV1,
-} from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
 import {
   ApplicationManagedSchemaApplicationError,
   createApplicationManagedSchemaApplicationPort,
@@ -73,8 +74,9 @@ import {
   "@flarex/persistence-postgres/internal/application-managed-schema-planning";
 import { fxSystemScopeExecutionAuthorities, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemIndexMaintenanceObligations, fxSystemUniqueMaintenanceObligations, fxAppIndexEntryRevisions } from
   "@flarex/persistence-postgres/internal/system-test/schema";
-import { PointCommitStaleAuthorityV1Error } from
-  "@flarex/persistence-postgres/point-commit-transaction";
+import {
+  PointCommitStaleAuthorityV1Error,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 import type { ScopePhysicalLocator } from
   "@flarex/persistence-postgres/internal/system-test/scopeMetadataTypes";
 import {
@@ -1174,8 +1176,7 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
             const captured = (yield* Effect.promise(() => tx.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
               .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(identity)))[0];
             if (!captured?.maintenanceObligation) throw new Error("Missing genuine accepting capture");
-            const build = yield* Effect.fromResult(decodeIndexBuildStateRowResult({ ...captured,
-              maintenanceObligation: { ...captured.maintenanceObligation, ...patch } }, fixture.authority.scopeId, definition.indexDefinitionId, { ...captured.maintenanceObligation, ...patch }));
+            const build = yield* Effect.fromResult(decodeIndexBuildStateRowResult(captured, fixture.authority.scopeId, definition.indexDefinitionId, { ...captured.maintenanceObligation, ...patch }));
             return yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, build, { ...definition, tableId: definition.access.tableId },
               clock.lastCommitSeq, yield* readIndexCoverageContextInTransactionEffect(tx, clock));
           }))), error => isNonArrayRecord(error) && error.reason === "storedState");

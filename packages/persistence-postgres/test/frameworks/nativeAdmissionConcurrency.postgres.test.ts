@@ -1,7 +1,9 @@
 import { Clock, Deferred, Effect, Fiber, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { createPointCommitPublisherPortV1 } from "../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../../src/commit/point/construction";
 import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../src/scope/scopeClock";
 import {
   makePostgresRelationalSession,

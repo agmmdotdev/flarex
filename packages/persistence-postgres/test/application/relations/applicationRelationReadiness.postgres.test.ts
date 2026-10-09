@@ -161,8 +161,10 @@ import {
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
+} from "../../../src/commit/point/construction";
+import {
   PointCommitStaleAuthorityV1Error,
-} from "../../../src/commit/pointCommitTransaction";
+} from "../../../src/commit/point/errors";
 import {
   createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
@@ -223,13 +225,13 @@ import {
   relationAuthorityFromAnchor,
   selectorFromRelationAnchor,
 } from
-  "../../commit/pointCommitRelationTestSupport";
+  "../../commit/point/support/relations";
 import {
   pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
   runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1,
   runningRelationConflictRecoveryCommandFromStoredOccExecutionV1,
-} from "../../commit/pointCommitTransactionTestSupport";
+} from "../../commit/point/support/commandEvidence";
 import {
   postgresUrl,
   withTemporaryPostgresPersistencePair,

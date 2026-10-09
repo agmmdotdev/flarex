@@ -1,5 +1,6 @@
 import { webcrypto } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { Schema } from "effect";
 
 import {
   CommitSyscallSequenceV1Schema,
@@ -20,65 +21,69 @@ import {
   publishApplicationRelationBindingEffect,
   type ApplicationRelationBindingPublication,
   type ApplicationRelationBindingRepository,
-} from "../../src/application/relations/binding";
+} from "../../../src/application/relations/binding";
 import {
   ApplicationRelationTargetDeleteRestrictedError,
   ApplicationRelationTargetNotLiveError,
   createApplicationRelationCommitPort,
-} from "../../src/application/relations/applicationRelationCommit";
+} from "../../../src/application/relations/applicationRelationCommit";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
-} from "../../src/database/postgres";
+} from "../../../src/database/postgres";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
+} from "../../../src/commit/point/construction";
+import {
   hasPointCommitApplicationRelationMaintenance,
+} from "../../../src/commit/point/capabilities";
+import {
   type PointCommitPublicationCommandV1,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../../src/commit/point/contracts";
 import type { LocatedScopeClockReader } from
-  "../../src/scope/scopeAuthorityResolution";
+  "../../../src/scope/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from
-  "../../src/scope/scopeMetadataTypes";
+  "../../../src/scope/scopeMetadataTypes";
 import {
   createSessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../../src/execution/sessionJournalStore";
 import {
   type SessionJournalAttempt,
   type SessionJournalStorePersistence,
-} from "../../src/execution/journal/api";
+} from "../../../src/execution/journal/api";
 import { createStoredAttemptEvidenceLoaderV1 } from
-  "../../src/execution/storedAttemptEvidence";
+  "../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/transactionSessionActivation";
 import {
   completeSessionJournalSeal,
   prepareSessionJournalSeal,
   runEffect,
   runSessionJournalPointOperation,
-} from "../support/effectTestRuntime";
+} from "../../support/effectTestRuntime";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
-} from "../support/postgresHelpers";
+} from "../../support/postgresHelpers";
 import {
   relationAuthorityFromAnchor,
   relationBindingPublicationInput,
   requireRelationInsertedDocumentId,
   selectorFromRelationAnchor,
-} from "./pointCommitRelationTestSupport";
+} from "./support/relations";
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
-} from "./pointCommitTransactionTestSupport";
+} from "./support/commandEvidence";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
-} from "../execution/transactionSessionActivationTestSupport";
+} from "../../execution/transactionSessionActivationTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const LEASE_DURATION_MILLISECONDS = 300_000;
@@ -310,11 +315,18 @@ describePostgres("real PostgreSQL C09 relation commit serialization", () => {
         },
       );
       const relationWriteParamCounts: number[] = [];
+      const relationWriteSql: string[] = [];
+      const relationWritePacketLengths: number[] = [];
+      const decodeRelationWritePacket = Schema.decodeUnknownSync(
+        Schema.fromJsonString(Schema.Array(Schema.Unknown)),
+      );
       let relationWriteSteps = 0;
       await expect(runEffect(relationPublisher(persistence, scope, {
         observeQuery: (query) => {
           if (query.name === "writeCommitRelationAdjacencyChange") {
+            relationWriteSql.push(query.sql);
             relationWriteParamCounts.push(query.params.length);
+            relationWritePacketLengths.push(decodeRelationWritePacket(query.params[0]).length);
           }
         },
         afterTransactionStep: (event) => {
@@ -328,7 +340,12 @@ describePostgres("real PostgreSQL C09 relation commit serialization", () => {
         token: { commitSeq: 5n },
       });
 
-      expect(relationWriteParamCounts).toEqual([3_500, 7]);
+      expect(relationWriteParamCounts).toEqual([1, 1]);
+      expect(relationWriteSql).toEqual([
+        expect.stringContaining("fx_write_scope_publication_relations"),
+        expect.stringContaining("fx_write_scope_publication_relations"),
+      ]);
+      expect(relationWritePacketLengths).toEqual([500, 1]);
       expect(relationWriteSteps).toBe(2);
       expect(await postgresRelationState(persistence, scope)).toMatchObject({
         edges: "500",

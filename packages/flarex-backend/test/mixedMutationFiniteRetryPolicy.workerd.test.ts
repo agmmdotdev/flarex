@@ -2,9 +2,14 @@ import { eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
-import { createPointCommitPublisherPortV1, PointCommitConflictV1Error, PointCommitCorruptionV1Error,
-  PointFiniteAttemptRetryBudgetExhaustedError } from
-  "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../../persistence-postgres/src/commit/point/construction";
+import {
+  PointCommitConflictV1Error,
+  PointCommitCorruptionV1Error,
+  PointFiniteAttemptRetryBudgetExhaustedError,
+} from "../../persistence-postgres/src/commit/point/errors";
 import { fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";

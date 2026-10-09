@@ -34,7 +34,7 @@ import { getScopeAuthorityProvisioningReceipt, publishScopeAuthorityReadyInTrans
   reserveScopeAuthorityProvisioningReceiptInTransaction } from "../../../src/scope/scopeAuthorityProvisioningReceipt";
 import {
   LocatedReadCommittedTransactionFailureV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/execution/readCommittedTransactionFailure";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "../../../src/execution/transactionSessionActivation";

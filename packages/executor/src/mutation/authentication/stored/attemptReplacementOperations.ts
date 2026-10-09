@@ -1,10 +1,10 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, type Result } from "effect";
 
-import type {
-  PointMutationAttemptReplacementCommandV1,
-  PointMutationAttemptReplacementPortV1,
-  RunningRelationConflictAttemptReplacementPortV1,
+import {
+  type PointMutationAttemptReplacementCommandV1,
+  type PointMutationAttemptReplacementPortV1,
+  type RunningRelationConflictAttemptReplacementPortV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   TransactionAttemptFenceSchema,

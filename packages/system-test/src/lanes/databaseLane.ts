@@ -45,9 +45,10 @@ import {
   "@flarex/persistence-postgres/internal/system-test/postgresLocatedReadCommitted";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
+import {
   type RunLocatedReadCommittedTransactionV1,
-} from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
 import { Result } from "effect";
 
 import type {

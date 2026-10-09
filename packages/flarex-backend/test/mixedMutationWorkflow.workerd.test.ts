@@ -32,7 +32,9 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { admittedCommerceEventGroup } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";
 

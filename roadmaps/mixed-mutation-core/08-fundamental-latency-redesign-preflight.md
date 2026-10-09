@@ -316,7 +316,7 @@ The cutover inventory must start from the actual format owners:
 [journal RPC](../../packages/executor/src/mutation/journal/pointMutationJournalRpc.ts),
 [persistent acceptance/seal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts),
 [attempt activation](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts),
-[commit transaction](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+[commit transaction](../../packages/persistence-postgres/src/commit/point/README.md)
 and the corresponding schema/migration rows. Inventory root, child receipt,
 point/index/relation and event rows, accepted sequence and sealed outcome
 decoders, and recovery readers before changing their format. The new profile

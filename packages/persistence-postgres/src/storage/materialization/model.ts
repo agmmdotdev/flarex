@@ -1,10 +1,14 @@
 import type { AppIndexMembershipHeadEvidence } from "../indexes/appIndexEntries";
-import type { PointCommitPublicationObservation } from "../../commit/pointCommitPublicationObservation";
+import {
+  type PointCommitPublicationObservation,
+} from "../../commit/point/observation";
 import type { LogicalSearchDefinition, LogicalSearchChange } from "../documents/logicalDocuments/searchEntries";
 import {
   PointCommitCorruptionV1Error,
+} from "../../commit/point/errors";
+import {
   PointCommitSqlFailureMarkerV1,
-} from "../../commit/pointCommitErrors";
+} from "../../commit/point/sqlFailures";
 
 import { type AppCreationTimeV1 } from "flarex-protocol/app-document";
 import {

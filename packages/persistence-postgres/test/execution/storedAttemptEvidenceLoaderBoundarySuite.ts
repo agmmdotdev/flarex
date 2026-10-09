@@ -16,11 +16,13 @@ import {
 import type { StoredAttemptEvidenceLoaderPortV1 } from
   "../../../executor/src/mutation/authentication/storedAttemptAuthentication";
 import * as persistenceRoot from "../../src";
-import type {
-  PointCommitFinishingTransitionCommandV1,
-  PointCommitFinishingTransitionPortV1,
-  PointCommitTransactionProofOptionsV1,
-} from "../../src/commit/pointCommitTransaction";
+import {
+  type PointCommitFinishingTransitionCommandV1,
+  type PointCommitFinishingTransitionPortV1,
+} from "../../src/commit/point/contracts";
+import {
+  type PointCommitTransactionProofOptionsV1,
+} from "../../src/commit/point/constructionContracts";
 import type {
   PointMutationSessionAnchorV1,
   PointMutationSessionAttemptSelectorV1,
@@ -33,7 +35,7 @@ import {
 } from "../../src/execution/storedAttemptEvidence";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import { pointCommitFinishingCommandFromStoredAttemptV1 } from
-  "../commit/pointCommitTransactionTestSupport";
+  "../commit/point/support/commandEvidence";
 
 export interface StoredAttemptEvidenceLoaderBoundaryScenario {
   readonly anchor: Readonly<{

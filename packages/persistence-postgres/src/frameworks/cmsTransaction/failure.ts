@@ -1,7 +1,10 @@
 import { LogicalReadAdmissionError } from "../../storage/documents/logicalDocuments/readAdmission";
 import { LogicalDocumentSourceAdmissionError } from "../../storage/documents/logicalDocuments/documentAdmission";
 import { TrustedScopeAuthorityPortError } from "../../scope/scopeAuthorityResolution";
-import { CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../../commit/committedPointOutcome";
+import {
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+  CommittedPointOutcomeCorruptionErrorV1,
+} from "../../commit/committedPointOutcomeErrors";
 import { RelationalSessionError } from "../../database/relationalTransaction/model";
 import { PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 import { cmsError, CmsTransactionError } from "./model";

@@ -4,7 +4,7 @@ export default defineConfig({ test: {
   include: ["packages/executor/test/performance/measurement/**/*.test.ts",
     "packages/executor/test/performance/support/measurement.test.ts",
     "packages/persistence-postgres/test/performance/mixedMutationPerformanceTrace.test.ts",
-    "packages/persistence-postgres/test/commit/pointCommitPublicationObservation.test.ts",
+    "packages/persistence-postgres/test/commit/point/observation.test.ts",
     "packages/persistence-postgres/test/frameworks/atomicCommerce/operationContextBridges.test.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.test.ts",
     "packages/medusa-adapter/test/commerce-promise-owner.test.ts"],

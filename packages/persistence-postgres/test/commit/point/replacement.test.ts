@@ -32,20 +32,20 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
-} from "../../src/storage/documents/appRows";
-import { runEffectTransaction } from "../../src/database/effectTransaction";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../src/scope/scopeClock";
-import { fxSystemScopeClocks } from "../../src/database/schema";
+} from "../../../src/storage/documents/appRows";
+import { runEffectTransaction } from "../../../src/database/effectTransaction";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../../src/scope/scopeClock";
+import { fxSystemScopeClocks } from "../../../src/database/schema";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
-} from "../../src/database/pglite";
+} from "../../../src/database/pglite";
 import type { LocatedScopeClockReader } from
-  "../../src/scope/scopeAuthorityResolution";
+  "../../../src/scope/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from
-  "../../src/scope/scopeMetadataTypes";
+  "../../../src/scope/scopeMetadataTypes";
 import {
   fxSystemSnapshotLeases,
   fxSystemTransactionJournalReceipts,
@@ -53,49 +53,55 @@ import {
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
-} from "../../src/database/schema";
+} from "../../../src/database/schema";
 import { createSessionJournalStorePersistence } from
-  "../../src/execution/sessionJournalStore";
+  "../../../src/execution/sessionJournalStore";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
-} from "../../src/execution/storedAttemptEvidence";
+} from "../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/transactionSessionActivation";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointMutationAttemptReplacementPortV1,
+} from "../../../src/commit/point/construction";
+import {
   PointMutationAttemptReplacementCommittedOutcomeV1Error,
   PointMutationAttemptReplacementConflictNoLongerPresentV1Error,
   PointMutationAttemptReplacementCorruptionV1Error,
   PointMutationAttemptReplacementRequestKeyReuseV1Error,
   PointMutationAttemptReplacementResourceExhaustionV1Error,
   PointMutationAttemptReplacementStaleAuthorityV1Error,
+} from "../../../src/commit/point/errors";
+import {
   type PointCommitPublicationCommandV1,
   type PointCommitTransactionCommandV1,
   type PointMutationAttemptReplacementCommandV1,
+} from "../../../src/commit/point/contracts";
+import {
   type PointMutationAttemptReplacementProofStepV1,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../../src/commit/point/constructionContracts";
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
   pointMutationAttemptReplacementCommandFromStoredAttemptV1,
-} from "./pointCommitTransactionTestSupport";
+} from "./support/commandEvidence";
 import {
   completeSessionJournalSeal,
   prepareSessionJournalSeal,
   runEffect,
   runEffectFailure,
   runSessionJournalPointOperation,
-} from "../support/effectTestRuntime";
+} from "../../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
-} from "../execution/transactionSessionActivationTestSupport";
+} from "../../execution/transactionSessionActivationTestSupport";
 
 const LEASE_DURATION_MILLISECONDS = 60_000;
 const sharedLocator = Object.freeze({

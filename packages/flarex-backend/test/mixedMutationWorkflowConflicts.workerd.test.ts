@@ -7,7 +7,9 @@ import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { fxAppRowRevisions } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;

@@ -28,15 +28,18 @@ import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations, fxSyste
 import { createPointMutationSessionActivationPersistenceV1 } from "../../../src/execution/transactionSessionActivation";
 import { activatePointMutationSession, pointMutationSessionActivationFixture, TEST_GRANT_RETENTION_POLICY_V1 } from "../../execution/transactionSessionActivationTestSupport";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
-import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "../../commit/pointCommitRelationTestSupport";
+import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "../../commit/point/support/relations";
 import { relationBuildRowId } from "../relations/applicationRelationBuildTestSupport";
 import { issueSetupSeededSyscallValidatorProofV1 } from "../revision/applicationRevisionSyscallValidatorTestSupport";
 import { fxSystemTransactionJournals, fxSystemTransactionSessions } from "../../../src/database/schema";
 import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
 import { makeApplicationSchemaAuthorityPublisher } from "../../../src/application/applicationSchemaAuthority";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
-import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/pointCommitTransactionTestSupport";
-import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from "../../../src/commit/pointCommitTransaction";
+import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/point/support/commandEvidence";
+import {
+  createPointCommitFinishingTransitionPortV1,
+  createPointCommitPublisherPortV1,
+} from "../../../src/commit/point/construction";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
 import { createAppUniqueConstraintSetEligibilityPortV1 } from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
 import { hashPolicyFixture } from "./applicationWritePolicyFixture";

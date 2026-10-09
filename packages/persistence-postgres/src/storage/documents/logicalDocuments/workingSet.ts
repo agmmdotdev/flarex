@@ -26,10 +26,18 @@ import { consumeBoundedAppRowsAtSnapshotInTransactionEffect, consumeCapturedAppR
   type AppRowReadResultV1, type AppRowRevisionV1, type ReadAppRowError } from "../appRows";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
 import { lowerCanonicalAppUniqueConstraintV1Result, type LoweredCanonicalAppUniqueConstraintV1 } from "../../unique/appUniqueConstraintCommitV1";
-import { withCommittedAppUniqueKeyRowInTransactionEffect, AppUniqueKeyPersistenceError, AppUniqueKeyHashError } from "../../unique/appUniqueKeys";
+import {
+  withCommittedAppUniqueKeyRowInTransactionEffect,
+} from "../../unique/appUniqueKeys";
+import {
+  AppUniqueKeyPersistenceError,
+  AppUniqueKeyHashError,
+} from "../../unique/appUniqueKeyErrors";
 import type { AppUniqueConstraintIdV1, AppUniqueKeyProjectionV1 } from "../../unique/appUniqueKeyContract";
 import { capturePrivateJsonData, useCapturedPrivateJsonData } from "../../../values/privateJsonData";
-import type { PointCommitDependencyV1 } from "../../../commit/pointCommitTransaction";
+import {
+  type PointCommitDependencyV1,
+} from "../../materialization/model";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import { lowerAppDeveloperIndexKeyV1 } from "../../indexes/appDeveloperIndexCommitV1";
 import { readLogicalIndexRange, readLogicalIndexPage, logicalIndexReadFailureReason, type LogicalIndexRead, type LogicalIndexPageRead } from "./indexReads";

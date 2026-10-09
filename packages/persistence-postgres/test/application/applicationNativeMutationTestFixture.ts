@@ -32,7 +32,7 @@ import {
   type PreparedStandardApplicationDefinitionV1,
 } from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
@@ -348,6 +348,10 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 }) satisfies SplitScopePhysicalLocator;
 
+const decodeApplicationNativeMutationPostgresNamespace = Schema.decodeUnknownPromise(
+  Schema.Tuple([Schema.Struct({ schemaName: Schema.NonEmptyString })]),
+);
+
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
@@ -409,14 +413,26 @@ export function createApplicationNativeMutationPGliteFixtureWithPersistence(
   });
 }
 
-export function createApplicationNativeMutationPostgresFixture(
+export async function createApplicationNativeMutationPostgresFixture(
   options: ApplicationNativeMutationFixtureOptions,
   persistence: Readonly<{
     readonly control: PostgresFlarexPersistence;
     readonly target: PostgresFlarexPersistence;
   }>,
 ): Promise<ApplicationNativeMutationPostgresFixture> {
-  return createApplicationNativeMutationFixture(options, {
+  const [{ schemaName }] = await decodeApplicationNativeMutationPostgresNamespace(
+    (await persistence.target.query<{ schemaName: unknown }>(
+      'select current_schema() as "schemaName"',
+    )).rows,
+  );
+  const physicalLocator = options.physicalLocator ?? Object.freeze({
+    ...LOCATOR,
+    schemaName,
+  });
+  if (physicalLocator.schemaName !== schemaName) {
+    throw new Error("Application-native PostgreSQL fixture locator does not match its target schema.");
+  }
+  return createApplicationNativeMutationFixture({ ...options, physicalLocator }, {
     ...persistence,
     provision: options =>
       createPostgresSplitScopeAuthorityProvisioner(

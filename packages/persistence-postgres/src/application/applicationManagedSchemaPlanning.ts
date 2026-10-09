@@ -49,9 +49,11 @@ import {
 } from "../database/schema";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
-  LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../execution/readCommittedTransactionFailure";
 
 const decodeSchemaManifestSha256Result = Schema.decodeUnknownResult(
   Schema.toType(SchemaManifestSha256Schema),

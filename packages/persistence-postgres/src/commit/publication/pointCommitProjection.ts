@@ -1,10 +1,12 @@
-import { pointCommitSqlCallFailure } from "../pointCommitErrors";
+import {
+  pointCommitSqlCallFailure,
+} from "../point/sqlFailures";
 
 import {
   PointCommitResourceExhaustionV1Error,
   PointCommitUnsupportedProfileV1Error,
   corruption,
-} from "../pointCommitErrors";
+} from "../point/errors";
 
 import {
   allocateScopePublicationResult,

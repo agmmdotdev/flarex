@@ -37,7 +37,7 @@ fixed nested hooks; full CRUD awaits the [preference lifecycle extension](./19-p
 - [Pending documents](../../../packages/persistence-postgres/src/frameworks/cmsTransaction/documents.ts)
   owns schema-validated scalar operations, base-plus-pending reads, exact count
   and deterministic pages, and an opaque one-use working-set closure.
-- [Application commit owner](../../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+- [Application commit owner](../../../packages/persistence-postgres/src/commit/point/README.md)
   owns final transition budgets, OCC, index/unique/candidate maintenance,
   authenticated materialization receipts and the shared publication tail.
   The package's existing facade exposes no CMS issuer or general publisher.
@@ -107,7 +107,7 @@ tests at the changed boundary.
 | [Application query snapshots](../../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts) | Opening an ordinary snapshot requires a published public query function. Reuse underlying document/snapshot validation through a CMS-owned admission facade; do not fabricate a query function to call this facade unchanged. |
 | [Scope execution](../../../packages/persistence-postgres/src/scope/execution/ScopeExecution.ts) and [scoped operations](../../../packages/persistence-postgres/src/scope/execution/ScopedTransaction.ts) | Own scope-first locking and opaque registered operations, but remain Application-operation-shaped. Share owned mechanisms without exposing `AppRowTransaction` to adapters. |
 | [Application row persistence](../../../packages/persistence-postgres/src/storage/documents/appRows.ts) | Owns revision chains, creation time and current-head CAS. Append-only history is not a mutable framework row store; repeated edits in one request need a bounded pending document representation before materialization. |
-| [Point commit transaction](../../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts) | Its kernel validates session/journal/OCC evidence and maintains rows, indexes, uniqueness and relations. Its publication tail writes header, facts, result and wake, then deletes the journal/lease, commits the session and advances the scope clock. These responsibilities cannot all be handed to CMS unchanged. |
+| [Point commit transaction](../../../packages/persistence-postgres/src/commit/point/README.md) | Its kernel validates session/journal/OCC evidence and maintains rows, indexes, uniqueness and relations. Its publication tail writes header, facts, result and wake, then deletes the journal/lease, commits the session and advances the scope clock. These responsibilities cannot all be handed to CMS unchanged. |
 | [Receipt collection](../../../packages/persistence-postgres/src/commit/publication/collection.ts) | Establishes private exact-set authentication and single-use closure for reserved scalar SQL. Preserve that rejecting family. A CMS Application materialization needs its own issuer; scalar relational tokens do not become Application-row authority. |
 
 The [execution-profile decision](./14-transaction-execution-profiles.md) and

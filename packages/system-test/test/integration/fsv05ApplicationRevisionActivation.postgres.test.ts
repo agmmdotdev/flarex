@@ -12,7 +12,7 @@ import {
 } from "@flarex/persistence-postgres/internal/system-test/postgresLocatedReadCommitted";
 import {
   LocatedReadCommittedTransactionFailureV1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
 import {
   FSV05_SUPPORTED_LOCATOR,
   proveFsv05ApplicationRevisionActivationV1,

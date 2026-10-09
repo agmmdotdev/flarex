@@ -49,8 +49,9 @@ import {
 } from "../../../src/storage/indexes/indexBuildReconciliation";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
   "../../../src/execution/transactionSessionActivation";
-import { LocatedReadCommittedTransactionFailureV1 } from
-  "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
 import { fxSystemScopeClocks } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";

@@ -1,6 +1,9 @@
 import { Clock, Effect } from "effect";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
-import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "../../storage/materialization/materialization";
+import {
+  MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+  MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
+} from "../../storage/materialization/limits";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";

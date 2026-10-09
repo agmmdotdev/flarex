@@ -39,6 +39,8 @@ import { makeApplicationTaskSystemRunAttemptStoreV1 } from
   "../../../src/tasks/taskSystemRunAttemptStoreV1";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
 } from "../../../src/execution/transactionSessionAttemptKernel";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";

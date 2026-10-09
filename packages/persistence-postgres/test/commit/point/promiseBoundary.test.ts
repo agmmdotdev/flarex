@@ -1,10 +1,18 @@
 import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { PointCommitCorruptionV1Error, PointCommitSqlErrorV1 } from "../../src/commit/pointCommitErrors";
-import { projectPointCommitTransactionResult, runPointCommitInTransactionEffect,
-  runPointCommitPromiseEffect } from "../../src/commit/pointCommitPromiseBoundary";
-import { projectLogicalDocumentMaterializationFailure } from "../../src/storage/documents/logicalDocuments/materialization";
-import { LocatedReadCommittedTransactionFailureV1 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  PointCommitCorruptionV1Error,
+  PointCommitSqlErrorV1,
+} from "../../../src/commit/point/errors";
+import {
+  projectPointCommitTransactionResult,
+  runPointCommitInTransactionEffect,
+  runPointCommitPromiseEffect,
+} from "../../../src/commit/point/promiseBoundary";
+import { projectLogicalDocumentMaterializationFailure } from "../../../src/storage/documents/logicalDocuments/materialization";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
 
 describe("point commit Effect-to-Promise outcome boundary", () => {
   it("retains the exact scalar expected failure through the real projection", async () => {

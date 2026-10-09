@@ -64,7 +64,7 @@ import {
 } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
 import {
   createPointCommitPublisherPortV1,
-} from "@flarex/persistence-postgres/internal/system-test/pointCommitTransaction";
+} from "@flarex/persistence-postgres/internal/point-commit-construction";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/postgres";
 import type { ScopePhysicalLocator } from

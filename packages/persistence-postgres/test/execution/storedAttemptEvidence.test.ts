@@ -260,8 +260,10 @@ import {
 } from "../../src/storage/unique/appUniqueConstraintSetClosureV1";
 import {
   applyAppUniqueKeyMutationsInTransactionEffect,
-  AppUniqueKeyConflictError,
 } from "../../src/storage/unique/appUniqueKeys";
+import {
+  AppUniqueKeyConflictError,
+} from "../../src/storage/unique/appUniqueKeyErrors";
 import {
   createAppDeveloperIndexQueryPortV1,
 } from "../../src/execution/journal/indexQueryPort";
@@ -318,6 +320,8 @@ import {
 } from "../../src/execution/claims/transactionExecutionClaim";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
+import {
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
   isLocatedPointCommitPublicationTargetV1,
@@ -329,9 +333,15 @@ import {
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
+} from "../../src/commit/point/construction";
+import {
   MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1,
+} from "../../src/commit/point/limits";
+import {
   hasPointCommitUniqueConstraintEligibilityV1,
   hasPointCommitUniqueConstraintMaintenanceV1,
+} from "../../src/commit/point/capabilities";
+import {
   PointCommitConflictV1Error,
   PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitCorruptionV1Error,
@@ -339,25 +349,31 @@ import {
   PointCommitResourceExhaustionV1Error,
   PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
+} from "../../src/commit/point/errors";
+import {
   type PointMutationAttemptReplacementOptionsV1,
+  type PointCommitTransactionProofOptionsV1,
+  type PointCommitTransactionProofStepV1,
+} from "../../src/commit/point/constructionContracts";
+import {
   type PointCommitPublicationCommandV1,
   type PointCommitPublicationResultV1,
   type PointCommitTransactionCommandV1,
-  type PointCommitTransactionProofOptionsV1,
-  type PointCommitTransactionProofStepV1,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../src/commit/point/contracts";
 import {
   CommittedPointOutcomeSqlErrorV1,
   CommittedPointOutcomeRequestKeyReuseErrorV1,
-  type CommittedPointOutcomeResolutionV1,
   type ResolveCommittedPointOutcomeErrorV1,
+} from "../../src/commit/committedPointOutcomeErrors";
+import {
+  type CommittedPointOutcomeResolutionV1,
   type ResolveCommittedPointOutcomeInputV1,
 } from "../../src/commit/committedPointOutcome";
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
-} from "../commit/pointCommitTransactionTestSupport";
+} from "../commit/point/support/commandEvidence";
 import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
@@ -4384,38 +4400,92 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
   it("rolls back a native row-fact batch and resumes with dense ordinals", async () => {
     const parameters: number[] = [];
+    const decodeRows = Schema.decodeUnknownSync(
+      Schema.fromJsonString(Schema.Array(Schema.Struct({
+        scope_uuid: Schema.String,
+        epoch_uuid: Schema.String,
+        commit_seq: Schema.String,
+        change_ordinal: Schema.Int,
+        table_id: Schema.Int,
+        row_id: Schema.String,
+      }))),
+      { onExcessProperty: "error" },
+    );
+    const packets: Array<ReturnType<typeof decodeRows>> = [];
+    const intendedTableIds: number[] = [];
+    const intendedRowIds: string[] = [];
+    const observeRowFacts: NonNullable<
+      PointCommitTransactionProofOptionsV1["observeQuery"]
+    > = (query) => {
+      if (query.name !== "writeCommitChange") return;
+      expect(query.sql).toContain('"fx_write_scope_publication_rows"(');
+      expect(query.params).toHaveLength(2);
+      parameters.push(query.params.length);
+      const rows = decodeRows(query.params[0]);
+      const verification = decodeRows(query.params[1]);
+      expect(verification).toEqual(rows);
+      expect(rows).toHaveLength(128);
+      expect(rows.map((row) => row.change_ordinal)).toEqual(
+        Array.from({ length: 128 }, (_, ordinal) => ordinal),
+      );
+      expect(rows.map((row) => row.table_id)).toEqual(intendedTableIds);
+      expect(rows.map((row) => row.row_id).sort()).toEqual(
+        intendedRowIds.slice().sort(),
+      );
+      expect(new Set(rows.map((row) => row.row_id)).size).toBe(128);
+      packets.push(rows);
+    };
     let steps = 0;
+    const afterRowFacts: NonNullable<
+      PointCommitTransactionProofOptionsV1["afterTransactionStep"]
+    > = async (event) => {
+      if (event.step === "commitChangeWritten" && ++steps === 1) {
+        throw new PointCommitCorruptionV1Error({
+          reason: "publicationInvariantInvalid",
+        });
+      }
+    };
     const prepared = await prepareO07BScenario(
       "publication_batches",
       async (current, table) => {
         for (let index = 0; index < 128; index += 1) {
-          await runPointOperation(current.store, table, {
+          const inserted = await runPointOperation(current.store, table, {
             kind: "insert",
             syscallSequence: CommitSyscallSequenceV1Schema.make(
               BigInt(index + 1),
             ),
             fields: { name: `batch row ${index}` },
           });
+          if (inserted.kind !== "completed" || inserted.outcome.kind !== "inserted") {
+            throw new Error("Expected the native row-fact batch insert to complete.");
+          }
+          const identity = decodeAppDocumentIdentityV1(inserted.outcome.documentId);
+          intendedTableIds.push(identity.tableId);
+          intendedRowIds.push(`\\x${identity.rowId}`);
         }
       },
       {
-        observeQuery: (query) => {
-          if (query.name === "writeCommitChange")
-            parameters.push(query.params.length);
-        },
-        afterTransactionStep: async (event) => {
-          if (event.step === "commitChangeWritten" && ++steps === 1) {
-            throw new PointCommitCorruptionV1Error({
-              reason: "publicationInvariantInvalid",
-            });
-          }
-        },
+        observeQuery: observeRowFacts,
+        afterTransactionStep: afterRowFacts,
       },
     );
     await expect(
       runFailure(prepared.authentication.publishPointCommit(prepared.plan)),
     ).resolves.toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(parameters).toEqual([768]);
+    expect(parameters).toEqual([2]);
+    expect(steps).toBe(1);
+    expect(packets).toHaveLength(1);
+    expect(packets[0]?.map((row) => ({
+      scopeUuid: row.scope_uuid,
+      epochUuid: row.epoch_uuid,
+      commitSeq: row.commit_seq,
+    }))).toEqual(Array.from({ length: 128 }, () => ({
+      scopeUuid: prepared.scopeUuid,
+      epochUuid: projectScopeEpochUuidV1(
+        prepared.current.anchor.snapshotToken.epoch,
+      ).epochUuid,
+      commitSeq: "1",
+    })));
     expect(await o06DurableState(prepared.scopeUuid)).toEqual({
       revisions: "0",
       current_rows: "0",
@@ -4425,12 +4495,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       wakes: "0",
       last_commit_seq: "0",
     });
+    const rolledBackPackets = packets.slice();
     parameters.length = 0;
+    packets.length = 0;
     const recovered = createO07BAuthentication(prepared.current, {
-      observeQuery: (query) => {
-        if (query.name === "writeCommitChange")
-          parameters.push(query.params.length);
-      },
+      observeQuery: observeRowFacts,
+      afterTransactionStep: afterRowFacts,
     });
     const selector = {
       deploymentId: prepared.current.anchor.deploymentId,
@@ -4441,12 +4511,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await expect(
       runEffect(recovered.resumePointCommit(selector)),
     ).resolves.toMatchObject({ kind: "published" });
-    expect(parameters).toEqual([768]);
+    expect(parameters).toEqual([2]);
+    expect(steps).toBe(2);
+    expect(packets).toEqual(rolledBackPackets);
     const facts = await persistence.drizzle
       .select()
       .from(fxSystemCommitAppRowChanges)
       .where(eq(fxSystemCommitAppRowChanges.scopeUuid, prepared.scopeUuid))
       .orderBy(fxSystemCommitAppRowChanges.changeOrdinal);
+    expect(packets).toEqual([facts.map((fact) => ({
+      scope_uuid: fact.scopeUuid,
+      epoch_uuid: fact.epochUuid,
+      commit_seq: fact.commitSeq.toString(),
+      change_ordinal: fact.changeOrdinal,
+      table_id: fact.tableId,
+      row_id: `\\x${Buffer.from(fact.rowId).toString("hex")}`,
+    }))]);
     expect(facts.map((fact) => fact.changeOrdinal)).toEqual(
       Array.from({ length: 128 }, (_, ordinal) => ordinal),
     );
@@ -4464,7 +4544,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await expect(
       runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
     ).resolves.toMatchObject({ kind: "replayed" });
-    expect(parameters).toEqual([768]);
+    expect(parameters).toEqual([2]);
+    expect(steps).toBe(2);
+    expect(packets).toEqual(rolledBackPackets);
   }, 120_000);
 
   it.each(["wakeWritten", "sessionCommitted"] as const)(
@@ -9454,7 +9536,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const sequenceName = `fx_test_o08c_${label}_attempts`;
     const functionName = `fx_test_o08c_${label}_40001`;
     const triggerName = `fx_test_o08c_${label}_40001_trigger`;
-    await persistence.query(`create sequence ${sequenceName}`);
+    await persistence.query(`create sequence public.${sequenceName}`);
     await persistence.query(
       `
         create function ${functionName}()
@@ -9465,7 +9547,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           current_attempt bigint;
         begin
           if new.scope_uuid = '${scopeUuid}'::uuid then
-            current_attempt := nextval('${sequenceName}');
+            current_attempt := nextval('public.${sequenceName}');
             if current_attempt <= ${failuresBeforeSuccess} then
               raise exception 'forced O08-C serialization failure %',
                 current_attempt using errcode = '40001';
@@ -9486,7 +9568,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return Object.freeze({
       attempts: async (): Promise<string> => {
         const result = await persistence.query<{ last_value: string }>(
-          `select last_value::text from ${sequenceName}`,
+          `select last_value::text from public.${sequenceName}`,
         );
         const row = result.rows[0];
         if (row === undefined) {
@@ -9499,7 +9581,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           `drop trigger ${triggerName} on fx_system_commit`,
         );
         await persistence.query(`drop function ${functionName}()`);
-        await persistence.query(`drop sequence ${sequenceName}`);
+        await persistence.query(`drop sequence public.${sequenceName}`);
       },
     });
   }

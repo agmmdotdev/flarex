@@ -4,8 +4,9 @@
 
 **Owner-authorized organization goal active.** Journal consumer contracts,
 concrete journal owners and schema declarations are separated. The journal,
-schema and test cutover follows these concrete owners; publication and
-activation organization remain open.
+schema and test cutover follows these concrete owners. Point publication source,
+API and test organization is complete with connected consumer verification;
+activation/readiness and session organization remain open.
 The owner requested continued organization, readable end-to-end flows, sensible
 folder/file boundaries, file splitting, clean APIs and corresponding tests.
 The [source/test layout](04-source-and-test-ownership.md) and admitted local
@@ -21,8 +22,8 @@ type and construction breaks are authorized with complete caller migration.
 
 Domain folders expose the outer owners. The journal now has distinct attempt,
 operation, evidence, persistence and seal owners; database declarations follow
-their actual dependency graph. Point publication still combines substantial
-settlement responsibilities. Application activation/readiness and session
+their actual dependency graph. Point publication has concrete settlement owners
+and a separate consumer/construction boundary. Application activation/readiness and session
 activation also contain substantial lifecycle and protocol work. Audit their
 actual ownership rather than splitting at an arbitrary line count.
 
@@ -252,16 +253,18 @@ Run paired driver and installation/catalog/Application/journal consumer proofs,
 typechecks, generator checks and required reviews. Keep one domain reading map
 that distinguishes declarations, driver composition and migration generation.
 
-### Next Point Publication Decomposition
+### Point Publication
 
-The next settlement owner still combines consumer contracts, six authentic
-capability registries, capture/preparation, durable accepting transactions,
-finite publication/nonacceptance, finishing, conflict reproduction/replacement
-and relation recovery in `pointCommitTransaction.ts`. Its consumer API loads
-that implementation; error imports also reach installation construction through
-unique-key matching. Separate these owners under `commit/point/` after the
-journal/schema cutover is verified. This is an organization contract, not an
-implemented publication or Worker-runtime result.
+Point publication now separates consumer contracts, six authentic capability
+registries, capture/preparation, durable accepting transactions, finite
+publication/nonacceptance, finishing, conflict reproduction/replacement and
+relation recovery under `commit/point/`. Construction binds the operations;
+the consumer API imports lightweight contracts, errors and claims. Lower error
+families no longer route declarations through installation or SQL construction.
+The displaced transaction/error/Promise/observation bodies and broad system-test
+route are removed. The [owner guide](../../packages/persistence-postgres/src/commit/point/README.md)
+shows the concrete flow. Connected validation and both final reviews are complete;
+this organization cutover makes no performance acceptance claim.
 
 Use contracts/errors and specific capability registration/lookup at the bottom,
 then capture and genuinely shared private command/locked state. Preparation,
@@ -338,6 +341,92 @@ and constructor reexports in the coherent cutover. Validate paired publication,
 finishing, replacement, stored evidence, relation/strong-reference, concurrency,
 lost-ack and full-Cause witnesses plus genuine finite mixed and Worker consumers.
 An import graph check alone does not establish actual Worker execution.
+
+The two durable replacement callbacks currently wrap their owned clock,
+outcome, authority, profile and conflict sequence in one Promise error boundary
+inside an already Effect-owned transaction. Replace that broad domain wrapper
+with sequential native Effect composition in `replacement` and
+`relationRecovery`. Keep narrow adapters at the actual inherited Promise/SQL
+operations, enter the existing pure verdicts with `Effect.fromResult`, and keep
+owned refusals in the same typed failure channel. The durable-profile helper
+returns its existing corruption verdict as Result instead of throwing it.
+Preserve every lock, observer, first-refusal and SQL order, the existing error
+projection, transaction masking, rollback drainage and full Cause. This corrects
+composition at the actual replacement owner; it adds no transaction runner,
+retry, capability, schema or durable format. Existing replacement, conflict,
+rollback and uncertain-settlement witnesses remain the acceptance evidence.
+
+Connected publication validation exposes a pre-existing failure projection in
+developer membership acceptance. Its native owner detects damaged stored
+membership as `AppIndexEntryStorageCorruptionError`; publication acceptance then
+replaces that error with generic `developerIndexTransitionInvalid` corruption.
+Preserve the existing precise storage-corruption instance in the one developer
+failure mapper and reuse that mapper for native SQL projection. Its existing
+public failure union already admits this class. Keep limit, persistence and
+unknown failures, first-refusal order, SQL and rollback unchanged. The four
+authentic damaged-membership witnesses retain their precise error assertions.
+
+Reconcile stale diagnostic assertions against the actual accepting owner.
+Missing relation targets are checked inside native `acceptPublication`, before
+materialization; verify the actual function, exact target refusal, no application
+write and atomic rollback. Forced rollback legitimately observes both native
+acceptance and application statements; retain interruption/drainage and complete
+state assertions. Adjacency facts use bounded JSON packets instead of seven
+parameters per row; verify the actual native statement, packet sizes and all
+committed facts. Do not add synthetic observation, redundant queries or weaker
+business assertions to reproduce the displaced SQL shape.
+
+The connected Application consumer typecheck also exposes an inaccurate table
+membership contract. The participant admission owner lends an immutable view
+with membership, iteration and `forEach`, but names it as the complete native
+`ReadonlySet`; newer consumer library profiles then correctly require methods
+that this view does not implement. Give that actual source-owned view one
+precise `LogicalParticipantTableMembership` contract and use it in admission
+state, inspection and admission callback signatures. Preserve the private Set
+clone, frozen view, iterator and exact callback identity. Native Set inputs and
+actual cloned Set results keep their genuine contracts. Do not expose mutation,
+add generic set operations, cast the view or change consumer library settings.
+This is a type-contract correction with no runtime, authority or database change.
+
+Complete the stored-attempt fault-witness migration as well. Native publication
+procedures deliberately restrict `search_path`; test triggers that resolve their
+own sequence by an unqualified name fail with `42P01` before raising the intended
+serialization or deadlock failure. Qualify those actual test-owned sequence
+relations, including reset operations. Keep the installed procedure policy and
+all genuine SQLSTATE, retry/exhaustion, drain and durable-state assertions.
+The row-fact witness now observes the native two-parameter statement: verify the
+real function, complete 128-row packet and final verification packet while
+preserving callback rollback, dense ordinals, distinct rows, resume and replay.
+Retain the real stepped publication callback on the resumed witness so both
+attempts exercise that same native profile; assert one tentative and one resumed
+row-fact event, and no new event or query on durable replay.
+This corrects test setup and observation; it adds no production SQL or fallback.
+
+The reusable Native Application PostgreSQL fixture must describe its actual
+installed target namespace. Its default `public` locator currently conflicts
+with the split fixture's fresh migrated target schema, so activation correctly
+looks for its native procedure in the wrongly advertised namespace. Capture the
+actual target schema once during fixture construction and use one physical
+locator for provisioning, placement and located targets. Reuse the existing
+readiness-fixture topology capture and retain intentional explicit-locator fault
+witnesses under their recorded contracts. Do not repair another namespace,
+recreate procedures, relax installed protection or introduce a runtime fallback.
+This is test topology correction, with setup cost outside business execution.
+
+Connected fixture proofs keep the actual installation contract. The competing
+row writer must acquire genuine installation admission before scope locking and
+row mutation in its existing transaction; it must not bypass the owner or use a
+second transaction. Phase-stop diagnostics include the real empty-membership
+preparation span, while the SQL witness still permits only acceptance and forbids
+materialization or durable changes. Outcome lookup requires representative
+unrelated scope/authority/header rows and fresh planner statistics to prove the
+unique scope-UUID index seek; a full primary-index scan of a one-row clock table
+does not establish bounded lookup. Keep the exact resource-release, conflict,
+first-refusal, rollback and index-condition oracles.
+Fresh-attempt diagnostics follow the actual combined `attemptTailLocked` stage;
+its journal and execution-claim locks remain under the existing clock/session/
+lease order. Keep the genuine concurrent replacement winner/loser and subsequent
+rerun/publication assertions rather than requiring displaced observation names.
 
 ### Application Activation And Readiness Decomposition
 

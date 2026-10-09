@@ -21,6 +21,8 @@ import {
 } from "../scopePhysicalLocator";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../execution/readCommittedTransactionFailure";
+import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../execution/transactionSessionAttemptKernel";
 import { ScopeExecutionAuthorityError } from "./Errors";

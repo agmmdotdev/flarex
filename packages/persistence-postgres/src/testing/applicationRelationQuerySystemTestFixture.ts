@@ -156,7 +156,7 @@ import {
 } from "../database/pglite";
 import {
   createPointCommitPublisherPortV1,
-} from "../commit/pointCommitTransaction";
+} from "../commit/point/construction";
 import {
   createAppDeveloperIndexQueryPortV1,
 } from "../execution/journal/indexQueryPort";

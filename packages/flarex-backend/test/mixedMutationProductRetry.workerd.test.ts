@@ -12,11 +12,12 @@ import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemSnapshotLeases, fxSystemTransactionSessions,
   fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { PointCommitConflictV1Error } from
-  "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
 import {
   PointMutationAttemptReplacementFiniteEntryError,
-} from "../../persistence-postgres/src/commit/pointCommitTransaction";
+} from "../../persistence-postgres/src/commit/point/errors";
 import {
   ApplicationMutationAdmissionError,
 } from "../../persistence-postgres/src/application/applicationMutationAdmission";

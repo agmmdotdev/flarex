@@ -1,11 +1,13 @@
+import { AppIndexEntryWritePersistenceError, InvalidAppIndexEntryInputError, AppIndexEntryScopeAuthorityUnavailableError, AppIndexEntryReadPersistenceError, AppIndexEntryHashError, AppIndexEntryStorageCorruptionError, AppIndexEntryTransitionConflictError, AppIndexEntryRevisionAlreadyExistsError, AppIndexEntryParentRowError } from "./appIndexEntryErrors";
+import type { AppendAppIndexEntryRevisionV1Error, InvalidAppIndexEntryInputIssue } from "./appIndexEntryErrors";
 import { observeExecution } from "../../execution/diagnostics/operation";
 import { fxSystemScopeExecutionAuthorities } from "../../database/schema";
 import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation, exactScopeWriteClockObservationIdentity,
   readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation } from "../../scope/scopeClock";
-import type { PointCommitPublicationObservation } from "../../commit/pointCommitPublicationObservation";
+import type { PointCommitPublicationObservation } from "../../commit/point/observation";
 import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, eq, or, sql, type SQL } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import { observeDrizzleRawQuery } from "../../database/drizzleQueryObservation";
 import { type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -66,12 +68,7 @@ import {
 } from "./appIndexDefinitions";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import type { StrongReferenceActivationProjection } from "../../installation/frameworkSchema/binding/strongReferenceProjection";
-import {
-  fxAppIndexEntryCurrent,
-  fxAppIndexEntryRevisions,
-  fxSystemScopeClocks,
-  fxSystemIndexBuildStates,
-} from "../../database/schema";
+import { fxAppIndexEntryRevisions, fxSystemScopeClocks, fxSystemIndexBuildStates } from "../../database/schema";
 
 export const MAX_APP_INDEX_RANGE_PAGE_SIZE_V1 = 1_000;
 const MAX_APP_INDEX_WRITE_ROWS = 4096;
@@ -166,129 +163,6 @@ export interface AppIndexRangePageV1 {
   readonly continueCursor: AppIndexRangeCursorV1 | null;
 }
 
-export type InvalidAppIndexEntryInputIssue =
-  | "rowCountExceeded"
-  | "invalidBatch"
-  | "invalidScopeId"
-  | "invalidKind"
-  | "invalidLocatedDefinition"
-  | "invalidEncodedKey"
-  | "invalidRowId"
-  | "invalidWriteEpoch"
-  | "invalidCommitSeq"
-  | "invalidBounds"
-  | "invalidCursor"
-  | "invalidLimit"
-  | "invalidSnapshotCommitSeq";
-
-export class InvalidAppIndexEntryInputError extends Error {
-  readonly _tag = "InvalidAppIndexEntryInputError" as const;
-
-  constructor(
-    readonly issue: InvalidAppIndexEntryInputIssue,
-    readonly cause?: unknown,
-  ) {
-    super(`Invalid app-index entry input: ${issue}.`, { cause });
-    this.name = "InvalidAppIndexEntryInputError";
-  }
-}
-
-export class AppIndexEntryScopeAuthorityUnavailableError extends Error {
-  readonly _tag = "AppIndexEntryScopeAuthorityUnavailableError" as const;
-
-  constructor(readonly scopeId: ScopeId) {
-    super(`App-index entry scope authority is unavailable: ${scopeId}`);
-    this.name = "AppIndexEntryScopeAuthorityUnavailableError";
-  }
-}
-
-export class AppIndexEntryRevisionAlreadyExistsError extends Error {
-  readonly _tag = "AppIndexEntryRevisionAlreadyExistsError" as const;
-
-  constructor(
-    readonly identity: AppIndexEntryIdentityV1,
-    readonly commitSeq: CommitSeq,
-  ) {
-    super(
-      `App-index entry revision already exists at ${identity.scopeId}/` +
-        `${identity.indexDefinitionId}/${identity.encodedKey}/` +
-        `${identity.rowId}/${commitSeq}`,
-    );
-    this.name = "AppIndexEntryRevisionAlreadyExistsError";
-  }
-}
-
-export class AppIndexEntryTransitionConflictError extends Error {
-  readonly _tag = "AppIndexEntryTransitionConflictError" as const;
-  constructor(
-    readonly identity: AppIndexEntryIdentityV1,
-    readonly commitSeq: CommitSeq,
-    readonly actualHeadCommitSeq: CommitSeq | null,
-  ) {
-    super(
-      `Invalid membership transition at ${identity.scopeId}/${identity.indexDefinitionId}/${identity.rowId}/${commitSeq}; latest ${actualHeadCommitSeq ?? "missing"}.`,
-    );
-    this.name = "AppIndexEntryTransitionConflictError";
-  }
-}
-
-export class AppIndexEntryParentRowError extends Error {
-  readonly _tag = "AppIndexEntryParentRowError" as const;
-  constructor(
-    readonly identity: AppIndexEntryIdentityV1,
-    readonly reason: "missing" | "tombstonedLiveEntry",
-  ) {
-    super(
-      `App-index parent row identity is ${reason} at ${identity.scopeId}/${identity.tableId}/${identity.rowId}.`,
-    );
-    this.name = "AppIndexEntryParentRowError";
-  }
-}
-
-export class AppIndexEntryHashError extends Error {
-  readonly _tag = "AppIndexEntryHashError" as const;
-
-  constructor(
-    readonly operation: "append" | "read",
-    readonly cause: unknown,
-  ) {
-    super(`App-index entry SHA-256 ${operation} operation failed.`, { cause });
-    this.name = "AppIndexEntryHashError";
-  }
-}
-
-export class AppIndexEntryStorageCorruptionError extends Error {
-  readonly _tag = "AppIndexEntryStorageCorruptionError" as const;
-
-  constructor(
-    readonly reason: string,
-    options?: ErrorOptions,
-  ) {
-    super(`App-index entry storage is invalid: ${reason}.`, options);
-    this.name = "AppIndexEntryStorageCorruptionError";
-  }
-}
-
-export class AppIndexEntryReadPersistenceError extends Error {
-  readonly _tag = "AppIndexEntryReadPersistenceError" as const;
-
-  constructor(
-    readonly operation: "readScopeAuthority" | "scanSnapshot" | "scanCurrent",
-    readonly cause: unknown,
-  ) {
-    super(`App-index entry ${operation} query failed.`, { cause });
-    this.name = "AppIndexEntryReadPersistenceError";
-  }
-}
-
-export class AppIndexEntryWritePersistenceError extends Error {
-  readonly _tag = "AppIndexEntryWritePersistenceError" as const;
-  constructor(readonly cause: unknown) {
-    super("App-index entry append query failed.", { cause });
-    this.name = "AppIndexEntryWritePersistenceError";
-  }
-}
-
 const appendQueryEffect = <T>(
   query: PromiseLike<T>,
 ): Effect.Effect<T, AppIndexEntryWritePersistenceError> =>
@@ -298,33 +172,6 @@ const appendQueryEffect = <T>(
       catch: (cause) => new AppIndexEntryWritePersistenceError(cause),
     }),
   );
-
-export type AppendAppIndexEntryRevisionV1Error =
-  | InvalidAppIndexEntryInputError
-  | AppIndexEntryScopeAuthorityUnavailableError
-  | AppIndexEntryRevisionAlreadyExistsError
-  | AppIndexEntryTransitionConflictError
-  | AppIndexEntryParentRowError
-  | AppIndexEntryWritePersistenceError
-  | AppIndexEntryReadPersistenceError
-  | AppIndexEntryHashError
-  | AppIndexEntryStorageCorruptionError;
-
-export function isAppendAppIndexEntryRevisionV1Error(
-  value: unknown,
-): value is AppendAppIndexEntryRevisionV1Error {
-  return (
-    value instanceof InvalidAppIndexEntryInputError ||
-    value instanceof AppIndexEntryScopeAuthorityUnavailableError ||
-    value instanceof AppIndexEntryRevisionAlreadyExistsError ||
-    value instanceof AppIndexEntryTransitionConflictError ||
-    value instanceof AppIndexEntryParentRowError ||
-    value instanceof AppIndexEntryWritePersistenceError ||
-    value instanceof AppIndexEntryReadPersistenceError ||
-    value instanceof AppIndexEntryHashError ||
-    value instanceof AppIndexEntryStorageCorruptionError
-  );
-}
 
 export type ReadAppIndexRangeV1Error =
   | InvalidAppIndexEntryInputError

@@ -26,8 +26,10 @@ import {
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
   type ScopeAuthorizationRevocationEpochReadError,
   ScopeAuthorizationRevocationEpochPersistenceError,
-  ScopeClockCorruptionError,
 } from "./scopeClock";
+import {
+  ScopeClockCorruptionError,
+} from "./scopeClockErrors";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../installation/installationLifecycle";

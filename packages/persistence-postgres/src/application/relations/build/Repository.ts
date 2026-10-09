@@ -121,11 +121,13 @@ import {
 import { runLocatedReadCommittedEffect } from "../../../database/locatedReadCommittedEffect";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-  LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../../execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../execution/readCommittedTransactionFailure";
 import {
   APPLICATION_RELATION_BUILD_CURSOR_CODEC_VERSION,
   APPLICATION_RELATION_BUILD_SOURCE_PAGE_SIZE,

@@ -10,8 +10,10 @@ import {
 } from "../performance/ce0PublicationReference";
 import {
   createCommittedPointOutcomeResolverV1,
-  CommittedPointOutcomeRequestKeyReuseErrorV1,
 } from "../../src/commit/committedPointOutcome";
+import {
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+} from "../../src/commit/committedPointOutcomeErrors";
 import { expect } from "vitest";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import {

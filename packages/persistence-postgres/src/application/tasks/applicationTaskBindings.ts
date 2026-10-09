@@ -1,5 +1,11 @@
-import { selectScopeClockRows, lockScopeExecutionAuthorityInTransactionEffect,
-  ScopeClockNotFoundError, ScopeClockCorruptionError } from "../../scope/scopeClock";
+import {
+  selectScopeClockRows,
+  lockScopeExecutionAuthorityInTransactionEffect,
+} from "../../scope/scopeClock";
+import {
+  ScopeClockNotFoundError,
+  ScopeClockCorruptionError,
+} from "../../scope/scopeClockErrors";
 import {
   bytesEqualFullScan,
   encodeBytesToLowercaseHex,

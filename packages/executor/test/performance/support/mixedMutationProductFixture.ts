@@ -59,11 +59,17 @@ interface MixedMutationPublicationObserver {
   beginPublication(): Promise<void>;
   endPublication(): Promise<void>;
 }
-import { createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1,
-  PointMutationAttemptReplacementFiniteEntryError } from
-  "../../../../persistence-postgres/src/commit/pointCommitTransaction";
-import type { PointCommitPublicationObservation, PointCommitPublicationResultV1 } from
-  "@flarex/persistence-postgres/point-commit-transaction";
+import {
+  createPointCommitPublisherPortV1,
+  createPointMutationAttemptReplacementPortV1,
+} from "../../../../persistence-postgres/src/commit/point/construction";
+import {
+  PointMutationAttemptReplacementFiniteEntryError,
+} from "../../../../persistence-postgres/src/commit/point/errors";
+import {
+  type PointCommitPublicationObservation,
+  type PointCommitPublicationResultV1,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 import { makeCommerceHost } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { makeCmsHost } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { createPostgresPersistence } from "../../../../persistence-postgres/src/database/postgres";

@@ -21,43 +21,49 @@ import { describe, expect, it } from "vitest";
 import {
   PointCommitCorruptionV1Error,
   PointCommitStaleAuthorityV1Error,
-  createPointCommitFinishingTransitionPortV1,
-  type PointCommitFinishingTransitionCommandV1,
   type PointCommitSqlOperationV1,
+} from "../../../src/commit/point/errors";
+import {
+  createPointCommitFinishingTransitionPortV1,
+} from "../../../src/commit/point/construction";
+import {
+  type PointCommitFinishingTransitionCommandV1,
+} from "../../../src/commit/point/contracts";
+import {
   type PointCommitTransactionProofOptionsV1,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../../src/commit/point/constructionContracts";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
-} from "../../src/database/postgres";
+} from "../../../src/database/postgres";
 import type { LocatedScopeClockReader } from
-  "../../src/scope/scopeAuthorityResolution";
+  "../../../src/scope/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from
-  "../../src/scope/scopeMetadataTypes";
+  "../../../src/scope/scopeMetadataTypes";
 import { createSessionJournalStorePersistence } from
-  "../../src/execution/sessionJournalStore";
+  "../../../src/execution/sessionJournalStore";
 import { createPointMutationExecutionClaimLivenessV1 } from
-  "../../src/execution/claims/transactionExecutionClaimLiveness";
+  "../../../src/execution/claims/transactionExecutionClaimLiveness";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
-} from "../../src/execution/storedAttemptEvidence";
+} from "../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/transactionSessionActivation";
 import { pointCommitFinishingCommandFromStoredAttemptV1 } from
-  "./pointCommitTransactionTestSupport";
+  "./support/commandEvidence";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
-} from "../support/postgresHelpers";
+} from "../../support/postgresHelpers";
 import { runEffect, runEffectFailure as runFailure } from
-  "../support/effectTestRuntime";
+  "../../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   abortPointMutationSessionAttempt,
@@ -66,7 +72,7 @@ import {
   expirePointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
-} from "../execution/transactionSessionActivationTestSupport";
+} from "../../execution/transactionSessionActivationTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 

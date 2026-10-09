@@ -1,3 +1,5 @@
+import { CommittedPointOutcomeCorruptionErrorV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeSqlErrorV1, CommittedPointOutcomeInputErrorV1 } from "./committedPointOutcomeErrors";
+import type { ResolveCommittedPointOutcomeErrorV1, CommittedPointOutcomeMismatchV1, CommittedPointOutcomeInputFailureReasonV1, CommittedPointOutcomeCorruptionReasonV1 } from "./committedPointOutcomeErrors";
 import { fxSystemScopeExecutionAuthorities } from "../database/schema";
 import {
   copyBytes,
@@ -10,7 +12,7 @@ import {
 } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
 import {
   CanonicalSuccessfulResultBytesV1Schema,
@@ -105,69 +107,6 @@ const LOOKUP_INPUT_KEYS = Object.freeze([
   "requestKey",
   "scopeUuid",
 ] as const);
-
-export type CommittedPointOutcomeInputFailureReasonV1 =
-  | "recordInvalid"
-  | "scopeUuidInvalid"
-  | "requestKeyInvalid"
-  | "identityAccessPolicySha256Invalid"
-  | "functionPathInvalid"
-  | "requestSha256Invalid";
-
-export type CommittedPointOutcomeMismatchV1 =
-  | "resultEncoding"
-  | "identityAccessPolicySha256"
-  | "functionPath"
-  | "requestSha256";
-
-export type CommittedPointOutcomeCorruptionReasonV1 =
-  | "duplicateOutcome"
-  | "outcomeRowInvalid"
-  | "scopeClockMissing"
-  | "scopeClockInvalid"
-  | "commitTokenInvalid"
-  | "commitTokenAheadOfClock"
-  | "missingRetainedHeader"
-  | "retainedHeaderInvalid"
-  | "retainedHeaderEpochMismatch"
-  | "resultStateInvalid"
-  | "availableResultEvidenceInvalid"
-  | "expiredResultEvidenceInvalid"
-  | "resultCanonicalEvidenceInvalid"
-  | "resultSemanticSizeMismatch";
-
-export class CommittedPointOutcomeInputErrorV1 extends Data.TaggedError(
-  "CommittedPointOutcomeInputErrorV1",
-)<{
-  readonly reason: CommittedPointOutcomeInputFailureReasonV1;
-}> {}
-
-export class CommittedPointOutcomeRequestKeyReuseErrorV1
-  extends Data.TaggedError("CommittedPointOutcomeRequestKeyReuseErrorV1")<{
-    readonly scopeUuid: ScopeUuidV1;
-    readonly mismatches: ReadonlyArray<CommittedPointOutcomeMismatchV1>;
-  }> {}
-
-export class CommittedPointOutcomeCorruptionErrorV1 extends Data.TaggedError(
-  "CommittedPointOutcomeCorruptionErrorV1",
-)<{
-  readonly scopeUuid: ScopeUuidV1;
-  readonly reason: CommittedPointOutcomeCorruptionReasonV1;
-  readonly commitSeq?: CommitSeq;
-}> {}
-
-export class CommittedPointOutcomeSqlErrorV1 extends Data.TaggedError(
-  "CommittedPointOutcomeSqlErrorV1",
-)<{
-  readonly operation: "resolve";
-  readonly cause: unknown;
-}> {}
-
-export type ResolveCommittedPointOutcomeErrorV1 =
-  | CommittedPointOutcomeInputErrorV1
-  | CommittedPointOutcomeRequestKeyReuseErrorV1
-  | CommittedPointOutcomeCorruptionErrorV1
-  | CommittedPointOutcomeSqlErrorV1;
 
 /**
  * Closed lookup evidence only. This record is not commit authority; the

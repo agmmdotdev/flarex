@@ -39,12 +39,14 @@ import {
 } from "../../../src/storage/indexes/appIndexDefinitions";
 import {
   appendAppIndexEntryRevisionsInTransactionEffect,
-  AppIndexEntryScopeAuthorityUnavailableError,
-  InvalidAppIndexEntryInputError,
   readAppIndexMembershipHeadsInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,
   type AppIndexEntryPositionV1,
 } from "../../../src/storage/indexes/appIndexEntries";
+import {
+  AppIndexEntryScopeAuthorityUnavailableError,
+  InvalidAppIndexEntryInputError,
+} from "../../../src/storage/indexes/appIndexEntryErrors";
 import { appendPreparedAppRowRevisionsInTransactionEffect } from "../../../src/storage/documents/appRows";
 import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect } from "../../../src/scope/scopeClock";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";

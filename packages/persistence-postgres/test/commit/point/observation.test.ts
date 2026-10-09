@@ -1,7 +1,11 @@
 import { Cause, Effect, Exit, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
-import { PointCommitPublicationObservation, observePointCommitPublicationEffect,
-  observePointCommitPublicationPromise, type PointCommitPublicationEvent } from "../../src/commit/pointCommitPublicationObservation";
+import {
+  PointCommitPublicationObservation,
+  observePointCommitPublicationEffect,
+  observePointCommitPublicationPromise,
+  type PointCommitPublicationEvent,
+} from "../../../src/commit/point/observation";
 
 describe("point-commit publication diagnostic isolation", () => {
   it("lets trusted composition replace Effect phase events without changing failure or channels", async () => {

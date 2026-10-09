@@ -109,20 +109,27 @@ import {
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../../src/storage/documents/appRows";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../src/installation/installationLifecycle";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointMutationAttemptReplacementPortV1,
+} from "../../src/commit/point/construction";
+import {
   PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
+} from "../../src/commit/point/errors";
+import {
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
   type PointCommitPublicationCommandV1,
   type PointCommitOutcomeResolutionPortV1,
   type PointCommitPublisherPortV1,
   type PointCommitTransactionCommandV1,
+} from "../../src/commit/point/contracts";
+import {
   type PointCommitTransactionProofOptionsV1,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../src/commit/point/constructionContracts";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   type PostgresLocatedReadCommittedRunnerOptionsV1,
@@ -194,9 +201,11 @@ import {
 } from "../../src/execution/transactionSessionActivation";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
-  LocatedReadCommittedTransactionFailureV1,
   isLocatedReadCommittedAttemptTargetV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
 import {
   createPointMutationExecutionClaimLivenessV1,
   type PointMutationExecutionClaimLivenessV1,
@@ -205,7 +214,7 @@ import {
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
-} from "../commit/pointCommitTransactionTestSupport";
+} from "../commit/point/support/commandEvidence";
 import {
   postgresUrl,
   useFileScopedPostgresPersistence,
@@ -887,8 +896,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
-        "journalRootLocked",
-        "executionClaimLocked",
+        "attemptTailLocked",
       ]);
       expect(authorizedResult.success).toMatchObject({
         kind: "authorized",
@@ -3913,53 +3921,58 @@ async function commitCompetingPointRow(
     "appDocument",
   );
   await persistence.drizzle.transaction(async (tx) => {
-    await tx
-      .select({ scopeUuid: fxSystemScopeClocks.scopeUuid })
-      .from(fxSystemScopeClocks)
-      .where(eq(
-        fxSystemScopeClocks.scopeUuid,
-        command.sealIdentity.scopeUuid,
-      ))
-      .limit(1)
-      .for("update");
-    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId: command.authorityPins.scopeId,
-      tableId: intent.tableId,
-      rowId: intent.rowId,
-      writeEpoch: clock.epoch,
-      commitSeq,
-      prevCommitSeq: null,
-      schemaVersionId: command.authorityPins.schemaVersionId,
-      creationTime: intent.creationTime,
-      value: {
-        codecVersion: document.codecVersion,
-        valueJson: document.valueJson,
-        canonicalBytes: document.canonicalBytes,
-        sha256: document.sha256,
-      },
-    });
-    await tx.insert(fxSystemCommits).values({
-      scopeUuid: command.sealIdentity.scopeUuid,
-      epochUuid,
-      commitSeq,
-      changeCount: 1,
-    });
-    await tx.insert(fxSystemCommitAppRowChanges).values({
-      scopeUuid: command.sealIdentity.scopeUuid,
-      epochUuid,
-      commitSeq,
-      changeOrdinal: 0,
-      tableId: intent.tableId,
-      rowId: appRowIdHexV1ToBytes(intent.rowId),
-    });
-    await tx
-      .update(fxSystemScopeClocks)
-      .set({ lastCommitSeq: commitSeq })
-      .where(eq(
-        fxSystemScopeClocks.scopeUuid,
-        command.sealIdentity.scopeUuid,
-      ));
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await tx
+        .select({ scopeUuid: fxSystemScopeClocks.scopeUuid })
+        .from(fxSystemScopeClocks)
+        .where(eq(
+          fxSystemScopeClocks.scopeUuid,
+          command.sealIdentity.scopeUuid,
+        ))
+        .limit(1)
+        .for("update");
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: command.authorityPins.scopeId,
+        tableId: intent.tableId,
+        rowId: intent.rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId: command.authorityPins.schemaVersionId,
+        creationTime: intent.creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      await tx.insert(fxSystemCommits).values({
+        scopeUuid: command.sealIdentity.scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeCount: 1,
+      });
+      await tx.insert(fxSystemCommitAppRowChanges).values({
+        scopeUuid: command.sealIdentity.scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeOrdinal: 0,
+        tableId: intent.tableId,
+        rowId: appRowIdHexV1ToBytes(intent.rowId),
+      });
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(
+          fxSystemScopeClocks.scopeUuid,
+          command.sealIdentity.scopeUuid,
+        ));
+    } finally {
+      closeInstallationAdmission(tx);
+    }
   });
 }
 
@@ -4208,7 +4221,7 @@ async function installO08CSerializationTriggerPostgres(
     ...timeSequences,
     ...commitSequences,
   ]) {
-    await persistence.query(`create sequence ${sequence}`);
+    await persistence.query(`create sequence public.${sequence}`);
   }
   await persistence.query(
     `
@@ -4223,22 +4236,22 @@ async function installO08CSerializationTriggerPostgres(
         if new.scope_uuid <> '${scopeUuid}'::uuid then
           return new;
         end if;
-        current_attempt := nextval('${attemptSequence}');
+        current_attempt := nextval('public.${attemptSequence}');
         publication_time_micros := floor(
           extract(epoch from new.committed_at) * 1000000
         )::bigint;
         if current_attempt = 1 then
-          perform setval('${txidSequences[0]}', txid_current());
-          perform setval('${timeSequences[0]}', publication_time_micros);
-          perform setval('${commitSequences[0]}', new.commit_seq);
+          perform setval('public.${txidSequences[0]}', txid_current());
+          perform setval('public.${timeSequences[0]}', publication_time_micros);
+          perform setval('public.${commitSequences[0]}', new.commit_seq);
         elsif current_attempt = 2 then
-          perform setval('${txidSequences[1]}', txid_current());
-          perform setval('${timeSequences[1]}', publication_time_micros);
-          perform setval('${commitSequences[1]}', new.commit_seq);
+          perform setval('public.${txidSequences[1]}', txid_current());
+          perform setval('public.${timeSequences[1]}', publication_time_micros);
+          perform setval('public.${commitSequences[1]}', new.commit_seq);
         elsif current_attempt = 3 then
-          perform setval('${txidSequences[2]}', txid_current());
-          perform setval('${timeSequences[2]}', publication_time_micros);
-          perform setval('${commitSequences[2]}', new.commit_seq);
+          perform setval('public.${txidSequences[2]}', txid_current());
+          perform setval('public.${timeSequences[2]}', publication_time_micros);
+          perform setval('public.${commitSequences[2]}', new.commit_seq);
         end if;
         if current_attempt <= ${failuresBeforeSuccess} then
           raise exception 'forced O08-C serialization failure %',
@@ -4272,18 +4285,18 @@ async function installO08CSerializationTriggerPostgres(
       }>(
         `
           select
-            (select last_value::text from ${attemptSequence}) as attempts,
-            (select last_value::text from ${txidSequences[0]}) as txid_1,
-            (select last_value::text from ${txidSequences[1]}) as txid_2,
-            (select last_value::text from ${txidSequences[2]}) as txid_3,
-            (select last_value::text from ${timeSequences[0]}) as time_1,
-            (select last_value::text from ${timeSequences[1]}) as time_2,
-            (select last_value::text from ${timeSequences[2]}) as time_3,
-            (select last_value::text from ${commitSequences[0]})
+            (select last_value::text from public.${attemptSequence}) as attempts,
+            (select last_value::text from public.${txidSequences[0]}) as txid_1,
+            (select last_value::text from public.${txidSequences[1]}) as txid_2,
+            (select last_value::text from public.${txidSequences[2]}) as txid_3,
+            (select last_value::text from public.${timeSequences[0]}) as time_1,
+            (select last_value::text from public.${timeSequences[1]}) as time_2,
+            (select last_value::text from public.${timeSequences[2]}) as time_3,
+            (select last_value::text from public.${commitSequences[0]})
               as commit_seq_1,
-            (select last_value::text from ${commitSequences[1]})
+            (select last_value::text from public.${commitSequences[1]})
               as commit_seq_2,
-            (select last_value::text from ${commitSequences[2]})
+            (select last_value::text from public.${commitSequences[2]})
               as commit_seq_3
         `,
       );
@@ -4317,7 +4330,7 @@ async function installO08CSerializationTriggerPostgres(
         ...timeSequences,
         ...commitSequences,
       ]) {
-        await persistence.query(`drop sequence ${sequence}`);
+        await persistence.query(`drop sequence public.${sequence}`);
       }
     },
   });
@@ -4331,7 +4344,7 @@ async function installO08CDeadlockTriggerPostgres(
   const attemptSequence = "fx_test_o08c_deadlock_attempts";
   const functionName = "fx_test_o08c_deadlock_function";
   const triggerName = "fx_test_o08c_deadlock_trigger";
-  await persistence.query(`create sequence ${attemptSequence}`);
+  await persistence.query(`create sequence public.${attemptSequence}`);
   await persistence.query(
     `
       create function ${functionName}()
@@ -4347,7 +4360,7 @@ async function installO08CDeadlockTriggerPostgres(
           and new.scope_uuid <> '${secondScopeUuid}'::uuid then
           return new;
         end if;
-        current_attempt := nextval('${attemptSequence}');
+        current_attempt := nextval('public.${attemptSequence}');
         if current_attempt > 2 then
           return new;
         end if;
@@ -4389,7 +4402,7 @@ async function installO08CDeadlockTriggerPostgres(
   return Object.freeze({
     attempts: async (): Promise<string> => {
       const result = await persistence.query<{ last_value: string }>(
-        `select last_value::text from ${attemptSequence}`,
+        `select last_value::text from public.${attemptSequence}`,
       );
       const row = result.rows[0];
       if (row === undefined) {
@@ -4402,7 +4415,7 @@ async function installO08CDeadlockTriggerPostgres(
         `drop trigger ${triggerName} on fx_system_commit`,
       );
       await persistence.query(`drop function ${functionName}()`);
-      await persistence.query(`drop sequence ${attemptSequence}`);
+      await persistence.query(`drop sequence public.${attemptSequence}`);
     },
   });
 }
@@ -4415,7 +4428,7 @@ async function installO08CDeadlockExhaustionTriggerPostgres(
   const attemptSequence = "fx_test_o08c_deadlock_exhaustion_attempts";
   const functionName = "fx_test_o08c_deadlock_exhaustion_function";
   const triggerName = "fx_test_o08c_deadlock_exhaustion_trigger";
-  await persistence.query(`create sequence ${attemptSequence}`);
+  await persistence.query(`create sequence public.${attemptSequence}`);
   await persistence.query(
     `
       create function ${functionName}()
@@ -4431,7 +4444,7 @@ async function installO08CDeadlockExhaustionTriggerPostgres(
         if new.scope_uuid <> '${scopeUuid}'::uuid then
           return new;
         end if;
-        current_attempt := nextval('${attemptSequence}');
+        current_attempt := nextval('public.${attemptSequence}');
         main_key := (current_attempt * 2)::integer;
         peer_key := main_key + 1;
         perform pg_advisory_xact_lock(${advisoryClassId}, main_key);
@@ -4469,7 +4482,7 @@ async function installO08CDeadlockExhaustionTriggerPostgres(
     attemptSequence,
     attempts: async (): Promise<string> => {
       const result = await persistence.query<{ last_value: string }>(
-        `select last_value::text from ${attemptSequence}`,
+        `select last_value::text from public.${attemptSequence}`,
       );
       const row = result.rows[0];
       if (row === undefined) {
@@ -4482,7 +4495,7 @@ async function installO08CDeadlockExhaustionTriggerPostgres(
         `drop trigger ${triggerName} on fx_system_commit`,
       );
       await persistence.query(`drop function ${functionName}()`);
-      await persistence.query(`drop sequence ${attemptSequence}`);
+      await persistence.query(`drop sequence public.${attemptSequence}`);
     },
   });
 }
@@ -4517,7 +4530,7 @@ async function driveO08CDeadlockCompanions(
                 and objid = $2
                 and granted
             ) as main_lock_granted
-          from ${trigger.attemptSequence}
+          from public.${trigger.attemptSequence}
         `,
         [trigger.advisoryClassId, mainKey],
       );

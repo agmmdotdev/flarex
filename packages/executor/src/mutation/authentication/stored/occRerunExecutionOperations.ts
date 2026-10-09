@@ -1,10 +1,10 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { Data, Effect, Result } from "effect";
 
-import type {
-  CommittedPointOutcomeResolutionV1,
-  PointCommitConflictV1Error,
-  PointCommitPublicationResultV1,
+import {
+  type CommittedPointOutcomeResolutionV1,
+  type PointCommitConflictV1Error,
+  type PointCommitPublicationResultV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type {
   StoredOccExecutionEvidenceAuthorityV1,

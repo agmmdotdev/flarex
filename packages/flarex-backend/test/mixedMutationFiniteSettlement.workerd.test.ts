@@ -3,9 +3,17 @@ import { Cause, Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import * as valueCodec from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
-import { createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1,
-  PointCommitConflictV1Error, PointMutationAttemptReplacementFiniteEntryError,
-  type PointFiniteCommitCommand } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+  createPointMutationAttemptReplacementPortV1,
+} from "../../persistence-postgres/src/commit/point/construction";
+import {
+  PointCommitConflictV1Error,
+  PointMutationAttemptReplacementFiniteEntryError,
+} from "../../persistence-postgres/src/commit/point/errors";
+import {
+  type PointFiniteCommitCommand,
+} from "../../persistence-postgres/src/commit/point/contracts";
 import { fxControlScopes, fxControlSchemaVersions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
   fxSystemTransactionSessions, fxSystemSnapshotLeases } from "../../persistence-postgres/src/database/schema";
 import {

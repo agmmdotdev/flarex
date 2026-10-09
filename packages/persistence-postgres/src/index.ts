@@ -437,6 +437,8 @@ export {
 } from "./storage/catalog/appSchemaPublicationPolicy";
 export {
   ScopeClockCorruptionError,
+} from "./scope/scopeClockErrors";
+export {
   type ScopeClockRecord,
 } from "./scope/scopeClock";
 export * from "./storage/documents/documents";

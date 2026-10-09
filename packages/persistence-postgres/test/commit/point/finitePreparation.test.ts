@@ -3,10 +3,10 @@ import { expect, it } from "vitest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { disposeFiniteMetadataProjection, encodeFiniteMetadataComparison,
   prepareFiniteMetadataEntryComparison, prepareFiniteMetadataProjection,
-  readFiniteMetadataProjectionPreparationPayload, mergeFiniteMetadataProjections } from "../../src/execution/finiteMetadataDependencies";
+  readFiniteMetadataProjectionPreparationPayload, mergeFiniteMetadataProjections } from "../../../src/execution/finiteMetadataDependencies";
 import { disposePublicationDefinitions, preparePublicationDefinitions,
-  readPublicationDefinitionPreparationPayload, selectPreparedPublicationDefinitions } from "../../src/commit/publication/definitionPreparation";
-import { runEffect } from "../support/effectTestRuntime";
+  readPublicationDefinitionPreparationPayload, selectPreparedPublicationDefinitions } from "../../../src/commit/publication/definitionPreparation";
+import { runEffect } from "../../support/effectTestRuntime";
 
 it("lends exact immutable comparison data and reclaims it with its genuine issuer", async () => {
   const projection = await runEffect(prepareFiniteMetadataProjection({ indexes: [], unique: [],

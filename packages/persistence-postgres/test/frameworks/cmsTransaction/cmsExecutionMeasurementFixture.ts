@@ -23,7 +23,10 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
   fxSystemIdempotency, fxSystemCommitWakes, fxSystemCommitAppRowChanges, fxSystemTransactionSessions } from "../../../src/database/schema";
 import { cmsHostFixture } from "./cmsHostFixture";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../../src/execution/diagnostics/operation";
-import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../../../src/commit/pointCommitPublicationObservation";
+import {
+  PointCommitPublicationObservation,
+  type PointCommitPublicationEvent,
+} from "../../../src/commit/point/observation";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const decodeInput = Schema.decodeUnknownResult(Schema.Union([

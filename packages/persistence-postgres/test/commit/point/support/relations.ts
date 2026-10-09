@@ -21,15 +21,15 @@ import type { TransactionGrantDeploymentIdV1 } from
   "flarex-protocol/transaction-grant";
 
 import type { PublishApplicationRelationBindingInput } from
-  "../../src/application/relations/binding";
+  "../../../../src/application/relations/binding";
 import type { StoredAttemptEvidenceAuthorityV1 } from
-  "../../src/execution/storedAttemptEvidence";
+  "../../../../src/execution/storedAttemptEvidence";
 import type { PointMutationSessionAnchorV1 } from
-  "../../src/execution/transactionSessionActivation";
+  "../../../../src/execution/transactionSessionActivation";
 import {
   runEffect,
   runSessionJournalPointOperation,
-} from "../support/effectTestRuntime";
+} from "../../../support/effectTestRuntime";
 
 interface RelationCommitTestSqlClient {
   readonly query: <

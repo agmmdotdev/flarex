@@ -44,8 +44,8 @@ import {
   SessionJournalStorageCorruptionV1Error,
   SessionJournalTargetUnavailableV1Error,
 } from "@flarex/persistence-postgres/internal/session-journal";
-import type {
-  RecoveredRunningRelationConflictEvidence,
+import {
+  type RecoveredRunningRelationConflictEvidence,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationExecutionProfile } from
   "@flarex/persistence-postgres/transaction-session-activation";

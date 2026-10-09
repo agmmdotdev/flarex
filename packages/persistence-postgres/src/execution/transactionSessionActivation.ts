@@ -9,8 +9,11 @@ import {
   runPointCommitInTransactionEffect,
   projectPointCommitTransactionResult,
   runPointCommitPromiseEffect,
-} from "../commit/pointCommitPromiseBoundary";
-import { selectScopeClockRows, type ScopeClockRow } from "../scope/scopeClock";
+} from "../commit/point/promiseBoundary";
+import {
+  selectScopeClockRows,
+  type ScopeClockRow,
+} from "../scope/scopeClock";
 import {
   SessionJournalPersistenceV1Error,
 } from "./journal/errors";
@@ -28,7 +31,9 @@ import {
 import { runDrizzleStatementEffect } from "../database/drizzleStatementEffect";
 import { captureFiniteEntryObservationInTransactionEffect, closeFiniteEntryObservation,
   type FiniteEntryObservation } from "./finiteEntryObservation";
-import type { FiniteEntryAttemptKernelContext } from "./transactionSessionAttemptKernel";
+import {
+  type FiniteEntryAttemptKernelContext,
+} from "./transactionSessionAttemptKernel";
 import { encodeFiniteMetadataComparison, prepareFiniteMetadataEntryComparison, acceptFiniteMetadataEntryComparisonVerdict, submitFiniteMetadataEntryComparisonEffect,
   type PreparedFiniteMetadataProjection } from "./finiteMetadataDependencies";
 import {
@@ -140,19 +145,24 @@ import {
   createCommittedPointOutcomeResolverV1,
   type CommittedPointOutcomeResolutionV1,
   type CommittedPointOutcomeResolverV1,
-  type ResolveCommittedPointOutcomeErrorV1,
   type ResolveCommittedPointOutcomeInputV1,
 } from "../commit/committedPointOutcome";
+import {
+  type ResolveCommittedPointOutcomeErrorV1,
+} from "../commit/committedPointOutcomeErrors";
 import {
   getScopeClock,
   decodeScopeClockRecord,
   readFiniteExecutionAuthorityObservation,
-  ScopeClockNotFoundError,
   type ScopeClockRecord,
   openExactAttemptScopeClockObservation,
   closeExactAttemptScopeClockObservation,
-  openFiniteExecutionAuthorityObservation, closeFiniteExecutionAuthorityObservation,
+  openFiniteExecutionAuthorityObservation,
+  closeFiniteExecutionAuthorityObservation,
 } from "../scope/scopeClock";
+import {
+  ScopeClockNotFoundError,
+} from "../scope/scopeClockErrors";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
   TrustedScopeAuthorityPortError,
@@ -211,9 +221,11 @@ import {
   inspectTransactionExecutionClaimV1Result,
   lockExactTransactionExecutionClaimV1Result,
   requireLiveTransactionExecutionClaimV1Result,
+} from "./claims/transactionExecutionClaimPersistence";
+import {
   TransactionExecutionClaimCorruptionV1Error,
   TransactionExecutionClaimStaleV1Error,
-} from "./claims/transactionExecutionClaimPersistence";
+} from "./claims/transactionExecutionClaimErrors";
 import {
   decodeTransactionExecutionClaimFenceV1,
   TransactionExecutionClaimFenceV1Schema,
@@ -281,7 +293,6 @@ import {
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   ExactRunningAttemptTransactionV1Error,
   LOCATED_READ_COMMITTED_RUNNER_V1,
-  LocatedReadCommittedTransactionFailureV1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
@@ -294,6 +305,9 @@ import {
   type LocatedPointCommitPublicationTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "./transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "./readCommittedTransactionFailure";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
   type LocatedExactRunningAttemptReadSyscallKernelV1,

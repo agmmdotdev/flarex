@@ -79,6 +79,8 @@ import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../../src/execution/transactionSessionAttemptKernel";

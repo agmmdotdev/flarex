@@ -29,7 +29,9 @@ import {
 import {
   readLogicalStorageRequirements,
 } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
-import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  PointCommitConflictV1Error,
+} from "../../persistence-postgres/src/commit/point/errors";
 import { fxAppRowRevisions, fxSystemIndexBuildStates, fxSystemScopeClocks,
   fxSystemScopeExecutionAuthorities, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";

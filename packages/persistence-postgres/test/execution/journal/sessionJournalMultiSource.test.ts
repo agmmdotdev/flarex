@@ -16,7 +16,7 @@ import {
   PointCommitCorruptionV1Error,
   PointCommitConflictV1Error,
   AppDocumentInsertionConflictError,
-} from "../../../src/commit/pointCommitErrors";
+} from "../../../src/commit/point/errors";
 import { createHash } from "node:crypto";
 import { preparePublicationDefinitions } from "../../../src/commit/publication/definitionPreparation";
 import { Deferred, Effect, Exit, Fiber, Result } from "effect";
@@ -71,10 +71,12 @@ import {
   LogicalParticipantAdmissionError,
 } from "../../../src/storage/documents/logicalDocuments/participantErrors";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
-import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from
-  "../../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitFinishingTransitionPortV1,
+  createPointCommitPublisherPortV1,
+} from "../../../src/commit/point/construction";
 import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
-  pointCommitScalarCommandForLifecycleFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/pointCommitTransactionTestSupport";
+  pointCommitScalarCommandForLifecycleFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/point/support/commandEvidence";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture } from
   "../../application/applicationNativeMutationTestFixture";

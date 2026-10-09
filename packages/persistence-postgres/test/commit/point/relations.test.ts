@@ -2,7 +2,7 @@ import { webcrypto } from "node:crypto";
 import {
   PointCommitPublicationObservation,
   type PointCommitPublicationEvent,
-} from "../../src/commit/pointCommitPublicationObservation";
+} from "../../../src/commit/point/observation";
 
 import { asc, eq } from "drizzle-orm";
 import {
@@ -32,87 +32,95 @@ import {
   publishApplicationRelationBindingEffect,
   type ApplicationRelationBindingPublication,
   type ApplicationRelationBindingRepository,
-} from "../../src/application/relations/binding";
+} from "../../../src/application/relations/binding";
 import {
   ApplicationRelationTargetDeleteRestrictedError,
   ApplicationRelationTargetNotLiveError,
   createApplicationRelationCommitPort,
-} from "../../src/application/relations/applicationRelationCommit";
+} from "../../../src/application/relations/applicationRelationCommit";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
-} from "../../src/database/pglite";
+} from "../../../src/database/pglite";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
+} from "../../../src/commit/point/construction";
+import {
   hasPointCommitApplicationRelationMaintenance,
+} from "../../../src/commit/point/capabilities";
+import {
   PointCommitCorruptionV1Error,
   PointCommitStaleAuthorityV1Error,
+} from "../../../src/commit/point/errors";
+import {
   type PointCommitPublicationCommandV1,
+} from "../../../src/commit/point/contracts";
+import {
   type PointCommitTransactionProofStepV1,
-} from "../../src/commit/pointCommitTransaction";
+} from "../../../src/commit/point/constructionContracts";
 import type { LocatedScopeClockReader } from
-  "../../src/scope/scopeAuthorityResolution";
+  "../../../src/scope/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from
-  "../../src/scope/scopeMetadataTypes";
+  "../../../src/scope/scopeMetadataTypes";
 import {
   fxAppEdgeAdjacencyVersions,
   fxAppEdgeCurrent,
   fxAppRowCurrent,
   fxSystemCommits,
   fxSystemCommitRelationAdjacencyChanges,
-} from "../../src/database/schema";
+} from "../../../src/database/schema";
 import {
   createSessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../../src/execution/sessionJournalStore";
 import {
   type SessionJournalAttempt,
   type SessionJournalStorePersistence,
-} from "../../src/execution/journal/api";
+} from "../../../src/execution/journal/api";
 import {
   createStoredAttemptEvidenceLoaderV1,
-} from "../../src/execution/storedAttemptEvidence";
+} from "../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/transactionSessionActivation";
 import {
   readyExactRelationReadFixture,
   applyExactRelationSourceCommit,
-} from "../application/relations/applicationRelationReadinessFixture";
-import { exactRelationCommitRowId } from "../application/relations/applicationRelationSourceCommitFixture";
-import { fxSystemApplicationReadiness } from "../../src/application/relations/applicationRelationSchema";
+} from "../../application/relations/applicationRelationReadinessFixture";
+import { exactRelationCommitRowId } from "../../application/relations/applicationRelationSourceCommitFixture";
+import { fxSystemApplicationReadiness } from "../../../src/application/relations/applicationRelationSchema";
 import {
   createIntrinsicCreationTimeIndexDefinitionPortV1,
-} from "../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+} from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import {
   createAppDeveloperIndexDefinitionPortV1,
-} from "../../src/storage/indexes/appDeveloperIndexCommitV1";
+} from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
 import {
   installApplicationRelationCommitAuthorityForTest,
   relationAuthorityFromAnchor,
   relationBindingPublicationInput,
   requireRelationInsertedDocumentId,
   selectorFromRelationAnchor,
-} from "./pointCommitRelationTestSupport";
+} from "./support/relations";
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
-} from "./pointCommitTransactionTestSupport";
+} from "./support/commandEvidence";
 import {
   completeSessionJournalSeal,
   prepareSessionJournalSeal,
   runEffect,
   runEffectFailure,
   runSessionJournalPointOperation,
-} from "../support/effectTestRuntime";
+} from "../../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
-} from "../execution/transactionSessionActivationTestSupport";
+} from "../../execution/transactionSessionActivationTestSupport";
 
 const LEASE_DURATION_MILLISECONDS = 60_000;
 const sharedLocator = Object.freeze({
@@ -294,15 +302,17 @@ describe("C09 point-commit relation maintenance", () => {
         );
       },
     );
-    const queries: string[] = [];
+    const queries = new Map<string, string>();
     const failure = await runEffectFailure(
       relationPublisher(scope, {
-        observeQuery: (query) => queries.push(query.name),
+        observeQuery: (query) => queries.set(query.name, query.sql),
       }).publish(prepared.command),
     );
 
     expect(failure).toBeInstanceOf(ApplicationRelationTargetNotLiveError);
-    expect(queries).toContain("loadRelationTargets");
+    expect(failure).toMatchObject({ targetDocumentId: missingUserId });
+    expect(queries.get("acceptPublication")).toContain("fx_accept_app_publication");
+    expect(queries.has("applyPublication")).toBe(false);
     expect(await durableRelationState(scope)).toMatchObject({
       revisions: "0",
       currentRows: "0",

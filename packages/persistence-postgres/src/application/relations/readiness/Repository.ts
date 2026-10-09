@@ -90,11 +90,13 @@ import {
   "../../../database/locatedReadCommittedEffect";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-  LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../../execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../execution/readCommittedTransactionFailure";
 import {
   APPLICATION_RELATION_SEMANTIC_READINESS_RECEIPT_CODEC_VERSION,
   APPLICATION_RELATION_SEMANTIC_READINESS_RECEIPT_MAXIMUM_BYTES,

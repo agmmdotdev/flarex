@@ -8,7 +8,10 @@ import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ApplicationNativeMutationPersistence } from "../application/applicationNativeMutationTestFixture";
 import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions,
   fxSystemCommits, fxSystemIdempotency, fxSystemScopeClocks } from "../../src/database/schema";
-import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from "../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitFinishingTransitionPortV1,
+  createPointCommitPublisherPortV1,
+} from "../../src/commit/point/construction";
 import { createPointMutationSessionActivationPersistenceV1 } from "../../src/execution/transactionSessionActivation";
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../src/execution/storedAttemptEvidence";
@@ -17,8 +20,8 @@ import { validateApplicationWriteOwnershipForCommit } from "../../src/applicatio
 import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import { activatePointMutationSession, pointMutationSessionActivationFixture, TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
 import { issueSetupSeededSyscallValidatorProofV1 } from "../application/revision/applicationRevisionSyscallValidatorTestSupport";
-import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../commit/pointCommitRelationTestSupport";
-import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/pointCommitTransactionTestSupport";
+import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../commit/point/support/relations";
+import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/point/support/commandEvidence";
 
 interface LegacyWriterFixture {
   readonly target: ApplicationNativeMutationPersistence;

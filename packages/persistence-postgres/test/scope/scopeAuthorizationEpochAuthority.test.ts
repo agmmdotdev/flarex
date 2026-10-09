@@ -38,8 +38,10 @@ import {
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
 import {
   advanceScopeAuthorizationRevocationEpochInTransactionEffect,
-  ScopeClockNotFoundError,
 } from "../../src/scope/scopeClock";
+import {
+  ScopeClockNotFoundError,
+} from "../../src/scope/scopeClockErrors";
 import type {
   SharedDatabaseScopePhysicalLocator,
 } from "../../src/scope/scopeMetadataTypes";

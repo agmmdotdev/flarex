@@ -35,10 +35,12 @@ import {
 } from "../../src/database/postgres";
 import {
   type LocatedReadCommittedAttemptTargetV1,
-  LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   isLocatedReadCommittedAttemptTargetV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   postgresUrl,

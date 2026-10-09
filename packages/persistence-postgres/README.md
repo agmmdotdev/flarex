@@ -20,7 +20,7 @@ grant a new capability.
 | `application/` | Analysis, serving construction, active bindings, schema authority, readiness, revisions, relations and write ownership | [applicationServing.ts](src/application/applicationServing.ts), [applicationActivation.ts](src/application/applicationActivation.ts), [applicationReadiness.ts](src/application/applicationReadiness.ts) |
 | `storage/` | Documents, relational values, pending working sets, indexes, uniqueness, relations, search, catalog and history | [documents/logicalDocuments/workingSet.ts](src/storage/documents/logicalDocuments/workingSet.ts), [catalog/logicalStorageDefinitions.ts](src/storage/catalog/logicalStorageDefinitions.ts) |
 | `execution/` | Prepared lifetimes, attempt/session state, journal, finite capture, claims, OCC evidence and persistence recovery | [journal/api.ts](src/execution/journal/api.ts), [sessionJournalStore.ts](src/execution/sessionJournalStore.ts), [transactionSessionActivation.ts](src/execution/transactionSessionActivation.ts) |
-| `commit/` | Conflict-checked atomic publication, durable outcomes, commit facts, event intents and feed | [pointCommitTransaction.ts](src/commit/pointCommitTransaction.ts), [publication/publication.ts](src/commit/publication/publication.ts) |
+| `commit/` | Conflict-checked atomic publication, durable outcomes, commit facts, event intents and feed | [point guide](src/commit/point/README.md), [point/construction.ts](src/commit/point/construction.ts), [publication/publication.ts](src/commit/publication/publication.ts) |
 | `frameworks/` | Restricted CMS/Commerce direct and borrowed execution, finite atomic Commerce, and cross-domain commands | [cmsTransaction/construction.ts](src/frameworks/cmsTransaction/construction.ts), [cmsTransaction/api.ts](src/frameworks/cmsTransaction/api.ts), [commerceTransaction/commerceAdapter.ts](src/frameworks/commerceTransaction/commerceAdapter.ts) |
 | `tasks/` | Durable task run/attempt records, compute delivery, external-effect authority, wake and repair scheduling | [taskAttemptLifecycleGateway.ts](src/tasks/taskAttemptLifecycleGateway.ts) |
 | `sync/` | Live query records and freshness/change observations | [scopeSyncChangeSourceReadV1.ts](src/sync/scopeSyncChangeSourceReadV1.ts) |
@@ -68,8 +68,14 @@ attempt owner retains issued identities, exact claims and reservations. Follow
 their operation order in the [journal guide](src/execution/journal/README.md).
 The [schema guide](src/database/schema/README.md) distinguishes table declarations,
 driver query composition and migration generation, with their actual dependencies.
-Publication and activation still have substantial combined bodies to organize
-under the [file cohesion plan](../../roadmaps/execution-architecture/05-file-cohesion-and-readable-flows.md).
+Point publication has distinct contract, preparation, acceptance, settlement,
+replacement and recovery owners. Consumers load the lightweight
+`point-commit-transaction` API; trusted composition and readiness use the
+separate internal construction and eligibility routes. Lower error families and
+materialization evidence have their actual domain owners. Follow their ordering
+in the [point guide](src/commit/point/README.md). Activation/readiness still have
+substantial combined bodies to organize under the
+[file cohesion plan](../../roadmaps/execution-architecture/05-file-cohesion-and-readable-flows.md).
 
 The root `index.ts` retains the existing persistence contracts. Internal contract
 ownership and export reduction remain part of the construction/API audit, not a

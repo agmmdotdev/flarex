@@ -2,9 +2,20 @@ import { Effect } from "effect";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import type { OrderedIndexBoundsV1 } from "flarex-protocol/ordered-index";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
-import { consumeCurrentAppIndexPagesInTransactionEffect, scanAppIndexAtSnapshotInTransactionEffect, scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
-  MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeEntryV1, type AppIndexEntryTransaction,
-  type AppIndexRangeCursorV1, type AppIndexRangePageV1 } from "../../indexes/appIndexEntries";
+import {
+  consumeCurrentAppIndexPagesInTransactionEffect,
+  scanAppIndexAtSnapshotInTransactionEffect,
+  scanCurrentAppIndexInTransactionEffect,
+  MAX_APP_INDEX_RANGE_PAGE_SIZE_V1,
+  type AppIndexRangeEntryV1,
+  type AppIndexEntryTransaction,
+  type AppIndexRangeCursorV1,
+  type AppIndexRangePageV1,
+} from "../../indexes/appIndexEntries";
+import {
+  AppIndexEntryReadPersistenceError,
+  AppIndexEntryHashError,
+} from "../../indexes/appIndexEntryErrors";
 import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
 
 export const logicalIndexReadFailureReason = (cause: unknown): LogicalDocumentFailureReason =>

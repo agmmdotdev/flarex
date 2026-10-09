@@ -64,8 +64,9 @@ import { createPGlitePersistence } from "../../../src/database/pglite";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
   "../../../src/execution/transactionSessionActivation";
-import { LocatedReadCommittedTransactionFailureV1 } from
-  "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../../src/scope/scopeClock";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";

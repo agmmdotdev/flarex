@@ -8,7 +8,9 @@ import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "../../databa
 import { fxSystemScopeClocks } from "../../database/schema";
 import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure, type ScopePublicationClock, type ScopePublicationContribution, type ScopePublicationKernel, type ScopePublicationOptions, type ScopePublicationSqlOperation } from "./scopePublicationModel";
 import { requireStrongReferencePublication } from "./strongReferenceAdmission";
-import { observePointCommitPublicationEffect } from "../pointCommitPublicationObservation";
+import {
+  observePointCommitPublicationEffect,
+} from "../point/observation";
 import { requireAdmittedTargetInstallationSchema } from "../../installation/installationLifecycle";
 import { scopePublicationProcedureFailure } from "./prefixProjection";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";

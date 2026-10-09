@@ -43,12 +43,14 @@ import {
   type ScopeAuthorizationRevocationEpochReadError,
   ScopeAuthorizationRevocationEpochExhaustedError,
   ScopeAuthorizationRevocationEpochPersistenceError,
-  ScopeClockNotFoundError,
   openExactAttemptScopeClockObservation,
   closeExactAttemptScopeClockObservation,
   lockScopeClockForShareInTransactionEffect,
   lockScopeClockForSnapshotReadInTransactionEffect,
 } from "../../src/scope/scopeClock";
+import {
+  ScopeClockNotFoundError,
+} from "../../src/scope/scopeClockErrors";
 import {
   insertInitialScopeClockInTransactionResult,
   type InsertInitialScopeClockError,

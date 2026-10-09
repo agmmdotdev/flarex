@@ -45,7 +45,7 @@ import {
 } from "../../database/schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../execution/readCommittedTransactionFailure";
 import { runLocatedReadCommittedEffect } from "../../database/locatedReadCommittedEffect";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../../frameworks/payloadPreferences/factsSchema";
 

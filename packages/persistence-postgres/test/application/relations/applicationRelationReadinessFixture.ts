@@ -49,7 +49,7 @@ import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/stor
 import type { StableTableCatalogTransaction } from "../../../src/storage/catalog/stableTableCatalog";
 import { ensureRelationBuildTestWebCrypto, relationBuildRowId, relationBuildPublicationInput } from "./applicationRelationBuildTestSupport";
 import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect } from "../../support/effectTestRuntime";
-import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../../commit/pointCommitRelationTestSupport";
+import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../../commit/point/support/relations";
 import { TEST_GRANT_RETENTION_POLICY_V1, activatePointMutationSession, pointMutationSessionActivationFixture } from "../../execution/transactionSessionActivationTestSupport";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { ApplicationNativeMutationPersistence } from "../applicationNativeMutationTestFixture";

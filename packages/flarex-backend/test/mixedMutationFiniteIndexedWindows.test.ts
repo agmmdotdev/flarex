@@ -12,7 +12,9 @@ import {
   inspectPreparedFiniteSessionJournalEntry,
 } from "../../persistence-postgres/src/testing/sessionJournalInspection";
 import { SessionJournalPersistenceV1Error } from "../../persistence-postgres/src/execution/journal/errors";
-import { AppRowStorageCorruptionError } from "../../persistence-postgres/src/storage/documents/appRows";
+import {
+  AppRowStorageCorruptionError,
+} from "../../persistence-postgres/src/storage/documents/appRowErrors";
 import { FlarexValueEvidenceV1Error } from "flarex-protocol/value";
 import {
   createMixedMutationPerformanceTrace,

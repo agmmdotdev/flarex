@@ -2,7 +2,7 @@ import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha25
 import {
   CommittedPointOutcomeRequestKeyReuseErrorV1,
   CommittedPointOutcomeCorruptionErrorV1,
-} from "../../commit/committedPointOutcome";
+} from "../../commit/committedPointOutcomeErrors";
 import { RelationalSessionError } from "../../database/relationalTransaction/model";
 import { commerceError, CommerceTransactionError } from "./model";
 import { Effect, Result } from "effect";

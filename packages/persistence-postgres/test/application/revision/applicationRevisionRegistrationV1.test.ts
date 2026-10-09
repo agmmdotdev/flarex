@@ -62,6 +62,8 @@ import {
 } from "../../../src/scope/scopeAuthorityResolution";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../../src/execution/transactionSessionAttemptKernel";

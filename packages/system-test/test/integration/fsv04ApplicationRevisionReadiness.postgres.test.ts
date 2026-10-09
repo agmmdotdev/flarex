@@ -22,7 +22,7 @@ import {
 } from "@flarex/persistence-postgres/internal/system-test/postgresLocatedReadCommitted";
 import {
   LocatedReadCommittedTransactionFailureV1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
 import {
   proveFsv04ApplicationRevisionReadinessV1,
 } from "../../support/fsv04ApplicationRevisionReadinessHarness";

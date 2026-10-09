@@ -9,6 +9,8 @@ import {
 } from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
 } from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
 import {

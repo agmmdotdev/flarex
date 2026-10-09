@@ -81,6 +81,8 @@ import {
 import type { AppRowTransaction } from "../../src/storage/documents/appRows";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
+import {
   type RunLocatedReadCommittedTransactionV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from

@@ -21,6 +21,8 @@ import type { SharedDatabaseScopePhysicalLocator } from
   "../../../src/scope/scopeMetadataTypes";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,

@@ -87,7 +87,7 @@ facts. It does **not** authenticate/hash argument or grant
 bodies, despite fetching them. Activation replay's `sessionEvidenceMatches`,
 the [stored evidence loader](../../packages/persistence-postgres/src/execution/storedAttemptEvidence.ts)
 and executor [commit authority verification](../../packages/executor/src/mutation/authentication/stored/commitAuthorityVerification.ts)
-own separate body validation. [Point publication](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+own separate body validation. [Point publication](../../packages/persistence-postgres/src/commit/point/README.md)
 `lockPointCommitSession` checks scalar pins and body lengths after that
 authentication; this alone does not prove refusal of a same-length body edit
 that preserves its stored digest after authentication. This is a static proof

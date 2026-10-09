@@ -14,9 +14,11 @@ import {
 import type { FlarexMetadataDatabase } from "../application/deployments";
 import {
   getScopeClockResult,
-  type ScopeClockCorruptionError,
   type ScopeClockRecord,
 } from "./scopeClock";
+import {
+  type ScopeClockCorruptionError,
+} from "./scopeClockErrors";
 import { fxSystemScopeClocks, fxSystemScopeExecutionAuthorities } from "../database/schema";
 
 export interface InitialScopeClockInput {

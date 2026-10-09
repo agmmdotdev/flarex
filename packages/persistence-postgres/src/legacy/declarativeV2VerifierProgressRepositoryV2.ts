@@ -93,6 +93,8 @@ import {
 } from "../database/schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../execution/readCommittedTransactionFailure";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../execution/transactionSessionAttemptKernel";

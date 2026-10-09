@@ -1,11 +1,8 @@
+import { AppUniqueKeyConflictError, CanonicalAppUniqueKeyHashCollisionError, AppUniqueKeyHashError, AppUniqueKeyPersistenceError } from "./appUniqueKeyErrors";
 import { fxSystemScopeExecutionAuthorities } from "../../database/schema";
 import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation } from "../../scope/scopeClock";
-import type { PointCommitPublicationObservation } from "../../commit/pointCommitPublicationObservation";
-import {
-  bytesEqualFullScan,
-  isUint8Array,
-  isUint8ArrayWithByteLength,
-} from "@flarex/utils/bytes";
+import type { PointCommitPublicationObservation } from "../../commit/point/observation";
+import { bytesEqualFullScan, isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { and, eq, or, isNull, sql } from "drizzle-orm";
 import { Effect, Option, Result, Schema } from "effect";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
@@ -181,38 +178,6 @@ export class AppUniqueKeyParentRowError extends Error {
   }
 }
 
-export class AppUniqueKeyConflictError extends Error {
-  readonly _tag = "AppUniqueKeyConflictError" as const;
-
-  constructor(
-    readonly constraintId: AppUniqueConstraintIdV1,
-    readonly localeKey: string,
-    readonly ownerTableId: CatalogTableId,
-    readonly ownerRowId: AppRowIdHexV1,
-  ) {
-    super(
-      `App unique key is already owned by ${ownerTableId}/${ownerRowId} ` +
-        `for constraint ${constraintId}/${localeKey || "<default>"}.`,
-    );
-    this.name = "AppUniqueKeyConflictError";
-  }
-}
-
-export class CanonicalAppUniqueKeyHashCollisionError extends Error {
-  readonly _tag = "CanonicalAppUniqueKeyHashCollisionError" as const;
-
-  constructor(
-    readonly constraintId: AppUniqueConstraintIdV1,
-    readonly localeKey: string,
-  ) {
-    super(
-      `Canonical app unique keys have equal SHA-256 but unequal bytes for ` +
-        `${constraintId}/${localeKey || "<default>"}.`,
-    );
-    this.name = "CanonicalAppUniqueKeyHashCollisionError";
-  }
-}
-
 export class AppUniqueKeyPreviousClaimMismatchError extends Error {
   readonly _tag = "AppUniqueKeyPreviousClaimMismatchError" as const;
 
@@ -241,15 +206,6 @@ export class AppUniqueKeyBackfillClaimMismatchError extends Error {
   }
 }
 
-export class AppUniqueKeyHashError extends Error {
-  readonly _tag = "AppUniqueKeyHashError" as const;
-
-  constructor(readonly cause: unknown) {
-    super("App unique-key SHA-256 failed.", { cause });
-    this.name = "AppUniqueKeyHashError";
-  }
-}
-
 export class AppUniqueKeyStorageCorruptionError extends Error {
   readonly _tag = "AppUniqueKeyStorageCorruptionError" as const;
 
@@ -259,15 +215,6 @@ export class AppUniqueKeyStorageCorruptionError extends Error {
   ) {
     super(`App unique-key storage is invalid: ${reason}.`, options);
     this.name = "AppUniqueKeyStorageCorruptionError";
-  }
-}
-
-export class AppUniqueKeyPersistenceError extends Error {
-  readonly _tag = "AppUniqueKeyPersistenceError" as const;
-
-  constructor(readonly cause: unknown) {
-    super("App unique-key persistence operation failed.", { cause });
-    this.name = "AppUniqueKeyPersistenceError";
   }
 }
 

@@ -121,10 +121,12 @@ import {
 } from "@flarex/persistence-postgres/internal/system-test/intrinsicCreationTimeIndexBuildV1";
 import {
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointMutationAttemptReplacementPortV1,
-} from "@flarex/persistence-postgres/internal/system-test/pointCommitTransaction";
+} from "@flarex/persistence-postgres/internal/point-commit-construction";
 import {
   C07_TEST_GRANT_RETENTION_POLICY_V1,
   setC07ActivationClockV1,

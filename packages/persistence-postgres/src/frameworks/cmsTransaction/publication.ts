@@ -7,7 +7,12 @@ import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../scope/s
 import type { CmsMaterializationTestHooks } from "./testSupport";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 
-import { PointCommitSqlErrorV1, mapTransactionFailure } from "../../commit/pointCommitErrors";
+import {
+  PointCommitSqlErrorV1,
+} from "../../commit/point/errors";
+import {
+  mapTransactionFailure,
+} from "../../commit/point/sqlFailures";
 import { ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstraintError,
   ScopePublicationUnsupportedProfileError } from "../../commit/publication/scopePublicationModel";
 
@@ -36,7 +41,9 @@ import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq, type ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 
-import { AppUniqueKeyConflictError } from "../../storage/unique/appUniqueKeys";
+import {
+  AppUniqueKeyConflictError,
+} from "../../storage/unique/appUniqueKeyErrors";
 
 import { type ResolveCommittedPointOutcomeInputV1 } from "../../commit/committedPointOutcome";
 

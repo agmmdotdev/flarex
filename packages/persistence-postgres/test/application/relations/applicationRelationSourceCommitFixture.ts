@@ -16,15 +16,18 @@ import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/in
 import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
 import { createAppUniqueConstraintSetEligibilityPortV1 } from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from "../../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitFinishingTransitionPortV1,
+  createPointCommitPublisherPortV1,
+} from "../../../src/commit/point/construction";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
 import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../src/scope/scopeAuthorityResolution";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
 import { createApplicationMutationSessionActivationPersistenceV1 } from "../../../src/execution/transactionSessionActivation";
 import { issueSetupSeededSyscallValidatorProofV1 } from "../revision/applicationRevisionSyscallValidatorTestSupport";
 import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect } from "../../support/effectTestRuntime";
-import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../../commit/pointCommitRelationTestSupport";
-import { pointCommitCommandFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/pointCommitTransactionTestSupport";
+import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../../commit/point/support/relations";
+import { pointCommitCommandFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/point/support/commandEvidence";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../execution/transactionSessionActivationTestSupport";
 
 /** Deterministic UUID-v4 identities accepted by the real journal insert owner. */

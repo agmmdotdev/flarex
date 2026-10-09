@@ -1,8 +1,12 @@
-import { Cause, Effect, Exit, Result } from "effect";
-import { LocatedReadCommittedTransactionFailureV1 } from "../execution/transactionSessionAttemptKernel";
-import { captureExecutionDiagnosticContext } from "../execution/diagnostics/operation";
+import {
+  Cause,
+  Effect,
+  Exit,
+  Result,
+} from "effect";
+import { captureExecutionDiagnosticContext } from "../../execution/diagnostics/operation";
+import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCommittedTransactionFailure";
 
-/** The single audited Effect runtime bridge for the Promise transaction. */
 export async function runPointCommitInTransactionEffect<Value, Failure>(
   effect: Effect.Effect<Value, Failure>,
   diagnosticContext?: ReturnType<typeof captureExecutionDiagnosticContext>,
@@ -16,8 +20,6 @@ export async function runPointCommitInTransactionEffect<Value, Failure>(
   throw exit.cause;
 }
 
-/** Reenter the owned Promise kernel without treating a full Cause as one
- * scalar error. Settlement uncertainty and cleanup failures retain their owner. */
 export function runPointCommitPromiseEffect<Value, Failure>(
   work: (diagnosticContext: ReturnType<typeof captureExecutionDiagnosticContext>) => PromiseLike<Value>,
   mapFailure: (cause: unknown) => Failure,
@@ -36,11 +38,6 @@ export function runPointCommitPromiseEffect<Value, Failure>(
   ));
 }
 
-/**
- * Temporary projection owned by Drizzle 0.45's Promise transaction callback.
- * Delete it when the point-commit mutation graph owns an Effect transaction
- * client and can yield these Result failures directly.
- */
 export function projectPointCommitTransactionResult<A, E>(
   result: Result.Result<A, E>,
 ): A {

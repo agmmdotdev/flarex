@@ -5,17 +5,44 @@ import type { LogicalDocumentChange } from "./workingSet";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import { acceptApplicationPublication,readAcceptedApplicationPublication } from "../../materialization/publicationAcceptance";
 import { prepareApplicationDocumentSettlementFromOriginalsEffect } from "../../materialization/settlementPlan";
-import { materializeAcceptedApplicationPublicationRows,captureOriginalApplicationPublicationBuildLocks } from "../../materialization/materialization";
+import {
+  materializeAcceptedApplicationPublicationRows,
+} from "../../materialization/materialization";
+import {
+  captureOriginalApplicationPublicationBuildLocks,
+} from "../../materialization/originalBuildLocks";
 import { invalidateAcceptedApplicationBindingInTransaction } from "../../../application/applicationActivation";
-import { runPointCommitPromiseEffect } from "../../../commit/pointCommitPromiseBoundary";
+import {
+  runPointCommitPromiseEffect,
+} from "../../../commit/point/promiseBoundary";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
 import type { ApplicationDocumentMaterializationOptions, ApplicationDocumentDefinitionCommand, ApplicationDocumentMaterializationCommand,
   PreparedPointCommitApplicationRelations } from "../../materialization/model";
-import { validateApplicationUniqueTransitionBudget, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidations } from "../../materialization/materialization";
-import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, PointCommitConflictV1Error, AppDocumentInsertionConflictError,
-  PointCommitDeveloperIndexMaintenanceUnavailableV1Error, mapTransactionFailure } from "../../../commit/pointCommitErrors";
-import { AppUniqueKeyConflictError } from "../../unique/appUniqueKeys";
+import {
+  validateApplicationUniqueTransitionBudget,
+  lockPointCommitIntrinsicIndexBuilds,
+  lockPointCommitDeveloperIndexBuilds,
+  loadPointCommitHeads,
+  loadApplicationDocumentPriorState,
+  validatePointCommitDependenciesResult,
+  preparePointCommitApplicationRelationPlan,
+  maintainPointCommitApplicationRelationsEffect,
+  resetPointCommitDeveloperIndexValidations,
+} from "../../materialization/materialization";
+import {
+  PointCommitSqlFailureMarkerV1,
+  mapTransactionFailure,
+} from "../../../commit/point/sqlFailures";
+import {
+  PointCommitSqlErrorV1,
+  PointCommitConflictV1Error,
+  AppDocumentInsertionConflictError,
+  PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
+} from "../../../commit/point/errors";
+import {
+  AppUniqueKeyConflictError,
+} from "../../unique/appUniqueKeyErrors";
 import { ApplicationRelationCommitResourceExhaustionError, ApplicationRelationConstraintError,
   ApplicationRelationTargetDeleteRestrictedError, ApplicationRelationTargetNotLiveError } from "../../../application/relations/applicationRelationCommit";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";

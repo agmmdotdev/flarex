@@ -1,5 +1,7 @@
 import { expect } from "vitest";
-import { createPointCommitPublisherPortV1 } from "../../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../../../src/commit/point/construction";
 import type { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { prepareNativeRangePublication } from "../nativeCommandPublicationScenario";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";

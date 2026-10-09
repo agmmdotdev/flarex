@@ -27,6 +27,8 @@ import {
 } from "../../src/tasks/taskSystemRunAttemptStoreV1";
 import {
   LocatedReadCommittedTransactionFailureV1,
+} from "../../src/execution/readCommittedTransactionFailure";
+import {
   type RunLocatedReadCommittedTransactionV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
 import {

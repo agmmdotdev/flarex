@@ -1,8 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ExecutionDiagnostics } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { Cause, Effect, Exit, Layer, Option, Result, Schema, Tracer } from "effect";
-import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from
-  "../../../../../persistence-postgres/src/commit/pointCommitPublicationObservation";
+import {
+  PointCommitPublicationObservation,
+  type PointCommitPublicationEvent,
+} from "../../../../../persistence-postgres/src/commit/point/observation";
 import { PhysicalSessionObservation } from "../../../../../persistence-postgres/src/database/physicalSession/observation";
 import type { MeasurementEvent, MeasurementObserver } from "../artifact";
 import { ResourceCountersSchema, ResourceReadingSchema, type ResourceReading } from "../cpu";

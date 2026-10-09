@@ -4,8 +4,13 @@ import { describe, expect, it } from "vitest";
 import { awaitEffectTransactionSettlement, runEffectTransactionSettlement } from "../../../src/database/effectTransaction";
 import { runLocatedReadCommittedEffect } from "../../../src/database/locatedReadCommittedEffect";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
-import { LocatedReadCommittedTransactionFailureV1, RUN_LOCATED_READ_COMMITTED_V1,
-  type LocatedReadCommittedAttemptTargetV1 } from "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../../../src/execution/readCommittedTransactionFailure";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../../../src/execution/transactionSessionAttemptKernel";
 import { makeScriptedControlSessionFixture } from "../../database/catalogControlSessionTestSupport";
 
 const Unrelated = Context.Service<{ readonly secret: string }>("OperationContextBridgesTest/Unrelated");

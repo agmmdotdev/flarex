@@ -63,7 +63,7 @@ execution evidence across the request, and the cost of validating continuous
 maintenance. These are source-derived risks, not measured regressions.
 
 [Materialization](../../packages/persistence-postgres/src/storage/materialization/materialization.ts)
-and the [point commit owner](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+and the [point commit owner](../../packages/persistence-postgres/src/commit/point/README.md)
 are the initial investigation boundaries. The existing
 [publisher](../../packages/persistence-postgres/src/commit/publication/publication.ts)
 already batches some fact families. The

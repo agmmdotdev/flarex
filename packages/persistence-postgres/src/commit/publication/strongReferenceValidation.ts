@@ -12,13 +12,23 @@ import type { StrongReferenceActivationProjection } from "../../installation/fra
 import { consumeAppRowSnapshotRevisionsInTransactionEffect, readBoundedPublicationAppRowsInTransactionEffect,
   withPublicationAppRowTargetsInTransactionEffect,
   AppRowReadPersistenceError, type AppRowRevisionV1 } from "../../storage/documents/appRows";
-import { appendPublicationIndexEntryRevisionsInTransactionEffect,
-  AppIndexEntryReadPersistenceError, AppIndexEntryWritePersistenceError,
+import {
+  appendPublicationIndexEntryRevisionsInTransactionEffect,
   withCurrentPublicationIndexRowsInTransactionEffect,
   scanCurrentPublicationIndexInTransactionEffect,
-  type AppendPublicationIndexEntryRevisionInput } from "../../storage/indexes/appIndexEntries";
+  type AppendPublicationIndexEntryRevisionInput,
+} from "../../storage/indexes/appIndexEntries";
+import {
+  AppIndexEntryReadPersistenceError,
+  AppIndexEntryWritePersistenceError,
+} from "../../storage/indexes/appIndexEntryErrors";
 import { lowerAppOrderedIndexPhysicalKeyV1 } from "../../storage/indexes/appDeveloperIndexCommitV1";
-import { AppUniqueKeyPersistenceError, withAppUniqueKeySlotsInTransactionEffect } from "../../storage/unique/appUniqueKeys";
+import {
+  AppUniqueKeyPersistenceError,
+} from "../../storage/unique/appUniqueKeyErrors";
+import {
+  withAppUniqueKeySlotsInTransactionEffect,
+} from "../../storage/unique/appUniqueKeys";
 import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect, readRequiredEnabledIndexBuildsInTransactionEffect,
   IndexBuildStatePersistenceError, type IndexBuildStateRecord } from "../../storage/indexes/indexBuildStates";

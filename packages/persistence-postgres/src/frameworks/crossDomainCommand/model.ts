@@ -6,7 +6,10 @@ import { CommerceTransactionError } from "../commerceTransaction/model";
 import { ApplicationCommandError } from "../../storage/materialization/insertParticipant";
 import { LogicalDocumentMaterializationError } from "../../storage/documents/logicalDocuments/materialization";
 import { RelationalSessionError } from "../../database/relationalTransaction/model";
-import { CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../../commit/committedPointOutcome";
+import {
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+  CommittedPointOutcomeCorruptionErrorV1,
+} from "../../commit/committedPointOutcomeErrors";
 import { ScopePublicationCorruptionError, ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstraintError,
   ScopePublicationResourceError, ScopePublicationSqlFailure, ScopePublicationUnsupportedProfileError } from "../../commit/publication/scopePublicationModel";
 import { LogicalApplicationSourceAdmissionError } from "../../storage/documents/logicalDocuments/applicationAdmission";

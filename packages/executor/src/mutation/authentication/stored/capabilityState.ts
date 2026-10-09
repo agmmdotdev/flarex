@@ -1,12 +1,11 @@
 import { Encoding } from "effect";
 
-import type {
-  PointCommitConflictEvidenceV1,
-  PointCommitAuthorityPinsV1,
-  PointCommitPublicationCommandV1,
-  RunningRelationConflictAttemptReplacementCommandV1,
-} from
-  "@flarex/persistence-postgres/point-commit-transaction";
+import {
+  type PointCommitConflictEvidenceV1,
+  type PointCommitAuthorityPinsV1,
+  type PointCommitPublicationCommandV1,
+  type RunningRelationConflictAttemptReplacementCommandV1,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationSessionAttemptSelectorV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";
 import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";

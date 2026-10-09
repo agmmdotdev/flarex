@@ -14,6 +14,7 @@ first, then use the corresponding test folder.
 | `execution/` | Preparation lifetimes, journal, finite capture, claims, session activation, OCC and recovery evidence |
 | `execution/journal/` | Paired receipt/replay and multi-source scenarios, finite-entry installation/lifecycle and the actual consumer API Worker boundary |
 | `commit/` | Atomic publication, durable outcome resolution, commit feed, event evidence and publication coverage |
+| `commit/point/` | Point publication, finishing, replacement, relation recovery, full-Cause boundaries and the actual lightweight consumer API in Worker |
 | `frameworks/` | CMS and Commerce host contracts, atomic workflow boundaries and supported cross-domain execution |
 | `integration/payload/` | Native Payload collection/query/relationship/population behavior against persistence |
 | `tasks/`, `sync/` | Their distinct durable run/delivery and change-source contracts |
@@ -45,6 +46,30 @@ helpers; single-owner faults and seal triggers stay with their suite.
 `sessionJournalStore.postgres.test.ts` retains real locking, concurrency,
 migration, SQLSTATE and transaction witnesses. Paired scenarios share exact
 behavior where appropriate; their driver obligations remain distinct.
+
+Point publication tests follow the settlement responsibilities:
+
+| Suite under `commit/point/` | Contract |
+| --- | --- |
+| `publication.postgres.test.ts` | Atomic publication and accepting-transaction ordering |
+| `publicationConcurrency.postgres.test.ts` | Scope lock waits, authorization changes, OCC and repeated dependencies |
+| `sidecarPublication.postgres.test.ts` | Intrinsic/developer index and unique writes, limits and atomic rollback |
+| `decisionProvenance.postgres.test.ts` | SQLSTATE, rollback, cleanup and uncertain COMMIT provenance |
+| `replacement.test.ts`, `replacement.postgres.test.ts` | Authentic conflict replacement and exact attempt transitions |
+| `finishing.test.ts`, `finishing.postgres.test.ts` | Finishing authority, lock order, time and rollback |
+| `relations.test.ts`, `relations.postgres.test.ts` | Relation publication, conflicts and recovery |
+| `promiseBoundary.test.ts`, `observation.test.ts`, `finitePreparation.test.ts` | Full Cause, passive observers and immutable finite preparation |
+| `consumerApi.workerd.test.ts` | Every consumer value export loads without SQL construction; copied authority remains invalid |
+| `publicationDiagnostics.postgres.test.ts` | Existing CE0 measurement probes; run deliberately under the performance owner |
+
+Point support keeps the actual responsibilities separate: `commandEvidence`
+projects genuine stored evidence, `relations` owns relation fixtures,
+`postgresFixture` constructs real scopes/attempts/ports and owns file-scoped
+database use, `postgresFaults` owns native faults and blockers, and
+`postgresDiagnostics` owns existing trace projections. These support modules do
+not publish through a second engine. Vitest's per-file isolation preserves the
+file-scoped fixture lifecycle. Measurement probes are separate from correctness
+acceptance and carry no new performance result merely because their paths moved.
 
 ## Driver And Runtime Lanes
 

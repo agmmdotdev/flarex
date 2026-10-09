@@ -1,6 +1,7 @@
+import { TransactionExecutionClaimCorruptionV1Error, TransactionExecutionClaimStaleV1Error } from "./transactionExecutionClaimErrors";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { and, eq } from "drizzle-orm";
-import { Data, Result } from "effect";
+import { Result } from "effect";
 
 import type { ScopeId, ScopeUuidV1 } from
   "flarex-protocol/storage-authority";
@@ -24,22 +25,6 @@ export type TransactionExecutionClaimCorruptionReasonV1 =
   | "claimMissingOrDuplicate"
   | "claimEvidenceInvalid"
   | "claimMutationInvalid";
-
-export class TransactionExecutionClaimCorruptionV1Error
-  extends Data.TaggedError("TransactionExecutionClaimCorruptionV1Error")<{
-    readonly scopeId: ScopeId;
-    readonly reason: TransactionExecutionClaimCorruptionReasonV1;
-    readonly cause?: unknown;
-  }> {}
-
-export class TransactionExecutionClaimStaleV1Error
-  extends Data.TaggedError("TransactionExecutionClaimStaleV1Error")<{
-    readonly scopeId: ScopeId;
-    readonly reason:
-      | "claimOwnerMismatch"
-      | "claimFenceMismatch"
-      | "claimExpired";
-  }> {}
 
 export interface TransactionExecutionClaimInsertV1 {
   readonly scopeUuid: ScopeUuidV1;

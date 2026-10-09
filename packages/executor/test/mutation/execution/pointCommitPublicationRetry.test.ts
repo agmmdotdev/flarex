@@ -1,7 +1,9 @@
 import { Effect, Random } from "effect";
 import { describe, expect, it } from "vitest";
-import { PointCommitConfirmedPreDecisionRollbackV1Error, PointCommitCorruptionV1Error } from
-  "@flarex/persistence-postgres/point-commit-transaction";
+import {
+  PointCommitConfirmedPreDecisionRollbackV1Error,
+  PointCommitCorruptionV1Error,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 import { publishPointCommitWithKnownSettledSqlRetry, PointCommitKnownSettledSqlRetryExhaustedV1Error,
   readPointCommitSqlRetryTerminalRefusal } from "../../../src/mutation/authentication/stored/finishingOperations";
 

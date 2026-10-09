@@ -1,43 +1,146 @@
-import { Effect, Exit, Result, Schema } from "effect";
-import { sql } from "drizzle-orm";
-import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-definition";
-import { orderedIndexBoundHexV1ToBytes, orderedIndexKeyBytesHexV1ToBytes, orderedIndexRowIdHexV1ToBytes } from "flarex-protocol/ordered-index";
-import type { LogicalIndexRangeReadDependencyV1, LogicalApplicationRelationIncomingReadDependencyV1 } from "flarex-protocol/commit-protocol";
-import { fxAppRowRevisions, fxAppIndexEntryRevisions, fxSystemIndexBuildStates,
-  fxSystemScopeClocks, fxSystemAppSchemaCandidateValidations } from "../../database/schema";
-import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from "../../application/applicationActivationSchema";
-import { fxSystemApplicationRevisionSchemas } from "../../application/relations/applicationRelationSchema";
-import { fxSystemApplicationRevisionSchemasV1 } from "../../database/schema";
-import { prepareApplicationMaterializationCoverageCapture } from "../indexes/indexBuildStates";
-import { prepareAppIndexKeyTransitionAcceptanceInTransactionEffect } from "../indexes/appIndexEntries";
-import { prepareAppUniqueOriginalOwnerAcceptanceInTransactionEffect } from "../unique/appUniqueKeys";
-import { requireAdmittedTargetInstallationSchema } from "../../installation/installationLifecycle";
-import { corruption, AppDocumentInsertionConflictError, PointCommitSqlFailureMarkerV1, type PointCommitConflictCauseV1 } from "../../commit/pointCommitErrors";
-import type { AppRowTransaction } from "../documents/appRows";
-import type { LocatedAppIndexDefinitionV1 } from "../indexes/appIndexDefinitions";
-import type { LocatedAppUniqueConstraintDefinitionV1 } from "../unique/appUniqueConstraintDefinitions";
-import type { ApplicationDocumentMaterializationClock, LocatedPreparedPointCommitApplicationRelations, LoadedPointCommitHeadV1 } from "./model";
-import type { PreparedApplicationDocumentSettlement } from "./settlementPlan";
-import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1,
-  preparedUniqueKeyActions, compareDeveloperIndexEntryActions, decodePointCommitHeadResult,
-  mapPointCommitUniqueKeyFailure, acceptOriginalApplicationPublicationBuildLocks, type OriginalApplicationPublicationBuildLocks } from "./materialization";
-import { AppIndexTransitionLimitExceededError, AppIndexEntryReadPersistenceError } from "../indexes/appIndexEntries";
-import { ApplicationRelationTargetNotLiveError } from "../../application/relations/applicationRelationCommit";
-import { PointCommitConflictV1Error, PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
-  PointCommitUniqueConstraintMaintenanceUnavailableV1Error, PointCommitStaleAuthorityV1Error } from "../../commit/pointCommitErrors";
-import { ScopeEpochSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
-import { IndexBuildAttemptFenceSchema } from "flarex-protocol/index-build-state";
-import { CatalogIndexDefinitionIdSchema } from "flarex-protocol/catalog";
-import type { IndexCoverageWrite } from "./domainCoverage";
-import { observeExecution } from "../../execution/diagnostics/operation";
-import { OrderedIndexKeyBytesHexV1Schema, OrderedIndexRowIdHexV1Schema } from "flarex-protocol/ordered-index";
-import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
-import { observeDrizzleQuery } from "../../database/drizzleQueryObservation";
-import { databaseTimestampFromUnknown } from "../../database/databaseTimestamp";
-import { exactScopeWriteClockObservationIdentity } from "../../scope/scopeClock";
-import { applicationCompositeSelection, applicationDomainFailureDetail,
-  applicationIndexTransitionScalarArray, applicationIndexTransitionByteArray } from "./domainApplication";
+import type {
+  ApplicationDocumentMaterializationClock,
+  LocatedPreparedPointCommitApplicationRelations,
+  LoadedPointCommitHeadV1,
+} from "./model";
+import type {
+  PreparedApplicationDocumentSettlement,
+} from "./settlementPlan";
+import type {
+  LocatedAppIndexDefinitionV1,
+} from "../indexes/appIndexDefinitions";
+import type {
+  LocatedAppUniqueConstraintDefinitionV1,
+} from "../unique/appUniqueConstraintDefinitions";
+import type {
+  LogicalIndexRangeReadDependencyV1,
+  LogicalApplicationRelationIncomingReadDependencyV1,
+} from "flarex-protocol/commit-protocol";
+import {
+  type OriginalApplicationPublicationBuildLocks,
+  acceptOriginalApplicationPublicationBuildLocks,
+} from "./originalBuildLocks";
+import {
+  Schema,
+  Effect,
+  Exit,
+  Result,
+} from "effect";
+import {
+  AppIndexTransitionLimitExceededError,
+  prepareAppIndexKeyTransitionAcceptanceInTransactionEffect,
+} from "../indexes/appIndexEntries";
+import {
+  PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
+  corruption,
+  PointCommitUniqueConstraintMaintenanceUnavailableV1Error,
+  AppDocumentInsertionConflictError,
+  type PointCommitConflictCauseV1,
+  PointCommitConflictV1Error,
+  PointCommitStaleAuthorityV1Error,
+} from "../../commit/point/errors";
+import {
+  AppIndexEntryReadPersistenceError,
+  AppIndexEntryStorageCorruptionError,
+} from "../indexes/appIndexEntryErrors";
+import {
+  PointCommitSqlFailureMarkerV1,
+} from "../../commit/point/sqlFailures";
+import type {
+  AppRowTransaction,
+} from "../documents/appRows";
+import {
+  requireAdmittedTargetInstallationSchema,
+} from "../../installation/installationLifecycle";
+import {
+  prepareApplicationMaterializationCoverageCapture,
+} from "../indexes/indexBuildStates";
+import {
+  MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+  MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1,
+} from "./limits";
+import {
+  prepareAppUniqueOriginalOwnerAcceptanceInTransactionEffect,
+} from "../unique/appUniqueKeys";
+import {
+  mapPointCommitUniqueKeyFailure,
+} from "./uniqueKeyFailures";
+import {
+  preparedUniqueKeyActions,
+  compareDeveloperIndexEntryActions,
+} from "./sidecarPolicy";
+import {
+  appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+} from "flarex-protocol/app-document-id";
+import {
+  applicationIndexTransitionScalarArray,
+  applicationIndexTransitionByteArray,
+  applicationCompositeSelection,
+  applicationDomainFailureDetail,
+} from "./domainApplication";
+import {
+  fxAppRowRevisions,
+  fxSystemIndexBuildStates,
+  fxSystemScopeClocks,
+  fxAppIndexEntryRevisions,
+  fxSystemAppSchemaCandidateValidations,
+  fxSystemApplicationRevisionSchemasV1,
+} from "../../database/schema";
+import {
+  sql,
+} from "drizzle-orm";
+import {
+  appIndexPhysicalSpecSha256HexV1ToBytes,
+} from "flarex-protocol/index-definition";
+import {
+  orderedIndexBoundHexV1ToBytes,
+  orderedIndexKeyBytesHexV1ToBytes,
+  orderedIndexRowIdHexV1ToBytes,
+  OrderedIndexKeyBytesHexV1Schema,
+  OrderedIndexRowIdHexV1Schema,
+} from "flarex-protocol/ordered-index";
+import {
+  fxSystemApplicationActiveHeads,
+  fxSystemApplicationActivations,
+} from "../../application/applicationActivationSchema";
+import {
+  fxSystemApplicationRevisionSchemas,
+} from "../../application/relations/applicationRelationSchema";
+import {
+  ApplicationRelationTargetNotLiveError,
+} from "../../application/relations/applicationRelationCommit";
+import type {
+  IndexCoverageWrite,
+} from "./domainCoverage";
+import {
+  exactScopeWriteClockObservationIdentity,
+} from "../../scope/scopeClock";
+import {
+  CatalogIndexDefinitionIdSchema,
+} from "flarex-protocol/catalog";
+import {
+  IndexBuildAttemptFenceSchema,
+} from "flarex-protocol/index-build-state";
+import {
+  ScopeEpochSchema,
+  StorageGenerationFenceSchema,
+} from "flarex-protocol/storage-authority";
+import {
+  observeDrizzleQuery,
+} from "../../database/drizzleQueryObservation";
+import {
+  runDrizzleStatementEffect,
+} from "../../database/drizzleStatementEffect";
+import {
+  databaseTimestampFromUnknown,
+} from "../../database/databaseTimestamp";
+import {
+  decodePointCommitHeadResult,
+} from "./headEvidence";
+import {
+  observeExecution,
+} from "../../execution/diagnostics/operation";
 
 const publicationTerminalColumn = (name: string) => `CASE WHEN observed.kind IN ('accepted','expired','stopped') THEN observed.${name} ELSE NULL END`;
 
@@ -71,6 +174,7 @@ function mapDeveloperPublicationFailure(cause:unknown) {
   return cause instanceof AppIndexTransitionLimitExceededError
     ? new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({reason:"entryRevisionLimitExceeded",observed:cause.observed,maximum:cause.maximum})
     : cause instanceof AppIndexEntryReadPersistenceError ? new PointCommitSqlFailureMarkerV1("loadDeveloperIndexEntryHeads",cause.cause)
+      : cause instanceof AppIndexEntryStorageCorruptionError ? cause
       : corruption("developerIndexTransitionInvalid");
 }
 
@@ -189,11 +293,7 @@ export const preparePublicationAcceptance = Effect.fnUntraced(function* (tx: App
   }).from(source);
   const mapFailure = (cause: unknown) => {
     if (applicationDomainFailureDetail(cause, "fx_accept_app_index_transitions") !== null) {
-      const failure = emptyDeveloper.mapFailure(cause);
-      return failure instanceof AppIndexTransitionLimitExceededError
-        ? new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({ reason: "entryRevisionLimitExceeded", observed: failure.observed, maximum: failure.maximum })
-        : failure instanceof AppIndexEntryReadPersistenceError ? new PointCommitSqlFailureMarkerV1("loadDeveloperIndexEntryHeads", failure.cause)
-          : corruption("developerIndexTransitionInvalid");
+      return mapDeveloperPublicationFailure(emptyDeveloper.mapFailure(cause));
     }
     if (applicationDomainFailureDetail(cause, "fx_accept_app_unique_owners") !== null) return mapPointCommitUniqueKeyFailure(emptyUnique.mapFailure(cause));
     const detail = applicationDomainFailureDetail(cause, "fx_accept_app_publication");

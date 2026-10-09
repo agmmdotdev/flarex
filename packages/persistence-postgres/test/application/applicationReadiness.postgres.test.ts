@@ -91,8 +91,9 @@ import {
   createPostgresSplitScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../../src/database/postgres";
-import { createPointCommitPublisherPortV1 } from
-  "../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+} from "../../src/commit/point/construction";
 import {
   beginPhysicalDefinitionDrainingEffect,
   cancelPhysicalDefinitionDrainingEffect,

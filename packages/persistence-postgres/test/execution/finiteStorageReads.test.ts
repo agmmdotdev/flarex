@@ -5,7 +5,13 @@ import { describe, expect, it } from "vitest";
 import { ScopeIdSchema, CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { decodeAppRowIdHexV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { consumeCapturedAppRowsAtSnapshotEffect, prepareAppRowsSnapshotReadEffect, type AppRowStorageCorruptionError } from "../../src/storage/documents/appRows";
+import {
+  consumeCapturedAppRowsAtSnapshotEffect,
+  prepareAppRowsSnapshotReadEffect,
+} from "../../src/storage/documents/appRows";
+import {
+  type AppRowStorageCorruptionError,
+} from "../../src/storage/documents/appRowErrors";
 import { runEffect } from "../support/effectTestRuntime";
 import { decodeCapturedApplicationWriteOwnershipEffect } from "../../src/application/ownership/Repository";
 import { ApplicationWriteOwnershipHistoryBudget } from "../../src/application/ownership/Policy";

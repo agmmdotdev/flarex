@@ -38,8 +38,10 @@ import {
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionActivationV1";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
-  inspectApplicationRevisionSyscallValidatorV1,
   InvalidApplicationRevisionSyscallValidatorV1Error,
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
+import {
+  inspectApplicationRevisionSyscallValidatorV1,
   validateApplicationRevisionSyscallDocumentInTransactionV1,
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionSyscallValidatorV1";
 import {

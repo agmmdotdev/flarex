@@ -56,7 +56,9 @@ import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnaps
   type ProtectedTargetMetadataEvidence, type PreparedMetadataEpochError } from "../execution/preparation/preparedMetadataEpoch";
 import { canonicalStandaloneApplicationBinding, decodeStandaloneApplicationBinding,
   type StandaloneApplicationBinding } from "./applicationStandaloneBinding";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../execution/transactionSessionAttemptKernel";
 import {
   readStandaloneReadSnapshot,
   type StandaloneReadSnapshot,
@@ -206,10 +208,12 @@ import {
 } from "./relations/applicationRelationSchema";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-  LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../execution/transactionSessionAttemptKernel";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from "../execution/readCommittedTransactionFailure";
 
 const UTF8 = new TextEncoder();
 const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });
