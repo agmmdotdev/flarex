@@ -1,3 +1,4 @@
+import { withExecutionDiagnosticDefaults } from "../executionDiagnostics/operation";
 import { Cause, Effect } from "effect";
 import { retainPreparedHost, chargeHostPreparation } from "../preparedHostRuntime";
 import { sql } from "drizzle-orm";
@@ -29,7 +30,7 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
 ): Effect.fn.Return<AtomicCommerceHost, CommerceTransactionError> {
   const retained = yield* retainPreparedHost(input.hostRuntime, composeAtomicCommerceHost(input)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
   return Object.freeze({ close: retained.close, newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`,
-    run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure)))),
+    run: (key, command, args) => withExecutionDiagnosticDefaults(retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))))),
   } satisfies AtomicCommerceHost);
 });
 

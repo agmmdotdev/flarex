@@ -2,8 +2,20 @@ import { expect, it } from "vitest";
 import { Effect, Exit } from "effect";
 import { acceptPreparedInstallation, prepareInstallationRuntime } from "../src/frameworkSchema/installation/runtime";
 import { postgresUrl, createFileScopedPostgresFixture } from "./postgresHelpers";
-import { createInstallationRuntimeFixture, exerciseInstallationRuntime } from "./frameworkInstallationRuntimeTestSupport";
+import { createInstallationRuntimeFixture, exerciseColdInstallationAdmission, exerciseInstallationRuntime, exerciseMismatchedInstallationNamespace } from "./frameworkInstallationRuntimeTestSupport";
 import { runEffect } from "./effectTestRuntime";
+
+it.skipIf(postgresUrl === null)("refuses a genuinely issued graph for an uninstalled namespace before canonical reads on PostgreSQL", async () => {
+  const fixture = await createFileScopedPostgresFixture();
+  try { await exerciseMismatchedInstallationNamespace(fixture.persistence.drizzle); }
+  finally { await fixture.dispose(); }
+}, 180_000);
+
+it.skipIf(postgresUrl === null)("refuses cold preparation before reading the canonical graph on PostgreSQL", async () => {
+  const fixture = await createFileScopedPostgresFixture();
+  try { await exerciseColdInstallationAdmission(fixture.persistence.drizzle); }
+  finally { await fixture.dispose(); }
+}, 180_000);
 
 it.skipIf(postgresUrl === null)("compares fresh installation evidence after preparation on PostgreSQL", async () => {
   const fixture = await createFileScopedPostgresFixture();

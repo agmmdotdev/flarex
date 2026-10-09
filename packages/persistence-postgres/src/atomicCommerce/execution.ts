@@ -227,14 +227,15 @@ function makeAtomicCommerceExecution(
   const context = Object.freeze<AtomicCommerceContext>({
     eventGroupId: key,
     checkpoint: lifetime.operation(lifetime.context, id, "read", Effect.void),
-    capture: (value) =>
+    capture: (value, normalize) =>
       lifetime.operation(
         lifetime.context,
         id,
         "read",
         Effect.gen(function* () {
+          const normalized = normalize === undefined ? value : yield* Effect.fromResult(normalize(value));
           const intermediate = yield* Effect.fromResult(
-            captureCommerceJsonData(value, lifetime.remainingBytes()),
+            captureCommerceJsonData(normalized, lifetime.remainingBytes()),
           );
           yield* Effect.fromResult(lifetime.charge(intermediate.bytes));
           return intermediate.value;

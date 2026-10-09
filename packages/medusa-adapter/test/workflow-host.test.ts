@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
-import { createStep, createWorkflow, isPreparedWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
+import { createHook, createStep, createWorkflow, isPreparedWorkflow, StepResponse, transform, when, WorkflowResponse } from "@medusajs/workflows-sdk";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineGraphReadCommand } from "../src/local-graph/commands";
@@ -13,6 +13,7 @@ import { checkedCommerceValue } from "../src/commerce-checked-value";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { runNativeMedusaWorkflow } from "../src/workflow-runtime";
 import type { CommercePromiseOwner } from "../src/commerce-promise-owner";
+import { captureWorkflowValue } from "../src/workflow-value";
 
 const source = { name: "sample-module", profile: "sample", models: [], extensions: [], capabilities: [] };
 const command = defineGraphReadCommand("sampleRead", () => Effect.succeed([[], 0]));
@@ -30,11 +31,104 @@ if (members === undefined) throw new Error("Missing unit resource selection");
 const decodeJson = commerceDecoder(Schema.Json, "invalidInput");
 // A resource-dispatch unit port, not a persistence or transaction simulation.
 const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint: Effect.void,
-  capture: input => Effect.fromResult(decodeJson(input)), call: (_participant, _command, args) => Effect.succeed(args),
+  capture: (input, normalize) => Effect.suspend(() => Effect.fromResult((normalize ?? decodeJson)(input))),
+  call: (_participant, _command, args) => Effect.succeed(args),
   emit: () => Effect.fail(commerceError("unadmittedEvent")), refuse: error => Effect.fail(error),
 });
 
 describe("workflow registration and scoped resource composition", () => {
+  it("enters the existing capture operation before inspecting foreign workflow proxies or accessors", async () => {
+    const ctx = context();
+    const inspect = vi.fn();
+    const foreign = new Proxy({}, {
+      getPrototypeOf: () => { inspect(); return Object.prototype; },
+      ownKeys: () => { inspect(); return []; },
+      getOwnPropertyDescriptor: () => { inspect(); return undefined; },
+    });
+    const refusal = commerceError("limitExceeded");
+    const capture = vi.fn<AtomicCommerceContext["capture"]>(() => Effect.fail(refusal));
+    await expect(Effect.runPromise(captureWorkflowValue({ ...ctx, capture }, foreign))).rejects.toBe(refusal);
+    expect(inspect).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledTimes(1);
+    const getter = vi.fn(() => "unsafe");
+    await expect(Effect.runPromise(captureWorkflowValue(ctx,
+      Object.defineProperty({}, "value", { get: getter, enumerable: true })))).rejects.toMatchObject({ reason: "invalidInput" });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("restores own undefined fields in mutable detached workflow inputs", async () => {
+    const foreign = { missing: undefined, nested: { missing: undefined, count: 1 } };
+    const owned = await Effect.runPromise(captureWorkflowValue(context(), foreign));
+    expect(owned).toEqual(foreign);
+    expect(owned).not.toBe(foreign);
+    expect(Object.getOwnPropertyDescriptor(owned, "missing"))
+      .toMatchObject({ value: undefined, enumerable: true, writable: true, configurable: true });
+    expect(Object.isFrozen(owned)).toBe(false);
+    if (typeof owned !== "object" || owned === null) throw new Error("Expected captured workflow object");
+    expect(Reflect.set(owned, "missing", "changed")).toBe(true);
+    expect(foreign.missing).toBeUndefined();
+  });
+  it("detaches each reached native callback without mutating retained outputs or omission fields", async () => {
+    const reached: object[] = [];
+    const mutate = (value: { nested: { count: number }; missing: undefined }, count: number) => {
+      expect(value.nested.count).toBe(1);
+      expect(Object.hasOwn(value, "missing")).toBe(true);
+      expect(Object.isFrozen(value)).toBe(false);
+      expect(Object.isFrozen(value.nested)).toBe(false);
+      reached.push(value);
+      value.nested.count = count;
+      return count;
+    };
+    const foreign = { nested: { count: 1 }, missing: undefined };
+    const produce = createStep("owned-output", () => new StepResponse(foreign));
+    const consume = createStep({ name: "mutating-step", compensation: "transactionCovered" },
+      (value: typeof foreign) => new StepResponse(mutate(value, 3), { missing: undefined, ids: ["compensation"] }),
+      vi.fn());
+    const skipped = vi.fn((_value: typeof foreign) => undefined);
+    const never = createStep("skipped-callback", skipped);
+    const flow = createWorkflow("owned-native-callbacks", () => {
+      const source = produce(undefined);
+      const transformed = transform(source, value => mutate(value, 2));
+      const consumed = consume(source);
+      const hook = createHook<"mutate", typeof foreign, number>("mutate", source);
+      const guarded = when("mutating-predicate", source, value => { mutate(value, 5); return true; })
+        .then(() => source.nested.count);
+      when("skip", source, () => false).then(() => never(source));
+      return new WorkflowResponse({ original: source.nested.count, transformed, consumed,
+        hooked: hook.getResult(), guarded }, { hooks: [hook] });
+    });
+    const ctx = context();
+    const prepared = Result.getOrThrow(flow.prepare({ mutate: value => mutate(value, 4) }));
+    expect(await Effect.runPromise(runNativeMedusaWorkflow(prepared, ctx, null,
+      owner => bindWorkflowResources(resources, members, undefined, [], ctx, owner)))).toEqual({
+      original: 1, transformed: 2, consumed: 3, hooked: 4, guarded: 1,
+    });
+    expect(reached).toHaveLength(4);
+    expect(new Set(reached).size).toBe(4);
+    expect(reached.every(value => value !== foreign)).toBe(true);
+    expect(foreign.nested.count).toBe(1);
+    expect(skipped).not.toHaveBeenCalled();
+  });
+
+  it("captures distinct compensation before later work even when the step output is valid", async () => {
+    const getter = vi.fn(() => "invalid compensation");
+    const later = vi.fn(() => "must not run");
+    const inverse = vi.fn();
+    const step = createStep({ name: "invalid-compensation", compensation: "transactionCovered" },
+      () => new StepResponse(1, Object.defineProperty({}, "private", { get: getter, enumerable: true })), inverse);
+    const after = createStep("after-compensation", later);
+    const flow = createWorkflow("check-full-step-response", () => {
+      const output = step(undefined);
+      return new WorkflowResponse(after(output));
+    });
+    const ctx = context();
+    await expect(Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), ctx, null,
+      owner => bindWorkflowResources(resources, members, undefined, [], ctx, owner)))).rejects.toMatchObject({ reason: "invalidInput" });
+    expect(getter).not.toHaveBeenCalled();
+    expect(later).not.toHaveBeenCalled();
+    expect(inverse).not.toHaveBeenCalled();
+  });
+
   it("keeps unknown and unselected method refusals sticky after native callbacks catch them", async () => {
     const registered = Result.getOrThrow(defineWorkflowModule({ name: "sample", source,
       methods: { echo: method, unselected: method }, graph: graphDefinition() }));

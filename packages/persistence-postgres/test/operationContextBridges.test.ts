@@ -80,6 +80,8 @@ describe("persistence Promise callback tracing context", () => {
     "continues only tracer and parent through %s with concurrent request isolation", async kind => {
       const request = async (name: string) => {
         const trace = tracing();
+        const linked = Tracer.externalSpan({ traceId: `linked-${name}`, spanId: `span-${name}` });
+        const links = [{ span: linked, attributes: { request: name } }];
         const body = (transaction: FlarexMetadataTransaction) => Effect.withFiber(fiber => Effect.sync(() => {
           expect(transaction).toBe(tx);
           expect(Context.get(fiber.context, Tracer.Tracer)).toBe(trace.tracer);
@@ -87,6 +89,8 @@ describe("persistence Promise callback tracing context", () => {
           expect(Context.get(fiber.context, Clock.Clock)).not.toBe(clock);
           expect(Context.getOption(fiber.context, ExecutionDiagnostics)).toEqual(Option.some(diagnosticPolicy));
           expect(Context.get(fiber.context, References.TracerTimingEnabled)).toBe(false);
+          expect(Context.get(fiber.context, References.TracerSpanAnnotations)).toEqual({ request: name });
+          expect(Context.get(fiber.context, References.TracerSpanLinks)).toBe(links);
           return name;
         }));
         const effect = kind === "transaction"
@@ -95,7 +99,8 @@ describe("persistence Promise callback tracing context", () => {
         expect(await Effect.runPromise(effect.pipe(Effect.withSpan(name),
           Effect.provideService(ExecutionDiagnostics, diagnosticPolicy), Effect.withTracerTiming(false),
           Effect.provideService(Tracer.Tracer, trace.tracer), Effect.provideService(Clock.Clock, clock),
-          Effect.provideService(Unrelated, { secret: name })))).toBe(name);
+          Effect.provideService(Unrelated, { secret: name }), Effect.annotateSpans({ request: name }),
+          Effect.provideService(References.TracerSpanLinks, links)))).toBe(name);
         const root = trace.spans.find(span => span.name === name);
         const callback = trace.spans.find(span => span.name === "callback-body");
         const read = trace.spans.find(span => span.name === "LocatedReadCommitted.runEffect");
@@ -104,6 +109,9 @@ describe("persistence Promise callback tracing context", () => {
         if (parent === undefined) throw new Error("Missing real located-read operation parent");
         expect(Option.getOrUndefined(callback.parent)).toBe(parent);
         expect(callback.traceId).toBe(root.traceId);
+        expect(callback.attributes.get("request")).toBe(name);
+        expect(callback.links).toEqual(links);
+        expect(callback.status).toMatchObject({ _tag: "Ended", startTime: 0n, endTime: 0n });
         if (read !== undefined) expect(Option.getOrUndefined(read.parent)).toBe(root);
         return trace;
       };

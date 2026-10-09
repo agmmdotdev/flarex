@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 import { observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "../../../../../persistence-postgres/src/pointCommitPublicationObservation";
 import { createEffectMeasurementCollector } from "./effect";
 import { observePhysicalSessionEffect, PhysicalSessionObservation } from "../../../../../persistence-postgres/src/physicalSession/observation";
-import { observeExecution } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { observeExecution, withExecutionDiagnosticDefaults } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 
 describe("diagnostic Effect measurement collector", () => {
   it("opts stable core operations into the actual SDK Layer without changing their full Cause", async () => {
     let tick = 0;
     const collector = createEffectMeasurementCollector({ now: () => tick++ });
     const original = Cause.combine(Cause.combine(Cause.fail({ _tag: "Refused" }), Cause.die(new Error("defect"))), Cause.interrupt(993));
-    const work = observeExecution("LogicalDocuments.get", Effect.failCause(original));
+    const work = withExecutionDiagnosticDefaults(observeExecution("LogicalDocuments.get", Effect.failCause(original)));
     const quiet = await Effect.runPromiseExit(work);
     expect(Exit.isFailure(quiet) && quiet.cause).toBe(original);
     expect(collector.records()).toEqual([]);

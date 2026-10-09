@@ -183,7 +183,13 @@ export async function payloadRelationScenario(input: {
       await write(relation.runtime.commands.delete, { collection: "posts", id: tombstone });
       const foreignBefore = await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, foreignUuid));
 
-      for (const [relatedPost, reason] of [[missing, "relationTargetMissing"], [tombstone, "relationTargetMissing"], [wrongTable, "documentInvalid"], ["invalid", "documentInvalid"]]) {
+      const invalidRelations: ReadonlyArray<readonly [relatedPost: string, reason: Parameters<typeof cmsError>[0]]> = [
+        [missing, "relationTargetMissing"],
+        [tombstone, "relationTargetMissing"],
+        [wrongTable, "documentInvalid"],
+        ["invalid", "documentInvalid"],
+      ];
+      for (const [relatedPost, reason] of invalidRelations) {
         const before = await inventory();
         expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason });
         expect(await inventory()).toEqual(before);

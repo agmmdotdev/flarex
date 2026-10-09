@@ -171,7 +171,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         observeExecution(profile === "sessionBudget" ? "PostgresPhysicalSession.read" : "PostgresPhysicalSession.implicitRead", Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             const acquisition = yield* Effect.exit(
-              restore(acquireConnection(ownedPool, input.deadline, options)),
+              restore(acquireConnection(ownedPool, input.deadline, options, "database")),
             );
             if (Exit.isFailure(acquisition)) {
               return yield* Effect.failCause(acquisition.cause);
@@ -411,7 +411,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         ) => Effect.Effect<Value, Failure, never>,
       ): Effect.fn.Return<PhysicalInitialSettlement<Value, Failure>, never> {
         const acquisition = yield* Effect.exit(
-          restore(acquireConnection(ownedPool, input.deadline, options)),
+          restore(acquireConnection(ownedPool, input.deadline, options, "transaction")),
         );
         if (Exit.isFailure(acquisition)) {
           return initialNotCommitted(acquisition.cause);
@@ -947,6 +947,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     pool: PhysicalPostgresPool,
     deadline: PhysicalDeadline,
     options: NormalizedPostgresPhysicalSessionOptions,
+    requestedView: "database" | "transaction",
   ): Effect.Effect<CheckedOutConnection, ResourceIssue, never> {
     return remainingResourceMilliseconds(deadline, "acquire").pipe(
       Effect.flatMap((remainingMilliseconds) =>
@@ -986,10 +987,9 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
                   return;
                 }
                 try {
+                  const connection = makeCheckedOutConnection(client, pool.options, options, requestedView);
                   finish(
-                    Effect.succeed(
-                      makeCheckedOutConnection(client, pool.options, options),
-                    ),
+                    Effect.succeed(connection),
                   );
                 } catch (cause) {
                   const cleanupCause =
@@ -1023,7 +1023,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     options: NormalizedPostgresPhysicalSessionOptions,
   ): Effect.fn.Return<CheckedOutConnection, ResourceIssue> {
     while (true) {
-      const connection = yield* acquireConnection(pool, deadline, options);
+      const connection = yield* acquireConnection(pool, deadline, options, "transaction");
       if (connection.identity !== excludedIdentity) return connection;
       const discarded = yield* quarantineConnectionEffect(connection, options);
       if (discarded.kind === "failed") {
@@ -1036,6 +1036,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     client: PoolClient,
     cancellationClientConfig: PoolConfig | undefined,
     options: NormalizedPostgresPhysicalSessionOptions,
+    requestedView: "database" | "transaction",
   ): CheckedOutConnection {
     const pending = new Set<Promise<void>>();
     let trackedWorkFailure: CheckedOutConnectionWorkFailure | undefined;
@@ -1047,7 +1048,6 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     const observeConnectionError = (cause: Error) => {
       observedConnectionError ??= cause;
     };
-    client.on("error", observeConnectionError);
 
     const trackPromiseLike = (promise: PromiseLike<unknown>): void => {
       const mirror = Promise.resolve(promise).then(
@@ -1085,7 +1085,11 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
           : Reflect.get(target, property, receiver);
       },
     });
-    const { database, transaction } = composition.access(trackedClient);
+    const access = composition.access(trackedClient);
+    // Force this profile's view before attaching observers, while acquisition
+    // still owns construction failure and exact-checkout destruction.
+    void access[requestedView];
+    client.on("error", observeConnectionError);
     const drainVerdict = (): CheckedOutConnectionDrain =>
       trackedWorkFailure === undefined
         ? Object.freeze({ kind: "settled" })
@@ -1093,8 +1097,8 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
 
     return {
       client,
-      database,
-      transaction,
+      get database() { return access.database; },
+      get transaction() { return access.transaction; },
       identity: connectionIdentity(client),
       backendKeyData: readNodePostgresBackendKeyData(client),
       cancellationClientConfig,

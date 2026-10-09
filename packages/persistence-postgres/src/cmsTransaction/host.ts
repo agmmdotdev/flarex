@@ -1,3 +1,4 @@
+import { withExecutionDiagnosticDefaults } from "../executionDiagnostics/operation";
 import { getCmsCommand, type CmsCommand } from "./commands";
 import { projectCmsRequestFailure } from "./failure";
 import type { CmsHostConfiguration } from "./hostConfiguration";
@@ -87,8 +88,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
     composeCmsHost(input, requestBudget, selectedBudget !== undefined, hooks))
     .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   return Object.freeze({ requestBudget, close: retained.close, newRequestKey: () => `cms/${crypto.randomUUID()}`,
-    run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
-    read: (command, args) => retained.use(host => host.read(command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+    run: (key, command, args) => withExecutionDiagnosticDefaults(retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))))),
+    read: (command, args) => withExecutionDiagnosticDefaults(retained.use(host => host.read(command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))))),
   } satisfies CmsHost);
 });
 

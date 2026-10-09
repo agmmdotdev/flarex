@@ -249,6 +249,58 @@ it.each(["read", "initial", "recovery"] as const)(
   },
 );
 
+it.each(["read", "initial", "recovery"] as const)("destroys a checkout on %s view construction failure before BEGIN or callback", async profile => {
+  const original = new Error("physical view construction fault");
+  const release = vi.fn();
+  const client: PoolClient = Object.assign(new Client(), { release });
+  const query = vi.spyOn(client, "query");
+  const access = makePhysicalSessionAccess(flarexSchema);
+  let databaseRequests = 0;
+  let transactionRequests = 0;
+  let callbacks = 0;
+  const physical = makePostgresPhysicalSessionDriver({
+    connect: callback => callback(undefined, client, release),
+  }, { access: checkedOut => {
+    const views = access(checkedOut);
+    return {
+      get database() { databaseRequests++; if (profile === "read") throw original; return views.database; },
+      get transaction() { transactionRequests++; if (profile !== "read") throw original; return views.transaction; },
+    };
+  }, errors: physicalSessionErrors });
+  const cause = await runEffect(Effect.gen(function* () {
+    const deadline = yield* deadlines.start(profile, 1000);
+    const work = () => Effect.sync(() => { callbacks++; });
+    if (profile === "read") {
+      const exit = yield* Effect.exit(physical.runReadEffect({ deadline }, work));
+      if (Exit.isSuccess(exit)) throw new Error("Expected failed physical read acquisition");
+      return exit.cause;
+    }
+    if (profile === "initial") {
+      const result = yield* physical.runInitialTransactionEffect({ isolationLevel: "read committed", deadline,
+        lockTimeoutMilliseconds: 500, recoveryTimeoutMilliseconds: 1000 }, effect => effect, work);
+      if (result.kind !== "notCommitted") throw new Error("Expected uncommitted acquisition failure");
+      return result.cause;
+    }
+    const result = yield* physical.runRecoveryTransactionEffect({ deadline, lockTimeoutMilliseconds: 500,
+      excludedConnectionIdentity: makePhysicalConnectionIdentity() }, work);
+    if (result.kind !== "unresolved" || result.resolution.kind !== "lifecycle")
+      throw new Error("Expected recovery lifecycle acquisition failure");
+    return result.resolution.cause;
+  }));
+  expect(cause.reasons).toHaveLength(1);
+  const reason = cause.reasons[0];
+  const issue = reason && Cause.isFailReason(reason) ? reason.error : undefined;
+  expect(issue).toBeInstanceOf(PhysicalSessionResourceIssue);
+  if (issue instanceof PhysicalSessionResourceIssue) {
+    expect(issue.phase).toBe("acquire");
+    expect(issue.cause).toBe(original);
+  }
+  expect([databaseRequests, transactionRequests]).toEqual(profile === "read" ? [1, 0] : [0, 1]);
+  expect(callbacks).toBe(0);
+  expect(query).not.toHaveBeenCalled();
+  expect(release).toHaveBeenCalledExactlyOnceWith(true);
+});
+
 function physicalSessionWitnessPool(failures: ReadonlyMap<string, Error> = new Map()) {
   const release = vi.fn();
   const statements: string[] = [];
@@ -353,6 +405,45 @@ it.each([false, true])("refuses an unconnected implicit transport before callbac
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 describePostgres("physical session owner composition", () => {
+  it("forwards lazy views through read, initial and recovery checkouts without constructing the unused view", async () => {
+    const pool = new Pool({ connectionString: postgresUrl ?? undefined, max: 1 });
+    const access = makePhysicalSessionAccess(flarexSchema);
+    const requests: { database: number; transaction: number }[] = [];
+    const physical = makePostgresPhysicalSessionDriver(pool, { access: client => {
+      const views = access(client);
+      const requested = { database: 0, transaction: 0 };
+      requests.push(requested);
+      return {
+        get database() { requested.database++; return views.database; },
+        get transaction() { requested.transaction++; return views.transaction; },
+      };
+    }, errors: physicalSessionErrors });
+    try {
+      await runEffect(Effect.gen(function* () {
+        const deadline = yield* deadlines.start("read", 10_000);
+        const read = yield* physical.runReadEffect({ deadline }, database => Effect.tryPromise({
+          try: async () => await database.execute(sql`select 42 as value`),
+          catch: cause => new PhysicalSessionResourceIssue({ phase: "read", cause }),
+        }));
+        expect(read).toMatchObject({ rows: [{ value: 42 }] });
+        const initial = yield* physical.runInitialTransactionEffect({ deadline, isolationLevel: "read committed",
+          lockTimeoutMilliseconds: 500, recoveryTimeoutMilliseconds: 1000 }, effect => effect,
+          tx => Effect.tryPromise({ try: async () => await tx.execute(sql`select 42 as value`),
+            catch: cause => new PhysicalSessionResourceIssue({ phase: "callback", cause }) }));
+        expect(initial).toMatchObject({ kind: "committed", value: { rows: [{ value: 42 }] } });
+        const recovery = yield* physical.runRecoveryTransactionEffect({ deadline, lockTimeoutMilliseconds: 500,
+          excludedConnectionIdentity: makePhysicalConnectionIdentity() }, tx => Effect.tryPromise({
+            try: async () => await tx.execute(sql`select 42 as value`),
+            catch: cause => new PhysicalSessionResourceIssue({ phase: "callback", cause }),
+          }));
+        expect(recovery).toMatchObject({ kind: "committed", value: { rows: [{ value: 42 }] } });
+      }));
+      expect(requests).toEqual([{ database: 2, transaction: 0 },
+        { database: 0, transaction: 2 }, { database: 0, transaction: 2 }]);
+      expect(pool.totalCount - pool.idleCount).toBe(0);
+    } finally { await pool.end(); }
+  });
+
   it.each([[undefined, undefined], [0, undefined], [30_001, undefined], [1.5, undefined],
     [30_000, "-c statement_timeout=0"]] as const)(
     "refuses implicit startup statement_timeout %s with options %s before callback or SQL", async (timeout, startupOptions) => {

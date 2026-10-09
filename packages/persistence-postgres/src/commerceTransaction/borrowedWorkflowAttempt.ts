@@ -207,12 +207,13 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
               calls.push(Object.freeze({ participant, command, ...observed }));
               return observed.result;
             }), getCommerceCommand(command)?.mode));
-          const context: AtomicCommerceContext = Object.freeze({
+          const context = Object.freeze<AtomicCommerceContext>({
             eventGroupId: group,
             checkpoint: lifetime.operation(lifetime.context, id, "read", localRootGate),
-            capture: (value: unknown) => lifetime.operation(lifetime.context, id, "read", Effect.gen(function* () {
+            capture: (value, normalize) => lifetime.operation(lifetime.context, id, "read", Effect.gen(function* () {
               yield* localRootGate;
-              const captured = yield* Effect.fromResult(captureCommerceJsonData(value, lifetime.remainingBytes()));
+              const normalized = normalize === undefined ? value : yield* Effect.fromResult(normalize(value));
+              const captured = yield* Effect.fromResult(captureCommerceJsonData(normalized, lifetime.remainingBytes()));
               yield* Effect.fromResult(lifetime.charge(captured.bytes));
               return captured.value;
             })),

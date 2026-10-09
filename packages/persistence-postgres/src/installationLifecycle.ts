@@ -8,6 +8,7 @@ import { Data, Effect, Result, Schema } from "effect";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { fxSystemTransactionJournalPoints, transactionJournalPointDependencyCheck } from "./schema";
 import { runEffectTransactionSettlement } from "./effectTransaction";
+import { protectedMetadataHasNoInheritanceSql } from "./protectedMetadataProtection";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
@@ -548,6 +549,7 @@ export const verifyInstallationWriterProtection = Effect.fn("InstallationLifecyc
         ) as expected(table_name,column_name,type_oid,required)
       )
       select ${scopeExecutionAuthorityInstallationSql(sql`${schemaName}`)} and ${indexMaintenanceInstallationSql(sql`${schemaName}`)}
+        and ${protectedMetadataHasNoInheritanceSql(sql`(select namespace_oid from bounds)`)}
         and exists (
           select 1 from pg_catalog.pg_constraint actual
           join pg_catalog.pg_class actual_table on actual_table.oid = actual.conrelid

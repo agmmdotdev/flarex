@@ -32,7 +32,7 @@
     {
       "target": "packages/medusa-adapter/test/commerce-promise-owner.test.ts",
       "classification": "authored",
-      "targetSha256": "20d725888b7fb7a12d5d0fb2f63a289b362f284ea7f60bdb154bc61d5af0e88a"
+      "targetSha256": "67f5d6adaddf85f9bcc3105d290fa9a6a990018b40e943fd78ce1bf93edd727a"
     },
     {
       "target": "packages/medusa-adapter/test/link-storage.test.ts",
@@ -892,7 +892,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow-value.ts",
       "classification": "authored",
-      "targetSha256": "41fe93ba4581c5a1e09d34838fa4a03f6b7daf2bcd7d098466945efbf05629b7"
+      "targetSha256": "bcd39124dd7ac51f55b859a2cb8b89cfbadfdc200f0721ed1665d552f91f7200"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/binding.ts",
@@ -1209,7 +1209,7 @@
     {
       "target": "packages/medusa-adapter/test/workflow-host.test.ts",
       "classification": "authored",
-      "targetSha256": "b144349069f66d2306fcbe9b625f26aeccd582f3dfdc1c37f95b4ea1ec8f01a6"
+      "targetSha256": "90e744a1d6993b3257be1c47bce04c815faf9b8bb24e818ceb3f50e8c5b8a1c5"
     },
     {
       "target": "packages/medusa-adapter/test/workflow-query-graph.test.ts",

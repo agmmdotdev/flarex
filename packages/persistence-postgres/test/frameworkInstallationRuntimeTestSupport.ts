@@ -1,9 +1,9 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { collectInstallationEvidence, readInstallationEvidence } from "../src/frameworkSchema/installation/runtimeEvidence";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
-import { Effect, Exit, Scope, Tracer } from "effect";
+import { Effect, Exit, Result, Scope, Tracer } from "effect";
 import { expect, vi } from "vitest";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import * as runtimeData from "../src/frameworkSchema/installation/runtimeData";
@@ -20,9 +20,49 @@ import { createInstallationAcceptanceFixture } from "./frameworkInstallationAcce
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { runEffect } from "./effectTestRuntime";
 import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
+import * as installationLifecycle from "../src/installationLifecycle";
 
-export async function createInstallationRuntimeFixture(database: FlarexMetadataDatabase) {
-  const stored = await createInstallationAcceptanceFixture(database);
+export async function exerciseColdInstallationAdmission(database: FlarexMetadataDatabase) {
+  const runtime = await createInstallationRuntimeFixture(database);
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  const prepare = () => runEffect(prepareInstallationRuntime(database, runtime.target, runtime.reference)
+    .pipe(Effect.provideService(Tracer.Tracer, tracer)));
+  const close = vi.spyOn(installationLifecycle, "closeInstallationAdmission");
+  try {
+    await database.execute(sql`update fx_system_installation set state='unverified'`);
+    try {
+      await expect(prepare()).rejects.toMatchObject({ reason: "invalidAuthority", cause: { reason: "inactive" } });
+      expect(spans).toContain("InstallationLifecycle.lockCurrent");
+      expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
+      expect(spans).not.toContain("InstallationRuntime.readEvidence");
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally { await database.execute(sql`update fx_system_installation set state='active'`); }
+    spans.length = 0;
+    const prepared = await prepare();
+    expect(spans.indexOf("InstallationLifecycle.lockCurrent")).toBeGreaterThanOrEqual(0);
+    expect(spans.indexOf("InstallationLifecycle.lockCurrent")).toBeLessThan(spans.indexOf("DataBindingEvidence.lockInstallation"));
+    expect(close).toHaveBeenCalledTimes(2);
+    for (const [tx] of close.mock.calls) expect(Result.isFailure(installationLifecycle.requireAdmittedTargetInstallationSchema(tx))).toBe(true);
+    expect(await runtime.accept(prepared)).toEqual(await runtime.accept());
+  } finally { close.mockRestore(); }
+}
+
+export async function exerciseMismatchedInstallationNamespace(database: FlarexMetadataDatabase) {
+  const runtime = await createInstallationRuntimePreparation(database, "uninstalled_framework_namespace");
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  await expect(runEffect(prepareInstallationRuntime(database, runtime.target, runtime.reference)
+    .pipe(Effect.provideService(Tracer.Tracer, tracer)))).rejects.toMatchObject({ reason: "invalidAuthority" });
+  expect(spans).toContain("InstallationLifecycle.lockCurrent");
+  expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
+  expect(spans).not.toContain("InstallationRuntime.readEvidence");
+}
+
+async function createInstallationRuntimePreparation(database: FlarexMetadataDatabase, schemaName?: string) {
+  const [namespace] = await database.select({ name: sql<string>`current_schema()` }).from(sql`(values (1)) as actual_namespace(value)`);
+  if (namespace === undefined) throw new Error("Missing installation runtime fixture namespace");
+  const stored = await createInstallationAcceptanceFixture(database, schemaName ?? namespace.name);
   const identity = stored.installation.installation.frame.identity;
   // This reader fixture does not execute migrations; preparation owns its database transaction.
   const makeTarget = () => runEffect(makeFrameworkSchemaTarget({ database,
@@ -31,9 +71,14 @@ export async function createInstallationRuntimeFixture(database: FlarexMetadataD
   const target = await makeTarget();
   const reference = installationBindingReference(stored);
   const prepare = () => runEffect(prepareInstallationRuntime(database, target, reference));
-  const prepared = await prepare();
-  const accept = (token = prepared) => database.transaction(tx => runEffect(acceptPreparedInstallation(token, target, reference, tx)));
-  return { stored, target, reference, prepare, prepared, accept, makeTarget };
+  return { stored, target, reference, prepare, makeTarget };
+}
+
+export async function createInstallationRuntimeFixture(database: FlarexMetadataDatabase) {
+  const fixture = await createInstallationRuntimePreparation(database);
+  const prepared = await fixture.prepare();
+  const accept = (token = prepared) => database.transaction(tx => runEffect(acceptPreparedInstallation(token, fixture.target, fixture.reference, tx)));
+  return { ...fixture, prepared, accept };
 }
 
 export async function exerciseInstallationRuntime(database: FlarexMetadataDatabase) {

@@ -543,6 +543,34 @@ describe("Medusa source-island boundary checker", () => {
     }
   });
 
+  it("admits the exact native capture decoder only in its connected root-gate proofs", () => {
+    const target = "packages/medusa-adapter/src/workflow-value.ts";
+    const promotion = {
+      sourceCommit: "test", buildFiles: [], testAliases: [],
+      packages: [{ path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [] }],
+      files: [{ target, targetSha256: "pinned", classification: "authored" }],
+    };
+    const specifier = "../../medusa-adapter/src/workflow-value";
+    const text = `import { captureWorkflowValue } from ${JSON.stringify(specifier)};`;
+    for (const relativePath of ["packages/persistence-postgres/test/atomicCommerceSharedInstallation.test.ts",
+      "packages/persistence-postgres/test/borrowedWorkflowCapture.test.ts"]) {
+      const input = { ...emptyInput, currencyPromotion: promotion, rootSources: [{ relativePath, text }] };
+      expect(analyzeMedusaSourceIslandBoundary(input).errors).toEqual([]);
+      expect(analyzeMedusaSourceIslandBoundary({ ...input,
+        currencyPromotion: { ...promotion, files: [] },
+      }).errors.length).toBeGreaterThan(0);
+      expect(analyzeMedusaSourceIslandBoundary({ ...input,
+        rootSources: [{ relativePath, text: text.replace("workflow-value", "workflow/host") }],
+      }).errors.length).toBeGreaterThan(0);
+    }
+    for (const relativePath of ["packages/persistence-postgres/test/adjacentCapture.test.ts",
+      "packages/persistence-postgres/src/workflowCapture.ts"]) {
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+        rootSources: [{ relativePath, text }],
+      }).errors.length).toBeGreaterThan(0);
+    }
+  });
+
   it("accepts independent Flarex and Medusa graphs", () => {
     expect(analyzeMedusaSourceIslandBoundary({
       ...emptyInput,

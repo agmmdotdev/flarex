@@ -14,8 +14,8 @@ import { withFrameworkMigrationPlanVerification } from "../src/migrationCoordina
 import { createSuccessfulTerminalPlanValues, storeSuccessfulAvailabilityHistoryGraphInTransaction } from "./frameworkCoordinatorRepositoryTestSupport";
 import { runEffect } from "./effectTestRuntime";
 
-export async function createInstallationAcceptanceFixture(database: FlarexMetadataDatabase) {
-  const values = await createSuccessfulTerminalPlanValues();
+export async function createInstallationAcceptanceFixture(database: FlarexMetadataDatabase, schemaName?: string) {
+  const values = await createSuccessfulTerminalPlanValues(0, schemaName);
   return database.transaction(async transaction => {
     const graph = await storeSuccessfulAvailabilityHistoryGraphInTransaction(transaction, values);
     const head = await runEffect(captureFrameworkSchemaAvailabilityHead(graph.availabilityHistory.history));

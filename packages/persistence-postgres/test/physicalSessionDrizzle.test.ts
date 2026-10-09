@@ -1,9 +1,15 @@
-import { sql } from "drizzle-orm";
-import { integer, pgTable, text } from "drizzle-orm/pg-core";
+import { is, sql } from "drizzle-orm";
+import { integer, PgTable, pgTable, text } from "drizzle-orm/pg-core";
+import * as NodePgDriver from "drizzle-orm/node-postgres";
+import * as NodePgSessions from "drizzle-orm/node-postgres/session";
 import { Client, Pool } from "pg";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { makePhysicalSessionAccess } from "../src/physicalSession/drizzle";
+import { flarexSchema } from "../src/schema";
 import { postgresUrl } from "./postgresHelpers";
+
+vi.mock("drizzle-orm/node-postgres", { spy: true });
+vi.mock("drizzle-orm/node-postgres/session", { spy: true });
 
 it("compiles static table metadata once while constructing fresh client-bound views", () => {
   let extractions = 0;
@@ -27,6 +33,47 @@ it("compiles static table metadata once while constructing fresh client-bound vi
     second.database.query.probe.findMany().toSQL(),
   );
   expect(extractions).toBe(1);
+});
+
+it("constructs only requested full-schema views within each fresh checkout session", () => {
+  const database = vi.mocked(NodePgDriver.NodePgDatabase);
+  const transaction = vi.mocked(NodePgSessions.NodePgTransaction);
+  const session = vi.mocked(NodePgSessions.NodePgSession);
+  database.mockClear(); transaction.mockClear(); session.mockClear();
+  try {
+    const access = makePhysicalSessionAccess(flarexSchema);
+    const client = new Client();
+    const first = access(client);
+    expect(session).toHaveBeenCalledTimes(1);
+    expect(database).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    const tx = first.transaction;
+    expect(first.transaction).toBe(tx);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(database).not.toHaveBeenCalled();
+    const db = first.database;
+    expect(first.database).toBe(db);
+    expect(database).toHaveBeenCalledTimes(1);
+    expect(db).not.toBe(tx);
+    expect(db._.session).toBe(tx._.session);
+    const expectedTables = Object.entries(flarexSchema).filter(([, value]) => is(value, PgTable)).map(([key]) => key).sort();
+    expect(Object.keys(db.query).sort()).toEqual(expectedTables);
+    expect(Object.keys(tx.query).sort()).toEqual(expectedTables);
+    expect(tx.query.fxAppRowCurrent.findMany().toSQL()).toEqual(db.query.fxAppRowCurrent.findMany().toSQL());
+    const repeated = access(client);
+    const different = access(new Client());
+    expect(session).toHaveBeenCalledTimes(3);
+    expect(repeated.transaction).not.toBe(tx);
+    expect(repeated.transaction._.session).not.toBe(tx._.session);
+    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(database).toHaveBeenCalledTimes(1);
+    expect(different.database).not.toBe(db);
+    expect(different.database._.session).not.toBe(db._.session);
+    expect(database).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(2);
+  } finally {
+    session.mockClear(); transaction.mockClear(); database.mockClear();
+  }
 });
 
 it.skipIf(postgresUrl === null)("routes shared metadata through exact pooled and connected clients without sharing rows or settlement", async () => {

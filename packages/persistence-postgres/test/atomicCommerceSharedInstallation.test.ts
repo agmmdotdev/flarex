@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
+import { captureWorkflowValue } from "../../medusa-adapter/src/workflow-value";
 import { eq } from "drizzle-orm";
 import { commerceHostFixture, type CommerceHostTestFixture } from "./commerceHostFixture";
 import { prepareNeutralCommerceProfile } from "./neutralCommerceProfile";
@@ -90,6 +91,67 @@ beforeAll(async () => {
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120000);
 
 describe("atomic participants sharing physical installation", () => {
+  it("refuses foreign workflow reflection on genuinely exhausted and closed atomic roots", async () => {
+    const inspect = vi.fn();
+    const getter = vi.fn(() => "unsafe");
+    const foreign = new Proxy(Object.defineProperty({}, "value", { get: getter, enumerable: true }), {
+      getPrototypeOf: target => { inspect(); return Reflect.getPrototypeOf(target); },
+      ownKeys: target => { inspect(); return Reflect.ownKeys(target); },
+      getOwnPropertyDescriptor: (target, key) => { inspect(); return Reflect.getOwnPropertyDescriptor(target, key); },
+    });
+    const budget = defineAtomicCommerceCommand("workflowCaptureBudget", Effect.fn(function* (ctx) {
+      yield* ctx.checkpoint;
+      yield* ctx.checkpoint;
+      const exhausted = yield* Effect.exit(captureWorkflowValue(ctx, foreign));
+      expect(Exit.isFailure(exhausted)).toBe(true);
+      if (Exit.isFailure(exhausted)) {
+        expect(exhausted.cause.reasons.find(Cause.isFailReason)?.error).toMatchObject({ reason: "limitExceeded" });
+      }
+      const sticky = yield* Effect.exit(captureWorkflowValue(ctx, foreign));
+      if (Exit.isSuccess(sticky)) throw new Error("Expected sticky root refusal");
+      expect(sticky.cause.reasons.find(Cause.isFailReason)?.error).toMatchObject({ reason: "rollbackOnly" });
+      return null;
+    }));
+    const budgetHost = await runEffect(makeAtomicCommerceHost({ ...input, commands: [budget], requestCallLimit: 3 }));
+    const before = await inventory();
+    try {
+      const result = await runEffect(Effect.exit(budgetHost.run(budgetHost.newRequestKey(), budget, null)));
+      if (Exit.isSuccess(result)) throw new Error("Expected failed exhausted root");
+      expect(result.cause.reasons.some(reason => Cause.isFailReason(reason) && reason.error.reason === "limitExceeded")).toBe(true);
+      expect(await inventory()).toEqual(before);
+    } finally { await runEffect(budgetHost.close); }
+    let escaped: AtomicCommerceContext | undefined;
+    const borrow = defineAtomicCommerceCommand("workflowCaptureClosure", ctx => { escaped = ctx; return Effect.succeed(null); });
+    const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [borrow] }));
+    try {
+      await runEffect(host.run(host.newRequestKey(), borrow, null));
+      expect(await runEffectFailure(captureWorkflowValue(required(escaped), foreign))).toMatchObject({ reason: "invalidAuthority" });
+    } finally { await runEffect(host.close); }
+    expect(inspect).not.toHaveBeenCalled();
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("keeps the original full Cause after a refused normalization is caught", async () => {
+    const defect = new Error("normalization defect witness");
+    const inspect = vi.fn();
+    const foreign = new Proxy({}, { ownKeys: () => { inspect(); return []; } });
+    const command = defineAtomicCommerceCommand("workflowCaptureRefusedCause", Effect.fn(function* (ctx) {
+      const refused = yield* Effect.exit(ctx.capture(null, () => { throw defect; }));
+      if (Exit.isSuccess(refused)) throw new Error("Expected decoder defect");
+      expect(refused.cause.reasons.find(Cause.isDieReason)?.defect).toBe(defect);
+      const sticky = yield* Effect.exit(captureWorkflowValue(ctx, foreign));
+      if (Exit.isSuccess(sticky)) throw new Error("Expected sticky decoder refusal");
+      expect(sticky.cause.reasons.find(Cause.isFailReason)?.error).toMatchObject({ reason: "rollbackOnly", cause: refused.cause });
+      return null;
+    }));
+    const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [command] }));
+    try {
+      const exit = await runEffect(Effect.exit(host.run(host.newRequestKey(), command, null)));
+      if (Exit.isSuccess(exit)) throw new Error("Expected original decoder failure");
+      expect(exit.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
+      expect(inspect).not.toHaveBeenCalled();
+    } finally { await runEffect(host.close); }
+  });
   it("retains ordinary JSON arguments, results and policy without Application marker interpretation", async () => {
     const echo = defineAtomicCommerceCommand("echoJson", (_ctx, value) => Effect.succeed(value));
     const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [echo], identityAndAccessPolicy: { "$policy": { "မြန်မာ": true } } }));
@@ -273,16 +335,25 @@ describe("atomic participants sharing physical installation", () => {
       a.installation.installationSha256 < b.installation.installationSha256 ? -1 : 1) };
     const empty = defineAtomicCommerceCommand("unusedSharedProfiles", () => Effect.succeed(null));
     const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [empty] }));
-    const reduced = await runEffect(makeCommerceBinding(shared.availability, [required(profiles[0]), required(profiles[2])]));
-    const candidate = await runEffect(bindings.prepare({ ...frame, commerce: frame.commerce.map(binding => binding === sharedBinding ? reduced : binding) }));
-    await runEffect(bindings.activate(dataBindingActivationRequest(frame.application.scopeId, frame.application.storageGeneration, "revoke-shared-beta", candidate.sha256, current.head)));
-    const before = await inventory();
-    expect(await runEffectFailure(host.run(host.newRequestKey(), empty, null))).toMatchObject({ reason: "unsupportedProfile" });
-    expect(await inventory()).toEqual(before);
-    const selected = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-    const restored = await runEffect(bindings.prepare(frame));
-    await runEffect(bindings.activate(dataBindingActivationRequest(frame.application.scopeId, frame.application.storageGeneration, "restore-shared-beta", restored.sha256, selected.head)));
-    expect(await runEffect(host.run(host.newRequestKey(), empty, null))).toBeNull();
+    try {
+      const reduced = await runEffect(makeCommerceBinding(shared.availability, [required(profiles[0]), required(profiles[2])]));
+      const candidate = await runEffect(bindings.prepare({ ...frame, commerce: frame.commerce.map(binding => binding === sharedBinding ? reduced : binding) }));
+      await runEffect(bindings.activate(dataBindingActivationRequest(frame.application.scopeId, frame.application.storageGeneration, "revoke-shared-beta", candidate.sha256, current.head)));
+      try {
+        const before = await inventory();
+        expect(await runEffectFailure(host.run(host.newRequestKey(), empty, null))).toMatchObject({ reason: "unsupportedProfile" });
+        expect(await inventory()).toEqual(before);
+      } finally {
+        const selected = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
+        const application = await runEffect(bindings.readApplicationReference());
+        const restoredFrame = { ...frame, application,
+          payloadContent: frame.payloadContent === null ? null : { ...frame.payloadContent, application } };
+        const restored = await runEffect(bindings.prepare(restoredFrame));
+        await runEffect(bindings.activate(dataBindingActivationRequest(application.scopeId, application.storageGeneration,
+          "restore-shared-beta", restored.sha256, selected.head)));
+      }
+      expect(await runEffect(host.run(host.newRequestKey(), empty, null))).toBeNull();
+    } finally { await runEffect(host.close); }
   });
 
   it("validates another physical installation's facts before projecting the selected one", async () => {
@@ -319,9 +390,12 @@ describe("atomic participants sharing physical installation", () => {
           .toEqual(selected);
       } finally {
         const absent = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-        const restored = await runEffect(bindings.prepare(current.frame));
-        await runEffect(bindings.activate(dataBindingActivationRequest(current.frame.application.scopeId,
-          current.frame.application.storageGeneration, "restore-shared-fact-binding", restored.sha256, absent.head)));
+        const application = await runEffect(bindings.readApplicationReference());
+        const restoredFrame = { ...current.frame, application,
+          payloadContent: current.frame.payloadContent === null ? null : { ...current.frame.payloadContent, application } };
+        const restored = await runEffect(bindings.prepare(restoredFrame));
+        await runEffect(bindings.activate(dataBindingActivationRequest(application.scopeId,
+          application.storageGeneration, "restore-shared-fact-binding", restored.sha256, absent.head)));
       }
       expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, query))))
         .toEqual(selected);

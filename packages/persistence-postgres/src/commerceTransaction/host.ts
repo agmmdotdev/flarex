@@ -1,3 +1,4 @@
+import { withExecutionDiagnosticDefaults } from "../executionDiagnostics/operation";
 import { makeCommerceCommandContext } from "./context";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext, type CommerceHost } from "./commands";
@@ -85,9 +86,9 @@ export const makeLocalCommerceHost = Effect.fn("CommerceHost.makeLocal")(functio
 const makeHost = Effect.fn("CommerceHost.retain")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<CommerceHost, CommerceTransactionError> {
   const retained = yield* retainPreparedHost(input.hostRuntime, composeCommerceHost(input, local)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   return Object.freeze({ close: retained.close, newRequestKey: () => `commerce/${crypto.randomUUID()}`,
-    run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
-    read: (command, args) => retained.use(host => host.read(command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
-    initialize: rows => retained.use(host => host.initialize(rows)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+    run: (key, command, args) => withExecutionDiagnosticDefaults(retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))))),
+    read: (command, args) => withExecutionDiagnosticDefaults(retained.use(host => host.read(command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))))),
+    initialize: rows => withExecutionDiagnosticDefaults(retained.use(host => host.initialize(rows)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))))),
   } satisfies CommerceHost);
 });
 

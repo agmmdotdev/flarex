@@ -1,3 +1,4 @@
+import { withExecutionDiagnosticDefaults } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { Cause, Data, Duration, Effect, Exit, Random, type Result } from "effect";
 import {
   borrowFrozenFiniteCommitValues,
@@ -266,7 +267,7 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
           attemptFence: original.inspection.anchor.attemptFence }, expectedSnapshotToken: original.inspection.anchor.snapshotToken,
           executionClaim: original.inspection.executionClaim })));
     };
-  const runPreparedFiniteAttempt: FinitePointMutationExecution["runPreparedFiniteAttempt"] =
+  const runPreparedFiniteAttemptOperation: FinitePointMutationExecution["runPreparedFiniteAttempt"] =
     Effect.fn("FinitePointMutationExecution.runPreparedAttempt")(function* <A, E, R>(
       prepared: PreparedFiniteApplicationMutationSessionActivation,
       work: (entry: AuthenticatedFiniteEntry) => Effect.Effect<A, E, R>,
@@ -274,6 +275,8 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
       const base = yield* prepareRunnerBase(prepared.evidence.validatedArgsJson);
       return yield* dependencies.activation.withFiniteStart(prepared, activated => continueCommittedEntry(activated, base, work));
     });
+  const runPreparedFiniteAttempt: FinitePointMutationExecution["runPreparedFiniteAttempt"] =
+    (prepared, work) => withExecutionDiagnosticDefaults(runPreparedFiniteAttemptOperation(prepared, work));
   const executeCommittedEntry: (activated: ActivatedPointMutationSessionV1, base: Effect.Success<ReturnType<typeof prepareRunnerBase>>) =>
     Effect.Effect<PointCommitPublicationResultV1, FinitePointMutationExecutionFailure> =
     (activated, base) => continueCommittedEntry(activated, base, entry =>
@@ -281,7 +284,7 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
   const executePreparedFiniteAttempt: FinitePointMutationExecution["executePreparedFiniteAttempt"] =
     prepared => runPreparedFiniteAttempt(prepared, entry =>
       runner.run(entry.runnerInput).pipe(Effect.flatMap(entry.prepareFiniteCommit), Effect.flatMap(entry.settleFiniteCommit)));
-  const retryFailedAttempt: FinitePointMutationExecution["retryFailedAttempt"] = Effect.fn("FinitePointMutationExecution.retry")(
+  const retryFailedAttemptOperation: FinitePointMutationExecution["retryFailedAttempt"] = Effect.fn("FinitePointMutationExecution.retry")(
     function* (failure) {
       const ticket = typeof failure === "object" && failure !== null ? retries.get(failure) : undefined;
       if (ticket === undefined || typeof failure !== "object" || failure === null) return yield* Effect.fail(new FinitePointMutationExecutionError({ reason: "unprovenRetry" }));
@@ -298,7 +301,9 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
           runner.run(entry.runnerInput).pipe(Effect.flatMap(entry.prepareFiniteCommit), Effect.flatMap(entry.settleFiniteCommit))));
       }));
     });
-  const redispatchExactPointMutationAttempt: FinitePointMutationExecution["redispatchExactPointMutationAttempt"] =
+  const retryFailedAttempt: FinitePointMutationExecution["retryFailedAttempt"] =
+    failure => withExecutionDiagnosticDefaults(retryFailedAttemptOperation(failure));
+  const redispatchExactPointMutationAttemptOperation: FinitePointMutationExecution["redispatchExactPointMutationAttempt"] =
     Effect.fn("FinitePointMutationExecution.redispatch")(function* (selector) {
       const exactSelector = yield* Effect.fromResult(decodePointMutationSessionAttemptSelectorV1Result(selector)).pipe(
         Effect.mapError(cause => new PointMutationExecutionClaimAcquisitionInputV1Error({ reason: "invalidSelector", cause })));
@@ -345,6 +350,8 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
       return yield* restore(executeCommittedEntry(activated, base));
       }));
     });
+  const redispatchExactPointMutationAttempt: FinitePointMutationExecution["redispatchExactPointMutationAttempt"] =
+    selector => withExecutionDiagnosticDefaults(redispatchExactPointMutationAttemptOperation(selector));
   return Object.freeze({ runPreparedFiniteAttempt, executePreparedFiniteAttempt, retryFailedAttempt, redispatchExactPointMutationAttempt });
 }
 

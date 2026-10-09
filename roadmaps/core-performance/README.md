@@ -23,8 +23,10 @@ unprotected consumers retain full fresh catalog validation. Fixed publication st
 do not finish the selected outcome or establish native-relative acceptance.
 The [connected measurement ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/connected-generation-results.md)
 owns complete baseline comparisons and retained evidence. Remaining request CPU,
-SQL and latency excess, including the Medusa tail, remain open; no further
-implementation starts during this owner-requested pause.
+SQL and latency excess, including the Medusa tail, remain open. The owner has
+requested [saved behavior reconciliation](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#saved-behavior-reconciliation)
+at the current owners. That correctness/measurement/acquisition reconciliation
+does not resume performance tuning or claim native-relative acceptance.
 The connected generation owns Application and selected logical source preparation
 together. CMS materialization templates and Commerce source catalogues must refresh
 with that generation after a legitimate metadata change. Finite consumers must

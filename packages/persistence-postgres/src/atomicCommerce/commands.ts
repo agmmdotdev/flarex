@@ -1,4 +1,4 @@
-import type { Effect } from "effect";
+import type { Effect, Result } from "effect";
 import type { Json } from "flarex-protocol/json";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import type { CommerceTransactionError } from "../commerceTransaction/model";
@@ -21,7 +21,8 @@ export interface AtomicCommerceContext {
   readonly eventGroupId: string;
   /** Charge a finite node even when it makes no module call. */
   readonly checkpoint: Effect.Effect<void, CommerceTransactionError>;
-  readonly capture: (value: unknown) => Effect.Effect<Json, CommerceTransactionError>;
+  /** Normalize foreign data only after this root's lifetime and budget gate. */
+  readonly capture: (value: unknown, normalize?: (value: unknown) => Result.Result<Json, CommerceTransactionError>) => Effect.Effect<Json, CommerceTransactionError>;
   readonly emit: (contract: CommerceEventContract, message: unknown) => Effect.Effect<void, CommerceTransactionError>;
   readonly call: (participant: AtomicCommerceParticipant, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly refuse: (error: CommerceTransactionError) => Effect.Effect<never, CommerceTransactionError>;

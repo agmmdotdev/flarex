@@ -75,9 +75,16 @@ const preparedTargetMetadataTest = "packages/flarex-backend/test/preparedTargetM
 const preparedTargetMetadataTestImports = new Map([
   ["../../medusa-adapter/test/support/logical-currency-fixture", "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
 ]);
-// Connected finite-contract proofs borrow the exact authored native construction.
+// Connected finite-contract proofs borrow exact authored native construction
+// and capture normalization to prove the real core gate runs first.
 // These edges grant no permission to adjacent tests or production consumers.
 const finiteContractTestImports = new Map([
+  ["packages/persistence-postgres/test/atomicCommerceSharedInstallation.test.ts", {
+    specifier: "../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
+  }],
+  ["packages/persistence-postgres/test/borrowedWorkflowCapture.test.ts", {
+    specifier: "../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
+  }],
   ["packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts", {
     specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts",
   }],

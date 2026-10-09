@@ -44,11 +44,11 @@ export async function currencyArtifact() {
   }));
 }
 
-export async function frameworkTargetNamespace() {
+export async function frameworkTargetNamespace(schemaName: string = FRAMEWORK_VALUE_LOCATOR.schemaName) {
   return runEffect(captureFrameworkSchemaTargetNamespace({
     deploymentId: "deployment-a",
     physicalDatabaseIdentity: "postgres-cluster-a/database-a",
-    schemaName: FRAMEWORK_VALUE_LOCATOR.schemaName,
+    schemaName,
   }));
 }
 

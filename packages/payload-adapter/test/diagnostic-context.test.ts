@@ -1,4 +1,4 @@
-import { Clock, Context, Effect, Option, Tracer } from "effect";
+import { Clock, Context, Effect, Option, References, Scope, Tracer } from "effect";
 import { BasePayload } from "payload";
 import { describe, expect, it } from "vitest";
 import { ExecutionDiagnostics, observeExecution, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
@@ -33,6 +33,8 @@ describe("Payload request diagnostic handoff", () => {
       monotonicTimeNanosUnsafe: () => defaultClock.monotonicTimeNanosUnsafe(),
       sleep: duration => defaultClock.sleep(duration),
     };
+    const linked = Tracer.externalSpan({ traceId: "linked", spanId: "linked-span" });
+    const links = [{ span: linked, attributes: { relation: "native" } }];
     const collections = payloadScalarConfiguration.tables.map(makePayloadCollectionRuntime);
     const bridge = makePayloadDatabaseAdapter("payload.scalar", collections);
     // Exercise the genuine command/adapter handoff without native storage or a
@@ -55,6 +57,10 @@ describe("Payload request diagnostic handoff", () => {
             expect(Context.get(fiber.context, Tracer.Tracer)).toBe(tracer);
             expect(Context.getOption(fiber.context, Unrelated)).toEqual(Option.none());
             expect(Context.get(fiber.context, Clock.Clock)).not.toBe(clock);
+            expect(Context.getOrUndefined(fiber.context, Scope.Scope)).toBeUndefined();
+            expect(Context.get(fiber.context, References.TracerTimingEnabled)).toBe(false);
+            expect(Context.get(fiber.context, References.TracerSpanAnnotations)).toEqual({ request: "native" });
+            expect(Context.get(fiber.context, References.TracerSpanLinks)).toBe(links);
             expect(Option.isSome(Context.getOption(fiber.context, ExecutionDiagnostics))).toBe(enabled);
             return { docs: [], total: 0 };
           }))) }, relations: { incoming: unused }, preferences: { deleteForPendingDocument: unused },
@@ -63,7 +69,8 @@ describe("Payload request diagnostic handoff", () => {
     }));
     const selected = enabled ? Effect.provideService(work, ExecutionDiagnostics, diagnosticPolicy) : work;
     expect(await Effect.runPromise(selected.pipe(Effect.withSpan("request"), Effect.provideService(Tracer.Tracer, tracer),
-      Effect.provideService(Unrelated, { secret: "private" }), Effect.provideService(Clock.Clock, clock)))).toEqual({ totalDocs: 0 });
+      Effect.provideService(Unrelated, { secret: "private" }), Effect.provideService(Clock.Clock, clock), Effect.withTracerTiming(false),
+      Effect.annotateSpans({ request: "native" }), Effect.provideService(References.TracerSpanLinks, links)))).toEqual({ totalDocs: 0 });
     expect(calls).toBe(1);
     const call = spans.find(span => span.name === "PayloadAdapter.call");
     const invoke = spans.find(span => span.name === "PayloadAdapter.invoke");
@@ -71,6 +78,9 @@ describe("Payload request diagnostic handoff", () => {
     if (enabled) {
       if (call === undefined || invoke === undefined || dal === undefined) throw new Error("Missing opted-in Payload operation span");
       expect(dal.parent).toEqual(Option.some(call));
+      expect(dal.attributes.get("request")).toBe("native");
+      expect(dal.links).toEqual(links);
+      expect(dal.status).toMatchObject({ _tag: "Ended", startTime: 0n, endTime: 0n });
       expect(call.parent).toEqual(Option.some(invoke));
     } else {
       expect(call).toBeUndefined();

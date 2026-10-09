@@ -1,11 +1,11 @@
-import { Clock, Context, Deferred, Effect, Option, Tracer } from "effect";
+import { Clock, Context, Deferred, Effect, Option, References, Scope, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
 import { makeCommerceCommandContext } from "../../persistence-postgres/src/commerceTransaction/context";
 import { makeCommercePromiseOwner } from "../src/commerce-promise-owner";
-import { ExecutionDiagnostics, observeExecution, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import { ExecutionDiagnostics, observeExecution, withExecutionDiagnosticDefaults, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { withCommerceService } from "../src/commerce-service-bridge";
 import { currencyRepository } from "../src/currency-repository";
 
@@ -41,6 +41,7 @@ describe("commerce Promise operation context", () => {
         expect(Context.get(fiber.context, Tracer.Tracer)).toBe(trace.tracer);
         expect(Option.getOrUndefined(Context.getOption(fiber.context, Unrelated))).toBeUndefined();
         expect(Context.get(fiber.context, Clock.Clock)).not.toBe(clock);
+        expect(Context.getOrUndefined(fiber.context, Scope.Scope)).toBeUndefined();
         expect(Context.getOption(fiber.context, ExecutionDiagnostics)).toEqual(Option.some(diagnosticPolicy));
         if (fiber.currentSpan?._tag !== "Span") throw new Error("Missing DAL factory span");
         expect(Option.getOrUndefined(fiber.currentSpan.parent)).toBe(parent);
@@ -58,6 +59,53 @@ describe("commerce Promise operation context", () => {
     try { expect(await owner.run(observeExecution("quiet DAL", Effect.succeed(1)))).toBe(1); }
     finally { await Effect.runPromise(owner.close); }
     expect(trace.spans).toEqual([]);
+  });
+
+  it("retains the core default and an explicit disabled custom tracer across Promise runners", async () => {
+    const trace = tracing();
+    const inspect = Effect.withFiber(fiber => Effect.sync(() => {
+      expect(Context.get(fiber.context, References.TracerEnabled)).toBe(false);
+      expect(Context.get(fiber.context, References.TracerTimingEnabled)).toBe(false);
+      expect(Context.getOrUndefined(fiber.context, Unrelated)).toBeUndefined();
+    })).pipe(Effect.withSpan("DAL.disabled"));
+    const work = Effect.scoped(Effect.gen(function* () {
+      const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
+      yield* Effect.promise(() => owner.run(inspect));
+    }));
+    await Effect.runPromise(withExecutionDiagnosticDefaults(work));
+    await Effect.runPromise(withExecutionDiagnosticDefaults(work).pipe(
+      Effect.provideService(Tracer.Tracer, trace.tracer),
+      Effect.provideService(References.TracerEnabled, false),
+      Effect.provideService(References.TracerTimingEnabled, false)));
+    expect(trace.spans).toEqual([]);
+  });
+
+  it.each([true, false])("preserves parent, annotations, links and explicit timing=%s", async timing => {
+    const trace = tracing();
+    const linked = Tracer.externalSpan({ traceId: "linked-trace", spanId: "linked-span" });
+    const links = [{ span: linked, attributes: { relation: "request" } }];
+    let parent: Tracer.AnySpan | undefined;
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      parent = yield* Effect.currentSpan;
+      const owner = yield* Effect.acquireRelease(makeCommercePromiseOwner(), owner => owner.close);
+      yield* Effect.promise(() => owner.run(Effect.withFiber(fiber => Effect.sync(() => {
+        expect(Context.get(fiber.context, References.TracerEnabled)).toBe(true);
+        expect(Context.get(fiber.context, References.TracerTimingEnabled)).toBe(timing);
+        expect(Context.get(fiber.context, References.TracerSpanAnnotations)).toEqual({ tenant: "caller" });
+        expect(Context.get(fiber.context, References.TracerSpanLinks)).toBe(links);
+      })).pipe(Effect.withSpan("DAL.configured"))));
+    })).pipe(Effect.withSpan("request")).pipe(
+      Effect.provideService(Tracer.Tracer, trace.tracer),
+      Effect.provideService(References.TracerEnabled, true),
+      Effect.provideService(References.TracerTimingEnabled, timing),
+      Effect.provideService(References.TracerSpanAnnotations, { tenant: "caller" }),
+      Effect.provideService(References.TracerSpanLinks, links)));
+    const child = trace.spans.find(span => span.name === "DAL.configured");
+    expect(child?.parent).toEqual(Option.some(parent));
+    expect(child?.attributes.get("tenant")).toBe("caller");
+    expect(child?.links).toEqual(links);
+    expect(child?.status._tag).toBe("Ended");
+    if (!timing) expect(child?.status).toMatchObject({ startTime: 0n, endTime: 0n });
   });
 
   it("keeps actual DAL calls under their service parent in two isolated request factories", async () => {

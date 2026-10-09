@@ -1729,3 +1729,101 @@ cancellation and cleanup, strict checks, guards, lint and both final reviews.
 Complete final-source matched native latency, CPU and database measurements
 across all five graphs govern delivery. Retain failed measurements and resolve
 their responsible owners; do not weaken deadlines or acceptance targets.
+## Saved Behavior Reconciliation
+
+Status: **implemented behavioral reconciliation at the owner's request to bring
+useful earlier uncommitted behavior into the current core.** This is a behavior
+reconciliation, not resumption or completion of the paused native-relative
+performance program. The retained source checkpoint and path/byte inventory
+belong to the local reconciliation evidence; current runtime contracts remain
+the baseline and earlier files are not applied wholesale.
+
+### Outcome and boundaries
+
+Preserve the current generation, readiness, fixed accepting/publication stages,
+authentic value issuers and SDK diagnostic composition. Bring forward missing
+installation, callback, measurement and acquisition guarantees at those owners.
+The change runs in the original checkout and branch; no additional worktree is
+needed. Postgres remains authoritative and only the existing outer owner
+settles. No database transaction, preparation lifetime, fallback implementation,
+public API, persistent format or framework capability is added.
+
+| Earlier behavior | Baseline comparison | Reconciliation |
+| --- | --- | --- |
+| Metadata invalidation and source/readiness generation ownership | Replaced and extended. The current protected inventory includes all earlier covered relations and three additional readiness relations. | Retain the current inventory, migration and authentic generation consumers. |
+| Reject inherited protected metadata in either direction | Missing. Ordinary nonpartitioned table checks and trigger checks do not establish absence of inheritance routes. | Implemented at protected attestation and installation reopen with one Drizzle-derived inventory and bidirectional topology refusal. An unsafe installation remains drained and its data is preserved. |
+| Cold framework installation admission | The existing transaction bridge authenticates the actual current installation, but can issue a token for a graph naming a different, uninstalled namespace. | Implemented declared graph/actual installation agreement before graph reads through the existing transaction owner, retaining the full-proof profile and token disposal. |
+| Root counters, complete Cause reporting, optional SDK observation, Promise drain and native request closure | Already present, sometimes through stronger current ownership. | Retain current Layers, diagnostics, physical callback parent propagation and request/lifetime owners. |
+| Explicit caller tracing policy, annotations and links across independent runtimes | Partly missing. Diagnostic projection omitted annotation/link references; default policy must distinguish actual caller entries from Reference defaults. | Implemented at the existing execution-diagnostics owner and entry boundaries. Repeated production operations remain untraced and observation optional. |
+| Only requested Drizzle view construction and failure before BEGIN | Missing acquisition/construction behavior. | Implemented lazy memoized checkout views and selected-view construction inside acquisition cleanup, retaining full-schema builders and existing transaction semantics. |
+| Root lifetime/budget refusal before inspecting foreign workflow inputs | Missing. Workflow normalization could inspect input before entering the root capture operation. | Implemented normalization inside the existing ordinary or borrowed root capture gate, preserving sticky refusal, charging and exact Cause. |
+| Native callback mutation isolation, own undefined fields, skip semantics and full compensation capture | Already equivalent through detached per-edge capture. | Retain current behavior and meaningful native witnesses; do not require the earlier immutable cache choreography. |
+| Canonical result issuance, private JSON detachment/accounting and source preparation | Replaced or extended by authentic current issuers and explicit escaping/trusted-use boundaries. | Retain current owners; earlier identity-cache tests do not prescribe public escaping behavior. |
+| Protected framework writer policy and replay bypass | Separate connected policy/optimization, not established by the current full-proof path. | Retain as pending. A successor migration, restricted grants, fenced maintenance writers, complete reopen proof and genuine protected-admission witnesses must precede any skipped replay or unlocked head read. |
+| Joined physical materialization and publication-row tail | Alternative exchange optimization; current atomic rows/facts/outcomes and uncertain-outcome recovery are already preserved. | Retain as pending performance work. A current-stage successor, complete integrity inventory, predecessor migration and connected failure/performance witnesses are required. |
+| Retained immutable workflow/JSON caches | Alternative internal reuse; no missing native result guarantee established. | Keep pending for an evidence-selected performance cutover rather than import the earlier pipeline. |
+
+### Challenged alternatives and private contracts
+
+Applying the earlier file set would overwrite current original-generation
+correlation, three readiness protections, framework token disposal, physical
+callback parent propagation and generated-insertion/publication contracts.
+Renumbering the earlier migrations alone would duplicate guards and would not
+reconcile their different settlement and runtime policy semantics. Neither is
+a valid behavioral merge.
+
+Use one current protected-relation inventory for inheritance verification. An
+ancestor or descendant involving a covered relation is unsupported topology;
+detect it at authentic attestation and every verified initialization/reopen.
+Out-of-protocol privileged topology changes while serving retain their existing
+stopped-service/reinstallation disposition. No per-request schema rescan or
+new migration is required by this refusal.
+
+The private capture operation accepts a normalization callback so the actual
+ordinary/borrowed root can enter its existing operation gate before touching
+foreign values. Migrate workflow callers and context fixtures together; keep
+the callback internal and never expose raw settlement or a second lifetime.
+Capture limits, first failure, interruption, omitted-value representation and
+native mutation isolation remain unchanged. Cold framework preparation must
+not be described as unauthenticated: its existing transaction bridge already
+admits the actual current namespace. Any explicit graph-namespace correction
+must reuse the existing settlement bridge with lexical admission cleanup,
+rather than add a second transaction. A genuinely issued and stored graph naming
+an uninstalled namespace is refused before canonical graph reads; a matching
+active namespace continues through the original full-proof preparation.
+
+Tracing projection carries only its actual optional diagnostic entries and
+parent, including annotations and links. A foreign runtime bridge does not
+inherit Scope, Clock or business authority merely to retain tracing. Resolve
+root defaults at invocation, preserve explicit caller enable/disable/timing
+choices and request isolation, and keep the current full-Cause observation
+policy. Saved named-operation counts tied to displaced readiness choreography
+are not compatibility requirements.
+
+Lazy database/transaction views retain checkout identity and full schema. Read
+selects the database view; initial/recovery selects the transaction view.
+Construction failure is an acquisition failure: release/destroy that checkout
+without BEGIN, callback or competing finalization. This is not a new transaction
+profile or connection lifecycle.
+
+### Validation, cleanup and completion
+
+Adapt earlier behavioral witnesses to the current owners, including genuine
+inherited writes with unchanged epoch and refused reopen, refused cold admission
+before framework reads, tracing annotations/links/explicit false policy through
+native bridges, concurrent roots, real root refusal before proxy reflection,
+callback mutation/compensation semantics, selected-view memoization and
+constructor-failure cleanup. Preserve existing generated-insertion, readiness
+upgrade, publication, full-Cause and retained-generation proofs.
+
+Run focused PGlite and ordinary-role PostgreSQL owner/consumer proofs for the
+storage, installation and checkout claims, affected strict typechecks, standard
+lint, Effect/source guards and both final project reviews. Correctness validation
+does not establish a latency saving. Do not start a full diagnostic/benchmark
+campaign or weaken native-relative targets for this reconciliation.
+
+Migrate private callers and fixtures, remove displaced local assembly where the
+replacement makes it unused, and keep a single current runtime implementation.
+The complete earlier source checkpoint remains recoverable; it is evidence,
+not a second runtime. Pending framework policy, row-tail and
+immutable-cache work must remain named and cannot be reported as merged.

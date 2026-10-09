@@ -4,8 +4,9 @@ import { captureHostPreparationLifetime } from "../../preparedHostRuntime";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
-import { runEffectTransaction } from "../../effectTransaction";
+import { runEffectTransactionSettlement } from "../../effectTransaction";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../installationLifecycle";
 import { frameworkSchemaTargetSnapshot, hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "../target";
 import { withFrameworkMigrationPlanVerification } from "../../migrationCoordination/planVerificationScope";
 import { withBindingMigrationGraphLimits } from "../../migrationCoordination/graphLimits";
@@ -48,11 +49,15 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
   // The native transaction bridge carries tracing, not construction services.
   // Retain only this actual host allocation's accounting/disposal capability.
   const preparationLifetime = yield* captureHostPreparationLifetime();
-  const state = yield* runEffectTransaction(
+  // This owner admits the graph's exact namespace inside the existing snapshot
+  // transaction; implicit current-schema admission cannot establish that match.
+  const state = yield* runEffectTransactionSettlement(
     callback => database.transaction(callback, { isolationLevel: "repeatable read" }),
     "Installation preparation failed; roll back its snapshot transaction.",
     (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
       yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '5000ms', true), set_config('lock_timeout', '1000ms', true)`), cause => bindingError("resourceFailure", cause));
+      yield* lockInstallationForCurrentTransaction(tx, snapshot.namespace.frame.schemaName)
+        .pipe(Effect.mapError(cause => bindingError("invalidAuthority", cause)));
       const restored = yield* lockBindingInstallation(tx, reference, snapshot);
       const coordinates = yield* collectInstallationEvidence(tx, restored);
       const evidence = yield* readInstallationEvidence(tx, coordinates);
@@ -83,7 +88,8 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
         .pipe(Effect.mapError(cause => bindingError("resourceFailure", cause)));
       return Object.freeze({ target, reference, installationStorageId: restored.installation.storageId, headFingerprint, coordinates, evidence, data });
     }).pipe(withBindingMigrationGraphLimits, withFrameworkMigrationPlanVerification,
-      Effect.timeoutOrElse({ duration: 15_000, orElse: () => Effect.fail(bindingError("resourceFailure")) })),
+      Effect.timeoutOrElse({ duration: 15_000, orElse: () => Effect.fail(bindingError("resourceFailure")) }),
+      Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx)))),
     cause => bindingError("resourceFailure", cause),
   );
   // SAFETY: this family is authenticated only by the private registry. The token

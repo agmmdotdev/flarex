@@ -11,8 +11,8 @@ import {
   NodePgTransaction,
 } from "drizzle-orm/node-postgres/session";
 import type { Client, PoolClient } from "pg";
-/** Compile code-defined metadata once; each call binds fresh views to an
- * already-owned Client or PoolClient without acquiring any resource. */
+/** Compile code-defined metadata once; each checkout binds a fresh session.
+ * Construct each full-schema view only when that checkout first requests it. */
 export function makePhysicalSessionAccess<
   FullSchema extends Record<string, unknown>,
 >(fullSchema: FullSchema) {
@@ -33,13 +33,15 @@ export function makePhysicalSessionAccess<
       dialect,
       schema,
     );
+    let database: NodePgDatabase<FullSchema> | undefined;
+    let transaction: NodePgTransaction<FullSchema, Tables> | undefined;
     return {
-      database: new NodePgDatabase<FullSchema>(dialect, session, schema),
-      transaction: new NodePgTransaction<FullSchema, Tables>(
-        dialect,
-        session,
-        schema,
-      ),
+      get database() {
+        return database ??= new NodePgDatabase<FullSchema>(dialect, session, schema);
+      },
+      get transaction() {
+        return transaction ??= new NodePgTransaction<FullSchema, Tables>(dialect, session, schema);
+      },
     };
   };
 }

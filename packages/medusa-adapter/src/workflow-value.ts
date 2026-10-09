@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -8,8 +8,9 @@ import { captureCommerceInput } from "./commerce-input";
  * envelope through the root budget, then restore only the recorded omissions. */
 export const captureWorkflowValue = Effect.fn("MedusaWorkflow.captureValue")(function* (ctx: AtomicCommerceContext, value: unknown) {
   const omitted: string[][] = [];
-  const payload = yield* Effect.fromResult(captureCommerceInput({ value }, undefined, path => omitted.push([...path])));
-  const captured = yield* ctx.capture({ payload, omitted });
+  const captured = yield* ctx.capture(value, input =>
+    captureCommerceInput({ value: input }, undefined, path => omitted.push([...path]))
+      .pipe(Result.map(payload => ({ payload, omitted }))));
   if (!isNonArrayRecord(captured)) return yield* ctx.refuse(commerceError("storedCorruption"));
   const owned: unknown = structuredClone(captured.payload);
   for (const path of omitted) {

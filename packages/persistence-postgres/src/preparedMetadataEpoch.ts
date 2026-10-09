@@ -1,15 +1,10 @@
-import { getTableName, sql, type SQL } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import { copyBytesToArrayBuffer, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 
 import type { FlarexMetadataDatabase } from "./deployments";
-import { fxSystemPreparedMetadataEpoch, fxControlTables, fxControlIndexes, fxControlIndexDefinitions,
-  fxControlSchemaVersionIndexBindings, fxControlRelations, fxControlEdgeDefinitions,
-  fxControlSchemaVersionRelationBindings, fxControlBoundApplicationSchemas,
-  fxControlApplicationManifestSchemaBindings, fxControlUniqueConstraints, fxControlUniqueConstraintDefinitions,
-  fxControlSchemaVersionUniqueConstraintBindings, fxControlSchemaVersionUniqueConstraintSets,
-  fxControlApplicationSchemaAuthoritiesV1, fxSystemAppSchemaCandidateValidations,
-  fxSystemEdgeDefinitionReadiness, fxSystemApplicationRelationSemanticReadiness } from "./schema";
+import { fxSystemPreparedMetadataEpoch } from "./schema";
+import { protectedMetadataTableNames, protectedMetadataHasNoInheritanceSql } from "./protectedMetadataProtection";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { runningAttemptTailProtectionSql } from "./exactRunningAttemptTail";
 import { scopeExecutionAuthorityInstallationSql } from "./scopeExecutionAuthorityInstallation";
@@ -21,48 +16,7 @@ import { acquireInstallationAdmission, lockInstallationForCurrentTransaction,
   isCoLocatedControlInstallation,
   type PreparedCoLocatedReadInstallation, type PreparedInstallation } from "./installationLifecycle";
 
-/** Immutable target/control projection and complete sidecar membership.
- * Mutable coverage, build/lifecycle heads and live authority keep fresh proofs. */
-export const protectedReadinessMetadataTables = Object.freeze([
-  fxControlTables, fxControlIndexes, fxControlIndexDefinitions, fxControlSchemaVersionIndexBindings,
-  fxControlRelations, fxControlEdgeDefinitions, fxControlSchemaVersionRelationBindings,
-  fxControlBoundApplicationSchemas, fxControlApplicationManifestSchemaBindings,
-  fxControlUniqueConstraints, fxControlUniqueConstraintDefinitions, fxControlSchemaVersionUniqueConstraintBindings,
-  fxControlSchemaVersionUniqueConstraintSets, fxControlApplicationSchemaAuthoritiesV1,
-  fxSystemAppSchemaCandidateValidations, fxSystemEdgeDefinitionReadiness, fxSystemApplicationRelationSemanticReadiness,
-]);
-const coveredTables = [
-  "fx_control_schema_version",
-  ...protectedReadinessMetadataTables.map(getTableName),
-  "fx_system_application_candidate_v1",
-  "fx_system_application_analysis_v1",
-  "fx_system_application_revision_v2",
-  "fx_system_application_publication_v1",
-  "fx_system_application_function_v1",
-  "fx_system_application_task_catalog_v1",
-  "fx_system_application_task_definition_v1",
-  "fx_system_application_revision_schema_v1",
-  "fx_system_application_readiness_v1",
-  "fx_system_application_readiness_function_v1",
-  "fx_system_application_publication",
-  "fx_system_application_function",
-  "fx_system_application_task_catalog",
-  "fx_system_application_task_definition",
-  "fx_system_application_revision_schema",
-  "fx_system_application_readiness",
-  "fx_system_application_readiness_relation",
-  "fx_system_application_readiness_function",
-  "fx_system_application_activation",
-  "fx_system_application_active_head",
-  "fx_system_application_write_ownership",
-  "fx_system_data_binding_candidate",
-  "fx_system_data_binding_physical_lane",
-  "fx_system_data_binding_activation",
-  "fx_system_application_read_binding",
-  "fx_control_logical_read_source",
-  "fx_control_logical_read_table",
-  "fx_control_logical_read_access",
-] as const;
+export { protectedReadinessMetadataTables } from "./protectedMetadataProtection";
 
 export class PreparedMetadataEpochError extends Data.TaggedError("PreparedMetadataEpochError")<{
   readonly reason: "unprotectedRuntime" | "invalidEpoch" | "changed" | "busy" | "resourceFailure";
@@ -76,7 +30,7 @@ class PreparedMetadataDigestRejection extends Data.TaggedError("PreparedMetadata
 const issue = (reason: PreparedMetadataEpochError["reason"], cause?: unknown) =>
   new PreparedMetadataEpochError({ reason, ...(cause === undefined ? {} : { cause }) });
 
-const coveredNames = sql`ARRAY[${sql.join(coveredTables.map(name => sql`${name}`), sql`, `)}]::text[]`;
+const coveredNames = sql`ARRAY[${sql.join(protectedMetadataTableNames.map(name => sql`${name}`), sql`, `)}]::text[]`;
 
 // The security proof is deliberately checked on the authenticated login. A
 // restricted current_user reached through SET ROLE is insufficient. The
@@ -111,6 +65,7 @@ const protectionSql = sql<boolean>`(
       and p.pronamespace = c.relnamespace and p.proname = 'fx_invalidate_prepared_metadata'
   )
   select ${scopeExecutionAuthorityInstallationSql(sql`(select schema_name from attestation_context)`)} and ${runningAttemptTailProtectionSql(sql`attestation_functions`, sql`attestation_tables`, sql`attestation_context`)}
+  and ${protectedMetadataHasNoInheritanceSql(sql`(select namespace_oid from attestation_context)`)}
   and
   current_user = session_user
   and pg_catalog.current_setting('session_replication_role') = 'origin'
@@ -173,7 +128,7 @@ const protectionSql = sql<boolean>`(
       and p.prosrc = pg_catalog.format(E'\n      SELECT e.database_name, e.namespace_oid, e.incarnation, e.generation\n      FROM %I.fx_system_prepared_metadata_epoch e\n      WHERE e.singleton_id = 1 AND e.database_name = current_database()\n      FOR SHARE NOWAIT\n    ', (select schema_name from attestation_context))
   )
   and (
-    select count(*) = ${coveredTables.length} and bool_and(
+    select count(*) = ${protectedMetadataTableNames.length} and bool_and(
       c.relkind = 'r' and not c.relispartition and not c.relhasrules
       and not c.relrowsecurity
       and c.relowner <> (select oid from attestation_context)
