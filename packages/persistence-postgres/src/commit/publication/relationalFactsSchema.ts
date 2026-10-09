@@ -1,7 +1,17 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, foreignKey, integer, pgTable, primaryKey, text, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  foreignKey,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { CommitSeq, ScopeEpochUuidV1, ScopeUuidV1 } from "flarex-protocol/storage-authority";
-import { bytea, fxSystemCommits } from "../../database/schema";
+import { bytea } from "../../database/schema/primitives";
+import { fxSystemCommits } from "../../database/schema/commitHeaders";
 /** Ordered admitted relational identities, distinct from Application document facts. */
 export const fxSystemCommitRelationalChanges = pgTable("fx_system_commit_relational_change", {
   scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),

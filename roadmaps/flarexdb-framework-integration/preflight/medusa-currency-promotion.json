@@ -952,7 +952,7 @@
     {
       "target": "packages/medusa-adapter/test/currency-announcement.test.ts",
       "classification": "authored",
-      "targetSha256": "4badc4f905010c151e1eb1f1b924fb92c8bc6e8c9c71b5ba9532d497261ed2a5"
+      "targetSha256": "59647447bb6b2f51fd759733b23ce3763bdfd7206d92deceac24750136f892d3"
     },
     {
       "target": "packages/medusa-adapter/test/currency-input.json",
@@ -1813,7 +1813,7 @@
       "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts",
       "classification": "testPort",
       "sourceSha256": "c724ea052769d3ce2969dad377835a603dfb568edb9c7aecea881ee79a83654b",
-      "targetSha256": "b449af3be2779ee8f51a82e7daef5751bc15a5a0030bc53a33cd6429b47d67bd"
+      "targetSha256": "eba2bbf51f26a399fa0881a6a3899029d90dec4f2d31263ddcc5b932cb8bfe9f"
     },
     {
       "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -1862,7 +1862,7 @@
       "classification": "testPort",
       "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
       "sourceSha256": "66a30d18619b2b7032077528a8c8b8d75c05bf958a38e621e97d0cd3264e0a58",
-      "targetSha256": "50e919ab7877c30f7b459d70de549518f6e93ac1cc582bce12c898ec7e62fd5d"
+      "targetSha256": "ce79cc7f654a458819b7ea779f53f3b4d9db93412111a02259f9e8d567f4e2bb"
     },
     {
       "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/products.spec.ts",
@@ -4906,7 +4906,7 @@
     {
       "target": "packages/medusa-adapter/test/fresh-framework-acceptance.postgres.test.ts",
       "classification": "authored",
-      "targetSha256": "02ebb4454e59b45a57335c7cb9e48521d7e6de88419ae7620f3b97afef430f8c"
+      "targetSha256": "66cce0f05a4dfc1c7521e260503ba8e3f7017ab8227eac5c1636f40651836066"
     },
     {
       "target": "packages/medusa-adapter/test/fresh-application-acceptance-scaling.postgres.test.ts",
@@ -5067,7 +5067,7 @@
     },
     {
       "target": "packages/medusa-adapter/test/logical-payload-managed-read.postgres.test.ts",
-      "targetSha256": "7600d94202246533db1019391141f9ffc4844bb5242caee2178ed202af387701",
+      "targetSha256": "a1ddc793794f082c87b84c48a382506351c87f811ced630b13c63ba20082a3c1",
       "classification": "authored"
     },
     {
@@ -5093,7 +5093,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
       "classification": "authored",
-      "targetSha256": "1efb71c92039a6fb0d908da984bd2dc94a68cbd375de29452e812d8092b4067e"
+      "targetSha256": "6e1b8e10534b45918e8bd4581aa8030c19b49906d18314d9e366b24c8af67eaa"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts",

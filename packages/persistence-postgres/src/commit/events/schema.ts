@@ -1,7 +1,19 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { CommitSeq, ScopeEpochUuidV1, ScopeUuidV1 } from "flarex-protocol/storage-authority";
-import { fxSystemCommits } from "../../database/schema";
+import { fxSystemCommits } from "../../database/schema/commitHeaders";
 import type { CommittedEvent } from "./model";
 
 /** Immutable intent; the header count witnesses the complete ordered family. */

@@ -1,7 +1,10 @@
 import { sql } from "drizzle-orm";
 import { bigint, check, foreignKey, pgTable, primaryKey } from "drizzle-orm/pg-core";
-import { bytea } from "../../database/schema";
-import { fxSystemFrameworkSchemaInstallations, fxSystemFrameworkSchemaReadiness } from "../frameworkSchema/installation/schema";
+import { bytea } from "../../database/schema/primitives";
+import {
+  fxSystemFrameworkSchemaInstallations,
+  fxSystemFrameworkSchemaReadiness,
+} from "../frameworkSchema/installation/schema";
 import { fxSystemFrameworkMigrationPlans } from "./schema";
 
 export const fxSystemFrameworkMigrationPlanBases = pgTable("fx_system_framework_migration_plan_base", {

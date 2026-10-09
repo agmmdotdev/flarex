@@ -14,7 +14,7 @@ grant a new capability.
 
 | Folder | Owns | Useful entry point |
 | --- | --- | --- |
-| `database/` | Driver resources, physical sessions, Drizzle execution, SQL transaction profiles and table definitions | [relationalTransaction/session.ts](src/database/relationalTransaction/session.ts), [schema.ts](src/database/schema.ts) |
+| `database/` | Driver resources, physical sessions, Drizzle execution, SQL transaction profiles and domain-owned table definitions | [relationalTransaction/session.ts](src/database/relationalTransaction/session.ts), [schema guide](src/database/schema/README.md) |
 | `scope/` | Authentic deployment/scope selection, authorization epochs, fencing and scope clocks | [scopeAuthorityResolution.ts](src/scope/scopeAuthorityResolution.ts), [execution/ScopeExecution.ts](src/scope/execution/ScopeExecution.ts) |
 | `installation/` | Protected structure, maintenance interlock, installed definitions, framework schemas and migration coordination | [installationLifecycle.ts](src/installation/installationLifecycle.ts), [frameworkSchema/](src/installation/frameworkSchema/) |
 | `application/` | Analysis, serving construction, active bindings, schema authority, readiness, revisions, relations and write ownership | [applicationServing.ts](src/application/applicationServing.ts), [applicationActivation.ts](src/application/applicationActivation.ts), [applicationReadiness.ts](src/application/applicationReadiness.ts) |
@@ -62,11 +62,14 @@ these capabilities. The [construction plan](../../roadmaps/execution-architectur
 owns that connected cutover and the named test-only raw construction witnesses.
 Journal consumers use `internal/session-journal` for operation contracts, error
 classes and read-only frozen values. `internal/session-journal-construction`
-belongs to trusted graph construction. The concrete store retains attempt
-evaluation and SQL persistence; it exports no consumer contracts. Its registry
-and accepting transaction owners are described in the [journal guide](src/execution/journal/README.md).
-Large remaining store and schema bodies still need their coherent internal
-decomposition under the [file cohesion plan](../../roadmaps/execution-architecture/05-file-cohesion-and-readable-flows.md).
+belongs to trusted graph construction. The concrete store assembles distinct
+operation, evidence, persistence, finite-root and seal owners. One per-store
+attempt owner retains issued identities, exact claims and reservations. Follow
+their operation order in the [journal guide](src/execution/journal/README.md).
+The [schema guide](src/database/schema/README.md) distinguishes table declarations,
+driver query composition and migration generation, with their actual dependencies.
+Publication and activation still have substantial combined bodies to organize
+under the [file cohesion plan](../../roadmaps/execution-architecture/05-file-cohesion-and-readable-flows.md).
 
 The root `index.ts` retains the existing persistence contracts. Internal contract
 ownership and export reduction remain part of the construction/API audit, not a

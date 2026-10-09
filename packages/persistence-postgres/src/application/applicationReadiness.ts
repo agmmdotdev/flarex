@@ -788,7 +788,7 @@ export const prepareCapturedApplicationReadiness = Effect.fn(
     ...(generationProtection === undefined ? {} : { generationProtection }),
     ...(uniquePreparation === undefined ? {} : { uniquePreparation }),
     ...(preparationProfile === "finiteEntry" ? { preparationProfile: "finiteEntry" as const } : {}),
-    ...(rows.protection === undefined ? {} : { protectedMetadata: rows.protection }) }), state.issuer);
+    ...(rows.protection === undefined ? {} : { protectedMetadata: rows.protection }) }), state.issuer, captured.profile);
   if (issued.status !== "ready") return yield* readinessFailure("storedState");
   const issuedState = issuedReadinessStates.get(issued);
   if (issuedState === undefined) return yield* readinessFailure("storedState");
@@ -3172,6 +3172,7 @@ const readyProjection = Effect.fn("ApplicationReadiness.issueReadyProjection")(f
 const storedReadyProjection = Effect.fn("ApplicationReadiness.issueStoredReadyProjection")(function* (
   stored: StoredReadinessAuthority,
   issuer: ApplicationReadinessRepositoryIssuerV1,
+  profile: "request" | "retained" = "retained",
 ): Effect.fn.Return<ApplicationReadinessResult, ApplicationReadinessError> {
   const result = Object.freeze({
     status: "ready",
@@ -3186,13 +3187,15 @@ const storedReadyProjection = Effect.fn("ApplicationReadiness.issueStoredReadyPr
   issuedReadinessStates.set(result, Object.freeze({
     kind: "stored",
     issuer,
-    lifetime: yield* captureHostPreparationLifetime(),
+    lifetime: profile === "retained" ? yield* captureHostPreparationLifetime() : undefined,
     stored,
     readinessSha256: copyBytes(stored.readinessSha256),
     readinessBytes: copyBytes(stored.readinessBytes),
   }));
-  yield* registerHostPreparationDisposal(() => { issuedReadinessStates.delete(result); }).pipe(
-    Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  if (profile === "retained") {
+    yield* registerHostPreparationDisposal(() => { issuedReadinessStates.delete(result); }).pipe(
+      Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  }
   return result;
 });
 

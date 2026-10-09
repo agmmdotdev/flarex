@@ -1,8 +1,20 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, foreignKey, integer, pgTable, primaryKey, text, unique, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  foreignKey,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { CommitSeq, ScopeEpochUuidV1, ScopeUuidV1 } from "flarex-protocol/storage-authority";
 import type { CatalogTableId } from "flarex-protocol/catalog";
-import { bytea, fxAppRowRevisions, fxSystemCommits } from "../../database/schema";
+import { bytea } from "../../database/schema/primitives";
+import { fxAppRowRevisions } from "../../database/schema/documents";
+import { fxSystemCommits } from "../../database/schema/commitHeaders";
 
 /** Private codec v1: exact deletion identities retained with their scope commit. */
 export const fxSystemCommitPayloadPreferenceDeletions = pgTable("fx_system_commit_payload_preference_deletion", {

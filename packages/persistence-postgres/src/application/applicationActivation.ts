@@ -2007,11 +2007,13 @@ const issueLegacyBindingPreparation = Effect.fn("ApplicationActivation.issueLega
   const token = Object.freeze({}) as PreparedApplicationBinding;
   legacyBindingPreparations.set(token, Object.freeze({ kind: "legacy", basis: copySelectionBasis(prepared.basis),
     readinessRepository: prepared.readinessRepository, readiness: prepared.readiness, lifetime: prepared.lifetime }));
-  if (prepared.lifetime !== undefined) installBindingHeadPreparation(token, prepared);
-  yield* registerHostPreparationDisposal(() => {
-    legacyBindingPreparations.delete(token);
-    bindingHeadPreparations.delete(token);
-  }).pipe(Effect.mapError(cause => activationError("read", "resourceFailure", prepared.basis.revisionId, false, cause)));
+  if (prepared.lifetime !== undefined) {
+    installBindingHeadPreparation(token, prepared);
+    yield* registerHostPreparationDisposal(() => {
+      legacyBindingPreparations.delete(token);
+      bindingHeadPreparations.delete(token);
+    }).pipe(Effect.mapError(cause => activationError("read", "resourceFailure", prepared.basis.revisionId, false, cause)));
+  }
   return token;
 });
 

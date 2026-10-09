@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { bigint, check, foreignKey, pgTable, primaryKey, text, unique } from "drizzle-orm/pg-core";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { fxSystemApplicationActivations } from "../applicationActivationSchema";
-import { bytea } from "../../database/schema";
+import { bytea } from "../../database/schema/primitives";
 
 /** Activation history owns retained claims; the active head selects its current projection. */
 export const fxSystemApplicationWriteOwnership = pgTable("fx_system_application_write_ownership", {

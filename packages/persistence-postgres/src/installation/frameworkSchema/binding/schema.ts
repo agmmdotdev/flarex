@@ -8,7 +8,8 @@ import {
   primaryKey,
   unique,
 } from "drizzle-orm/pg-core";
-import { bytea, fxSystemScopeClocks } from "../../../database/schema";
+import { bytea } from "../../../database/schema/primitives";
+import { fxSystemScopeClocks } from "../../../database/schema/scope";
 import { frameworkMetadataCollatedText as text } from "../privateMetadataSchemaSupport";
 import {
   fxSystemFrameworkSchemaInstallations as installations,

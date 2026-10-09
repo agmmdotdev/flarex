@@ -15,7 +15,8 @@ import type { ScopeId } from "flarex-protocol/storage-authority";
 import {
   fxSystemApplicationReadiness,
 } from "./relations/applicationRelationSchema";
-import { bytea, fxSystemApplicationReadinessV1 } from "../database/schema";
+import { bytea } from "../database/schema/primitives";
+import { fxSystemApplicationReadinessV1 } from "../database/schema/applicationLegacyPublications";
 
 /** Concrete persisted readiness contract selected by one Application activation. */
 export type ApplicationActivationReadinessContractVersion = 1 | 2 | 3;

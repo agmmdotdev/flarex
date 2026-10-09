@@ -27,6 +27,25 @@ owner. Import them when needed; do not copy their algorithms into another test
 package. Cross-owner fixture dependencies are explicit imports, not production
 construction APIs. Historical accepted reports remain under the benchmark owner.
 
+The journal's PGlite cases follow their concrete owners:
+
+| Suite under `execution/journal/` | Contract |
+| --- | --- |
+| `pointOperations.test.ts` | Pinned table resolution, document operations and authenticated pending visibility |
+| `indexedQueries.test.ts` | Pinned indexes, pages, ranges, bounded materialization and replay |
+| `receiptEvidence.test.ts` | Receipt/write evidence, exact replay, corruption and defect classification |
+| `operationLimits.test.ts` | Exact cumulative ceilings and sticky refusal without partial writes |
+| `seal.test.ts` | Two-phase sealing, lease correlation, rollback, retry and drainage |
+| `attemptLifecycle.test.ts` | Claim ownership, per-execution failure state, terminal/expired refusal and cleanup |
+
+`journalFixture.ts` owns database construction, authentic scope/installation
+setup, seeding, shared journal queries and closure. Each suite has its own
+database lifetime. `journalTestSupport.ts` contains the shared value/evidence
+helpers; single-owner faults and seal triggers stay with their suite.
+`sessionJournalStore.postgres.test.ts` retains real locking, concurrency,
+migration, SQLSTATE and transaction witnesses. Paired scenarios share exact
+behavior where appropriate; their driver obligations remain distinct.
+
 ## Driver And Runtime Lanes
 
 An unsuffixed `*.test.ts` may execute PGlite. It is not automatically a unit test.

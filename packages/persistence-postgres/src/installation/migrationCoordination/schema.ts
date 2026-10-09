@@ -14,7 +14,7 @@ import {
   frameworkMetadataCollatedText,
   isFrameworkMetadataTextWithin,
 } from "../frameworkSchema/privateMetadataSchemaSupport";
-import { bytea } from "../../database/schema";
+import { bytea } from "../../database/schema/primitives";
 import type { ScopeIsolationKind } from "../../scope/scopeMetadataTypes";
 import {
   MAX_RELATIONAL_PHYSICAL_ASSIGNMENT_CANONICAL_BYTES,

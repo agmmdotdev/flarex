@@ -2,7 +2,10 @@
 
 ## Status And Scope
 
-**Owner-authorized organization goal active; journal consumer boundary complete.**
+**Owner-authorized organization goal active.** Journal consumer contracts,
+concrete journal owners and schema declarations are separated. The journal,
+schema and test cutover follows these concrete owners; publication and
+activation organization remain open.
 The owner requested continued organization, readable end-to-end flows, sensible
 folder/file boundaries, file splitting, clean APIs and corresponding tests.
 The [source/test layout](04-source-and-test-ownership.md) and admitted local
@@ -16,12 +19,12 @@ type and construction breaks are authorized with complete caller migration.
 
 ## Remaining Structural Problem
 
-Domain folders expose the outer owners, but several files still hide multiple
-responsibilities behind one large implementation. The current journal and
-database schema each exceed ten thousand lines; point publication exceeds eight
-thousand. Application activation/readiness and session activation also contain
-substantial lifecycle and protocol work. These are evidence for an internal
-ownership audit, not a rule to split at an arbitrary line count.
+Domain folders expose the outer owners. The journal now has distinct attempt,
+operation, evidence, persistence and seal owners; database declarations follow
+their actual dependency graph. Point publication still combines substantial
+settlement responsibilities. Application activation/readiness and session
+activation also contain substantial lifecycle and protocol work. Audit their
+actual ownership rather than splitting at an arbitrary line count.
 
 | Existing owner | Responsibilities to separate or verify |
 | --- | --- |
@@ -93,7 +96,7 @@ The replacement stays in the existing execution and storage owners:
 | journal/frozenAttempt.ts | One private frozen registry, origin/owned lookup and borrowed or detached consumer projections. No root evaluator or metadata construction dependency. |
 | journal/freezeClosedRoot.ts | Existing closed-root authentication, pin verification, canonical adoption, issuance and consumption through that same registry. |
 | journal/api.ts | Explicit consumer export boundary for contracts, errors and read-only projections. Excludes constructors, issuer symbols, registry mutation and raw SQL capabilities. |
-| sessionJournalStore.ts | Concrete resource/options assembly, per-store state, receipt codecs, evaluation, persistence, replay and seal/recovery until their next coherent decomposition. |
+| sessionJournalStore.ts | Concrete resource/options assembly and ordered preparation, admission and dispatch into the journal owners. |
 
 Move the original pinned-table/developer-index error classes to a storage-owned
 error leaf. Move the original Application syscall-validator and logical
@@ -146,14 +149,15 @@ both reviews, remove displaced paths and commit the connected cutover. Update
 the reading guide with the actual sequence and test ownership. This does not
 claim native-relative performance acceptance.
 
-### Remaining Concrete Journal Decomposition
+### Concrete Journal Owners
 
-The consumer boundary does not finish journal organization. The concrete store
-still owns receipt schemas/codecs, counters, input capture, SQL persistence,
-point/index/relation execution, borrowed participant orchestration, finite root
-construction and seal projection/settlement. Separate those substantial stages
-under the same `journal/` domain while retaining readable target resolution,
-admission and request dispatch in the store entry.
+The concrete store assembles receipt schemas/codecs, counters, input capture,
+SQL persistence, point/index/relation execution, borrowed participant
+orchestration, finite-root construction and seal projection/settlement through
+their named owners under `journal/`. Target resolution and exact admission have
+their concrete owner; ordered preparation/admission/dispatch stays visible at
+the store entry. The [journal reading map](../../packages/persistence-postgres/src/execution/journal/README.md)
+identifies each stage and its actual dependency direction.
 
 The required dependency direction is input/codecs/accounting, then receipt
 evidence and persistence, then operation execution and journal projection, then
@@ -171,6 +175,285 @@ freeze owners. Preserve current finite relation refusal; this does not add a
 profile. All canonical codecs, transaction boundaries, acknowledgement and
 release rules remain exact. Migrate internal callers and remove the displaced
 bodies together, with the same paired driver and connected consumer proofs.
+
+The PGlite journal cases belong to point/index execution, admission,
+receipt corruption, limits, seal transitions and transaction-lifetime owners
+under `test/execution/journal/`. One fixture owns database construction, authentic
+scope/installation setup and resource closure; shared evidence/value helpers
+remain journal-specific test support. Each suite owns its fixture lifetime.
+Preserve case bodies, fault boundaries and expected failures, and independently
+compare test registration and executable case content during the move. Do not
+replace behavioral witnesses with implementation-shaped helper tests.
+
+Keep accepted-operation receipt policy and point/event/receipt/root sequencing
+in their Effect owners. The inherited Promise helper combines canonicalization,
+marker authenticity, receipt limits, row correlation and SQL; broad caller
+handlers can classify an internal defect as a persistence failure. Reuse the
+existing statement adapter for lazy foreign SQL, the protocol Effect
+canonicalizer for outcomes and direct sequential composition for domain work.
+Preserve the same transaction, statement/fault-hook order, public profile error
+mapping and interruption masks. The exact kernel retains full Cause and owns
+rollback; it does not require domain orchestration to become a Promise.
+
+Stored-range transport conversion preserves the original candidate field and
+branch evaluation order as well as its exception boundary. Consume row-ID
+validation through Result without throwing to extract its value. Capture the
+actual foreign row-to-candidate conversion once, then carry its typed result;
+keep cardinality/ordinal admission, Schema validation and evidence correlation
+in their original order. Finite indexed-read limit recovery uses its typed
+error at the actual materialization/success boundary, preserving first limit,
+pending-state publication and the existing abort/in-flight finalizers.
+
+### Concrete Database Schema Decomposition
+
+Replace the central declaration body with domain modules in `database/schema/`.
+Keep `database/schema.ts` as the explicit aggregate used by database composition;
+declaration modules and companion schemas import the actual declaration owners,
+never that aggregate or the generator aggregate. The audited foreign-key graph
+has no inter-table cycle. Keep self-references inside their declaration module
+and preserve lazy foreign-key callbacks and declaration order.
+
+| Declaration owners | Responsibility and lower dependencies |
+| --- | --- |
+| primitives | Existing Drizzle custom types, text checks and canonical-frame SQL helpers; no tables. |
+| catalogIdentity, catalogIndexes, catalogUniqueConstraints, catalogRelations, catalogApplicationBindings, catalogLogicalReads, controlScopes | Deployment and catalog identity, then the respective definitions/bindings; logical read access remains below its source/table definitions. |
+| scope, installation, commitHeaders, commitFacts | Scope clocks and observations; installation state; commit/idempotency/wakes; document and relation facts. Facts depend on commit headers and document revisions. |
+| transactionSessions, transactionJournals | Sessions and leases, then journal claims, receipts, points, ranges, relation dependencies and writes. Keep the existing shared point-dependency CHECK helper with journal declarations. |
+| documents, documentIndexes, relations | Authoritative row revisions/current rows, their index/search/unique projections, and physical edge/adjacency state. |
+| relationReadiness, buildReadiness | Existing relation provenance/readiness and index/search/unique/candidate maintenance state. Preserve the semantic-readiness origin self-reference. |
+| applicationRevisions, applicationLegacyPublications, applicationEffects | Current candidate/analysis/revision chain; retained publication/function/schema/readiness/task-catalog metadata; action and external-effect attempts. Task catalogs remain with publication metadata to avoid a task/publication cycle. |
+| taskRuns, taskCompute | Definition revisions, runs, requests, attempts, requested effects and repair; then pending compute, dispatch and cancellation. |
+| executionRecovery, retainedHistory | Their distinct scheduler declarations and existing domain-owned model constants. |
+| legacyPersistence, sync, legacyInvokeSessions | Existing retained persistence, freshness/live-query and invocation-session declarations, with their current consumers. |
+| legacyDeclarativeCandidate, legacyDeclarativeRuntime, legacyDeclarativeVerifier, legacyApplicationRevision, legacyDeclarativeActivation | The retained candidate-to-verifier/revision/verdict/activation DAG. Preserve activation's previous-revision self-reference. |
+
+Preserve three different current surfaces exactly: all 117 central table
+declarations and named exports; the driver's explicit 82-key `flarexSchema`
+membership, order and inferred types; and the generator's explicit 140 table
+exports from `database/drizzleSchema.ts` (98 central and 42 companion tables).
+They are not interchangeable inventories. Do not spread all declaration exports
+into the driver schema, use a generator glob, or broaden generator coverage.
+Existing companion declaration owners remain in place and depend directly on
+primitives, catalog, scope, commit or Application declaration leaves.
+
+The generator configuration still referenced the displaced root file. Point it
+at the existing `src/database/drizzleSchema.ts` owner. This repairs the path
+without adding tables, generating DDL or changing migrations. Existing generator
+exclusions, including retained Declarative tables and Application read bindings,
+remain explicit; organization does not decide a schema-evolution capability.
+
+There is no durable-data conversion, schema-name change or reset in this cutover.
+Migrate internal declaration imports and remove the displaced declaration bodies.
+Validate independent before/after table metadata, export inventories, aggregate
+order and singleton identity, including columns/defaults/indexes/CHECKs/foreign
+keys. Existing migration SQL alone cannot prove declaration parity, and an
+expected key list derived from the new aggregate cannot prove unchanged coverage.
+Run paired driver and installation/catalog/Application/journal consumer proofs,
+typechecks, generator checks and required reviews. Keep one domain reading map
+that distinguishes declarations, driver composition and migration generation.
+
+### Next Point Publication Decomposition
+
+The next settlement owner still combines consumer contracts, six authentic
+capability registries, capture/preparation, durable accepting transactions,
+finite publication/nonacceptance, finishing, conflict reproduction/replacement
+and relation recovery in `pointCommitTransaction.ts`. Its consumer API loads
+that implementation; error imports also reach installation construction through
+unique-key matching. Separate these owners under `commit/point/` after the
+journal/schema cutover is verified. This is an organization contract, not an
+implemented publication or Worker-runtime result.
+
+Use contracts/errors and specific capability registration/lookup at the bottom,
+then capture and genuinely shared private command/locked state. Preparation,
+attempt acceptance, participant proof, OCC and lowering compose above them.
+Durable publication, finite publication, finishing, replacement and relation
+recovery retain distinct ordered operations; construction visibly connects
+them through the existing transaction runners. Consumers use the lightweight
+contract/error boundary; trusted constructors use their explicit route. Separate
+single lower-owner error classes from heavyweight matching/SQL conversion where
+necessary. Do not create equivalent classes or merely move the heavy import to
+another barrel.
+
+The selected concrete publication layout is:
+
+| Owner under `commit/point/` | Responsibility |
+| --- | --- |
+| contracts, errors, limits | Exact consumer commands, outcomes, errors and existing bounds; no SQL construction or installation dependency. |
+| capabilities | The six existing publisher, terminal-refusal and maintenance/eligibility registries with specific authenticated issuance and lookup. |
+| capture, preparedCommands, lockedState | Descriptor-safe command capture, prepared evidence and the actual locked-row projections. |
+| uniqueEligibility | Existing unique readiness preparation and transactional acceptance, independent of publisher construction. |
+| preparation, attemptAcceptance, participantProof, occ, lowering | Ordered authority preparation, fresh acceptance, participant/source proof, conflict validation and conversion to the existing materialization command. |
+| durablePublication, finitePublication | Their distinct original settlement and nonacceptance operations, using the authoritative publication owners. |
+| finishing, rollbackProof, replacement, relationRecovery | Their distinct state transitions, conflict reproduction, acknowledged replacement and uncertain-outcome recovery. |
+| promiseBoundary, observation | Existing full-Cause runtime/transaction conversion and passive diagnostic observation. |
+| constructionContracts, construction | Trusted composition inputs and short assembly of the actual operations. |
+
+Keep `point-commit-transaction` as the lightweight consumer package route. Add
+explicit internal construction and eligibility routes, then migrate constructor
+and readiness callers to them. Internal owners import the actual module they
+need. Remove the old combined API bodies and implementation paths after all
+callers move; forwarding exports would preserve the dependency problem.
+
+Move each original lower error family once into its own existing domain: unique
+keys, candidate write guards, committed outcomes, rows, index entries, scope
+clocks, read-committed transaction failure and execution claims. Preserve exact
+class identity, prototype, message, tag, fields and expected failure projection.
+Implementations and matchers consume those same classes. Error declarations do
+not acquire SQL matching or accepting authority.
+
+Resolve the actual materialization/acceptance cycle in the connected cutover.
+Place the original head-evidence decoders, sidecar ordering/preparation policy,
+unique-failure projection and limits below both owners. Move original-build-lock
+recording, capture, acceptance and their two identity maps together into one
+specific owner. Keep committed-row materialization and publication acceptance
+above those leaves; do not create a second build-lock registry or wrapper engine.
+
+Private import and constructor routes break across executor authentication,
+planning, execution and recovery; Application serving/readiness; lower storage
+and publication; framework composition; and connected fixtures/tests. Move the
+actual consumer imports, package routes, source inventories and runtime guards.
+No durable identity, codec, journal, table or stored outcome requires conversion
+in this organization. Preserve the current native business and public failure
+contracts, and inventory any deliberately corrected touched-flow defect before
+changing it.
+
+Retain existing materialization, scope publication, stored-authority, journal,
+installed finite observation/procedure and full-Cause Promise boundary owners.
+They already own actual committed writes, prefix/facts/outcome/wakes and durable
+uncertainty. No generic settlement context, competing registry or universal
+transaction API is selected.
+
+Preserve durable replay and protection ordering, database-time observation after
+the real lock wait, participant/source first refusal and OCC before lowering.
+Finite preparation deliberately stores ordered Exit verdicts: splitting must
+not evaluate them early or concurrently. Generated insertion guards remain
+distinct from genuine missing-read evidence. Only acknowledged COMMIT confirms
+replacement entry or nonacceptance proof; a missing outcome after uncertain
+COMMIT remains uncertain. Preserve interruption drainage, serialization/deadlock
+classification, rollback/release failures and passive observer isolation.
+
+Migrate executor authentication/planning/execution/recovery, Application serving
+and readiness, and privileged/connected test consumers. Remove displaced bodies
+and constructor reexports in the coherent cutover. Validate paired publication,
+finishing, replacement, stored evidence, relation/strong-reference, concurrency,
+lost-ack and full-Cause witnesses plus genuine finite mixed and Worker consumers.
+An import graph check alone does not establish actual Worker execution.
+
+### Application Activation And Readiness Decomposition
+
+Follow point publication with a connected replacement of the concrete
+Activation/Readiness layout and its consumers. Selection claims and transaction
+lending invalidation currently reach concrete Activation construction from lower
+materialization, index and installation owners. Readiness obtains unique
+preparation and acceptance through concrete point publication. Separating only
+error declarations would leave these dependency cycles and hide the actual
+serving flow. This layout is selected for the organization goal; its concrete
+cutover remains unimplemented.
+
+Use `application/activation/` for the following actual responsibilities:
+
+| Owner | Responsibility |
+| --- | --- |
+| contracts, errors | Exact opaque capabilities, bases, repositories, outcomes and the one existing error family. Lower domain references are type-only. |
+| selectionIdentity, repositoryIdentity | The existing selection/binding/head registries and specific authentic claims; registered repository/reader composition and preparation dispatch. No SQL or constructor dependency. |
+| acceptedBinding | Accepted-token identity and its transaction lending index together, including borrowing, writer invalidation and callback cleanup. |
+| bindingPreparation, bindingAcceptance | Request/retained capture and readiness correlation, then fresh legacy/relation acceptance and checked-head lending. |
+| currentBinding | Current-generation probes and staging, the existing semaphore, schema fixation and lexical refresh loan. |
+| standaloneBinding | Protected indexed capture and installation/epoch-guarded acceptance. Its identity storage stays below SQL construction. |
+| finiteIdentity, finitePreparation | Prepared/root-bound metadata identity and detached projections; actual initial, confirmed replacement and cold-recovery graph preparation. |
+| activationPersistence, readBindingPublication | CAS/replay and atomic activation history/maintenance/ownership/revocation/head persistence; existing canonical parent-derived read-binding publication and installation backfill. |
+| repository | Recognizable ordered `activate` and `readActive` operations and concrete assembly. |
+
+Use `application/readiness/` for contracts/errors and one identity owner holding
+repository issuers, captured rows, prepared/stored results and activation views.
+Its specific issuance operations preserve explicit request/retained policy.
+Bundle authentication, control-schema correlation, cold evidence, canonical
+frames and physical coverage have their distinct existing domain owners.
+Preparation captures SQL rows before closed-transaction authentication and
+control work; acceptance retains prepared/stored/protected/finite validation;
+persistence owns atomic readiness settlement/replay. Repository assembly keeps
+`settle` and `readReady` ordering visible.
+
+Keep registry maps private and singular. Reuse the existing ActiveHeadRead,
+ActivationFrames, StandaloneBinding, relation and ownership implementations.
+Declaration movement does not justify a second codec, cache, acceptance path or
+generic context carrying every callback and port. Lower metadata writers import
+invalidation from `acceptedBinding`; materialization and task authority import
+claims from `selectionIdentity`. Those changes remove the actual backedges.
+
+Consumer APIs export explicit lightweight contracts, errors and authentic
+claims. Trusted construction has its explicit internal route. Migrate the
+standard Application task/action/query/mutation systems, framework direct and
+borrowed hosts, journal/session/finite owners, publication/materialization,
+logical-source admission/readiness, index and installation writers, test
+environments and package routes together. Separate system-test inspection from
+construction. Remove the displaced implementation bodies and constructor
+reexports; do not retain forwarding paths to avoid moving callers.
+
+Preserve request evidence without an ambient lease or executable verdict, actual
+retained charging/disposal and exact transaction/selection/clock/checked-head
+lending identity. Installation acquisition remains before scope/metadata locks;
+protected callbacks retain their final epoch guard. Capture transactions close
+before hashing/materialization, and current-generation refresh precedes business
+execution without retrying business callbacks. Finite initial lexical loans,
+confirmed replacement and cold recovery remain distinct; finite relation
+refusal remains. Indexed full-proof maintenance can refuse `storedState` before
+the final `concurrentHead` check, and the cutover preserves that order.
+
+Keep durable legacy/relation/policy head formats and activation/serving login
+pairing exact. History, maintenance, ownership, revocation, read-binding and head
+changes stay atomic. Callback rollback, cleanup failures, interruption and
+uncertain settlement keep their complete Cause and ordering. This organization
+does not authorize hosted activation or a general migration/reset.
+
+Finalize the unique eligibility/preparation/acceptance dependency against the
+selected point-publication owner after its cutover. Preserve exact factory
+authentication and the finite metadata registry instead of introducing a wrapper
+port or substitute issuer. Validate consumer value-import graphs and genuine
+Worker witnesses separately; lightweight claims must avoid SQL, installation
+construction and Node crypto, while accepting operations remain actual SQL
+owners.
+
+Tests follow binding preparation, current preparation, catalog integrity, finite
+correlation, serving, standalone/backfill, active admission, metadata, relation
+readiness/read and ownership. Move task/action/query cases embedded in the
+readiness suite to their existing domain test owners with genuine shared fixture
+support. Keep driver/resource construction explicit and preserve every original
+case, fault boundary and expected refusal. Validate paired drivers, connected
+consumers, cleanup/cancellation, stale/clone/closed issuers, current refresh,
+finite replacement/recovery and full-Cause settlement before removal and commit.
+
+### Request Binding Lifecycle Correction
+
+The existing ambient-host standalone witness exposes an Application issuer
+defect: `issueLegacyBindingPreparation` registers every token for host disposal,
+including request-owned preparations whose `lifetime` is absent. The host's
+disposal set then strongly retains those request tokens and deletes their issuer
+registry entries when that unrelated host closes. This contradicts the accepted
+[request/retained contract](../core-performance/read-admission-construction-preflight.md):
+request entries are bounded weakly held evidence, carry no retained lease and
+must not accumulate in an ambient host allocation.
+
+Register legacy binding head preparation and host disposal only when the actual
+preparation carries its retained lifetime. Keep request registry entries weak;
+they still grant no executable or serving verdict, and every business use keeps
+the existing fresh binding/source/clock acceptance. Do not change the protected
+standalone or finite issuers that genuinely own retained lifetimes, the general
+host runtime or relation-only preparation semantics. The composite issuer's
+legacy branch uses this same corrected owner.
+
+Carry the captured request/retained profile into the nested stored-readiness
+issuer as well. Its unconditional ambient lifetime capture and disposal would
+otherwise invalidate surviving request bindings during their first fresh
+transactional acceptance. Request readiness remains weak issuer-owned evidence
+without a host lease; retained readiness and the existing independent read-ready
+and finite issuance routes keep their actual host lifetimes and cleanup.
+
+Preserve the current failing witness: request tokens remain inspectable after
+ambient-host closure, while authentic retained selections refuse after their
+issuer closes. Validate the exact profile with PGlite and ordinary-role Postgres
+and retain clone/wrong-issuer, fresh acceptance and source closure proofs. This
+is a lifecycle correction during organization, not a performance acceptance.
 
 1. Finish construction/API migration and its validation, review and commit.
 2. Record the concrete module/dependency and caller inventory for each substantial

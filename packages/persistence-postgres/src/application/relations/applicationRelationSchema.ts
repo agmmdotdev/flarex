@@ -33,12 +33,12 @@ import type {
   ApplicationRelationSemanticValidationAttemptFence,
   ApplicationRelationSetReadinessKind,
 } from "./readiness/Model";
+import { bytea } from "../../database/schema/primitives";
 import {
-  bytea,
   fxSystemApplicationRelationSemanticReadiness,
-  fxSystemApplicationRevisionsV2,
   fxSystemEdgeDefinitionReadiness,
-} from "../../database/schema";
+} from "../../database/schema/relationReadiness";
+import { fxSystemApplicationRevisionsV2 } from "../../database/schema/applicationRevisions";
 
 /**
  * Relation-aware Application lifecycle storage. These are the accepted

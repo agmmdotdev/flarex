@@ -16,7 +16,7 @@ import {
 } from "../../migrationCoordination/schema";
 import type { FrameworkMigrationAttemptOutcome } from
   "../../migrationCoordination/model";
-import { bytea } from "../../../database/schema";
+import { bytea } from "../../../database/schema/primitives";
 import {
   frameworkMetadataCollatedText,
 } from "../privateMetadataSchemaSupport";

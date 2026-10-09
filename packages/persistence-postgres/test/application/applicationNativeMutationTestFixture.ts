@@ -147,7 +147,7 @@ import {
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards, hasProtectedMetadataFinalGuardScope,
   type ProtectedMetadataPreparation } from "../../src/execution/preparation/preparedMetadataEpoch";
-import { acquireCoLocatedInstallationAdmission, closeInstallationAdmission,
+import { acquireCoLocatedInstallationAdmission, closeInstallationAdmission, lockInstallationForCurrentTransaction,
   type PreparedCoLocatedReadInstallation } from "../../src/installation/installationLifecycle";
 import type { FlarexPersistence } from "../../src/index";
 import type { LocatedScopeClockReader } from
@@ -710,6 +710,7 @@ async function createApplicationNativeMutationFixture<
     await target.drizzle.transaction(async tx => {
       if (options.managedInstallation !== undefined)
         await Effect.runPromise(acquireCoLocatedInstallationAdmission(options.managedInstallation.installation, target.drizzle, tx));
+      else await Effect.runPromise(lockInstallationForCurrentTransaction(tx));
       try {
       await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
         kind: "live",

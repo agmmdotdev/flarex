@@ -33,7 +33,7 @@ import type {
   SessionJournalParticipantSelection,
 } from "./contracts";
 import type { SessionJournalAttemptStateV1, ResolvedJournalTargetV1 } from "./state";
-import type { FiniteRootAttemptState } from "../sessionJournalStore";
+import type { FiniteRootAttemptState } from "./finiteRoot";
 const preparedFiniteSessionJournalEntryBrand: unique symbol = Symbol("Flarex/PreparedFiniteSessionJournalEntry");
 const confirmedFiniteRootEntryCaptureBrand: unique symbol = Symbol("Flarex/ConfirmedFiniteRootEntryCapture");
 export interface PreparedFiniteSessionJournalEntry { readonly [preparedFiniteSessionJournalEntryBrand]: true }

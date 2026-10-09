@@ -179,6 +179,7 @@ import {
   isApplicationBindingPreparation,
   makeApplicationActivationRepository,
   prepareApplicationBindingSelection,
+  prepareRetainedApplicationBindingSelection,
   prepareFiniteActiveApplication,
   readPreparedFiniteApplicationOriginalControl,
   readApplicationBindingPreparationInputs,
@@ -1129,17 +1130,43 @@ describe("Application activation", { timeout: 30_000 }, () => {
       }));
       return yield* host.use(value => Effect.succeed(value.tokens));
     })));
-    for (const token of requests) expect(Result.isSuccess(readApplicationBindingTargetProtection(token))).toBe(true);
+    for (const token of requests) {
+      expect(Result.isSuccess(readApplicationBindingTargetProtection(token))).toBe(true);
+      expect(Result.isFailure(claimApplicationExecutableActiveSelection(token))).toBe(true);
+    }
+    const accept = (token: ApplicationBindingInput) => fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
+      return yield* validateApplicationBindingBasisInTransaction(token, tx, clock);
+    })));
+    for (const token of requests) expect((await accept(token)).basis.revisionId).toBe(fixture.input.revisionId);
+    const request = requests[0];
+    if (request === undefined) throw new Error("Expected request binding");
+    const clone = Object.freeze({ ...request });
+    expect(Result.isFailure(readApplicationBindingTargetProtection(clone))).toBe(true);
+    await expect(accept(clone)).rejects.toMatchObject({ reason: "invalidComposition" });
     const retained = await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
-      const host = yield* retainPreparedHost(runtime, activation.readActive().pipe(Effect.map(active => Object.freeze({ active }))));
-      return yield* host.use(value => Effect.succeed(value.active.selection));
+      const host = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+        const active = yield* activation.readActive();
+        const binding = yield* prepareRetainedApplicationBindingSelection(activation);
+        return Object.freeze({ active, binding });
+      }));
+      return yield* host.use(value => Effect.gen(function* () {
+        const lineage = yield* Effect.fromResult(readApplicationBindingTargetProtection(value.active.selection));
+        expect(lineage.lifetime).toBeDefined();
+        const bindingLineage = yield* Effect.fromResult(readApplicationBindingTargetProtection(value.binding));
+        expect(bindingLineage.lifetime).toBeDefined();
+        return Object.freeze({ selection: value.active.selection, binding: value.binding });
+      }));
     })));
-    expect(Result.isFailure(readApplicationBindingTargetProtection(retained))).toBe(true);
-    await expect(fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
-      const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
-      return yield* validateApplicationBindingBasisInTransaction(retained, tx, clock);
-    })))).rejects.toMatchObject({ reason: "invalidComposition" });
+    expect(Result.isFailure(readApplicationBindingTargetProtection(retained.selection))).toBe(true);
+    expect(Result.isFailure(readApplicationBindingTargetProtection(retained.binding))).toBe(true);
+    await expect(accept(retained.selection)).rejects.toMatchObject({ reason: "invalidComposition" });
+    await expect(accept(retained.binding)).rejects.toMatchObject({ reason: "invalidComposition" });
+    // Surviving request evidence is not a cached positive business verdict.
+    await fixture.target.drizzle.delete(fxSystemApplicationActiveHeads)
+      .where(eq(fxSystemApplicationActiveHeads.scopeId, fixture.input.scopeId));
+    await expect(accept(request)).rejects.toMatchObject({ reason: "concurrentHead" });
   });
 
   it("preserves standalone canonical refusal order ahead of absent durable readiness", async () => {

@@ -13,7 +13,8 @@ import {
   unique,
 } from "drizzle-orm/pg-core";
 
-import { bytea, deployments } from "../../../database/schema";
+import { bytea } from "../../../database/schema/primitives";
+import { deployments } from "../../../database/schema/catalogIdentity";
 import {
   FRAMEWORK_SCHEMA_ARTIFACT_FORMAT,
   FRAMEWORK_SCHEMA_ARTIFACT_VERSION,

@@ -120,7 +120,10 @@ external effects. Durable workflow/task progression remains a separate owner.
    invokes the admitted runtime through restricted
    [journal capabilities](../../packages/executor/src/mutation/journal/applicationPointMutationJournalCapability.ts).
    The [persistence journal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
-   owns observations, pending state and participant evidence.
+   assembles the observation, pending-state and participant-evidence owners.
+   The [journal reading map](../../packages/persistence-postgres/src/execution/journal/README.md)
+   follows target admission, operation execution, stored evidence and sealing.
+   One per-store attempt owner retains the authentic capabilities and claims.
    Its [consumer contract](../../packages/persistence-postgres/src/execution/journal/api.ts)
    is separate from construction. The [finite registry](../../packages/persistence-postgres/src/execution/journal/finiteEntry.ts)
    owns authentic capture state; the [activation owner](../../packages/persistence-postgres/src/execution/journal/finiteEntryActivation.ts)

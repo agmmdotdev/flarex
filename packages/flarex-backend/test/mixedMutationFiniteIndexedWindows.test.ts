@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { Effect, Schema } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { decodeAppRowIdHexV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
@@ -9,7 +9,11 @@ import { FlarexValueSha256V1Schema } from "flarex-protocol/value";
 import { fxAppRowRevisions } from "../../persistence-postgres/src/database/schema";
 import {
   readFrozenFiniteAttempt,
+  inspectPreparedFiniteSessionJournalEntry,
 } from "../../persistence-postgres/src/testing/sessionJournalInspection";
+import { SessionJournalPersistenceV1Error } from "../../persistence-postgres/src/execution/journal/errors";
+import { AppRowStorageCorruptionError } from "../../persistence-postgres/src/storage/documents/appRows";
+import { FlarexValueEvidenceV1Error } from "flarex-protocol/value";
 import {
   createMixedMutationPerformanceTrace,
   type MixedMutationPerformanceTrace,
@@ -92,10 +96,12 @@ describe.each(drivers)("finite Application indexed body windows on %s", driver =
 
   it("returns the original semantic budget refusal before decoding a later corrupt selected body", async () => {
     let observing = false, windows = 0;
+    let preparation: Parameters<typeof inspectPreparedFiniteSessionJournalEntry>[0] | undefined;
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `indexed-budget-${driver}`,
       includeUserNameIndex: true,
       initialApplicationUsers: rowIds.map((rowId, offset) => ({ name: `window-${offset}`, rowId, padding })), hooks: {
         observeSql: (_phase, sql) => { if (observing && sql.includes("fx_read_snapshot_rows")) windows++; },
+        onFiniteEntryPrepared: entry => { preparation = entry; },
       } });
     const trace = fixture.currency.resource.kind === "postgres" ? createMixedMutationPerformanceTrace({
       controlPool: fixture.currency.resource.target.pool, targetPool: fixture.currency.resource.target.pool,
@@ -125,6 +131,84 @@ describe.each(drivers)("finite Application indexed body windows on %s", driver =
       expect(refusal.delivery).toBe("executed");
       expect(refusal.issue).toMatchObject({ reason: "limitExceeded", dimension: "readSemanticBytes", maximum: 1 << 24 });
       expect(windows).toBe(1);
+      if (preparation === undefined) throw new Error("Missing genuine finite entry preparation");
+      expect(inspectPreparedFiniteSessionJournalEntry(preparation)?.finiteStatus).toBe("aborted");
+      expect(fixture.getOpenTransactionDepth()).toBe(0);
+      observing = true;
+      // Neither replaying the refused sequence, advancing it, nor replaying a
+      // successful old receipt can continue a terminal finite root.
+      for (const sequence of [10n, 11n, 1n]) {
+        const afterLimit = await observePostgresWindows(trace, `indexed-terminal-${sequence}`, count => { windows += count; },
+          () => Effect.runPromise(Effect.result(fixture.store.runIndexedQueryEffect(index,
+            { kind: "indexRange", syscallSequence: CommitSyscallSequenceV1Schema.make(sequence), bounds: {}, limit: 3 }))));
+        expect(afterLimit).toMatchObject({ _tag: "Failure", failure: {
+          _tag: "SessionJournalStorageCorruptionV1Error", reason: "exactAttemptPinsChanged",
+        } });
+      }
+      observing = false;
+      expect(windows).toBe(1);
+      expect(await Effect.runPromise(Effect.result(fixture.freeze(null))))
+        .toMatchObject({ _tag: "Failure", failure: { _tag: "SessionJournalSealV1Error", reason: "journalFailed" } });
+      expect(fixture.getOpenTransactionDepth()).toBe(0);
     } finally { try { trace?.close(); } finally { await fixture.close(); } }
+  }, 240_000);
+
+  it("preserves a selected body corruption as a typed failure and aborts its finite root", async () => {
+    let preparation: Parameters<typeof inspectPreparedFiniteSessionJournalEntry>[0] | undefined;
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `indexed-corruption-${driver}`,
+      includeUserNameIndex: true,
+      initialApplicationUsers: rowIds.map((rowId, offset) => ({ name: `window-${offset}`, rowId, padding })),
+      hooks: { onFiniteEntryPrepared: entry => { preparation = entry; } } });
+    try {
+      const table = await Effect.runPromise(fixture.store.resolvePointTableEffect(fixture.persistenceAttempt, "users"));
+      const index = await Effect.runPromise(fixture.store.resolveDeveloperIndexEffect(table, "by_name"));
+      if (preparation === undefined) throw new Error("Missing genuine finite entry preparation");
+      expect(inspectPreparedFiniteSessionJournalEntry(preparation)?.finiteStatus).toBe("open");
+      const selectedRevision = and(eq(fxAppRowRevisions.scopeUuid, projectScopeIdUuidV1(fixture.selector.scopeId).scopeUuid),
+        eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(rowIds[1]!)));
+      const [original] = await fixture.currency.persistence.drizzle.select({ sha256: fxAppRowRevisions.valueSha256 })
+        .from(fxAppRowRevisions).where(selectedRevision);
+      if (original === undefined || original.sha256 === null) throw new Error("Missing genuine committed revision evidence");
+      const request = { kind: "indexRange" as const, syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds: {}, limit: 3 };
+      let successContinuations = 0;
+      // Alter a real selected body after authenticated finite capture. The
+      // first body materializes before the second body's codec rejects it.
+      await fixture.currency.persistence.drizzle.update(fxAppRowRevisions)
+        .set({ valueSha256: FlarexValueSha256V1Schema.make(new Uint8Array(32)) }).where(selectedRevision);
+      const exit = await Effect.runPromiseExit(fixture.store.runIndexedQueryEffect(index, request).pipe(
+        Effect.tap(() => Effect.sync(() => { successContinuations++; })),
+      ));
+      // Restore durable fixture evidence before checking the terminal owner.
+      await fixture.currency.persistence.drizzle.update(fxAppRowRevisions).set({ valueSha256: original.sha256 }).where(selectedRevision);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) throw new Error("Expected selected body materialization failure");
+      expect(Cause.hasDies(exit.cause)).toBe(false);
+      expect(Cause.hasInterrupts(exit.cause)).toBe(false);
+      const failures = exit.cause.reasons.filter(Cause.isFailReason);
+      expect(failures).toHaveLength(1);
+      const failure = failures[0]?.error;
+      expect(failure).toBeInstanceOf(SessionJournalPersistenceV1Error);
+      if (!(failure instanceof SessionJournalPersistenceV1Error)) throw new Error("Expected the journal's typed materialization failure");
+      expect(failure.operation).toBe("runIndexedQuery");
+      expect(failure.cause).toBeInstanceOf(AppRowStorageCorruptionError);
+      if (!(failure.cause instanceof AppRowStorageCorruptionError)) throw new Error("Expected the actual selected revision corruption");
+      expect(failure.cause.identity.rowId).toBe(rowIds[1]);
+      expect(failure.cause.cause).toBeInstanceOf(FlarexValueEvidenceV1Error);
+      expect(failure.cause.cause).toMatchObject({ issue: { reason: "sha256Mismatch" } });
+      expect(successContinuations).toBe(0);
+      expect(inspectPreparedFiniteSessionJournalEntry(preparation)?.finiteStatus).toBe("aborted");
+      expect(fixture.getOpenTransactionDepth()).toBe(0);
+      // Repairing the stored row cannot revive partial dependencies/receipts.
+      for (const sequence of [1n, 2n]) {
+        expect(await Effect.runPromise(Effect.result(fixture.store.runIndexedQueryEffect(index,
+          { ...request, syscallSequence: CommitSyscallSequenceV1Schema.make(sequence) }))))
+          .toMatchObject({ _tag: "Failure", failure: {
+            _tag: "SessionJournalStorageCorruptionV1Error", reason: "exactAttemptPinsChanged",
+          } });
+      }
+      expect(await Effect.runPromise(Effect.result(fixture.freeze(null))))
+        .toMatchObject({ _tag: "Failure", failure: { _tag: "SessionJournalSealV1Error", reason: "journalFailed" } });
+      expect(fixture.getOpenTransactionDepth()).toBe(0);
+    } finally { await fixture.close(); }
   }, 240_000);
 });

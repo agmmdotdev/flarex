@@ -1,7 +1,16 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, foreignKey, integer, pgTable, primaryKey, text, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  foreignKey,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { CommitSeq, ScopeUuidV1 } from "flarex-protocol/storage-authority";
-import { fxSystemScopeClocks } from "../../../database/schema";
+import { fxSystemScopeClocks } from "../../../database/schema/scope";
 /** Completion is checked against an admitted adapter-owned initialization contract. */
 export const fxSystemFrameworkInitializations = pgTable("fx_system_framework_initialization", {
   scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),

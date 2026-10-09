@@ -1,7 +1,16 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, foreignKey, integer, pgTable, primaryKey, text, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  foreignKey,
+  integer,
+  pgTable,
+  primaryKey,
+  text,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { CommitSeq, ScopeUuidV1 } from "flarex-protocol/storage-authority";
-import { fxSystemScopeClocks } from "../../database/schema";
+import { fxSystemScopeClocks } from "../../database/schema/scope";
 
 /** A logical source's first-data contract is durable across outcome retention.
  * The stable source key prevents a changed schema from silently reseeding rows. */
