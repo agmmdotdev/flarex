@@ -1,7 +1,9 @@
 import { Cause, Deferred, Effect, Encoding, Exit, Fiber, Random, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { TestClock } from "effect/testing";
-import { createMetadataOnlyConflictFixture } from "../../../../persistence-postgres/test/execution/finiteMetadataRetryTestSupport";
+import {
+  createMetadataOnlyConflictFixture,
+} from "../../../../persistence-postgres/test/execution/finiteMetadataRetryTestSupport";
 import {
   PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
@@ -148,8 +150,10 @@ import type { StoredPointCommitPublisherV1 as ForbiddenPointCommitPublisher } fr
 import type { FinishingPreparedPointCommitV1 as ForbiddenFinishingPointCommit } from "../../../src/index";
 // @ts-expect-error C05-B executor capability types must remain absent from the package root.
 import type { StoredPointCommitExecutorV1 as ForbiddenPointCommitExecutor } from "../../../src/index";
-// @ts-expect-error O08-A replacement authority must remain absent from the package root.
-import type { StoredPointMutationAttemptReplacementV1 as ForbiddenAttemptReplacement } from "../../../src/index";
+import type {
+  // @ts-expect-error O08-A replacement authority must remain absent from the package root.
+  StoredPointMutationAttemptReplacementV1 as ForbiddenAttemptReplacement,
+} from "../../../src/index";
 // @ts-expect-error O08-B1 rerun authority must remain absent from the package root.
 import type { AuthorizedPointMutationOccRerunV1 as ForbiddenOccRerun } from "../../../src/index";
 import {
@@ -254,7 +258,7 @@ import {
   InvalidPointMutationJournalCapabilityV1Error,
   PointMutationJournalPersistenceV1Error,
   PointMutationJournalRelationConflictError,
-} from "../../../src/mutation/journal/pointMutationJournal";
+} from "../../../src/mutation/journal/errors";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_c04a_executor",

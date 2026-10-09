@@ -1,7 +1,9 @@
 import { makeCmsCommandBinding } from "@flarex/persistence-postgres/internal/cms-construction";
 import { inspectPayloadRuntimeForTest } from "@flarex/payload-adapter/internal/testing";
 import { createHash } from "node:crypto";
-import { awaitEffectTransactionSettlement } from "../../../../persistence-postgres/src/database/effectTransaction";
+import {
+  awaitEffectTransactionSettlement,
+} from "../../../../persistence-postgres/src/database/effectTransaction";
 import { maxCorePerformanceSeriesSamples } from "./measurementPlan";
 import { inspect } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
@@ -10,7 +12,10 @@ import type { makeNativeProductOperationDiagnostics } from "./nativeProductOpera
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from
   "@flarex/persistence-postgres/internal/commerce-values";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { inspectFiniteOperationCommitAuthority, inspectLogicalParticipantAdmissionBundle } from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
+import {
+  inspectFiniteOperationCommitAuthority,
+  inspectLogicalParticipantAdmissionBundle,
+} from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { requirePointMutationArgumentSemanticSizeV1 } from
@@ -19,12 +24,18 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1, normalizeFlarexValueV1 } from "flarex-protocol/value";
 import { decodeAppDocumentIdentityV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { fxAppRowRevisions } from "../../../../persistence-postgres/src/database/schema";
-import type { ApplicationNativeMutationUserDocument } from "../../../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
+import type {
+  ApplicationNativeMutationUserDocument,
+} from "../../../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
 import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from
   "../../../../persistence-postgres/src/application/applicationMutationAdmission";
-import { claimApplicationActiveSelection, prepareCurrentApplicationBinding, type CurrentApplicationFiniteEntry } from "../../../../persistence-postgres/src/application/applicationActivation";
+import {
+  claimApplicationActiveSelection,
+  prepareCurrentApplicationBinding,
+  type CurrentApplicationFiniteEntry,
+} from "../../../../persistence-postgres/src/application/applicationActivation";
 import { prepareLogicalRelationalAdmission } from
   "../../../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
 import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from
@@ -35,11 +46,11 @@ import { createApplicationMutationSessionActivationPersistenceV1,
   "../../../../persistence-postgres/src/execution/transactionSessionActivation";
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../../../../persistence-postgres/src/execution/claims/transactionExecutionClaimLiveness";
-import { createSessionJournalStorePersistence, readFrozenFiniteAttempt } from
-  "../../../../persistence-postgres/src/execution/sessionJournalStore";
-import { preparedFiniteEntries } from "../../../../persistence-postgres/src/execution/sessionJournalFiniteEntry";
+import { createSessionJournalStorePersistence } from "@flarex/persistence-postgres/session-journal-store";
+import { inspectPreparedFiniteSessionJournalEntry, readFrozenFiniteAttempt } from
+  "@flarex/persistence-postgres/internal/system-test/session-journal-inspection";
 import type { LogicalParticipantBorrow, SessionJournalAttempt } from
-  "@flarex/persistence-postgres/session-journal-store";
+  "@flarex/persistence-postgres/internal/session-journal";
 import type { PerformanceSettlementLedger } from "./mixedMutationMeasurementContracts";
 import { traceMixedMutationEffect, type MixedMutationEffectDiagnostics } from "./measurement";
 interface MixedMutationPublicationObserver {
@@ -60,7 +71,10 @@ import { makePostgresRelationalSession } from
   "../../../../persistence-postgres/src/database/relationalTransaction/session";
 import { preparedHostTestRuntime } from
   "../../../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
-import { retainPreparedHost, type PreparedHostRuntimeError } from "../../../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
+import {
+  retainPreparedHost,
+  type PreparedHostRuntimeError,
+} from "../../../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
 import type { LogicalReadMetadataScale } from
   "../../../../persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from
@@ -121,8 +135,10 @@ import { admittedCommerceEventGroup, captureAtomicCommerceParticipants, prepareA
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeBorrowedLogicalAttempt } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
-import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError } from
-  "@flarex/persistence-postgres/internal/logical-participant-admission";
+import {
+  LogicalParticipantAdmissionError,
+  LogicalParticipantInvocationError,
+} from "@flarex/persistence-postgres/internal/logical-participant-errors";
 import { CmsTransactionError } from
   "@flarex/persistence-postgres/internal/cms-adapter";
 import { prepareLogicalDocumentSourceAdmission } from
@@ -140,9 +156,13 @@ import {
   makeMixedPayloadRemovedIdRuntime, makeMixedPayloadUnresolvedIdRuntime,
   makeMixedPayloadInspectionRuntime,
 } from "@flarex/payload-adapter/internal/testing";
-import { ApplicationRevisionSyscallDocumentValidationV1Error } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
 import { runMixedMutationInProcess, type MixedMutationExecutionHost } from "./mixedMutationInProcessRuntime";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
+import type {
+  PostgresFixtureEndpoints,
+} from "../../../../persistence-postgres/test/support/postgresHelpers";
 const MixedMutationJournalMessageSchema = Schema.Struct({
   kind: Schema.String, tableName: Schema.optional(Schema.String), sequence: Schema.optional(Schema.String),
   operation: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)), frame: Schema.optional(Schema.Unknown),
@@ -1018,7 +1038,9 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     const syscallValidator = await runEffect(Scope.provide(syscallScope)(deriveApplicationSyscallValidator({
       scopeId: application.authority.scopeId, schemaVersionId, schemaManifest: applicationAdmission.schema.manifest,
     })));
-    const journal = createPointMutationJournalV1(journalStore, executionClaims.admission,
+    const makeJournal = (currentGraph: typeof graph) => {
+      const { prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } = currentGraph;
+      return createPointMutationJournalV1(journalStore, executionClaims.admission,
       syscallValidator, [{
         participant: "medusa.product",
         admission: { participant: "medusa.product",
@@ -1145,6 +1167,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
             }),
             Effect.mapError(mapProductInvocationFailure)),
       }])], "finiteRoot");
+    };
+    const journal = makeJournal(graph);
     const finalEntryTestContext = Object.freeze({ currency, product, store, sourceCatalog,
       preparedFiniteApplication: applicationAdmission.application });
     await input.hooks?.beforeFinalEntry?.(finalEntryTestContext);
@@ -1193,7 +1217,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       : await runEffect(Effect.failCause(activationExit.cause));
     const activation = authenticatedInitialEntry.activation;
     if (activation.status !== "created") throw new Error("Expected fresh mixed attempt");
-    const confirmed = preparedFiniteEntries.get(await runEffect(Deferred.await(initialPreparation)));
+    const confirmed = inspectPreparedFiniteSessionJournalEntry(await runEffect(Deferred.await(initialPreparation)));
     if (confirmed?.status !== "confirmed") throw new Error("Expected the original acknowledged entry issuer");
     const active = Object.freeze({ selection: authenticatedInitialEntry.applicationSelection,
       basis: Result.getOrThrow(claimApplicationActiveSelection(authenticatedInitialEntry.applicationSelection)) });
@@ -1800,7 +1824,10 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         }
         return preparation;
       });
-      return yield* activationPort.withFiniteStart({ deploymentId: competing.activationInput.deploymentId,
+      const currentActivation = createApplicationPointMutationSessionActivationV1(
+        createApplicationMutationSessionActivationPersistenceV1(application.sessionAuthority,
+          { leaseDurationMilliseconds: 60_000 }), executionClaims.issuer, makeJournal(graph));
+      return yield* currentActivation.withFiniteStart({ deploymentId: competing.activationInput.deploymentId,
         scopeId: competing.activationInput.scopeId, preparedAdmission: graph.preparedAdmission,
         admissionContext: context.admissionContext, evidence: competing.activationInput.evidence, currentEntry },
         activated => Effect.succeed(inspectActivatedPointMutationSessionV1(activated)));
@@ -1856,7 +1883,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
           "unobservedPublicationOwnerParameters", "nonScalarParameterWireEncoding"]),
       });
     },
-    persistenceAttempt: confirmed.handle,
+    persistenceAttempt: confirmed.attempt,
     freezeFiniteRootDirect: result => authenticatedInitialEntry.prepareFiniteCommit(result),
     reopenJournalAttempt: () => authenticatedInitialEntry.reopenJournalAttempt,
     makeFiniteDispatcher: makeFiniteExecution,

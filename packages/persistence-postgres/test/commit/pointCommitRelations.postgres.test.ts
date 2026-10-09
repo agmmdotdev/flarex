@@ -43,9 +43,11 @@ import type { SharedDatabaseScopePhysicalLocator } from
   "../../src/scope/scopeMetadataTypes";
 import {
   createSessionJournalStorePersistence,
+} from "../../src/execution/sessionJournalStore";
+import {
   type SessionJournalAttempt,
   type SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../src/execution/journal/api";
 import { createStoredAttemptEvidenceLoaderV1 } from
   "../../src/execution/storedAttemptEvidence";
 import {

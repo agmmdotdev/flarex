@@ -157,7 +157,9 @@ import {
 import {
   createPointCommitPublisherPortV1,
 } from "../commit/pointCommitTransaction";
-import { createAppDeveloperIndexQueryPortV1 } from "../execution/sessionJournalStore";
+import {
+  createAppDeveloperIndexQueryPortV1,
+} from "../execution/journal/indexQueryPort";
 import {
   createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,

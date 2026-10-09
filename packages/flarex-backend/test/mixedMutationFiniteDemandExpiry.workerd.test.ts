@@ -4,14 +4,28 @@ import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { prepareLogicalSourceEvidence } from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
-import { prepareLogicalRelationalAdmission } from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
-import { inspectLogicalParticipantAdmissionBundle } from "../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
+import {
+  prepareLogicalSourceEvidence,
+} from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
+import {
+  prepareLogicalRelationalAdmission,
+} from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
+import {
+  inspectLogicalParticipantAdmissionBundle,
+} from "../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
 import { captureFiniteStorageEffect } from "../../persistence-postgres/src/execution/finiteStorageCapture";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
-import type { LogicalStorageReadDemand } from "../../persistence-postgres/src/storage/documents/logicalDocuments/model";
-import { prepareLogicalStorageReadiness } from "../../persistence-postgres/src/storage/catalog/logicalStorageReadiness";
-import type { FiniteSessionJournalParticipantSelection } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import {
+  readFrozenFiniteAttempt,
+} from "../../persistence-postgres/src/testing/sessionJournalInspection";
+import type {
+  LogicalStorageReadDemand,
+} from "../../persistence-postgres/src/storage/documents/logicalDocuments/model";
+import {
+  prepareLogicalStorageReadiness,
+} from "../../persistence-postgres/src/storage/catalog/logicalStorageReadiness";
+import type {
+  FiniteSessionJournalParticipantSelection,
+} from "../../persistence-postgres/src/execution/journal/api";
 import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
   "../../persistence-postgres/src/execution/transactionSessionActivation";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemTransactionSessions } from

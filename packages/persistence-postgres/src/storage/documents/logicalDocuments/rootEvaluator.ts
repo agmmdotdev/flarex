@@ -10,7 +10,9 @@ import { logicalMetadataDependencyIdentity, MAX_COMMIT_METADATA_READ_DEPENDENCIE
 import { Effect, Result, Schema } from "effect";
 import type { ApplicationDocumentObservation } from "../../materialization/model";
 import type { AppRowReadResultV1, LiveAppRowRevisionV1 } from "../appRows";
-import type { SessionJournalAttempt } from "../../../execution/sessionJournalStore";
+import type {
+  SessionJournalAttempt,
+} from "../../../execution/journal/contracts";
 import type { LogicalIndexRead, LogicalIndexPageRead } from "./indexReads";
 import type { LogicalSearchRead } from "./searchReads";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";

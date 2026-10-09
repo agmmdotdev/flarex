@@ -8,17 +8,17 @@ import {
   type PointMutationJournalRpcBoundaryV1Error,
 } from "@flarex/executor/point-mutation-journal-rpc";
 import {
-  InvalidPointMutationJournalCapabilityV1Error,
   type PointMutationJournalIndexV1,
   type PointMutationJournalTableV1,
 } from "../../../src/mutation/journal/pointMutationJournal";
+import { InvalidPointMutationJournalCapabilityV1Error } from "../../../src/mutation/journal/errors";
 import type {
   PointMutationOccBoundJournalV1,
 } from "../../../src/mutation/authentication/storedAttemptAuthentication";
 import type {
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
-} from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
 import {
   CommitSyscallSequenceV1Schema,
 } from "flarex-protocol/commit-protocol";
@@ -27,8 +27,9 @@ import {
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
 } from "flarex-protocol/internal/application-revision-syscall-validation-v1";
-import { ApplicationRevisionSyscallDocumentValidationV1Error } from
-  "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
 
 type Scenario =
   | "success"

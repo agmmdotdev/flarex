@@ -48,6 +48,7 @@ describe("point-mutation journal RPC adapter in workerd", () => {
         },
       ],
     });
+    await runtime.ready;
   }, 120_000);
 
   afterAll(async () => {

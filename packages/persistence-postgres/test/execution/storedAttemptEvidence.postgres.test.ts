@@ -162,8 +162,10 @@ import {
 } from "../../src/database/schema";
 import {
   createSessionJournalStorePersistence,
-  type SessionJournalAttempt,
 } from "../../src/execution/sessionJournalStore";
+import {
+  type SessionJournalAttempt,
+} from "../../src/execution/journal/api";
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
   type StoredCommitAuthorityEvidenceAuthorityV1,

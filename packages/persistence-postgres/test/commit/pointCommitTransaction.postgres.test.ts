@@ -1,5 +1,8 @@
 import { readCe0Environment } from "../performance/ce0Environment";
-import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../../src/commit/pointCommitPublicationObservation";
+import {
+  PointCommitPublicationObservation,
+  type PointCommitPublicationEvent,
+} from "../../src/commit/pointCommitPublicationObservation";
 import * as publicationObservationOwner from "../../src/commit/pointCommitPublicationObservation";
 import { conditionalUniqueSpec } from "../storage/unique/conditionalUniqueTestSupport";
 import { readOrderedMembershipStorage } from "../storage/indexes/orderedMembershipStorageScenario";
@@ -20,13 +23,22 @@ import {
 } from "../execution/terminalSessionStorageScenario";
 import { performance } from "node:perf_hooks";
 import { writeFile } from "node:fs/promises";
-import { withPostgresExecutionObservation, type PostgresExecutionPhase } from "../performance/postgresExecutionObservation";
-import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../src/execution/diagnostics/operation";
+import {
+  withPostgresExecutionObservation,
+  type PostgresExecutionPhase,
+} from "../performance/postgresExecutionObservation";
+import {
+  ExecutionDiagnostics,
+  type ExecutionDiagnosticPolicy,
+} from "../../src/execution/diagnostics/operation";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { and, eq, getTableName, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { fxControlSchemaVersionIndexBindings, fxControlSchemaVersionUniqueConstraintBindings } from "../../src/database/schema";
+import {
+  fxControlSchemaVersionIndexBindings,
+  fxControlSchemaVersionUniqueConstraintBindings,
+} from "../../src/database/schema";
 import { Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
 import { publicationCoveragePhaseTrace } from "../performance/publicationCoveragePhaseTrace";
 import type { PoolClient } from "pg";
@@ -107,13 +119,17 @@ import {
   createAppDeveloperIndexDefinitionPortV1,
   lowerAppDeveloperIndexKeyV1,
 } from "../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../src/storage/unique/appUniqueConstraintCommitV1";
+import {
+  createAppUniqueConstraintDefinitionPortV1,
+} from "../../src/storage/unique/appUniqueConstraintCommitV1";
 import {
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
 } from "../../src/storage/unique/appUniqueConstraintDefinitions";
 import { AppUniqueKeyConflictError } from "../../src/storage/unique/appUniqueKeys";
-import { validateLogicalParticipantDependencyEvidence } from "../../src/storage/documents/logicalDocuments/commitEvidence";
+import {
+  validateLogicalParticipantDependencyEvidence,
+} from "../../src/storage/documents/logicalDocuments/commitEvidence";
 import { reconcilePublishedIndexBuildsV1Effect } from "../../src/storage/indexes/indexBuildReconciliation";
 import {
   createPointCommitFinishingTransitionPortV1,
@@ -162,6 +178,8 @@ import {
 } from "../../src/database/schema";
 import {
   createAppDeveloperIndexQueryPortV1,
+} from "../../src/execution/journal/indexQueryPort";
+import {
   createSessionJournalStorePersistence,
 } from "../../src/execution/sessionJournalStore";
 import {

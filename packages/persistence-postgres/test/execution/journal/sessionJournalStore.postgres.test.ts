@@ -49,24 +49,26 @@ import { verifyJournalEventEvidence, verifyJournalSealSequence } from "./journal
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
   InvalidApplicationRevisionSyscallValidatorV1Error,
-} from "../../src/application/revision/applicationRevisionSyscallValidatorV1";
+} from "../../../src/application/revision/applicationRevisionSyscallValidatorErrors";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresPersistence,
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
-} from "../../src/database/postgres";
-import type { LocatedScopeClockReader } from "../../src/scope/scopeAuthorityResolution";
-import { fxSystemTransactionJournalReceipts } from "../../src/database/schema";
-import type { SharedDatabaseScopePhysicalLocator } from "../../src/scope/scopeMetadataTypes";
+} from "../../../src/database/postgres";
+import type { LocatedScopeClockReader } from "../../../src/scope/scopeAuthorityResolution";
+import { fxSystemTransactionJournalReceipts } from "../../../src/database/schema";
+import type { SharedDatabaseScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import {
   createSessionJournalStorePersistence,
+} from "../../../src/execution/sessionJournalStore";
+import {
   type PinnedPointTableV1,
   type RunSessionJournalPointOperationV1Result,
   type SessionJournalAttempt,
   type SessionJournalPointOperationV1,
   type SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../../src/execution/journal/api";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
@@ -75,7 +77,7 @@ import {
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/transactionSessionActivation";
 import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
@@ -83,19 +85,19 @@ import {
   withPostgresSequentialScansDisabled,
   withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
-} from "../support/postgresHelpers";
+} from "../../support/postgresHelpers";
 import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
   runEffect,
   runEffectFailure as runFailure,
   runSessionJournalPointOperation as runPointOperation,
-} from "../support/effectTestRuntime";
+} from "../../support/effectTestRuntime";
 import {
   issueSetupSeededSyscallValidatorProofV1,
   revokeSetupSeededSyscallValidatorProofV1,
 } from
-  "../application/revision/applicationRevisionSyscallValidatorTestSupport";
+  "../../application/revision/applicationRevisionSyscallValidatorTestSupport";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   abortPointMutationSessionAttempt,
@@ -103,14 +105,14 @@ import {
   executionClaimForAnchor,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
-} from "./transactionSessionActivationTestSupport";
+} from "../transactionSessionActivationTestSupport";
 import {
   insertLegacyOpenTransactionJournalFixture,
   insertLegacySessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "./sessionAuthorityTestSupport";
+} from "../sessionAuthorityTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
@@ -287,7 +289,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   it("rolls back and recovers migration 0028 in a non-public schema", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c03-postgres-"));
     const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
     const currentMigrationsFolder = resolve(packageRoot, "drizzle");
     const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
@@ -409,7 +411,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       "flarex-ra01-j-postgres-",
     ));
     const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
     const currentMigrationsFolder = resolve(packageRoot, "drizzle");
     const currentJournal = resolve(
       currentMigrationsFolder,

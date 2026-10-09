@@ -2,22 +2,35 @@ import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { encodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/internal/admitted-framework-operation-v1";
+import {
+  encodeAdmittedFrameworkOperationV1Result,
+} from "flarex-protocol/internal/admitted-framework-operation-v1";
 import { describe, expect, it, vi } from "vitest";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { prepareLogicalSourceEvidence } from "../../src/storage/documents/logicalDocuments/sourceAdmission";
-import { prepareLogicalRelationalAdmission } from "../../src/storage/documents/logicalDocuments/relationalAdmission";
-import { LogicalParticipantInvocationError } from "../../src/storage/documents/logicalDocuments/participantAdmission";
+import {
+  prepareLogicalRelationalAdmission,
+} from "../../src/storage/documents/logicalDocuments/relationalAdmission";
+import {
+  LogicalParticipantInvocationError,
+} from "../../src/storage/documents/logicalDocuments/participantErrors";
 import type { FiniteStorageCaptureError } from "../../src/execution/finiteStorageCapture";
-import type { LogicalStorageReadDemand, LogicalFiniteStorageCapture } from "../../src/storage/documents/logicalDocuments/model";
+import type {
+  LogicalStorageReadDemand,
+  LogicalFiniteStorageCapture,
+} from "../../src/storage/documents/logicalDocuments/model";
 import { prepareLogicalStorageReadiness } from "../../src/storage/catalog/logicalStorageReadiness";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../src/scope/scopeAuthorityResolution";
-import type { FiniteSessionJournalParticipantSelection } from "../../src/execution/sessionJournalStore";
+import type {
+  FiniteSessionJournalParticipantSelection,
+} from "../../src/execution/journal/api";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemIndexBuildStates, fxSystemSearchBuildStates,
   fxSystemTransactionSessions, fxSystemUniqueConstraintBuilds } from "../../src/database/schema";
 import { fxSystemCommitEvents } from "../../src/commit/events/schema";
-import { createMixedMutationProductFixture } from "../../../executor/test/performance/support/mixedMutationProductFixture";
+import {
+  createMixedMutationProductFixture,
+} from "../../../executor/test/performance/support/mixedMutationProductFixture";
 import { postgresUrl } from "../support/postgresHelpers";
 
 const drivers = postgresUrl === null ? ["pglite" as const] : ["pglite" as const, "postgres" as const];

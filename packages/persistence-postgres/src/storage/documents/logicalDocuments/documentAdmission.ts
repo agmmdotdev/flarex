@@ -17,34 +17,68 @@ export const requireLogicalDocumentReadAdmission = Effect.fn("LogicalDocumentRea
 });
 import { PayloadConfigurationSchema, verifyApplicationWritePolicies,
   type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
-import { AppDocumentIdV1Schema, requireAppDocumentIdentityV1ForTableResult } from "flarex-protocol/app-document-id";
+import {
+  AppDocumentIdV1Schema,
+  requireAppDocumentIdentityV1ForTableResult,
+} from "flarex-protocol/app-document-id";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
-import type { CatalogSchemaVersionId, SchemaManifestAppTableDeclarationV1 } from "flarex-protocol/schema-manifest";
+import type {
+  CatalogSchemaVersionId,
+  SchemaManifestAppTableDeclarationV1,
+} from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { validateValidatorValueV1, type ValidatorIdPolicyV1 } from "flarex-protocol/validator-engine";
-import type { ApplicationBindingInput, AcceptedApplicationBinding, ApplicationBindingObservation } from "../../../application/applicationActivation";
-import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../../unique/appUniqueConstraintSetBuildV1";
+import type {
+  ApplicationBindingInput,
+  AcceptedApplicationBinding,
+  ApplicationBindingObservation,
+} from "../../../application/applicationActivation";
+import type {
+  AppUniqueConstraintSetBuildPortsV1,
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../unique/appUniqueConstraintSetBuildV1";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
-import type { DataBindingHeadToken, DataBindingSetFrame } from "../../../installation/frameworkSchema/binding/model";
+import type {
+  DataBindingHeadToken,
+  DataBindingSetFrame,
+} from "../../../installation/frameworkSchema/binding/model";
 import { DataBindingError } from "../../../installation/frameworkSchema/binding/errors";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import { capturePrivateJsonData } from "../../../values/privateJsonData";
 import type { ScopeClockRecord } from "../../../scope/scopeClock";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
-import type { LogicalDocumentWrite, LogicalStorageReadReadiness, PreparedLogicalDocumentWriteMechanics } from "./model";
+import type {
+  LogicalDocumentWrite,
+  LogicalStorageReadReadiness,
+  PreparedLogicalDocumentWriteMechanics,
+} from "./model";
 import { prepareLogicalWriteMechanics } from "./workingSet";
-import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState, type LogicalSourceConstruction } from "./sourceAdmission";
-import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
-  withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
-  type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptRoot,
-  type LogicalParticipantAttemptReadTransaction, type LogicalParticipantCommitAuthority, type LogicalParticipantSelection } from "./participantAdmission";
-import type { SessionJournalAttempt } from "../../../execution/sessionJournalStore";
+import {
+  prepareLogicalSourceEvidence,
+  LogicalSourceAdmissionError,
+  type LogicalSourceBindingState,
+  type LogicalSourceConstruction,
+} from "./sourceAdmission";
+import {
+  issueLogicalParticipantAttemptAdmission,
+  issueLogicalParticipantCommitAuthority,
+  withLogicalParticipantAttemptAdmissionEffect,
+  type LogicalParticipantAttemptAdmission,
+  type LogicalParticipantAttemptRoot,
+  type LogicalParticipantAttemptReadTransaction,
+  type LogicalParticipantCommitAuthority,
+  type LogicalParticipantSelection,
+} from "./participantAdmission";
+import { LogicalParticipantAdmissionError } from "./participantErrors";
+import type {
+  SessionJournalAttempt,
+} from "../../../execution/journal/contracts";
 import type { AdmittedParticipantOperation, SourceContribution } from "flarex-protocol/commit-protocol";
 
 export class LogicalDocumentSourceAdmissionError extends Data.TaggedError("LogicalDocumentSourceAdmissionError")<{

@@ -12,6 +12,7 @@
     "./internal/point-mutation-execution-claim-v1": "./src/mutation/claims/pointMutationExecutionClaim.ts",
     "./point-mutation-initial-execution": "./src/mutation/execution/pointMutationInitialExecution.ts",
     "./point-mutation-journal": "./src/mutation/journal/pointMutationJournal.ts",
+    "./internal/point-mutation-journal-errors": "./src/mutation/journal/errors.ts",
     "./point-mutation-journal-rpc": "./src/mutation/journal/pointMutationJournalRpc.ts",
     "./internal/application-point-mutation-journal-capability": "./src/mutation/journal/applicationPointMutationJournalCapability.ts",
     "./internal/application-point-mutation-runner": "./src/mutation/authentication/storedAttemptAuthentication.ts",

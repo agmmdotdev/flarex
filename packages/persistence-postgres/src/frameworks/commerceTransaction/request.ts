@@ -1,16 +1,29 @@
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
-import { CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../../commit/committedPointOutcome";
+import {
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+  CommittedPointOutcomeCorruptionErrorV1,
+} from "../../commit/committedPointOutcome";
 import { RelationalSessionError } from "../../database/relationalTransaction/model";
 import { commerceError, CommerceTransactionError } from "./model";
 import { Effect, Result } from "effect";
 import { PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
-import { LogicalDocumentMaterializationError } from "../../storage/documents/logicalDocuments/materialization";
-import { LogicalRelationalAdmissionError } from "../../storage/documents/logicalDocuments/relationalAdmission";
+import {
+  LogicalDocumentMaterializationError,
+} from "../../storage/documents/logicalDocuments/materialization";
+import {
+  LogicalRelationalAdmissionError,
+} from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { LogicalReadAdmissionError } from "../../storage/documents/logicalDocuments/readAdmission";
-import { LogicalParticipantAdmissionError } from "../../storage/documents/logicalDocuments/participantAdmission";
+import {
+  LogicalParticipantAdmissionError,
+} from "../../storage/documents/logicalDocuments/participantErrors";
 import { DataBindingError } from "../../installation/frameworkSchema/binding/errors";
 import { TrustedScopeAuthorityPortError } from "../../scope/scopeAuthorityResolution";
-import { canonicalizeJsonOutcome, captureJsonOutcomeValue, JsonOutcomeError } from "../../values/jsonOutcome";
+import {
+  canonicalizeJsonOutcome,
+  captureJsonOutcomeValue,
+  JsonOutcomeError,
+} from "../../values/jsonOutcome";
 import { sql } from "drizzle-orm";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";

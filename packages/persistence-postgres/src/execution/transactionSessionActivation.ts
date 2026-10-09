@@ -1,13 +1,30 @@
-import { CAPTURE_FINITE_STORAGE, bindFiniteStorageCaptureOwner, type FiniteStorageCaptureTarget, type FiniteStorageCaptureProfile } from "./finiteStorageCapture";
+import {
+  CAPTURE_FINITE_STORAGE,
+  bindFiniteStorageCaptureOwner,
+  type FiniteStorageCaptureTarget,
+  type FiniteStorageCaptureProfile,
+} from "./finiteStorageCapture";
 import { runLocatedReadCommittedEffect } from "../database/locatedReadCommittedEffect";
-import { runPointCommitInTransactionEffect, projectPointCommitTransactionResult, runPointCommitPromiseEffect } from "../commit/pointCommitPromiseBoundary";
+import {
+  runPointCommitInTransactionEffect,
+  projectPointCommitTransactionResult,
+  runPointCommitPromiseEffect,
+} from "../commit/pointCommitPromiseBoundary";
 import { selectScopeClockRows, type ScopeClockRow } from "../scope/scopeClock";
-import { SessionJournalPersistenceV1Error, type SessionJournalStorePersistence } from "./sessionJournalStore";
+import {
+  SessionJournalPersistenceV1Error,
+} from "./journal/errors";
+import {
+  type SessionJournalStorePersistence,
+} from "./journal/contracts";
 import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow,
   lockFiniteAttemptAnchorInTransaction, requireFiniteAttemptIsLive,
   FiniteAttemptAnchorError } from "./finiteAttemptAnchor";
 import type { FiniteAttemptAnchorContext, FiniteAttemptFrontierRow } from "./finiteAttemptAnchor";
-import { readCapturedFiniteMetadataReservation, type CapturedFiniteMetadataReservation } from "./finiteMetadataReservation";
+import {
+  readCapturedFiniteMetadataReservation,
+  type CapturedFiniteMetadataReservation,
+} from "./finiteMetadataReservation";
 import { runDrizzleStatementEffect } from "../database/drizzleStatementEffect";
 import { captureFiniteEntryObservationInTransactionEffect, closeFiniteEntryObservation,
   type FiniteEntryObservation } from "./finiteEntryObservation";
@@ -157,8 +174,18 @@ import { liveScopeExecution } from "../scope/execution/ScopeExecution";
 import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission, acquireInstallationAdmission,
   requireAdmittedTargetInstallationSchema,
   type PreparedCoLocatedReadInstallation, type PreparedInstallation } from "../installation/installationLifecycle";
-import { INSTALLED_SCOPE_AUTHORITY_TARGET, ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION, RUN_INSTALLED_ACCEPTING_READ_COMMITTED, prepareInstalledAttemptScopeAuthority, type PreparedInstalledAttemptScopeAuthority } from "../scope/scopeAuthorityControlRead";
-import { registerProtectedMetadataTransactionFinalGuard, requireProtectedControlPreparation, type ProtectedMetadataPreparation } from "./preparation/preparedMetadataEpoch";
+import {
+  INSTALLED_SCOPE_AUTHORITY_TARGET,
+  ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION,
+  RUN_INSTALLED_ACCEPTING_READ_COMMITTED,
+  prepareInstalledAttemptScopeAuthority,
+  type PreparedInstalledAttemptScopeAuthority,
+} from "../scope/scopeAuthorityControlRead";
+import {
+  registerProtectedMetadataTransactionFinalGuard,
+  requireProtectedControlPreparation,
+  type ProtectedMetadataPreparation,
+} from "./preparation/preparedMetadataEpoch";
 import { defineScopedWriteOperation } from
   "../scope/execution/ScopedTransaction";
 import {
@@ -229,13 +256,15 @@ import {
 } from "../application/applicationMutationAdmission";
 import {
   abandonPreparedFiniteSessionJournalEntry,
-  prepareFiniteSessionJournalEntryControlEffect,
-  runPreparedFiniteSessionJournalEntryEffect,
-  acceptPreparedFiniteSessionJournalEntryForContinuationEffect,
   confirmPreparedFiniteSessionJournalEntry,
   type PreparedFiniteSessionJournalEntry,
   type ConfirmedFiniteRootEntryCapture,
-} from "./sessionJournalFiniteEntry";
+} from "./journal/finiteEntry";
+import {
+  prepareFiniteSessionJournalEntryControlEffect,
+  runPreparedFiniteSessionJournalEntryEffect,
+  acceptPreparedFiniteSessionJournalEntryForContinuationEffect,
+} from "./journal/finiteEntryActivation";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
@@ -3697,7 +3726,7 @@ async function lockExactRunningAttemptInTransaction(
 export const captureFiniteReplacementAttemptInTransactionEffect = Effect.fn(
   "PointMutationSessionActivation.captureFiniteReplacementAttemptInTransaction",
 )(function* (tx: AppRowTransaction, input: ExactRunningAttemptKernelInputV1,
-  original?: NonNullable<ReturnType<typeof import("./sessionJournalFiniteEntry").readOriginalFiniteExecutionAuthority>>) {
+  original?: NonNullable<ReturnType<typeof import("./journal/finiteEntry").readOriginalFiniteExecutionAuthority>>) {
   yield* Effect.fromResult(requireAdmittedTargetInstallationSchema(tx));
   if (readFiniteExecutionAuthorityObservation(tx, input.selector.scopeId) !== undefined)
     return yield* Effect.fail(corruptionError(input.selector.scopeId, "sessionRecordInvalid"));

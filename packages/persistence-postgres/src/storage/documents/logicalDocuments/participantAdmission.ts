@@ -1,4 +1,5 @@
-import { Data, Effect, Exit, Result } from "effect";
+import { LogicalParticipantAdmissionError } from "./participantErrors";
+import { Effect, Exit, Result } from "effect";
 import { readPreparedPublicationDefinitions } from "../../../commit/publication/definitionPreparation";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -6,41 +7,43 @@ import type { AdmittedParticipantOperation, SourceContribution } from "flarex-pr
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import type { TransactionAttemptFence, TransactionSessionIdV1 } from "flarex-protocol/transaction-session";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import type { AcceptedApplicationBinding, ApplicationBindingInput } from "../../../application/applicationActivation";
-import { withValidatedApplicationBindingBasisInTransaction } from "../../../application/applicationActivation";
+import type {
+  AcceptedApplicationBinding,
+  ApplicationBindingInput,
+} from "../../../application/applicationActivation";
+import {
+  withValidatedApplicationBindingBasisInTransaction,
+} from "../../../application/applicationActivation";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
 import type { DataBindingHeadToken } from "../../../installation/frameworkSchema/binding/model";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
-import { withSharedLogicalSourceBindingChecks, type FiniteAttemptMetadata, type FiniteMetadataEntry } from "./sourceAdmission";
+import {
+  withSharedLogicalSourceBindingChecks,
+  type FiniteAttemptMetadata,
+  type FiniteMetadataEntry,
+} from "./sourceAdmission";
 import { type ScopeClockRecord } from "../../../scope/scopeClock";
-import type { SessionJournalAttempt } from "../../../execution/sessionJournalStore";
+import type {
+  SessionJournalAttempt,
+} from "../../../execution/journal/contracts";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
 import type { PointMutationExecutionProfile } from "../../../execution/transactionSessionActivation";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import type { LogicalStorageReadDemand } from "./model";
-import type { PreparedFiniteMetadataProjection, FiniteMetadataComparisonExpected, FiniteMetadataError } from "../../../execution/finiteMetadataDependencies";
+import type {
+  PreparedFiniteMetadataProjection,
+  FiniteMetadataComparisonExpected,
+  FiniteMetadataError,
+} from "../../../execution/finiteMetadataDependencies";
 import type { FiniteStorageCaptureError } from "../../../execution/finiteStorageCapture";
 import type { PreparedHostPreparationLifetime } from "../../../execution/preparation/preparedHostRuntime";
-
-export class LogicalParticipantAdmissionError extends Data.TaggedError("LogicalParticipantAdmissionError")<{
-  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" |
-    "unsupportedProfile" | "resourceFailure" | "storedCorruption" | "documentInvalid";
-  readonly cause?: unknown;
-}> {}
 
 export function projectFiniteStorageCaptureFailure(cause: FiniteStorageCaptureError): LogicalParticipantAdmissionError {
   const reason = cause.reason === "notReady" || cause.reason === "storedCorruption" ||
     cause.reason === "resourceFailure" || cause.reason === "invalidInput" ? cause.reason : "invalidAuthority";
   return new LogicalParticipantAdmissionError({ reason, cause });
 }
-
-/** The framework adapter classifies only its known native failures. Defects
- * and interruption remain in the Effect Cause, outside this typed channel. */
-export class LogicalParticipantInvocationError extends Data.TaggedError("LogicalParticipantInvocationError")<{
-  readonly kind: "rejection" | "infrastructure";
-  readonly cause: unknown;
-}> {}
 
 export interface LogicalParticipantAttemptRoot {
   readonly scopeId: ScopeId;

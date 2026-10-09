@@ -1,7 +1,10 @@
 import { Effect, type Scope } from "effect";
 import type { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import type { CmsCommandBinding, CmsReadBinding } from "@flarex/persistence-postgres/internal/cms-execution";
-import type { LogicalParticipantBorrow, SessionJournalAttempt } from "@flarex/persistence-postgres/session-journal-store";
+import type {
+  LogicalParticipantBorrow,
+  SessionJournalAttempt,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import { makePayloadNative } from "./runtime/native";
 import { bindPayloadDirect } from "./direct/binding";
 import { makePayloadAttempt } from "./runtime/attempt";

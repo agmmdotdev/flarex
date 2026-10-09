@@ -52,8 +52,7 @@ import {
 } from "@flarex/persistence-postgres/internal/system-test/legacy-application-revision-syscall-validator-v1";
 import {
   type InvalidApplicationRevisionSyscallValidatorV1Error,
-} from
-  "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
 import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/intrinsic-creation-time-index-build-v1";
 import type { AppDeveloperIndexDefinitionPortV1 } from
@@ -72,9 +71,10 @@ import {
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   createSessionJournalStorePersistence,
+} from "@flarex/persistence-postgres/session-journal-store";
+import {
   type AppDeveloperIndexQueryPortV1,
-} from
-  "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal-construction";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/stored-occ-execution";
 import { createPointMutationExecutionClaimLivenessV1 } from

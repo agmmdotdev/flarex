@@ -6,12 +6,14 @@ import ts from "@typescript/typescript6";
 
 const allowedPersistence = new Set([
   "internal/cms-adapter", "internal/cms-execution", "internal/execution-diagnostics",
-  "internal/logical-participant-admission", "session-journal-store",
+  "internal/logical-participant-admission", "internal/logical-participant-errors", "internal/session-journal",
 ]);
 const constructionNames = new Set([
   "CmsHostInput", "SourceCmsHostInput", "CmsReadHostInput", "PayloadHostInput", "PayloadReadHostInput",
   "makeCmsHost", "makeCmsReadHost", "makeCmsCommandBinding", "makeCmsReadBinding",
   "getCmsCommand", "makeBorrowedCmsAttempt", "makeApplicationServing", "makeApplicationReadServing",
+  "createSessionJournalStorePersistence", "createAppDeveloperIndexQueryPortV1",
+  "issuePreparedFiniteSessionJournalEntry", "issueFrozenFiniteAttempt",
 ]);
 
 /** All import forms use the same boundary, including erased types/re-exports.

@@ -3,8 +3,13 @@ import { constructApplicationLegacyServingOwners, constructApplicationReadinessO
   makeApplicationReadServing, ApplicationServingError } from "../../src/application/applicationServing";
 import type { RelationalSession } from "../../src/database/relationalTransaction/session";
 import type { PhysicalSessionObservation } from "../../src/database/physicalSession/observation";
-import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../../src/scope/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
+import type {
+  ExactTrustedScopeAuthorityResolutionPorts,
+  TrustedScopeAuthorityResolutionPorts,
+} from "../../src/scope/scopeAuthorityResolution";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../src/execution/transactionSessionAttemptKernel";
 import { webcrypto } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
@@ -157,8 +162,12 @@ import {
   fxSystemScopeClocks,
   fxSystemScopeExecutionAuthorities,
 } from "../../src/database/schema";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../src/scope/scopeAuthorityControlRead";
-import { createAppDeveloperIndexQueryPortV1 } from "../../src/execution/sessionJournalStore";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../src/scope/scopeAuthorityControlRead";
+import {
+  createAppDeveloperIndexQueryPortV1,
+} from "../../src/execution/journal/indexQueryPort";
 import type {
   ScopePhysicalLocator,
   SplitScopePhysicalLocator,

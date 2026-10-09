@@ -16,7 +16,10 @@ import type {
 import type {
   PointMutationExecutionClaimV1,
 } from "../claims/pointMutationExecutionClaim";
-import type { ConfirmedFiniteRootEntryCapture, PreparedFiniteSessionJournalEntry } from "@flarex/persistence-postgres/session-journal-store";
+import type {
+  ConfirmedFiniteRootEntryCapture,
+  PreparedFiniteSessionJournalEntry,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import type { PointMutationJournalV1 } from "../journal/pointMutationJournal";
 
 export interface ActivatedApplicationMutationSessionPreparationV1 {

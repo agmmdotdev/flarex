@@ -3,21 +3,38 @@ import type { LiveAppRowRevisionV1 } from "../../src/storage/documents/appRows";
 import { Effect, Exit, Result } from "effect";
 import { expect, it } from "vitest";
 import { AppCreationTimeV1Schema, canonicalizeAppDocumentV1 } from "flarex-protocol/app-document";
-import { MetadataSequenceSchema, LogicalMetadataReadDependencySchema, canonicalizeSessionJournalEffect, SESSION_JOURNAL_FORMAT } from "flarex-protocol/commit-protocol";
+import {
+  MetadataSequenceSchema,
+  LogicalMetadataReadDependencySchema,
+  canonicalizeSessionJournalEffect,
+  SESSION_JOURNAL_FORMAT,
+} from "flarex-protocol/commit-protocol";
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema,
   ScopeIdSchema, ScopeUuidV1Schema, ScopeEpochUuidV1Schema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
-import { makeBoundedRequestLifetime, type RequestFailureReason } from "../../src/execution/preparation/boundedRequestLifetime";
+import {
+  makeBoundedRequestLifetime,
+  type RequestFailureReason,
+} from "../../src/execution/preparation/boundedRequestLifetime";
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
-import type { SessionJournalAttempt } from "../../src/execution/sessionJournalStore";
+import type {
+  SessionJournalAttempt,
+} from "../../src/execution/journal/api";
 import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
   recordLogicalDocumentRootMetadataDependency, consumeLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot,
   borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { makeLogicalDocumentWorkingSet } from "../../src/storage/documents/logicalDocuments/workingSet";
 import { runEffect } from "../support/effectTestRuntime";
-import { captureFiniteMetadataDependency, disposeFiniteMetadataProjection, finiteMetadataContractKey, prepareFiniteMetadataProjection } from "../../src/execution/finiteMetadataDependencies";
-import { makeLogicalCommerceActivityProjection } from "../../src/frameworks/commerceTransaction/logicalParticipant";
+import {
+  captureFiniteMetadataDependency,
+  disposeFiniteMetadataProjection,
+  finiteMetadataContractKey,
+  prepareFiniteMetadataProjection,
+} from "../../src/execution/finiteMetadataDependencies";
+import {
+  makeLogicalCommerceActivityProjection,
+} from "../../src/frameworks/commerceTransaction/logicalParticipant";
 import { ExecutionDiagnostics } from "../../src/execution/diagnostics/operation";
 
 const tableId = CatalogTableIdSchema.make(1);

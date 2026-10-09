@@ -9,13 +9,26 @@ import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/p
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { locateAppIndexDefinitionByIdEffect } from "../../persistence-postgres/src/storage/indexes/appIndexDefinitions";
-import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/installation/frameworkSchema/binding/host";
-import { readBindingSelectedEvidence } from "../../persistence-postgres/src/installation/frameworkSchema/binding/repository";
+import {
+  locateAppIndexDefinitionByIdEffect,
+} from "../../persistence-postgres/src/storage/indexes/appIndexDefinitions";
+import {
+  makeDataBindingHost,
+  dataBindingActivationRequest,
+} from "../../persistence-postgres/src/installation/frameworkSchema/binding/host";
+import {
+  readBindingSelectedEvidence,
+} from "../../persistence-postgres/src/installation/frameworkSchema/binding/repository";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalFiniteFreeze";
-import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
-import { readLogicalStorageRequirements } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
+import {
+  readFrozenFiniteAttempt,
+} from "../../persistence-postgres/src/execution/journal/frozenAttempt";
+import {
+  loadPublishedPhysicalRequirementSnapshotV1,
+} from "../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
+import {
+  readLogicalStorageRequirements,
+} from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
 import { fxAppRowRevisions, fxSystemIndexBuildStates, fxSystemScopeClocks,
   fxSystemScopeExecutionAuthorities, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";

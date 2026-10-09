@@ -82,13 +82,12 @@ when TypeScript compiles. No transaction or schema semantics are being changed;
 existing real-Postgres lane selectors must remain runnable. Tests must not gain a
 second implementation of production mechanics.
 
-The existing browser-target Workerd journal and exact-runner witnesses have a
-baseline startup limitation. Their value imports reach `sessionJournalStore`,
-`finiteStorageCapture` and installation/preparation SQL construction, which calls
-Node crypto during module evaluation. The source organization preserves that
-dependency graph and the failing witnesses. Changing runtime compatibility or
-separating those value contracts requires its owning core/host boundary decision;
-successful bundling alone does not establish these Workerd runtime capabilities.
+Moving folders preserves their runtime dependency graph. The journal capability,
+RPC and full consumer API now have actual Workerd witnesses under the
+[journal boundary plan](05-file-cohesion-and-readable-flows.md); their errors and
+frozen projections do not load SQL construction. Broader exact-runner imports
+still require their publication/activation owner's independent boundary proof.
+Successful bundling alone does not establish a runtime capability.
 
 The diff-lint launcher partitions large file lists within native command-line
 limits and compares both sides of recognized renames. It retains the same

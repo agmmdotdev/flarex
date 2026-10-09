@@ -1,10 +1,13 @@
 /** Trusted consumers may inspect selected source authority, but only the
  * persistence source issuers can construct it from catalog and binding state. */
-export { LogicalParticipantAdmissionError, LogicalParticipantInvocationError,
-  hasLogicalParticipantAttemptAdmission, inspectLogicalParticipantAttemptAdmission,
-  hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority,
+export {
+  hasLogicalParticipantAttemptAdmission,
+  inspectLogicalParticipantAttemptAdmission,
+  hasLogicalParticipantCommitAuthority,
+  inspectLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthoritySource,
-  requireLogicalParticipantCommitAuthorityEffect } from "../storage/documents/logicalDocuments/participantAdmission";
+  requireLogicalParticipantCommitAuthorityEffect,
+} from "../storage/documents/logicalDocuments/participantAdmission";
 export type { LogicalParticipantAttemptAdmission, LogicalParticipantCommitAuthority,
   LogicalParticipantAdmissionBundle,
   LogicalParticipantSelection, LogicalParticipantAttemptRoot,

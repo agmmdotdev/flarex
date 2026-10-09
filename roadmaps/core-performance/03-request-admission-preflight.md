@@ -32,7 +32,7 @@ removal credits; isolated renewal SQL remains unavailable without owner mapping.
 | `applicationTaskBindings.ts`, schema/function/publication owners | Aggregate pre-driver bounds, canonical membership, unchanged-digest corruption and immutable authenticity |
 | `logicalStorageReadiness.ts`, `logicalStorageDefinitions.ts`, `sourceAdmission.ts` | One issued catalog, exact DB/authority/unique/location/schema/host lease and fresh source binding |
 | `transactionSessionActivation.ts`, `scopeExecution/ScopeExecution.ts`, `scopeClock.ts` | Replay first, strong lock order, post-lock time, four actual final row families and all five child-absence checks |
-| `sessionJournalStore.ts`, `sessionJournalFiniteEntry.ts`, executor journal/activation | Atomic ordered sources, capacity acquisition/release, post-source actual correlation, confirmed install and exact original claim provenance |
+| `sessionJournalStore.ts`, `journal/finiteEntry.ts`, `journal/finiteEntryActivation.ts`, executor journal/activation | Atomic ordered sources, capacity acquisition/release, post-source actual correlation, confirmed install and exact original claim provenance |
 | `storedOccExecution/postgresLoader.ts`, `storedCommitAuthority/materialization.ts`, executor initial/authentication verification | Existing complete stored evidence, canonical request/grant/runtime pins, actual captured-row proof and detached verification |
 | Persistence/executor claim-liveness owners | Fresh initial renewal, deadline/fence checks, supervised heartbeat and finishing transition |
 | `preparedMetadataEpoch.ts`, `preparedHostRuntime.ts` | Full 23-table real restricted-role attestation, exact accepting guard lifecycle and preparation resource/lifetime ownership |

@@ -3,11 +3,21 @@ import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
-import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../persistence-postgres/src/scope/scopeClock";
-import { readCapturedFiniteMetadataReservation } from "../../persistence-postgres/src/execution/finiteMetadataReservation";
+import {
+  advanceScopeAuthorizationRevocationEpochInTransactionEffect,
+} from "../../persistence-postgres/src/scope/scopeClock";
+import {
+  readCapturedFiniteMetadataReservation,
+} from "../../persistence-postgres/src/execution/finiteMetadataReservation";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
-import { fxSystemTransactionSessions, fxSystemTransactionJournalReceipts, fxSystemTransactionJournals } from "../../persistence-postgres/src/database/schema";
+import {
+  readFrozenFiniteAttempt,
+} from "../../persistence-postgres/src/testing/sessionJournalInspection";
+import {
+  fxSystemTransactionSessions,
+  fxSystemTransactionJournalReceipts,
+  fxSystemTransactionJournals,
+} from "../../persistence-postgres/src/database/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { rebindMixedMutationApplication } from "./support/mixedMutationApplicationRebinding";
 

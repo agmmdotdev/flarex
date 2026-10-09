@@ -32,9 +32,7 @@ import type {
   PointMutationExecutionLivenessControlV1,
   PointMutationExecutionLivenessCoordinatorV1,
 } from "../../claims/pointMutationExecutionClaimLiveness";
-import type {
-  PointMutationJournalRelationConflictError,
-} from "../../journal/pointMutationJournal";
+import type { PointMutationJournalRelationConflictError } from "../../journal/errors";
 import type {
   LoadedPointMutationSessionAttemptOccRerunInspectionV1,
 } from "../../session/pointMutationSessionAttemptState";

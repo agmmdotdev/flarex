@@ -1,8 +1,12 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { AppDocumentIdV1Schema } from "flarex-protocol/app-document-id";
-import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1 } from "flarex-protocol/internal/application-revision-syscall-validation-v1";
-import { ApplicationRevisionSyscallDocumentValidationV1Error } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+import {
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+} from "flarex-protocol/internal/application-revision-syscall-validation-v1";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
 import { runMixedMutationInProcess } from "./support/mixedMutationInProcessRuntime";
 
 const id = "1:11111111-1111-4111-8111-111111111111";

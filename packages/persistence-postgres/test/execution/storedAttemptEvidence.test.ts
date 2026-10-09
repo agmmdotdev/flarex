@@ -1,8 +1,14 @@
 /// <reference types="@cloudflare/workers-types" />
-import { conditionalUniqueSpec, conditionalProjectionCases } from "../storage/unique/conditionalUniqueTestSupport";
+import {
+  conditionalUniqueSpec,
+  conditionalProjectionCases,
+} from "../storage/unique/conditionalUniqueTestSupport";
 import { readOrderedMembershipStorage } from "../storage/indexes/orderedMembershipStorageScenario";
 import { ExecutionDiagnostics } from "../../src/execution/diagnostics/operation";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../src/installation/installationLifecycle";
+import {
+  closeInstallationAdmission,
+  lockInstallationForCurrentTransaction,
+} from "../../src/installation/installationLifecycle";
 
 import { canonicalizeAppUniqueKeyV1Result } from "../../src/storage/unique/appUniqueKeyContract";
 
@@ -258,11 +264,15 @@ import {
 } from "../../src/storage/unique/appUniqueKeys";
 import {
   createAppDeveloperIndexQueryPortV1,
+} from "../../src/execution/journal/indexQueryPort";
+import {
   createSessionJournalStorePersistence,
+} from "../../src/execution/sessionJournalStore";
+import {
   type PinnedPointTableV1,
   type SessionJournalAttempt,
   type SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../src/execution/journal/api";
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
   MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1,

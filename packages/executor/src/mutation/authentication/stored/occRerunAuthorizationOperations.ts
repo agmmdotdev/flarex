@@ -14,9 +14,7 @@ import type { PointMutationSessionAttemptSelectorV1 } from
 import type { TransactionAttemptFence } from
   "flarex-protocol/transaction-session";
 
-import type {
-  PointMutationJournalRelationConflictError,
-} from "../../journal/pointMutationJournal";
+import type { PointMutationJournalRelationConflictError } from "../../journal/errors";
 import type {
   AuthorizedPointMutationOccRerunInspectionV1,
   StoredPointMutationAttemptReplacementV1,

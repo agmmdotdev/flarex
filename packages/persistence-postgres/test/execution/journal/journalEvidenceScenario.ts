@@ -12,19 +12,22 @@ import {
   canonicalizeFlarexValueJsonV1,
   decodeCanonicalFlarexValueEvidenceV1,
 } from "flarex-protocol/value";
-import type { PGliteFlarexPersistence } from "../../src/database/pglite";
-import type { PostgresFlarexPersistence } from "../../src/database/postgres";
-import { fxSystemTransactionJournals, fxSystemTransactionJournalWriteEvents } from "../../src/database/schema";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
+import {
+  fxSystemTransactionJournals,
+  fxSystemTransactionJournalWriteEvents,
+} from "../../../src/database/schema";
 import type {
   PinnedPointTableV1,
   SessionJournalAttempt,
   SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
-import type { PointMutationSessionAnchorV1 } from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/journal/api";
+import type { PointMutationSessionAnchorV1 } from "../../../src/execution/transactionSessionActivation";
 import {
   completeSessionJournalSeal, prepareSessionJournalSeal, runEffect,
   runEffectFailure, runSessionJournalPointOperation,
-} from "../support/effectTestRuntime";
+} from "../../support/effectTestRuntime";
 
 type Database = PGliteFlarexPersistence | PostgresFlarexPersistence;
 interface Scenario {

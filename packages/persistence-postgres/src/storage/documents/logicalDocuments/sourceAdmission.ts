@@ -20,30 +20,50 @@ import { readApplicationBindingTargetProtection, isPreparedApplicationBinding, r
 import { isCheckedApplicationActiveHead } from "../../../application/applicationActiveHeadRead";
 import { withApplicationBindingEvidenceInTransaction, withPreparedApplicationBindingEvidenceInTransaction,
   type ApplicationBindingEvidence } from "../../../application/applicationBindingProjection";
-import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../../unique/appUniqueConstraintSetBuildV1";
+import type {
+  AppUniqueConstraintSetBuildPortsV1,
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../unique/appUniqueConstraintSetBuildV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../../unique/appUniqueConstraintCommitV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
-import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
+import {
+  locateAppIndexDefinitionByIdEffect,
+  type LocatedAppIndexDefinitionV1,
+} from "../../indexes/appIndexDefinitions";
 import { readBindingSelectedEvidence,
   prepareBindingSelectedStructure, retainBindingSelectedStructure, type PreparedBindingSelectedStructure } from "../../../installation/frameworkSchema/binding/repository";
 import { verifyLogicalSchemaBindingInTransaction, verifyLogicalSchemaReadBindingInTransaction,
   verifyPreparedLogicalSchemaBinding,
   type SelectedLogicalStorageReadiness } from "../../../installation/frameworkSchema/binding/logicalSchema";
-import type { DataBindingActivationFrame, DataBindingHeadToken, DataBindingSetFrame } from "../../../installation/frameworkSchema/binding/model";
+import type {
+  DataBindingActivationFrame,
+  DataBindingHeadToken,
+  DataBindingSetFrame,
+} from "../../../installation/frameworkSchema/binding/model";
 import type { StoredBindingValue } from "../../../installation/frameworkSchema/binding/repository";
 import { publishedPhysicalDefinitionMatchesLocated, loadPublishedPhysicalRequirementSnapshotV1,
   type PublishedPhysicalRequirementSnapshotV1 } from "../../indexes/indexBuildReconciliation";
-import { prepareLogicalStorageReadiness, requirePreparedLogicalStorageCatalog, type PreparedLogicalStorageCatalog } from "../../catalog/logicalStorageReadiness";
+import {
+  prepareLogicalStorageReadiness,
+  requirePreparedLogicalStorageCatalog,
+  type PreparedLogicalStorageCatalog,
+} from "../../catalog/logicalStorageReadiness";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import { runEffectTransaction } from "../../../database/effectTransaction";
 import { chargeHostPreparation, captureHostPreparationCharge, captureHostPreparationLifetime,
   registerHostPreparationDisposal } from "../../../execution/preparation/preparedHostRuntime";
-import { preparePublicationDefinitions, readPublicationDefinitionPreparationPayload, disposePublicationDefinitions } from "../../../commit/publication/definitionPreparation";
+import {
+  preparePublicationDefinitions,
+  readPublicationDefinitionPreparationPayload,
+  disposePublicationDefinitions,
+} from "../../../commit/publication/definitionPreparation";
 import { capturePrivateJsonData } from "../../../values/privateJsonData";
 import { type ScopeClockRecord } from "../../../scope/scopeClock";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
 import type { LogicalStorageReadDemand } from "./model";
-import type { SessionJournalAttempt } from "../../../execution/sessionJournalStore";
+import type {
+  SessionJournalAttempt,
+} from "../../../execution/journal/contracts";
 import type { LogicalParticipantAttemptRoot } from "./participantAdmission";
 import { prepareFiniteMetadataProjection, mergeFiniteMetadataProjections, mergeFiniteMetadataContractProjections,
   finiteMetadataTableKey, finiteMetadataContractKey, requireCurrentFiniteMetadataProjection,
@@ -51,12 +71,17 @@ import { prepareFiniteMetadataProjection, mergeFiniteMetadataProjections, mergeF
   prepareFiniteTableWriteClosureComparison, acceptFiniteTableWriteClosureComparison,
   type FiniteMetadataComparisonExpected, type FiniteTableWriteClosureComparison,
   type PreparedFiniteMetadataProjection } from "../../../execution/finiteMetadataDependencies";
-import { disposeFiniteMetadataProjection, readFiniteMetadataProjectionPreparationPayload } from "../../../execution/finiteMetadataDependencies";
+import {
+  disposeFiniteMetadataProjection,
+  readFiniteMetadataProjectionPreparationPayload,
+} from "../../../execution/finiteMetadataDependencies";
 import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
 import type { LogicalMetadataKey } from "flarex-protocol/commit-protocol";
 import { hasProvisionalFiniteEntry } from "../../../execution/transactionSessionActivation";
 import type { FiniteEntryObservation } from "../../../execution/finiteEntryObservation";
-import { authenticateProtectedReadinessMetadataPair } from "../../../execution/preparation/preparedMetadataEpoch";
+import {
+  authenticateProtectedReadinessMetadataPair,
+} from "../../../execution/preparation/preparedMetadataEpoch";
 
 export class LogicalSourceAdmissionError extends Data.TaggedError("LogicalSourceAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "unsupportedProfile";

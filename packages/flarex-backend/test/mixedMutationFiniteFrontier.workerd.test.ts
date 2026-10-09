@@ -3,22 +3,35 @@ import { Effect, Result, Schema } from "effect";
 import { and, desc, eq, lte, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
-import { CommitSeqSchema, projectScopeIdUuidV1Result, projectScopeEpochUuidV1Result } from "flarex-protocol/storage-authority";
+import {
+  CommitSeqSchema,
+  projectScopeIdUuidV1Result,
+  projectScopeEpochUuidV1Result,
+} from "flarex-protocol/storage-authority";
 import { appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { OrderedIndexBoundHexV1Schema } from "flarex-protocol/ordered-index";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import {
+  readFrozenFiniteAttempt,
+} from "../../persistence-postgres/src/testing/sessionJournalInspection";
 import { inspectLogicalParticipantAdmissionBundle, inspectLogicalParticipantAttemptAdmission } from
   "../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
 import { captureFiniteStorageEffect } from "../../persistence-postgres/src/execution/finiteStorageCapture";
-import { decodeCapturedAppIndexSnapshotPageEffect } from "../../persistence-postgres/src/storage/indexes/appIndexEntries";
-import { consumeCapturedAppRowsAtSnapshotEffect, prepareAppRowsSnapshotReadEffect } from "../../persistence-postgres/src/storage/documents/appRows";
+import {
+  decodeCapturedAppIndexSnapshotPageEffect,
+} from "../../persistence-postgres/src/storage/indexes/appIndexEntries";
+import {
+  consumeCapturedAppRowsAtSnapshotEffect,
+  prepareAppRowsSnapshotReadEffect,
+} from "../../persistence-postgres/src/storage/documents/appRows";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { fxAppIndexEntryRevisions, fxAppRowCurrent, fxAppRowRevisions,
   fxSystemCommits, fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect, closeExactAttemptScopeClockObservation } from
   "../../persistence-postgres/src/scope/scopeClock";
-import { closeInstallationAdmission } from "../../persistence-postgres/src/installation/installationLifecycle";
+import {
+  closeInstallationAdmission,
+} from "../../persistence-postgres/src/installation/installationLifecycle";
 import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
   "../../persistence-postgres/src/execution/transactionSessionActivation";
 

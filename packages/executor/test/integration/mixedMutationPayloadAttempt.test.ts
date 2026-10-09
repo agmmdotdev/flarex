@@ -4,9 +4,12 @@ import * as participantBinding from "@flarex/payload-adapter/internal/participan
 import * as cmsExecution from "@flarex/persistence-postgres/internal/cms-execution";
 import * as nativeRuntime from "../../../payload-adapter/src/runtime/native";
 import { makePayloadAttempt } from "../../../payload-adapter/src/runtime/attempt";
-import { LogicalParticipantInvocationError } from
-  "@flarex/persistence-postgres/internal/logical-participant-admission";
-import type { LogicalParticipantBorrow } from "@flarex/persistence-postgres/session-journal-store";
+import {
+  LogicalParticipantInvocationError,
+} from "@flarex/persistence-postgres/internal/logical-participant-errors";
+import type {
+  LogicalParticipantBorrow,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { createMixedMutationProductFixture } from "../performance/support/mixedMutationProductFixture";

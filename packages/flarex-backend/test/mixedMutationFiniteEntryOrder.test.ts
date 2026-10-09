@@ -1,31 +1,72 @@
 import { and, count, eq, sql } from "drizzle-orm";
 import { Cause, Data, Deferred, Duration, Effect, Exit, Result, Scope } from "effect";
-import { inspectVerifiedApplicationMutationGrantV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
+import {
+  inspectVerifiedApplicationMutationGrantV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { describe, expect, it, vi } from "vitest";
-import { createPostgresPersistence, createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../persistence-postgres/src/database/postgres";
-import { createFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture, postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
-import { createApplicationNativeMutationPostgresFixture } from "../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
-import { applicationMutationActivationEvidenceFixture } from "../../persistence-postgres/test/application/applicationMutationActivationFixture";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
-import { preparedHostTestRuntime } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
-import { retainPreparedHost } from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
-import { prepareProtectedMetadata } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
-import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from "../../persistence-postgres/src/application/applicationMutationAdmission";
-import { createSessionJournalStorePersistence } from "../../persistence-postgres/src/execution/sessionJournalStore";
-import { createApplicationMutationSessionActivationPersistenceV1, PointMutationSessionActivationV1Error } from "../../persistence-postgres/src/execution/transactionSessionActivation";
-import { getFiniteAttemptMetadataProjection } from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
-import { FiniteMetadataError, prepareFiniteMetadataEntryComparison, type FiniteMetadataComparisonExpected } from "../../persistence-postgres/src/execution/finiteMetadataDependencies";
-import { preparedFiniteEntries } from "../../persistence-postgres/src/execution/sessionJournalFiniteEntry";
+import {
+  createPostgresPersistence,
+  createPostgresLocatedPointMutationSessionActivationTargetV1,
+} from "../../persistence-postgres/src/database/postgres";
+import {
+  createFileScopedPostgresFixture,
+  createActivationServingFileScopedPostgresFixture,
+  postgresUrl,
+} from "../../persistence-postgres/test/support/postgresHelpers";
+import {
+  createApplicationNativeMutationPostgresFixture,
+} from "../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
+import {
+  applicationMutationActivationEvidenceFixture,
+} from "../../persistence-postgres/test/application/applicationMutationActivationFixture";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
+import {
+  preparedHostTestRuntime,
+} from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
+import {
+  retainPreparedHost,
+} from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
+import {
+  prepareProtectedMetadata,
+} from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
+import {
+  prepareFiniteApplicationMutationAdmission,
+  readPreparedFiniteApplicationMutationInputs,
+} from "../../persistence-postgres/src/application/applicationMutationAdmission";
+import {
+  createSessionJournalStorePersistence,
+} from "../../persistence-postgres/src/execution/sessionJournalStore";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+  PointMutationSessionActivationV1Error,
+} from "../../persistence-postgres/src/execution/transactionSessionActivation";
+import {
+  FiniteMetadataError,
+  prepareFiniteMetadataEntryComparison,
+  type FiniteMetadataComparisonExpected,
+} from "../../persistence-postgres/src/execution/finiteMetadataDependencies";
+import {
+  inspectPreparedFiniteSessionJournalEntry,
+} from "@flarex/persistence-postgres/internal/system-test/session-journal-inspection";
+import * as finiteEntryActivation from "../../persistence-postgres/src/execution/journal/finiteEntryActivation";
+import * as sessionActivation from "../../persistence-postgres/src/execution/transactionSessionActivation";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemMetadataContractObservations, fxSystemPreparedMetadataEpoch,
   fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims, fxSystemTransactionJournals,
   fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
-import { createMixedMutationProductFixture, type MixedMutationFinalEntryTestContext } from "./support/mixedMutationWorkerdFixture";
+import {
+  createMixedMutationProductFixture,
+  type MixedMutationFinalEntryTestContext,
+} from "./support/mixedMutationWorkerdFixture";
 
-type EntryState = NonNullable<ReturnType<typeof preparedFiniteEntries.get>>;
-type EntryCapture = Effect.Success<ReturnType<EntryState["run"]>>;
+type EntryContext = Parameters<typeof sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect>[1];
+type EntryProjection = NonNullable<Parameters<typeof sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect>[3]>;
 type Owner = Awaited<ReturnType<typeof createPostgresPersistence>>;
 
 class EntryOrderTestResourceError extends Data.TaggedError("EntryOrderTestResourceError")<{
@@ -96,12 +137,11 @@ const fullArtifactFixture = Effect.fn("EntryOrderTest.fullArtifactFixture")(func
 
 /** Faults change actual data-namespace rows through their schema owner. The
  * entry keeps its original restricted login, genuine capture and comparison. */
-const invalidateActualEntry = Effect.fn("EntryOrderTest.invalidateActualEntry")(function* (owner: Owner, state: EntryState, capture: EntryCapture, mode: "changed" | "busy") {
-  const projection = getFiniteAttemptMetadataProjection(capture.finite.metadata, state.handle);
-  if (projection === null) throw new Error("Missing original complete entry projection");
+const invalidateActualEntry = Effect.fn("EntryOrderTest.invalidateActualEntry")(function* (owner: Owner, context: EntryContext,
+  projection: EntryProjection, mode: "changed" | "busy") {
   const selected = Result.getOrThrow(prepareFiniteMetadataEntryComparison(projection)).find(value => value.present);
   if (selected === undefined) throw new Error("Missing positive expected metadata key");
-  const predicate = and(eq(fxSystemMetadataContractObservations.scopeId, capture.context.anchor.scopeId),
+  const predicate = and(eq(fxSystemMetadataContractObservations.scopeId, context.anchor.scopeId),
     eq(fxSystemMetadataContractObservations.namespace, selected.namespace),
     eq(fxSystemMetadataContractObservations.ownerKey, selected.ownerKey),
     eq(fxSystemMetadataContractObservations.contractKey, selected.contractKey));
@@ -166,17 +206,17 @@ describe.skipIf(postgresUrl === null)("finite entry ordered actual refusals", ()
             baseline = await inventory(value.currency.resource.target.drizzle);
           },
           onFiniteEntryPrepared: preparation => {
-            const state = preparedFiniteEntries.get(preparation);
-            if (state === undefined) throw new Error("Missing original entry preparation");
-            const original = state.run;
-            runSpy = vi.spyOn(state, "run").mockImplementation((...args) => original(...args).pipe(
-              Effect.flatMap(capture => Effect.gen(function* () {
+            if (inspectPreparedFiniteSessionJournalEntry(preparation) === undefined) throw new Error("Missing original entry preparation");
+            const original = sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect;
+            runSpy = vi.spyOn(sessionActivation, "acceptFiniteEntryForContinuationInTransactionEffect").mockImplementation((...args) =>
+              Effect.gen(function* () {
                 if (owner === undefined) throw new Error("Missing data owner");
+                if (args[3] === undefined) throw new Error("Missing authentic complete entry projection");
                 // Harness setup failures are defects at this injection boundary;
                 // the original entry keeps its exact typed runtime failures.
-                fault = yield* Effect.acquireRelease(invalidateActualEntry(owner, state, capture, mode).pipe(Effect.orDie), value => value.releaseEffect).pipe(Scope.provide(testScope));
-                return capture;
-              }))));
+                fault = yield* Effect.acquireRelease(invalidateActualEntry(owner, args[1], args[3], mode).pipe(Effect.orDie), value => value.releaseEffect).pipe(Scope.provide(testScope));
+                return yield* original(...args);
+              }));
           },
           beforeNative: () => Effect.die("Refused entry must not invoke business callbacks"),
           onFinalEntryFailure: async (value, exit) => {
@@ -206,14 +246,14 @@ describe.skipIf(postgresUrl === null)("finite entry ordered actual refusals", ()
         const baseline = yield* testResource("read full artifact baseline", () => inventory(target.persistence.drizzle));
         const exit = yield* Effect.exit(Effect.scoped(Effect.gen(function* () {
           const preparation = yield* store.prepareFiniteEntryEffect([]);
-          const state = preparedFiniteEntries.get(preparation);
-          if (state === undefined) return yield* Effect.die("Missing full-artifact entry preparation");
-          const original = state.run;
-          runSpy = vi.spyOn(state, "run").mockImplementation((...args) => original(...args).pipe(
-            Effect.flatMap(capture => Effect.gen(function* () {
-              fault = yield* Effect.acquireRelease(invalidateActualEntry(dataOwner.persistence, state, capture, mode).pipe(Effect.orDie), value => value.releaseEffect).pipe(Scope.provide(testScope));
-              return capture;
-            }))));
+          if (inspectPreparedFiniteSessionJournalEntry(preparation) === undefined) return yield* Effect.die("Missing full-artifact entry preparation");
+          const original = sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect;
+          runSpy = vi.spyOn(sessionActivation, "acceptFiniteEntryForContinuationInTransactionEffect").mockImplementation((...args) =>
+            Effect.gen(function* () {
+              if (args[3] === undefined) throw new Error("Missing authentic complete entry projection");
+              fault = yield* Effect.acquireRelease(invalidateActualEntry(dataOwner.persistence, args[1], args[3], mode).pipe(Effect.orDie), value => value.releaseEffect).pipe(Scope.provide(testScope));
+              return yield* original(...args);
+            }));
           return yield* retained.use(value => createApplicationMutationSessionActivationPersistenceV1(application.sessionAuthority,
             { leaseDurationMilliseconds: 60_000 }).activateFiniteEffect({ deploymentId, scopeId: evidence.scopeId,
             preparedAdmission: value.preparation, admissionContext: context, evidence: evidence.evidence }, preparation));
@@ -241,7 +281,8 @@ describe.skipIf(postgresUrl === null)("finite entry ordered actual refusals", ()
     return yield* Effect.gen(function* () {
       const evidence = yield* testResource("prepare ordered wait evidence", () => applicationMutationActivationEvidenceFixture({ deploymentId: application.deploymentId,
         executionAuthority: inputs.executionAuthority, requestKey: "entry-before-provisional-expiry", grantId: "entry-before-provisional-expiry",
-        grantLifetimeMilliseconds: 30_000 }));
+        // Leave room for actual signed expiry before the native 30s statement bound.
+        grantLifetimeMilliseconds: refusal === "grantExpiry" ? 10_000 : 30_000 }));
       const originalDeadline = Date.parse(inspectVerifiedApplicationMutationGrantV1(evidence.evidence.verifiedGrant).payload.expiresAt);
       const baseline = yield* testResource("read ordered wait baseline", () => inventory(target.persistence.drizzle));
       holding = dataOwner.persistence.drizzle.transaction(async tx => {
@@ -267,9 +308,8 @@ describe.skipIf(postgresUrl === null)("finite entry ordered actual refusals", ()
         .pipe(Effect.andThen(Effect.die("Native holder completed before releasing its ordered locks"))));
       admission = Effect.runPromiseExit(Effect.scoped(Effect.gen(function* () {
         const preparation = yield* store.prepareFiniteEntryEffect([]);
-        const state = preparedFiniteEntries.get(preparation);
-        if (state === undefined) return yield* Effect.die("Missing actual entry preparation");
-        runSpy = vi.spyOn(state, "run");
+        if (inspectPreparedFiniteSessionJournalEntry(preparation) === undefined) return yield* Effect.die("Missing actual entry preparation");
+        runSpy = vi.spyOn(finiteEntryActivation, "runPreparedFiniteSessionJournalEntryEffect");
         return yield* retained.use(value => createApplicationMutationSessionActivationPersistenceV1(application.sessionAuthority,
           { leaseDurationMilliseconds: 60_000 }).activateFiniteEffect({ deploymentId, scopeId: evidence.scopeId,
           preparedAdmission: value.preparation, admissionContext: context, evidence: evidence.evidence }, preparation));

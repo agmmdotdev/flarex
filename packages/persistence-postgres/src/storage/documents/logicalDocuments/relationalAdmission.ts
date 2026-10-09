@@ -16,14 +16,24 @@ export const requireLogicalRelationalReadAdmission = Effect.fn("LogicalRelationa
 });
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
-import type { RelationalSchema, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import type {
+  RelationalSchema,
+  RelationalTableDefinition,
+} from "flarex-protocol/internal/relational-schema";
 import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-storage-requirements";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { AdmittedParticipantOperation, SourceContribution } from "flarex-protocol/commit-protocol";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import type { ApplicationBindingInput, AcceptedApplicationBinding, ApplicationBindingObservation } from "../../../application/applicationActivation";
-import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../../unique/appUniqueConstraintSetBuildV1";
+import type {
+  ApplicationBindingInput,
+  AcceptedApplicationBinding,
+  ApplicationBindingObservation,
+} from "../../../application/applicationActivation";
+import type {
+  AppUniqueConstraintSetBuildPortsV1,
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../unique/appUniqueConstraintSetBuildV1";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
 import type { DataBindingHeadToken } from "../../../installation/frameworkSchema/binding/model";
@@ -31,19 +41,37 @@ import { DataBindingError } from "../../../installation/frameworkSchema/binding/
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import { capturePrivateJsonData } from "../../../values/privateJsonData";
 import type { ScopeClockRecord } from "../../../scope/scopeClock";
-import type { SessionJournalAttempt } from "../../../execution/sessionJournalStore";
+import type {
+  SessionJournalAttempt,
+} from "../../../execution/journal/contracts";
 import { getStableLogicalIndexIdentityByNameEffect } from "../../catalog/stableLogicalIndexCatalog";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
-import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState, type LogicalSourceConstruction } from "./sourceAdmission";
+import {
+  prepareLogicalSourceEvidence,
+  LogicalSourceAdmissionError,
+  type LogicalSourceBindingState,
+  type LogicalSourceConstruction,
+} from "./sourceAdmission";
 import { prepareLogicalRelationalValueValidation, LogicalRelationalValueError } from "./relationalValues";
 import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import type { LogicalSearchDefinition } from "./searchEntries";
-import type { LogicalStorageReadReadiness, LogicalStorageReadDemand, PreparedLogicalDocumentWriteMechanics } from "./model";
+import type {
+  LogicalStorageReadReadiness,
+  LogicalStorageReadDemand,
+  PreparedLogicalDocumentWriteMechanics,
+} from "./model";
 import { prepareLogicalWriteMechanics } from "./workingSet";
-import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
-  withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
-  type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptRoot,
-  type LogicalParticipantAttemptReadTransaction, type LogicalParticipantCommitAuthority, type LogicalParticipantSelection } from "./participantAdmission";
+import {
+  issueLogicalParticipantAttemptAdmission,
+  issueLogicalParticipantCommitAuthority,
+  withLogicalParticipantAttemptAdmissionEffect,
+  type LogicalParticipantAttemptAdmission,
+  type LogicalParticipantAttemptRoot,
+  type LogicalParticipantAttemptReadTransaction,
+  type LogicalParticipantCommitAuthority,
+  type LogicalParticipantSelection,
+} from "./participantAdmission";
+import { LogicalParticipantAdmissionError } from "./participantErrors";
 
 export class LogicalRelationalAdmissionError extends Data.TaggedError("LogicalRelationalAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" |

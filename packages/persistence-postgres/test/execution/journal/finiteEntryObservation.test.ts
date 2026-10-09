@@ -4,39 +4,53 @@ import { Effect, Option, Result } from "effect";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AppRowTransaction } from "../../src/storage/documents/appRows";
+import type { AppRowTransaction } from "../../../src/storage/documents/appRows";
 import {
   captureFiniteEntryObservationInTransactionEffect, closeFiniteEntryObservation,
   readFiniteEntryApplicationObservation, readFiniteEntryBindingObservation, readFiniteEntryPlanningObservation,
   type FiniteEntryObservation,
-} from "../../src/execution/finiteEntryObservation";
+} from "../../../src/execution/finiteEntryObservation";
 import {
   lockScopeClockRowsForOrdinaryWriteInTransactionEffect, readExactScopeWriteClockObservation,
   closeExactAttemptScopeClockObservation, type ScopeClockRecord,
-} from "../../src/scope/scopeClock";
+} from "../../../src/scope/scopeClock";
 import {
   readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect, releaseCheckedApplicationActiveHead,
   type CheckedApplicationActiveHead,
-} from "../../src/application/applicationActiveHeadRead";
-import { fxSystemApplicationActiveHeads } from "../../src/application/applicationActivationSchema";
-import { selectApplicationMutationAdmission } from "../../src/application/applicationMutationAdmission";
-import { createApplicationMutationSessionActivationPersistenceV1 } from "../../src/execution/transactionSessionActivation";
-import { captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect } from "../../src/storage/catalog/appSchemaCandidateValidation";
-import { makeDataBindingHost, dataBindingActivationRequest } from "../../src/installation/frameworkSchema/binding/host";
-import { readBindingSelectedEvidence } from "../../src/installation/frameworkSchema/binding/repository";
-import type { DataBindingSetFrame } from "../../src/installation/frameworkSchema/binding/model";
-import { makeFrameworkSchemaTarget, type FrameworkSchemaTarget } from "../../src/installation/frameworkSchema/target";
-import { fxSystemTransactionSessions } from "../../src/database/schema";
-import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
-import { makePGliteFrameworkMigrationTargetEffect } from "../installation/frameworkSchema/frameworkMigrationPGliteTarget";
+} from "../../../src/application/applicationActiveHeadRead";
+import { fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
+import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/transactionSessionActivation";
+import {
+  captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
+} from "../../../src/storage/catalog/appSchemaCandidateValidation";
+import {
+  makeDataBindingHost,
+  dataBindingActivationRequest,
+} from "../../../src/installation/frameworkSchema/binding/host";
+import { readBindingSelectedEvidence } from "../../../src/installation/frameworkSchema/binding/repository";
+import type { DataBindingSetFrame } from "../../../src/installation/frameworkSchema/binding/model";
+import {
+  makeFrameworkSchemaTarget,
+  type FrameworkSchemaTarget,
+} from "../../../src/installation/frameworkSchema/target";
+import { fxSystemTransactionSessions } from "../../../src/database/schema";
+import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
+import {
+  makePGliteFrameworkMigrationTargetEffect,
+} from "../../installation/frameworkSchema/frameworkMigrationPGliteTarget";
 import {
   createApplicationNativeMutationPGliteFixtureWithPersistence, createApplicationNativeMutationPostgresFixture,
   type ApplicationNativeMutationFixture, type ApplicationNativeMutationPersistence,
-} from "../application/applicationNativeMutationTestFixture";
-import { applicationMutationActivationFixture } from "../application/applicationMutationActivationFixture";
-import { bindingInput } from "../installation/frameworkSchema/frameworkDataBindingTestSupport";
-import { postgresUrl, withTemporaryPostgresPersistencePair } from "../support/postgresHelpers";
-import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
+} from "../../application/applicationNativeMutationTestFixture";
+import {
+  applicationMutationActivationFixture,
+} from "../../application/applicationMutationActivationFixture";
+import { bindingInput } from "../../installation/frameworkSchema/frameworkDataBindingTestSupport";
+import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../support/postgresHelpers";
+import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const refusal = { _tag: "Failure", failure: { _tag: "FiniteEntryObservationError", reason: "invalidObservation" } };
 

@@ -1,5 +1,8 @@
 import { webcrypto } from "node:crypto";
-import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../../src/commit/pointCommitPublicationObservation";
+import {
+  PointCommitPublicationObservation,
+  type PointCommitPublicationEvent,
+} from "../../src/commit/pointCommitPublicationObservation";
 
 import { asc, eq } from "drizzle-orm";
 import {
@@ -63,9 +66,11 @@ import {
 } from "../../src/database/schema";
 import {
   createSessionJournalStorePersistence,
+} from "../../src/execution/sessionJournalStore";
+import {
   type SessionJournalAttempt,
   type SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../src/execution/journal/api";
 import {
   createStoredAttemptEvidenceLoaderV1,
 } from "../../src/execution/storedAttemptEvidence";
@@ -73,11 +78,18 @@ import {
   createPointMutationSessionActivationPersistenceV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../../src/execution/transactionSessionActivation";
-import { readyExactRelationReadFixture, applyExactRelationSourceCommit } from "../application/relations/applicationRelationReadinessFixture";
+import {
+  readyExactRelationReadFixture,
+  applyExactRelationSourceCommit,
+} from "../application/relations/applicationRelationReadinessFixture";
 import { exactRelationCommitRowId } from "../application/relations/applicationRelationSourceCommitFixture";
 import { fxSystemApplicationReadiness } from "../../src/application/relations/applicationRelationSchema";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../src/storage/indexes/appDeveloperIndexCommitV1";
+import {
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import {
+  createAppDeveloperIndexDefinitionPortV1,
+} from "../../src/storage/indexes/appDeveloperIndexCommitV1";
 import {
   installApplicationRelationCommitAuthorityForTest,
   relationAuthorityFromAnchor,

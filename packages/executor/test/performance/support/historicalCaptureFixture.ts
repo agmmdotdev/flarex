@@ -3,18 +3,31 @@ import { isDeepStrictEqual } from "node:util";
 import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { encodeAdmittedFrameworkOperationV1Result } from "flarex-protocol/internal/admitted-framework-operation-v1";
+import {
+  encodeAdmittedFrameworkOperationV1Result,
+} from "flarex-protocol/internal/admitted-framework-operation-v1";
 import { makeBorrowedLogicalAttempt } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { LogicalParticipantInvocationError } from "@flarex/persistence-postgres/internal/logical-participant-admission";
+import {
+  LogicalParticipantInvocationError,
+} from "@flarex/persistence-postgres/internal/logical-participant-errors";
 import type { FiniteStorageCaptureEnvelopes, FiniteStorageCaptureError,
   FiniteStorageCaptureOperation } from "../../../../persistence-postgres/src/execution/finiteStorageCapture";
-import type { LogicalFiniteStorageCapture, LogicalStorageReadDemand } from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/model";
-import type { FiniteSessionJournalParticipantSelection } from "../../../../persistence-postgres/src/execution/sessionJournalStore";
-import type { PostgresFixtureEndpoints } from "../../../../persistence-postgres/test/support/postgresHelpers";
+import type {
+  LogicalFiniteStorageCapture,
+  LogicalStorageReadDemand,
+} from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/model";
+import type {
+  FiniteSessionJournalParticipantSelection,
+} from "../../../../persistence-postgres/src/execution/journal/api";
+import type {
+  PostgresFixtureEndpoints,
+} from "../../../../persistence-postgres/test/support/postgresHelpers";
 import { inspectLogicalParticipantAttemptAdmission,
   projectFiniteStorageCaptureFailure } from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
-import { projectCommerceRequestFailure } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/request";
+import {
+  projectCommerceRequestFailure,
+} from "../../../../persistence-postgres/src/frameworks/commerceTransaction/request";
 import { findProducts } from "../../../../medusa-adapter/src/product-query";
 import type { ProductRuntimeMetadata } from "../../../../medusa-adapter/src/product-runtime-metadata";
 import { createMixedMutationProductFixture } from "./mixedMutationProductFixture";

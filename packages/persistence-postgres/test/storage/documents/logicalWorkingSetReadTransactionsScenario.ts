@@ -1,4 +1,7 @@
-import type { FiniteStorageCaptureOperation, FiniteStorageCaptureEnvelopes } from "../../../src/execution/finiteStorageCapture";
+import type {
+  FiniteStorageCaptureOperation,
+  FiniteStorageCaptureEnvelopes,
+} from "../../../src/execution/finiteStorageCapture";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
@@ -6,35 +9,76 @@ import { expect } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { isJsonObject } from "flarex-protocol/json";
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import { decodeCatalogTableId, decodeCatalogIndexDefinitionId, decodeCatalogIndexId } from "flarex-protocol/catalog";
-import { decodeCatalogSchemaVersionId, decodeSchemaManifestAppDeveloperOrderedIndexSpecV1 } from "flarex-protocol/schema-manifest";
+import {
+  decodeCatalogTableId,
+  decodeCatalogIndexDefinitionId,
+  decodeCatalogIndexId,
+} from "flarex-protocol/catalog";
+import {
+  decodeCatalogSchemaVersionId,
+  decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
+} from "flarex-protocol/schema-manifest";
 import { lowerAppDeveloperOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
 import { canonicalizeAppIndexPhysicalSpecV1, canonicalAppIndexPhysicalSpecBytesHexV1ToBytes,
   appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-definition";
-import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
+import {
+  CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
+  ScopeEpochSchema,
+  ScopeIdSchema,
+} from "flarex-protocol/storage-authority";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction, prepareAppRowsSnapshotReadEffect,
   captureAppRowsAtSnapshotInTransactionEffect, readAppRowAtSnapshotInTransactionEffect,
   type AppRowReadResultV1, type ReadAppRowError } from "../../../src/storage/documents/appRows";
 import { makeBoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import { runEffectTransaction } from "../../../src/database/effectTransaction";
-import { makeLogicalDocumentWorkingSet, prepareLogicalWriteMechanics, combineLogicalWriteMechanics } from "../../../src/storage/documents/logicalDocuments/workingSet";
-import type { LogicalStorageReadDemand, LogicalDocumentWorkingSetInput, PreparedLogicalDocumentWriteMechanics } from "../../../src/storage/documents/logicalDocuments/model";
-import { makePreparedHostRuntime, retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
-import { makeLogicalDocumentRootEvaluator, requireLogicalDocumentRootEvaluatorOpen } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
-import type { SessionJournalAttempt } from "../../../src/execution/sessionJournalStore";
+import {
+  makeLogicalDocumentWorkingSet,
+  prepareLogicalWriteMechanics,
+  combineLogicalWriteMechanics,
+} from "../../../src/storage/documents/logicalDocuments/workingSet";
+import type {
+  LogicalStorageReadDemand,
+  LogicalDocumentWorkingSetInput,
+  PreparedLogicalDocumentWriteMechanics,
+} from "../../../src/storage/documents/logicalDocuments/model";
+import {
+  makePreparedHostRuntime,
+  retainPreparedHost,
+} from "../../../src/execution/preparation/preparedHostRuntime";
+import {
+  makeLogicalDocumentRootEvaluator,
+  requireLogicalDocumentRootEvaluatorOpen,
+} from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
+import type {
+  SessionJournalAttempt,
+} from "../../../src/execution/journal/api";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
 import { getScopeClock } from "../../../src/scope/scopeClock";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../../src/scope/scopeClock";
-import { fxSystemScopeClocks, deployments, fxControlTables, fxControlScopes, fxControlIndexes, fxControlIndexDefinitions } from "../../../src/database/schema";
-import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../../../src/storage/indexes/appIndexDefinitions";
+import {
+  fxSystemScopeClocks,
+  deployments,
+  fxControlTables,
+  fxControlScopes,
+  fxControlIndexes,
+  fxControlIndexDefinitions,
+} from "../../../src/database/schema";
+import {
+  locateAppIndexDefinitionByIdEffect,
+  type LocatedAppIndexDefinitionV1,
+} from "../../../src/storage/indexes/appIndexDefinitions";
 import { lowerAppDeveloperIndexKeyV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
 import { appendAppIndexEntryRevisionsInTransactionEffect, prepareAppIndexSnapshotReadEffect,
   buildAppIndexSnapshotReadStatement, decodeCapturedAppIndexSnapshotPageEffect } from "../../../src/storage/indexes/appIndexEntries";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
 import { rowsFromDriverExecuteResult } from "../../../src/database/driverExecuteResult";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
-import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
+import {
+  lockInstallationForCurrentTransaction,
+  closeInstallationAdmission,
+} from "../../../src/installation/installationLifecycle";
 import { runEffect } from "../../support/effectTestRuntime";
 
 /** A neutral two-table working-set witness shared by PGlite and ordinary PG. */

@@ -5,7 +5,7 @@ import type {
   SessionJournalIndexedQueryOperationV1,
   SessionJournalRelationIncomingOperationV1,
   SessionJournalPointOperationV1,
-} from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
 import {
   TransactionExecutionClaimFenceV1Schema,
   TransactionExecutionClaimOwnerV1Schema,
@@ -16,7 +16,7 @@ import {
   SessionJournalAttemptUnavailableV1Error,
   SessionJournalLeasePromotionV1Error,
   SessionJournalPersistenceV1Error,
-} from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
 import {
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptLoadResultV1,
@@ -70,6 +70,12 @@ import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 
 import {
+  createPointMutationJournalV1,
+  type PointMutationJournalAdmittedParticipantV1,
+  type PointMutationJournalV1,
+  type PointMutationJournalApplicationRelationReadCapability,
+} from "../../../src/mutation/journal/pointMutationJournal";
+import {
   InvalidPointMutationJournalCapabilityV1Error,
   PointMutationJournalAttemptUnavailableV1Error,
   PointMutationJournalAttemptPinsV1Error,
@@ -78,11 +84,7 @@ import {
   UnsupportedPointMutationJournalOperationV1Error,
   PointMutationJournalParticipantSetV1Error,
   PointMutationJournalParticipantSelectionV1Error,
-  createPointMutationJournalV1,
-  type PointMutationJournalAdmittedParticipantV1,
-  type PointMutationJournalV1,
-  type PointMutationJournalApplicationRelationReadCapability,
-} from "../../../src/mutation/journal/pointMutationJournal";
+} from "../../../src/mutation/journal/errors";
 import {
   createPointMutationExecutionClaimVaultV1,
   type PointMutationExecutionClaimVaultV1,

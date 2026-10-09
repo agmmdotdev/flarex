@@ -7,8 +7,13 @@ import { decodeAppRowIdHexV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-d
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { FlarexValueSha256V1Schema } from "flarex-protocol/value";
 import { fxAppRowRevisions } from "../../persistence-postgres/src/database/schema";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
-import { createMixedMutationPerformanceTrace, type MixedMutationPerformanceTrace } from "../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
+import {
+  readFrozenFiniteAttempt,
+} from "../../persistence-postgres/src/testing/sessionJournalInspection";
+import {
+  createMixedMutationPerformanceTrace,
+  type MixedMutationPerformanceTrace,
+} from "../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined

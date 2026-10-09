@@ -1,10 +1,10 @@
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { verifyManagedRuntimePrivileges } from "../../src/installation/installationLifecycle";
+import { verifyManagedRuntimePrivileges } from "../../../src/installation/installationLifecycle";
 import { finiteEntryInstallationScenario } from "./finiteEntryInstallationScenario";
 import { createCoLocatedReadInstallationFixture, createFileScopedPostgresFixture,
-  createProtectedFileScopedPostgresFixture, postgresUrl } from "../support/postgresHelpers";
+  createProtectedFileScopedPostgresFixture, postgresUrl } from "../../support/postgresHelpers";
 
 describe.skipIf(postgresUrl === null)("finite entry installed owner PostgreSQL", () => {
   it("refuses actual function and private expected-type faults before reopening", async () => {

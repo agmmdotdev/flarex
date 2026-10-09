@@ -26,7 +26,7 @@ import type {
 } from "@flarex/executor/point-mutation-journal";
 import type {
   RunSessionJournalPointOperationV1Result,
-} from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
 import type {
   PointMutationOccBoundJournalV1,
   PointMutationOccRuntimeNeutralRunnerInputV1,

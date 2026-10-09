@@ -13,7 +13,7 @@ import type {
   SessionJournalAttempt,
   SessionJournalPointOperationV1,
   SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../src/execution/journal/api";
 import { SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1 } from
   "../application/revision/applicationRevisionSyscallValidatorTestSupport";
 

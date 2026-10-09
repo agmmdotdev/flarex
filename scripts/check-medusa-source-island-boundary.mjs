@@ -97,8 +97,8 @@ const finiteContractTestImports = new Map([
   ["packages/persistence-postgres/test/execution/finiteSourceCommitClosure.test.ts", {
     specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
-  ["packages/persistence-postgres/test/execution/sessionJournalMultiSource.test.ts", {
-    specifier: "../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+  ["packages/persistence-postgres/test/execution/journal/sessionJournalMultiSource.test.ts", {
+    specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   }],
   ["packages/persistence-postgres/test/storage/catalog/appSchemaCandidateValidation.postgres.test.ts", {
     specifier: "../../../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts",

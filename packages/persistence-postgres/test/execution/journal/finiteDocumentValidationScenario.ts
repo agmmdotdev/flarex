@@ -1,19 +1,30 @@
 import { eq } from "drizzle-orm";
 import { expect, vi } from "vitest";
-import * as appRows from "../../src/storage/documents/appRows";
+import * as appRows from "../../../src/storage/documents/appRows";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import type { CatalogSchemaVersionId, SchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
-import type { PGliteFlarexPersistence } from "../../src/database/pglite";
-import type { PostgresFlarexPersistence } from "../../src/database/postgres";
-import { ApplicationRevisionSyscallDocumentValidationV1Error } from "../../src/application/revision/applicationRevisionSyscallValidatorV1";
-import { fxSystemTransactionJournals, fxSystemTransactionJournalReceipts } from "../../src/database/schema";
-import type { SessionJournalStorePersistence, SessionJournalAttempt, PinnedPointTableV1 } from "../../src/execution/sessionJournalStore";
-import type { PointMutationSessionAnchorV1 } from "../../src/execution/transactionSessionActivation";
-import { issueSetupSeededSyscallValidatorProofV1 } from "../application/revision/applicationRevisionSyscallValidatorTestSupport";
-import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+} from "../../../src/application/revision/applicationRevisionSyscallValidatorErrors";
+import {
+  fxSystemTransactionJournals,
+  fxSystemTransactionJournalReceipts,
+} from "../../../src/database/schema";
+import type {
+  SessionJournalStorePersistence,
+  SessionJournalAttempt,
+  PinnedPointTableV1,
+} from "../../../src/execution/journal/api";
+import type { PointMutationSessionAnchorV1 } from "../../../src/execution/transactionSessionActivation";
+import {
+  issueSetupSeededSyscallValidatorProofV1,
+} from "../../application/revision/applicationRevisionSyscallValidatorTestSupport";
+import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 /** Rejected pre-stage documents preserve earlier accepted work in the real issuer. */
 export async function finiteDocumentValidationScenario(

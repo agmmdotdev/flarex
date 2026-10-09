@@ -17,7 +17,8 @@ source and tests. Read them before the individual implementation plans.
 Performance tuning remains paused until the complete organization goal closes.
 The source/test layout, flow guides and admitted CMS/Payload construction/API
 replacement are complete. Responsibility-based file splitting,
-import/export cleanup and the matching test and documentation organization.
+import/export cleanup and the matching test and documentation organization remain
+active.
 The [file cohesion plan](05-file-cohesion-and-readable-flows.md) owns those
 remaining structural gates. Necessary private breaks and caller migration are
 authorized; broader capabilities retain their own approval and proof gates.

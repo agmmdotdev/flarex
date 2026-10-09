@@ -1,5 +1,8 @@
 import { fxSystemScopeExecutionAuthorities } from "../../src/database/schema";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../src/installation/installationLifecycle";
+import {
+  closeInstallationAdmission,
+  lockInstallationForCurrentTransaction,
+} from "../../src/installation/installationLifecycle";
 import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { webcrypto } from "node:crypto";
@@ -52,7 +55,7 @@ import {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
-import { Effect, Encoding, Exit, Result, Schema, Scope, Tracer } from "effect";
+import { Cause, Effect, Encoding, Exit, Result, Schema, Scope, Tracer } from "effect";
 
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
@@ -94,7 +97,11 @@ import {
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { decodeCatalogSchemaVersionId, SchemaManifestAppIndexDescriptorSchema, type CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
-import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
+import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
 import {
   decodeCatalogEdgeDefinitionId,
   decodeCatalogTableId,
@@ -118,7 +125,10 @@ import {
   advanceAppUniqueConstraintSetBackfillV1Effect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../../src/storage/unique/appUniqueConstraintSetBuildV1";
-import { ensureAppUniqueConstraintDefinitionBindingV1InTransaction, prepareAppUniqueConstraintDefinitionBindingV1Effect } from "../../src/storage/unique/appUniqueConstraintDefinitions";
+import {
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+  prepareAppUniqueConstraintDefinitionBindingV1Effect,
+} from "../../src/storage/unique/appUniqueConstraintDefinitions";
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
@@ -260,13 +270,24 @@ import { createAppDeveloperIndexDefinitionPortV1 } from
   "../../src/storage/indexes/appDeveloperIndexCommitV1";
 import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from
   "../../src/application/applicationActivationSchema";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../src/scope/scopeAuthorityControlRead";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../src/scope/scopeAuthorityControlRead";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
-import { makePreparedHostRuntime, retainPreparedHost } from "../../src/execution/preparation/preparedHostRuntime";
-import { prepareFiniteTerminalControlEffect, type ApplicationGraphSessionSelector } from "../../src/commit/authority/postgresLoader";
+import {
+  makePreparedHostRuntime,
+  retainPreparedHost,
+} from "../../src/execution/preparation/preparedHostRuntime";
+import {
+  prepareFiniteTerminalControlEffect,
+  type ApplicationGraphSessionSelector,
+} from "../../src/commit/authority/postgresLoader";
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
-import { preparedFiniteEntries, prepareFiniteSessionJournalEntryControlEffect,
-  readPreparedFiniteSessionJournalEntrySchema } from "../../src/execution/sessionJournalFiniteEntry";
+import { prepareFiniteSessionJournalEntryControlEffect,
+  readPreparedFiniteSessionJournalEntrySchema } from "../../src/execution/journal/finiteEntryActivation";
+import { abandonPreparedFiniteSessionJournalEntry, issuePreparedFiniteSessionJournalEntry,
+  inspectPreparedFiniteSessionJournalEntry, retainPreparedFiniteEntryControl,
+  runPreparedFiniteEntryCaptureEffect, type FiniteEntryRun } from "../../src/execution/journal/finiteEntry";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
 import * as hostPreparation from "../../src/execution/preparation/preparedHostRuntime";
 import type { ScopePhysicalLocator, SplitScopePhysicalLocator } from
@@ -2812,8 +2833,8 @@ describe("Application activation", { timeout: 30_000 }, () => {
         ...authority, kind: "claimedAttempt", scopeUuid: projectScopeIdUuidV1(authority.scopeId).scopeUuid,
         executionClaim: created.executionClaim,
       }, terminalSelector, second.application));
-      const entryState = preparedFiniteEntries.get(entry);
-      if (entryState === undefined) throw new Error("Missing original finite entry reservation");
+      const reservedEntry = inspectPreparedFiniteSessionJournalEntry(entry);
+      if (reservedEntry === undefined) throw new Error("Missing original finite entry reservation");
       const accept = () => fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
         const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
         let escaped: AcceptedApplicationBinding | undefined;
@@ -2843,19 +2864,46 @@ describe("Application activation", { timeout: 30_000 }, () => {
             expect(borrowedSpans.filter(name => name === "ApplicationReadiness.validateFiniteEntry")).toHaveLength(1);
             expect(borrowedSpans).not.toContain("ApplicationReadiness.validateStoredForActivationInTransaction");
             expect(borrowedSpans).not.toContain("ApplicationActiveHead.readCheckedCoherentForShare");
-            // Exercise the process-local control consumption boundary using an
-            // actual entry and Application issuer. Durable entry SQL is covered
-            // by the connected finite-entry fixtures.
+            // Exercise only process-local control consumption. The actual Store
+            // reservation remains Scope-owned; accepting kernel/entry SQL is
+            // covered by the connected finite-entry fixtures.
             expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, entryControl))).toBe(true);
-            entryState.status = "running";
-            try {
-              expect(Result.getOrThrow(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, entryControl))).toBe(entryControl);
-              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, structuredClone(entryControl)))).toBe(true);
-              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, admitted.selection, new Proxy(entryControl, {})))).toBe(true);
-              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema({ ...entry }, admitted.selection, entryControl))).toBe(true);
-              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, { ...admitted.selection }, entryControl))).toBe(true);
-              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(entry, otherActive.selection, entryControl))).toBe(true);
-            } finally { entryState.status = "prepared"; }
+            const callbackDefect = new Error("local control callback stops before kernel capture");
+            const install = vi.fn();
+            const discard = vi.fn();
+            const release = vi.fn();
+            const unexpectedKernelRead = vi.fn(() => { throw new Error("Local control proof must not read kernel inputs"); });
+            // SAFETY: deliberately unused unit-boundary inputs cannot substitute
+            // a kernel context or target. Any attempted read fails immediately.
+            const unusedContext = new Proxy({} as Parameters<FiniteEntryRun>[1], { get: unexpectedKernelRead });
+            const unusedTarget = new Proxy({} as Parameters<FiniteEntryRun>[2], { get: unexpectedKernelRead });
+            const closedControlEntry = yield* Effect.scoped(Effect.gen(function* () {
+              const controlEntry = yield* Effect.acquireRelease(Effect.sync(() => issuePreparedFiniteSessionJournalEntry({
+                issuer: terminalPorts, attempt: reservedEntry.attempt,
+                run: () => Effect.die(callbackDefect), install, discard, release,
+              })), value => Effect.sync(() => abandonPreparedFiniteSessionJournalEntry(value)));
+              expect(Result.getOrThrow(retainPreparedFiniteEntryControl(controlEntry, second.application, entryControl))).toBe(entryControl);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(controlEntry, admitted.selection, entryControl))).toBe(true);
+              const stopped = yield* Effect.exit(runPreparedFiniteEntryCaptureEffect(controlEntry, tx,
+                unusedContext, unusedTarget, admitted.selection, binding, entryControl, second.executionAuthority, Effect.void));
+              expect(Exit.isFailure(stopped)).toBe(true);
+              if (Exit.isFailure(stopped)) expect(Result.getOrThrow(Cause.findDefect(stopped.cause))).toBe(callbackDefect);
+              expect(inspectPreparedFiniteSessionJournalEntry(controlEntry)).toMatchObject({ status: "running", hasCapture: false });
+              expect(Result.getOrThrow(readPreparedFiniteSessionJournalEntrySchema(controlEntry, admitted.selection, entryControl))).toBe(entryControl);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(controlEntry, admitted.selection, structuredClone(entryControl)))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(controlEntry, admitted.selection, new Proxy(entryControl, {})))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema({ ...controlEntry }, admitted.selection, entryControl))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(controlEntry, { ...admitted.selection }, entryControl))).toBe(true);
+              expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(controlEntry, otherActive.selection, entryControl))).toBe(true);
+              return controlEntry;
+            }));
+            expect(inspectPreparedFiniteSessionJournalEntry(closedControlEntry)?.status).toBe("abandoned");
+            expect(Result.isFailure(readPreparedFiniteSessionJournalEntrySchema(closedControlEntry, admitted.selection, entryControl))).toBe(true);
+            expect(inspectPreparedFiniteSessionJournalEntry(entry)?.status).toBe("prepared");
+            expect(unexpectedKernelRead).not.toHaveBeenCalled();
+            expect(install).not.toHaveBeenCalled();
+            expect(discard).not.toHaveBeenCalled();
+            expect(release).toHaveBeenCalledTimes(1);
             return admitted;
           }));
         if (escaped === undefined) throw new Error("Missing finite callback observation");

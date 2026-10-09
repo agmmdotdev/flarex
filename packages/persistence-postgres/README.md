@@ -19,7 +19,7 @@ grant a new capability.
 | `installation/` | Protected structure, maintenance interlock, installed definitions, framework schemas and migration coordination | [installationLifecycle.ts](src/installation/installationLifecycle.ts), [frameworkSchema/](src/installation/frameworkSchema/) |
 | `application/` | Analysis, serving construction, active bindings, schema authority, readiness, revisions, relations and write ownership | [applicationServing.ts](src/application/applicationServing.ts), [applicationActivation.ts](src/application/applicationActivation.ts), [applicationReadiness.ts](src/application/applicationReadiness.ts) |
 | `storage/` | Documents, relational values, pending working sets, indexes, uniqueness, relations, search, catalog and history | [documents/logicalDocuments/workingSet.ts](src/storage/documents/logicalDocuments/workingSet.ts), [catalog/logicalStorageDefinitions.ts](src/storage/catalog/logicalStorageDefinitions.ts) |
-| `execution/` | Prepared lifetimes, attempt/session state, journal, finite capture, claims, OCC evidence and persistence recovery | [sessionJournalStore.ts](src/execution/sessionJournalStore.ts), [transactionSessionActivation.ts](src/execution/transactionSessionActivation.ts) |
+| `execution/` | Prepared lifetimes, attempt/session state, journal, finite capture, claims, OCC evidence and persistence recovery | [journal/api.ts](src/execution/journal/api.ts), [sessionJournalStore.ts](src/execution/sessionJournalStore.ts), [transactionSessionActivation.ts](src/execution/transactionSessionActivation.ts) |
 | `commit/` | Conflict-checked atomic publication, durable outcomes, commit facts, event intents and feed | [pointCommitTransaction.ts](src/commit/pointCommitTransaction.ts), [publication/publication.ts](src/commit/publication/publication.ts) |
 | `frameworks/` | Restricted CMS/Commerce direct and borrowed execution, finite atomic Commerce, and cross-domain commands | [cmsTransaction/construction.ts](src/frameworks/cmsTransaction/construction.ts), [cmsTransaction/api.ts](src/frameworks/cmsTransaction/api.ts), [commerceTransaction/commerceAdapter.ts](src/frameworks/commerceTransaction/commerceAdapter.ts) |
 | `tasks/` | Durable task run/attempt records, compute delivery, external-effect authority, wake and repair scheduling | [taskAttemptLifecycleGateway.ts](src/tasks/taskAttemptLifecycleGateway.ts) |
@@ -60,9 +60,13 @@ protected read selection. CMS issues scoped read/command bindings from those
 owners and trusted source/policy selection. Payload binds native operations to
 these capabilities. The [construction plan](../../roadmaps/execution-architecture/03-consumer-construction-and-domain-apis.md)
 owns that connected cutover and the named test-only raw construction witnesses.
-Large existing implementation bodies such as the journal
-store and database schema retain their behavior here; splitting them requires
-their actual internal responsibilities and consumers to migrate together.
+Journal consumers use `internal/session-journal` for operation contracts, error
+classes and read-only frozen values. `internal/session-journal-construction`
+belongs to trusted graph construction. The concrete store retains attempt
+evaluation and SQL persistence; it exports no consumer contracts. Its registry
+and accepting transaction owners are described in the [journal guide](src/execution/journal/README.md).
+Large remaining store and schema bodies still need their coherent internal
+decomposition under the [file cohesion plan](../../roadmaps/execution-architecture/05-file-cohesion-and-readable-flows.md).
 
 The root `index.ts` retains the existing persistence contracts. Internal contract
 ownership and export reduction remain part of the construction/API audit, not a

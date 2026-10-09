@@ -1,3 +1,15 @@
+import {
+  InvalidPointMutationJournalCapabilityV1Error,
+  PointMutationJournalRelationConflictError,
+  UnsupportedPointMutationJournalOperationV1Error,
+  PointMutationJournalPersistenceV1Error,
+  PointMutationJournalAdmittedOperationRejectedV1Error,
+  PointMutationJournalParticipantRejectedV1Error,
+  PointMutationJournalParticipantSetV1Error,
+  PointMutationJournalParticipantSelectionV1Error,
+  PointMutationJournalAttemptPinsV1Error,
+  PointMutationJournalAttemptUnavailableV1Error,
+} from "./errors";
 import type {
   PinnedDeveloperIndexV1,
   PinnedApplicationRelationRead,
@@ -17,7 +29,7 @@ import type {
   ConfirmedFiniteRootEntryCapture,
   PreparedFiniteSessionJournalEntry,
   FrozenFiniteAttempt,
-} from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
 import {
   InvalidSessionJournalCapabilityV1Error,
   ApplicationTableWriteDeniedError,
@@ -31,23 +43,27 @@ import {
   SessionJournalSealV1Error,
   SessionJournalStorageCorruptionV1Error,
   SessionJournalTargetUnavailableV1Error,
-} from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
 import type {
   RecoveredRunningRelationConflictEvidence,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationExecutionProfile } from
   "@flarex/persistence-postgres/transaction-session-activation";
 import {
+  type ApplicationRevisionSyscallValidatorV1,
+} from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
   ApplicationRevisionSyscallValidatorCorruptionV1Error,
   ApplicationRevisionSyscallValidatorIntegrationV1Error,
   ApplicationRevisionSyscallValidatorStaleV1Error,
   InvalidApplicationRevisionSyscallValidatorV1Error,
-  type ApplicationRevisionSyscallValidatorV1,
-} from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
-import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError } from
-  "@flarex/persistence-postgres/internal/logical-participant-admission";
-import { Data, Effect, Result, Schema, Semaphore, type Scope } from "effect";
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
+import {
+  LogicalParticipantAdmissionError,
+  LogicalParticipantInvocationError,
+} from "@flarex/persistence-postgres/internal/logical-participant-errors";
+import { Effect, Result, Schema, Semaphore, type Scope } from "effect";
 
 import {
   canonicalizeSessionJournalEffect,
@@ -119,62 +135,6 @@ export type PointMutationJournalApplicationRelationReadCapability = Parameters<
   SessionJournalStorePersistence["resolveApplicationRelationReadEffect"]
 >[1];
 
-export class InvalidPointMutationJournalCapabilityV1Error
-  extends Data.TaggedError("InvalidPointMutationJournalCapabilityV1Error")<{
-    readonly capability:
-      | "attempt"
-      | "table"
-      | "index"
-      | "relation"
-      | "relationConflict";
-  }> {}
-
-export class PointMutationJournalRelationConflictError extends Data.TaggedError(
-  "PointMutationJournalRelationConflictError",
-)<{
-  readonly conflict: SessionJournalRelationConflictV1;
-}> {}
-
-export class UnsupportedPointMutationJournalOperationV1Error
-  extends Data.TaggedError(
-    "UnsupportedPointMutationJournalOperationV1Error",
-  )<{
-    readonly reason:
-      | "notPlainObject"
-      | "invalidKind"
-      | "unexpectedFields"
-      | "invalidFieldShape"
-      | "invalidSequence";
-    readonly operationKind?: unknown;
-    readonly cause?: unknown;
-  }> {}
-
-export class PointMutationJournalPersistenceV1Error extends Data.TaggedError(
-  "PointMutationJournalPersistenceV1Error",
-)<{
-  readonly cause: unknown;
-}> {}
-
-export class PointMutationJournalAdmittedOperationRejectedV1Error extends Data.TaggedError(
-  "PointMutationJournalAdmittedOperationRejectedV1Error",
-)<{ readonly result: Exclude<Awaited<Effect.Success<ReturnType<
-  SessionJournalStorePersistence["runAdmittedOperationEffect"]>>>, { readonly kind: "completed" }> }> {}
-
-/** A selected framework method failed after the journal had admitted it.
- * The store owns the sticky root state; this error keeps the native cause
- * distinct from a database persistence or transport failure. */
-export class PointMutationJournalParticipantRejectedV1Error extends Data.TaggedError(
-  "PointMutationJournalParticipantRejectedV1Error",
-)<{ readonly cause: unknown }> {}
-
-export class PointMutationJournalParticipantSetV1Error extends Data.TaggedError(
-  "PointMutationJournalParticipantSetV1Error",
-)<{ readonly reason: "tooMany" | "duplicate" | "invalidSelector"; readonly participant?: string }> {}
-
-export class PointMutationJournalParticipantSelectionV1Error extends Data.TaggedError(
-  "PointMutationJournalParticipantSelectionV1Error",
-)<{ readonly participant: string }> {}
-
 type AdmittedOperationInvoke = Parameters<SessionJournalStorePersistence["runAdmittedOperationEffect"]>[3];
 
 /** Trusted composition for one selector and its exact ordered source bundle.
@@ -195,17 +155,6 @@ export interface PointMutationJournalAdmittedOperationInputV1 {
   readonly requestBytes: Uint8Array;
   readonly requestSha256: Uint8Array;
 }
-
-export class PointMutationJournalAttemptPinsV1Error extends Data.TaggedError(
-  "PointMutationJournalAttemptPinsV1Error",
-)<{
-  readonly reason: "immutablePinsMismatch";
-}> {}
-
-export class PointMutationJournalAttemptUnavailableV1Error
-  extends Data.TaggedError("PointMutationJournalAttemptUnavailableV1Error")<{
-    readonly issue: SessionJournalAttemptUnavailableV1Error["issue"];
-  }> {}
 
 export type PointMutationJournalBoundaryV1Error =
   | InvalidPointMutationJournalCapabilityV1Error

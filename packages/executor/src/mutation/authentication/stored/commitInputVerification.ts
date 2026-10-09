@@ -6,7 +6,9 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
-import type { FrozenFiniteCommitValidationValues } from "@flarex/persistence-postgres/session-journal-store";
+import type {
+  FrozenFiniteCommitValidationValues,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import { hasLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthoritySource,

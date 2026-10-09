@@ -1,24 +1,54 @@
 import { randomUUID } from "node:crypto";
-import { captureSessionStorage, expectSessionPayloadScrubbed } from "../execution/terminalSessionStorageScenario";
+import {
+  captureSessionStorage,
+  expectSessionPayloadScrubbed,
+} from "../execution/terminalSessionStorageScenario";
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
-import { createApplicationMutationSessionActivationPersistenceV1 } from "../../src/execution/transactionSessionActivation";
+import {
+  CommitSyscallSequenceV1Schema,
+  canonicalizeSessionJournalEffect,
+  canonicalizeSuccessfulResultV1Effect,
+} from "flarex-protocol/commit-protocol";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+} from "../../src/execution/transactionSessionActivation";
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
-import { createAppDeveloperIndexQueryPortV1 } from "../../src/execution/sessionJournalStore";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../src/storage/indexes/appDeveloperIndexCommitV1";
+import {
+  createAppDeveloperIndexQueryPortV1,
+} from "../../src/execution/journal/indexQueryPort";
+import {
+  createAppDeveloperIndexDefinitionPortV1,
+} from "../../src/storage/indexes/appDeveloperIndexCommitV1";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../src/execution/storedAttemptEvidence";
 import { createPointCommitFinishingTransitionPortV1 } from "../../src/commit/pointCommitTransaction";
-import { createPointCommitPublisherPortV1, PointCommitConflictV1Error } from "../../src/commit/pointCommitTransaction";
-import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/pointCommitTransactionTestSupport";
+import {
+  createPointCommitPublisherPortV1,
+  PointCommitConflictV1Error,
+} from "../../src/commit/pointCommitTransaction";
+import {
+  pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
+} from "../commit/pointCommitTransactionTestSupport";
 import { selectApplicationMutationAdmission } from "../../src/application/applicationMutationAdmission";
 import { makeApplicationSchemaAuthorityPublisher } from "../../src/application/applicationSchemaAuthority";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../src/storage/unique/appUniqueConstraintCommitV1";
+import {
+  createAppUniqueConstraintDefinitionPortV1,
+} from "../../src/storage/unique/appUniqueConstraintCommitV1";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
-import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "../commit/pointCommitRelationTestSupport";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../src/storage/catalog/appSchemaCandidateValidation";
-import { issueSetupSeededSyscallValidatorProofV1 } from "../application/revision/applicationRevisionSyscallValidatorTestSupport";
+import {
+  selectorFromRelationAnchor,
+  relationAuthorityFromAnchor,
+} from "../commit/pointCommitRelationTestSupport";
+import {
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import {
+  createAppSchemaCandidateWriteGuardPort,
+} from "../../src/storage/catalog/appSchemaCandidateValidation";
+import {
+  issueSetupSeededSyscallValidatorProofV1,
+} from "../application/revision/applicationRevisionSyscallValidatorTestSupport";
 import { applicationMutationActivationFixture } from "../application/applicationMutationActivationFixture";
 import type { cmsHostFixture } from "./cmsTransaction/cmsHostFixture";
 import type { CommerceHostTestFixture } from "./commerceTransaction/commerceHostFixture";

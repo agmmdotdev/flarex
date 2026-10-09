@@ -5,16 +5,35 @@ import { describe, expect, it, vi } from "vitest";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 import { logicalCurrencyFixture } from "../../medusa-adapter/test/support/logical-currency-fixture";
-import { prepareApplicationBindingSelection, readApplicationBindingTargetProtection } from "../../persistence-postgres/src/application/applicationActivation";
-import { prepareLogicalSourceEvidence, withSharedLogicalSourceBindingChecks } from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
+import {
+  prepareApplicationBindingSelection,
+  readApplicationBindingTargetProtection,
+} from "../../persistence-postgres/src/application/applicationActivation";
+import {
+  prepareLogicalSourceEvidence,
+  withSharedLogicalSourceBindingChecks,
+} from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
 import * as hostPreparation from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
 import { prepareApplicationActiveHeadStructure, readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedApplicationSchemaForHeadForShareInTransactionEffect, releaseCheckedApplicationActiveHead } from
   "../../persistence-postgres/src/application/applicationActiveHeadRead";
-import { applicationActivationFrame, applicationActiveHeadFrame } from "../../persistence-postgres/src/application/applicationActivationFrames";
-import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/application/applicationActivationSchema";
-import { fxSystemApplicationRevisionSchemasV1, fxSystemIndexBuildStates } from "../../persistence-postgres/src/database/schema";
-import { lockScopeClockForShareInTransactionEffect, type ScopeClockRecord } from "../../persistence-postgres/src/scope/scopeClock";
+import {
+  applicationActivationFrame,
+  applicationActiveHeadFrame,
+} from "../../persistence-postgres/src/application/applicationActivationFrames";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+  fxSystemApplicationReadBindings,
+} from "../../persistence-postgres/src/application/applicationActivationSchema";
+import {
+  fxSystemApplicationRevisionSchemasV1,
+  fxSystemIndexBuildStates,
+} from "../../persistence-postgres/src/database/schema";
+import {
+  lockScopeClockForShareInTransactionEffect,
+  type ScopeClockRecord,
+} from "../../persistence-postgres/src/scope/scopeClock";
 import { openProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
   closeProtectedMetadataFinalGuardScope } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
@@ -25,7 +44,10 @@ import { captureBindingValue, isDataBindingActivationFrame, isDataBindingHeadFra
 import { fxSystemDataBindingActivations, fxSystemDataBindingHeads } from
   "../../persistence-postgres/src/installation/frameworkSchema/binding/schema";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
-import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/installation/frameworkSchema/binding/host";
+import {
+  makeDataBindingHost,
+  dataBindingActivationRequest,
+} from "../../persistence-postgres/src/installation/frameworkSchema/binding/host";
 
 const native = postgresUrl !== null && process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL ? describe : describe.skip;
 const bytes = (frame: unknown) => {
@@ -210,10 +232,14 @@ native("protected target first-fill rollback integrity", () => {
           } finally { closeProtectedMetadataFinalGuardScope(tx); }
         });
       const unchangedEpoch = protection.epoch.generation.toString();
+      const originalReadBindings = await target.select().from(fxSystemApplicationReadBindings)
+        .where(eq(fxSystemApplicationReadBindings.scopeId, scopeId));
       const assertRolledBack = async () => {
         const result = await fixture.persistence.query<{ generation: string }>(
           "select generation::text from fx_system_prepared_metadata_epoch");
         expect(result.rows[0]?.generation).toBe(unchangedEpoch);
+        expect(await target.select().from(fxSystemApplicationReadBindings)
+          .where(eq(fxSystemApplicationReadBindings.scopeId, scopeId))).toEqual(originalReadBindings);
       };
 
       const activationPreparation = prepareApplicationActiveHeadStructure(protection, undefined, selected.basis);
@@ -235,20 +261,15 @@ native("protected target first-fill rollback integrity", () => {
           revisionId: activation.revisionId, readiness,
           activationRequestSha256: encodeBytesToLowercaseHex(activation.activationRequestSha256),
           activatedAt: activatedAt.toISOString() }));
-        const activationSha256 = digest(activationBytes);
-        const headBytes = bytes(applicationActiveHeadFrame({ scopeId,
-          activationSequence: activation.activationSequence.toString(), revisionId: activation.revisionId,
-          readiness, activationSha256: encodeBytesToLowercaseHex(activationSha256) }));
-        await tx.delete(fxSystemApplicationActiveHeads).where(eq(fxSystemApplicationActiveHeads.scopeId, scopeId));
-        await tx.update(fxSystemApplicationActivations).set({ activatedAt, activationBytes, activationSha256 })
+        // Immutable read bindings prevent changing the referenced activation
+        // hash. Poison its body while keeping the live head and identity fixed;
+        // cached preparation must still authenticate that body before retention.
+        await tx.update(fxSystemApplicationActivations).set({ activatedAt, activationBytes })
           .where(eq(fxSystemApplicationActivations.scopeId, scopeId));
-        await tx.insert(fxSystemApplicationActiveHeads).values({ ...head, headBytes,
-          headSha256: digest(headBytes), activationSha256 });
         return Effect.runPromise(readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock,
           checked => releaseCheckedApplicationActiveHead(checked), activationPreparation));
-      // The changed live head cannot fill this issuer's pinned preparation;
-      // the full path still registers and reaches the final epoch refusal.
-      })).rejects.toMatchObject({ reason: "changed" });
+      // The full body fails canonical authentication before epoch settlement.
+      })).rejects.toMatchObject({ _tag: "ApplicationActiveHeadStateError", reason: "storedState", retryable: false });
       await assertRolledBack();
       const restoredActivation = await guarded(async (tx, clock) => {
         let issued: Parameters<typeof releaseCheckedApplicationActiveHead>[0];
@@ -326,22 +347,33 @@ native("protected target first-fill rollback integrity", () => {
       if (secondHeadRow === undefined) throw new Error("Missing second binding head");
       await target.update(fxSystemDataBindingHeads).set(originalHeadRow)
         .where(eq(fxSystemDataBindingHeads.scopeId, scopeId));
-      const reselection = await Effect.runPromise(fixture.application.activation.readActive());
-      const { protection: currentProtection } = Result.getOrThrow(readApplicationBindingTargetProtection(reselection.selection));
-      if (currentProtection === undefined) throw new Error("Missing renewed readiness anchor");
-      let charges = 0;
-      const headOnlyPreparation = Result.getOrThrow(prepareBindingSelectedStructure(location, currentProtection,
-        { charge: () => { charges++; return Result.succeed(undefined); }, checkOpen: () => Result.succeed(undefined) }));
-      await expect(guarded(async tx => {
-        await tx.update(fxSystemDataBindingHeads).set(secondHeadRow)
-          .where(eq(fxSystemDataBindingHeads.scopeId, scopeId));
-        const temporary = await Effect.runPromise(readBindingSelectedEvidence(tx, location, headOnlyPreparation));
-        expect(Option.isSome(temporary) ? temporary.value.head.frame.sequence : undefined).toBe(secondHeadRow.sequence.toString());
-        throw new Error("Rollback only the temporary live binding head");
-      })).rejects.toThrow("Rollback only the temporary live binding head");
-      const afterHeadRollback = await guarded(tx => Effect.runPromise(readBindingSelectedEvidence(tx, location, headOnlyPreparation)));
-      expect(afterHeadRollback).toEqual(original);
-      expect(charges).toBe(1);
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const runtime = yield* hostPreparation.makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
+        const issuerHost = yield* hostPreparation.retainPreparedHost(runtime,
+          fixture.application.activation.readActive().pipe(Effect.map(active => Object.freeze({ active }))));
+        yield* issuerHost.use(({ active }) => Effect.gen(function* () {
+          const lineage = yield* Effect.fromResult(readApplicationBindingTargetProtection(active.selection));
+          if (lineage.protection === undefined || lineage.lifetime === undefined) {
+            return yield* Effect.die("Missing renewed retained readiness anchor");
+          }
+          let charges = 0;
+          const lifetime = lineage.lifetime;
+          const headOnlyPreparation = yield* Effect.fromResult(prepareBindingSelectedStructure(location, lineage.protection,
+            { ...lifetime, charge: value => { charges++; return lifetime.charge(value); } }));
+          yield* Effect.tryPromise({ try: async () => {
+            await expect(guarded(async tx => {
+              await tx.update(fxSystemDataBindingHeads).set(secondHeadRow)
+                .where(eq(fxSystemDataBindingHeads.scopeId, scopeId));
+              const temporary = await Effect.runPromise(readBindingSelectedEvidence(tx, location, headOnlyPreparation));
+              expect(Option.isSome(temporary) ? temporary.value.head.frame.sequence : undefined).toBe(secondHeadRow.sequence.toString());
+              throw new Error("Rollback only the temporary live binding head");
+            })).rejects.toThrow("Rollback only the temporary live binding head");
+            const afterHeadRollback = await guarded(tx => Effect.runPromise(readBindingSelectedEvidence(tx, location, headOnlyPreparation)));
+            expect(afterHeadRollback).toEqual(original);
+            expect(charges).toBe(1);
+          }, catch: cause => cause });
+        }));
+      })));
     } finally {
       for (const close of cleanup.reverse()) await close();
     }

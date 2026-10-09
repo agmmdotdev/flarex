@@ -1,54 +1,90 @@
-import { captureRecoveredAuthorityEffect, verifyCanonicalStoredEvidenceEffect } from "../../../executor/src/mutation/authentication/stored/authenticationVerification";
-import { verifyCommitInputStateEffect } from "../../../executor/src/mutation/authentication/stored/commitInputVerification";
-import { planPointCommitStateV1 } from "../../../executor/src/mutation/authentication/stored/pointCommitPlanning";
-import { compilePayloadCollections } from "../../../payload-adapter/src/collections";
-import { makeCmsHost } from "../../src/frameworks/cmsTransaction/host";
-import { defineCmsCommand } from "../../src/frameworks/cmsTransaction/commands";
-import { preparedHostTestRuntime } from "./preparation/preparedHostRuntimeTestSupport";
-import { PointCommitCorruptionV1Error, PointCommitConflictV1Error, AppDocumentInsertionConflictError } from "../../src/commit/pointCommitErrors";
+import {
+  captureRecoveredAuthorityEffect,
+  verifyCanonicalStoredEvidenceEffect,
+} from "../../../../executor/src/mutation/authentication/stored/authenticationVerification";
+import {
+  verifyCommitInputStateEffect,
+} from "../../../../executor/src/mutation/authentication/stored/commitInputVerification";
+import {
+  planPointCommitStateV1,
+} from "../../../../executor/src/mutation/authentication/stored/pointCommitPlanning";
+import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
+import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
+import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
+import { preparedHostTestRuntime } from "../preparation/preparedHostRuntimeTestSupport";
+import {
+  PointCommitCorruptionV1Error,
+  PointCommitConflictV1Error,
+  AppDocumentInsertionConflictError,
+} from "../../../src/commit/pointCommitErrors";
 import { createHash } from "node:crypto";
-import { preparePublicationDefinitions } from "../../src/commit/publication/definitionPreparation";
+import { preparePublicationDefinitions } from "../../../src/commit/publication/definitionPreparation";
 import { Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
-import { AppRowIdHexV1Schema, appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { projectLogicalPointExpectation } from "../../src/storage/documents/logicalDocuments/pointEvidence";
-import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges } from "../../src/storage/documents/logicalDocuments/workingSet";
-import { makeBoundedRequestLifetime } from "../../src/execution/preparation/boundedRequestLifetime";
+import {
+  AppRowIdHexV1Schema,
+  appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+} from "flarex-protocol/app-document-id";
+import {
+  projectLogicalPointExpectation,
+} from "../../../src/storage/documents/logicalDocuments/pointEvidence";
+import {
+  makeLogicalDocumentWorkingSet,
+  type LogicalDocumentChanges,
+} from "../../../src/storage/documents/logicalDocuments/workingSet";
+import { makeBoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
 import { fxSystemTransactionJournalPoints, fxSystemTransactionJournalReceipts, fxAppRowCurrent, fxAppRowRevisions,
   fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppUniqueKeys, fxSystemCommits, fxSystemIdempotency, fxSystemScopeClocks,
-  fxSystemTransactionJournals, fxSystemSnapshotLeases, fxSystemTransactionSessions, fxSystemTransactionJournalWriteEvents, fxSystemCommitAppRowChanges, fxSystemCommitWakes } from "../../src/database/schema";
-import { logicalCurrencyFixture } from "../../../medusa-adapter/test/support/logical-currency-fixture";
-import { prepareLogicalStorageReadiness } from "../../src/storage/catalog/logicalStorageReadiness";
-import { prepareLogicalSourceEvidence } from "../../src/storage/documents/logicalDocuments/sourceAdmission";
+  fxSystemTransactionJournals, fxSystemSnapshotLeases, fxSystemTransactionSessions, fxSystemTransactionJournalWriteEvents, fxSystemCommitAppRowChanges, fxSystemCommitWakes } from "../../../src/database/schema";
+import { logicalCurrencyFixture } from "../../../../medusa-adapter/test/support/logical-currency-fixture";
+import { prepareLogicalStorageReadiness } from "../../../src/storage/catalog/logicalStorageReadiness";
+import {
+  prepareLogicalSourceEvidence,
+} from "../../../src/storage/documents/logicalDocuments/sourceAdmission";
 import { authenticatedGeneratedInsertionsResult } from "flarex-protocol/commit-protocol";
-import { LogicalParticipantInvocationError, type LogicalParticipantAttemptReadTransaction } from "../../src/storage/documents/logicalDocuments/participantAdmission";
+import {
+  type LogicalParticipantAttemptReadTransaction,
+} from "../../../src/storage/documents/logicalDocuments/participantAdmission";
+import {
+  LogicalParticipantInvocationError,
+} from "../../../src/storage/documents/logicalDocuments/participantErrors";
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
-import { selectApplicationMutationAdmission } from "../../src/application/applicationMutationAdmission";
-import { createApplicationMutationSessionActivationPersistenceV1 } from "../../src/execution/transactionSessionActivation";
-import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
-import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
+import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/transactionSessionActivation";
+import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
+import {
+  issueLogicalParticipantAttemptAdmission,
+  issueLogicalParticipantCommitAuthority,
+  type LogicalParticipantSelection,
+} from "../../../src/storage/documents/logicalDocuments/participantAdmission";
+import {
   LogicalParticipantAdmissionError,
-  type LogicalParticipantSelection } from "../../src/storage/documents/logicalDocuments/participantAdmission";
-import { createStoredAttemptEvidenceLoaderV1 } from "../../src/execution/storedAttemptEvidence";
+} from "../../../src/storage/documents/logicalDocuments/participantErrors";
+import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
 import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from
-  "../../src/commit/pointCommitTransaction";
+  "../../../src/commit/pointCommitTransaction";
 import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
-  pointCommitScalarCommandForLifecycleFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/pointCommitTransactionTestSupport";
+  pointCommitScalarCommandForLifecycleFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/pointCommitTransactionTestSupport";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture } from
-  "../application/applicationNativeMutationTestFixture";
-import { applicationMutationActivationFixture } from "../application/applicationMutationActivationFixture";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
-import { createPGlitePersistence } from "../../src/database/pglite";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { createFileScopedPostgresFixture, postgresUrl } from "../support/postgresHelpers";
+  "../../application/applicationNativeMutationTestFixture";
+import {
+  applicationMutationActivationFixture,
+} from "../../application/applicationMutationActivationFixture";
+import { TEST_GRANT_RETENTION_POLICY_V1 } from "../transactionSessionActivationTestSupport";
+import { createPGlitePersistence } from "../../../src/database/pglite";
+import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import { createFileScopedPostgresFixture, postgresUrl } from "../../support/postgresHelpers";
 
 const emptyChanges = Object.freeze({ changes: [], attempts: [], lifecycle: [], observedRows: [],
   noFinalRows: [], dependencies: [], scans: [], uniqueReads: [], indexReads: [], pageReads: [],

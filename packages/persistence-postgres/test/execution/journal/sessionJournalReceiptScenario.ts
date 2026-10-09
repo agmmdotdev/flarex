@@ -2,21 +2,21 @@ import { and, eq, sql } from "drizzle-orm";
 import { expect } from "vitest";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
-import type { PGliteFlarexPersistence } from "../../src/database/pglite";
-import type { PostgresFlarexPersistence } from "../../src/database/postgres";
+import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
+import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import {
   fxSystemTransactionJournals,
   fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
-} from "../../src/database/schema";
-import type { PointMutationSessionAnchorV1 } from "../../src/execution/transactionSessionActivation";
+} from "../../../src/database/schema";
+import type { PointMutationSessionAnchorV1 } from "../../../src/execution/transactionSessionActivation";
 import type {
   PinnedPointTableV1,
   SessionJournalPointOperationV1,
   SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
-import { runSessionJournalPointOperation } from "../support/effectTestRuntime";
+} from "../../../src/execution/journal/api";
+import { runSessionJournalPointOperation } from "../../support/effectTestRuntime";
 
 /** A root CAS failure rolls back the new immutable receipt with its point effects. */
 export async function sessionJournalReceiptScenario(

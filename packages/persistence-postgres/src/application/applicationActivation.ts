@@ -3,15 +3,24 @@ import { observeExecution } from "../execution/diagnostics/operation";
 import { captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
   readAppSchemaCandidateWriteGuardPlanningHeadIdentity,
   type AppSchemaCandidateWriteGuardPlanningHead } from "../storage/catalog/appSchemaCandidateValidation";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../execution/transactionSessionActivation";
-import type { SessionJournalAttempt } from "../execution/sessionJournalStore";
-import { readOriginalFiniteExecutionAuthority, type OriginalFiniteExecutionEntry } from "../execution/sessionJournalFiniteEntry";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../execution/transactionSessionActivation";
+import type {
+  SessionJournalAttempt,
+} from "../execution/journal/contracts";
+import {
+  readOriginalFiniteExecutionAuthority,
+  type OriginalFiniteExecutionEntry,
+} from "../execution/journal/finiteEntry";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../commit/authority/postgresLoader";
 import { prepareFiniteApplicationExecutionSchema } from "../commit/authority/postgresLoader";
 import { locatePublishedAppIndexDefinitionsEffect } from "../storage/indexes/appIndexDefinitions";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../storage/unique/appUniqueConstraintCommitV1";
 import { locateApplicationRelationBindingForCommitEffect } from "./relations/binding/Repository";
-import { MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import {
+  MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
+} from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
@@ -36,7 +45,10 @@ import { readApplicationReadinessCapturePorts } from "./applicationReadiness";
 import { readApplicationReadinessPreparationProtection } from "./applicationReadiness";
 import { readApplicationReadinessControlDatabase } from "./applicationReadiness";
 import { prepareInstalledPlacementAuthority } from "../scope/scopeAuthorityControlRead";
-import { closeInstallationAdmission, type PreparedCoLocatedReadInstallation } from "../installation/installationLifecycle";
+import {
+  closeInstallationAdmission,
+  type PreparedCoLocatedReadInstallation,
+} from "../installation/installationLifecycle";
 import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, guardProtectedMetadataEpoch,
   authenticateProtectedReadinessMetadataPair,
   acquireProtectedMetadataInstallationAdmission,
@@ -45,8 +57,14 @@ import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnaps
 import { canonicalStandaloneApplicationBinding, decodeStandaloneApplicationBinding,
   type StandaloneApplicationBinding } from "./applicationStandaloneBinding";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../execution/transactionSessionAttemptKernel";
-import { readStandaloneReadSnapshot, type StandaloneReadSnapshot } from "../storage/documents/standaloneReadSnapshot";
-import { prepareApplicationActiveHeadStructure, type PreparedApplicationActiveHeadStructure } from "./applicationActiveHeadRead";
+import {
+  readStandaloneReadSnapshot,
+  type StandaloneReadSnapshot,
+} from "../storage/documents/standaloneReadSnapshot";
+import {
+  prepareApplicationActiveHeadStructure,
+  type PreparedApplicationActiveHeadStructure,
+} from "./applicationActiveHeadRead";
 import { captureHostPreparationCharge, captureHostPreparationLifetime, PreparedHostRuntimeError,
   type PreparedHostGeneration } from "../execution/preparation/preparedHostRuntime";
 import { replaceActiveIndexMaintenanceInTransactionEffect } from "../storage/indexes/indexMaintenance";
@@ -64,11 +82,19 @@ import { replaceActiveUniqueMaintenanceInTransactionEffect, readUniqueMaintenanc
 import { UniqueMaintenanceError } from "../storage/indexes/indexMaintenanceModel";
 import { readApplicationActivationUniqueRequirements, readApplicationMetadataUniqueRequirements,
   validateFiniteApplicationReadinessInTransaction } from "./applicationReadiness";
-import { readApplicationRelationActivationUniqueRequirements } from "./relations/applicationRelationReadinessFold";
-import { loadRelatedPublishedPhysicalRequirementSnapshotV1, type ReadRelatedPublishedPhysicalRequirements } from "../storage/indexes/indexBuildReconciliation";
+import {
+  readApplicationRelationActivationUniqueRequirements,
+} from "./relations/applicationRelationReadinessFold";
+import {
+  loadRelatedPublishedPhysicalRequirementSnapshotV1,
+  type ReadRelatedPublishedPhysicalRequirements,
+} from "../storage/indexes/indexBuildReconciliation";
 import { IndexMaintenanceError } from "../storage/indexes/indexMaintenanceModel";
 import { fxSystemApplicationWriteOwnership } from "./ownership/Schema";
-import { readApplicationRelationOwnershipInTransaction, readApplicationActivationRelatedPhysicalRequirements } from "./relations/applicationRelationReadinessFold";
+import {
+  readApplicationRelationOwnershipInTransaction,
+  readApplicationActivationRelatedPhysicalRequirements,
+} from "./relations/applicationRelationReadinessFold";
 import { ApplicationWriteOwnershipError } from "./ownership/Model";
 import { ApplicationWriteOwnershipHistoryBudget } from "./ownership/Policy";
 import {
@@ -142,7 +168,10 @@ import {
 import type { ApplicationSchemaAuthorityPublisher } from
   "./applicationSchemaAuthority";
 import { databaseTimestampFromUnknown } from "../database/databaseTimestamp";
-import { chargeHostPreparation, registerHostPreparationDisposal } from "../execution/preparation/preparedHostRuntime";
+import {
+  chargeHostPreparation,
+  registerHostPreparationDisposal,
+} from "../execution/preparation/preparedHostRuntime";
 import { preparePublicationDefinitions, readPublicationDefinitionPreparationPayload, disposePublicationDefinitions,
   type PreparedPublicationDefinitions } from "../commit/publication/definitionPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -171,7 +200,10 @@ import {
   fxSystemApplicationReadinessV1,
   fxSystemApplicationFunctionsV1,
 } from "../database/schema";
-import { fxSystemApplicationReadiness, fxSystemApplicationFunctions } from "./relations/applicationRelationSchema";
+import {
+  fxSystemApplicationReadiness,
+  fxSystemApplicationFunctions,
+} from "./relations/applicationRelationSchema";
 import {
   isLocatedReadCommittedAttemptTargetV1,
   LocatedReadCommittedTransactionFailureV1,

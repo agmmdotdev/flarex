@@ -970,7 +970,7 @@
             "test/storage/relations/appRelationEdges.postgres.test.ts",
             "test/execution/sessionAuthoritySchema.postgres.test.ts",
             "test/execution/transactionSessionActivation.postgres.test.ts",
-            "test/execution/sessionJournalStore.postgres.test.ts",
+            "test/execution/journal/sessionJournalStore.postgres.test.ts",
             "test/execution/storedAttemptEvidence.postgres.test.ts",
             "test/commit/pointCommitTransaction.postgres.test.ts",
             "test/commit/pointCommitFinishingTransition.postgres.test.ts",

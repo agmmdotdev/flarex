@@ -11,7 +11,7 @@ import type {
   ResolvePinnedDeveloperIndexIdV1Input,
   ResolvePinnedPointTableIdV1Error,
   ResolvePinnedPointTableIdV1Input,
-} from "../storage/documents/pinnedPointTableResolution";
+} from "../storage/documents/pinnedPointTableErrors";
 import type {
   LocatedScopeClockReader,
   TrustedScopeAuthority,

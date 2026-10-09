@@ -1,33 +1,87 @@
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+} from "../application/revision/applicationRevisionSyscallValidatorErrors";
+import {
+  sessionJournalAttemptBrand,
+  pinnedPointTableBrand,
+  pinnedDeveloperIndexBrand,
+  pinnedApplicationRelationReadBrand,
+  preparedSessionJournalSealBrand,
+} from "./journal/contracts";
+import type {
+  SessionJournalIncrementalLimitDimensionV1,
+  SessionJournalPointOperationKindV1,
+  SessionJournalIndexedQueryOperationV1,
+  SessionJournalRelationIncomingOperationV1,
+  SessionJournalPersistedPointIssueV1,
+  SessionJournalPointOperationV1,
+  SessionJournalPointSuccessV1,
+  SessionJournalSequenceIssueV1,
+  RunSessionJournalPointOperationV1Result,
+  RunSessionJournalIndexedQueryV1Result,
+  RunSessionJournalRelationIncomingV1Result,
+  SessionJournalAttempt,
+  OpenSessionJournalAttemptInput,
+  SessionJournalParticipantSelection,
+  LogicalBorrowedParticipantOperation,
+  SessionJournalStorePersistence,
+  AdmittedCompletion,
+} from "./journal/contracts";
+import {
+  InvalidSessionJournalCapabilityV1Error,
+  InvalidSessionJournalInputV1Error,
+  SessionJournalTargetUnavailableV1Error,
+  SessionJournalAttemptUnavailableV1Error,
+  SessionJournalPersistenceV1Error,
+  SessionJournalDeveloperIndexUnavailableV1Error,
+  SessionJournalStorageCorruptionV1Error,
+  SessionJournalIdentityGenerationV1Error,
+  SessionJournalLeasePromotionV1Error,
+  SessionJournalSealV1Error,
+} from "./journal/errors";
+import type {
+  SessionJournalRunPointOperationV1Error,
+  SessionJournalRunIndexedQueryV1Error,
+  SessionJournalRunApplicationRelationReadError,
+  SessionJournalPrepareSealV1Error,
+  SessionJournalCompleteSealV1Error,
+  SessionJournalStorageCorruptionReasonV1,
+} from "./journal/errors";
+import type {
+  SessionJournalAttemptStateV1,
+  PinnedPointTableStateV1,
+  PinnedDeveloperIndexStateV1,
+  PinnedApplicationRelationReadState,
+  ResolvedJournalTargetV1,
+} from "./journal/state";
+import {
+  inspectAppDeveloperIndexQueryPortV1,
+  type AppDeveloperIndexQueryPortV1,
+} from "./journal/indexQueryPort";
 import { observeExecution } from "./diagnostics/operation";
-import { captureFiniteStorageEffect, FiniteStorageCaptureError, type FiniteStorageCaptureOperation } from "./finiteStorageCapture";
+import {
+  captureFiniteStorageEffect,
+  FiniteStorageCaptureError,
+  type FiniteStorageCaptureOperation,
+} from "./finiteStorageCapture";
 import { type CapturedFiniteAttemptAnchor } from "./finiteAttemptAnchor";
-import { materializeFiniteApplicationExecutionEvidence, type materializeFiniteExecutionSchema } from "../commit/authority/materialization";
-import type { FiniteApplicationExecutionEvidence } from "../commit/authority/model";
+import { materializeFiniteApplicationExecutionEvidence } from "../commit/authority/materialization";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
-import { captureTerminalSessionSizeInTransaction, prepareTerminalControlEffect,
-  captureStoredCommitAuthorityRowsInTransaction, selectAttemptChildExistenceRows,
-  type StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../commit/authority/postgresLoader";
-import { captureStoredAttemptRows } from "./storedAttemptEvidence";
-import type { CapturedStoredAttemptRowsV1 } from "./storedAttemptEvidence";
-import type { AppSchemaCandidateWriteGuardPlanningHead } from "../storage/catalog/appSchemaCandidateValidation";
-import {
-  bytesEqualFullScan as bytesEqual,
-  encodeBytesToLowercaseHex,
-} from "@flarex/utils/bytes";
+import { type StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../commit/authority/postgresLoader";
+import type {
+  AppSchemaCandidateWriteGuardPlanningHead,
+} from "../storage/catalog/appSchemaCandidateValidation";
+import { bytesEqualFullScan as bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import {
-  isNonNegativeSafeInteger,
-  isPositiveSafeInteger,
-} from "@flarex/utils/numbers";
+import { isNonNegativeSafeInteger, isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, desc, eq, getTableColumns, inArray, ne, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
-import { Cause, Data, Effect, Exit, Option, Result, Schema, type Scope } from "effect";
+import { Cause, Effect, Exit, Option, Result, Schema } from "effect";
 import { validateApplicationWriteOwnershipForCommit } from "../application/ownership/Commit";
 import { EventEnvelope, commitEventLimits } from "../commit/events/model";
 import { ApplicationTableWriteDeniedError } from "../application/ownership/Model";
-export { ApplicationTableWriteDeniedError } from "../application/ownership/Model";
 
 import {
   AppDocumentSystemFieldV1Error,
@@ -55,9 +109,7 @@ import {
   CatalogRelationIdSchema,
   CatalogTableIdSchema,
   type CatalogEdgeDefinitionId,
-  type CatalogIndexId,
   type CatalogIndexDefinitionId,
-  type CatalogRelationId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
@@ -91,7 +143,6 @@ import {
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   SESSION_JOURNAL_FORMAT,
   SessionJournalSchema,
-  canonicalizeSessionJournalEffect,
   LogicalIndexRangeReadDependencyV1Schema,
   LogicalApplicationRelationIncomingReadDependencyV1Schema,
   MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
@@ -104,7 +155,6 @@ import {
   type CanonicalSuccessfulResultV1,
   readIssuedCanonicalSuccessfulResultV1,
   type CommitFinalSyscallSequenceV1,
-  type CommitProtocolV1LimitDimension,
   type CommitSyscallSequenceV1,
   type LogicalAppWriteV1,
   type LogicalPatchFieldV1,
@@ -121,12 +171,11 @@ import {
   type SourceContribution,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
-import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
-  "flarex-protocol/internal/application-schema-binding";
-import type { PhysicalEdgeDefinitionV1 } from
-  "flarex-protocol/internal/application-schema-binding";
-import { MAX_RELATION_MANY_ITEMS_V1 } from
-  "flarex-protocol/internal/relation-declaration-v1";
+import {
+  RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1,
+} from "flarex-protocol/internal/application-schema-binding";
+import type { PhysicalEdgeDefinitionV1 } from "flarex-protocol/internal/application-schema-binding";
+import { MAX_RELATION_MANY_ITEMS_V1 } from "flarex-protocol/internal/relation-declaration-v1";
 import {
   appIndexPhysicalSpecSha256HexV1FromBytes,
   appIndexPhysicalSpecSha256HexV1ToBytes,
@@ -160,12 +209,9 @@ import {
   MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
   SchemaManifestAppIndexDescriptorSchema,
   SchemaManifestAppTableNameSchema,
-  type CatalogSchemaVersionId,
-  type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
-  FlarexDbV1StorageGenerationSchema,
   SnapshotTokenSchema,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
@@ -205,58 +251,41 @@ import {
 import {
   readIncomingAppRelationEdgePageInTransactionEffect,
   type AppRelationEdgeIncomingPageItem,
-  type AppRelationEdgeReadError,
 } from "../storage/relations";
 import {
   ApplicationRelationReadOverlayError,
   ApplicationRelationReadUnavailableError,
   hasApplicationRelationReadPortAuthorityForPointCommit,
   mergeApplicationRelationIncomingPageResult,
-  type ApplicationRelationIncomingReadItem,
-  type ApplicationRelationReadCapability,
   type ApplicationRelationReadPort,
-  type ResolvedApplicationRelationReadCapability,
-  type ValidateApplicationRelationReadCapabilityError,
 } from "../application/relations/applicationRelationRead";
-import type {
-  ApplicationRelationRowTransition,
-  PrepareApplicationRelationCommitError,
-} from "../application/relations/applicationRelationCommit";
+import type { ApplicationRelationRowTransition } from "../application/relations/applicationRelationCommit";
 import {
-  getAppRowAtSnapshotInTransactionEffect, consumeCapturedAppRowsAtSnapshotEffect, projectAppRowPointReadResult,
+  getAppRowAtSnapshotInTransactionEffect,
+  consumeCapturedAppRowsAtSnapshotEffect,
+  projectAppRowPointReadResult,
   readLiveAppRowsAtSnapshotInTransactionEffect,
   type AppRowPointDependencyV1,
   type AppRowTransaction,
   type LiveAppRowRevisionV1,
   type AppRowReadResultV1,
-  type ReadAppRowError,
 } from "../storage/documents/appRows";
 import {
-  scanAppIndexAtSnapshotInTransactionEffect, decodeCapturedAppIndexSnapshotPageEffect,
+  scanAppIndexAtSnapshotInTransactionEffect,
+  decodeCapturedAppIndexSnapshotPageEffect,
   type AppIndexRangeEntryV1,
-  type ReadAppIndexRangeV1Error,
 } from "../storage/indexes/appIndexEntries";
-import {
-  hasAppDeveloperIndexDefinitionAuthorityForControlDbV1,
-  lowerAppDeveloperIndexKeyV1,
-  type AppDeveloperIndexDefinitionPortV1,
-  type LocateAppDeveloperIndexDefinitionsV1Error,
-} from "../storage/indexes/appDeveloperIndexCommitV1";
-import type { LocatedAppIndexDefinitionV1 } from "../storage/indexes/appIndexDefinitions";
-import type { FlarexMetadataDatabase } from "../application/deployments";
+import { lowerAppDeveloperIndexKeyV1 } from "../storage/indexes/appDeveloperIndexCommitV1";
 import { hasExactOwnDataKeys } from "../values/exactOwnDataKeys";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
   readFencedIndexBuildStateEffect,
-  type ReadFencedIndexBuildStateError,
 } from "../storage/indexes/indexBuildStates";
 import {
-  ApplicationRevisionSyscallDocumentValidationV1Error,
   validateApplicationRevisionSyscallDocumentInTransactionV1,
   validateSessionPinnedApplicationDocument,
   type ApplicationRevisionSyscallValidatorV1,
-  type ApplicationRevisionSyscallValidatorV1Error,
   type ValidateApplicationRevisionSyscallDocumentV1Input,
 } from "../application/revision/applicationRevisionSyscallValidatorV1";
 import {
@@ -266,38 +295,73 @@ import {
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
   PinnedPointTablePersistenceV1Error,
-} from "../storage/documents/pinnedPointTableResolution";
+} from "../storage/documents/pinnedPointTableErrors";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
   TrustedScopeAuthorityPortError,
   type TrustedScopeAuthority,
 } from "../scope/scopeAuthorityResolution";
 import { decodeScopeClockRecord, selectScopeClockRows } from "../scope/scopeClock";
-import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError,
-  inspectLogicalParticipantAttemptAdmission, hasLogicalParticipantAttemptAdmission,
-  issueLogicalParticipantAdmissionBundle, inspectLogicalParticipantAdmissionBundle,
+import {
+  LogicalParticipantAdmissionError,
+  LogicalParticipantInvocationError,
+} from "../storage/documents/logicalDocuments/participantErrors";
+import {
+  inspectLogicalParticipantAttemptAdmission,
+  issueLogicalParticipantAdmissionBundle,
+  inspectLogicalParticipantAdmissionBundle,
   requireLogicalParticipantAttemptAdmissionInTransactionEffect,
-  type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptReadTransaction,
-  type LogicalParticipantAdmissionBundle, type LogicalParticipantSelection } from "../storage/documents/logicalDocuments/participantAdmission";
+  type LogicalParticipantAttemptReadTransaction,
+  type LogicalParticipantAdmissionBundle,
+  type LogicalParticipantSelection,
+} from "../storage/documents/logicalDocuments/participantAdmission";
 import type { ApplicationBindingInput } from "../application/applicationActivation";
 import type { FlarexMetadataTransaction } from "../database/metadataTransaction";
 import type { ScopeClockRecord } from "../scope/scopeClock";
-import { withSharedLogicalSourceBindingChecks, inspectFiniteAttemptMetadata,
-  captureFiniteApplicationAttemptMetadata, prepareFiniteAttemptMetadataProjection, getFiniteAttemptMetadataProjection,
-  getFiniteApplicationWriteMetadataProjection, getFiniteApplicationPublicationDefinitions,
+import {
+  withSharedLogicalSourceBindingChecks,
+  inspectFiniteAttemptMetadata,
+  captureFiniteApplicationAttemptMetadata,
+  prepareFiniteAttemptMetadataProjection,
+  getFiniteAttemptMetadataProjection,
+  getFiniteApplicationWriteMetadataProjection,
+  getFiniteApplicationPublicationDefinitions,
   getFiniteApplicationDemandMetadataKeys,
-  type FiniteAttemptMetadata } from "../storage/documents/logicalDocuments/sourceAdmission";
-import { APPLICATION_EXECUTION_METADATA_OWNER, captureFiniteMetadataDependency, finiteMetadataContractKey } from "./finiteMetadataDependencies";
-import { captureFiniteMetadataReservation,
-  type CapturedFiniteMetadataReservation } from "./finiteMetadataReservation";
-import { projectLogicalDocumentJournalContribution, type LogicalJournalContributionError } from "../storage/documents/logicalDocuments/journalContribution";
-import { serializeLogicalParticipantDependencyEvidence, authenticatedGeneratedInsertionsResult, type LogicalParticipantEvidenceError } from "../storage/documents/logicalDocuments/journalEvidence";
-import { projectLogicalPointExpectation, type LogicalDocumentPointEvidence } from "../storage/documents/logicalDocuments/pointEvidence";
-import type { LogicalDocumentChanges, PendingDocument } from "../storage/documents/logicalDocuments/workingSet";
-import type { LogicalDocumentBorrowView, LogicalPendingDocumentSeed, LogicalFiniteStorageCapture } from "../storage/documents/logicalDocuments/model";
-import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
-  recordLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot, borrowClosedLogicalDocumentRoot, type LogicalDocumentRootEvaluator } from
-  "../storage/documents/logicalDocuments/rootEvaluator";
+  type FiniteAttemptMetadata,
+} from "../storage/documents/logicalDocuments/sourceAdmission";
+import {
+  APPLICATION_EXECUTION_METADATA_OWNER,
+  captureFiniteMetadataDependency,
+  finiteMetadataContractKey,
+} from "./finiteMetadataDependencies";
+import {
+  captureFiniteMetadataReservation,
+  type CapturedFiniteMetadataReservation,
+} from "./finiteMetadataReservation";
+import {
+  projectLogicalDocumentJournalContribution,
+} from "../storage/documents/logicalDocuments/journalContribution";
+import {
+  serializeLogicalParticipantDependencyEvidence,
+  authenticatedGeneratedInsertionsResult,
+} from "../storage/documents/logicalDocuments/journalEvidence";
+import {
+  projectLogicalPointExpectation,
+  type LogicalDocumentPointEvidence,
+} from "../storage/documents/logicalDocuments/pointEvidence";
+import type { PendingDocument } from "../storage/documents/logicalDocuments/workingSet";
+import type {
+  LogicalPendingDocumentSeed,
+  LogicalFiniteStorageCapture,
+} from "../storage/documents/logicalDocuments/model";
+import {
+  makeLogicalDocumentRootEvaluator,
+  attachLogicalDocumentRootEvaluator,
+  recordLogicalDocumentRootMetadataDependency,
+  takeLogicalDocumentRootSnapshot,
+  borrowClosedLogicalDocumentRoot,
+  type LogicalDocumentRootEvaluator,
+} from "../storage/documents/logicalDocuments/rootEvaluator";
 import {
   encodeAdmittedFrameworkOperationV1Result,
   MAX_ADMITTED_FRAMEWORK_OPERATION_BYTES_V1,
@@ -328,16 +392,12 @@ import {
   isLocatedExactRunningAttemptKernelV1,
   type ExactRunningAttemptKernelContextV1,
   type FiniteEntryAttemptKernelContext,
-  type LocatedExactRunningAttemptKernelV1,
 } from "./transactionSessionAttemptKernel";
 import {
   PointMutationSessionAuthorityCorruptionV1Error,
   PointMutationSessionAttemptLoadV1Error,
   captureFiniteAttemptReservationInTransaction,
-  type PointMutationExecutionProfile,
-  type PointMutationSessionAttemptLoadIssueV1,
   type PointMutationSessionAttemptSelectorV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
@@ -346,7 +406,6 @@ import {
 import {
   decodeTransactionExecutionClaimFenceV1,
   decodeTransactionExecutionClaimOwnerV1,
-  type TransactionExecutionClaimPinV1,
 } from "./claims/transactionExecutionClaimModel";
 
 const StrictStructOptions: {
@@ -356,23 +415,6 @@ const StrictStructOptions: {
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const TEXT_ENCODER = new TextEncoder();
-type SessionJournalIncrementalLimitDimensionV1 = Extract<
-  CommitProtocolV1LimitDimension,
-  | "readDocuments"
-  | "readSemanticBytes"
-  | "pointReadDependencies"
-  | "indexedQuerySyscalls"
-  | "indexRangeReadDependencies"
-  | "indexRangeDependencyEvidenceBytes"
-  | "relationReadSyscalls"
-  | "relationReadDependencies"
-  | "relationBaseOccurrences"
-  | "writeOperations"
-  | "writeSemanticBytes"
-  | "materialWriteEventEvidenceBytes"
-  | "operationCalls"
-  | "receiptEvidenceBytes"
->;
 type SessionJournalIncrementalLimitIssueV1 = Omit<
   Extract<
     SessionJournalPersistedPointIssueV1,
@@ -429,344 +471,14 @@ type IndexedQueryMergedPositionV1 =
       readonly entry: AppIndexRangeEntryV1;
     }>;
 
-export type SessionJournalPointOperationKindV1 =
-  | "get"
-  | "insert"
-  | "patch"
-  | "replace"
-  | "delete";
-
-export interface SessionJournalIndexedQueryOperationV1 {
-  readonly kind: "indexRange";
-  readonly syscallSequence: CommitSyscallSequenceV1;
-  readonly bounds: OrderedIndexBoundsV1;
-  readonly limit: number;
-}
-
-export interface SessionJournalIndexedQuerySuccessV1 {
-  readonly kind: "indexRangePage";
-  readonly documents: ReadonlyArray<CanonicalFlarexRuntimeValueV1>;
-  readonly isDone: boolean;
-}
-
-export interface SessionJournalRelationIncomingOperationV1 {
-  readonly kind: "relationIncoming";
-  readonly syscallSequence: CommitSyscallSequenceV1;
-  readonly targetDocumentId: AppDocumentIdV1;
-  readonly limit: number;
-}
-
-export interface SessionJournalRelationIncomingRequestEvidenceV1 {
-  readonly format: "flarex.session-journal-syscall";
-  readonly codecVersion: 2;
-  readonly kind: "relationIncoming";
-  readonly syscallSequence: CommitSyscallSequenceV1;
-  readonly relationId: CatalogRelationId;
-  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
-  readonly sourceTableId: CatalogTableId;
-  readonly targetTableId: CatalogTableId;
-  readonly targetRowId: AppRowIdHexV1;
-  readonly limit: number;
-}
-
-export interface SessionJournalRelationIncomingSuccessV1 {
-  readonly kind: "relationIncomingPage";
-  readonly items: ReadonlyArray<ApplicationRelationIncomingReadItem>;
-  readonly exhausted: boolean;
-}
-
-export interface SessionJournalRelationConflictV1 {
-  readonly kind: "relationConflict";
-  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
-  readonly targetRowId: AppRowIdHexV1;
-  readonly expectedAdjacencyVersion: CommitSeq;
-  readonly actualAdjacencyVersion: CommitSeq;
-  readonly snapshotCommitSeq: CommitSeq;
-}
-
-export type SessionJournalPersistedPointIssueV1 =
-  | Readonly<{
-      readonly reason: "documentNotFound";
-      readonly operation: "patch" | "replace" | "delete";
-      readonly documentId: AppDocumentIdV1;
-    }>
-  | Readonly<{
-      readonly reason: "documentIdCollision";
-      readonly documentId: AppDocumentIdV1;
-    }>
-  | Readonly<{
-      readonly reason: "invalidDocument";
-      readonly operation: "insert" | "patch" | "replace";
-    }>
-  | Readonly<{
-      readonly reason: "limitExceeded";
-      readonly dimension: SessionJournalIncrementalLimitDimensionV1;
-      readonly observed: number;
-      readonly maximum: number;
-    }>;
-
-export type SessionJournalPointOperationV1 =
-  | Readonly<{
-      readonly kind: "get";
-      readonly syscallSequence: CommitSyscallSequenceV1;
-      readonly documentId: AppDocumentIdV1;
-    }>
-  | Readonly<{
-      readonly kind: "insert";
-      readonly syscallSequence: CommitSyscallSequenceV1;
-      readonly fields: unknown;
-    }>
-  | Readonly<{
-      readonly kind: "patch";
-      readonly syscallSequence: CommitSyscallSequenceV1;
-      readonly documentId: AppDocumentIdV1;
-      readonly patch: unknown;
-    }>
-  | Readonly<{
-      readonly kind: "replace";
-      readonly syscallSequence: CommitSyscallSequenceV1;
-      readonly documentId: AppDocumentIdV1;
-      readonly fields: unknown;
-    }>
-  | Readonly<{
-      readonly kind: "delete";
-      readonly syscallSequence: CommitSyscallSequenceV1;
-      readonly documentId: AppDocumentIdV1;
-    }>;
-
-export type SessionJournalPointSuccessV1 =
-  | Readonly<{ readonly kind: "missing"; readonly document: null }>
-  | Readonly<{
-      readonly kind: "present";
-      readonly document: CanonicalFlarexRuntimeValueV1;
-    }>
-  | Readonly<{
-      readonly kind: "inserted";
-      readonly documentId: AppDocumentIdV1;
-      readonly document: CanonicalFlarexRuntimeValueV1;
-    }>
-  | Readonly<{
-      readonly kind: "unit";
-      readonly operation: "patch" | "replace" | "delete";
-    }>;
-
-export type SessionJournalSequenceIssueV1 =
-  | Readonly<{
-      readonly reason: "sequenceGap";
-      readonly actual: CommitSyscallSequenceV1;
-      readonly expectedNext: CommitSyscallSequenceV1;
-    }>
-  | Readonly<{
-      readonly reason: "staleSequence";
-      readonly actual: CommitSyscallSequenceV1;
-      readonly lastAccepted: CommitFinalSyscallSequenceV1;
-    }>
-  | Readonly<{
-      readonly reason: "requestMismatch";
-      readonly syscallSequence: CommitSyscallSequenceV1;
-    }>
-  | Readonly<{
-      readonly reason: "sequenceExhausted";
-      readonly lastAccepted: CommitFinalSyscallSequenceV1;
-    }>;
-
-export type RunSessionJournalPointOperationV1Result =
-  | Readonly<{
-      readonly kind: "completed";
-      readonly delivery: "executed" | "replayed";
-      readonly outcome: SessionJournalPointSuccessV1;
-    }>
-  | Readonly<{
-      readonly kind: "rejected";
-      readonly delivery: "executed" | "replayed" | "sticky";
-      readonly issue: SessionJournalPersistedPointIssueV1;
-    }>
-  | Readonly<{
-      readonly kind: "sequenceRejected";
-      readonly issue: SessionJournalSequenceIssueV1;
-    }>
-  | Readonly<{
-      readonly kind: "stateRejected";
-      readonly issue: Readonly<{
-        readonly reason:
-          | "journalSealed"
-          | "journalFailed"
-          | "journalRelationConflicted";
-      }>;
-    }>;
-
-export type RunSessionJournalIndexedQueryV1Result =
-  | Readonly<{
-      readonly kind: "completed";
-      readonly delivery: "executed" | "replayed";
-      readonly outcome: SessionJournalIndexedQuerySuccessV1;
-    }>
-  | Readonly<{
-      readonly kind: "rejected";
-      readonly delivery: "executed" | "replayed" | "sticky";
-      readonly issue: Extract<
-        SessionJournalPersistedPointIssueV1,
-        { readonly reason: "limitExceeded" }
-      >;
-    }>
-  | Readonly<{
-      readonly kind: "sequenceRejected";
-      readonly issue: SessionJournalSequenceIssueV1;
-    }>
-  | Readonly<{
-      readonly kind: "stateRejected";
-      readonly issue: Readonly<{
-        readonly reason:
-          | "journalSealed"
-          | "journalFailed"
-          | "journalRelationConflicted";
-      }>;
-    }>;
-
-export type RunSessionJournalRelationIncomingV1Result =
-  | Readonly<{
-      readonly kind: "completed";
-      readonly delivery: "executed" | "replayed";
-      readonly outcome: SessionJournalRelationIncomingSuccessV1;
-    }>
-  | Readonly<{
-      readonly kind: "conflicted";
-      readonly delivery: "executed" | "replayed";
-      readonly request: Readonly<
-        SessionJournalRelationIncomingRequestEvidenceV1
-      >;
-      readonly conflict: SessionJournalRelationConflictV1;
-    }>
-  | Readonly<{
-      readonly kind: "rejected";
-      readonly delivery: "executed" | "replayed" | "sticky";
-      readonly issue: Extract<
-        SessionJournalPersistedPointIssueV1,
-        { readonly reason: "limitExceeded" }
-      >;
-    }>
-  | Readonly<{
-      readonly kind: "sequenceRejected";
-      readonly issue: SessionJournalSequenceIssueV1;
-    }>
-  | Readonly<{
-      readonly kind: "stateRejected";
-      readonly issue: Readonly<{
-        readonly reason:
-          | "journalSealed"
-          | "journalFailed"
-          | "journalRelationConflicted";
-      }>;
-    }>;
-
-const sessionJournalAttemptBrand: unique symbol = Symbol(
-  "FlarexDB/SessionJournalAttempt",
-);
-
-/** Process-local proof that B2a supplied the exact attempt and schema pins. */
-export interface SessionJournalAttempt {
-  readonly [sessionJournalAttemptBrand]: true;
-}
-
-const pinnedPointTableBrand: unique symbol = Symbol(
-  "FlarexDB/PinnedPointTableV1",
-);
-
-/** Opaque C03A table identity resolved only from the pinned schema artifact. */
-export interface PinnedPointTableV1 {
-  readonly [pinnedPointTableBrand]: true;
-}
-
-const pinnedDeveloperIndexBrand: unique symbol = Symbol(
-  "FlarexDB/PinnedDeveloperIndexV1",
-);
-
-export interface PinnedDeveloperIndexV1 {
-  readonly [pinnedDeveloperIndexBrand]: true;
-}
-
-const pinnedApplicationRelationReadBrand: unique symbol = Symbol(
-  "FlarexDB/PinnedApplicationRelationRead",
-);
-
-export interface PinnedApplicationRelationRead {
-  readonly [pinnedApplicationRelationReadBrand]: true;
-}
-
-const appDeveloperIndexQueryPortBrand: unique symbol = Symbol(
-  "FlarexDB/AppDeveloperIndexQueryPortV1",
-);
-
-export interface AppDeveloperIndexQueryPortV1 {
-  readonly [appDeveloperIndexQueryPortBrand]: true;
-}
-
-interface AppDeveloperIndexQueryPortStateV1 {
-  readonly controlDb: FlarexMetadataDatabase;
-  readonly authority: PointMutationSessionAuthorityResolutionPortsV1;
-  readonly definitions: AppDeveloperIndexDefinitionPortV1;
-}
-
-const appDeveloperIndexQueryPortStatesV1 = new WeakMap<
-  AppDeveloperIndexQueryPortV1,
-  AppDeveloperIndexQueryPortStateV1
->();
-
-export function createAppDeveloperIndexQueryPortV1(
-  controlDb: FlarexMetadataDatabase,
-  authority: PointMutationSessionAuthorityResolutionPortsV1,
-  definitions: AppDeveloperIndexDefinitionPortV1,
-): AppDeveloperIndexQueryPortV1 {
-  const port = Object.freeze({
-    [appDeveloperIndexQueryPortBrand]: true as const,
-  });
-  if (hasAppDeveloperIndexDefinitionAuthorityForControlDbV1(
-    definitions,
-    controlDb,
-  )) {
-    appDeveloperIndexQueryPortStatesV1.set(port, Object.freeze({
-      controlDb,
-      authority,
-      definitions,
-    }));
-  }
-  return port;
-}
-
-const preparedSessionJournalSealBrand: unique symbol = Symbol(
-  "FlarexDB/PreparedSessionJournalSealV1",
-);
-
-export interface PreparedSessionJournalSealV1 {
-  readonly [preparedSessionJournalSealBrand]: true;
-}
-
-export interface OpenSessionJournalAttemptInput {
-  readonly selector: PointMutationSessionAttemptSelectorV1;
-  readonly snapshotToken: SnapshotToken;
-  readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly executionClaim: TransactionExecutionClaimPinV1;
-  readonly executionProfile?: PointMutationExecutionProfile;
-  readonly logicalParticipants?: readonly SessionJournalParticipantSelection[];
-}
-
-import { preparedFiniteSessionJournalEntryBrand, preparedFiniteEntries, confirmedFiniteEntries, abandonPreparedFiniteSessionJournalEntry,
-  readPreparedFiniteSessionJournalEntrySchema,
-  type PreparedFiniteSessionJournalEntry, type ConfirmedFiniteRootEntryCapture,
-  type FiniteSessionJournalParticipantSelection, type FiniteEntryFailure } from "./sessionJournalFiniteEntry";
-export { readConfirmedFiniteRootEntryCapture } from "./sessionJournalFiniteEntry";
-export type { PreparedFiniteSessionJournalEntry, ConfirmedFiniteRootEntryCapture,
-  FiniteSessionJournalParticipantSelection } from "./sessionJournalFiniteEntry";
-import { issueFrozenFiniteAttempt, type FrozenFiniteAttempt, type FrozenFiniteOperation } from "./sessionJournalFiniteFreeze";
-export { readFrozenFiniteAttempt, readFrozenFiniteCommitValues, borrowFrozenFiniteCommitValues, type FrozenFiniteCommitValidationValues } from "./sessionJournalFiniteFreeze";
-export type { FrozenFiniteAttempt, FrozenFiniteAttemptData, FrozenFiniteOperation } from "./sessionJournalFiniteFreeze";
-export type SessionJournalParticipantSelection = Readonly<{
-  participant: string;
-  operationMethods: readonly string[];
-  profileRevision: string;
-  sources: readonly Readonly<{ selection: LogicalParticipantSelection;
-    application: ApplicationBindingInput; methods: readonly string[] }>[];
-}>;
+import {
+  issuePreparedFiniteSessionJournalEntry,
+  claimConfirmedFiniteEntryAttempt,
+  abandonPreparedFiniteSessionJournalEntry,
+} from "./journal/finiteEntry";
+import { readPreparedFiniteSessionJournalEntrySchema } from "./journal/finiteEntryActivation";
+import { issueFrozenFiniteAttempt } from "./journal/freezeClosedRoot";
+import type { FrozenFiniteOperation } from "./journal/frozenAttempt";
 
 const sameParticipantSelection = (left: SessionJournalParticipantSelection,
   right: SessionJournalParticipantSelection): boolean =>
@@ -778,154 +490,6 @@ const sameParticipantSelection = (left: SessionJournalParticipantSelection,
     return other !== undefined && source.selection === other.selection && source.application === other.application &&
       source.methods.length === other.methods.length && source.methods.every((method, position) => method === other.methods[position]);
   });
-
-export interface PreparedSessionJournalSealResultV1 {
-  readonly preparation: PreparedSessionJournalSealV1;
-  readonly journal: SessionJournal;
-}
-
-export interface LogicalBorrowedParticipantOperation {
-  readonly invoke: (method: string, args: Json) => Effect.Effect<AdmittedCompletion, LogicalParticipantInvocationError>;
-  readonly abort: Effect.Effect<void>;
-  readonly currentUsage: () => Readonly<{ workBytes: number; workCalls: number }>;
-}
-type LogicalParticipantBorrowBase = Readonly<{
-  attempt: SessionJournalAttempt;
-  admissions: readonly LogicalParticipantAttemptAdmission[];
-  bundle: LogicalParticipantAdmissionBundle;
-  method: string;
-}>;
-export type LogicalParticipantBorrow = (input: LogicalParticipantBorrowBase &
-  LogicalDocumentBorrowView) => Effect.Effect<LogicalBorrowedParticipantOperation,
-    LogicalParticipantInvocationError>;
-
-export interface SessionJournalStorePersistence {
-  readonly prepareFiniteEntryEffect: (participants: readonly FiniteSessionJournalParticipantSelection[]) =>
-    Effect.Effect<PreparedFiniteSessionJournalEntry, FiniteEntryFailure, Scope.Scope>;
-  readonly confirmedFiniteEntryAttempt: (capture: ConfirmedFiniteRootEntryCapture,
-    preparation: PreparedFiniteSessionJournalEntry) => Result.Result<Readonly<{
-      attempt: SessionJournalAttempt; context: FiniteEntryAttemptKernelContext;
-      schemaManifest: Effect.Success<ReturnType<typeof materializeFiniteExecutionSchema>>["schemaManifest"];
-      stableBindings: Effect.Success<ReturnType<typeof materializeFiniteExecutionSchema>>["stableBindings"];
-      applicationEvidence: FiniteApplicationExecutionEvidence;
-      admissions: ReadonlyMap<string, LogicalParticipantAdmissionBundle>;
-      applicationSelection: import("../application/applicationActivation").ApplicationActiveSelection;
-    }>, LogicalParticipantAdmissionError>;
-  readonly openAttemptEffect: (
-    input: OpenSessionJournalAttemptInput,
-  ) => Effect.Effect<
-    SessionJournalAttempt,
-    | InvalidSessionJournalInputV1Error
-    | SessionJournalAttemptUnavailableV1Error
-    | SessionJournalPersistenceV1Error
-    | SessionJournalStorageCorruptionV1Error
-    | SessionJournalTargetUnavailableV1Error
-    | LogicalParticipantAdmissionError
-  >;
-  /** The journal owner binds a finite, ordered source set to one exact attempt. */
-  readonly admitLogicalParticipantsEffect: (
-    attempt: SessionJournalAttempt,
-    input: SessionJournalParticipantSelection,
-  ) => Effect.Effect<
-    LogicalParticipantAdmissionBundle,
-    InvalidSessionJournalCapabilityV1Error |
-      SessionJournalPersistenceV1Error |
-      SessionJournalTargetUnavailableV1Error |
-      LogicalParticipantAdmissionError
-  >;
-  readonly runAdmittedOperationEffect: (
-    attempt: SessionJournalAttempt,
-    admission: LogicalParticipantAdmissionBundle,
-    input: Readonly<{
-      syscallSequence: CommitSyscallSequenceV1;
-      requestBytes: Uint8Array;
-      requestSha256: Uint8Array;
-      participant: string;
-      method: string;
-      profileRevision: string;
-    }>,
-    borrow: LogicalParticipantBorrow,
-  ) => Effect.Effect<
-    Readonly<{ kind: "completed"; delivery: "executed" | "replayed"; result: Json }> |
-      Readonly<{ kind: "sequenceRejected"; issue: SessionJournalSequenceIssueV1 }> |
-      Readonly<{ kind: "stateRejected"; issue: Readonly<{ reason: "journalSealed" | "journalFailed" | "journalRelationConflicted" | "operationPending" }> }>,
-    InvalidSessionJournalCapabilityV1Error | SessionJournalPersistenceV1Error |
-      SessionJournalAttemptUnavailableV1Error | SessionJournalStorageCorruptionV1Error |
-      SessionJournalTargetUnavailableV1Error |
-      LogicalParticipantAdmissionError | LogicalJournalContributionError |
-      LogicalParticipantEvidenceError | LogicalParticipantInvocationError
-  >;
-  readonly resolvePointTableEffect: (
-    attempt: SessionJournalAttempt,
-    tableName: unknown,
-  ) => Effect.Effect<
-    PinnedPointTableV1,
-    SessionJournalResolvePointTableV1Error
-  >;
-  readonly runPointOperationEffect: (
-    table: PinnedPointTableV1,
-    operation: SessionJournalPointOperationV1,
-    validator: ApplicationRevisionSyscallValidatorV1,
-  ) => Effect.Effect<
-    RunSessionJournalPointOperationV1Result,
-    SessionJournalRunPointOperationV1Error
-  >;
-  readonly resolveDeveloperIndexEffect: (
-    table: PinnedPointTableV1,
-    indexDescriptor: unknown,
-  ) => Effect.Effect<
-    PinnedDeveloperIndexV1,
-    SessionJournalResolveDeveloperIndexV1Error
-  >;
-  readonly runIndexedQueryEffect: (
-    index: PinnedDeveloperIndexV1,
-    operation: SessionJournalIndexedQueryOperationV1,
-  ) => Effect.Effect<
-    RunSessionJournalIndexedQueryV1Result,
-    SessionJournalRunIndexedQueryV1Error
-  >;
-  readonly resolveApplicationRelationReadEffect: (
-    attempt: SessionJournalAttempt,
-    capability: ApplicationRelationReadCapability,
-  ) => Effect.Effect<
-    PinnedApplicationRelationRead,
-    SessionJournalResolveApplicationRelationReadError
-  >;
-  readonly runApplicationRelationIncomingReadEffect: (
-    relation: PinnedApplicationRelationRead,
-    operation: SessionJournalRelationIncomingOperationV1,
-  ) => Effect.Effect<
-    RunSessionJournalRelationIncomingV1Result,
-    SessionJournalRunApplicationRelationReadError
-  >;
-  readonly prepareSealEffect: (
-    attempt: SessionJournalAttempt,
-  ) => Effect.Effect<
-    PreparedSessionJournalSealResultV1,
-    SessionJournalPrepareSealV1Error
-  >;
-  readonly completeSealEffect: (
-    preparation: PreparedSessionJournalSealV1,
-    journal: CanonicalSessionJournal,
-    successfulResult: CanonicalSuccessfulResultV1,
-  ) => Effect.Effect<
-    StoredForSessionAttemptCommitEnvelopeV1,
-    SessionJournalCompleteSealV1Error
-  >;
-  /** Freeze one local finite graph; final acceptance remains database-owned. */
-  readonly freezeFiniteRootEffect: (
-    attempt: SessionJournalAttempt,
-    successfulResult: CanonicalSuccessfulResultV1,
-  ) => Effect.Effect<
-    FrozenFiniteAttempt,
-    SessionJournalCompleteSealV1Error
-  >;
-  /** Drop only local tentative evidence; durable terminalization stays with
-   * the outer session owner and this fence remains a busy tombstone. */
-  readonly discardFiniteRootEffect: (
-    attempt: SessionJournalAttempt,
-  ) => Effect.Effect<void, InvalidSessionJournalCapabilityV1Error>;
-}
 
 export interface SessionJournalStorePersistenceOptionsV1 {
   /** Trusted deployment configuration; never derived from request evidence. */
@@ -941,280 +505,6 @@ export interface SessionJournalStorePersistenceOptionsV1 {
       | "relationReadEvidenceWritten"
       | "relationConflictEvidenceWritten",
   ) => void | Promise<void>;
-}
-
-export class InvalidSessionJournalCapabilityV1Error extends Data.TaggedError(
-  "InvalidSessionJournalCapabilityV1Error",
-)<{
-  readonly capability:
-    | "attempt"
-    | "pointTable"
-    | "developerIndex"
-    | "applicationRelation"
-    | "sealPreparation";
-}> {}
-
-export class InvalidSessionJournalInputV1Error extends Data.TaggedError(
-  "InvalidSessionJournalInputV1Error",
-)<{
-  readonly operation:
-    | SessionJournalPointOperationKindV1
-    | "indexRange"
-    | "relationIncoming"
-    | "openAttempt"
-    | "resolvePointTable"
-    | "resolveDeveloperIndex"
-    | "resolveApplicationRelation";
-  readonly reason:
-    | "invalidAttemptPins"
-    | "invalidTableName"
-    | "invalidIndexDescriptor"
-    | "invalidOperation";
-  readonly cause?: unknown;
-}> {}
-
-export class SessionJournalTargetUnavailableV1Error extends Data.TaggedError(
-  "SessionJournalTargetUnavailableV1Error",
-)<{
-  readonly scopeId: ScopeId;
-}> {}
-
-export class SessionJournalAttemptUnavailableV1Error extends Data.TaggedError(
-  "SessionJournalAttemptUnavailableV1Error",
-)<{
-  readonly issue: PointMutationSessionAttemptLoadIssueV1;
-}> {}
-
-export class SessionJournalPersistenceV1Error extends Data.TaggedError(
-  "SessionJournalPersistenceV1Error",
-)<{
-  readonly operation:
-    | "canonicalizeRequest"
-    | "completeSealTransaction"
-    | "hashSealJournal"
-    | "openAttempt"
-    | "prepareSealSnapshot"
-    | "resolveJournalTarget"
-    | "admitLogicalParticipant"
-    | "runAdmittedOperation"
-    | "resolvePinnedPointTable"
-    | "resolveDeveloperIndex"
-    | "resolveApplicationRelation"
-    | "runPointOperation"
-    | "runIndexedQuery"
-    | "runApplicationRelationRead";
-  readonly cause: unknown;
-}> {}
-
-export type SessionJournalResolvePointTableV1Error =
-  | InvalidSessionJournalCapabilityV1Error
-  | InvalidSessionJournalInputV1Error
-  | SessionJournalAttemptUnavailableV1Error
-  | PinnedPointTableCorruptionV1Error
-  | PinnedPointTableNotFoundV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error;
-
-export type SessionJournalRunPointOperationV1Error =
-  | ApplicationTableWriteDeniedError
-  | InvalidSessionJournalCapabilityV1Error
-  | InvalidSessionJournalInputV1Error
-  | SessionJournalAttemptUnavailableV1Error
-  | SessionJournalIdentityGenerationV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error
-  | ApplicationRevisionSyscallValidatorV1Error;
-
-export class SessionJournalDeveloperIndexUnavailableV1Error
-  extends Data.TaggedError("SessionJournalDeveloperIndexUnavailableV1Error")<{
-    readonly reason:
-      | "invalidComposition"
-      | "definitionNotFound"
-      | "definitionMismatch"
-      | "buildNotEnabled";
-  }> {}
-
-export type SessionJournalResolveDeveloperIndexV1Error =
-  | InvalidSessionJournalCapabilityV1Error
-  | InvalidSessionJournalInputV1Error
-  | SessionJournalDeveloperIndexUnavailableV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalTargetUnavailableV1Error
-  | LocateAppDeveloperIndexDefinitionsV1Error;
-
-export type SessionJournalRunIndexedQueryV1Error =
-  | InvalidSessionJournalCapabilityV1Error
-  | InvalidSessionJournalInputV1Error
-  | SessionJournalAttemptUnavailableV1Error
-  | SessionJournalDeveloperIndexUnavailableV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error
-  | ReadFencedIndexBuildStateError
-  | ReadAppIndexRangeV1Error
-  | ReadAppRowError
-  | OrderedIndexKeyTooLargeError
-  | ExactDecimalError;
-
-export type SessionJournalResolveApplicationRelationReadError =
-  | InvalidSessionJournalCapabilityV1Error
-  | InvalidSessionJournalInputV1Error
-  | SessionJournalAttemptUnavailableV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error
-  | ApplicationRelationReadUnavailableError;
-
-export type SessionJournalRunApplicationRelationReadError =
-  | InvalidSessionJournalCapabilityV1Error
-  | InvalidSessionJournalInputV1Error
-  | SessionJournalAttemptUnavailableV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error
-  | ValidateApplicationRelationReadCapabilityError
-  | ApplicationRelationReadOverlayError
-  | PrepareApplicationRelationCommitError
-  | AppRelationEdgeReadError
-  | ReadAppRowError;
-
-export type SessionJournalPrepareSealV1Error =
-  | InvalidSessionJournalCapabilityV1Error
-  | SessionJournalAttemptUnavailableV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalSealV1Error
-  | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error;
-
-export type SessionJournalCompleteSealV1Error =
-  | InvalidSessionJournalCapabilityV1Error
-  | SessionJournalAttemptUnavailableV1Error
-  | SessionJournalLeasePromotionV1Error
-  | SessionJournalPersistenceV1Error
-  | SessionJournalSealV1Error
-  | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error;
-
-type SessionJournalStorageCorruptionReasonV1 =
-  | "databaseClockInvalid"
-  | "exactAttemptPinsChanged"
-  | "executionClaimInvalid"
-  | "failedJournalEvidenceInvalid"
-  | "failedJournalReceiptInvalid"
-  | "journalCountersInvalid"
-  | "journalReceiptStateMismatch"
-  | "journalRootMissingOrDuplicate"
-  | "journalRootOperationUpdateMismatch"
-  | "journalStateInvalid"
-  | "latestReceiptEvidenceInvalid"
-  | "latestReceiptMissing"
-  | "latestReceiptRequestDigestMismatch"
-  | "latestReceiptSequenceMismatch"
-  | "liveOverlayEvidenceMissing"
-  | "liveOverlaySemanticBytesMismatch"
-  | "logicalWriteEventInvalid"
-  | "materialWriteEventEvidenceBytesMismatch"
-  | "missingDependencyUnexpectedRevision"
-  | "pointDependencyChangedAtSnapshot"
-  | "pointDependencyCountMismatch"
-  | "indexRangeDependencyCountMismatch"
-  | "indexRangeDependencyEvidenceBytesMismatch"
-  | "indexRangeDependencyInvalid"
-  | "indexedSnapshotPositionMismatch"
-  | "presentDependencyRevisionMissing"
-  | "relationAdjacencyVersionInvalid"
-  | "relationDependencyCountMismatch"
-  | "relationDependencyInvalid"
-  | "relationPageFrontierInvalid"
-  | "requestTableCapabilityMismatch"
-  | "indexMaintenanceInvalid"
-  | "scopeClockMissingOrDuplicate"
-  | "sealedJournalStateInvalid"
-  | "sessionRecordInvalid"
-  | "snapshotLeaseInvalid"
-  | "tombstoneDependencyRevisionMissing"
-  | "writeOperationCountMismatch"
-  | "writeSemanticBytesMismatch"
-  | "writeSequenceBeyondJournalFinalSequence"
-  | "zeroSequenceHasReceipt";
-
-export class SessionJournalStorageCorruptionV1Error extends Data.TaggedError(
-  "SessionJournalStorageCorruptionV1Error",
-)<{
-  readonly scopeId: ScopeId;
-  readonly reason: SessionJournalStorageCorruptionReasonV1;
-  readonly cause?: unknown;
-}> {}
-
-export class SessionJournalIdentityGenerationV1Error extends Data.TaggedError(
-  "SessionJournalIdentityGenerationV1Error",
-)<{
-  readonly generatedValue: unknown;
-}> {}
-
-export type SessionJournalLeasePromotionV1Issue =
-  | Readonly<{
-      readonly kind: "retentionPolicyInvalid";
-      readonly maximumLiveSnapshotRetentionMilliseconds: number;
-    }>
-  | Readonly<{
-      readonly kind: "retentionBudgetExceeded";
-      readonly remainingMilliseconds: number;
-      readonly maximumLiveSnapshotRetentionMilliseconds: number;
-    }>;
-
-export class SessionJournalLeasePromotionV1Error extends Data.TaggedError(
-  "SessionJournalLeasePromotionV1Error",
-)<{
-  readonly issue: SessionJournalLeasePromotionV1Issue;
-}> {}
-
-export class SessionJournalSealV1Error extends Data.TaggedError(
-  "SessionJournalSealV1Error",
-)<{
-  readonly reason:
-    | "journalFailed"
-    | "journalRelationConflicted"
-    | "stalePreparation"
-    | "canonicalJournalMismatch"
-    | "canonicalResultMismatch"
-    | "sealedEvidenceMismatch";
-  readonly cause?: unknown;
-}> {}
-
-export {
-  PinnedPointTableCorruptionV1Error,
-  PinnedPointTableNotFoundV1Error,
-};
-
-export interface SessionJournalAttemptStateV1 {
-  readonly selector: PointMutationSessionAttemptSelectorV1;
-  readonly snapshotToken: SnapshotToken;
-  readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly executionClaim: TransactionExecutionClaimPinV1;
-  readonly executionProfile: PointMutationExecutionProfile;
-}
-
-interface PinnedPointTableStateV1 {
-  readonly attempt: SessionJournalAttemptStateV1;
-  readonly tableName: SchemaManifestAppTableName;
-  readonly tableId: CatalogTableId;
-}
-
-interface PinnedDeveloperIndexStateV1 {
-  readonly attempt: SessionJournalAttemptStateV1;
-  readonly tableId: CatalogTableId;
-  readonly tableName: SchemaManifestAppTableName;
-  readonly logicalIndexId: CatalogIndexId;
-  readonly definition: LocatedAppIndexDefinitionV1;
-}
-
-interface PinnedApplicationRelationReadState {
-  readonly attempt: SessionJournalAttemptStateV1;
-  readonly capability: ApplicationRelationReadCapability;
-  readonly resolved: ResolvedApplicationRelationReadCapability;
 }
 
 interface PreparedSessionJournalSealStateV1 {
@@ -1506,7 +796,7 @@ type FiniteRootRecord = FiniteRootAdmittedRecord | FiniteRootPointRecord |
   FiniteRootIndexRecord | FiniteRootRelationRecord;
 
 interface FiniteRootAttemptData {
-  originalEntry?: import("./sessionJournalFiniteEntry").OriginalFiniteExecutionEntry;
+  originalEntry?: import("./journal/finiteEntry").OriginalFiniteExecutionEntry;
   readonly handle: SessionJournalAttempt;
   readonly resolvedTarget: ResolvedJournalTargetV1;
   initialContext: FiniteEntryAttemptKernelContext;
@@ -2004,14 +1294,6 @@ const persistAdmittedInvocationMarkerInTransactionEffect = Effect.fn(
   }
 });
 
-export type AdmittedCompletion = Readonly<{
-  result: Json;
-  changes: LogicalDocumentChanges;
-  eventIntents: readonly Readonly<{ sourceKey: string | null; intent: Json }>[];
-  workBytes: number;
-  workCalls: number;
-}>;
-
 const prepareAdmittedContributionsEffect = Effect.fn(
   "SessionJournalStore.prepareAdmittedContributions",
 )(function* (
@@ -2330,7 +1612,7 @@ export function createSessionJournalStorePersistence(
   const faultAfter = options.faultAfter;
   const indexedQueryPortState = indexedQueryPort === undefined
     ? undefined
-    : appDeveloperIndexQueryPortStatesV1.get(indexedQueryPort);
+    : inspectAppDeveloperIndexQueryPortV1(indexedQueryPort);
   const applicationRelationCompositionIsExact =
     applicationRelationPort !== undefined &&
     hasApplicationRelationReadPortAuthorityForPointCommit(
@@ -2408,7 +1690,6 @@ export function createSessionJournalStorePersistence(
         }))),
       }));
       const handle = createAttemptHandle();
-      const preparation = Object.freeze({ [preparedFiniteSessionJournalEntryBrand]: true as const });
       // Check capacity, reserve and register cleanup in one synchronous acquisition. Catalog or
       // retirement SQL above and all accepting SQL remain interruptible.
       return yield* Effect.acquireRelease(Effect.suspend(() => {
@@ -2417,8 +1698,8 @@ export function createSessionJournalStorePersistence(
         reservedFiniteEntries += 1;
         let reserved = true;
         const release = () => { if (reserved) { reserved = false; reservedFiniteEntries -= 1; } };
-        preparedFiniteEntries.set(preparation, {
-          issuer: ports, handle, status: "prepared", release,
+        const preparation = issuePreparedFiniteSessionJournalEntry({
+          issuer: ports, attempt: handle, release,
           run: (tx, context, resolved, application, binding, control, canonicalExecutionAuthority, verifyFinalRows, observation) => withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
             const state = yield* Effect.fromResult(captureAttemptStateResult({ selector: context.anchor,
               snapshotToken: context.anchor.snapshotToken, schemaVersionId: context.executionPin.schemaVersionId,
@@ -2496,14 +1777,8 @@ export function createSessionJournalStorePersistence(
         return Effect.succeed(preparation);
       }), entry => Effect.sync(() => abandonPreparedFiniteSessionJournalEntry(entry)));
     });
-  const confirmedFiniteEntryAttempt: SessionJournalStorePersistence["confirmedFiniteEntryAttempt"] = (capture, preparation) => {
-    const state = confirmedFiniteEntries.get(capture);
-    return state?.issuer === ports && state.preparation === preparation && preparedFiniteEntries.get(preparation)?.status === "confirmed"
-      ? Result.succeed(Object.freeze({ attempt: state.attempt, context: structuredClone(state.context), admissions: new Map(state.admissions),
-        applicationSelection: state.applicationSelection, schemaManifest: structuredClone(state.schemaManifest),
-        stableBindings: structuredClone(state.stableBindings), applicationEvidence: structuredClone(state.applicationEvidence) }))
-      : Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-  };
+  const confirmedFiniteEntryAttempt: SessionJournalStorePersistence["confirmedFiniteEntryAttempt"] =
+    (capture, preparation) => claimConfirmedFiniteEntryAttempt(capture, preparation, ports);
 
   const openAttemptEffect: SessionJournalStorePersistence[
     "openAttemptEffect"
@@ -3623,11 +2898,6 @@ function mapExactRunningAttemptCompleteSealFailure(
     operation: "completeSealTransaction",
     cause: failure,
   });
-}
-
-export interface ResolvedJournalTargetV1 {
-  readonly target: LocatedExactRunningAttemptKernelV1;
-  readonly authority: TrustedScopeAuthority;
 }
 
 function mapExactAdmissionFailure(

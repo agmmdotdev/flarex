@@ -14,10 +14,15 @@ import { fxAppRowRevisions, fxSystemCommits, fxSystemSnapshotLeases, fxSystemTra
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { PointCommitConflictV1Error } from
   "../../persistence-postgres/src/commit/pointCommitTransaction";
-import { PointMutationAttemptReplacementFiniteEntryError } from "../../persistence-postgres/src/commit/pointCommitTransaction";
-import { ApplicationMutationAdmissionError } from "../../persistence-postgres/src/application/applicationMutationAdmission";
-import { PointMutationJournalAdmittedOperationRejectedV1Error } from
-  "../../executor/src/mutation/journal/pointMutationJournal";
+import {
+  PointMutationAttemptReplacementFiniteEntryError,
+} from "../../persistence-postgres/src/commit/pointCommitTransaction";
+import {
+  ApplicationMutationAdmissionError,
+} from "../../persistence-postgres/src/application/applicationMutationAdmission";
+import {
+  PointMutationJournalAdmittedOperationRejectedV1Error,
+} from "../../executor/src/mutation/journal/errors";
 import { admittedCommerceEventGroup } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";

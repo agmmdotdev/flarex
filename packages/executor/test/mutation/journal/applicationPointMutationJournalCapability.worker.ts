@@ -3,11 +3,13 @@ import { decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type {
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
-} from "@flarex/persistence-postgres/session-journal-store";
-import { ApplicationTableWriteDeniedError } from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
+import {
+  ApplicationTableWriteDeniedError,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
-} from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
 import {
   makeApplicationPointMutationJournalCapabilitySessionV1,
 } from "@flarex/executor/internal/application-point-mutation-journal-capability";

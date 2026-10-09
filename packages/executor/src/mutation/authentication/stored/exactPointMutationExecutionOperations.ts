@@ -38,10 +38,10 @@ import type {
 import type {
   PointMutationJournalAttemptV1,
   PointMutationJournalBoundaryV1Error,
-  PointMutationJournalRelationConflictError,
   PointMutationJournalTableV1,
   PointMutationJournalV1,
 } from "../../journal/pointMutationJournal";
+import type { PointMutationJournalRelationConflictError } from "../../journal/errors";
 import type {
   PointMutationAdmittedFrameworkOperationV1Error,
   PointMutationJournalResultRejectedV1Error,

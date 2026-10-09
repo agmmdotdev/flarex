@@ -1,9 +1,11 @@
-import { withExecutionDiagnosticDefaults } from "@flarex/persistence-postgres/internal/execution-diagnostics";
+import {
+  withExecutionDiagnosticDefaults,
+} from "@flarex/persistence-postgres/internal/execution-diagnostics";
 import { Cause, Data, Duration, Effect, Exit, Random, type Result } from "effect";
 import {
   borrowFrozenFiniteCommitValues,
   type FrozenFiniteAttempt,
-} from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
 import type {
   PointFiniteCommitCommand,
   PointFiniteCommitPublisherPort,
@@ -20,8 +22,13 @@ import type {
 import { PointCommitConflictV1Error, PointCommitDecisionUncertainV1Error, PointMutationAttemptReplacementCommittedOutcomeV1Error,
   isPointFiniteReplacementTerminalRefusal } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { FiniteAttemptNonacceptanceProof } from "@flarex/persistence-postgres/finite-attempt-anchor";
-import type { PointMutationSessionAttemptTerminalizationPersistenceV1, PointMutationExecutionClaimAcquisitionV1 } from "@flarex/persistence-postgres/transaction-session-activation";
-import { PointMutationExecutionClaimAcquisitionInputV1Error } from "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PointMutationSessionAttemptTerminalizationPersistenceV1,
+  PointMutationExecutionClaimAcquisitionV1,
+} from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  PointMutationExecutionClaimAcquisitionInputV1Error,
+} from "@flarex/persistence-postgres/transaction-session-activation";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { isJsonObject } from "flarex-protocol/json";
 import { normalizeFlarexValueJsonV1 } from "flarex-protocol/value";
@@ -31,21 +38,54 @@ import { activateConfirmedFiniteReplacement, activateConfirmedFiniteRecoveryRepl
 import type { PreparedFiniteApplicationMutationSessionActivation, PointMutationSessionActivationResultV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";
 import { getActivatedPointMutationSessionStateV1 } from "../session/pointMutationSessionActivationState";
-import type { PointMutationExecutionClaimVaultV1, InvalidPointMutationExecutionClaimV1Error } from "../claims/pointMutationExecutionClaim";
-import { validatePointMutationExecutionLivenessConfigurationV1Result, type PointMutationExecutionLivenessV1Error } from "../claims/pointMutationExecutionClaimLiveness";
+import type {
+  PointMutationExecutionClaimVaultV1,
+  InvalidPointMutationExecutionClaimV1Error,
+} from "../claims/pointMutationExecutionClaim";
+import {
+  validatePointMutationExecutionLivenessConfigurationV1Result,
+  type PointMutationExecutionLivenessV1Error,
+} from "../claims/pointMutationExecutionClaimLiveness";
 import { superviseExecutionClaimWork } from "../claims/pointMutationExecutionClaimSupervision";
-import type { PointMutationExecutionClaimLivenessV1 } from "@flarex/persistence-postgres/transaction-execution-claim-liveness";
-import type { PointMutationJournalAttemptV1, PointMutationJournalV1, PointMutationJournalBoundaryV1Error } from "../journal/pointMutationJournal";
+import type {
+  PointMutationExecutionClaimLivenessV1,
+} from "@flarex/persistence-postgres/transaction-execution-claim-liveness";
+import type {
+  PointMutationJournalAttemptV1,
+  PointMutationJournalV1,
+  PointMutationJournalBoundaryV1Error,
+} from "../journal/pointMutationJournal";
 import type { PointMutationOccExecutionContextFactoryV1, PointMutationOccRuntimeNeutralRunnerInputV1,
   PointMutationOccRuntimeNeutralRunnerV1 } from "../authentication/storedAttemptAuthentication";
-import { bindPointMutationOccJournal, capturePointMutationOccExecutionContext, capturePointMutationOccBaseExecutionContext, bindPointMutationOccExecutionContext } from "../authentication/stored/exactPointMutationExecutionOperations";
-import { captureInitialVerificationState, inspectActivatedInitialState } from "../authentication/stored/initialPointMutationExecutionOperations";
-import { captureCommitInputAuthorityPins, verifyFiniteCommitValuesEffect } from "../authentication/stored/commitInputVerification";
-import { capturePointCommitAuthorityPins, capturePointCommitSessionScalars } from "../authentication/stored/pointCommitRuntimeModel";
+import {
+  bindPointMutationOccJournal,
+  capturePointMutationOccExecutionContext,
+  capturePointMutationOccBaseExecutionContext,
+  bindPointMutationOccExecutionContext,
+} from "../authentication/stored/exactPointMutationExecutionOperations";
+import {
+  captureInitialVerificationState,
+  inspectActivatedInitialState,
+} from "../authentication/stored/initialPointMutationExecutionOperations";
+import {
+  captureCommitInputAuthorityPins,
+  verifyFiniteCommitValuesEffect,
+} from "../authentication/stored/commitInputVerification";
+import {
+  capturePointCommitAuthorityPins,
+  capturePointCommitSessionScalars,
+} from "../authentication/stored/pointCommitRuntimeModel";
 import { captureFiniteRecoveryEvidence } from "../recovery/finitePointMutationRecovery";
-import { applicationGrantPinsResult, sameStoredApplicationGrantEvidence } from "../authentication/stored/commitAuthorityVerification";
-import type { ApplicationMutationGrantVerificationKernelV1 } from "../authentication/applicationMutationGrantVerificationKernel";
-import { decodePointMutationSessionAttemptSelectorV1Result } from "../session/pointMutationSessionAttemptSelector";
+import {
+  applicationGrantPinsResult,
+  sameStoredApplicationGrantEvidence,
+} from "../authentication/stored/commitAuthorityVerification";
+import type {
+  ApplicationMutationGrantVerificationKernelV1,
+} from "../authentication/applicationMutationGrantVerificationKernel";
+import {
+  decodePointMutationSessionAttemptSelectorV1Result,
+} from "../session/pointMutationSessionAttemptSelector";
 import { publishPointCommitWithKnownSettledSqlRetry, PointCommitKnownSettledSqlRetryExhaustedV1Error,
   readPointCommitSqlRetryTerminalRefusal } from "../authentication/stored/finishingOperations";
 

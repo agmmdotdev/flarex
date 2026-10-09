@@ -1,48 +1,155 @@
 import { observeExecution } from "../execution/diagnostics/operation";
 import { projectLogicalPointExpectation } from "../storage/documents/logicalDocuments/pointEvidence";
 import { indexApplicationDocumentRowIntents } from "../storage/materialization/settlementPlan";
-import { prepareApplicationDocumentSettlementFromOriginalsEffect } from "../storage/materialization/settlementPlan";
-import { acceptApplicationPublication,readAcceptedApplicationPublication,type AcceptedApplicationPublication } from "../storage/materialization/publicationAcceptance";
-import { materializeAcceptedApplicationPublicationRows,captureOriginalApplicationPublicationBuildLocks } from "../storage/materialization/materialization";
+import {
+  prepareApplicationDocumentSettlementFromOriginalsEffect,
+} from "../storage/materialization/settlementPlan";
+import {
+  acceptApplicationPublication,
+  readAcceptedApplicationPublication,
+  type AcceptedApplicationPublication,
+} from "../storage/materialization/publicationAcceptance";
+import {
+  materializeAcceptedApplicationPublicationRows,
+  captureOriginalApplicationPublicationBuildLocks,
+} from "../storage/materialization/materialization";
 import { closeExactAttemptScopeClockObservation, openExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect, lockScopeExecutionAuthorityInTransactionEffect,
   selectScopeClockRows, ScopeAuthorizationRevocationEpochPersistenceError } from "../scope/scopeClock";
 import { openProtectedMetadataFinalGuardScope, closeProtectedMetadataFinalGuardScope,
   flushProtectedMetadataFinalGuards, prepareProtectedMetadataFinalGuardBatch, acceptProtectedMetadataFinalGuardBatch } from "../execution/preparation/preparedMetadataEpoch";
-import type { AppSchemaCandidateWriteGuardPlanningHead } from "../storage/catalog/appSchemaCandidateValidation";
-import { ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION, RUN_INSTALLED_ACCEPTING_READ_COMMITTED, isInstalledAttemptScopeAuthorityTarget } from "../scope/scopeAuthorityControlRead";
+import type {
+  AppSchemaCandidateWriteGuardPlanningHead,
+} from "../storage/catalog/appSchemaCandidateValidation";
+import {
+  ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION,
+  RUN_INSTALLED_ACCEPTING_READ_COMMITTED,
+  isInstalledAttemptScopeAuthorityTarget,
+} from "../scope/scopeAuthorityControlRead";
 import { sqlCall, pointCommitSqlCallFailure } from "./pointCommitErrors";
-import { PointCommitPublicationObservation, observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "./pointCommitPublicationObservation";
-import { prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, type AppUniqueConstraintSetPreparation } from "../storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  PointCommitPublicationObservation,
+  observePointCommitPublicationEffect,
+  observePointCommitPublicationPromise,
+} from "./pointCommitPublicationObservation";
+import {
+  prepareAppUniqueConstraintSet,
+  acceptPreparedAppUniqueConstraintSet,
+  type AppUniqueConstraintSetPreparation,
+} from "../storage/unique/appUniqueConstraintSetBuildV1";
 import { hasApplicationDocumentOrderedIndexComposition } from "../storage/materialization/indexComposition";
 import { MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "../storage/materialization/materialization";
-import { prepareApplicationDocumentSettlementEffect, preparedApplicationDocumentSettlementHasFailure } from "../storage/materialization/materialization";
+import {
+  prepareApplicationDocumentSettlementEffect,
+  preparedApplicationDocumentSettlementHasFailure,
+} from "../storage/materialization/materialization";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "./authority/postgresLoader";
-import { runPointCommitInTransactionEffect, projectPointCommitTransactionResult, runPointCommitPromiseEffect } from "./pointCommitPromiseBoundary";
+import {
+  runPointCommitInTransactionEffect,
+  projectPointCommitTransactionResult,
+  runPointCommitPromiseEffect,
+} from "./pointCommitPromiseBoundary";
 import { captureExecutionDiagnosticContext } from "../execution/diagnostics/operation";
 import { selectPreparedPublicationDefinitions } from "./publication/definitionPreparation";
 import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock,
   requireScopePublicationStrongReferences, reproveScopePublicationPrefix } from "./publication/pointCommitProjection";
-import { scopePublicationClockAdvanceSource, requirePointCommitClockPublicationResult } from "./publication/publication";
-import { scopePublicationMetadataChanged, scopePublicationProcedureFailure } from "./publication/prefixProjection";
+import {
+  scopePublicationClockAdvanceSource,
+  requirePointCommitClockPublicationResult,
+} from "./publication/publication";
+import {
+  scopePublicationMetadataChanged,
+  scopePublicationProcedureFailure,
+} from "./publication/prefixProjection";
 import { runDrizzleStatementEffect } from "../database/drizzleStatementEffect";
-import { PointCommitDependencyV1, PointCommitRowIntentV1, PreparedLivePointCommitRowIntentV1, PreparedPointCommitRowIntentV1, PreparedPointCommitCandidateSchemaWriteGuard, PreparedPointCommitApplicationRelations, LocatedPreparedPointCommitApplicationRelations, LoadedPointCommitHeadV1, type ApplicationDocumentMaterializationCommand } from "../storage/materialization/model";
-import { hasApplicationRelationCommitAuthorityForPointCommit, prepareApplicationRelationDefinitionsFromLocatedBindingResult } from "../application/relations/applicationRelationCommit";
+import {
+  PointCommitDependencyV1,
+  PointCommitRowIntentV1,
+  PreparedLivePointCommitRowIntentV1,
+  PreparedPointCommitRowIntentV1,
+  PreparedPointCommitCandidateSchemaWriteGuard,
+  PreparedPointCommitApplicationRelations,
+  LocatedPreparedPointCommitApplicationRelations,
+  LoadedPointCommitHeadV1,
+  type ApplicationDocumentMaterializationCommand,
+} from "../storage/materialization/model";
+import {
+  hasApplicationRelationCommitAuthorityForPointCommit,
+  prepareApplicationRelationDefinitionsFromLocatedBindingResult,
+} from "../application/relations/applicationRelationCommit";
 import { hasAppSchemaCandidateWriteGuardComposition, prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect, captureAppSchemaCandidateWriteGuardLockedHead,
   AppSchemaCandidateWriteGuardError } from "../storage/catalog/appSchemaCandidateValidation";
-import { PointCommitConflictV1Error, AppDocumentInsertionConflictError, PointCommitConflictEvidenceV1, PointCommitStaleAuthorityV1Error, PointCommitStaleAuthorityReasonV1, PointCommitCorruptionV1Error, PointCommitCorruptionReasonV1, PointCommitSqlFailureMarkerV1, PointCommitSqlOperationV1, PointCommitSqlErrorV1, mapTransactionFailure, PointCommitRollbackProofV1Error, corruption, sqlError, findSqlState } from "./pointCommitErrors";
+import {
+  PointCommitConflictV1Error,
+  AppDocumentInsertionConflictError,
+  PointCommitConflictEvidenceV1,
+  PointCommitStaleAuthorityV1Error,
+  PointCommitStaleAuthorityReasonV1,
+  PointCommitCorruptionV1Error,
+  PointCommitCorruptionReasonV1,
+  PointCommitSqlFailureMarkerV1,
+  PointCommitSqlOperationV1,
+  PointCommitSqlErrorV1,
+  mapTransactionFailure,
+  PointCommitRollbackProofV1Error,
+  corruption,
+  sqlError,
+  findSqlState,
+} from "./pointCommitErrors";
 import type { PointCommitConflictCauseV1 } from "./pointCommitErrors";
 import { runEffectTransactionSettlement } from "../database/effectTransaction";
-import { invalidateAcceptedApplicationBindingInTransaction, type AcceptedApplicationBinding, type PreparedFiniteActiveApplication } from "../application/applicationActivation";
-import { confirmPreparedFiniteSessionJournalEntry, runPreparedFiniteReplacementSessionJournalEntryEffect,
-  readOriginalFiniteExecutionAuthority, projectOriginalFinitePublicationSession,
-  type PreparedFiniteSessionJournalEntry, type ConfirmedFiniteRootEntryCapture,
-  type runPreparedFiniteSessionJournalEntryEffect } from "../execution/sessionJournalFiniteEntry";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+  type AcceptedApplicationBinding,
+  type PreparedFiniteActiveApplication,
+} from "../application/applicationActivation";
+import {
+  confirmPreparedFiniteSessionJournalEntry,
+  readOriginalFiniteExecutionAuthority,
+  type PreparedFiniteSessionJournalEntry,
+  type ConfirmedFiniteRootEntryCapture,
+} from "../execution/journal/finiteEntry";
+import {
+  runPreparedFiniteReplacementSessionJournalEntryEffect,
+  type runPreparedFiniteSessionJournalEntryEffect,
+} from "../execution/journal/finiteEntryActivation";
+import {
+  projectOriginalFinitePublicationSession,
+} from "../execution/journal/finiteEntryPublication";
 import type { ScopeClockRow } from "../scope/scopeClock";
-import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, runCandidateSchemaWriteGuard, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidations } from "../storage/materialization/materialization";
+import {
+  prepareIntrinsicIndexDefinitions,
+  prepareDeveloperIndexDefinitions,
+  prepareUniqueConstraintDefinitions,
+  validateApplicationUniqueTransitionBudget,
+  prepareCandidateSchemaWriteGuard,
+  prepareApplicationRelationDefinitions,
+  lockPointCommitIntrinsicIndexBuilds,
+  lockPointCommitDeveloperIndexBuilds,
+  loadPointCommitHeads,
+  loadApplicationDocumentPriorState,
+  hasOwn,
+  parseNonNegativeIntegerTextResult,
+  parseNullableCommitSeqTextResult,
+  decodePointCommitSeqResult,
+  decodePointCommitCreationTimeResult,
+  validatePointCommitDependenciesResult,
+  findPointCommitConflictAfterEvidenceValidationResult,
+  runCandidateSchemaWriteGuard,
+  pointDependenciesEqual,
+  emitTransactionStep,
+  maintainPointCommitApplicationRelationsEffect,
+  resetPointCommitDeveloperIndexValidations,
+} from "../storage/materialization/materialization";
 
 import { type ScopePublicationContribution } from "./publication/scopePublicationModel";
 
-import { bytesEqualFullScan as bytesEqual, copyBytes, encodeBytesToLowercaseHex, isUint8Array, isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  copyBytes,
+  encodeBytesToLowercaseHex,
+  isUint8Array,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isNonNegativeSafeInteger, isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
@@ -50,12 +157,28 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Encoding, Exit, Result, Schema } from "effect";
 import { ApplicationMutationAdmissionError } from "../application/applicationMutationAdmission";
 import { validateApplicationWriteOwnershipForCommit } from "../application/ownership/Commit";
-import { LogicalParticipantAdmissionError, hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthoritySource, inspectLogicalParticipantCommitMetadataProjection, requireLogicalParticipantCommitAuthorityEffect, withLogicalParticipantCommitApplicationBindingInTransaction, requireFiniteLogicalParticipantCommitAuthorityEffect, type LogicalParticipantCommitAuthority } from "../storage/documents/logicalDocuments/participantAdmission";
+import {
+  hasLogicalParticipantCommitAuthority,
+  inspectLogicalParticipantCommitAuthority,
+  inspectLogicalParticipantCommitAuthoritySource,
+  inspectLogicalParticipantCommitMetadataProjection,
+  requireLogicalParticipantCommitAuthorityEffect,
+  withLogicalParticipantCommitApplicationBindingInTransaction,
+  requireFiniteLogicalParticipantCommitAuthorityEffect,
+  type LogicalParticipantCommitAuthority,
+} from "../storage/documents/logicalDocuments/participantAdmission";
+import { LogicalParticipantAdmissionError } from "../storage/documents/logicalDocuments/participantErrors";
 import { withSharedLogicalSourceBindingChecks } from "../storage/documents/logicalDocuments/sourceAdmission";
 import { inspectLogicalParticipantAdmissionBundle, inspectFiniteOperationCommitAuthority,
   prepareFiniteOperationCommitObservation }
   from "../storage/documents/logicalDocuments/participantAdmission";
-import { readOwnedFrozenFiniteAttempt, readFrozenFiniteAttemptOrigin, type FrozenFiniteAttempt, type OwnedFrozenFiniteAttemptData, type FrozenFiniteOperation } from "../execution/sessionJournalFiniteFreeze";
+import {
+  readOwnedFrozenFiniteAttempt,
+  readFrozenFiniteAttemptOrigin,
+  type FrozenFiniteAttempt,
+  type OwnedFrozenFiniteAttemptData,
+  type FrozenFiniteOperation,
+} from "../execution/journal/frozenAttempt";
 import { lockFiniteAttemptAnchorRowByIdentityInTransaction, readFiniteAttemptAnchorRow,
   lendComparedFinitePublicationAnchor,
   requireFiniteAttemptIsLive, FiniteAttemptAnchorError,
@@ -65,68 +188,305 @@ import { lockFiniteAttemptAnchorRowByIdentityInTransaction, readFiniteAttemptAnc
   MAX_FINITE_ATTEMPT_COUNT,
   type FiniteAttemptNonacceptanceProof, type PendingFiniteAttemptNonacceptance } from "../execution/finiteAttemptAnchor";
 import { validateLogicalDocumentChanges } from "../storage/documents/logicalDocuments/contribution";
-import { validateLogicalParticipantDependencyEvidence } from "../storage/documents/logicalDocuments/commitEvidence";
-import { decodeLogicalParticipantDependencyEvidence, authenticatedGeneratedInsertionsResult } from "../storage/documents/logicalDocuments/journalEvidence";
+import {
+  validateLogicalParticipantDependencyEvidence,
+} from "../storage/documents/logicalDocuments/commitEvidence";
+import {
+  decodeLogicalParticipantDependencyEvidence,
+  authenticatedGeneratedInsertionsResult,
+} from "../storage/documents/logicalDocuments/journalEvidence";
 import { validateConsumedMetadataDependencies, captureFiniteMetadataDependency, finiteMetadataTableKey,
   finiteMetadataContractKey, prepareConsumedFiniteMetadataComparison,
   prepareFiniteTableWriteClosureComparison, acceptFiniteTableWriteClosureComparison, acceptFiniteMetadataComparisonVerdict } from "../execution/finiteMetadataDependencies";
-import { readStoredFiniteMetadataReservation, type FiniteMetadataReservation } from "../execution/finiteMetadataReservation";
+import {
+  readStoredFiniteMetadataReservation,
+  type FiniteMetadataReservation,
+} from "../execution/finiteMetadataReservation";
 import { FiniteMetadataConflictSchema, LogicalMetadataReadDependencySchema, logicalMetadataDependencyIdentity,
   type LogicalMetadataReadDependency } from "flarex-protocol/commit-protocol";
-import { LogicalSearchMaintenanceError, type LogicalSearchDefinition } from "../storage/documents/logicalDocuments/searchEntries";
+import {
+  LogicalSearchMaintenanceError,
+  type LogicalSearchDefinition,
+} from "../storage/documents/logicalDocuments/searchEntries";
 import { admittedCommerceEventGroup, validateAdmittedCommerceEventIntents, validateAdmittedOperationEventIntents,
   type ParticipantEventSelection, prepareAtomicCommerceEvents } from "../frameworks/atomicCommerce/events";
 import { EventEnvelope, type CommittedEvent } from "./events/model";
 import { commitEventsDigest } from "./events/digest";
-import { finitePublicationAnchorQuery, observeFinitePublicationMetadata } from "./finitePublicationObservation";
-import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../installation/installationLifecycle";
+import {
+  finitePublicationAnchorQuery,
+  observeFinitePublicationMetadata,
+} from "./finitePublicationObservation";
+import {
+  lockInstallationForCurrentTransaction,
+  closeInstallationAdmission,
+} from "../installation/installationLifecycle";
 
 import { type AppCreationTimeV1 } from "flarex-protocol/app-document";
-import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from "flarex-protocol/internal/application-schema-binding";
-import { AppRowIdHexV1Schema, appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result, type AppRowIdHexV1, type AppDocumentIdV1 } from "flarex-protocol/app-document-id";
-import { CatalogEdgeDefinitionIdSchema, type CatalogIndexDefinitionId, type CatalogUniqueConstraintDefinitionId, type CatalogEdgeDefinitionId, CatalogRelationIdSchema, type CatalogRelationId, CatalogIndexDefinitionIdSchema, CatalogTableIdSchema, type CatalogTableId } from "flarex-protocol/catalog";
-import { CanonicalSuccessfulResultBytesV1Schema, CanonicalSessionJournalBytesSchema, decodeCanonicalSessionJournalEffect, CommitSyscallSequenceV1Schema, LogicalApplicationRelationIncomingReadDependencyV1Schema, LogicalIndexRangeReadDependencyV1Schema, MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1, MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1, MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1, MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1, MAX_COMMIT_READ_DOCUMENTS_V1, MAX_COMMIT_READ_SEMANTIC_BYTES_V1, MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1, MAX_COMMIT_RELATION_READ_SYSCALLS_V1, MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1, MAX_COMMIT_POINT_READ_DEPENDENCIES_V1, MAX_COMMIT_WRITE_OPERATIONS_V1, MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1, MAX_POINT_COMMIT_MATERIAL_ROWS_V1, SESSION_JOURNAL_FORMAT, canonicalizeAdmittedParticipantBindingV1Result, canonicalizeAdmittedSourceBundleResult, canonicalizeSuccessfulResultV1Effect, measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result, normalizeLogicalIndexRangeReadDependenciesV1Result, verifyParticipantPointCorrelationEffect, type ParticipantPointCorrelation, type SessionJournal, type AdmittedParticipantOperation, type SourceContribution, type CommitFinalSyscallSequenceV1, type CommitSyscallSequenceV1, type CommitMaterialWriteEventEvidenceBytesV1, type LogicalReadDependencyV1, type LogicalApplicationRelationIncomingReadDependencyV1, type LogicalIndexRangeReadDependencyV1, type SuccessfulResultSha256HexV1 } from "flarex-protocol/commit-protocol";
-import { orderedIndexBoundHexV1ToBytes, orderedIndexKeyBytesHexV1FromBytes, orderedIndexKeyBytesHexV1ToBytes, orderedIndexRowIdHexV1ToBytes, orderedIndexRowIdHexV1FromBytesResult, OrderedIndexKeyBytesHexV1Schema, OrderedIndexRowIdHexV1Schema, type OrderedIndexKeyBytesHexV1, type OrderedIndexRowIdHexV1 } from "flarex-protocol/ordered-index";
+import {
+  RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1,
+} from "flarex-protocol/internal/application-schema-binding";
+import {
+  AppRowIdHexV1Schema,
+  appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+  appRowIdHexV1FromBytesResult,
+  decodeAppDocumentIdentityV1Result,
+  type AppRowIdHexV1,
+  type AppDocumentIdV1,
+} from "flarex-protocol/app-document-id";
+import {
+  CatalogEdgeDefinitionIdSchema,
+  type CatalogIndexDefinitionId,
+  type CatalogUniqueConstraintDefinitionId,
+  type CatalogEdgeDefinitionId,
+  CatalogRelationIdSchema,
+  type CatalogRelationId,
+  CatalogIndexDefinitionIdSchema,
+  CatalogTableIdSchema,
+  type CatalogTableId,
+} from "flarex-protocol/catalog";
+import {
+  CanonicalSuccessfulResultBytesV1Schema,
+  CanonicalSessionJournalBytesSchema,
+  decodeCanonicalSessionJournalEffect,
+  CommitSyscallSequenceV1Schema,
+  LogicalApplicationRelationIncomingReadDependencyV1Schema,
+  LogicalIndexRangeReadDependencyV1Schema,
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_READ_DOCUMENTS_V1,
+  MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
+  MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
+  MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_WRITE_OPERATIONS_V1,
+  MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
+  MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+  SESSION_JOURNAL_FORMAT,
+  canonicalizeAdmittedParticipantBindingV1Result,
+  canonicalizeAdmittedSourceBundleResult,
+  canonicalizeSuccessfulResultV1Effect,
+  measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
+  normalizeLogicalIndexRangeReadDependenciesV1Result,
+  verifyParticipantPointCorrelationEffect,
+  type ParticipantPointCorrelation,
+  type SessionJournal,
+  type AdmittedParticipantOperation,
+  type SourceContribution,
+  type CommitFinalSyscallSequenceV1,
+  type CommitSyscallSequenceV1,
+  type CommitMaterialWriteEventEvidenceBytesV1,
+  type LogicalReadDependencyV1,
+  type LogicalApplicationRelationIncomingReadDependencyV1,
+  type LogicalIndexRangeReadDependencyV1,
+  type SuccessfulResultSha256HexV1,
+} from "flarex-protocol/commit-protocol";
+import {
+  orderedIndexBoundHexV1ToBytes,
+  orderedIndexKeyBytesHexV1FromBytes,
+  orderedIndexKeyBytesHexV1ToBytes,
+  orderedIndexRowIdHexV1ToBytes,
+  orderedIndexRowIdHexV1FromBytesResult,
+  OrderedIndexKeyBytesHexV1Schema,
+  OrderedIndexRowIdHexV1Schema,
+  type OrderedIndexKeyBytesHexV1,
+  type OrderedIndexRowIdHexV1,
+} from "flarex-protocol/ordered-index";
 import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, SnapshotTokenSchema, ScopeEpochUuidV1Schema, ScopeUuidV1Schema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, replacementScopeIdV1FromUuid, type CommitSeq, type FlarexDbV1StorageGeneration, type ReplacementScopeIdV1, type ScopeEpochUuidV1, type ScopeUuidV1, type SnapshotToken, type StorageGenerationFence } from "flarex-protocol/storage-authority";
+import {
+  CommitSeqSchema,
+  SnapshotTokenSchema,
+  ScopeEpochUuidV1Schema,
+  ScopeUuidV1Schema,
+  projectScopeEpochUuidV1Result,
+  projectScopeIdUuidV1Result,
+  replacementScopeIdV1FromUuid,
+  type CommitSeq,
+  type FlarexDbV1StorageGeneration,
+  type ReplacementScopeIdV1,
+  type ScopeEpochUuidV1,
+  type ScopeUuidV1,
+  type SnapshotToken,
+  type StorageGenerationFence,
+} from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
-import { TRANSACTION_SESSION_PROTOCOL_VERSION_V1, MAX_TRANSACTION_ATTEMPT_FENCE, TransactionAttemptFenceSchema, TransactionAuthorizationRevocationEpochSchema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema, type StoredTransactionSessionScalarsV1, type TransactionArtifactIdV1, type TransactionArtifactRuntimeV1, type TransactionAttemptFence, type TransactionAuthorizationGrantIdV1, type TransactionAuthorizationRevocationEpoch, type TransactionExecutionModuleV1, type TransactionFunctionPathV1, type TransactionPackageIdV1, type TransactionPolicyVersionV1, type TransactionRequestKeyV1, type TransactionSessionIdV1, type TransactionSourcePackageSha256HexV1 } from "flarex-protocol/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueSha256V1Schema, jsonToFlarexValueV1, FlarexValueCodecV1Error, FlarexValueEvidenceV1Error, canonicalizeFlarexValueV1, canonicalizeFlarexValueV1Effect, decodeCanonicalFlarexValueEvidenceV1, isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1, type CanonicalFlarexValueV1, type FlarexValueCodecVersion } from "flarex-protocol/value";
+import {
+  TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+  MAX_TRANSACTION_ATTEMPT_FENCE,
+  TransactionAttemptFenceSchema,
+  TransactionAuthorizationRevocationEpochSchema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionRequestSha256V1Schema,
+  type StoredTransactionSessionScalarsV1,
+  type TransactionArtifactIdV1,
+  type TransactionArtifactRuntimeV1,
+  type TransactionAttemptFence,
+  type TransactionAuthorizationGrantIdV1,
+  type TransactionAuthorizationRevocationEpoch,
+  type TransactionExecutionModuleV1,
+  type TransactionFunctionPathV1,
+  type TransactionPackageIdV1,
+  type TransactionPolicyVersionV1,
+  type TransactionRequestKeyV1,
+  type TransactionSessionIdV1,
+  type TransactionSourcePackageSha256HexV1,
+} from "flarex-protocol/transaction-session";
+import {
+  FLAREX_VALUE_CODEC_VERSION_V1,
+  FlarexValueSha256V1Schema,
+  jsonToFlarexValueV1,
+  FlarexValueCodecV1Error,
+  FlarexValueEvidenceV1Error,
+  canonicalizeFlarexValueV1,
+  canonicalizeFlarexValueV1Effect,
+  decodeCanonicalFlarexValueEvidenceV1,
+  isCanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
+  type CanonicalFlarexValueV1,
+  type FlarexValueCodecVersion,
+} from "flarex-protocol/value";
 
 import { type AppDeveloperIndexDefinitionPortV1 } from "../storage/indexes/appDeveloperIndexCommitV1";
-import { snapshotApplicationExecutionAuthorityJson } from "../application/applicationExecutionAuthoritySnapshot";
-import { hasAppUniqueConstraintDefinitionAuthorityV1, type AppUniqueConstraintDefinitionPortV1 } from "../storage/unique/appUniqueConstraintCommitV1";
-import { isLocatedAppUniqueConstraintDefinitionV1, type LocatedAppUniqueConstraintDefinitionV1 } from "../storage/unique/appUniqueConstraintDefinitions";
-import { hasAppUniqueConstraintSetEligibilityPortV1, hasAppUniqueConstraintSetEligibilityCompositionV1, hasAppUniqueConstraintSetEligibilityForDefinitionPortV1, loadAppUniqueConstraintSetEligibilityV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect, validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Effect, AppUniqueConstraintSetEligibilityV1Error, AppUniqueConstraintSetBuildIntegrationV1Error, type AppUniqueConstraintSetEligibilityInputV1, type AppUniqueConstraintSetEligibilityEvidenceV1, type AppUniqueConstraintSetEligibilityPortV1, type AppUniqueConstraintSetEligibilityResultV1, type AppUniqueConstraintSetBuildStaleAuthorityV1Error, type AppUniqueConstraintSetBuildStateV1Error, type LoadAppUniqueConstraintSetEligibilityV1Error } from "../storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  snapshotApplicationExecutionAuthorityJson,
+} from "../application/applicationExecutionAuthoritySnapshot";
+import {
+  hasAppUniqueConstraintDefinitionAuthorityV1,
+  type AppUniqueConstraintDefinitionPortV1,
+} from "../storage/unique/appUniqueConstraintCommitV1";
+import {
+  isLocatedAppUniqueConstraintDefinitionV1,
+  type LocatedAppUniqueConstraintDefinitionV1,
+} from "../storage/unique/appUniqueConstraintDefinitions";
+import {
+  hasAppUniqueConstraintSetEligibilityPortV1,
+  hasAppUniqueConstraintSetEligibilityCompositionV1,
+  hasAppUniqueConstraintSetEligibilityForDefinitionPortV1,
+  loadAppUniqueConstraintSetEligibilityV1Effect,
+  loadAppUniqueConstraintSetEligibilityForReadinessV1Effect,
+  validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Effect,
+  AppUniqueConstraintSetEligibilityV1Error,
+  AppUniqueConstraintSetBuildIntegrationV1Error,
+  type AppUniqueConstraintSetEligibilityInputV1,
+  type AppUniqueConstraintSetEligibilityEvidenceV1,
+  type AppUniqueConstraintSetEligibilityPortV1,
+  type AppUniqueConstraintSetEligibilityResultV1,
+  type AppUniqueConstraintSetBuildStaleAuthorityV1Error,
+  type AppUniqueConstraintSetBuildStateV1Error,
+  type LoadAppUniqueConstraintSetEligibilityV1Error,
+} from "../storage/unique/appUniqueConstraintSetBuildV1";
 
-import { isLocatedAppIndexDefinitionV1, type LocatedAppIndexDefinitionV1 } from "../storage/indexes/appIndexDefinitions";
-import { AppRowReadPersistenceError, consumeAppRowSnapshotRevisionsInTransactionEffect, isAppendAppRowRevisionV1Error, type AppRowTransaction } from "../storage/documents/appRows";
-import { AppRelationEdgePersistenceError, readAppRelationEdgeAdjacencyVersionInTransactionEffect, readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect } from "../storage/relations";
-import { ApplicationRelationCommitUnavailableError, type ApplicationRelationAdjacencyChange, type ApplicationRelationCommitPort } from "../application/relations/applicationRelationCommit";
-import { readCoherentApplicationActiveHeadForShareInTransactionEffect } from "../application/applicationActiveHeadRead";
+import {
+  isLocatedAppIndexDefinitionV1,
+  type LocatedAppIndexDefinitionV1,
+} from "../storage/indexes/appIndexDefinitions";
+import {
+  AppRowReadPersistenceError,
+  consumeAppRowSnapshotRevisionsInTransactionEffect,
+  isAppendAppRowRevisionV1Error,
+  type AppRowTransaction,
+} from "../storage/documents/appRows";
+import {
+  AppRelationEdgePersistenceError,
+  readAppRelationEdgeAdjacencyVersionInTransactionEffect,
+  readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect,
+} from "../storage/relations";
+import {
+  ApplicationRelationCommitUnavailableError,
+  type ApplicationRelationAdjacencyChange,
+  type ApplicationRelationCommitPort,
+} from "../application/relations/applicationRelationCommit";
+import {
+  readCoherentApplicationActiveHeadForShareInTransactionEffect,
+} from "../application/applicationActiveHeadRead";
 
 import { type AppSchemaCandidateWriteGuardPort } from "../storage/catalog/appSchemaCandidateValidation";
 import type { FlarexMetadataDatabase } from "../application/deployments";
-import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from "../storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import type {
+  IntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../storage/indexes/intrinsicCreationTimeIndexBuildV1";
 
-import { CommittedPointOutcomeCorruptionErrorV1, CommittedPointOutcomeInputErrorV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeSqlErrorV1, type CommittedPointOutcomeResolutionV1, type CommittedPointOutcomeTokenV1, type CommittedPointSuccessfulResultV1, type CommittedPointOutcomeCorruptionReasonV1, type CommittedPointOutcomeMismatchV1, type CommittedPointOutcomeStoredScalarEvidenceV1, type ResolveCommittedPointOutcomeErrorV1, type ResolveCommittedPointOutcomeInputV1, validateCommittedPointOutcomeRequestEvidenceShapeV1, validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1 } from "./committedPointOutcome";
+import {
+  CommittedPointOutcomeCorruptionErrorV1,
+  CommittedPointOutcomeInputErrorV1,
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+  CommittedPointOutcomeSqlErrorV1,
+  type CommittedPointOutcomeResolutionV1,
+  type CommittedPointOutcomeTokenV1,
+  type CommittedPointSuccessfulResultV1,
+  type CommittedPointOutcomeCorruptionReasonV1,
+  type CommittedPointOutcomeMismatchV1,
+  type CommittedPointOutcomeStoredScalarEvidenceV1,
+  type ResolveCommittedPointOutcomeErrorV1,
+  type ResolveCommittedPointOutcomeInputV1,
+  validateCommittedPointOutcomeRequestEvidenceShapeV1,
+  validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1,
+} from "./committedPointOutcome";
 
 import { rowsFromDriverExecuteResult } from "../database/driverExecuteResult";
 import { createCommittedPointOutcomeResolverV1 } from "./committedPointOutcome";
 import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "../database/drizzleQueryObservation";
-import { decodeScopeClockRecordResult, ScopeClockCorruptionError, ScopeClockNotFoundError, type ScopeClockRecord } from "../scope/scopeClock";
+import {
+  decodeScopeClockRecordResult,
+  ScopeClockCorruptionError,
+  ScopeClockNotFoundError,
+  type ScopeClockRecord,
+} from "../scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect, resolveTrustedScopePlacementSnapshotResult, resolveTrustedScopeAuthoritySnapshotResult,
   TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError, type LocatedTrustedScopeAuthority, type TrustedScopeAuthority, type TrustedScopeAuthorityError, type TrustedScopeSelection } from "../scope/scopeAuthorityResolution";
 import { fxSystemApplicationActiveHeads } from "../application/applicationActivationSchema";
 import { fxSystemApplicationReadiness } from "../application/relations/applicationRelationSchema";
-import { fxSystemCommits, fxSystemIdempotency, fxSystemApplicationReadinessV1, fxSystemScopeClocks, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims, fxSystemTransactionJournalReceipts, fxSystemTransactionJournalIndexRanges, fxSystemTransactionJournalPoints, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournalWriteEvents, fxSystemTransactionJournals, fxSystemTransactionSessions } from "../database/schema";
-import { deriveTransactionExecutionClaimV1, lockExactTransactionExecutionClaimV1Result, requireLiveTransactionExecutionClaimV1Result, TransactionExecutionClaimCorruptionV1Error, TransactionExecutionClaimStaleV1Error } from "../execution/claims/transactionExecutionClaimPersistence";
-import { decodeTransactionExecutionClaimFenceV1, decodeTransactionExecutionClaimOwnerV1, type TransactionExecutionClaimObservationV1, type TransactionExecutionClaimOwnerV1, type TransactionExecutionClaimPinV1 } from "../execution/claims/transactionExecutionClaimModel";
-import { isLocatedExactRunningAttemptKernelV1, isLocatedPointCommitPublicationTargetV1, isLocatedReadCommittedAttemptTargetV1, LocatedReadCommittedTransactionFailureV1, RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1, RUN_LOCATED_READ_COMMITTED_V1, type LocatedReadCommittedAttemptTargetV1, type LocatedPointCommitPublicationTargetV1 } from "../execution/transactionSessionAttemptKernel";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../execution/transactionSessionActivation";
+import {
+  fxSystemCommits,
+  fxSystemIdempotency,
+  fxSystemApplicationReadinessV1,
+  fxSystemScopeClocks,
+  fxSystemSnapshotLeases,
+  fxSystemTransactionExecutionClaims,
+  fxSystemTransactionJournalReceipts,
+  fxSystemTransactionJournalIndexRanges,
+  fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournalRelationIncomingDependencies,
+  fxSystemTransactionJournalWriteEvents,
+  fxSystemTransactionJournals,
+  fxSystemTransactionSessions,
+} from "../database/schema";
+import {
+  deriveTransactionExecutionClaimV1,
+  lockExactTransactionExecutionClaimV1Result,
+  requireLiveTransactionExecutionClaimV1Result,
+  TransactionExecutionClaimCorruptionV1Error,
+  TransactionExecutionClaimStaleV1Error,
+} from "../execution/claims/transactionExecutionClaimPersistence";
+import {
+  decodeTransactionExecutionClaimFenceV1,
+  decodeTransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimObservationV1,
+  type TransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimPinV1,
+} from "../execution/claims/transactionExecutionClaimModel";
+import {
+  isLocatedExactRunningAttemptKernelV1,
+  isLocatedPointCommitPublicationTargetV1,
+  isLocatedReadCommittedAttemptTargetV1,
+  LocatedReadCommittedTransactionFailureV1,
+  RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type LocatedReadCommittedAttemptTargetV1,
+  type LocatedPointCommitPublicationTargetV1,
+} from "../execution/transactionSessionAttemptKernel";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../execution/transactionSessionActivation";
 import { scopePhysicalLocatorsEqual } from "../scope/scopePhysicalLocator";
 import type { TrustedScopeAuthorityResolutionPorts } from "../scope/scopeAuthorityResolution";
-import { buildFreshTransactionAttemptFacetV1, isPristineFreshTransactionAttemptJournalRootV1 } from "../execution/transactionSessionAttemptFacet";
+import {
+  buildFreshTransactionAttemptFacetV1,
+  isPristineFreshTransactionAttemptJournalRootV1,
+} from "../execution/transactionSessionAttemptFacet";
 
 export type {
   CommittedPointOutcomeResolutionV1,
@@ -8636,6 +8996,25 @@ function stale(
   return new PointCommitStaleAuthorityV1Error({ reason });
 }
 
-export { PointCommitConflictV1Error, type PointCommitConflictEvidenceV1, type PointCommitConflictCauseV1, PointCommitStaleAuthorityV1Error, type PointCommitStaleAuthorityReasonV1, PointCommitCorruptionV1Error, type PointCommitCorruptionReasonV1, PointCommitResourceExhaustionV1Error, PointCommitIntrinsicIndexDefinitionUnavailableV1Error, PointCommitDeveloperIndexMaintenanceUnavailableV1Error, PointCommitUniqueConstraintMaintenanceUnavailableV1Error, type PointCommitSqlOperationV1, PointCommitSqlErrorV1, type PointCommitRollbackProofV1Error } from "./pointCommitErrors";
-export { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1, MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1 } from "../storage/materialization/materialization";
+export {
+  PointCommitConflictV1Error,
+  type PointCommitConflictEvidenceV1,
+  type PointCommitConflictCauseV1,
+  PointCommitStaleAuthorityV1Error,
+  type PointCommitStaleAuthorityReasonV1,
+  PointCommitCorruptionV1Error,
+  type PointCommitCorruptionReasonV1,
+  PointCommitResourceExhaustionV1Error,
+  PointCommitIntrinsicIndexDefinitionUnavailableV1Error,
+  PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
+  PointCommitUniqueConstraintMaintenanceUnavailableV1Error,
+  type PointCommitSqlOperationV1,
+  PointCommitSqlErrorV1,
+  type PointCommitRollbackProofV1Error,
+} from "./pointCommitErrors";
+export {
+  MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+  MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
+  MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1,
+} from "../storage/materialization/materialization";
 export { type PointCommitRowIntentV1, type PointCommitDependencyV1 } from "../storage/materialization/model";

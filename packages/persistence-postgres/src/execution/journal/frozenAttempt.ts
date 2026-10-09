@@ -1,24 +1,30 @@
-import type { PreparedFiniteMetadataProjection } from "./finiteMetadataDependencies";
-import type { CapturedFiniteAttemptAnchor } from "./finiteAttemptAnchor";
+import type { PreparedFiniteMetadataProjection } from "../finiteMetadataDependencies";
+import type { CapturedFiniteAttemptAnchor } from "../finiteAttemptAnchor";
 import type { AdmittedSourceBinding, CanonicalSuccessfulResultV1, LogicalAppWriteV1,
   LogicalReadDependencyV1, LogicalIndexRangeReadDependencyV1,
   LogicalApplicationRelationIncomingReadDependencyV1 } from "flarex-protocol/commit-protocol";
 import type { Json } from "flarex-protocol/json";
-import { freezeOwnedProtocolProjection } from "flarex-protocol/internal/owned-protocol-projection";
-import type { LogicalParticipantAdmissionBundle } from "../storage/documents/logicalDocuments/participantAdmission";
-import type { LogicalDocumentChanges } from "../storage/documents/logicalDocuments/workingSet";
-import { projectLogicalPointExpectation } from "../storage/documents/logicalDocuments/pointEvidence";
-import { detachLogicalDocumentChanges } from "../storage/documents/logicalDocuments/detachChanges";
-import type { PointCommitRowIntentV1, PreparedPointCommitRowIntentV1 } from "../storage/materialization/model";
-import { borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot, type ClosedLogicalDocumentRoot,
-  type LogicalDocumentRootEvaluator } from "../storage/documents/logicalDocuments/rootEvaluator";
-import type { CapturedFiniteMetadataReservation } from "./finiteMetadataReservation";
-import type { SessionJournalAttempt, SessionJournalAttemptStateV1, ResolvedJournalTargetV1 } from "./sessionJournalStore";
-import type { AppSchemaCandidateWriteGuardPlanningHead } from "../storage/catalog/appSchemaCandidateValidation";
-import type { getFiniteApplicationPublicationDefinitions } from "../storage/documents/logicalDocuments/sourceAdmission";
+import type {
+  LogicalParticipantAdmissionBundle,
+} from "../../storage/documents/logicalDocuments/participantAdmission";
+import type { LogicalDocumentChanges } from "../../storage/documents/logicalDocuments/workingSet";
+import { detachLogicalDocumentChanges } from "../../storage/documents/logicalDocuments/detachChanges";
+import type {
+  PointCommitRowIntentV1,
+  PreparedPointCommitRowIntentV1,
+} from "../../storage/materialization/model";
+import type { CapturedFiniteMetadataReservation } from "../finiteMetadataReservation";
+import type { SessionJournalAttempt } from "./contracts";
+import type { SessionJournalAttemptStateV1, ResolvedJournalTargetV1 } from "./state";
+import type {
+  AppSchemaCandidateWriteGuardPlanningHead,
+} from "../../storage/catalog/appSchemaCandidateValidation";
+import type {
+  getFiniteApplicationPublicationDefinitions,
+} from "../../storage/documents/logicalDocuments/sourceAdmission";
 import type { Result } from "effect";
-import type { OriginalFiniteExecutionEntry } from "./sessionJournalFiniteEntry";
-import type { LiveAppRowRevisionV1 } from "../storage/documents/appRows";
+import type { OriginalFiniteExecutionEntry } from "./finiteEntry";
+import type { LiveAppRowRevisionV1 } from "../../storage/documents/appRows";
 
 const frozenFiniteAttemptBrand: unique symbol = Symbol("Flarex/FrozenFiniteAttempt");
 export interface FrozenFiniteAttempt { readonly [frozenFiniteAttemptBrand]: true }
@@ -69,6 +75,14 @@ export type OwnedFrozenFiniteAttemptData = Omit<FrozenFiniteAttemptData, "rowInt
   Readonly<{ rowIntents: readonly PreparedPointCommitRowIntentV1[] }>;
 const frozenAttempts = new WeakMap<FrozenFiniteAttempt, OwnedFrozenFiniteAttemptData>();
 
+/** Source-internal handoff from freezeClosedRoot only; omitted from the consumer API. */
+export function registerOwnedFrozenFiniteAttempt(data: OwnedFrozenFiniteAttemptData): FrozenFiniteAttempt {
+  const handle = Object.freeze({ [frozenFiniteAttemptBrand]: true as const });
+  frozenAttempts.set(handle, data);
+  return handle;
+}
+
+
 /** Exact replay routing needs only issued origin identity. It must not clone or
  * validate the provisional graph before observing a possibly committed outcome. */
 export function readFrozenFiniteAttemptOrigin(handle: FrozenFiniteAttempt) {
@@ -76,37 +90,6 @@ export function readFrozenFiniteAttemptOrigin(handle: FrozenFiniteAttempt) {
   return data === undefined ? undefined : Object.freeze({ resolvedTarget: data.resolvedTarget,
     originalEntry: data.originalEntry,
     selector: Object.freeze({ ...data.attemptState.selector }) });
-}
-
-/** Adopt only the selected, closed root. Complete codec values stay with their
- * owned graph; no parallel raw intent can be promoted as canonical evidence. */
-export function issueFrozenFiniteAttempt(root: ClosedLogicalDocumentRoot, evaluator: LogicalDocumentRootEvaluator,
-  input: Omit<FrozenFiniteAttemptData, "graph" | "originalRows" | "rowIntents">): FrozenFiniteAttempt | undefined {
-  const closed = borrowClosedLogicalDocumentRoot(root, evaluator, input.attempt);
-  if (closed === undefined || closed.pins.scopeId !== input.attemptState.selector.scopeId ||
-    closed.pins.snapshotCommitSeq !== input.attemptState.snapshotToken.commitSeq ||
-    closed.pins.attemptFence !== String(input.attemptState.selector.attemptFence)) return undefined;
-  const { attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions,
-    candidatePlanningHead, anchorCapture, metadataReservation, operations, ...values } = input;
-  // Canonical final changes already satisfy materialization intents. Preserve
-  // their exact dependency/document identities through the trusted handoff.
-  const rowIntents: readonly PreparedPointCommitRowIntentV1[] = closed.graph.changes.map(change => {
-    // Closing detached this projection from the working set. Restore immutable
-    // JSON ownership once, before the trusted validator borrows any values.
-    if (change.kind === "live") freezeOwnedProtocolProjection(change.document.valueJson);
-    return { ...change, ...projectLogicalPointExpectation(change) };
-  });
-  const handle = Object.freeze({ [frozenFiniteAttemptBrand]: true as const });
-  frozenAttempts.set(handle, Object.freeze({ ...values, attemptState: structuredClone(values.attemptState),
-    dependencies: Object.freeze([...values.dependencies]),
-    applicationIndexRanges: Object.freeze([...values.applicationIndexRanges]),
-    applicationRelationDependencies: Object.freeze([...values.applicationRelationDependencies]),
-    graph: closed.graph, originalRows: closed.originalRows,
-    rowIntents, attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions,
-    candidatePlanningHead, anchorCapture, ...(metadataReservation === undefined ? {} : { metadataReservation }),
-    operations: Object.freeze([...operations]) }));
-  consumeClosedLogicalDocumentRoot(root, evaluator, input.attempt);
-  return handle;
 }
 
 /** Only the publication owner borrows this evidence. It performs complete

@@ -1,8 +1,12 @@
 import { Cause, Effect, Exit, Result } from "effect";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CommitSeqSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
-import type { SessionJournalAttempt } from "../../../src/execution/sessionJournalStore";
-import type { BorrowedWorkflowAttemptInput } from "../../../src/frameworks/commerceTransaction/borrowedWorkflowAttempt";
+import type {
+  SessionJournalAttempt,
+} from "../../../src/execution/journal/api";
+import type {
+  BorrowedWorkflowAttemptInput,
+} from "../../../src/frameworks/commerceTransaction/borrowedWorkflowAttempt";
 
 const construction = vi.hoisted(() => ({ admissions: [] as unknown[], state: undefined as unknown }));
 
@@ -36,13 +40,17 @@ vi.mock("../src/logicalDocuments/workingSet", async importOriginal => {
   };
 });
 
-import { makeBorrowedWorkflowAttempt } from "../../../src/frameworks/commerceTransaction/borrowedWorkflowAttempt";
+import {
+  makeBorrowedWorkflowAttempt,
+} from "../../../src/frameworks/commerceTransaction/borrowedWorkflowAttempt";
 import { defaultCommerceResources } from "../../../src/frameworks/commerceTransaction/resources";
 import { commerceError } from "../../../src/frameworks/commerceTransaction/model";
 import { defineCommerceCommand } from "../../../src/frameworks/commerceTransaction/commands";
 import { defineAtomicCommerceParticipant } from "../../../src/frameworks/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../../src/frameworks/atomicCommerce/events";
-import { makeLogicalDocumentRootEvaluator } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
+import {
+  makeLogicalDocumentRootEvaluator,
+} from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
 import { captureWorkflowValue } from "../../../../medusa-adapter/src/workflow-value";
 
 beforeEach(() => { construction.admissions = []; construction.state = undefined; });

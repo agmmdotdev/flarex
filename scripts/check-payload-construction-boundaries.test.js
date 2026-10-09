@@ -6,6 +6,8 @@ it("accepts the checked-in adapter through declared operation capabilities", () 
   checkPayloadConstructionBoundaries();
   expect(inspectPayloadConstructionBoundary(file,
     'import { bindCmsRead, type CmsReadBinding } from "@flarex/persistence-postgres/internal/cms-execution";')).toEqual([]);
+  expect(inspectPayloadConstructionBoundary(file,
+    'import type { LogicalParticipantBorrow } from "@flarex/persistence-postgres/internal/session-journal";')).toEqual([]);
 });
 it.each([
   'import type { CmsHostInput as Hidden } from "@flarex/persistence-postgres/internal/cms-adapter";',
@@ -27,6 +29,10 @@ it.each([
   'const persistence = require("@flarex/persistence-postgres");',
   'import persistence = require("@flarex/persistence-postgres");',
   'type Database = import("@flarex/persistence-postgres").FlarexPersistence;',
+  'import { createSessionJournalStorePersistence } from "@flarex/persistence-postgres/session-journal-store";',
+  'export * from "@flarex/persistence-postgres/internal/session-journal-construction";',
+  'import { issuePreparedFiniteSessionJournalEntry as bind } from "@flarex/persistence-postgres/internal/session-journal";',
+  'type Constructor = import("@flarex/persistence-postgres/internal/session-journal").createAppDeveloperIndexQueryPortV1;',
 ])("rejects hidden construction or conformance dependencies: %s", text => {
   expect(inspectPayloadConstructionBoundary(file, text).length).toBeGreaterThan(0);
 });

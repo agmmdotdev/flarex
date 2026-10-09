@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { expect } from "vitest";
-import type { FlarexSqlClient } from "../../src";
-import { fxSystemTransactionSessions } from "../../src/database/schema";
+import type { FlarexSqlClient } from "../../../src";
+import { fxSystemTransactionSessions } from "../../../src/database/schema";
 
 /** Fault the actual installed catalog and exercise its genuine publication
  * gate. Restore captured catalog definitions, never a test-owned verifier. */

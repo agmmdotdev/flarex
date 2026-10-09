@@ -1,20 +1,37 @@
-import type { FiniteStorageCaptureOperation, FiniteStorageCaptureEnvelopes, FiniteStorageCaptureError } from "../../../execution/finiteStorageCapture";
+import type {
+  FiniteStorageCaptureOperation,
+  FiniteStorageCaptureEnvelopes,
+  FiniteStorageCaptureError,
+} from "../../../execution/finiteStorageCapture";
 import type { Effect } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { AppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import type { CatalogIndexId, CatalogIndexDefinitionId, CatalogTableId, CatalogUniqueConstraintDefinitionId } from "flarex-protocol/catalog";
+import type {
+  CatalogIndexId,
+  CatalogIndexDefinitionId,
+  CatalogTableId,
+  CatalogUniqueConstraintDefinitionId,
+} from "flarex-protocol/catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import type { BoundedRequestContext, BoundedRequestLifetime } from "../../../execution/preparation/boundedRequestLifetime";
+import type {
+  BoundedRequestContext,
+  BoundedRequestLifetime,
+} from "../../../execution/preparation/boundedRequestLifetime";
 import type { JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import type { ScopeClockRecord } from "../../../scope/scopeClock";
-import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import type {
+  RelationalPersistenceCapability,
+  RelationalTableDefinition,
+} from "flarex-protocol/internal/relational-schema";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import type { ApplicationDocumentObservation } from "../../materialization/model";
-import type { SessionJournalAttempt } from "../../../execution/sessionJournalStore";
+import type {
+  SessionJournalAttempt,
+} from "../../../execution/journal/contracts";
 import type { LogicalDocumentRootEvaluator } from "./rootEvaluator";
 import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";

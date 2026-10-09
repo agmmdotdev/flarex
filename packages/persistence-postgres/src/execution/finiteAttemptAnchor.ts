@@ -5,11 +5,17 @@ import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV
   type SnapshotToken } from "flarex-protocol/storage-authority";
 import { FiniteMetadataReservationSchema, readCapturedFiniteMetadataReservation,
   type CapturedFiniteMetadataReservation, type FiniteMetadataReservation } from "./finiteMetadataReservation";
-import { capturePrivateCanonicalValue, verifyStoredPrivateCanonicalValue } from "../installation/frameworkSchema/privateCanonicalValue";
+import {
+  capturePrivateCanonicalValue,
+  verifyStoredPrivateCanonicalValue,
+} from "../installation/frameworkSchema/privateCanonicalValue";
 import { runDrizzleStatementEffect } from "../database/drizzleStatementEffect";
 import type { AppRowTransaction } from "../storage/documents/appRows";
 import { fxSystemTransactionSessions } from "../database/schema";
-import { readOriginalFiniteExecutionAuthority, type OriginalFiniteExecutionEntry } from "./sessionJournalFiniteEntry";
+import {
+  readOriginalFiniteExecutionAuthority,
+  type OriginalFiniteExecutionEntry,
+} from "./journal/finiteEntry";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../commit/authority/postgresLoader";
 import { decodeTransactionExecutionClaimFenceV1, decodeTransactionExecutionClaimOwnerV1,
   type TransactionExecutionClaimPinV1, type TransactionExecutionClaimObservationV1 } from "./claims/transactionExecutionClaimModel";
@@ -17,7 +23,10 @@ import type { PointMutationSessionAttemptSelectorV1 } from "./transactionSession
 import { MAX_TRANSACTION_ATTEMPT_FENCE, TRANSACTION_SESSION_PROTOCOL_VERSION_V1, TransactionAttemptFenceSchema,
   TransactionSessionLifecycleV1Schema } from "flarex-protocol/transaction-session";
 import type { TransactionExecutionClaimOwnerV1 } from "./claims/transactionExecutionClaimModel";
-import { TransactionExecutionClaimOwnerV1Schema, TransactionExecutionClaimFenceV1Schema } from "./claims/transactionExecutionClaimModel";
+import {
+  TransactionExecutionClaimOwnerV1Schema,
+  TransactionExecutionClaimFenceV1Schema,
+} from "./claims/transactionExecutionClaimModel";
 
 const MAX_ANCHOR_BYTES = 131_072;
 const AnchorSchema = Schema.Struct({ format: Schema.Literal("flarex.finite-attempt-anchor"), version: Schema.Literal(1),

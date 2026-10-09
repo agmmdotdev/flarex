@@ -7,26 +7,57 @@ import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { RelationalSchema } from "flarex-protocol/internal/relational-schema";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
+import {
+  CommitSeqSchema,
+  projectScopeIdUuidV1Result,
+  type ScopeId,
+} from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
-import { createLocatedIndexBuildReconciliationTargetV1, reconcilePublishedIndexBuildsV1Effect } from "../../../src/storage/indexes/indexBuildReconciliation";
-import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../../../src/storage/indexes/appIndexDefinitions";
-import { locateAppUniqueConstraintDefinitionsForSchemaEffect } from "../../../src/storage/unique/appUniqueConstraintDefinitions";
-import { prepareLogicalRelationalValueValidation } from "../../../src/storage/documents/logicalDocuments/relationalValues";
-import { makeLogicalDocumentWorkingSet, type LogicalDocumentReadTestHooks } from "../../../src/storage/documents/logicalDocuments/workingSet";
+import {
+  createLocatedIndexBuildReconciliationTargetV1,
+  reconcilePublishedIndexBuildsV1Effect,
+} from "../../../src/storage/indexes/indexBuildReconciliation";
+import {
+  locateAppIndexDefinitionByIdEffect,
+  type LocatedAppIndexDefinitionV1,
+} from "../../../src/storage/indexes/appIndexDefinitions";
+import {
+  locateAppUniqueConstraintDefinitionsForSchemaEffect,
+} from "../../../src/storage/unique/appUniqueConstraintDefinitions";
+import {
+  prepareLogicalRelationalValueValidation,
+} from "../../../src/storage/documents/logicalDocuments/relationalValues";
+import {
+  makeLogicalDocumentWorkingSet,
+  type LogicalDocumentReadTestHooks,
+} from "../../../src/storage/documents/logicalDocuments/workingSet";
 import type { LogicalDocumentWorkingSetInput } from "../../../src/storage/documents/logicalDocuments/model";
-import { makeLogicalDocumentRootEvaluator } from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
-import type { SessionJournalAttempt } from "../../../src/execution/sessionJournalStore";
-import { makeBoundedRequestLifetime, type BoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
+import {
+  makeLogicalDocumentRootEvaluator,
+} from "../../../src/storage/documents/logicalDocuments/rootEvaluator";
+import type {
+  SessionJournalAttempt,
+} from "../../../src/execution/journal/api";
+import {
+  makeBoundedRequestLifetime,
+  type BoundedRequestLifetime,
+} from "../../../src/execution/preparation/boundedRequestLifetime";
 import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect, lockScopeClockForSnapshotReadInTransactionEffect } from "../../../src/scope/scopeClock";
+import {
+  lockScopeClockForOrdinaryWriteInTransactionEffect,
+  lockScopeClockForSnapshotReadInTransactionEffect,
+} from "../../../src/scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../../src/scope/scopeAuthorityResolution";
 import { getScopeMetadataByDeploymentId } from "../../../src/scope/scopeMetadata";
-import { validateLogicalDocumentChanges } from "../../../src/storage/documents/logicalDocuments/contribution";
-import { enterLogicalDocumentMaterialization } from "../../../src/storage/documents/logicalDocuments/materialization";
+import {
+  validateLogicalDocumentChanges,
+} from "../../../src/storage/documents/logicalDocuments/contribution";
+import {
+  enterLogicalDocumentMaterialization,
+} from "../../../src/storage/documents/logicalDocuments/materialization";
 import { fxSystemScopeClocks } from "../../../src/database/schema";
 
 /** Exercises the retained candidate reader and one pending view using the same

@@ -9,7 +9,7 @@ import { claimActiveApplicationRevisionSyscallValidatorBasisV1 } from
   "../application/revision/applicationRevisionActiveSelectionStateV1";
 import {
   InvalidApplicationRevisionSyscallValidatorV1Error,
-} from "../application/revision/applicationRevisionSyscallValidatorV1";
+} from "../application/revision/applicationRevisionSyscallValidatorErrors";
 import {
   activationFencedSyscallValidatorStateV1,
   issueApplicationRevisionSyscallValidatorStateV1,

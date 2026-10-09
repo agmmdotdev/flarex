@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import { ValidationError, type CollectionAfterChangeHook, type CollectionConfig, type PayloadRequest } from "payload";
+import {
+  ValidationError,
+  type CollectionAfterChangeHook,
+  type CollectionConfig,
+  type PayloadRequest,
+} from "payload";
 import { makePayloadNative } from "../runtime/native";
 import { makePayloadAttempt } from "../runtime/attempt";
-import type { SessionJournalAttempt } from "@flarex/persistence-postgres/session-journal-store";
+import type {
+  SessionJournalAttempt,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import type { CompiledPayloadCollections } from "../collections";
 import { payloadPostsCollectionDefinition } from "./profiles";
 import { UnsupportedPayloadCapability } from "../errors";

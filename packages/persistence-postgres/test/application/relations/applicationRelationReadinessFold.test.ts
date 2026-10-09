@@ -1,43 +1,155 @@
 import { PGlite } from "@electric-sql/pglite";
-import { makeStandardApplicationTaskSha256V1 } from "@flarex/standard-application-definition/internal/task-definition-v1";
+import {
+  makeStandardApplicationTaskSha256V1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { ApplicationActivationSequenceV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import {
+  ApplicationActivationSequenceV1Schema,
+  CommitSyscallSequenceV1Schema,
+  canonicalizeSessionJournalEffect,
+  canonicalizeSuccessfulResultV1Effect,
+} from "flarex-protocol/commit-protocol";
 import { CatalogSchemaVersionSchema } from "flarex-protocol/schema-manifest";
 import { decodeCatalogEdgeDefinitionId } from "flarex-protocol/catalog";
-import { CommitSeqSchema, decodeReplacementScopeIdV1, LegacyV1StorageGenerationSchema, projectScopeIdUuidV1, ScopeEpochSchema, ScopeIdSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import {
+  CommitSeqSchema,
+  decodeReplacementScopeIdV1,
+  LegacyV1StorageGenerationSchema,
+  projectScopeIdUuidV1,
+  ScopeEpochSchema,
+  ScopeIdSchema,
+  StorageGenerationFenceSchema,
+} from "flarex-protocol/storage-authority";
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import { exactRelationCommitRowId } from "./applicationRelationSourceCommitFixture";
-import { applicationRelationActiveSelectionMatchesSnapshot, claimApplicationActiveSelection, claimApplicationRelationActiveSelection, makeApplicationActivationRepository, validateApplicationActiveSelectionInTransaction, validateApplicationRelationActiveSelectionInTransaction, validateApplicationRelationActiveSelectionForReadiness } from "../../../src/application/applicationActivation";
-import { hasApplicationRelationReadinessFoldAuthority, makeApplicationRelationReadinessFoldRepository, validateApplicationRelationReadinessForActivationInTransaction, validateStoredApplicationRelationReadinessForActivationInTransaction } from "../../../src/application/relations/applicationRelationReadinessFold";
+import {
+  applicationRelationActiveSelectionMatchesSnapshot,
+  claimApplicationActiveSelection,
+  claimApplicationRelationActiveSelection,
+  makeApplicationActivationRepository,
+  validateApplicationActiveSelectionInTransaction,
+  validateApplicationRelationActiveSelectionInTransaction,
+  validateApplicationRelationActiveSelectionForReadiness,
+} from "../../../src/application/applicationActivation";
+import {
+  hasApplicationRelationReadinessFoldAuthority,
+  makeApplicationRelationReadinessFoldRepository,
+  validateApplicationRelationReadinessForActivationInTransaction,
+  validateStoredApplicationRelationReadinessForActivationInTransaction,
+} from "../../../src/application/relations/applicationRelationReadinessFold";
 import { createApplicationRelationReadinessPort } from "../../../src/application/relations/readiness";
-import { createApplicationRelationReadPort } from "../../../src/application/relations/applicationRelationRead";
-import { fxSystemApplicationFunctions, fxSystemApplicationPublications, fxSystemApplicationReadiness, fxSystemApplicationReadinessRelations, fxSystemApplicationRevisionSchemas, fxSystemApplicationTaskCatalogs, fxSystemApplicationTaskDefinitions } from "../../../src/application/relations/applicationRelationSchema";
-import { inspectApplicationRelationServingDefinitionInTransactionEffect } from "../../../src/application/relations/applicationRelationServing";
+import {
+  createApplicationRelationReadPort,
+} from "../../../src/application/relations/applicationRelationRead";
+import {
+  fxSystemApplicationFunctions,
+  fxSystemApplicationPublications,
+  fxSystemApplicationReadiness,
+  fxSystemApplicationReadinessRelations,
+  fxSystemApplicationRevisionSchemas,
+  fxSystemApplicationTaskCatalogs,
+  fxSystemApplicationTaskDefinitions,
+} from "../../../src/application/relations/applicationRelationSchema";
+import {
+  inspectApplicationRelationServingDefinitionInTransactionEffect,
+} from "../../../src/application/relations/applicationRelationServing";
 import { isRetryableSqlTransactionCause } from "../../../src/database/locatedReadCommittedEffect";
-import { createPointCommitFinishingTransitionPortV1, createPointCommitRollbackProofPortV1, createPointMutationAttemptReplacementPortV1, PointCommitConflictV1Error, PointCommitCorruptionV1Error, PointCommitStaleAuthorityV1Error, PointMutationAttemptReplacementStaleAuthorityV1Error } from "../../../src/commit/pointCommitTransaction";
+import {
+  createPointCommitFinishingTransitionPortV1,
+  createPointCommitRollbackProofPortV1,
+  createPointMutationAttemptReplacementPortV1,
+  PointCommitConflictV1Error,
+  PointCommitCorruptionV1Error,
+  PointCommitStaleAuthorityV1Error,
+  PointMutationAttemptReplacementStaleAuthorityV1Error,
+} from "../../../src/commit/pointCommitTransaction";
 import type { SplitScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
-import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../../../src/scope/scopeClock";
-import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
-import { fxControlApplicationSchemaAuthoritiesV1, fxSystemApplicationPublicationsV1, fxSystemApplicationReadinessV1, fxSystemApplicationTaskCatalogsV1, fxSystemApplicationTaskDefinitionsV1, fxSystemApplicationRelationSemanticReadiness, fxSystemEdgeDefinitionReadiness, fxSystemScopeExecutionAuthorities, fxSystemTransactionJournalPoints, fxSystemTransactionJournalReceipts, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournals } from "../../../src/database/schema";
-import { createSessionJournalStorePersistence, SessionJournalSealV1Error, SessionJournalStorageCorruptionV1Error } from "../../../src/execution/sessionJournalStore";
-import { createPointMutationExecutionClaimAcquisitionV1, createPointMutationSessionActivationPersistenceV1, createPointMutationSessionAttemptLoadPersistenceV1 } from "../../../src/execution/transactionSessionActivation";
+import {
+  lockScopeClockForShareInTransactionEffect,
+  lockScopeClockForUpdateInTransactionEffect,
+} from "../../../src/scope/scopeClock";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "../../../src/application/applicationActivationSchema";
+import {
+  fxControlApplicationSchemaAuthoritiesV1,
+  fxSystemApplicationPublicationsV1,
+  fxSystemApplicationReadinessV1,
+  fxSystemApplicationTaskCatalogsV1,
+  fxSystemApplicationTaskDefinitionsV1,
+  fxSystemApplicationRelationSemanticReadiness,
+  fxSystemEdgeDefinitionReadiness,
+  fxSystemScopeExecutionAuthorities,
+  fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournalReceipts,
+  fxSystemTransactionJournalRelationIncomingDependencies,
+  fxSystemTransactionJournals,
+} from "../../../src/database/schema";
+import {
+  createSessionJournalStorePersistence,
+} from "../../../src/execution/sessionJournalStore";
+import {
+  SessionJournalSealV1Error,
+  SessionJournalStorageCorruptionV1Error,
+} from "../../../src/execution/journal/api";
+import {
+  createPointMutationExecutionClaimAcquisitionV1,
+  createPointMutationSessionActivationPersistenceV1,
+  createPointMutationSessionAttemptLoadPersistenceV1,
+} from "../../../src/execution/transactionSessionActivation";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
 import { createStoredOccExecutionEvidenceLoaderV1 } from "../../../src/execution/storedOccExecution";
 import { relationBuildRowId } from "./applicationRelationBuildTestSupport";
-import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../../commit/pointCommitRelationTestSupport";
-import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1, pointMutationAttemptReplacementCommandFromPointCommitCommandV1, runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1, runningRelationConflictRecoveryCommandFromStoredOccExecutionV1 } from "../../commit/pointCommitTransactionTestSupport";
-import { TEST_GRANT_RETENTION_POLICY_V1, activatePointMutationSession, pointMutationSessionActivationFixture } from "../../execution/transactionSessionActivationTestSupport";
-import { issueSetupSeededSyscallValidatorProofV1 } from "../revision/applicationRevisionSyscallValidatorTestSupport";
-import { readApplicationBindingProjectionInTransaction } from "../../../src/application/applicationBindingProjection";
+import {
+  completeSessionJournalSeal,
+  prepareSessionJournalSeal,
+  runEffect,
+  runEffectFailure,
+} from "../../support/effectTestRuntime";
+import {
+  relationAuthorityFromAnchor,
+  selectorFromRelationAnchor,
+} from "../../commit/pointCommitRelationTestSupport";
+import {
+  pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
+  pointMutationAttemptReplacementCommandFromPointCommitCommandV1,
+  runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1,
+  runningRelationConflictRecoveryCommandFromStoredOccExecutionV1,
+} from "../../commit/pointCommitTransactionTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+  activatePointMutationSession,
+  pointMutationSessionActivationFixture,
+} from "../../execution/transactionSessionActivationTestSupport";
+import {
+  issueSetupSeededSyscallValidatorProofV1,
+} from "../revision/applicationRevisionSyscallValidatorTestSupport";
+import {
+  readApplicationBindingProjectionInTransaction,
+} from "../../../src/application/applicationBindingProjection";
 import { isApplicationBindingReference } from "../../../src/installation/frameworkSchema/binding/canonical";
-import { relationActivationInventory, readyExactRelationReadFixture, prepareSealedRelationAttempt, applyExactRelationSourceCommit, advanceExactRelationScopeClock, setExactRelationAdjacencyVersion, relationReadinessFixture, prepareReadinessEvidence, prepareAdditionalRelationRevision, prepareLegacyRevisionInRelationFixture, settleCandidateValidation, uuidSequence } from "./applicationRelationReadinessFixture";
+import {
+  relationActivationInventory,
+  readyExactRelationReadFixture,
+  prepareSealedRelationAttempt,
+  applyExactRelationSourceCommit,
+  advanceExactRelationScopeClock,
+  setExactRelationAdjacencyVersion,
+  relationReadinessFixture,
+  prepareReadinessEvidence,
+  prepareAdditionalRelationRevision,
+  prepareLegacyRevisionInRelationFixture,
+  settleCandidateValidation,
+  uuidSequence,
+} from "./applicationRelationReadinessFixture";
 const LOCATOR = Object.freeze({
   kind: "database_per_scope",
   databaseKey: "application_relation_readiness_fold_target",

@@ -1,8 +1,17 @@
 import { Cause, Effect, Scope } from "effect";
-import { cmsError, type CmsCommand, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
+import {
+  cmsError,
+  type CmsCommand,
+  type CmsTransactionError,
+} from "@flarex/persistence-postgres/internal/cms-adapter";
 import { makeBorrowedCmsInvocation } from "@flarex/persistence-postgres/internal/cms-execution";
-import { LogicalParticipantInvocationError } from "@flarex/persistence-postgres/internal/logical-participant-admission";
-import type { LogicalParticipantBorrow, SessionJournalAttempt } from "@flarex/persistence-postgres/session-journal-store";
+import {
+  LogicalParticipantInvocationError,
+} from "@flarex/persistence-postgres/internal/logical-participant-errors";
+import type {
+  LogicalParticipantBorrow,
+  SessionJournalAttempt,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import type { Json } from "flarex-protocol/json";
 import type { PayloadNative } from "../runtime/native";
 

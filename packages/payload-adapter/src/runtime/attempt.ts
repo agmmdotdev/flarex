@@ -1,5 +1,7 @@
 import { Effect, Exit, Scope } from "effect";
-import type { SessionJournalAttempt } from "@flarex/persistence-postgres/session-journal-store";
+import type {
+  SessionJournalAttempt,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import type { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { bindPayloadParticipant } from "../participant/binding";
 import type { PayloadOperationInstrumentation } from "../operations";

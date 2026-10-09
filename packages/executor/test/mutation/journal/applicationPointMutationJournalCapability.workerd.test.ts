@@ -18,6 +18,7 @@ describe("Application point-mutation journal capability", () => {
         contents: await bundleWorker(),
       }],
     });
+    await runtime.ready;
   }, 120_000);
 
   afterAll(async () => {

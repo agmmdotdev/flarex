@@ -39,9 +39,11 @@ import { createPointMutationExecutionClaimLivenessV1 } from
   "../../src/execution/claims/transactionExecutionClaimLiveness";
 import {
   createSessionJournalStorePersistence,
+} from "../../src/execution/sessionJournalStore";
+import {
   type SessionJournalAttempt,
   type SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../src/execution/journal/api";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,

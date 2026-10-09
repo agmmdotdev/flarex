@@ -74,8 +74,10 @@ import {
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   createSessionJournalStorePersistence,
-  type AppDeveloperIndexQueryPortV1,
 } from "@flarex/persistence-postgres/session-journal-store";
+import {
+  type AppDeveloperIndexQueryPortV1,
+} from "@flarex/persistence-postgres/internal/session-journal-construction";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/stored-occ-execution";
 import { createPointMutationExecutionClaimLivenessV1 } from

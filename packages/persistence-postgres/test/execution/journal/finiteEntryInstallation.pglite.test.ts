@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
-import { createPGlitePersistence } from "../../src/database/pglite";
+import { createPGlitePersistence } from "../../../src/database/pglite";
 import { finiteEntryInstallationScenario } from "./finiteEntryInstallationScenario";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 
 describe("finite entry installed owner PGlite", () => {
   it("refuses actual function and private expected-type faults before reopening", async () => {

@@ -12,6 +12,7 @@ first, then use the corresponding test folder.
 | `application/` | Analysis, activation/admission, readiness, relation serving, revisions and write ownership |
 | `storage/` | Documents, pending reads, indexes, uniqueness, relation edges, catalog, search and retained history |
 | `execution/` | Preparation lifetimes, journal, finite capture, claims, session activation, OCC and recovery evidence |
+| `execution/journal/` | Paired receipt/replay and multi-source scenarios, finite-entry installation/lifecycle and the actual consumer API Worker boundary |
 | `commit/` | Atomic publication, durable outcome resolution, commit feed, event evidence and publication coverage |
 | `frameworks/` | CMS and Commerce host contracts, atomic workflow boundaries and supported cross-domain execution |
 | `integration/payload/` | Native Payload collection/query/relationship/population behavior against persistence |

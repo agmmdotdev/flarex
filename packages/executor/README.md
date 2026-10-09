@@ -27,6 +27,12 @@ These folders expose existing responsibilities. They do not create eight
 independently acquired services or eight transactions. Preparation, activation,
 execution and settlement retain their authentic capability and lifetime checks.
 
+Journal operation contracts and frozen validation values come from persistence's
+`internal/session-journal` consumer API. Error-only executor consumers import
+`internal/point-mutation-journal-errors`; they do not load journal construction
+or session activation to identify a failure. The journal RPC and capability
+Worker witnesses live in `test/mutation/journal/`.
+
 `deployment/` owns deployment metadata selection; `invocation/` retains the
 ordinary invocation API and its current engine consumers; `sync/` owns live-query
 and outbox orchestration; `tasks/` owns task wake/repair orchestration;

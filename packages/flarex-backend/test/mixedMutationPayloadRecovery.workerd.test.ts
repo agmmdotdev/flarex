@@ -18,7 +18,9 @@ import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/even
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemTransactionSessions, fxSystemCommits } from "../../persistence-postgres/src/database/schema";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import {
+  readFrozenFiniteAttempt,
+} from "../../persistence-postgres/src/testing/sessionJournalInspection";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { installOneCommitResponseFault } from "./support/postgresCommitResponseFault";

@@ -1,4 +1,6 @@
-import { readFrozenFiniteAttempt } from "../../persistence-postgres/src/execution/sessionJournalStore";
+import {
+  readFrozenFiniteAttempt,
+} from "../../persistence-postgres/src/testing/sessionJournalInspection";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
@@ -17,8 +19,12 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals, fxSystemCommits, fxSystemIndexBuildStates, fxSystemIdempotency, fxSystemScopeClocks } from
   "../../persistence-postgres/src/database/schema";
-import { readLogicalStorageRequirements } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
-import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
+import {
+  readLogicalStorageRequirements,
+} from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
+import {
+  loadPublishedPhysicalRequirementSnapshotV1,
+} from "../../persistence-postgres/src/storage/indexes/indexBuildReconciliation";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { decodePointMutationExactRuntimeResultV1Effect } from

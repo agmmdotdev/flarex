@@ -45,7 +45,7 @@ import {
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
   InvalidApplicationRevisionSyscallValidatorV1Error,
-} from "../../src/application/revision/applicationRevisionSyscallValidatorV1";
+} from "../../../src/application/revision/applicationRevisionSyscallValidatorErrors";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -69,42 +69,48 @@ import {
   vi,
 } from "vitest";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
+import {
+  closeInstallationAdmission,
+  lockInstallationForCurrentTransaction,
+} from "../../../src/installation/installationLifecycle";
 
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
   type AppRowValueEvidenceV1,
-} from "../../src/storage/documents/appRows";
+} from "../../../src/storage/documents/appRows";
 import {
   appendAppIndexEntryRevisionsInTransactionEffect,
-} from "../../src/storage/indexes/appIndexEntries";
+} from "../../../src/storage/indexes/appIndexEntries";
 import {
   createAppDeveloperIndexDefinitionPortV1,
   lowerAppDeveloperIndexKeyV1,
-} from "../../src/storage/indexes/appDeveloperIndexCommitV1";
-import type { LocatedAppIndexDefinitionV1 } from "../../src/storage/indexes/appIndexDefinitions";
+} from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
+import type { LocatedAppIndexDefinitionV1 } from "../../../src/storage/indexes/appIndexDefinitions";
+import {
+  resolvePinnedPointTableIdV1Effect,
+} from "../../../src/storage/documents/pinnedPointTableResolution";
 import {
   PinnedPointTablePersistenceV1Error,
-  resolvePinnedPointTableIdV1Effect,
   type ResolvePinnedPointTableIdV1Input,
-} from "../../src/storage/documents/pinnedPointTableResolution";
+} from "../../../src/storage/documents/pinnedPointTableErrors";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
-} from "../../src/database/pglite";
+} from "../../../src/database/pglite";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedScopeClockReader,
-} from "../../src/scope/scopeAuthorityResolution";
+} from "../../../src/scope/scopeAuthorityResolution";
 import {
   SchemaVersionArtifactCorruptionError,
-} from "../../src/storage/catalog/schemaVersionArtifacts";
-import type { SharedDatabaseScopePhysicalLocator } from "../../src/scope/scopeMetadataTypes";
+} from "../../../src/storage/catalog/schemaVersionArtifacts";
+import type { SharedDatabaseScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import type { TransactionExecutionClaimObservationV1 } from
-  "../../src/execution/claims/transactionExecutionClaimModel";
+  "../../../src/execution/claims/transactionExecutionClaimModel";
 import { createPointMutationExecutionClaimLivenessV1 } from
-  "../../src/execution/claims/transactionExecutionClaimLiveness";
+  "../../../src/execution/claims/transactionExecutionClaimLiveness";
 import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableCorruptionV1Error,
@@ -115,23 +121,27 @@ import {
   SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
   SessionJournalStorageCorruptionV1Error,
-  createAppDeveloperIndexQueryPortV1,
-  createSessionJournalStorePersistence,
   type PinnedDeveloperIndexV1,
   type PinnedPointTableV1,
   type RunSessionJournalPointOperationV1Result,
   type SessionJournalAttempt,
   type SessionJournalIndexedQueryOperationV1,
   type SessionJournalPointOperationV1,
-  type SessionJournalStorePersistenceOptionsV1,
   type SessionJournalStorePersistence,
-} from "../../src/execution/sessionJournalStore";
+} from "../../../src/execution/journal/api";
+import {
+  createAppDeveloperIndexQueryPortV1,
+} from "../../../src/execution/journal/indexQueryPort";
+import {
+  createSessionJournalStorePersistence,
+  type SessionJournalStorePersistenceOptionsV1,
+} from "../../../src/execution/sessionJournalStore";
 import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
   fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals,
-} from "../../src/database/schema";
+} from "../../../src/database/schema";
 import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
 import { verifyJournalEventEvidence, verifyJournalSealSequence } from "./journalEvidenceScenario";
 import {
@@ -149,33 +159,33 @@ import {
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/transactionSessionActivation";
 import {
   ExactRunningAttemptTransactionV1Error,
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   isLocatedExactRunningAttemptKernelV1,
   reconcileExactRunningAttemptTransactionFailureV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/execution/transactionSessionAttemptKernel";
 import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
   runEffect,
   runEffectFailure as runFailure,
   runSessionJournalPointOperation as runPointOperation,
-} from "../support/effectTestRuntime";
+} from "../../support/effectTestRuntime";
 import {
   issueSetupSeededSyscallValidatorProofV1,
   revokeSetupSeededSyscallValidatorProofV1,
   SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
 } from
-  "../application/revision/applicationRevisionSyscallValidatorTestSupport";
+  "../../application/revision/applicationRevisionSyscallValidatorTestSupport";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
-} from "./transactionSessionActivationTestSupport";
+} from "../transactionSessionActivationTestSupport";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -456,17 +466,20 @@ describe("C03 Postgres SessionJournalStore", () => {
         });
         const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(locatedDefinition, canonical, seed.creationTime));
         if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
-        await persistence.drizzle.transaction((tx) =>
-            runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
-                kind: "live",
-                scopeId,
-                definition: locatedDefinition,
-                encodedKey,
-                rowId: decodeOrderedIndexRowIdHexV1(seed.rowId),
-                writeEpoch: clock.epoch,
-                commitSeq: CommitSeqSchema.make(1n),
-              }]))
-          );
+        await persistence.drizzle.transaction(async (tx) => {
+          await runEffect(lockInstallationForCurrentTransaction(tx));
+          try {
+            return await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
+              kind: "live",
+              scopeId,
+              definition: locatedDefinition,
+              encodedKey,
+              rowId: decodeOrderedIndexRowIdHexV1(seed.rowId),
+              writeEpoch: clock.epoch,
+              commitSeq: CommitSeqSchema.make(1n),
+            }]));
+          } finally { closeInstallationAdmission(tx); }
+        });
       }
     }
 
@@ -4337,20 +4350,23 @@ async function seedSnapshotDocument(
     canonicalBytes: canonical.canonicalBytes,
     sha256: canonical.sha256,
   } satisfies AppRowValueEvidenceV1;
-  await persistence.drizzle.transaction((tx) =>
-    appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId,
-      tableId,
-      rowId,
-      writeEpoch: clock.epoch,
-      commitSeq: CommitSeqSchema.make(1n),
-      prevCommitSeq: null,
-      schemaVersionId,
-      creationTime,
-      value,
-    })
-  );
+  await persistence.drizzle.transaction(async (tx) => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      return await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq: CommitSeqSchema.make(1n),
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value,
+      });
+    } finally { closeInstallationAdmission(tx); }
+  });
   return appDocumentIdV1FromRowIdentity({ tableId, rowId });
 }
 

@@ -1,7 +1,14 @@
-import { ApplicationRevisionSyscallDocumentValidationV1Error } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
-import { APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1, APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1 } from "flarex-protocol/internal/application-revision-syscall-validation-v1";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
+import {
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+} from "flarex-protocol/internal/application-revision-syscall-validation-v1";
 import { Miniflare } from "miniflare";
-import type { MixedMutationExecutionHost } from "../../../executor/test/performance/support/mixedMutationInProcessRuntime";
+import type {
+  MixedMutationExecutionHost,
+} from "../../../executor/test/performance/support/mixedMutationInProcessRuntime";
 import {
   POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,

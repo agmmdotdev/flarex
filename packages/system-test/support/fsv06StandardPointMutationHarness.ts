@@ -50,8 +50,9 @@ import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/system-test/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/system-test/appDeveloperIndexCommitV1";
-import { createAppDeveloperIndexQueryPortV1 } from
-  "@flarex/persistence-postgres/session-journal-store";
+import {
+  createAppDeveloperIndexQueryPortV1,
+} from "@flarex/persistence-postgres/internal/session-journal-construction";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/postgres";
 import type { PointCommitTransactionProofStepV1 } from

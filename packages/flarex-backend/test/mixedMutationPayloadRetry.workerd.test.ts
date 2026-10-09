@@ -8,12 +8,16 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
-import { fxAppRowRevisions, fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
+import {
+  fxAppRowRevisions,
+  fxSystemTransactionSessions,
+} from "../../persistence-postgres/src/database/schema";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/commit/pointCommitTransaction";
-import { PointMutationJournalAdmittedOperationRejectedV1Error } from
-  "../../executor/src/mutation/journal/pointMutationJournal";
+import {
+  PointMutationJournalAdmittedOperationRejectedV1Error,
+} from "../../executor/src/mutation/journal/errors";
 import { admittedCommerceEventGroup } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";

@@ -6,17 +6,32 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import { PointCommitConflictV1Error } from "../../../persistence-postgres/src/commit/pointCommitTransaction";
-import { ApplicationActivationError } from "../../../persistence-postgres/src/application/applicationActivation";
-import { installAppSchemaCandidateValidationEffect } from "../../../persistence-postgres/src/storage/catalog/appSchemaCandidateValidation";
-import { inspectLogicalParticipantCommitAuthoritySource } from "../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
-import { finiteMetadataContractKey } from "../../../persistence-postgres/src/execution/finiteMetadataDependencies";
-import { readFrozenFiniteAttempt } from "../../../persistence-postgres/src/execution/sessionJournalStore";
+import {
+  ApplicationActivationError,
+} from "../../../persistence-postgres/src/application/applicationActivation";
+import {
+  installAppSchemaCandidateValidationEffect,
+} from "../../../persistence-postgres/src/storage/catalog/appSchemaCandidateValidation";
+import {
+  inspectLogicalParticipantCommitAuthoritySource,
+} from "../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
+import {
+  finiteMetadataContractKey,
+} from "../../../persistence-postgres/src/execution/finiteMetadataDependencies";
+import {
+  readFrozenFiniteAttempt,
+} from "../../../persistence-postgres/src/testing/sessionJournalInspection";
 import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions,
   fxSystemCommits, fxSystemCommitAppRowChanges, fxSystemIdempotency, fxSystemCommitWakes } from
   "../../../persistence-postgres/src/database/schema";
-import { fxSystemCommitRelationalChanges } from "../../../persistence-postgres/src/commit/publication/relationalFactsSchema";
+import {
+  fxSystemCommitRelationalChanges,
+} from "../../../persistence-postgres/src/commit/publication/relationalFactsSchema";
 import { fxSystemCommitEvents } from "../../../persistence-postgres/src/commit/events/schema";
-import { createMixedMutationProductFixture, type MixedMutationFinalEntryTestContext } from "../performance/support/mixedMutationProductFixture";
+import {
+  createMixedMutationProductFixture,
+  type MixedMutationFinalEntryTestContext,
+} from "../performance/support/mixedMutationProductFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];

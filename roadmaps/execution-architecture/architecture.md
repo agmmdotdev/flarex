@@ -121,12 +121,19 @@ external effects. Durable workflow/task progression remains a separate owner.
    [journal capabilities](../../packages/executor/src/mutation/journal/applicationPointMutationJournalCapability.ts).
    The [persistence journal](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
    owns observations, pending state and participant evidence.
+   Its [consumer contract](../../packages/persistence-postgres/src/execution/journal/api.ts)
+   is separate from construction. The [finite registry](../../packages/persistence-postgres/src/execution/journal/finiteEntry.ts)
+   owns authentic capture state; the [activation owner](../../packages/persistence-postgres/src/execution/journal/finiteEntryActivation.ts)
+   performs accepting SQL, then installs a capture only after acknowledged COMMIT.
 4. Payload's [participant binding](../../packages/payload-adapter/src/participant/binding.ts)
    or the admitted Commerce participant borrows the outer snapshot and pending
    changes. Native behavior runs through that borrowed context. Its completion
    contributes changes/accounting to the outer attempt; it is not a child commit.
 5. The executor freezes/verifies the completed work. The
-   [point commit owner](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
+   [closed-root owner](../../packages/persistence-postgres/src/execution/journal/freezeClosedRoot.ts)
+   issues the one authentic frozen capability; executor validation reads bounded
+   values through the consumer API. Full frozen evidence remains with publication.
+   The [point commit owner](../../packages/persistence-postgres/src/commit/pointCommitTransaction.ts)
    validates required conflict evidence and publishes one atomic outcome.
 6. [Finite recovery](../../packages/executor/src/mutation/recovery/finitePointMutationRecovery.ts)
    resolves the stored outcome. An admitted conflict retry reruns a fresh complete

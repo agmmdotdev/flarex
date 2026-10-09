@@ -52,10 +52,8 @@ import {
 import {
   makePointMutationExactRuntimeBindingRunnerV1,
 } from "@flarex/executor/point-mutation-exact-runtime-binding";
-import {
-  InvalidPointMutationJournalCapabilityV1Error,
-  type PointMutationJournalTableV1,
-} from "../../../src/mutation/journal/pointMutationJournal";
+import { type PointMutationJournalTableV1 } from "../../../src/mutation/journal/pointMutationJournal";
+import { InvalidPointMutationJournalCapabilityV1Error } from "../../../src/mutation/journal/errors";
 import type {
   PointMutationOccBoundJournalV1,
   PointMutationOccRuntimeNeutralRunnerInputV1,

@@ -1,16 +1,31 @@
 import { Clock, Effect, Result } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
-import type { AdmittedCompletion, LogicalBorrowedParticipantOperation, SessionJournalAttempt } from "../../execution/sessionJournalStore";
+import type {
+  AdmittedCompletion,
+  LogicalBorrowedParticipantOperation,
+  SessionJournalAttempt,
+} from "../../execution/journal/contracts";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissionEffect } from
   "../../storage/documents/logicalDocuments/documentAdmission";
-import { projectFiniteStorageCaptureFailure, LogicalParticipantAdmissionError, type LogicalParticipantAttemptAdmission } from
-  "../../storage/documents/logicalDocuments/participantAdmission";
-import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction, LogicalStorageReadDemand } from "../../storage/documents/logicalDocuments/model";
+import {
+  projectFiniteStorageCaptureFailure,
+  type LogicalParticipantAttemptAdmission,
+} from "../../storage/documents/logicalDocuments/participantAdmission";
+import {
+  LogicalParticipantAdmissionError,
+} from "../../storage/documents/logicalDocuments/participantErrors";
+import type {
+  LogicalDocumentBorrowView,
+  LogicalDocumentReadTransaction,
+  LogicalStorageReadDemand,
+} from "../../storage/documents/logicalDocuments/model";
 import { makeLogicalDocumentWorkingSet } from "../../storage/documents/logicalDocuments/workingSet";
-import { requireLogicalDocumentRootEvaluatorOpen } from "../../storage/documents/logicalDocuments/rootEvaluator";
+import {
+  requireLogicalDocumentRootEvaluatorOpen,
+} from "../../storage/documents/logicalDocuments/rootEvaluator";
 import { makeCmsCommandContext } from "./context";
 import { getCmsCommand, type CmsCommand, type CmsCommandContext } from "./commands";
 import { cmsError, cmsLimits, CmsTransactionError,

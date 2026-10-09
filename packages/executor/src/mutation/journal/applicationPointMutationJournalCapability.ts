@@ -1,11 +1,13 @@
 import type {
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
-} from "@flarex/persistence-postgres/session-journal-store";
-import { ApplicationTableWriteDeniedError } from "@flarex/persistence-postgres/session-journal-store";
+} from "@flarex/persistence-postgres/internal/session-journal";
+import {
+  ApplicationTableWriteDeniedError,
+} from "@flarex/persistence-postgres/internal/session-journal";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
-} from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+} from "@flarex/persistence-postgres/internal/application-syscall-errors";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
@@ -13,10 +15,10 @@ import {
 } from "flarex-protocol/app-document-id";
 
 import {
-  InvalidPointMutationJournalCapabilityV1Error,
   type PointMutationJournalIndexedQueryLogicalOutcomeV1,
   type PointMutationJournalLogicalOutcomeV1,
 } from "./pointMutationJournal";
+import { InvalidPointMutationJournalCapabilityV1Error } from "./errors";
 import {
   PointMutationJournalResultRejectedV1Error,
   type PointMutationJournalRpcBoundaryV1Error,

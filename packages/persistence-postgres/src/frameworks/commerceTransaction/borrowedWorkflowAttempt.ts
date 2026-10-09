@@ -5,10 +5,20 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { FrameworkCommandMilliseconds } from "../../execution/preparation/frameworkExecutionPolicy";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
-import type { SessionJournalAttempt } from "../../execution/sessionJournalStore";
-import { makeLogicalDocumentWorkingSet, combineLogicalWriteMechanics } from "../../storage/documents/logicalDocuments/workingSet";
-import { requireLogicalDocumentRootEvaluatorOpen } from "../../storage/documents/logicalDocuments/rootEvaluator";
-import type { LogicalDocumentBorrowView, LogicalStorageReadDemand } from "../../storage/documents/logicalDocuments/model";
+import type {
+  SessionJournalAttempt,
+} from "../../execution/journal/contracts";
+import {
+  makeLogicalDocumentWorkingSet,
+  combineLogicalWriteMechanics,
+} from "../../storage/documents/logicalDocuments/workingSet";
+import {
+  requireLogicalDocumentRootEvaluatorOpen,
+} from "../../storage/documents/logicalDocuments/rootEvaluator";
+import type {
+  LogicalDocumentBorrowView,
+  LogicalStorageReadDemand,
+} from "../../storage/documents/logicalDocuments/model";
 import { projectFiniteStorageCaptureFailure, hasLogicalParticipantAttemptAdmission, withLogicalParticipantAdmissionBundleEffect,
   type LogicalParticipantAdmissionBundle, type LogicalParticipantAttemptAdmission } from
   "../../storage/documents/logicalDocuments/participantAdmission";
@@ -18,11 +28,19 @@ import { makeAtomicEventCapture, consumeCommerceEvents, captureAtomicCommerceEve
   prepareAtomicCommerceEvents, admittedCommerceEventGroup, type AtomicCommerceEvents,
   type AtomicCommerceCallObservation, type CommerceEventContract } from "../atomicCommerce/events";
 import type { AtomicCommerceContext } from "../atomicCommerce/commands";
-import { requirePreparedAtomicCommerceLogicalParticipant, type PreparedAtomicCommerceLogicalParticipant } from "../atomicCommerce/participants";
+import {
+  requirePreparedAtomicCommerceLogicalParticipant,
+  type PreparedAtomicCommerceLogicalParticipant,
+} from "../atomicCommerce/participants";
 import { getCommerceCommand, type CommerceCommand } from "./commands";
 import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError, type CommerceTransactionError } from "./model";
-import { captureCommerceResources, defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
+import {
+  captureCommerceResources,
+  defaultCommerceResources,
+  logicalCommerceWorkingSetLimits,
+  type CommerceResources,
+} from "./resources";
 import { captureCommerceJsonData, projectCommerceRequestFailure } from "./request";
 import { makeLogicalCommerceActivityProjection } from "./logicalParticipant";
 

@@ -6,8 +6,9 @@ import { describe, expect, it } from "vitest";
 
 import { CommerceTransactionError } from
   "@flarex/persistence-postgres/internal/commerce-values";
-import { LogicalParticipantInvocationError } from
-  "@flarex/persistence-postgres/internal/logical-participant-admission";
+import {
+  LogicalParticipantInvocationError,
+} from "@flarex/persistence-postgres/internal/logical-participant-errors";
 import { makeCommerceHost } from
   "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
