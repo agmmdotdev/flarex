@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import type { CompiledPayloadCollections } from "../collections";
 import { makePayloadNative } from "../runtime/native";
 import { bindPayloadDirect } from "../direct/binding";
+import { registerPayloadRuntime } from "../runtime/registry";
 
 type Probe = "none" | "unobserved" | "wrong-collection" | "foreign-request" |
   "cross-write" | "unbound" | "projection" | "locale";
@@ -31,6 +32,8 @@ export const makePayloadAccessProbeRuntime = Effect.fn("PayloadAccessProbe.make"
       }],
     },
   });
-  return { runtime: { commands: native.commands, ...bindPayloadDirect(native) },
+  const runtime = Object.freeze(bindPayloadDirect(native));
+  registerPayloadRuntime(runtime, native);
+  return { runtime,
     selectProbe: (selected: Probe) => { probe = selected; } };
 });

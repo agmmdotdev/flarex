@@ -1,10 +1,12 @@
+import { constructApplicationServingOwners, retainApplicationServing } from "../../../src/application/applicationServing";
+import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
 import type { ApplicationActivationTargetProfile } from "../../../src/application/applicationReadiness";
 import { canonicalizeApplicationManifestV1, canonicalizeApplicationManifestV2, verifyApplicationManifestWithRelations, type ApplicationManifestV1, type ApplicationManifestV2 } from "@flarex/analysis/application-analysis";
 import { produceApplicationTaskBindingsV1 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { hashCanonicalTaskCatalogV1, makeStandardApplicationTaskSha256V1 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -15,10 +17,9 @@ import { expect } from "vitest";
 import { exactRelationCommitRowId, publishExactRelationSourceCommit } from "./applicationRelationSourceCommitFixture";
 import { policyManifestFixture } from "../ownership/applicationWritePolicyFixture";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
-import { advanceAppSchemaCandidateValidationEffect, createAppSchemaCandidateReadinessPort, createAppSchemaCandidateValidationPort, createLocatedAppSchemaCandidateValidationTarget, installAppSchemaCandidateValidationEffect, settleAppSchemaCandidateValidationEffect } from "../../../src/storage/catalog/appSchemaCandidateValidation";
+import { advanceAppSchemaCandidateValidationEffect, createAppSchemaCandidateValidationPort, createLocatedAppSchemaCandidateValidationTarget, installAppSchemaCandidateValidationEffect, settleAppSchemaCandidateValidationEffect } from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import { locateAppIndexDefinitionByIdEffect } from "../../../src/storage/indexes/appIndexDefinitions";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppUniqueConstraintSetEligibilityPortV1, reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
+import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
 import { readAppUniqueConstraintSetClosureV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
 import { closeAppUniqueConstraintSetV1InTransactionEffect, prepareAppUniqueConstraintSetClosureV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
 import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
@@ -29,23 +30,16 @@ import { type ApplicationRelationBindingPublication, publishApplicationRelationB
 import { createApplicationRelationBuildPort } from "../../../src/application/relations/applicationRelationBuild";
 import { createApplicationRelationCommitPort } from "../../../src/application/relations/applicationRelationCommit";
 import { makeApplicationRelationPublicationRepository } from "../../../src/application/relations/applicationRelationPublication";
-import { makeApplicationRelationReadinessFoldRepository } from "../../../src/application/relations/applicationRelationReadinessFold";
-import { createApplicationRelationReadinessPort } from "../../../src/application/relations/readiness";
 import { createApplicationRelationReadPort } from "../../../src/application/relations/applicationRelationRead";
 import { fxSystemApplicationReadiness, fxSystemApplicationReadinessRelations } from "../../../src/application/relations/applicationRelationSchema";
-import { createApplicationRelationSchemaAuthorityPort } from "../../../src/application/relations/applicationRelationSchemaAuthority";
-import { createApplicationRelationServingInspector } from "../../../src/application/relations/applicationRelationServing";
-import { createApplicationRelationTaskCatalogSnapshotPort, makeApplicationRelationTaskBindingRepository } from "../../../src/application/relations/applicationRelationTaskBindings";
+import { makeApplicationRelationTaskBindingRepository } from "../../../src/application/relations/applicationRelationTaskBindings";
 import { makeApplicationSchemaAuthorityPublisher } from "../../../src/application/applicationSchemaAuthority";
-import { createApplicationTaskCatalogSnapshotPort, makeApplicationTaskBindingRepository } from "../../../src/application/tasks/applicationTaskBindings";
+import { makeApplicationTaskBindingRepository } from "../../../src/application/tasks/applicationTaskBindings";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
 import { buildAppDeveloperOrderedIndexV1Effect, buildIntrinsicCreationTimeIndexV1Effect } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import { loadPublishedPhysicalRequirementSnapshotV1, reconcilePublishedIndexBuildsV1Effect } from "../../../src/storage/indexes/indexBuildReconciliation";
-import { createPhysicalDefinitionLifecyclePort } from "../../../src/installation/physicalDefinitionLifecycle";
 import { createPGliteLocatedPointMutationSessionActivationTargetV1, createPGliteLocatedSplitScopeClockTarget, createPGliteSplitScopeAuthorityProvisioner } from "../../../src/database/pglite";
-import { createPointCommitPublisherPortV1 } from "../../../src/commit/pointCommitTransaction";
 import { isLocatedReadCommittedAttemptTargetV1 } from "../../../src/execution/transactionSessionAttemptKernel";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../../src/scope/scopeAuthorityControlRead";
 import type { SplitScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
 import { deployments, fxSystemScopeClocks } from "../../../src/database/schema";
@@ -576,6 +570,8 @@ export async function relationReadinessFixture(
       authority: authorityPorts,
     }),
     legacyColdCalls: runtime.legacyColdCalls,
+    servingOwners: runtime.servingOwners,
+    makeServing: runtime.makeServing,
     input: Object.freeze({
       deploymentId,
       scopeId: authority.scopeId,
@@ -604,53 +600,24 @@ export function composeRelationReadinessFixtureRuntime(
       throw new Error("Binding fixture requires a read-committed session target");
     return pointTarget;
   })();
-  const scopeSessionTargets = { resolve: async () => {
-    if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) throw new Error("Expected a read-committed session target");
-    return pointTarget;
-  } };
-  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
-  const authorityPorts = Object.freeze({ ...controlReader,
-    scopeClockTargets: input.bindingAdmission ? scopeSessionTargets : { resolve: async () => locatedTarget } });
-  const pointCommitAuthority = Object.freeze({ scopeMetadata: authorityPorts.scopeMetadata,
-    provisioningReceipts: authorityPorts.provisioningReceipts, scopeSessionTargets, applicationControlDb: control.drizzle });
-  const relationCommit = createApplicationRelationCommitPort(control.drizzle, pointCommitAuthority);
-  const servingInspector = createApplicationRelationServingInspector();
-  const relationBuild = createApplicationRelationBuildPort(control.drizzle, authorityPorts, relationCommit, servingInspector);
-  const relations = createApplicationRelationReadinessPort(control.drizzle, authorityPorts, relationCommit, relationBuild);
-  const candidateValidation = createAppSchemaCandidateValidationPort({ controlDb: control.drizzle, authority: authorityPorts });
-  const candidateReadiness = createAppSchemaCandidateReadinessPort(candidateValidation);
-  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(control.drizzle);
-  const uniqueConstraintEligibility = createAppUniqueConstraintSetEligibilityPortV1({ controlDb: control.drizzle,
-    authority: authorityPorts }, uniqueConstraints);
-  const pointCommit = createPointCommitPublisherPortV1({ scopeMetadata: authorityPorts.scopeMetadata,
-    provisioningReceipts: authorityPorts.provisioningReceipts,
-    scopeSessionTargets: { resolve: async () => { throw new Error("Relation readiness must not open a commit session."); } },
-  }, { uniqueConstraints, uniqueConstraintEligibility });
-  const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({ controlDb: control.drizzle, authority: authorityPorts });
-  const foldContext = Object.freeze({ controlDb: control.drizzle, authority: authorityPorts,
-    schema: createApplicationRelationSchemaAuthorityPort(control.drizzle),
-    taskCatalog: createApplicationRelationTaskCatalogSnapshotPort(), candidateValidation: candidateReadiness,
-    pointCommit, physicalDefinitionLifecycle, relations });
-  const fold = makeApplicationRelationReadinessFoldRepository(foldContext);
   let legacyColdCalls = 0;
-  const legacyReadiness = makeApplicationReadinessRepository({ controlDb: control.drizzle, authority: authorityPorts,
+  if (!isLocatedReadCommittedAttemptTargetV1(pointTarget))
+    throw new Error("Expected a read-committed session target");
+  if (input.sessionTargetOptions?.managedInstallation !== undefined && input.activationProfile === undefined)
+    throw new Error("A managed relation fixture requires its genuine activation target profile");
+  const activationProfile: ApplicationActivationTargetProfile = input.activationProfile ?? { kind: "fullProof" };
+  const owners = constructApplicationServingOwners({ controlDatabase: control.drizzle, database: target.drizzle,
+    target: locatedTarget, scopeSessionTarget: pointTarget, deploymentId: input.deploymentId, scopeId: input.scopeId,
+    activation: activationProfile,
     ...(input.protectedMetadata === undefined ? {} : { protectedMetadata: input.protectedMetadata }),
-    schema: makeApplicationSchemaAuthorityPublisher({ db: control.drizzle, runTransaction: run => control.drizzle.transaction(run) }),
-    taskCatalog: createApplicationTaskCatalogSnapshotPort(), candidateValidation: candidateReadiness,
-    pointCommit, physicalDefinitionLifecycle, cold: { runtimeHostIdentity: input.coldRuntime?.runtimeHostIdentity ?? RUNTIME_HOST_IDENTITY,
+    cold: { runtimeHostIdentity: input.coldRuntime?.runtimeHostIdentity ?? RUNTIME_HOST_IDENTITY,
       compatibilityDate: input.coldRuntime?.compatibilityDate ?? COMPATIBILITY_DATE, materialize: () => {
         legacyColdCalls++;
         return Effect.die(new Error("Legacy cold materialization must not run for relation readiness."));
       } } });
-  if (input.sessionTargetOptions?.managedInstallation !== undefined && input.activationProfile === undefined)
-    throw new Error("A managed relation fixture requires its genuine activation target profile");
-  const activationProfile: ApplicationActivationTargetProfile = input.activationProfile ?? { kind: "fullProof" };
-  const relationActivation = makeApplicationActivationRepository({ activation: activationProfile,
-    deploymentId: input.deploymentId, scopeId: input.scopeId, readiness: legacyReadiness,
-    relationReadiness: fold, authority: authorityPorts });
-  return { pointTarget, authorityPorts, pointCommitAuthority, relationCommit, servingInspector, relationBuild,
-    relations, candidateValidation, physicalDefinitionLifecycle, foldContext, fold, legacyReadiness,
-    relationActivation, activationProfile, uniqueConstraintEligibility, legacyColdCalls: () => legacyColdCalls };
+  return { ...owners, servingOwners: owners, makeServing: (session: RelationalSession) => retainApplicationServing(owners, session),
+    pointTarget, authorityPorts: owners.authority, legacyReadiness: owners.readiness,
+    relationActivation: owners.application, activationProfile, legacyColdCalls: () => legacyColdCalls };
 }
 
 export async function prepareReadinessEvidence(

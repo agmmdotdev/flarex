@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { preparePayloadRelationRevision } from "./payloadRelationFixture";
 import { dataBindingActivationRequest } from "../../../src/installation/frameworkSchema/binding/host";
@@ -13,7 +14,8 @@ import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { makePayloadConformanceRuntime } from "../../../../payload-adapter/src/testing";
 import { payloadJoinContentIdentity } from "../../../../payload-adapter/src/testing/profiles";
 import { createApplicationRelationReadPort } from "../../../src/application/relations/applicationRelationRead";
-import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
+import { makeApplicationServing } from "../../../src/application/applicationServing";
+import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
 import { prepareApplicationBindingSelection, withAcceptedApplicationBinding, readAcceptedApplicationBinding } from "../../../src/application/applicationActivation";
 import { lockScopeClockForShareInTransactionEffect } from "../../../src/scope/scopeClock";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -62,19 +64,19 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
     const caught = defineCmsCommand({ name: "join-caught-refusal", mode: "write", run: Effect.fn("JoinTest.caughtRefusal")(function* (ctx, args) {
       if (!isJsonObject(args) || typeof args.target !== "string") return yield* Effect.fail(cmsError("invalidInput"));
       yield* ctx.relations.incoming(ctx.context, ctx.transactionId, "relatedPost", args.target, 8).pipe(Effect.result);
-      return yield* ctx.nested(conformance.runtime.commands.create, { collection: "posts", data: { title: "must-not-publish", publishedAt: "2026-01-01" } });
+      return yield* ctx.nested(inspectPayloadRuntimeForTest(conformance.runtime).commands.create, { collection: "posts", data: { title: "must-not-publish", publishedAt: "2026-01-01" } });
     }) });
-    const composition = { ...hostInput, expectedContentIdentity: payloadJoinContentIdentity, commands: [...Object.values(conformance.runtime.commands), probe, nested, caught] };
+    const composition = { ...hostInput, expectedContentIdentity: payloadJoinContentIdentity, commands: [...Object.values(inspectPayloadRuntimeForTest(conformance.runtime).commands), probe, nested, caught] };
     const observed: AppRelationEdgeQueryObservation[] = [];
     const host = yield* makeCmsHost(composition, { observeIncomingQuery: query => { observed.push(query); } });
     yield* Effect.promise(async () => {
-      const write = (command: typeof conformance.runtime.commands.create, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
-      const create = (title: string, data: JsonObject = {}) => write(conformance.runtime.commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01", ...data } });
-      const update = (target: string, data: JsonObject) => write(conformance.runtime.commands.update, { collection: "posts", id: target, data });
+      const write = (command: ReturnType<typeof inspectPayloadRuntimeForTest>["commands"]["create"], args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
+      const create = (title: string, data: JsonObject = {}) => write(inspectPayloadRuntimeForTest(conformance.runtime).commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01", ...data } });
+      const update = (target: string, data: JsonObject) => write(inspectPayloadRuntimeForTest(conformance.runtime).commands.update, { collection: "posts", id: target, data });
       const read = async (target: string, depth = 0, joins?: Json) => {
         const spans: string[] = [];
         const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
-        const result = await runEffect(host.read(conformance.runtime.commands.findByID,
+        const result = await runEffect(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.findByID,
           { collection: "posts", id: target, depth, ...(joins === undefined ? {} : { joins }) })
           .pipe(Effect.provideService(Tracer.Tracer, tracer)));
         expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
@@ -133,15 +135,15 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       if (!Array.isArray(populated.docs)) throw new Error("Missing docs");
       for (const doc of populated.docs) expect(object(doc).referencedByMany).toBeUndefined();
       expect(populated.totalDocs).toBeUndefined();
-      const multi = object(await runEffect(host.read(conformance.runtime.commands.find, { collection: "posts", depth: 1, limit: 16 })));
+      const multi = object(await runEffect(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.find, { collection: "posts", depth: 1, limit: 16 })));
       expect(multi.docs).toEqual(expect.arrayContaining([expect.objectContaining({ id: target }), expect.objectContaining({ id: other })]));
       expect(await inventory()).toEqual(beforeReads);
       const executions = conformance.observations.executions();
       for (const joins of [{ unknown: {} }, { referencedBy: { limit: null } }, { referencedBy: { limit: 0 } }, { referencedBy: { limit: 17 } }, { referencedBy: { page: 2 } },
         { referencedBy: { count: true } }, { referencedBy: { sort: "id" } }, { referencedBy: { where: {} } }, null]) {
-        expect(await runEffectFailure(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, joins }))).toMatchObject({ reason: "unsupportedProfile" });
+        expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.findByID, { collection: "posts", id: target, joins }))).toMatchObject({ reason: "unsupportedProfile" });
       }
-      await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.update, { collection: "posts", id: target, data: { referencedBy: [] } }));
+      await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.update, { collection: "posts", id: target, data: { referencedBy: [] } }));
       expect(conformance.observations.executions()).toBe(executions);
       await runEffectFailure(host.read(probe, { target, forged: true }));
       const audit = fixture.relation.binding.tables.find(table => table.logicalName === "audit");
@@ -174,7 +176,7 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       // Preserve the body-corruption witness without bypassing the stable-identity constraint.
       await input.persistence.drizzle.update(fxAppRowRevisions).set({ valueBytes: sql`decode('ff', 'hex')` }).where(bodyIdentity);
       try {
-        expect(await runEffectFailure(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, depth: 1 }))).toMatchObject({ reason: "storedCorruption" });
+        expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.findByID, { collection: "posts", id: target, depth: 1 }))).toMatchObject({ reason: "storedCorruption" });
       } finally { await input.persistence.drizzle.update(fxAppRowRevisions).set({ valueBytes: body.valueBytes }).where(bodyIdentity); }
       expect(await inventory()).toEqual(beforeReads);
       // Reject both the developer-head read and the later intrinsic-head read.
@@ -188,7 +190,7 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
             return execute(statement);
           });
         }) }));
-        expect(await runEffectFailure(failingMembershipHost.run(failingMembershipHost.newRequestKey(), conformance.runtime.commands.update,
+        expect(await runEffectFailure(failingMembershipHost.run(failingMembershipHost.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.update,
           { collection: "posts", id: source, data: { score: 8 } }))).toMatchObject({ reason: "statementFailure" });
         expect(membershipQueries).toBe(rejectAt);
         expect(await inventory()).toEqual(beforeReads);
@@ -212,22 +214,22 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       const beforeOutput = await inventory();
       const adapterFind = vi.spyOn(conformance.payload.db, "find");
       try {
-        expect(await runEffectFailure(host.read(conformance.runtime.commands.find, { collection: "posts", depth: 1, limit: 15,
+        expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.find, { collection: "posts", depth: 1, limit: 15,
           joins: { referencedBy: { limit: 16 }, referencedByMany: { limit: 16 } } }))).toMatchObject({ reason: "limitExceeded" });
         // Root identities returned, but the loader batch failed before returning source documents to Payload.
         expect(adapterFind.mock.settledResults.map(result => result.type)).toEqual(["fulfilled", "rejected"]);
       } finally { adapterFind.mockRestore(); }
       expect(await inventory()).toEqual(beforeOutput);
       for (const [index, current] of outputSources.entries()) await update(current, { title: 'join-source-' + index, relatedPosts: [target] });
-      for (const current of extraSources) await write(conformance.runtime.commands.delete, { collection: "posts", id: current });
+      for (const current of extraSources) await write(inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: current });
       if ("pool" in input.persistence) {
         for (const mutation of ["retarget", "delete"] as const) for (const first of ["reader", "writer"] as const) {
           const raceTarget = id(await create(`join-race-target-${mutation}-${first}`));
           const raceSource = id(await create(`join-race-source-${mutation}-${first}`, { relatedPost: raceTarget, relatedPosts: [raceTarget] }));
           const entered = barrier<void>(); const release = barrier<void>();
           const held = await runEffect(makeCmsHost(composition, { afterAdmission: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
-          const reading = (first === "reader" ? held : host).read(conformance.runtime.commands.findByID, { collection: "posts", id: raceTarget, depth: 1 });
-          const writing = (first === "writer" ? held : host).run(host.newRequestKey(), mutation === "delete" ? conformance.runtime.commands.delete : conformance.runtime.commands.update,
+          const reading = (first === "reader" ? held : host).read(inspectPayloadRuntimeForTest(conformance.runtime).commands.findByID, { collection: "posts", id: raceTarget, depth: 1 });
+          const writing = (first === "writer" ? held : host).run(host.newRequestKey(), mutation === "delete" ? inspectPayloadRuntimeForTest(conformance.runtime).commands.delete : inspectPayloadRuntimeForTest(conformance.runtime).commands.update,
             mutation === "delete" ? { collection: "posts", id: raceSource } : { collection: "posts", id: raceSource, data: { relatedPost: null, relatedPosts: [] } });
           const results = await runEffect(overlappingSnapshotRace(first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve()));
           expect(results).toEqual([expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) }), expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) })]);
@@ -242,7 +244,7 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       }
       const entered = barrier<void>();
       const blocked = await runEffect(makeCmsHost(composition, { documentReads: { beforeRead: selection => selection === "batch" ? Effect.sync(() => entered.resolve()).pipe(Effect.andThen(Effect.never)) : Effect.void } }));
-      const reading = Effect.runFork(blocked.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, depth: 1 }));
+      const reading = Effect.runFork(blocked.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.findByID, { collection: "posts", id: target, depth: 1 }));
       try { await withDeadline(entered.promise); } finally { await runEffect(Fiber.interrupt(reading)); }
       expect(Exit.isFailure(await runEffect(Fiber.await(reading)))).toBe(true);
       await update(source, { score: 7 });
@@ -252,22 +254,34 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       const beforeHead = await runEffect(fixture.relationActivation.readActive());
       await runEffect(fixture.relationActivation.activate({ revisionId: revision.publication.revisionId, expectedActiveHead: beforeHead.expectedActiveHead }));
       const callsBeforeGap = conformance.observations.executions();
-      expect(await runEffectFailure(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, depth: 1 }))).toMatchObject({ reason: "invalidAuthority", cause: { reason: "concurrentHead" } });
+      const gapFailure = await runEffectFailure(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.findByID, { collection: "posts", id: target, depth: 1 }));
+      // This revision changes the immutable schema, so the retained generation
+      // refuses before native execution. A binding refresh cannot revive it.
+      expect(gapFailure).toMatchObject({ reason: "invalidAuthority", cause: {
+        _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false,
+      } });
       expect(conformance.observations.executions()).toBe(callsBeforeGap);
       const applicationReference = await runEffect(input.bindings.readApplicationReference());
       const candidate = await runEffect(input.bindings.prepare({ ...beforeBinding.frame, application: applicationReference,
         payloadContent: { ...beforeBinding.frame.payloadContent, application: applicationReference } }));
       const reference = applicationReference;
       await runEffect(input.bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "join-rebind", candidate.sha256, beforeBinding.head)));
+      expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.findByID,
+        { collection: "posts", id: target, depth: 1 }))).toMatchObject({ reason: "invalidAuthority", cause: {
+        _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false,
+      } });
+      expect(conformance.observations.executions()).toBe(callsBeforeGap);
       retainedTarget = target; retainedSource = source;
     });
   })));
   await input.reopen?.();
-  const application = makeApplicationActivationRepository({ activation: { kind: "fullProof" }, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts });
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const conformance = yield* makePayloadConformanceRuntime("payload.content-joins");
-    const host = yield* conformance.runtime.bind({ ...hostInput, application });
-    const result = object(yield* host.read(conformance.runtime.commands.findByID, { collection: "posts", id: retainedTarget, depth: 1, joins: { referencedBy: { limit: 16 }, referencedByMany: false } }));
+    const host = yield* conformance.runtime.bind(yield* makeCmsCommandBinding({
+      serving: yield* makeApplicationServing({ ...fixture.servingOwners, session: hostInput.session }),
+      hostRuntime: hostInput.hostRuntime, identityAndAccessPolicy: hostInput.identityAndAccessPolicy,
+      profile: { kind: "fullProof", ...(hostInput.payloadPreferenceTarget === undefined ? {} : { payloadPreferenceTarget: hostInput.payloadPreferenceTarget }) } }));
+    const result = object(yield* host.findByID({ collection: "posts", id: retainedTarget, depth: 1, joins: { referencedBy: { limit: 16 }, referencedByMany: false } }));
     expect(object(result.referencedBy).docs).toEqual(expect.arrayContaining([expect.objectContaining({ id: retainedSource, score: 7 })]));
   })));
 }

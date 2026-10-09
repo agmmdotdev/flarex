@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Deferred, Effect, Fiber, Result } from "effect";
 import { ValidationError } from "payload";
 import { expect, vi } from "vitest";
@@ -45,7 +46,7 @@ export const payloadUniqueScenario = Effect.fn("UniquePayload.scenario")(functio
         })) } } } };
     expect(yield* applicationUniqueDeclarationsMatch(fixture.control.drizzle, changed, bound)).toBe(false);
   }
-  const create = (data: ReturnType<typeof uniqueData>) => host.run(host.newRequestKey(), runtime.commands.create, { collection: "items", data });
+  const create = (data: ReturnType<typeof uniqueData>) => host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data });
   const first = decodeIndexedDocument(yield* create(uniqueData("first", "red", 10)));
   const second = decodeIndexedDocument(yield* create(uniqueData("second", "red", 11)));
   yield* create(uniqueData("blue", "blue", 10));
@@ -57,36 +58,36 @@ export const payloadUniqueScenario = Effect.fn("UniquePayload.scenario")(functio
     [uniqueData("alias-clash", "green", 100, "alias-first"), ["alias"]],
     [uniqueData("tuple-clash", "red", 10), ["category", "amount"]],
   ] as const) {
-    const failure = yield* host.run(host.newRequestKey(), runtime.commands.create, { collection: "items", data }).pipe(Effect.flip);
+    const failure = yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data }).pipe(Effect.flip);
     expect(failure.cause).toBeInstanceOf(ValidationError);
     expect(failure).toMatchObject({ reason: "documentInvalid", cause: { status: 400,
       data: { errors: paths.map(path => ({ path, message: "Value must be unique" })) } } });
     expect(yield* Effect.promise(tested.inventory)).toEqual(before);
   }
-  const failedUpdate = yield* host.run(host.newRequestKey(), runtime.commands.update,
+  const failedUpdate = yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.update,
     { collection: "items", id: second.id, data: { amount: 10 } }).pipe(Effect.flip);
   expect(failedUpdate).toMatchObject({ reason: "documentInvalid", cause: { data: { errors: [{ path: "category" }, { path: "amount" }] } } });
   expect(yield* Effect.promise(tested.inventory)).toEqual(before);
-  expect(yield* host.read(runtime.commands.count, selection("red", 10))).toEqual({ totalDocs: 1 });
-  expect(yield* host.read(runtime.commands.count, { collection: "items", where: { alias: { equals: "alias-first" } } })).toEqual({ totalDocs: 1 });
-  expect(yield* host.read(runtime.commands.count, { collection: "items", where: { category: { equals: "red" } } })).toEqual({ totalDocs: 2 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, selection("red", 10))).toEqual({ totalDocs: 1 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, { collection: "items", where: { alias: { equals: "alias-first" } } })).toEqual({ totalDocs: 1 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, { collection: "items", where: { category: { equals: "red" } } })).toEqual({ totalDocs: 2 });
   let executions = 0;
   const move = defineCmsCommand({ name: "moveUniqueClaims", mode: "write", run: Effect.fn(function* (ctx, fail) {
     executions++;
-    yield* ctx.nested(runtime.commands.update, { collection: "items", id: first.id, data: { amount: 12, alias: "moved-alias" } });
-    expect(yield* ctx.nested(runtime.commands.count, selection("red", 10))).toEqual({ totalDocs: 0 });
-    const replacement = decodeIndexedDocument(yield* ctx.nested(runtime.commands.create,
+    yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.update, { collection: "items", id: first.id, data: { amount: 12, alias: "moved-alias" } });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, selection("red", 10))).toEqual({ totalDocs: 0 });
+    const replacement = decodeIndexedDocument(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create,
       { collection: "items", data: uniqueData("replacement", "red", 10, "alias-first") }));
-    expect(yield* ctx.nested(runtime.commands.count, selection("red", 10))).toEqual({ totalDocs: 1 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, selection("red", 10))).toEqual({ totalDocs: 1 });
     // This proves core claim release. Native delete's preference lifecycle has
     // a separate connected fixture and is not granted by the content binding.
     yield* ctx.documents.delete(ctx.context, ctx.transactionId, replacement.id, "items");
-    expect(yield* ctx.nested(runtime.commands.count, selection("red", 10))).toEqual({ totalDocs: 0 });
-    const final = yield* ctx.nested(runtime.commands.create,
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, selection("red", 10))).toEqual({ totalDocs: 0 });
+    const final = yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create,
       { collection: "items", data: uniqueData("replacement", "red", 10, "alias-first") });
     if (fail === true) {
       // A second native operation must roll back all earlier key releases and acquisitions.
-      yield* ctx.nested(runtime.commands.create, { collection: "items", data: uniqueData("late-clash", "red", 11) });
+      yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: uniqueData("late-clash", "red", 11) });
       return yield* Effect.die("Expected a native uniqueness refusal");
     }
     return final;
@@ -106,10 +107,10 @@ export const payloadUniqueScenario = Effect.fn("UniquePayload.scenario")(functio
   }));
   yield* create(uniqueData("zero", "zero", -0));
   const zero = yield* Effect.promise(tested.inventory);
-  expect(yield* host.run(host.newRequestKey(), runtime.commands.create,
+  expect(yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create,
     { collection: "items", data: uniqueData("zero-clash", "zero", 0) }).pipe(Effect.flip)).toMatchObject({ reason: "documentInvalid" });
   expect(yield* Effect.promise(tested.inventory)).toEqual(zero);
-  expect(yield* host.read(runtime.commands.count, selection("zero", -0))).toEqual({ totalDocs: 1 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, selection("zero", -0))).toEqual({ totalDocs: 1 });
   expect(tested.scans()).toBe(0);
 });
 
@@ -119,7 +120,7 @@ export const concurrentUniqueScenario = Effect.fn("UniquePayload.concurrent")(fu
   const entered = yield* Deferred.make<void>();
   const release = yield* Deferred.make<void>();
   const held = defineCmsCommand({ name: "heldUniqueInsert", mode: "write", run: Effect.fn(function* (ctx) {
-    const value = yield* ctx.nested(runtime.commands.create, { collection: "items", data: uniqueData("held", "red", 10) });
+    const value = yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: uniqueData("held", "red", 10) });
     yield* Deferred.succeed(entered, undefined);
     yield* Deferred.await(release);
     return value;
@@ -128,7 +129,7 @@ export const concurrentUniqueScenario = Effect.fn("UniquePayload.concurrent")(fu
   yield* Effect.gen(function* () {
     const fiber = yield* pending.run(pending.newRequestKey(), held, null).pipe(Effect.result, Effect.forkScoped);
     yield* Deferred.await(entered).pipe(Effect.timeout(5_000));
-    yield* host.run(host.newRequestKey(), runtime.commands.create, { collection: "items", data: uniqueData("competing", "red", sameKey ? 10 : 11) });
+    yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: uniqueData("competing", "red", sameKey ? 10 : 11) });
     expect(yield* Deferred.isDone(release)).toBe(false);
     const published = yield* Effect.promise(tested.inventory);
     yield* Deferred.succeed(release, undefined);

@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "@flarex/payload-adapter/internal/testing";
 import { Cause, Deferred, Effect, Exit, Fiber, Tracer } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isJsonObject } from "flarex-protocol/json";
@@ -111,7 +112,7 @@ describe.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONIN
         // This independent atomic host prepares its sources as retained/full-live
         // bindings. Epoch-only invalidation cannot invalidate unchanged bodies;
         // it does not open the journal-backed finite global guard scope.
-        expect(Exit.isSuccess(result)).toBe(true);
+        expect(result).toMatchObject({ _tag: "Success" });
         if (Exit.isSuccess(result)) expect(result.value).toMatchObject({ id: "ptag_live_acceptance" });
         expect(nativeCompleted).toBe(1);
         expect(guardsObserved.length - guardsBefore).toBe(0);
@@ -158,7 +159,7 @@ describe.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONIN
             uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
             candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({
               candidateValidation: fixture.application.candidateValidation, pointCommitAuthority: fixture.application.sessionAuthority }),
-          }, commands: Object.values(runtime.commands), expectedContentIdentity: compiled.contentIdentity };
+          }, commands: Object.values(inspectPayloadRuntimeForTest(runtime).commands), expectedContentIdentity: compiled.contentIdentity };
         let nativeClosure = 0;
         const host = yield* makeCmsHost(input, { afterDocumentClosure: () => Effect.gen(function* () {
           nativeClosure++;
@@ -168,7 +169,7 @@ describe.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONIN
         const before = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
         const guards = names.filter(name => name === "PreparedMetadataEpoch.guard").length;
         try {
-          const result = yield* Effect.exit(host.run(host.newRequestKey(), runtime.commands.create,
+          const result = yield* Effect.exit(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create,
             { collection: "news", data: { title: "Tentative Local API" } }));
           expect(Exit.isFailure(result)).toBe(true);
           if (Exit.isFailure(result)) expect(result.cause.reasons.every(reason => !Cause.isDieReason(reason))).toBe(true);
@@ -183,7 +184,7 @@ describe.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONIN
         let nativeCalls = 0;
         const create = defineCmsCommand({ name: "protectedPayloadCreate", mode: "write", run: (ctx, args) => {
           nativeCalls++;
-          return ctx.nested(runtime.commands.create, args);
+          return ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create, args);
         } });
         const selectedInput = { ...input, commands: [...input.commands, create] };
         const entered = yield* Deferred.make<void>();

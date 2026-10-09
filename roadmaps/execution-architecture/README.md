@@ -14,9 +14,13 @@ ownership and current coverage. The [persistence guide](../../packages/persisten
 and [executor guide](../../packages/executor/README.md) connect those flows to
 source and tests. Read them before the individual implementation plans.
 
-Performance tuning remains paused at the source/test organization checkpoint.
-The layout and flow guides are complete; consumer construction/API replacement
-remains the next organization contract under its focused plan.
+Performance tuning remains paused until the complete organization goal closes.
+The source/test layout, flow guides and admitted CMS/Payload construction/API
+replacement are complete. Responsibility-based file splitting,
+import/export cleanup and the matching test and documentation organization.
+The [file cohesion plan](05-file-cohesion-and-readable-flows.md) owns those
+remaining structural gates. Necessary private breaks and caller migration are
+authorized; broader capabilities retain their own approval and proof gates.
 The local standalone-read and retained installation cutover is complete. Public authoring
 APIs, hosted activation, arbitrary framework admission and general schema
 evolution retain their owning gates.
@@ -112,6 +116,13 @@ installation SQL construction. This is an existing dependency/runtime boundary,
 not closed by source organization. Its core/host contract must be resolved before
 those witnesses establish Worker runtime support.
 
+The raw atomic Product protected-acceptance witness also retains a core contract
+gap: its native call deliberately invalidates the metadata epoch, and the
+relational session's final protected guard refuses settlement. The witness
+expects its retained/full-live profile to commit. Source organization or issued
+CMS/Payload bindings do not resolve that disagreement; preparation/session and
+atomic Commerce own the required contract decision and proof.
+
 ## Target Direction And Ordered Gates
 
 1. **Direct read capabilities (complete for the admitted local profiles):** independently construct typed read hosts for
@@ -121,14 +132,18 @@ those witnesses establish Worker runtime support.
    construction from conformance fixtures, organize direct and borrowed bindings,
    reuse native operations and completed Medusa module/workflow construction.
    Prove selected create/update/read both directly and inside the existing root.
-3. **Execution and persistence organization (layout complete; construction/API replacement pending):** the
+3. **Execution and persistence organization (layout and admitted CMS/Payload construction complete; file cohesion active):** the
    [source/test ownership cutover](04-source-and-test-ownership.md) organizes
    current owners and migrates imports, exports, test lanes and resource paths.
    The [consumer construction/API replacement](03-consumer-construction-and-domain-apis.md)
-   remains a distinct pending contract change. Inventory the actual callers of
+   owns the completed construction contracts. Inventory the actual callers of
    Commerce/CMS, atomic Commerce, cross-domain commands and Application attempt
    owners. Move orchestration and database mechanics to their correct existing
    packages, consolidate genuine duplicates, remove displaced entry points.
+   Continue through [file cohesion and readable flows](05-file-cohesion-and-readable-flows.md):
+   split substantial bodies by real responsibility, make construction and request
+   orchestration visible, and align exports, consumers, tests and guides. Folder
+   moves alone do not close the owner's organization goal.
 4. **Composed Application query:** establish one explicit snapshot/dependency and
    authorization contract for Application + Medusa + Payload reads. Prove native
    visibility and concurrent changes through the actual sandbox boundary before
@@ -143,3 +158,10 @@ required reviews. Schema/transaction changes require PGlite and ordinary-role
 Postgres evidence. Do not make file moves or helper extraction separate goals.
 Each later preflight records concrete owners and contract changes before edits;
 the owner has authorized this refactor without repeated general permission.
+
+The organization goal closes when existing admitted flows have clear source and
+test ownership, readable construction and orchestration, responsibility-based
+modules, enforced import boundaries and accurate guides, with displaced paths
+removed and connected behavior validated. Implementing composed queries or other
+new capabilities is not required to organize the current system. Performance
+optimization resumes after this goal, under its separate native-relative gates.

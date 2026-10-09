@@ -132,6 +132,7 @@ import {
   ApplicationReadinessError,
   type ApplicationReadinessActivationBasis,
   type ApplicationReadinessRepository,
+  type ApplicationReadinessContext,
   type ApplicationReadinessResult,
   type ApplicationReadinessProtection,
   type ReadApplicationReadinessError,
@@ -665,6 +666,33 @@ interface StandaloneBindingState {
 const standaloneBindingPreparations = new WeakMap<object, StandaloneBindingState>();
 const standaloneBindingPreparationReaders = new WeakMap<object, () => Effect.Effect<PreparedStandaloneApplicationBinding,
   ApplicationActivationError | ReadApplicationReadinessError | TrustedScopeAuthorityError | LockScopeClockForShareError>>();
+declare const standaloneSelectionReaderBrand: unique symbol;
+/** Protected standalone selection has no full-proof read or activation method. */
+export interface ApplicationStandaloneBindingSelectionReader { readonly [standaloneSelectionReaderBrand]: true }
+export type ApplicationReadBindingSelectionReader<Failure> = ApplicationBindingSelectionReader<Failure> | ApplicationStandaloneBindingSelectionReader;
+export interface ApplicationStandaloneBindingContext {
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
+    ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  readonly protectedMetadata: NonNullable<ApplicationReadinessContext<unknown, unknown>["protectedMetadata"]>;
+}
+const standaloneSelectionReaderStates = new WeakMap<object, ApplicationStandaloneBindingContext>();
+
+/** Application's read-only issuer composes only protected indexed binding capture. */
+export function makeApplicationStandaloneBindingSelectionReader(context: ApplicationStandaloneBindingContext): ApplicationStandaloneBindingSelectionReader {
+  const captured = Object.freeze({ ...context, protectedMetadata: Object.freeze({ ...context.protectedMetadata }) });
+  // SAFETY: this private registry, not token fields, authenticates the reader.
+  const reader = Object.freeze({}) as ApplicationStandaloneBindingSelectionReader;
+  standaloneSelectionReaderStates.set(reader, captured);
+  standaloneBindingPreparationReaders.set(reader, makeStandaloneBindingPreparationReader(captured));
+  return reader;
+}
+/** The serving Scope retires its private reader before installed resources close. */
+export function closeApplicationStandaloneBindingSelectionReader(reader: ApplicationStandaloneBindingSelectionReader): void {
+  standaloneSelectionReaderStates.delete(reader);
+  standaloneBindingPreparationReaders.delete(reader);
+}
 
 export function isPreparedStandaloneApplicationBinding(input: ApplicationBindingInput): input is PreparedStandaloneApplicationBinding {
   return standaloneBindingPreparations.has(input);
@@ -672,7 +700,7 @@ export function isPreparedStandaloneApplicationBinding(input: ApplicationBinding
 
 /** Exact indexed publication capture under the existing retained host lease. */
 export const prepareStandaloneApplicationBindingSelection = Effect.fn("ApplicationActivation.prepareStandaloneBinding")(
-  function* <Failure>(repository: ApplicationBindingSelectionReader<Failure>) {
+  function* <Failure>(repository: ApplicationReadBindingSelectionReader<Failure>) {
     const prepare = standaloneBindingPreparationReaders.get(repository);
     if (prepare === undefined) return yield* activationFailure("read", "invalidComposition");
     return yield* prepare();
@@ -1346,10 +1374,11 @@ export interface ApplicationBindingSelectionReader<Failure> {
   readonly readActive: () => Effect.Effect<CoherentActiveApplication | CoherentActiveRelationApplication, Failure>;
 }
 
-export function hasApplicationBindingComposition<Failure>(repository: ApplicationBindingSelectionReader<Failure>,
+export function hasApplicationBindingComposition<Failure>(repository: ApplicationReadBindingSelectionReader<Failure>,
   authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> |
     ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>): boolean {
-  return activationRepositoryStates.get(repository)?.authority === authority;
+  return activationRepositoryStates.get(repository)?.authority === authority ||
+    standaloneSelectionReaderStates.get(repository)?.authority === authority;
 }
 
 export function hasApplicationActivationPlanningComposition(
@@ -1758,19 +1787,28 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
     if (prepared.kind !== "legacy") return yield* activationFailure("read", "activeMissing");
     return yield* issueLegacyBindingPreparation(prepared);
   }));
-  standaloneBindingPreparationReaders.set(repository, makeStandaloneBindingPreparationReader(captured));
+  standaloneBindingPreparationReaders.set(repository, makeLegacyStandaloneBindingPreparationReader(captured));
   return repository;
 }
 
-function makeStandaloneBindingPreparationReader(context: ApplicationActivationContext<unknown, unknown>) {
+function makeLegacyStandaloneBindingPreparationReader(context: ApplicationActivationContext<unknown, unknown>) {
+  return Effect.fn("ApplicationActivation.captureLegacyStandaloneBinding")(function* () {
+    if (!hasApplicationReadinessComposition(context.readiness, context.authority))
+      return yield* activationFailure("read", "invalidComposition");
+    const protectedMetadata = yield* Effect.fromResult(readApplicationReadinessPreparationProtection(context.readiness));
+    return yield* makeStandaloneBindingPreparationReader({ deploymentId: context.deploymentId, scopeId: context.scopeId,
+      authority: context.authority, protectedMetadata })();
+  });
+}
+
+function makeStandaloneBindingPreparationReader(context: ApplicationStandaloneBindingContext) {
   return Effect.fn("ApplicationActivation.captureStandaloneBinding")(function* () {
     const lifetime = yield* captureHostPreparationLifetime();
-    if (lifetime === undefined || !validIdentity(context.deploymentId) ||
-      !hasApplicationReadinessComposition(context.readiness, context.authority))
+    if (lifetime === undefined || !validIdentity(context.deploymentId))
       return yield* activationFailure("read", "invalidComposition");
     yield* Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>
       activationError("read", "resourceFailure", undefined, false, cause)));
-    const protectedMetadata = yield* Effect.fromResult(readApplicationReadinessPreparationProtection(context.readiness));
+    const protectedMetadata = context.protectedMetadata;
     const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(context, context.authority);
     if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, protectedMetadata.database))
       return yield* activationFailure("read", "invalidComposition");
@@ -2168,7 +2206,7 @@ function makeCompositeApplicationActivationRepository<
       return token;
     },
   ));
-  standaloneBindingPreparationReaders.set(repository, makeStandaloneBindingPreparationReader(captured));
+  standaloneBindingPreparationReaders.set(repository, makeLegacyStandaloneBindingPreparationReader(captured));
   return repository;
 }
 

@@ -1,4 +1,7 @@
-import { selectScopeClockRows } from "../../../src/scope/scopeClock";
+import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
+import { inspectPayloadHostForTest, inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect, selectScopeClockRows } from "../../../src/scope/scopeClock";
+import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../../src/installation/installationLifecycle";
 import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
 import { expect } from "vitest";
 import { Effect, Result } from "effect";
@@ -15,10 +18,6 @@ import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/command
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
 import { dataBindingActivationRequest } from "../../../src/installation/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import { validateApplicationWriteOwnershipForCommit } from "../../../src/application/ownership/Commit";
 import { insertInitialScopeClockInTransactionResult } from "../../../src/scope/scopeClockInitialization";
 import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
@@ -72,19 +71,21 @@ export async function payloadConfiguredRelationshipScenario(
     deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
     authority: fixture.authorityPorts, application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
     identityAndAccessPolicy: { subject: "configured-relationship-test" }, payloadPreferenceTarget: target,
-    materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
-      developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle), uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
-      applicationRelations: fixture.relationCommit,
-      candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
+    materialization: fixture.servingOwners.materialization };
   const saved = await runEffect(Effect.scoped(Effect.gen(function* () {
     const runtime = yield* makePayloadRuntime(compiled);
-    const host = yield* runtime.bind(hostInput);
-    const write = (command: typeof runtime.commands.create, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
-    const read = (id: string, depth = 1) => runEffect(host.read(runtime.commands.findByID, { collection: "articles", id, depth }));
+    const binding = yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
+      hostRuntime: hostInput.hostRuntime, identityAndAccessPolicy: hostInput.identityAndAccessPolicy,
+      profile: { kind: "fullProof", payloadPreferenceTarget: hostInput.payloadPreferenceTarget } });
+    const host = yield* runtime.bind(binding);
+    const create = (args: Parameters<typeof host.create>[1]) => runEffect(host.create(host.newRequestKey(), args));
+    const update = (args: Parameters<typeof host.update>[1]) => runEffect(host.update(host.newRequestKey(), args));
+    const remove = (args: Parameters<typeof host.delete>[1]) => runEffect(host.delete(host.newRequestKey(), args));
+    const read = (id: string, depth: 0 | 1 = 1) => runEffect(host.findByID({ collection: "articles", id, depth }));
     return yield* Effect.promise(async () => {
-      const author = document(await write(runtime.commands.create, { collection: authorCollection, data: { name: "Ada" } }));
-      const other = document(await write(runtime.commands.create, { collection: authorCollection, data: { name: "Grace" } }));
-      const foreign = document(await write(runtime.commands.create, { collection: authorCollection, data: { name: "Foreign only" } }));
+      const author = document(await create({ collection: authorCollection, data: { name: "Ada" } }));
+      const other = document(await create({ collection: authorCollection, data: { name: "Grace" } }));
+      const foreign = document(await create({ collection: authorCollection, data: { name: "Foreign only" } }));
       const foreignIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(foreign.id));
       const foreignRowId = appRowIdHexV1ToBytes(foreignIdentity.rowId);
       const foreignTemplate = (await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.rowId, foreignRowId)))[0];
@@ -99,58 +100,66 @@ export async function payloadConfiguredRelationshipScenario(
         await tx.insert(fxAppRowCurrent).values({ scopeUuid: foreignUuid, tableId: foreignIdentity.tableId, rowId: foreignRowId, commitSeq: foreignTemplate.commitSeq });
         await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: foreignTemplate.commitSeq }).where(eq(fxSystemScopeClocks.scopeUuid, foreignUuid));
       });
-      await write(runtime.commands.delete, { collection: authorCollection, id: foreign.id });
+      await remove({ collection: authorCollection, id: foreign.id });
       expect(author).not.toHaveProperty(relationName);
       expect(author).not.toHaveProperty("relatedPost");
       const key = host.newRequestKey();
       const input = { collection: "articles", data: { headline: "First", [relationName]: author.id } };
-      const article = document(await runEffect(host.run(key, runtime.commands.create, input)));
-      const second = document(await write(runtime.commands.create, { collection: "articles", data: { headline: "Second", [relationName]: author.id } }));
-      const empty = document(await write(runtime.commands.create, { collection: "articles", data: { headline: "Empty" } }));
+      const article = document(await runEffect(host.create(key, input)));
+      const second = document(await create({ collection: "articles", data: { headline: "Second", [relationName]: author.id } }));
+      const empty = document(await create({ collection: "articles", data: { headline: "Empty" } }));
       expect(article[relationName]).toBe(author.id);
       expect(empty[relationName]).toBeNull();
       const stable = await inventory();
-      expect(await runEffect(host.run(key, runtime.commands.create, input))).toEqual(article);
+      expect(await runEffect(host.create(key, input))).toEqual(article);
       expect(document(await read(article.id))[relationName]).toEqual(author);
       expect(document(await read(article.id, 0))[relationName]).toBe(author.id);
-      expect(document(await runEffect(host.read(runtime.commands.findByID, { collection: "articles", id: article.id })))[relationName]).toBe(author.id);
-      expect(await runEffect(host.read(runtime.commands.findByID, { collection: authorCollection, id: author.id, depth: 1 }))).toEqual(author);
+      expect(document(await runEffect(host.findByID({ collection: "articles", id: article.id })))[relationName]).toBe(author.id);
+      expect(await runEffect(host.findByID({ collection: authorCollection, id: author.id, depth: 1 }))).toEqual(author);
       const queries: string[] = [];
-      const observedReads = await runEffect(makeCmsHost({ ...hostInput, commands: Object.values(runtime.commands), expectedContentIdentity: compiled.contentIdentity }, {
+      const observedReads = await runEffect(makeCmsHost({ ...hostInput, commands: Object.values(inspectPayloadRuntimeForTest(runtime).commands), expectedContentIdentity: compiled.contentIdentity }, {
         documentReads: { observeQuery: query => queries.push(query.name) },
       }));
-      await runEffect(observedReads.read(runtime.commands.findByID, { collection: authorCollection, id: author.id, depth: 1 }));
+      await runEffect(observedReads.read(inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: authorCollection, id: author.id, depth: 1 }));
       expect(queries.filter(name => name === "currentCapture")).toHaveLength(1);
       queries.length = 0;
-      await runEffect(observedReads.read(runtime.commands.findByID, { collection: "articles", id: second.id, depth: 1 }));
+      await runEffect(observedReads.read(inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: "articles", id: second.id, depth: 1 }));
       expect(queries.filter(name => name === "currentCapture")).toHaveLength(2);
-      const page = await runEffect(host.read(runtime.commands.find, { collection: "articles", depth: 1, limit: 32 }));
+      const page = await runEffect(host.find({ collection: "articles", depth: 1, limit: 32 }));
       if (!isJsonObject(page) || !Array.isArray(page.docs)) throw new Error("Expected Payload page");
       expect(page.totalDocs).toBe(3);
       for (const root of [article, second]) expect(page.docs.find(value => isJsonObject(value) && value.id === root.id))
         .toEqual({ ...root, [relationName]: author });
-      expect(await runEffect(host.read(runtime.commands.find, { collection: "articles", depth: 1, page: 2, limit: 1 }))).toMatchObject({ totalDocs: 3, totalPages: 3, page: 2 });
-      expect(await runEffect(host.read(runtime.commands.count, { collection: authorCollection }))).toEqual({ totalDocs: 2 });
+      expect(await runEffect(host.find({ collection: "articles", depth: 1, page: 2, limit: 1 }))).toMatchObject({ totalDocs: 3, totalPages: 3, page: 2 });
+      expect(await runEffect(host.count({ collection: authorCollection }))).toEqual({ totalDocs: 2 });
       for (const value of [1, { id: author.id }, [author.id]]) {
-        expect(await runEffectFailure(host.run(host.newRequestKey(), runtime.commands.update, { collection: "articles", id: article.id, data: { [relationName]: value } })))
+        expect(await runEffectFailure(host.update(host.newRequestKey(), { collection: "articles", id: article.id, data: { [relationName]: value } })))
           .toMatchObject({ reason: "relationInvalid" });
       }
-      expect(await runEffectFailure(host.run(host.newRequestKey(), runtime.commands.update, { collection: "articles", id: article.id, data: { [relationName]: article.id } })))
+      expect(await runEffectFailure(host.update(host.newRequestKey(), { collection: "articles", id: article.id, data: { [relationName]: article.id } })))
         .toMatchObject({ reason: "documentInvalid" });
-      expect(await runEffectFailure(host.run(host.newRequestKey(), runtime.commands.update, { collection: "articles", id: article.id, data: { [relationName]: foreign.id } })))
+      expect(await runEffectFailure(host.update(host.newRequestKey(), { collection: "articles", id: article.id, data: { [relationName]: foreign.id } })))
         .toMatchObject({ reason: "relationTargetMissing" });
       for (const options of [{ depth: 2 }, { depth: 1, select: { name: true } }, { depth: 1, populate: {} }, { depth: 1, locale: "en" }, { depth: 1, overrideAccess: true }]) {
-        expect(await runEffectFailure(host.read(runtime.commands.findByID, { collection: "articles", id: article.id, ...options }))).toMatchObject({ reason: "unsupportedProfile" });
+        expect(await runEffectFailure(inspectPayloadHostForTest(host).host.read(inspectPayloadHostForTest(host).commands.findByID, { collection: "articles", id: article.id, ...options }))).toMatchObject({ reason: "unsupportedProfile" });
       }
-      expect(await runEffectFailure(host.read(runtime.commands.find, { collection: authorCollection, depth: 1, where: { id: { in: [author.id] } } }))).toMatchObject({ reason: "invalidInput" });
-      expect(await runEffectFailure(host.run(host.newRequestKey(), runtime.commands.findByID, { collection: "articles", id: article.id, depth: 1 }))).toMatchObject({ reason: "unsupportedProfile" });
-      expect(await runEffectFailure(host.read(runtime.commands.findByID, { collection: "articles", id: author.id }))).toMatchObject({ reason: "invalidInput" });
-      expect(await runEffectFailure(host.run(host.newRequestKey(), runtime.commands.delete, { collection: authorCollection, id: author.id }))).toMatchObject({ reason: "relationDeleteRestricted" });
+      expect(await runEffectFailure(inspectPayloadHostForTest(host).host.read(inspectPayloadHostForTest(host).commands.find, { collection: authorCollection, depth: 1, where: { id: { in: [author.id] } } }))).toMatchObject({ reason: "invalidInput" });
+      expect(await runEffectFailure(inspectPayloadHostForTest(host).host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: "articles", id: article.id, depth: 1 }))).toMatchObject({ reason: "unsupportedProfile" });
+      expect(await runEffectFailure(host.findByID({ collection: "articles", id: author.id }))).toMatchObject({ reason: "invalidInput" });
+      expect(await runEffectFailure(host.delete(host.newRequestKey(), { collection: authorCollection, id: author.id }))).toMatchObject({ reason: "relationDeleteRestricted" });
       for (const id of [article.id, author.id]) {
         const tableId = Result.getOrThrow(decodeAppDocumentIdentityV1Result(id)).tableId;
-        expect(await db.transaction(tx => runEffect(validateApplicationWriteOwnershipForCommit(tx, {
-          scopeId: fixture.authority.scopeId, generation: "application_v1", authenticatedAttemptedTables: [tableId], materialTables: [],
-        }, hostInput.materialization.uniqueConstraints).pipe(Effect.result)))).toMatchObject({ _tag: "Failure", failure: { reason: "writeDenied" } });
+        const denied = await db.transaction(async tx => {
+          await runEffect(lockInstallationForCurrentTransaction(tx));
+          try {
+            await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.authority.scopeId));
+            return await runEffect(validateApplicationWriteOwnershipForCommit(tx, {
+              scopeId: fixture.authority.scopeId, generation: "application_v1", authenticatedAttemptedTables: [tableId], materialTables: [],
+            }, hostInput.materialization.uniqueConstraints, fixture.pointTarget).pipe(Effect.result));
+          } finally { closeInstallationAdmission(tx); }
+        });
+        expect(Result.isFailure(denied)).toBe(true);
+        if (Result.isFailure(denied)) expect(denied.failure.reason).toBe("writeDenied");
       }
       expect(await inventory()).toEqual(stable);
       const unbound = await runEffect(compilePayloadCollections([
@@ -160,14 +169,14 @@ export async function payloadConfiguredRelationshipScenario(
       ]));
       await runEffect(Effect.scoped(Effect.gen(function* () {
         const unboundRuntime = yield* makePayloadRuntime(unbound);
-        const unboundHost = yield* unboundRuntime.bind(hostInput);
-        expect(yield* Effect.flip(unboundHost.read(unboundRuntime.commands.findByID, { collection: "articles", id: article.id, depth: 1 })))
+        const unboundHost = yield* unboundRuntime.bind(binding);
+        expect(yield* Effect.flip(unboundHost.findByID( { collection: "articles", id: article.id, depth: 1 })))
           .toMatchObject({ reason: "invalidAuthority" });
       })));
-      expect(document(await write(runtime.commands.update, { collection: "articles", id: article.id, data: { headline: "Renamed" } }))[relationName]).toBe(author.id);
-      expect(document(await write(runtime.commands.update, { collection: "articles", id: article.id, data: { [relationName]: other.id } }))[relationName]).toBe(other.id);
+      expect(document(await update({ collection: "articles", id: article.id, data: { headline: "Renamed" } }))[relationName]).toBe(author.id);
+      expect(document(await update({ collection: "articles", id: article.id, data: { [relationName]: other.id } }))[relationName]).toBe(other.id);
       expect(document(await read(article.id))[relationName]).toEqual(other);
-      expect(document(await write(runtime.commands.update, { collection: "articles", id: article.id, data: { [relationName]: null } }))[relationName]).toBeNull();
+      expect(document(await update({ collection: "articles", id: article.id, data: { [relationName]: null } }))[relationName]).toBeNull();
       expect(document(await read(article.id))[relationName]).toBeNull();
 
       // Test-only native access probes use the same composition owner, not an ordinary runtime escape hatch.
@@ -175,10 +184,10 @@ export async function payloadConfiguredRelationshipScenario(
       await runEffect(Effect.scoped(Effect.gen(function* () {
         const observed = yield* makePayloadAccessProbeRuntime(compiled, { collection: authorCollection,
           observedId: author.id, unobservedId: other.id });
-        const guarded = yield* observed.runtime.bind(hostInput);
+        const guarded = yield* observed.runtime.bind(binding);
         for (const mode of ["unobserved", "wrong-collection", "foreign-request", "cross-write", "unbound", "projection", "locale"] as const) {
           observed.selectProbe(mode);
-          yield* Effect.flip(guarded.read(observed.runtime.commands.findByID, { collection: "articles", id: second.id, depth: 1 }));
+          yield* Effect.flip(guarded.findByID({ collection: "articles", id: second.id, depth: 1 }));
         }
       })));
       const beforeCorruption = await inventory();
@@ -190,7 +199,7 @@ export async function payloadConfiguredRelationshipScenario(
       // Deliberate corruption witness: preserve FKs and restore the exact body afterwards.
       await db.update(fxAppRowRevisions).set({ isTombstone: true, valueBytes: null, valueSha256: null }).where(predicate);
       try {
-        expect(await runEffectFailure(host.read(runtime.commands.findByID, { collection: "articles", id: second.id, depth: 1 })))
+        expect(await runEffectFailure(host.findByID({ collection: "articles", id: second.id, depth: 1 })))
           .toMatchObject({ reason: "storedCorruption", cause: { reason: "relationTargetMissing", documentId: author.id } });
       } finally {
         await db.update(fxAppRowRevisions).set({ isTombstone: retained.isTombstone, valueBytes: retained.valueBytes, valueSha256: retained.valueSha256 }).where(predicate);
@@ -199,16 +208,26 @@ export async function payloadConfiguredRelationshipScenario(
 
       if ("pool" in persistence) for (const first of ["reader", "writer"] as const) {
         const entered = barrier<void>(); const release = barrier<void>();
-        const held = await runEffect(makeCmsHost({ ...hostInput, commands: Object.values(runtime.commands), expectedContentIdentity: compiled.contentIdentity }, first === "reader" ? {
+        const held = await runEffect(makeCmsHost({ ...hostInput, commands: Object.values(inspectPayloadRuntimeForTest(runtime).commands), expectedContentIdentity: compiled.contentIdentity }, first === "reader" ? {
           documentReads: { beforeRead: selection => selection === "batch" ? Effect.promise(async () => { entered.resolve(); await release.promise; }) : Effect.void },
         } : { afterAdmission: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
-        const reading = (first === "reader" ? held : host).read(runtime.commands.findByID, { collection: "articles", id: second.id, depth: 1 });
-        const writer = first === "writer" ? held : host;
-        const writing = writer.run(writer.newRequestKey(), runtime.commands.delete, { collection: authorCollection, id: author.id });
+        const reading = (first === "reader" ? held : inspectPayloadHostForTest(host).host).read(inspectPayloadRuntimeForTest(runtime).commands.findByID, { collection: "articles", id: second.id, depth: 1 });
+        const writer = first === "writer" ? held : inspectPayloadHostForTest(host).host;
+        const writing = writer.run(writer.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: authorCollection, id: author.id });
         const results = await runEffect(overlappingSnapshotRace(first === "reader" ? reading : writing, first === "reader" ? writing : reading,
           entered.promise, () => release.resolve()));
-        expect(results[first === "reader" ? 0 : 1]).toMatchObject({ status: "fulfilled", value: { _tag: "Success", success: { [relationName]: author } } });
-        expect(results[first === "writer" ? 0 : 1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: "relationDeleteRestricted" } } });
+        const readingResult = results[first === "reader" ? 0 : 1];
+        const writingResult = results[first === "writer" ? 0 : 1];
+        expect(readingResult.status).toBe("fulfilled");
+        expect(writingResult.status).toBe("fulfilled");
+        if (readingResult.status === "fulfilled") {
+          expect(Result.isSuccess(readingResult.value)).toBe(true);
+          if (Result.isSuccess(readingResult.value)) expect(readingResult.value.success).toMatchObject({ [relationName]: author });
+        }
+        if (writingResult.status === "fulfilled") {
+          expect(Result.isFailure(writingResult.value)).toBe(true);
+          if (Result.isFailure(writingResult.value)) expect(writingResult.value.failure).toMatchObject({ reason: "relationDeleteRestricted" });
+        }
       }
       const scope = projectScopeIdUuidV1(reference.scopeId).scopeUuid;
       const preference = { scope, generation: reference.storageGeneration, userCollection: "users", userId: "user-a",
@@ -219,11 +238,11 @@ export async function payloadConfiguredRelationshipScenario(
       ]);
       const beforeDelete = await inventory();
       const pair = defineCmsCommand({ name: "configured-relation-delete-pair", mode: "write", run: Effect.fn(function* (ctx, args) {
-        yield* ctx.nested(runtime.commands.delete, { collection: "articles", id: second.id });
+        yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: "articles", id: second.id });
         if (args === false) return yield* Effect.fail(cmsError("invalidInput"));
-        return yield* ctx.nested(runtime.commands.delete, { collection: authorCollection, id: author.id });
+        return yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: authorCollection, id: author.id });
       }) });
-      const paired = await runEffect(makeCmsHost({ ...hostInput, expectedContentIdentity: compiled.contentIdentity, commands: [pair, ...Object.values(runtime.commands)] }));
+      const paired = await runEffect(makeCmsHost({ ...hostInput, expectedContentIdentity: compiled.contentIdentity, commands: [pair, ...Object.values(inspectPayloadRuntimeForTest(runtime).commands)] }));
       await runEffectFailure(paired.run(paired.newRequestKey(), pair, false));
       expect(await inventory()).toEqual(beforeDelete);
       const deleteKey = paired.newRequestKey();
@@ -237,17 +256,20 @@ export async function payloadConfiguredRelationshipScenario(
       expect(afterDelete.edges).toHaveLength(0);
       expect(await runEffect(paired.run(deleteKey, pair, true))).toEqual(deleted);
       expect(await inventory()).toEqual(afterDelete);
-      return { article, key, input, host, command: runtime.commands.findByID, snapshot: afterDelete };
+      return { article, key, input, host, snapshot: afterDelete };
     });
   })));
-  expect(await runEffectFailure(saved.host.read(saved.command, { collection: "articles", id: saved.article.id }))).toMatchObject({ reason: "closed" });
+  expect(await runEffectFailure(saved.host.findByID({ collection: "articles", id: saved.article.id }))).toMatchObject({ reason: "closed" });
   await reopen?.();
   // New native instance and host reconstruct from admitted durable state, not old loader state.
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const runtime = yield* makePayloadRuntime(compiled);
-    const host = yield* runtime.bind(hostInput);
-    expect(yield* host.run(saved.key, runtime.commands.create, saved.input)).toEqual(saved.article);
-    expect(yield* host.read(runtime.commands.findByID, { collection: "articles", id: saved.article.id, depth: 1 }))
+    const binding = yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
+      hostRuntime: hostInput.hostRuntime, identityAndAccessPolicy: hostInput.identityAndAccessPolicy,
+      profile: { kind: "fullProof", payloadPreferenceTarget: hostInput.payloadPreferenceTarget } });
+    const host = yield* runtime.bind(binding);
+    expect(yield* host.create(saved.key, saved.input)).toEqual(saved.article);
+    expect(yield* host.findByID({ collection: "articles", id: saved.article.id, depth: 1 }))
       .toMatchObject({ id: saved.article.id, headline: "Renamed", [relationName]: null });
   })));
   expect(await inventory()).toEqual(saved.snapshot);

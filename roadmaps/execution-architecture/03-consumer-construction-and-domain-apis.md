@@ -2,15 +2,16 @@
 
 ## Status And Scope
 
-**Design and consumer audit authorized; construction/API replacement pending.**
+**Construction/API replacement complete for the admitted local profiles.**
 The shared-execution baseline is reviewed and committed. The connected
-[source and test ownership cutover](04-source-and-test-ownership.md) runs first
-at the owner's request. This is the focused third slice of the
+[source and test ownership cutover](04-source-and-test-ownership.md) is complete.
+This is the focused third slice of the
 [execution architecture roadmap](README.md). It addresses the owner's request
 for readable domain organization, clean operation APIs, and domain-owned
-construction. Completing this document does not establish implemented APIs.
+construction. Completion applies to the admitted local construction contracts;
+public authoring and broader framework admission retain their separate gates.
 
-The first connected implementation candidate is CMS/Payload construction,
+The first connected implementation is CMS/Payload construction,
 including direct reads, supported direct commands and the existing Application
 mutation participant. Commerce is a connected boundary comparison and affected
 shared consumer, not permission to redesign every framework in one pass.
@@ -31,15 +32,17 @@ A consumer should select a supported operation and supply its meaningful inputs.
 It should not repeatedly reconstruct the provider's authority, installation,
 readiness, materialization and lifecycle graph.
 
-The inspected working source has two different kinds of assembly:
+The handed-off source had two different kinds of assembly:
 
 - Trusted fixture and benchmark roots legitimately provision databases, install
   metadata, select physical resources, seed data and inject faults. Much of the
   large construction observed here is in these roots; it is not evidence of
   production routing or arbitrary application callers.
-- Those roots also reconstruct serving-owner graphs and materialization ports.
-  Payload's ordinary runtime accepts persistence-shaped binding inputs, carrying
-  those construction details through its own API.
+- Those roots also reconstructed serving-owner graphs and materialization ports.
+  Payload's ordinary runtime accepted persistence-shaped binding inputs, carrying
+  those construction details through its own API. Application serving and issued
+  CMS bindings now own that assembly; named raw fault/registration witnesses
+  retain their explicit trusted construction.
 
 Moving a long input object into a branded wrapper would leave the second problem
 intact. The outcome must remove repeated graph assembly and give each operation
@@ -74,29 +77,64 @@ boundary. Ownership, authority and resource lifetime determine the direction,
 including legitimate transaction-owning coordination. The target is not zero
 cross-domain imports or moving framework lifecycle policy into persistence.
 
-## Audited Current Call Chains
+## Current Call Chains
 
-Paths below are concrete evidence anchors in the handed-off core. Proposed API
-syntax later in this document remains a target, not an implemented contract.
+These paths identify the implemented construction and operation owners. Connected
+validation and retirement gates determine completion of the active cutover.
 
 | Boundary | Current source | Responsibility and exposed detail |
 | --- | --- | --- |
-| Payload ordinary construction | [runtime.ts](../../packages/payload-adapter/src/runtime.ts) | makePayloadRuntime owns a scoped native instance, but PayloadHostInput and PayloadReadHostInput derive from CMS host inputs with Omit; bind/bindRead still receive the persistence graph. |
+| Payload ordinary construction | [runtime.ts](../../packages/payload-adapter/src/runtime.ts), [api.ts](../../packages/payload-adapter/src/api.ts) | makePayloadRuntime owns one scoped native instance; bind/bindRead accept authentic CMS bindings and return admitted native methods. Command tokens and persistence graph inputs are absent from the ordinary API. |
 | Native lifecycle | [runtime/native.ts](../../packages/payload-adapter/src/runtime/native.ts) | Creates BasePayload, configuration, bridge and operations; retains hosts in the native instance's exact Scope and refuses use after closure. |
-| Direct binding | [direct/binding.ts](../../packages/payload-adapter/src/direct/binding.ts) | Supplies native command tokens and content identity, calls CMS constructors and adds native liveness checks. |
-| CMS construction contract | [hostConfiguration.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/hostConfiguration.ts), [host.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/host.ts), [read/configuration.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/read/configuration.ts) | Carries database/session, authority, application selection, host preparation runtime, policy and source/installation or write-maintenance dependencies. |
+| Direct binding | [direct/binding.ts](../../packages/payload-adapter/src/direct/binding.ts) | Supplies exact native tokens/content identity to the restricted CMS execution surface and retains the resulting host in the native Scope. |
+| CMS construction contract | [construction.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/construction.ts), [api.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/api.ts) | Issues separate authentic scoped command/read bindings from Application serving and explicit policy/source selection; adapter execution receives neither the raw graph nor construction factories. |
 | Managed read | [read/host.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/read/host.ts) | Authentic command selection, read-only capability, fresh admission, demanded readiness, snapshot and request lifetime already belong to core. |
-| Borrowed adapter call | [participant/binding.ts](../../packages/payload-adapter/src/participant/binding.ts) | Maps admitted Payload methods to native command tokens, then looks up the definition, invokes under the borrowed deadline, closes the call and projects contribution/event/accounting evidence. |
-| Borrowed core call | [borrowedLogicalAttempt.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/borrowedLogicalAttempt.ts) | Authenticates attempt/source and creates the lifetime, working set and command context. |
+| Borrowed adapter call | [participant/binding.ts](../../packages/payload-adapter/src/participant/binding.ts) | Selects the native method, retains the exact native Scope and projects native errors; its abort finalizer drains the CMS invocation. |
+| Borrowed core call | [borrowedLogicalAttempt.ts](../../packages/persistence-postgres/src/frameworks/cmsTransaction/borrowedLogicalAttempt.ts) | Authenticates attempt/source, selects the exact command, enforces the deadline and closes the call into authoritative contribution/event/accounting completion. |
 | Root participant contract | [sessionJournalStore.ts](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts), [logicalDocuments/model.ts](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/model.ts) | Owns attempt, admission bundle, historical/pending view and participant completion/abort/usage contracts. |
-| Serving reconstruction | [cmsHostFixture.ts](../../packages/persistence-postgres/test/frameworks/cmsTransaction/cmsHostFixture.ts), [applicationRelationReadinessFixture.ts](../../packages/persistence-postgres/test/application/relations/applicationRelationReadinessFixture.ts) | The CMS fixture delegates common serving preparation to the relation/readiness fixture, then creates Payload profiles and activates bindings. The earlier prepareInstalledCmsFixtureComposition helper is absent. Reuse the current production authority, readiness and activation owners rather than promoting test fixture assembly into runtime code. |
-| Ordinary direct consumer | [payloadLatencyFixture.ts](../../packages/persistence-postgres/test/integration/payload/payloadLatencyFixture.ts) | Provisions protected target/control resources, reconstructs serving owners, assembles materialization ports and calls runtime.bind. |
-| Connected consumer | [mixedMutationProductFixture.ts](../../packages/executor/test/performance/support/mixedMutationProductFixture.ts) | standalonePayloadHostInput assembles authority, source and materialization ports; ordinary runtime also supplies the borrowed dispatcher. |
+| Serving construction | [applicationServing.ts](../../packages/persistence-postgres/src/application/applicationServing.ts), [applicationRelationReadinessFixture.ts](../../packages/persistence-postgres/test/application/relations/applicationRelationReadinessFixture.ts) | Application owns the common authority/readiness/materialization graph. Trusted fixtures provision resources and retain named fault profiles; they use the same serving owner for normal bindings. |
+| Ordinary direct consumer | [payloadLatencyFixture.ts](../../packages/persistence-postgres/test/integration/payload/payloadLatencyFixture.ts) | Provisions protected resources and makes a scoped CMS binding through Application serving, then binds native methods. |
+| Connected consumer | [mixedMutationProductFixture.ts](../../packages/executor/test/performance/support/mixedMutationProductFixture.ts) | standalonePayloadBinding uses the common serving graph and issued CMS binding. Named raw construction is confined to explicit fault witnesses. |
 | Other admitted profiles | [payloadFlows.ts](../../packages/executor/test/performance/support/payloadFlows.ts) | Builds scalar/relation/profile-specific hosts and selects ordinary or explicit conformance construction. Preserve these profile differences. |
-| Native read/lifetime witness | [logical-payload-managed-read.postgres.test.ts](../../packages/medusa-adapter/test/logical-payload-managed-read.postgres.test.ts) | Repeats common write/read configuration and proves access, missing-document errors, read refusal of writes, explicit close and escaped Scope refusal. |
+| Native read/lifetime witness | [logical-payload-managed-read.postgres.test.ts](../../packages/medusa-adapter/test/logical-payload-managed-read.postgres.test.ts) | Constructs separate genuine read/command serving and CMS bindings; proves access, missing-document errors, write refusal, explicit close and escaped Scope refusal. |
 | Native failure witness | [fresh-framework-acceptance.postgres.test.ts](../../packages/medusa-adapter/test/fresh-framework-acceptance.postgres.test.ts) | Instruments the actual session and native callback/final guard boundaries. Fault instrumentation is not reusable serving configuration. |
 
 ## Selected Responsibility Boundaries
+
+### Concrete Construction Cutover
+
+The approved replacement has three owners. Application construction accepts
+installed target/control resources and explicit serving profiles, and creates
+the reusable authority, readiness and maintenance graph. Managed read construction
+creates only the authority and protected active-binding reader; it must not
+construct a publication graph. CMS construction issues authentic, scoped read
+or command bindings from that serving owner and trusted source/policy selection.
+Payload binds its native instance to those capabilities and exposes admitted
+operation methods. Multiple databases, sources and native instances may coexist,
+so these are scoped factories rather than process-wide Context singletons.
+
+Replace Payload's derived host-input types and ordinary command map. Keep exact
+command tokens available only to trusted registration and explicit conformance
+support. Caller envelopes derive from the ordered input owner's admitted field
+contracts; internal decoded collection objects remain private. Result contracts
+reuse the existing result schemas, including replay, without an independent
+capture path. Native validation order and unsupported-profile failures remain
+unchanged.
+
+Move borrowed command lookup, deadline enforcement, closure and participant
+completion into CMS. Source identity comes from authenticated admission. Payload
+retains native command selection and framework error projection. No constructor
+installs or activates schema, settles a borrowed root, introduces another runtime
+bridge, or changes durable formats. Full-proof/direct, managed and source profiles
+remain explicit while their named consumers migrate. Fault controls and cold
+materialization refusal witnesses stay in test support.
+
+Acceptance requires complete caller migration, removal of displaced exports and
+construction, focused import-boundary checks, escaped-lifetime and forged-binding
+refusal, native/replay/failure behavior, PGlite and ordinary-role PostgreSQL, and
+affected mixed/sandbox proofs. Construction cost comparisons assess this cutover;
+the performance program remains paused and no latency acceptance follows from
+an API cleanup.
 
 ### Trusted Resource And Installation Composition
 
@@ -156,13 +194,13 @@ from untrusted arguments.
 Application execution still owns orchestration, replay eligibility and outer
 settlement. A borrowed capability cannot fall back to a direct call.
 
-## Consumer API Target
+## Consumer API
 
-Names in this section describe proposed internal contracts, not current exports.
-Finalize names and exact Effect channels against the handed-off owner types.
-Reuse existing commands, decoded inputs, result schemas and error families.
+The implemented private contracts reuse existing commands, ordered input
+decoders, result schemas and error families. They do not establish a public
+authoring API or expand supported framework operations.
 
-Current ordinary binding has this shape:
+The displaced ordinary binding had this shape:
 
 ```ts
 const runtime = yield* makePayloadRuntime(compiled);
@@ -230,19 +268,19 @@ connection, extending the deadline or replacing native execution.
 Start within the existing domain folders:
 
 ```text
-applicationExecution/       # Application-owned serving construction
-cmsTransaction/
+application/applicationServing.ts # Application-owned serving construction
+frameworks/cmsTransaction/
   api.ts                    # Explicit consumer contracts
   construction.ts           # Domain-owned composition
   commands.ts               # Existing token/context owner
   failure.ts                # Existing failure projection
   read/                     # Genuine read execution
-  participant/              # Borrowed-call operation and completion
+  borrowedLogicalAttempt.ts # Borrowed invocation and completion
   publication.ts            # Existing settlement integration
 ```
 
-The Application construction folder/name is subject to existing-owner inspection
-after handoff. Do not create an alternative to an existing construction owner.
+Application construction reuses the existing Application owner. A separate
+framework-neutral construction owner is not required.
 Keep each substantial operation readable through named stages; avoid long
 anonymous closures, generic dispatch engines, arbitrary one-file folders and
 large re-export barrels.
@@ -319,6 +357,8 @@ After this first API capability, audit the same construction distinctions across
 Commerce/atomic workflow, Application attempts, installation, logical storage,
 commit/recovery, tasks and sync. Source/test organization makes those owners
 visible; it does not establish that their construction contracts are complete.
+The [file cohesion plan](05-file-cohesion-and-readable-flows.md) owns that next
+organization work and the substantial implementation bodies that remain.
 
 ## Validation And Completion Gates
 

@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
@@ -21,9 +22,9 @@ describe.skipIf(postgresUrl === null)("Payload nullable keys (PostgreSQL)", () =
     const first = yield* makeNullablePayloadFixture(persistence, makePostgresRelationalSession(persistence));
     const second = yield* makeNullablePayloadFixture(persistence, makePostgresRelationalSession(persistence));
     for (const tested of [first, second]) {
-      for (const alias of [null, "same"]) yield* tested.host.run(tested.host.newRequestKey(), tested.runtime.commands.create,
+      for (const alias of [null, "same"]) yield* tested.host.run(tested.host.newRequestKey(), inspectPayloadRuntimeForTest(tested.runtime).commands.create,
         { collection: "items", data: { title: alias ?? "null", category: "red", alias, amount: alias === null ? null : 10 } });
-      expect(yield* tested.host.read(tested.runtime.commands.count, { collection: "items", where: { alias: { equals: null } } })).toEqual({ totalDocs: 1 });
+      expect(yield* tested.host.read(inspectPayloadRuntimeForTest(tested.runtime).commands.count, { collection: "items", where: { alias: { equals: null } } })).toEqual({ totalDocs: 1 });
       expect((yield* Effect.promise(tested.inventory)).claims).toHaveLength(4);
     }
   })))), 120_000);

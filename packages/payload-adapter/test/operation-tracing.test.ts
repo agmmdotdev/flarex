@@ -1,3 +1,4 @@
+import { makeCmsCommandBinding } from "../../persistence-postgres/src/frameworks/cmsTransaction/construction";
 import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, Fiber, Layer, Option, Tracer } from "effect";
 import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "@flarex/persistence-postgres/internal/execution-diagnostics";
@@ -13,10 +14,6 @@ import { barrier, withDeadline } from "../../persistence-postgres/test/integrati
 import { runEffect } from "../../persistence-postgres/test/support/effectTestRuntime";
 import { createRelationalPGliteFixture } from "../../persistence-postgres/test/database/relationalPGliteWorkerTestSupport";
 import { postgresUrl, useFileScopedPostgresPersistence } from "../../persistence-postgres/test/support/postgresHelpers";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../persistence-postgres/src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../persistence-postgres/src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../persistence-postgres/src/storage/catalog/appSchemaCandidateValidation";
 import { makePostgresRelationalSession, type RelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
 import type { PGliteFlarexPersistence } from "../../persistence-postgres/src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../persistence-postgres/src/database/postgres";
@@ -93,19 +90,10 @@ async function nativeTracingScenario(persistence: PGliteFlarexPersistence | Post
         }],
       },
     });
-    const host = yield* bindPayloadDirect(native).bind({
-      hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle,
-      controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
-      scopeId: fixture.authority.scopeId, authority: fixture.authorityPorts,
-      pointCommitAuthority: fixture.pointCommitAuthority, application: fixture.relationActivation,
-      identityAndAccessPolicy: { profile: "payload.scalar", trace: "native-hook-conformance" },
-      materialization: {
-        intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
-        developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
-        uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
-        candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }),
-      },
-    });
+    const host = yield* bindPayloadDirect(native).bind(yield* makeCmsCommandBinding({
+      serving: yield* fixture.makeServing(session), hostRuntime: preparedHostTestRuntime(persistence.drizzle),
+      identityAndAccessPolicy: { profile: "payload.scalar", trace: "native-hook-conformance" }, profile: { kind: "fullProof" },
+    }));
     // Registered after the host so failed witnesses release foreign hooks
     // before Scope closes retained hosts and the native Payload instance.
     yield* Effect.addFinalizer(() => Effect.promise(async () => {
@@ -118,8 +106,7 @@ async function nativeTracingScenario(persistence: PGliteFlarexPersistence | Post
       lateRelease.resolve();
       await withDeadline(escaped);
     }));
-    const create = (title: string) => host.run(host.newRequestKey(), native.commands.create,
-      { collection: "posts", data: { title, publishedAt: "2026-01-01" } });
+    const create = (title: string) => host.create(host.newRequestKey(), { collection: "posts", data: { title, publishedAt: "2026-01-01" } });
     const enabled = collector("22222222222222222222222222222222");
     const linked = Tracer.externalSpan({ traceId: "33333333333333333333333333333333", spanId: "3333333333333333" });
     const created = yield* enabled.trace(create("trace-enabled")).pipe(Effect.withTracerTiming(false),
@@ -138,7 +125,7 @@ async function nativeTracingScenario(persistence: PGliteFlarexPersistence | Post
       expect(span.status).toMatchObject({ _tag: "Ended", endTime: 0n });
     }
     const disabled = collector("44444444444444444444444444444444");
-    yield* disabled.trace(host.read(native.commands.count, { collection: "posts" })).pipe(Effect.withTracerEnabled(false));
+    yield* disabled.trace(host.count({ collection: "posts" })).pipe(Effect.withTracerEnabled(false));
     expect(disabled.spans).toEqual([]);
 
     const first = collector("55555555555555555555555555555555");
@@ -147,8 +134,8 @@ async function nativeTracingScenario(persistence: PGliteFlarexPersistence | Post
     try {
       // The PGlite fixture owns one serialized transaction lease. PostgreSQL
       // has distinct pooled connections and proves overlapping native contexts.
-      yield* Effect.all([first.trace(host.read(native.commands.findByID, { collection: "posts", id: documentId(created) })),
-        second.trace(host.read(native.commands.findByID, { collection: "posts", id: documentId(created) }))],
+      yield* Effect.all([first.trace(host.findByID({ collection: "posts", id: documentId(created) })),
+        second.trace(host.findByID({ collection: "posts", id: documentId(created) }))],
       { concurrency: overlappingReads ? "unbounded" : 1 });
     } finally { concurrentReads = false; }
     expect(readArrivals).toBe(2);
@@ -169,7 +156,7 @@ async function nativeTracingScenario(persistence: PGliteFlarexPersistence | Post
     const settlements = rollback.spans.filter(span => span.name === "BoundedRequest.adapterSettlement");
     expect(settlements.length).toBeGreaterThan(0);
     expect(settlements.some(span => Option.getOrUndefined(span.parent)?.spanId === rollbackCall?.spanId)).toBe(true);
-    expect(yield* host.read(native.commands.count, { collection: "posts", where: { title: { equals: "trace-rollback" } } })).toEqual({ totalDocs: 0 });
+    expect(yield* host.count({ collection: "posts", where: { title: { equals: "trace-rollback" } } })).toEqual({ totalDocs: 0 });
     const disabledRollback = collector("88888888888888888888888888888888");
     expect(yield* Effect.flip(disabledRollback.trace(create("trace-rollback")).pipe(Effect.withTracerEnabled(false))))
       .toMatchObject({ reason: "unsupportedProfile" });
@@ -194,9 +181,9 @@ async function nativeTracingScenario(persistence: PGliteFlarexPersistence | Post
     cancelledCallbackRelease.resolve();
     if (cancelledLateCall === undefined) throw new Error("Missing cancelled native callback");
     yield* Effect.promise(() => expect(cancelledLateCall).rejects.toBeInstanceOf(UnsupportedPayloadCapability));
-    expect(yield* host.read(native.commands.count, { collection: "posts", where: { title: { equals: "trace-cancel" } } })).toEqual({ totalDocs: 0 });
+    expect(yield* host.count({ collection: "posts", where: { title: { equals: "trace-cancel" } } })).toEqual({ totalDocs: 0 });
     yield* host.close;
-    expect(yield* Effect.flip(host.read(native.commands.count, { collection: "posts" }))).toMatchObject({ reason: "closed" });
+    expect(yield* Effect.flip(host.count({ collection: "posts" }))).toMatchObject({ reason: "closed" });
     expect(executions).toBeGreaterThan(5);
     expect([...touched]).toEqual(["posts"]);
   })));

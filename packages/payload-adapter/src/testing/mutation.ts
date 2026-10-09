@@ -178,7 +178,7 @@ const makeFixedRuntime = Effect.fn("PayloadMixedConformance.make")(function* (
     const state = makeFixedAttemptState(selected);
     const token = Object.freeze({});
     states.set(token, state);
-    const runtime = yield* makePayloadAttempt(native, compiled.sourceContract.sourceKey, attempt, {
+    const runtime = yield* makePayloadAttempt(native, attempt, {
       requestContext: { [principalContextKey]: allowed ? "allowed" : "denied", [stateContextKey]: token },
       onExecute: state.onExecute, onCollection: state.onCollection,
     });

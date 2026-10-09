@@ -5,6 +5,7 @@ import type { PayloadContentProfile } from "../contract";
 import { UnsupportedPayloadCapability } from "../errors";
 import { makePayloadNative } from "../runtime/native";
 import { bindPayloadDirect } from "../direct/binding";
+import { registerPayloadRuntime } from "../runtime/registry";
 import type { PayloadRuntime } from "../runtime";
 import { payloadConformanceConfiguration } from "./profiles";
 import type { CompiledPayloadCollections } from "../collections";
@@ -71,7 +72,9 @@ export const makePayloadConformanceRuntime: (
     hooks, onExecute: () => { executions += 1; },
     onCollection: collection => { touched.add(collection); },
   });
-  return { runtime: { commands: native.commands, ...bindPayloadDirect(native) }, payload: native.payload, observations: {
+  const runtime = Object.freeze(bindPayloadDirect(native));
+  registerPayloadRuntime(runtime, native);
+  return { runtime, payload: native.payload, observations: {
     touched: () => [...touched], hookRuns: () => hookRuns,
     executions: () => executions, pendingReads: () => pendingReads,
   } };
@@ -92,7 +95,9 @@ export const makePayloadManagedReadAccessRuntime = Effect.fn("PayloadManagedRead
           { title: { equals: "Managed Local API" } };
       } },
   });
-  return { runtime: { commands: native.commands, ...bindPayloadDirect(native) },
+  const runtime = Object.freeze(bindPayloadDirect(native));
+  registerPayloadRuntime(runtime, native);
+  return { runtime,
     selectVisibility: (selected: typeof visibility) => { visibility = selected; },
     observations: { accessCalls: () => accessCalls } };
 });

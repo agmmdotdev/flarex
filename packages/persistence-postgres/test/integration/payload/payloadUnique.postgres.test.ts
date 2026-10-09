@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
@@ -21,9 +22,9 @@ describe.skipIf(postgresUrl === null)("Payload compound uniqueness (PostgreSQL)"
     const first = yield* makeUniquePayloadFixture(persistence, makePostgresRelationalSession(persistence));
     const second = yield* makeUniquePayloadFixture(persistence, makePostgresRelationalSession(persistence));
     for (const tested of [first, second]) {
-      yield* tested.host.run(tested.host.newRequestKey(), tested.runtime.commands.create,
+      yield* tested.host.run(tested.host.newRequestKey(), inspectPayloadRuntimeForTest(tested.runtime).commands.create,
         { collection: "items", data: uniqueData("same", "same", 1) });
-      expect(yield* tested.host.read(tested.runtime.commands.count,
+      expect(yield* tested.host.read(inspectPayloadRuntimeForTest(tested.runtime).commands.count,
         { collection: "items", where: { category: { equals: "same" }, amount: { equals: 1 } } })).toEqual({ totalDocs: 1 });
       expect((yield* Effect.promise(tested.inventory)).claims).toHaveLength(3);
     }

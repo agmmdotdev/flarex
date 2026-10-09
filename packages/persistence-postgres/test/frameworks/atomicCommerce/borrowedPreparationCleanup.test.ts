@@ -7,7 +7,7 @@ const witness = vi.hoisted(() => ({
   constructionCount: 0,
 }));
 
-vi.mock("../src/boundedRequestLifetime", async () => {
+vi.mock("../../../src/execution/preparation/boundedRequestLifetime", async () => {
   const { Effect } = await import("effect");
   return { makeBoundedRequestLifetime: () => Effect.succeed({
     context: Object.freeze({}),
@@ -16,7 +16,7 @@ vi.mock("../src/boundedRequestLifetime", async () => {
   }) };
 });
 
-vi.mock("../src/logicalDocuments/workingSet", async () => {
+vi.mock("../../../src/storage/documents/logicalDocuments/workingSet", async () => {
   const { Effect } = await import("effect");
   return { makeLogicalDocumentWorkingSet: () => Effect.sync(() => {
     witness.constructionCount++;
@@ -24,7 +24,7 @@ vi.mock("../src/logicalDocuments/workingSet", async () => {
   }) };
 });
 
-vi.mock("../src/logicalDocuments/relationalAdmission", async importOriginal => {
+vi.mock("../../../src/storage/documents/logicalDocuments/relationalAdmission", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/relationalAdmission")>();
   const { Effect } = await import("effect");
   return { ...original, withLogicalRelationalAttemptAdmissionEffect: (
@@ -33,14 +33,15 @@ vi.mock("../src/logicalDocuments/relationalAdmission", async importOriginal => {
   ) => Effect.gen(function* () {
     yield* prepare({
       root: { scopeId: "prepared-scope", snapshotCommitSeq: 1n, executionProfile: "durableOperations" },
-      clock: {}, schema: { capabilities: [] }, tables: [], search: [], unique: [], indexes: [],
+      clock: {}, schema: { capabilities: [] }, tables: [],
+      writeMechanics: { tables: [], unique: [], indexes: [], searchDefinitions: [] },
       values: { validate: () => Effect.void },
     }, () => Effect.void, Object.freeze({}));
     return yield* Effect.fail(witness.tailFailure);
   }) };
 });
 
-vi.mock("../src/logicalDocuments/documentAdmission", async importOriginal => {
+vi.mock("../../../src/storage/documents/logicalDocuments/documentAdmission", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/documentAdmission")>();
   const { Effect } = await import("effect");
   return { ...original, withLogicalDocumentAttemptAdmissionEffect: (
@@ -50,7 +51,8 @@ vi.mock("../src/logicalDocuments/documentAdmission", async importOriginal => {
     yield* prepare({
       configuration: { profile: "payload.scalar" },
       root: { scopeId: "prepared-scope", snapshotCommitSeq: 1n, executionProfile: "durableOperations" },
-      clock: {}, tables: [{ tableId: 1, localName: "posts" }], unique: [], indexes: [],
+      clock: {}, tables: [{ tableId: 1, localName: "posts" }],
+      writeMechanics: { tables: [], unique: [], indexes: [], searchDefinitions: [] },
       validate: () => Effect.void,
     }, () => Effect.void, Object.freeze({}));
     return yield* Effect.fail(witness.tailFailure);
@@ -58,7 +60,7 @@ vi.mock("../src/logicalDocuments/documentAdmission", async importOriginal => {
 });
 
 import { makeBorrowedLogicalAttempt } from "../../../src/frameworks/commerceTransaction/borrowedLogicalAttempt";
-import { makeBorrowedCmsAttempt } from "../../../src/frameworks/cmsTransaction/borrowedLogicalAttempt";
+import { makeBorrowedCmsInvocation } from "../../../src/frameworks/cmsTransaction/borrowedLogicalAttempt";
 import type { BorrowedLogicalAttemptInput } from "../../../src/frameworks/commerceTransaction/borrowedLogicalAttempt";
 import type { BorrowedCmsAttemptInput } from "../../../src/frameworks/cmsTransaction/borrowedLogicalAttempt";
 
@@ -86,5 +88,5 @@ it("closes the Product borrowed lifetime when checked construction fails at tran
 it("closes the Payload borrowed lifetime when checked construction fails at transaction settlement", async () => {
   const input = { admission: Object.freeze({}), attempt: Object.freeze({}), method: "read",
     pendingRows: [] } as unknown as BorrowedCmsAttemptInput;
-  await assertCleanupAfterTailFailure(makeBorrowedCmsAttempt(input));
+  await assertCleanupAfterTailFailure(makeBorrowedCmsInvocation(input));
 });

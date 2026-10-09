@@ -1,7 +1,7 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Schema, Scope } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import * as participantBinding from "@flarex/payload-adapter/internal/participant";
-import * as cmsAdapter from "@flarex/persistence-postgres/internal/cms-adapter";
+import * as cmsExecution from "@flarex/persistence-postgres/internal/cms-execution";
 import * as nativeRuntime from "../../../payload-adapter/src/runtime/native";
 import { makePayloadAttempt } from "../../../payload-adapter/src/runtime/attempt";
 import { LogicalParticipantInvocationError } from
@@ -61,7 +61,6 @@ describe.each(drivers)("scoped Payload attempt facade on %s", driver => {
     let native: nativeRuntime.PayloadNative | undefined;
     let ownership: Effect.Success<ReturnType<nativeRuntime.PayloadNative["makeAttemptOwnership"]>> | undefined;
     let captured: Parameters<LogicalParticipantBorrow>[0] | undefined;
-    let sourceKey: string | undefined;
     let aborts = 0;
     let borrowOrdinal = 0;
     const heldAbortStarted = await Effect.runPromise(Deferred.make<void>());
@@ -87,14 +86,13 @@ describe.each(drivers)("scoped Payload attempt facade on %s", driver => {
       }));
     const bind = participantBinding.bindPayloadParticipant;
     const borrowObserver = vi.spyOn(participantBinding, "bindPayloadParticipant").mockImplementation((...args) => {
-      sourceKey ??= args[1];
       return bind(...args).pipe(Effect.map(borrow => input => {
         captured ??= input;
         return borrow(input);
       }));
     });
-    const makeBorrowed = cmsAdapter.makeBorrowedCmsAttempt;
-    const abortObserver = vi.spyOn(cmsAdapter, "makeBorrowedCmsAttempt").mockImplementation((...args) =>
+    const makeBorrowed = cmsExecution.makeBorrowedCmsInvocation;
+    const abortObserver = vi.spyOn(cmsExecution, "makeBorrowedCmsInvocation").mockImplementation((...args) =>
       makeBorrowed(...args).pipe(Effect.map(borrowed => {
         const held = ++borrowOrdinal === 5;
         return { ...borrowed, abort: borrowed.abort.pipe(
@@ -114,7 +112,7 @@ describe.each(drivers)("scoped Payload attempt facade on %s", driver => {
       try {
         await fixture.runExecution();
         const runtime = fixture.payload?.current();
-        if (runtime === undefined || captured === undefined || nativeScope === undefined || native === undefined || sourceKey === undefined || ownership === undefined)
+        if (runtime === undefined || captured === undefined || nativeScope === undefined || native === undefined || ownership === undefined)
           throw new Error("Missing actual native Payload ownership");
         const originalOwnership = ownership;
         const destroyNative = native.payload.destroy.bind(native.payload);
@@ -132,7 +130,7 @@ describe.each(drivers)("scoped Payload attempt facade on %s", driver => {
           const lateBorrow = await Effect.runPromise(runtime.runtime.borrowParticipant(captured))
             .then(() => null, (cause: unknown) => cause);
           expect(lateBorrow).toMatchObject({ cause: { reason: "closed" } });
-          await expect(Effect.runPromise(Effect.scoped(makePayloadAttempt(native, sourceKey, captured.attempt))))
+          await expect(Effect.runPromise(Effect.scoped(makePayloadAttempt(native, captured.attempt))))
             .rejects.toMatchObject({ reason: "closed" });
           expect(destroy).not.toHaveBeenCalled();
           await Effect.runPromise(Deferred.succeed(finishAbort, undefined));

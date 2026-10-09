@@ -4,26 +4,45 @@ import { cmsError, type CmsCommandContext } from "@flarex/persistence-postgres/i
 import { payloadHasMany, type PayloadContentProfile } from "./contract";
 import type { PayloadCollectionRuntime } from "./collectionRuntime";
 import { UnsupportedPayloadCapability } from "./errors";
-import { payloadJoinQuery } from "./joins";
+import { payloadJoinQuery, type PayloadJoinInput } from "./joins";
 import { payloadManyIds } from "./many";
-import { decodePayloadPaging } from "./query";
+import { decodePayloadPaging, PayloadLimit, PayloadPage, PayloadWhere } from "./query";
 
 // Envelopes check keys first. Native Payload validation and the ordered admission
 // steps below still own field values, defaults, and their original error family.
 const field = Schema.optional(Schema.Unknown);
-const CreateEnvelope = Schema.Struct({ collection: field, data: field });
-const UpdateEnvelope = Schema.Struct({ collection: field, id: field, data: field });
-const IdEnvelope = Schema.Struct({ collection: field, id: field });
-const CountEnvelope = Schema.Struct({ collection: field, where: field });
+const Data = Schema.Record(Schema.String, JsonValue);
+const CreateArgs = Schema.Struct({ collection: Schema.String, data: Data });
+const UpdateArgs = Schema.Struct({ ...CreateArgs.fields, id: Schema.String });
+const DeleteArgs = Schema.Struct({ collection: Schema.String, id: Schema.String });
+const CountArgs = Schema.Struct({ collection: Schema.String, where: Schema.optionalKey(PayloadWhere) });
+const FindArgs = Schema.Struct({ collection: Schema.String,
+  page: Schema.optionalKey(PayloadPage), limit: Schema.optionalKey(PayloadLimit),
+  pagination: Schema.optionalKey(Schema.Boolean), sort: Schema.optionalKey(Schema.Literal("id")),
+  where: Schema.optionalKey(PayloadWhere), depth: Schema.optionalKey(Schema.Literals([0, 1])) });
+const FindByIdArgs = Schema.Struct({ collection: Schema.String, id: Schema.String,
+  depth: Schema.optionalKey(Schema.Literals([0, 1])) });
+
+function foreignEnvelope<Fields extends Schema.Struct.Fields>(schema: Schema.Struct<Fields>) {
+  // SAFETY: only the field values change; every original key is retained exactly
+  // once. The ordered decoder below, rather than this first pass, owns values.
+  const fields = Object.fromEntries(Object.keys(schema.fields).map(key => [key, field])) as
+    { readonly [Key in keyof Fields]: typeof field };
+  return Schema.Struct(fields);
+}
+const CreateEnvelope = foreignEnvelope(CreateArgs);
+const UpdateEnvelope = foreignEnvelope(UpdateArgs);
+const IdEnvelope = foreignEnvelope(DeleteArgs);
+const CountEnvelope = foreignEnvelope(CountArgs);
 const ReadEnvelope = Schema.Struct({ depth: field, where: field, joins: field });
-const findFields = { collection: field, where: field, page: field, limit: field, pagination: field, sort: field, depth: field };
-const findByIdFields = { collection: field, id: field, depth: field };
+const findFields = foreignEnvelope(FindArgs).fields;
+const findByIdFields = foreignEnvelope(FindByIdArgs).fields;
 const strict = { onExcessProperty: "error" } as const;
 const decodeCreateEnvelope = Schema.decodeUnknownEffect(CreateEnvelope, strict);
 const decodeUpdateEnvelope = Schema.decodeUnknownEffect(UpdateEnvelope, strict);
 const decodeIdEnvelope = Schema.decodeUnknownEffect(IdEnvelope, strict);
 const decodeCountEnvelope = Schema.decodeUnknownEffect(CountEnvelope, strict);
-const decodeData = Schema.decodeUnknownEffect(Schema.Record(Schema.String, JsonValue));
+const decodeData = Schema.decodeUnknownEffect(Data);
 const decodeId = Schema.decodeUnknownEffect(Schema.String);
 const decodeDepth = Schema.decodeUnknownEffect(Schema.Literals([0, 1]));
 const decodeOneRelation = Schema.decodeUnknownEffect(Schema.NullOr(Schema.String));
@@ -124,6 +143,12 @@ export function makePayloadInputs(profile: PayloadContentProfile, collections: r
 }
 
 export type PayloadInputs = ReturnType<typeof makePayloadInputs>;
+export type PayloadCreateArgs = typeof CreateArgs.Type;
+export type PayloadUpdateArgs = typeof UpdateArgs.Type;
+export type PayloadDeleteArgs = typeof DeleteArgs.Type;
+export type PayloadFindArgs = typeof FindArgs.Type & Readonly<{ joins?: PayloadJoinInput }>;
+export type PayloadFindByIdArgs = typeof FindByIdArgs.Type & Readonly<{ joins?: PayloadJoinInput }>;
+export type PayloadCountArgs = typeof CountArgs.Type;
 export type PayloadCreateInput = Effect.Success<ReturnType<PayloadInputs["create"]>>;
 export type PayloadUpdateInput = Effect.Success<ReturnType<PayloadInputs["update"]>>;
 export type PayloadDeleteInput = Effect.Success<ReturnType<PayloadInputs["delete"]>>;

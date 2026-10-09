@@ -1,3 +1,5 @@
+import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
+import { inspectPayloadHostForTest, inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
 import { expect } from "vitest";
@@ -14,10 +16,6 @@ import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/command
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../../../src/installation/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
   fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys } from "../../../src/database/schema";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../../../src/frameworks/payloadPreferences/factsSchema";
@@ -84,68 +82,70 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
     preferences: await db.select().from(table), preferenceFacts: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const runtime = yield* makePayloadRuntime(compiled);
-    expect(Object.keys(runtime.commands)).toHaveLength(6);
+    expect(Object.keys(runtime)).not.toContain("commands");
     const hostInput = { hostRuntime: preparedHostTestRuntime(db), ...bindingInput, scopeId: fixture.authority.scopeId,
       session, controlDatabase: fixture.control.drizzle, pointCommitAuthority: fixture.pointCommitAuthority,
       identityAndAccessPolicy: { subject: "compiled-collection-test" }, payloadPreferenceTarget: target,
-      materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
-        developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle), uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
-        candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
-    const host = yield* runtime.bind(hostInput);
+      materialization: fixture.servingOwners.materialization };
+    const binding = yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
+      hostRuntime: hostInput.hostRuntime, identityAndAccessPolicy: hostInput.identityAndAccessPolicy,
+      profile: { kind: "fullProof", payloadPreferenceTarget: hostInput.payloadPreferenceTarget } });
+    const host = yield* runtime.bind(binding);
     const key = host.newRequestKey();
     const firstInput = { collection: "news-items", data: { headline: "same-value" } };
     const selected = { calls: 1, commandBytes: cmsLimits.commandBytes };
-    const bounded = yield* runtime.bind({ ...hostInput, requestBudget: selected });
+    const bounded = yield* runtime.bind(yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
+      hostRuntime: hostInput.hostRuntime, identityAndAccessPolicy: hostInput.identityAndAccessPolicy, requestBudget: selected,
+      profile: { kind: "fullProof", payloadPreferenceTarget: target } }));
     selected.calls = cmsLimits.calls;
     expect(bounded.requestBudget.calls).toBe(1);
     const beforeBudgetRefusal = yield* Effect.promise(inventory);
-    expect(yield* Effect.flip(bounded.run(bounded.newRequestKey(), runtime.commands.create, firstInput)))
+    expect(yield* Effect.flip(bounded.create(bounded.newRequestKey(), firstInput)))
       .toMatchObject({ reason: "limitExceeded" });
     expect(yield* Effect.promise(inventory)).toEqual(beforeBudgetRefusal);
     yield* bounded.close;
-    const first = document(yield* host.run(key, runtime.commands.create, firstInput));
+    const first = document(yield* host.create(key, firstInput));
     expect(first).toMatchObject({ headline: "same-value", priority: 2, visible: false, goLive: "2026-09-11T00:00:00.000Z" });
-    const second = document(yield* host.run(host.newRequestKey(), runtime.commands.create, { collection: "news", data: { sku: "same-value" } }));
+    const second = document(yield* host.create(host.newRequestKey(), { collection: "news", data: { sku: "same-value" } }));
     expect(second).toMatchObject({ sku: "same-value", relatedPost: "plain text", relatedPosts: "also text" });
     expect(first.id.split(":")[0]).not.toBe(second.id.split(":")[0]);
     const stable = yield* Effect.promise(inventory);
-    expect(yield* host.run(key, runtime.commands.create, firstInput)).toEqual(first);
-    expect(yield* Effect.flip(host.run(key, runtime.commands.create, { ...firstInput, collection: "news" }))).toMatchObject({ reason: "requestConflict" });
+    expect(yield* host.create(key, firstInput)).toEqual(first);
+    expect(yield* Effect.flip(host.create(key, { ...firstInput, collection: "news" }))).toMatchObject({ reason: "requestConflict" });
     for (const [collection, id, unique] of [["news-items", first.id, "headline"], ["news", second.id, "sku"]] as const) {
-      expect(yield* host.read(runtime.commands.findByID, { collection, id })).toMatchObject({ id });
-      expect(yield* host.read(runtime.commands.count, { collection, where: { [unique]: { equals: "same-value" } } })).toEqual({ totalDocs: 1 });
-      expect(yield* host.read(runtime.commands.find, { collection, where: { id: { equals: id } }, limit: 1 })).toMatchObject({ docs: [{ id }], totalDocs: 1 });
-      expect(yield* host.read(runtime.commands.find, { collection, limit: cmsLimits.pageRows }))
+      expect(yield* host.findByID({ collection, id })).toMatchObject({ id });
+      expect(yield* host.count({ collection, where: { [unique]: { equals: "same-value" } } })).toEqual({ totalDocs: 1 });
+      expect(yield* host.find({ collection, where: { id: { equals: id } }, limit: 1 })).toMatchObject({ docs: [{ id }], totalDocs: 1 });
+      expect(yield* host.find({ collection, limit: cmsLimits.pageRows }))
         .toMatchObject({ docs: [{ id }], limit: cmsLimits.pageRows, totalDocs: 1 });
-      expect(yield* Effect.flip(host.read(runtime.commands.find, { collection, limit: cmsLimits.pageRows + 1 })))
+      expect(yield* Effect.flip(host.find({ collection, limit: cmsLimits.pageRows + 1 })))
         .toMatchObject({ reason: "unsupportedProfile" });
-      const duplicate = yield* Effect.flip(host.run(host.newRequestKey(), runtime.commands.create, { collection, data: { [unique]: "same-value" } }));
+      const duplicate = yield* Effect.flip(host.create(host.newRequestKey(), { collection, data: { [unique]: "same-value" } }));
       expect(duplicate).toMatchObject({ reason: "documentInvalid", cause: { data: { collection, errors: [{ path: unique }] } } });
       expect(duplicate.cause).toBeInstanceOf(ValidationError);
-      const missing = yield* Effect.flip(host.run(host.newRequestKey(), runtime.commands.create, { collection, data: {} }));
+      const missing = yield* Effect.flip(host.create(host.newRequestKey(), { collection, data: {} }));
       expect(missing).toMatchObject({ reason: "documentInvalid", cause: { data: { errors: [{ path: unique }] } } });
     }
     for (const [collection, id] of [["news-items", second.id], ["news", first.id]] as const) {
-      for (const operation of [runtime.commands.findByID, runtime.commands.delete]) {
-        const attempt = operation === runtime.commands.delete ? host.run(host.newRequestKey(), operation, { collection, id }) : host.read(operation, { collection, id });
+      for (const attempt of [host.findByID({ collection, id }), host.delete(host.newRequestKey(), { collection, id })]) {
         expect(yield* Effect.flip(attempt)).toMatchObject({ reason: "invalidInput" });
       }
-      expect(yield* Effect.flip(host.run(host.newRequestKey(), runtime.commands.update, { collection, id, data: {} }))).toMatchObject({ reason: "invalidInput" });
-      for (const operation of [runtime.commands.find, runtime.commands.count]) {
-        expect(yield* Effect.flip(host.read(operation, { collection, where: { id: { equals: id } } }))).toMatchObject({ reason: "invalidInput" });
+      expect(yield* Effect.flip(host.update(host.newRequestKey(), { collection, id, data: {} }))).toMatchObject({ reason: "invalidInput" });
+      for (const attempt of [host.find({ collection, where: { id: { equals: id } } }), host.count({ collection, where: { id: { equals: id } } })]) {
+        expect(yield* Effect.flip(attempt)).toMatchObject({ reason: "invalidInput" });
       }
     }
     for (const input of [{}, { collection: "posts" }, { collection: "payload-preferences" }, { collection: "news-items", where: { priority: { equals: "2" } } }]) {
-      yield* Effect.flip(host.read(runtime.commands.find, input));
+      yield* Effect.flip(inspectPayloadHostForTest(host).host.read(inspectPayloadHostForTest(host).commands.find, input));
     }
     expect(yield* Effect.promise(inventory)).toEqual(stable);
-    expect(yield* host.run(host.newRequestKey(), runtime.commands.update, { collection: "news-items", id: first.id, data: { priority: 7 } }))
+    expect(yield* host.update(host.newRequestKey(), { collection: "news-items", id: first.id, data: { priority: 7 } }))
       .toMatchObject({ id: first.id, priority: 7, createdAt: first.createdAt });
-    expect(yield* host.run(host.newRequestKey(), runtime.commands.update, { collection: "news", id: second.id, data: { relatedPost: "changed text" } }))
+    expect(yield* host.update(host.newRequestKey(), { collection: "news", id: second.id, data: { relatedPost: "changed text" } }))
       .toMatchObject({ id: second.id, relatedPost: "changed text" });
-    yield* host.run(host.newRequestKey(), runtime.commands.create, { collection: "news-items", data: { headline: "second-headline" } });
-    expect(yield* host.read(runtime.commands.find, { collection: "news-items", limit: 1, page: 2 })).toMatchObject({ totalDocs: 2, totalPages: 2, page: 2 });
-    expect(yield* host.read(runtime.commands.count, { collection: "news" })).toEqual({ totalDocs: 1 });
+    yield* host.create(host.newRequestKey(), { collection: "news-items", data: { headline: "second-headline" } });
+    expect(yield* host.find({ collection: "news-items", limit: 1, page: 2 })).toMatchObject({ totalDocs: 2, totalPages: 2, page: 2 });
+    expect(yield* host.count({ collection: "news" })).toEqual({ totalDocs: 1 });
     const scope = Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid;
     const foreignScope = ScopeIdSchema.make("scope_00000000-0000-4000-8000-000000000001");
     const generation = yield* decodeGeneration(reference.storageGeneration);
@@ -163,13 +163,13 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
     ]); });
     const beforeDelete = yield* Effect.promise(inventory);
     const pair = defineCmsCommand({ name: "compiled-delete-pair", mode: "write", run: Effect.fn(function* (ctx, args) {
-      yield* ctx.nested(runtime.commands.delete, { collection: "news-items", id: first.id });
+      yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: "news-items", id: first.id });
       if (args === false) return yield* Effect.fail(cmsError("invalidInput"));
       if (args === "wrong-collection") yield* ctx.preferences.deleteForPendingDocument(ctx.context, ctx.transactionId,
         "news", { key: { in: [`collection-news-${first.id}`] } });
-      return yield* ctx.nested(runtime.commands.delete, { collection: "news", id: second.id });
+      return yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.delete, { collection: "news", id: second.id });
     }) });
-    const paired = yield* makeCmsHost({ ...hostInput, expectedContentIdentity: compiled.contentIdentity, commands: [pair, ...Object.values(runtime.commands)] });
+    const paired = yield* makeCmsHost({ ...hostInput, expectedContentIdentity: compiled.contentIdentity, commands: [pair, ...Object.values(inspectPayloadRuntimeForTest(runtime).commands)] });
     yield* Effect.flip(paired.run(paired.newRequestKey(), pair, false));
     expect(yield* Effect.promise(inventory)).toEqual(beforeDelete);
     expect(yield* Effect.flip(paired.run(paired.newRequestKey(), pair, "wrong-collection"))).toMatchObject({ reason: "invalidAuthority" });
@@ -187,6 +187,6 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
     expect(afterDelete.preferences.map(value => value.id).sort()).toEqual(["wrong-collection-pref", "wrong-scope-pref"]);
     yield* paired.run(deleteKey, pair, true);
     expect(yield* Effect.promise(inventory)).toEqual(afterDelete);
-    expect(yield* host.read(runtime.commands.count, { collection: "news" })).toEqual({ totalDocs: 0 });
+    expect(yield* host.count({ collection: "news" })).toEqual({ totalDocs: 0 });
   })));
 }

@@ -1,7 +1,6 @@
 export { makePreparedHostRuntime, type PreparedHostRuntime, PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
 export {
   defineCmsCommand,
-  getCmsCommand,
   type CmsCommand,
   type CmsCommandContext,
 } from "./commands";
@@ -16,7 +15,6 @@ export {
 } from "./model";
 export { capturePrivateJsonData } from "../../values/privateJsonData";
 export { defaultCmsRequestBudget, type CmsRequestBudget } from "../../execution/preparation/frameworkExecutionPolicy";
-export { makeBorrowedCmsAttempt, type BorrowedCmsAttemptInput } from "./borrowedLogicalAttempt";
 export {
   registerPayloadContentProfiles,
   type PayloadContentProfiles,

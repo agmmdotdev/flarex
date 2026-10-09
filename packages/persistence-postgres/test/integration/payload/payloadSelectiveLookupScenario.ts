@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Effect, Schema } from "effect";
 import { expect } from "vitest";
 import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
@@ -48,25 +49,25 @@ export const payloadSelectiveLookupScenario: NonNullable<Parameters<typeof paylo
     if (rollback) return yield* Effect.fail(cmsError("documentInvalid"));
     return replacement;
   }) });
-  const host = await runEffect(makeCmsHost({ ...hostInput, commands: [...Object.values(conformance.runtime.commands), seed, move] }, {
+  const host = await runEffect(makeCmsHost({ ...hostInput, commands: [...Object.values(inspectPayloadRuntimeForTest(conformance.runtime).commands), seed, move] }, {
     documentReads: { beforeRead: selection => Effect.sync(() => { if (selection === "scan") scans++; else if (selection === "point") points++; }) },
     afterDocumentClosure: closed => Effect.sync(() => { expect(closed.scans).toEqual([]); }),
   }));
   for (let batch = 0; batch < Math.floor(cmsLimits.identities / 32) + 1; batch++) await runEffect(host.run(host.newRequestKey(), seed, batch));
   expect(decodeInventory(await inventory()).rows.length).toBeGreaterThan(cmsLimits.identities);
   const beforeReads = points;
-  const queried = await runEffect(host.read(conformance.runtime.commands.find, { collection: "posts", where: { title: { equals: "selective-0-0" } } }));
+  const queried = await runEffect(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.find, { collection: "posts", where: { title: { equals: "selective-0-0" } } }));
   const page = decodePage(queried);
   expect(page.totalDocs).toBe(1);
   const selected = page.docs[0];
   if (selected === undefined) throw new Error("Missing selected Payload row");
-  expect(await runEffect(host.read(conformance.runtime.commands.find, { collection: "posts", where: { id: { equals: selected.id } } }))).toEqual(queried);
-  expect(await runEffect(host.read(conformance.runtime.commands.count, { collection: "posts", where: { title: { equals: "selective-0-0" } } }))).toEqual({ totalDocs: 1 });
-  expect(await runEffect(host.read(conformance.runtime.commands.count, { collection: "posts", where: { title: { equals: "selective-absent" } } }))).toEqual({ totalDocs: 0 });
+  expect(await runEffect(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.find, { collection: "posts", where: { id: { equals: selected.id } } }))).toEqual(queried);
+  expect(await runEffect(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.count, { collection: "posts", where: { title: { equals: "selective-0-0" } } }))).toEqual({ totalDocs: 1 });
+  expect(await runEffect(host.read(inspectPayloadRuntimeForTest(conformance.runtime).commands.count, { collection: "posts", where: { title: { equals: "selective-absent" } } }))).toEqual({ totalDocs: 0 });
   expect(points - beforeReads).toBe(3);
-  const created = decodeDocument(await runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.create,
+  const created = decodeDocument(await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.create,
     { collection: "posts", data: { title: "selective-native", publishedAt: "2026-01-01" } })));
-  expect(await runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.update,
+  expect(await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.update,
     { collection: "posts", id: created.id, data: { title: "selective-renamed" } }))).toMatchObject({ id: created.id, title: "selective-renamed" });
   const beforeRollback = await inventory();
   expect(await runEffectFailure(host.run(host.newRequestKey(), move, true))).toMatchObject({ reason: "documentInvalid" });

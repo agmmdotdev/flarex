@@ -1,5 +1,5 @@
-import { compilePayloadLatencyCollections, preparePayloadLatencyHostInput } from "./payloadLatencyFixture";
-import { Clock, Effect, Schema, Tracer } from "effect";
+import { compilePayloadLatencyCollections, preparePayloadLatencyBinding } from "./payloadLatencyFixture";
+import { Clock, Effect, Exit, Scope, Schema, Tracer } from "effect";
 import { expect, it } from "vitest";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import { makePayloadRuntime } from "../../../../payload-adapter/src/runtime";
@@ -37,6 +37,7 @@ it("summarizes nearest-rank latency quantiles without mutating observations", ()
 it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary compiled Payload runtime without changing its owners", async () => {
   const resource = await createFileScopedPostgresFixture();
   const persistence = resource.persistence;
+  const servingScope = await runEffect(Scope.make());
   const samples: Sample[] = [];
   try {
     const environment = await runEffect(Effect.promise(() => persistence.query(`select current_setting('server_version') as version,
@@ -82,7 +83,7 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
       return value;
     });
     const compiled = await runEffect(measure("compile", false, compilePayloadLatencyCollections()));
-    const hostInput = await preparePayloadLatencyHostInput(persistence, compiled);
+    const hostInput = await preparePayloadLatencyBinding(persistence, compiled, servingScope);
     for (let index = 0; index < 21; index++) await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* measure(index === 0 ? "first-instance" : "fresh-instance", false, makePayloadRuntime(compiled));
       yield* measure("bind", false, runtime.bind(hostInput));
@@ -90,26 +91,25 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
     await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiled);
       const host = yield* runtime.bind(hostInput);
-      const commands = runtime.commands;
-      for (let index = 0; index < 8; index++) yield* host.run(host.newRequestKey(), commands.create,
-        { collection: "news-items", data: { headline: `seed-${index}` } });
-      yield* host.run(host.newRequestKey(), commands.create, { collection: "authors", data: { name: "Retained author" } });
+
+      for (let index = 0; index < 8; index++) yield* host.create(host.newRequestKey(), { collection: "news-items", data: { headline: `seed-${index}` } });
+      yield* host.create(host.newRequestKey(), { collection: "authors", data: { name: "Retained author" } });
       for (let index = -3; index < 20; index++) for (const collected of index % 2 === 0 ? [false, true] : [true, false]) {
         const sample = <A, E>(name: string, effect: Effect.Effect<A, E>) => index < 0 ? effect : measure(name, collected, effect);
         const input = { collection: "news-items", data: { headline: `sample-${index}-${collected ? "trace" : "plain"}` } };
         const key = host.newRequestKey();
-        const created = yield* sample("create", host.run(key, commands.create, input));
+        const created = yield* sample("create", host.create(key, input));
         const id = documentId(created);
-        expect(yield* sample("findByID", host.read(commands.findByID, { collection: "news-items", id }))).toEqual(created);
-        expect(yield* sample("find", host.read(commands.find, { collection: "news-items", limit: 4 }))).toMatchObject({ totalDocs: 9, docs: expect.any(Array) });
-        expect(yield* sample("count", host.read(commands.count, { collection: "news-items" }))).toEqual({ totalDocs: 9 });
-        expect(yield* sample("update", host.run(host.newRequestKey(), commands.update, { collection: "news-items", id, data: { score: 1 } })))
+        expect(yield* sample("findByID", host.findByID({ collection: "news-items", id }))).toEqual(created);
+        expect(yield* sample("find", host.find({ collection: "news-items", limit: 4 }))).toMatchObject({ totalDocs: 9, docs: expect.any(Array) });
+        expect(yield* sample("count", host.count({ collection: "news-items" }))).toEqual({ totalDocs: 9 });
+        expect(yield* sample("update", host.update(host.newRequestKey(), { collection: "news-items", id, data: { score: 1 } })))
           .toMatchObject({ id, score: 1 });
-        expect(yield* sample("replay", host.run(key, commands.create, input))).toEqual(created);
-        expect(documentId(yield* sample("delete", host.run(host.newRequestKey(), commands.delete, { collection: "news-items", id })))).toBe(id);
+        expect(yield* sample("replay", host.create(key, input))).toEqual(created);
+        expect(documentId(yield* sample("delete", host.delete(host.newRequestKey(), { collection: "news-items", id })))).toBe(id);
       }
-      expect(yield* host.read(commands.count, { collection: "news-items" })).toEqual({ totalDocs: 8 });
-      expect(yield* host.read(commands.count, { collection: "authors" })).toEqual({ totalDocs: 1 });
+      expect(yield* host.count({ collection: "news-items" })).toEqual({ totalDocs: 8 });
+      expect(yield* host.count({ collection: "authors" })).toEqual({ totalDocs: 1 });
     })));
     const groups = [...new Set(samples.map(sample => `${sample.operation}/${sample.collected}`))].map(key => {
       const group = samples.filter(sample => `${sample.operation}/${sample.collected}` === key);
@@ -127,5 +127,5 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
     });
     console.log("PAYLOAD_LATENCY " + JSON.stringify({ environment, node: process.version,
       method: "three warmup pairs; twenty alternating cohort pairs; nearest-rank quantiles; inclusive spans; live cardinality8/9; retained tombstones grow to46", groups }));
-  } finally { await resource.dispose(); }
+  } finally { await runEffect(Scope.close(servingScope, Exit.succeed(undefined))); await resource.dispose(); }
 }, 240_000);

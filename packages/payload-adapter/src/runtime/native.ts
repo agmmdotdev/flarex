@@ -83,7 +83,7 @@ export const makePayloadNative = Effect.fn("PayloadAdapter.makeNative")(function
     if (!live) return yield* Effect.fail(cmsError("closed"));
     return host;
   });
-  return { commands, makeCommands, makeAttemptOwnership, payload, isLive: () => live, retainHost, contentIdentity: compiled.contentIdentity };
+  return { commands, makeCommands, makeAttemptOwnership, payload, scope, isLive: () => live, retainHost, contentIdentity: compiled.contentIdentity };
 });
 
 export type PayloadNative = Effect.Success<ReturnType<typeof makePayloadNative>>;

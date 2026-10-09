@@ -1,3 +1,4 @@
+import { makeCmsCommandBinding } from "../../../../persistence-postgres/src/frameworks/cmsTransaction/construction";
 import { createHash } from "node:crypto";
 import { Effect, Exit, Schema, Scope } from "effect";
 import { expect } from "vitest";
@@ -16,11 +17,6 @@ import { createRelationalPGliteFixture } from "../../../../persistence-postgres/
 import { makePostgresRelationalSession } from "../../../../persistence-postgres/src/database/relationalTransaction/session";
 import { dataBindingActivationRequest } from "../../../../persistence-postgres/src/installation/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../../../persistence-postgres/src/installation/frameworkSchema/binding/selection";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../../persistence-postgres/src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../../../persistence-postgres/src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../../persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../../../persistence-postgres/src/storage/catalog/appSchemaCandidateValidation";
-import { createApplicationRelationReadPort } from "../../../../persistence-postgres/src/application/relations/applicationRelationRead";
 import { makePayloadRuntime } from "../../../../payload-adapter/src/runtime";
 import { makePayloadConformanceRuntime } from "../../../../payload-adapter/src/testing/conformance";
 import { payloadScalarFields, payloadScalarConfiguration } from "../../../../payload-adapter/src/testing/profiles";
@@ -54,18 +50,16 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
   try {
     const prepared = await prepareHost();
     const { runtime, host } = prepared;
-    const commands = runtime.commands;
+
     const collection = relations ? "posts" : "news-items";
     const width = profile === "one" ? 1 : size === "small" ? 2 : 8;
     let diagnostics: MixedMutationEffectDiagnostics | undefined;
     const runEffect = <A, E>(work: Effect.Effect<A, E>, observed = false): Promise<A> =>
       Effect.runPromise(!observed || diagnostics === undefined ? work
         : diagnostics.provide(diagnostics.traceEffect("native Payload operation", work)));
-    const create = async (title: string, fields: Record<string, Json> = {}) => document(await Effect.runPromise(host.run(host.newRequestKey(), commands.create,
-      { collection, data: relations ? { title, publishedAt: "2026-01-01", ...fields } : { headline: title, ...fields } })));
-    const read = (id: string, depth = 0, joins?: Json, observed = false) => runEffect(host.read(commands.findByID,
-      { collection, id, depth, ...(joins === undefined ? {} : { joins }) }), observed);
-    const remove = (id: string, observed = false) => runEffect(host.run(host.newRequestKey(), commands.delete, { collection, id }), observed);
+    const create = async (title: string, fields: Record<string, Json> = {}) => document(await Effect.runPromise(host.create(host.newRequestKey(), { collection, data: relations ? { title, publishedAt: "2026-01-01", ...fields } : { headline: title, ...fields } })));
+    const read = (id: string, depth: 0 | 1 = 0, joins?: { referencedBy: { limit: number } }, observed = false) => runEffect(host.findByID({ collection, id, depth, ...(joins === undefined ? {} : { joins }) }), observed);
+    const remove = (id: string, observed = false) => runEffect(host.delete(host.newRequestKey(), { collection, id }), observed);
     const timings = { provisionAndPrepareMs: performance.now() - started, runtimeConstructionMs: null, initialSeedMs: 0,
       ...(resource.installation === undefined ? {} : { installation: resource.installation }) };
     return {
@@ -104,7 +98,7 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
         }
       } else if (name !== "payload-create") {
         replayKey = host.newRequestKey();
-        root = document(await Effect.runPromise(host.run(replayKey, commands.create, input)));
+        root = document(await Effect.runPromise(host.create(replayKey, input)));
         created.push(root.id);
       }
       let deleted = false;
@@ -112,24 +106,23 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
       return {
         async run() {
           if (name === "payload-create") {
-            const result = await runEffect(host.run(host.newRequestKey(), commands.create, input), true);
+            const result = await runEffect(host.create(host.newRequestKey(), input), true);
             createdResult = result;
             return result;
           }
           if (root === undefined) throw new Error("Missing prepared Payload root");
           switch (name) {
-            case "payload-update": return runEffect(host.run(host.newRequestKey(), commands.update, { collection, id: root.id, data: { score: 7 } }), true);
+            case "payload-update": return runEffect(host.update(host.newRequestKey(), { collection, id: root.id, data: { score: 7 } }), true);
             case "payload-delete": {
               const result = await remove(root.id, true); deleted = true; return result;
             }
             case "payload-replay": {
               if (replayKey === undefined) throw new Error("Missing committed request key");
-              return runEffect(host.run(replayKey, commands.create, input), true);
+              return runEffect(host.create(replayKey, input), true);
             }
-            case "payload-find": return runEffect(host.read(commands.find, { collection, where: { headline: { equals: suffix } }, limit: 4 }), true);
-            case "payload-count": return runEffect(host.read(commands.count, { collection, where: { headline: { equals: suffix } } }), true);
-            case "payload-replace-many": return runEffect(host.run(host.newRequestKey(), commands.update,
-              { collection, id: root.id, data: { relatedPosts: targets.toReversed().map(value => value.id) } }), true);
+            case "payload-find": return runEffect(host.find({ collection, where: { headline: { equals: suffix } }, limit: 4 }), true);
+            case "payload-count": return runEffect(host.count({ collection, where: { headline: { equals: suffix } } }), true);
+            case "payload-replace-many": return runEffect(host.update(host.newRequestKey(), { collection, id: root.id, data: { relatedPosts: targets.toReversed().map(value => value.id) } }), true);
             case "payload-populate-one": case "payload-populate-many": return read(root.id, 1, undefined, true);
             case "payload-reverse-join": return read(root.id, 1, { referencedBy: { limit: width } }, true);
             case "payload-find-by-id": return read(root.id, 0, undefined, true);
@@ -145,7 +138,7 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
             expect(await read(row.id)).toEqual(result);
           } else if (name === "payload-delete") {
             expect(document(result).id).toBe(root?.id);
-            expect(await Effect.runPromise(host.read(commands.count, { collection, where: { headline: { equals: suffix } } }))).toEqual({ totalDocs: 0 });
+            expect(await Effect.runPromise(host.count({ collection, where: { headline: { equals: suffix } } }))).toEqual({ totalDocs: 0 });
           } else if (name === "payload-count") expect(result).toEqual({ totalDocs: 1 });
           else if (name === "payload-find") expect(result).toMatchObject({ totalDocs: 1, docs: [{ id: root?.id }] });
           else if (name === "payload-update") expect(await read(document(result).id)).toMatchObject({ id: root?.id, score: 7 });
@@ -187,23 +180,14 @@ export async function preparePayloadFlows(driver: "pglite" | "postgres", profile
         payloadLifecycle: { ...installationBindingReference(availability), profiles: [preferenceProfile.profile] } }));
       await Effect.runPromise(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
         "executor-measurement-preferences", combined.sha256, prior.head)));
-      const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle,
-        controlDatabase: fixture.control.drizzle, session,
-        deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, authority: fixture.authorityPorts,
-        application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
-        identityAndAccessPolicy: { subject: "executor-relation-measurement" }, payloadPreferenceTarget: target,
-        ...(profile === "joins" ? { relationReads: createApplicationRelationReadPort(fixture.control.drizzle,
-          fixture.pointCommitAuthority, fixture.relationCommit, fixture.fold) } : {}),
-        materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
-          developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
-          uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle), applicationRelations: fixture.relationCommit,
-          candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation,
-            pointCommitAuthority: fixture.pointCommitAuthority }) } };
       return Effect.runPromise(Effect.gen(function* () {
         const runtime = compiled === undefined ? (yield* makePayloadConformanceRuntime(profile === "one" ? "payload.content-relations"
           : profile === "many" ? "payload.content-many" : "payload.content-joins")).runtime
           : yield* makePayloadRuntime(compiled);
-        return { runtime, host: yield* runtime.bind(input) };
+        const binding = yield* makeCmsCommandBinding({ serving: yield* fixture.makeServing(session),
+          hostRuntime: preparedHostTestRuntime(persistence.drizzle), identityAndAccessPolicy: { subject: "executor-relation-measurement" },
+          profile: { kind: "fullProof", payloadPreferenceTarget: target } });
+        return { runtime, host: yield* runtime.bind(binding) };
       }).pipe(Effect.provideService(Scope.Scope, scope)));
     }
   } catch (cause) {

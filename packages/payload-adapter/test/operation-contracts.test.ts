@@ -1,13 +1,13 @@
 import { expect, expectTypeOf, it } from "vitest";
 import { Result, type Effect } from "effect";
-import { cmsLimits, type CmsReadHost } from "@flarex/persistence-postgres/internal/cms-adapter";
+import { cmsLimits } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { decodePayloadPaging, makePayloadQuery } from "../src/query";
 import { payloadResults, type PayloadCountResult, type PayloadDocument, type PayloadPageResult } from "../src/results";
 import type { PayloadCreateInput, PayloadUpdateInput, PayloadFindByIdInput } from "../src/inputs";
 import { payloadIsManagedField, payloadRelatedPostsField, type PayloadContentProfile } from "../src/contract";
 import { payloadPostsCollection, payloadContentFields, payloadScalarConfiguration } from "../src/testing/profiles";
 import { makePayloadCollectionRuntime } from "../src/collectionRuntime";
-import type { PayloadRuntime } from "../src/runtime";
+import type { PayloadRuntime, PayloadHost, PayloadReadHost, PayloadCreateArgs } from "../src/runtime";
 
 const collection = makePayloadCollectionRuntime(payloadScalarConfiguration.tables[0]!);
 const { decode: decodePayloadWhere, adapter: payloadAdapterWhere } = makePayloadQuery(collection);
@@ -82,9 +82,30 @@ it("preserves operation argument and result types at the JSON boundary", () => {
 
 it("binds direct readers without write capabilities", () => {
   type ReadHost = Effect.Success<ReturnType<PayloadRuntime["bindRead"]>>;
-  expectTypeOf<ReadHost>().toEqualTypeOf<CmsReadHost>();
+  expectTypeOf<ReadHost>().toEqualTypeOf<PayloadReadHost>();
   // @ts-expect-error Direct readers cannot execute write commands.
   expectTypeOf<ReadHost["run"]>();
   // @ts-expect-error Direct readers cannot create write request keys.
   expectTypeOf<ReadHost["newRequestKey"]>();
+});
+
+it("issues bound operation contracts without construction bags or command tokens", () => {
+  type Host = Effect.Success<ReturnType<PayloadRuntime["bind"]>>;
+  expectTypeOf<Host>().toEqualTypeOf<PayloadHost>();
+  expectTypeOf<PayloadCreateArgs["collection"]>().toEqualTypeOf<string>();
+  expectTypeOf<Effect.Success<ReturnType<Host["create"]>>>().toEqualTypeOf<PayloadDocument>();
+  expectTypeOf<Effect.Success<ReturnType<Host["update"]>>>().toEqualTypeOf<PayloadDocument>();
+  expectTypeOf<Effect.Success<ReturnType<Host["delete"]>>>().toEqualTypeOf<PayloadDocument>();
+  expectTypeOf<Effect.Success<ReturnType<Host["find"]>>>().toEqualTypeOf<PayloadPageResult>();
+  expectTypeOf<Effect.Success<ReturnType<Host["count"]>>>().toEqualTypeOf<PayloadCountResult>();
+  // @ts-expect-error Ordinary runtimes select native commands privately.
+  expectTypeOf<PayloadRuntime["commands"]>();
+  // @ts-expect-error A bound host has no generic execution dispatcher.
+  expectTypeOf<Host["run"]>();
+  // @ts-expect-error Callers provide the collection slug, not an internal decoded collection.
+  const decoded: PayloadCreateArgs = { collection, data: { title: "example" } };
+  // @ts-expect-error A construction bag has no CMS issuer identity.
+  const construction: Parameters<PayloadRuntime["bind"]>[0] = { database: {} };
+  void decoded;
+  void construction;
 });

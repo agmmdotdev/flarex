@@ -1,3 +1,5 @@
+import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
+import { inspectPayloadRuntimeForTest, withPayloadRuntimeScopeForTest } from "../../../../payload-adapter/src/testing";
 import { selectScopeClockRows } from "../../../src/scope/scopeClock";
 import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
 import { ScopeIdSchema, ScopeEpochSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -55,8 +57,12 @@ export async function payloadRelationScenario(input: {
     const scalar = yield* makePayloadConformanceRuntime();
     const relation = yield* makePayloadConformanceRuntime("payload.content-relations");
     yield* Effect.promise(async () => {
-      const oldHost = await runEffect(scalar.runtime.bind(hostInput));
-      const createOld = (title: string) => runEffect(oldHost.run(oldHost.newRequestKey(), scalar.runtime.commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
+      const oldHost = await runEffect(withPayloadRuntimeScopeForTest(scalar.runtime, fixture.makeServing(hostInput.session).pipe(
+        Effect.flatMap(serving => makeCmsCommandBinding({ serving, hostRuntime: hostInput.hostRuntime,
+          identityAndAccessPolicy: hostInput.identityAndAccessPolicy, profile: { kind: "fullProof",
+            ...(hostInput.payloadPreferenceTarget === undefined ? {} : { payloadPreferenceTarget: hostInput.payloadPreferenceTarget }) } })),
+        Effect.flatMap(binding => scalar.runtime.bind(binding)))));
+      const createOld = (title: string) => runEffect(oldHost.create(oldHost.newRequestKey(), { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
       const target = documentId(await createOld("relation-target"));
       const source = documentId(await createOld("relation-source"));
       const old = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
@@ -87,7 +93,7 @@ export async function payloadRelationScenario(input: {
       expect((await runEffect(fixture.relationActivation.readActive())).expectedActiveHead).toEqual(activated.expectedActiveHead);
 
       const calls = scalar.observations.executions();
-      await runEffectFailure(oldHost.read(scalar.runtime.commands.findByID, { collection: "posts", id: source }));
+      await runEffectFailure(oldHost.findByID({ collection: "posts", id: source }));
       expect(scalar.observations.executions()).toBe(calls);
       const reference = await runEffect(bindings.readApplicationReference());
       expect(reference.readiness).toMatchObject({ kind: "policy", relationCount: 1 });
@@ -102,20 +108,20 @@ export async function payloadRelationScenario(input: {
       const pair = defineCmsCommand({ name: "relation-nested", mode: "write", run: Effect.fn("RelationTest.nested")(function* (ctx, args) {
         if (!isJsonObject(args)) return yield* Effect.fail(cmsError("invalidInput"));
         if (args.kind === "create") {
-          const child = yield* ctx.nested(relation.runtime.commands.create, { collection: "posts", data: { title: "relation-nested-target", publishedAt: "2026-01-01" } });
+          const child = yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: "relation-nested-target", publishedAt: "2026-01-01" } });
           if (!isJsonObject(child)) return yield* Effect.fail(cmsError("invalidInput"));
-          return yield* ctx.nested(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: child.id ?? null } });
+          return yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: child.id ?? null } });
         }
-        yield* ctx.nested(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
-        return yield* ctx.nested(relation.runtime.commands.delete, { collection: "posts", id: args.id ?? null });
+        yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
+        return yield* ctx.nested(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: args.id ?? null });
       }) });
       const composition = { ...hostInput, expectedContentIdentity: payloadRelationContentIdentity,
-        commands: [...Object.values(relation.runtime.commands), pair],
+        commands: [...Object.values(inspectPayloadRuntimeForTest(relation.runtime).commands), pair],
         materialization: { ...hostInput.materialization, applicationRelations: fixture.relationCommit,
           afterTransactionStep: async (event: { step: string }) => { if (event.step === failureStep) throw new Error(`Injected relation ${event.step}`); } } };
       let host = await runEffect(makeCmsHost(composition));
-      const write = (command: typeof relation.runtime.commands.update, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
-      const read = (id: string) => runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id }));
+      const write = (command: ReturnType<typeof inspectPayloadRuntimeForTest>["commands"]["update"], args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
+      const read = (id: string) => runEffect(host.read(inspectPayloadRuntimeForTest(relation.runtime).commands.findByID, { collection: "posts", id }));
       const inventory = async () => ({ base: await input.inventory(), edges: await db.select().from(fxAppEdgeCurrent),
         adjacency: await db.select().from(fxAppEdgeAdjacencyVersions), relationFacts: await db.select().from(fxSystemCommitRelationAdjacencyChanges),
         preferences: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
@@ -150,7 +156,7 @@ export async function payloadRelationScenario(input: {
       for (const relatedPost of [{ id: target }, 42, [target]]) {
         const before = await inventory();
         const executions = relation.observations.executions();
-        expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason: "relationInvalid" });
+        expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason: "relationInvalid" });
         expect(relation.observations.executions()).toBe(executions);
         expect(await inventory()).toEqual(before);
       }
@@ -158,7 +164,7 @@ export async function payloadRelationScenario(input: {
       const identity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(target));
       const missing = `${identity.tableId}:${randomUUID()}`;
       const wrongTable = `${identity.tableId + 1}:${randomUUID()}`;
-      const tombstone = documentId(await write(relation.runtime.commands.create, { collection: "posts", data: { title: "relation-tombstone", publishedAt: "2026-01-01" } }));
+      const tombstone = documentId(await write(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: "relation-tombstone", publishedAt: "2026-01-01" } }));
       const tombstoneIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(tombstone));
       const tombstoneRowId = Buffer.from(tombstoneIdentity.rowId, "hex");
       const retainedRow = (await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.rowId, tombstoneRowId)))[0];
@@ -177,10 +183,10 @@ export async function payloadRelationScenario(input: {
       const beforeRestrictFault = await inventory();
       failureStep = "relationRestrictValidated";
       try {
-        expect(await runEffect(host.run(host.newRequestKey(), relation.runtime.commands.delete, { collection: "posts", id: tombstone }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
+        expect(await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: tombstone }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
       } finally { failureStep = undefined; }
       expect(await inventory()).toEqual(beforeRestrictFault);
-      await write(relation.runtime.commands.delete, { collection: "posts", id: tombstone });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: tombstone });
       const foreignBefore = await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, foreignUuid));
 
       const invalidRelations: ReadonlyArray<readonly [relatedPost: string, reason: Parameters<typeof cmsError>[0]]> = [
@@ -191,14 +197,14 @@ export async function payloadRelationScenario(input: {
       ];
       for (const [relatedPost, reason] of invalidRelations) {
         const before = await inventory();
-        expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason });
+        expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason });
         expect(await inventory()).toEqual(before);
       }
       const key = host.newRequestKey();
       const args = { collection: "posts", id: source, data: { relatedPost: target } };
-      const result = await runEffect(host.run(key, relation.runtime.commands.update, args));
+      const result = await runEffect(host.run(key, inspectPayloadRuntimeForTest(relation.runtime).commands.update, args));
       const executed = relation.observations.executions();
-      expect(await runEffect(host.run(key, relation.runtime.commands.update, args))).toEqual(result);
+      expect(await runEffect(host.run(key, inspectPayloadRuntimeForTest(relation.runtime).commands.update, args))).toEqual(result);
       expect(relation.observations.executions()).toBe(executed);
       expect(await read(source)).toMatchObject({ relatedPost: target });
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(1);
@@ -217,9 +223,9 @@ export async function payloadRelationScenario(input: {
       expect(incoming.exhausted).toBe(true);
 
       const beforeRestrict = await inventory();
-      expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.delete, { collection: "posts", id: target }))).toMatchObject({ reason: "relationDeleteRestricted" });
+      expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: target }))).toMatchObject({ reason: "relationDeleteRestricted" });
       expect(await inventory()).toEqual(beforeRestrict);
-      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { score: 7 } });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { score: 7 } });
       expect(await read(source)).toMatchObject({ relatedPost: target, score: 7 });
       const schemaName = await db.transaction(async tx => {
         await runEffect(lockInstallationForCurrentTransaction(tx));
@@ -241,22 +247,22 @@ export async function payloadRelationScenario(input: {
           for each row execute function ${rowFunction}()`);
         try {
           const before = await inventory();
-          expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update,
+          expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update,
             { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ reason: "storedCorruption" });
           expect(await inventory()).toEqual(before);
         } finally { await input.persistence.query(`drop trigger payload_relation_row_corruption on ${rowTable}`); }
       } finally { await input.persistence.query(`drop function ${rowFunction}()`); }
       for (const step of ["relationEdgeWritten", "commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
         const before = await inventory(); failureStep = step;
-        expect(await runEffect(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
+        expect(await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: source } }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
         failureStep = undefined; expect(await inventory()).toEqual(before);
       }
-      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: source } });
       expect(await read(source)).toMatchObject({ relatedPost: source });
-      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
-      await write(relation.runtime.commands.update, { collection: "posts", id: target, data: { relatedPost: source } });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: target, data: { relatedPost: source } });
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(2);
-      await write(relation.runtime.commands.update, { collection: "posts", id: target, data: { relatedPost: null } });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: target, data: { relatedPost: null } });
       const nested = await write(pair, { kind: "create" });
       if (!isJsonObject(nested) || typeof nested.relatedPost !== "string") throw new Error("Missing nested target");
       await input.seed(nested.relatedPost, ["relation-preference"]);
@@ -266,13 +272,13 @@ export async function payloadRelationScenario(input: {
       expect(await db.select().from(fxSystemCommitPayloadPreferenceDeletions)).toHaveLength(1);
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(0);
       expect(await read(source)).toMatchObject({ relatedPost: null, score: 7 });
-      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
       if ("pool" in input.persistence) {
         const persistence = input.persistence;
         const duplicateKey = host.newRequestKey();
         const duplicateCalls = relation.observations.executions();
         const duplicateArgs = { collection: "posts", id: source, data: { score: 8 } };
-        const duplicate = await Promise.allSettled([runEffect(host.run(duplicateKey, relation.runtime.commands.update, duplicateArgs)), runEffect(host.run(duplicateKey, relation.runtime.commands.update, duplicateArgs))]);
+        const duplicate = await Promise.allSettled([runEffect(host.run(duplicateKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, duplicateArgs)), runEffect(host.run(duplicateKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, duplicateArgs))]);
         expect(duplicate.map(item => item.status)).toEqual(["fulfilled", "fulfilled"]);
         expect(duplicate[0]).toEqual(duplicate[1]);
         expect(relation.observations.executions()).toBe(duplicateCalls + 1);
@@ -286,15 +292,15 @@ export async function payloadRelationScenario(input: {
         } }) }));
         bound = true;
         const recoveryCalls = relation.observations.executions();
-        expect(await runEffect(recovering.run(recovering.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ relatedPost: source });
+        expect(await runEffect(recovering.run(recovering.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ relatedPost: source });
         expect(relation.observations.executions()).toBe(recoveryCalls + 1);
         expect(pids.length).toBeGreaterThanOrEqual(2);
         expect(pids[1]).not.toBe(pids[0]);
-        const interruptedId = documentId(await write(relation.runtime.commands.create, { collection: "posts", data: { title: "delete-unresolved", publishedAt: "2026-01-01", relatedPost: target } }));
+        const interruptedId = documentId(await write(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: "delete-unresolved", publishedAt: "2026-01-01", relatedPost: target } }));
         await input.seed(interruptedId, ["relation-interrupted"]);
         const beforeInterrupt = await inventory();
         const pending = relation.observations.pendingReads();
-        const fiber = Effect.runFork(host.run(host.newRequestKey(), relation.runtime.commands.delete, { collection: "posts", id: interruptedId }));
+        const fiber = Effect.runFork(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: interruptedId }));
         try {
           const deadline = performance.now() + 5000;
           while (relation.observations.pendingReads() === pending && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
@@ -303,23 +309,23 @@ export async function payloadRelationScenario(input: {
           expect(Exit.isFailure(await runEffect(Fiber.await(fiber)))).toBe(true);
         } finally { await runEffect(Fiber.interrupt(fiber)); }
         expect(await inventory()).toEqual(beforeInterrupt);
-        await write(relation.runtime.commands.update, { collection: "posts", id: interruptedId, data: { title: "interrupted-restored", relatedPost: null } });
-        await write(relation.runtime.commands.delete, { collection: "posts", id: interruptedId });
+        await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: interruptedId, data: { title: "interrupted-restored", relatedPost: null } });
+        await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: interruptedId });
         for (const first of ["insert", "delete"] as const) {
-          const raceTarget = documentId(await write(relation.runtime.commands.create, { collection: "posts", data: { title: `race-${first}`, publishedAt: "2026-01-01" } }));
+          const raceTarget = documentId(await write(inspectPayloadRuntimeForTest(relation.runtime).commands.create, { collection: "posts", data: { title: `race-${first}`, publishedAt: "2026-01-01" } }));
           const entered = barrier<void>();
           const release = barrier<void>();
           const holder = await runEffect(makeCmsHost(composition, { afterDocumentClosure: Effect.fn("RelationTest.holdCommand")(function* () {
             entered.resolve();
             yield* Effect.promise(() => release.promise);
           }) }));
-          const firstCommand = first === "insert" ? relation.runtime.commands.update : relation.runtime.commands.delete;
+          const firstCommand = first === "insert" ? inspectPayloadRuntimeForTest(relation.runtime).commands.update : inspectPayloadRuntimeForTest(relation.runtime).commands.delete;
           const firstArgs = first === "insert" ? { collection: "posts", id: source, data: { relatedPost: raceTarget } } : { collection: "posts", id: raceTarget };
           // Reuse the scoped overlap owner: timeout interrupts and joins both
           // requests, and the second completes before the first is released.
           const results = await runEffect(overlappingSnapshotRace(
             holder.run(holder.newRequestKey(), firstCommand, firstArgs),
-            host.run(host.newRequestKey(), first === "insert" ? relation.runtime.commands.delete : relation.runtime.commands.update,
+            host.run(host.newRequestKey(), first === "insert" ? inspectPayloadRuntimeForTest(relation.runtime).commands.delete : inspectPayloadRuntimeForTest(relation.runtime).commands.update,
               first === "insert" ? { collection: "posts", id: raceTarget } : { collection: "posts", id: source, data: { relatedPost: raceTarget } }),
             entered.promise, () => release.resolve(),
           ));
@@ -328,8 +334,8 @@ export async function payloadRelationScenario(input: {
           expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: first === "insert" ? "relationTargetMissing" : "relationDeleteRestricted" } } });
           expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
           if (first === "delete") {
-            await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
-            await write(relation.runtime.commands.delete, { collection: "posts", id: raceTarget });
+            await write(inspectPayloadRuntimeForTest(relation.runtime).commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
+            await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: raceTarget });
           }
         }
         const preferenceTarget = hostInput.payloadPreferenceTarget;
@@ -365,7 +371,7 @@ export async function payloadRelationScenario(input: {
           const writer = first === "writer" ? heldWriter : host;
           const writerKey = writer.newRequestKey();
           const writerArgs = { collection: "posts", id: source, data: { score: 20 + revisionOrdinal } };
-          const writing = writer.run(writerKey, relation.runtime.commands.update, writerArgs);
+          const writing = writer.run(writerKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, writerArgs);
           const results = await heldNativeRace(persistence, first === "writer" ? writing : changing, first === "writer" ? changing : writing, entered.promise, () => release.resolve());
           expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
           if (change === "activation" && first === "writer") {
@@ -373,7 +379,7 @@ export async function payloadRelationScenario(input: {
             expect((await runEffect(bindings.withCurrent(readAdmittedDataBinding))).head).toEqual(beforeBinding.head);
             expect(await read(source)).toMatchObject({ score: writerArgs.data.score });
             const count = relation.observations.executions();
-            expect(await runEffect(host.run(writerKey, relation.runtime.commands.update, writerArgs))).toMatchObject({ score: writerArgs.data.score });
+            expect(await runEffect(host.run(writerKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, writerArgs))).toMatchObject({ score: writerArgs.data.score });
             expect(relation.observations.executions()).toBe(count);
             continue;
           }
@@ -392,7 +398,7 @@ export async function payloadRelationScenario(input: {
             const beforeRefusal = await inventory();
             // The original generation is pinned to its immutable schema. A real
             // successor is refused before Application acceptance or callbacks.
-            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({
+            expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(relation.runtime).commands.findByID, { collection: "posts", id: source }))).toMatchObject({
               reason: "invalidAuthority", cause: { _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false },
             });
             expect(relation.observations.executions()).toBe(count);
@@ -401,7 +407,7 @@ export async function payloadRelationScenario(input: {
             await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `race-rebind-${first}`, rebound.sha256, beforeBinding.head)));
             // Revision-pinned hosts are reconstructed after the explicit cutover.
             const afterRebind = await inventory();
-            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({
+            expect(await runEffectFailure(host.read(inspectPayloadRuntimeForTest(relation.runtime).commands.findByID, { collection: "posts", id: source }))).toMatchObject({
               reason: "invalidAuthority", cause: { _tag: "ApplicationActivationError", operation: "read", reason: "invalidComposition", retryable: false },
             });
             expect(relation.observations.executions()).toBe(count);
@@ -411,14 +417,14 @@ export async function payloadRelationScenario(input: {
           }
           if (first === "writer") {
             const count = relation.observations.executions();
-            await runEffectFailure(host.run(writerKey, relation.runtime.commands.update, writerArgs));
+            await runEffectFailure(host.run(writerKey, inspectPayloadRuntimeForTest(relation.runtime).commands.update, writerArgs));
             expect(relation.observations.executions()).toBe(count);
           }
         }
       }
-      await write(relation.runtime.commands.delete, { collection: "posts", id: source });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: source });
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(0);
-      await write(relation.runtime.commands.delete, { collection: "posts", id: target });
+      await write(inspectPayloadRuntimeForTest(relation.runtime).commands.delete, { collection: "posts", id: target });
       expect(await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, foreignUuid))).toEqual(foreignBefore);
     });
   })));

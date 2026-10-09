@@ -1,4 +1,7 @@
 import type { ApplicationActivationTargetProfile } from "../../src/application/applicationReadiness";
+import { constructApplicationLegacyServingOwners, constructApplicationReadinessOwners, retainApplicationServing,
+  makeApplicationReadServing, ApplicationServingError } from "../../src/application/applicationServing";
+import type { RelationalSession } from "../../src/database/relationalTransaction/session";
 import type { PhysicalSessionObservation } from "../../src/database/physicalSession/observation";
 import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../../src/scope/scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
@@ -58,16 +61,12 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import {
-  createAppSchemaCandidateReadinessPort,
   createAppSchemaCandidateValidationPort,
   createAppSchemaCandidateWriteGuardPort,
   advanceAppSchemaCandidateValidationEffect,
   installAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
 } from "../../src/storage/catalog/appSchemaCandidateValidation";
-import {
-  createAppUniqueConstraintDefinitionPortV1,
-} from "../../src/storage/unique/appUniqueConstraintCommitV1";
 import {
   createAppUniqueConstraintSetEligibilityPortV1,
 } from "../../src/storage/unique/appUniqueConstraintSetBuildV1";
@@ -105,7 +104,6 @@ import {
   type ApplicationSchemaAuthority,
 } from "../../src/application/applicationSchemaAuthority";
 import {
-  createApplicationTaskCatalogSnapshotPort,
   makeApplicationTaskBindingRepository,
 } from "../../src/application/tasks/applicationTaskBindings";
 import {
@@ -149,9 +147,6 @@ import { acquireCoLocatedInstallationAdmission, closeInstallationAdmission,
 import type { FlarexPersistence } from "../../src/index";
 import type { LocatedScopeClockReader } from
   "../../src/scope/scopeAuthorityResolution";
-import { createPointCommitPublisherPortV1 } from "../../src/commit/pointCommitTransaction";
-import { createPhysicalDefinitionLifecyclePort } from
-  "../../src/installation/physicalDefinitionLifecycle";
 import {
   isLocatedReadCommittedAttemptTargetV1,
 } from "../../src/execution/transactionSessionAttemptKernel";
@@ -242,7 +237,10 @@ export interface ApplicationNativeMutationFixture<
   readonly target: Persistence;
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
-  readonly authorityPorts: ReturnType<typeof fixtureAuthorityPorts>;
+  readonly authorityPorts: ReturnType<typeof constructApplicationLegacyServingOwners>["authority"];
+  readonly servingOwners: ReturnType<typeof constructApplicationLegacyServingOwners<never>>;
+  readonly makeServing: (session: RelationalSession) => ReturnType<typeof retainApplicationServing<never>>;
+  readonly makeReadServing: (session: RelationalSession) => ReturnType<typeof makeApplicationReadServing>;
   readonly readiness: ReturnType<typeof makeApplicationReadinessRepository>;
   readonly activation: ReturnType<typeof makeApplicationActivationRepository>;
   readonly activationProfile: ApplicationActivationTargetProfile;
@@ -638,19 +636,19 @@ async function createApplicationNativeMutationFixture<
   );
   await registerFixtureTaskBindings(target, authority, publication, options);
 
-  const authorityPorts = fixtureAuthorityPorts(
-    control,
-    authority,
-    lane.locateSession,
-  );
-  const sessionAuthority = Object.freeze({
-    scopeMetadata: authorityPorts.scopeMetadata,
-    provisioningReceipts: authorityPorts.provisioningReceipts,
-    scopeSessionTargets: authorityPorts.scopeClockTargets,
-    applicationControlDb: control.drizzle,
-  });
+  const servingTarget = lane.locateSession(options.physicalLocator ?? LOCATOR);
+  if (!isLocatedReadCommittedAttemptTargetV1(servingTarget)) throw new Error("Application-native session target lacks read-committed authority.");
+  if (options.managedInstallation !== undefined && options.activationProfile === undefined)
+    throw new Error("A managed Application fixture requires its genuine activation target profile");
+  const activationProfile: ApplicationActivationTargetProfile = options.activationProfile ?? { kind: "fullProof" };
+  const servingOwners = constructApplicationLegacyServingOwners({ controlDatabase: control.drizzle, database: target.drizzle,
+    target: servingTarget, deploymentId, scopeId: authority.scopeId, activation: activationProfile,
+    ...(options.protectedMetadata === undefined ? {} : { protectedMetadata: options.protectedMetadata }),
+    cold: fixtureColdMaterialization(options) });
+  const authorityPorts = servingOwners.authority;
+  const sessionAuthority = servingOwners.pointCommitAuthority;
   const { candidateValidation, candidateSchemaWriteGuard, uniqueConstraintEligibility, schema, readiness } =
-    composeApplicationNativeMutationReadiness(options, control, authorityPorts, sessionAuthority);
+    servingOwners;
   const publishManagedSchemaCandidate = async (
     manifest: ApplicationManifestV1,
   ): Promise<ApplicationSchemaAuthority> => {
@@ -802,16 +800,7 @@ async function createApplicationNativeMutationFixture<
   if (ready.status !== "ready") {
     throw new Error("Application-native mutation readiness did not settle.");
   }
-  if (options.managedInstallation !== undefined && options.activationProfile === undefined)
-    throw new Error("A managed Application fixture requires its genuine activation target profile");
-  const activationProfile: ApplicationActivationTargetProfile = options.activationProfile ?? { kind: "fullProof" };
-  const activation = makeApplicationActivationRepository({
-    activation: activationProfile,
-    deploymentId,
-    scopeId: authority.scopeId,
-    readiness,
-    authority: authorityPorts,
-  });
+  const activation = servingOwners.application;
   const activated = await Effect.runPromise(activation.activate({
     revisionId: publication.revisionId,
     expectedActiveHead: null,
@@ -985,9 +974,7 @@ async function createApplicationNativeMutationFixture<
     uniqueConstraintEligibility,
     planning: managedSchemaPlanning,
   });
-  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
-    control.drizzle,
-  );
+  const developerIndexes = servingOwners.materialization.developerIndexes;
   const seedUserDocument = async (name: string, options?: Readonly<{ rowId?: AppRowIdHexV1; padding?: string }>) => {
     const seeded = await appendSeedUserDocument(schemaVersionId, { name,
       rowId: options?.rowId ?? decodeAppRowIdHexV1("00000000000000000000000000000001"),
@@ -1045,6 +1032,13 @@ async function createApplicationNativeMutationFixture<
     deploymentId,
     authority,
     authorityPorts,
+    servingOwners,
+    makeServing: (session: RelationalSession) => retainApplicationServing(servingOwners, session),
+    makeReadServing: (session: RelationalSession) => servingOwners.protectedMetadata === undefined
+      ? Effect.fail(new ApplicationServingError({ reason: "invalidComposition" }))
+      : makeApplicationReadServing({ controlDatabase: servingOwners.controlDatabase, database: servingOwners.database,
+          target: servingOwners.target, deploymentId: servingOwners.deploymentId, scopeId: servingOwners.scopeId,
+          session, protectedMetadata: servingOwners.protectedMetadata }),
     readiness,
     activation,
     activationProfile,
@@ -1062,18 +1056,14 @@ async function createApplicationNativeMutationFixture<
     publishManagedSchemaCandidate,
     sessionAuthority,
     currentEpochAuthority,
-    intrinsicCreationTimeIndexes:
-      createIntrinsicCreationTimeIndexDefinitionPortV1(control.drizzle),
+    intrinsicCreationTimeIndexes: servingOwners.materialization.intrinsicCreationTimeIndexes,
     developerIndexes,
     indexedQueries: createAppDeveloperIndexQueryPortV1(
       control.drizzle,
       sessionAuthority,
       developerIndexes,
     ),
-    applicationRelations: createApplicationRelationCommitPort(
-      control.drizzle,
-      sessionAuthority,
-    ),
+    applicationRelations: servingOwners.relationCommit,
     seedUserDocument,
     moveHead,
     corruptCandidateValidationFrameBytesForTest,
@@ -1081,32 +1071,9 @@ async function createApplicationNativeMutationFixture<
   });
 }
 
-function fixtureAuthorityPorts(
-  control: ApplicationNativeMutationPersistence,
-  authority: ApplicationAnalysisAuthority,
-  locateSession: (locator: ScopePhysicalLocator) => LocatedScopeClockReader,
-) {
-  const controlReader = makeInstallationProtectedScopeAuthorityControlReader(control.drizzle);
-  return Object.freeze({
-    ...controlReader,
-    scopeClockTargets: Object.freeze({
-      resolve: async (locator: ScopePhysicalLocator) => {
-        const target = locateSession(locator);
-        if (!isLocatedReadCommittedAttemptTargetV1(target)) {
-          throw new Error(
-            "Application-native session target lacks read-committed authority.",
-          );
-        }
-        return target;
-      },
-    }),
-    authority,
-  });
-}
-
 async function enablePhysicalBuilds(
   control: ApplicationNativeMutationPersistence,
-  authority: ReturnType<typeof fixtureAuthorityPorts>,
+  authority: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>["authorityPorts"],
   scopeId: ApplicationAnalysisAuthority["scopeId"],
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
@@ -1564,50 +1531,14 @@ export function composeApplicationNativeMutationReadiness(
   authorityPorts: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> & ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
   sessionAuthority: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>["sessionAuthority"],
 ) {
-  const candidateValidation = createAppSchemaCandidateValidationPort({
-    controlDb: control.drizzle,
-    authority: authorityPorts,
-  });
-  const candidateSchemaWriteGuard = createAppSchemaCandidateWriteGuardPort({
-    candidateValidation,
-    pointCommitAuthority: sessionAuthority,
-  });
-  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
-    control.drizzle,
-  );
-  const uniqueConstraintEligibility =
-    createAppUniqueConstraintSetEligibilityPortV1({
-      controlDb: control.drizzle,
-      authority: authorityPorts,
-    }, uniqueConstraints);
-  const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: authorityPorts.scopeMetadata,
-    provisioningReceipts: authorityPorts.provisioningReceipts,
-    scopeSessionTargets: {
-      resolve: async () => {
-        throw new Error("Readiness must not open a mutation session.");
-      },
-    },
-  }, { uniqueConstraints, uniqueConstraintEligibility });
-  const schema = makeApplicationSchemaAuthorityPublisher({
-    db: control.drizzle,
-    runTransaction: run => control.drizzle.transaction(run),
-  });
-  const readiness = makeApplicationReadinessRepository(Object.freeze({
-    controlDb: control.drizzle,
+  return constructApplicationReadinessOwners({ controlDatabase: control.drizzle, authority: authorityPorts,
+    pointCommitAuthority: sessionAuthority, cold: fixtureColdMaterialization(options),
     ...(options.protectedMetadata === undefined ? {} : { protectedMetadata: options.protectedMetadata }),
-    authority: authorityPorts,
-    schema,
-    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
-    candidateValidation: createAppSchemaCandidateReadinessPort(
-      candidateValidation,
-    ),
-    pointCommit,
-    physicalDefinitionLifecycle: createPhysicalDefinitionLifecyclePort({
-      controlDb: control.drizzle,
-      authority: authorityPorts,
-    }),
-    cold: {
+  });
+}
+
+function fixtureColdMaterialization(options: Pick<ApplicationNativeMutationFixtureOptions, "runtimeHostIdentity" | "compatibilityDate">) {
+  return {
       runtimeHostIdentity: options.runtimeHostIdentity,
       compatibilityDate: options.compatibilityDate,
       materialize: (input: {
@@ -1632,7 +1563,5 @@ export function composeApplicationNativeMutationReadiness(
           visibility: input.target.function.visibility,
         }));
       }),
-    },
-  }));
-  return { candidateValidation, candidateSchemaWriteGuard, uniqueConstraintEligibility, schema, readiness };
+  };
 }

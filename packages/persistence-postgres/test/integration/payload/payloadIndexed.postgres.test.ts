@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Deferred, Effect, Fiber, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
@@ -15,7 +16,7 @@ describe.skipIf(postgresUrl === null)("indexed Payload queries (PostgreSQL)", ()
     yield* Effect.promise(() => payloadIndexedScenario(tested));
     const role = yield* Effect.promise(() => persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user"));
     expect(role.rows[0]?.superuser).toBe(false);
-    yield* tested.host.read(tested.runtime.commands.count, { collection: "items", where: { amount: { equals: 15 } } });
+    yield* tested.host.read(inspectPayloadRuntimeForTest(tested.runtime).commands.count, { collection: "items", where: { amount: { equals: 15 } } });
     const query = tested.plans.at(-1);
     if (query === undefined) throw new Error("Missing indexed SQL observation");
     yield* Effect.promise(async () => {
@@ -33,7 +34,7 @@ describe.skipIf(postgresUrl === null)("indexed Payload queries (PostgreSQL)", ()
     "preserves observed membership across %s publication", mode => withPersistence(persistence => runEffect(Effect.scoped(Effect.gen(function* () {
       const tested = yield* makeIndexedPayloadFixture(persistence, makePostgresRelationalSession(persistence));
       const { host, runtime } = tested;
-      const seeded = decodeIndexedDocument(yield* host.run(host.newRequestKey(), runtime.commands.create,
+      const seeded = decodeIndexedDocument(yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create,
         { collection: "items", data: { title: "initial", category: "red", amount: 15 } }));
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
@@ -45,13 +46,13 @@ describe.skipIf(postgresUrl === null)("indexed Payload queries (PostgreSQL)", ()
           expect((yield* ctx.documents.find(ctx.context, ctx.transactionId, "items", { where: {}, offset: 0, limit: 8 })).total).toBe(1);
         } else {
           const empty = mode === "phantom" ? { collection: "items", where: { amount: { greater_than_equal: 30, less_than: 40 } } } : range;
-          expect(yield* ctx.nested(runtime.commands.count, empty)).toEqual({ totalDocs: mode === "phantom" ? 0 : 1 });
+          expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, empty)).toEqual({ totalDocs: mode === "phantom" ? 0 : 1 });
         }
         yield* Deferred.succeed(entered, undefined);
         yield* Deferred.await(release);
         if (mode === "range-before-scan") yield* ctx.documents.find(ctx.context, ctx.transactionId, "items", { where: {}, offset: 0, limit: 8 });
         const observed = mode === "phantom" ? { collection: "items", where: { amount: { greater_than_equal: 30, less_than: 40 } } } : range;
-        expect(yield* ctx.nested(runtime.commands.count, observed)).toEqual({ totalDocs: mode === "phantom" ? 0 : 1 });
+        expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, observed)).toEqual({ totalDocs: mode === "phantom" ? 0 : 1 });
         return "held-result";
       }) });
       const pendingHost = yield* Effect.acquireRelease(makeCmsHost({ ...tested.input, commands: [...tested.input.commands, held] }), value => value.close);
@@ -60,9 +61,9 @@ describe.skipIf(postgresUrl === null)("indexed Payload queries (PostgreSQL)", ()
         const fiber = yield* pendingHost.run(key, held, null).pipe(Effect.result, Effect.forkScoped);
         yield* Deferred.await(entered).pipe(Effect.timeout(5_000));
         if (mode === "move") {
-          yield* host.run(host.newRequestKey(), runtime.commands.update, { collection: "items", id: seeded.id, data: { amount: 25 } });
+          yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.update, { collection: "items", id: seeded.id, data: { amount: 25 } });
         } else {
-          yield* host.run(host.newRequestKey(), runtime.commands.create, { collection: "items", data: {
+          yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: {
             title: "competing", category: "red", amount: mode === "outside" ? 25 : mode === "phantom" ? 35 : 12,
           } });
         }
@@ -89,9 +90,9 @@ describe.skipIf(postgresUrl === null)("indexed Payload queries (PostgreSQL)", ()
     const first = yield* makeIndexedPayloadFixture(persistence, makePostgresRelationalSession(persistence));
     const second = yield* makeIndexedPayloadFixture(persistence, makePostgresRelationalSession(persistence));
     const query = { collection: "items", where: { category: { equals: "shared" }, amount: { greater_than_equal: 10, less_than_equal: 10 } } };
-    for (const tested of [first, second]) yield* tested.host.run(tested.host.newRequestKey(), tested.runtime.commands.create,
+    for (const tested of [first, second]) yield* tested.host.run(tested.host.newRequestKey(), inspectPayloadRuntimeForTest(tested.runtime).commands.create,
       { collection: "items", data: { title: "same-title", category: "shared", amount: 10 } });
-    expect(yield* first.host.read(first.runtime.commands.count, query)).toEqual({ totalDocs: 1 });
-    expect(yield* second.host.read(second.runtime.commands.count, query)).toEqual({ totalDocs: 1 });
+    expect(yield* first.host.read(inspectPayloadRuntimeForTest(first.runtime).commands.count, query)).toEqual({ totalDocs: 1 });
+    expect(yield* second.host.read(inspectPayloadRuntimeForTest(second.runtime).commands.count, query)).toEqual({ totalDocs: 1 });
   })))), 120_000);
 });

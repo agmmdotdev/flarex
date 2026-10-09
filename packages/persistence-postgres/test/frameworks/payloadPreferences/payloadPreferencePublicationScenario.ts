@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 import { expect } from "vitest";
 import { Effect, Exit, Fiber } from "effect";
@@ -37,15 +38,15 @@ export async function payloadPreferencePublicationScenario(input: {
     let failFacts = false;
     const pair = defineCmsCommand({ name: "delete-pair", mode: "write", run: Effect.fn("PreferenceTest.deletePair")(function* (ctx, args) {
       if (!isJsonObject(args)) return yield* Effect.fail(cmsError("invalidInput"));
-      yield* ctx.nested(conformance.runtime.commands.delete, { collection: "posts", id: args.first ?? null });
-      return yield* ctx.nested(conformance.runtime.commands.delete, { collection: "posts", id: args.second ?? null });
+      yield* ctx.nested(inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: args.first ?? null });
+      return yield* ctx.nested(inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: args.second ?? null });
     }) });
     const createAndDelete = defineCmsCommand({ name: "create-delete-net-zero", mode: "write", run: Effect.fn("PreferenceTest.createDeleteNetZero")(function* (ctx) {
-      const created = yield* ctx.nested(conformance.runtime.commands.create, { collection: "posts", data: { title: "delete-net-zero", publishedAt: "2026-01-01" } });
+      const created = yield* ctx.nested(inspectPayloadRuntimeForTest(conformance.runtime).commands.create, { collection: "posts", data: { title: "delete-net-zero", publishedAt: "2026-01-01" } });
       if (!isJsonObject(created) || typeof created.id !== "string") return yield* Effect.fail(cmsError("invalidInput"));
-      return yield* ctx.nested(conformance.runtime.commands.delete, { collection: "posts", id: created.id });
+      return yield* ctx.nested(inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: created.id });
     }) });
-    const composition = { ...hostInput, commands: [...Object.values(conformance.runtime.commands), pair, createAndDelete], expectedContentIdentity: payloadScalarContentIdentity,
+    const composition = { ...hostInput, commands: [...Object.values(inspectPayloadRuntimeForTest(conformance.runtime).commands), pair, createAndDelete], expectedContentIdentity: payloadScalarContentIdentity,
       materialization: { ...hostInput.materialization, afterTransactionStep: async (event: { step: string }) => {
         if (event.step === failedStep) throw new Error(`Injected ${event.step}`);
       } } };
@@ -57,13 +58,13 @@ export async function payloadPreferencePublicationScenario(input: {
       afterPreferenceFacts: () => failFacts ? Effect.fail(cmsError("resourceFailure")) : Effect.void,
     }));
     const create = async (title: string) => {
-      const value = await runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
+      const value = await runEffect(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
       if (!isJsonObject(value) || typeof value.id !== "string") throw new Error("Missing Payload ID");
       return value.id;
     };
     const facts = () => persistence.drizzle.select().from(fxSystemCommitPayloadPreferenceDeletions).orderBy(asc(fxSystemCommitPayloadPreferenceDeletions.commitSeq), asc(fxSystemCommitPayloadPreferenceDeletions.changeOrdinal));
     const inventory = async () => ({ application: await input.inventory(), preferences: await input.readPreferenceIds(), facts: await facts() });
-    const remove = (id: string, key = host.newRequestKey()) => runEffect(host.run(key, conformance.runtime.commands.delete, { collection: "posts", id }));
+    const remove = (id: string, key = host.newRequestKey()) => runEffect(host.run(key, inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id }));
     const rowInventory = async () => ({
       rows: await persistence.drizzle.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId),
       revisions: await persistence.drizzle.select().from(fxAppRowRevisions).orderBy(fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
@@ -125,25 +126,25 @@ export async function payloadPreferencePublicationScenario(input: {
       await persistence.query(`create trigger payload_preference_row_corruption before insert on ${rowTable}
         for each row execute function ${rowFunction}()`);
       try {
-        expect(await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.delete,
+        expect(await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.delete,
           { collection: "posts", id: failures }))).toMatchObject({ reason: "storedCorruption" });
         expect(await inventory()).toEqual(stable);
       } finally { await persistence.query(`drop trigger payload_preference_row_corruption on ${rowTable}`); }
     } finally { await persistence.query(`drop function ${rowFunction}()`); }
     for (const step of ["commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
       failedStep = step;
-      expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: failures }))))).toBe(true);
+      expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: failures }))))).toBe(true);
       failedStep = undefined;
       expect(await inventory()).toEqual(stable);
     }
     failFacts = true;
-    await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: failures }));
+    await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: failures }));
     failFacts = false;
     expect(await inventory()).toEqual(stable);
     const nested = await create("delete-nested-fail");
     await input.seed(nested, ["nested-rollback"]);
     const beforeNested = await inventory();
-    await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: nested }));
+    await runEffectFailure(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: nested }));
     expect(await inventory()).toEqual(beforeNested);
 
     const maximum = await create("delete-maximum");
@@ -173,14 +174,15 @@ export async function payloadPreferencePublicationScenario(input: {
       let lost = false;
       let bound = false;
       const pids: unknown[] = [];
-      const recovering = await runEffect(conformance.runtime.bind({ ...hostInput, session: makePostgresRelationalSession(persistence, { lifecycleFault: event => {
+      const recovering = await runEffect(makeCmsHost({ ...hostInput, expectedContentIdentity: payloadScalarContentIdentity,
+        commands: Object.values(inspectPayloadRuntimeForTest(conformance.runtime).commands), session: makePostgresRelationalSession(persistence, { lifecycleFault: event => {
         if (!bound) return;
         if (event.phase === "begin" && event.edge === "after") pids.push(Reflect.get(event.client, "processID"));
         if (event.phase === "commit" && event.edge === "after" && !lost) { lost = true; throw new Error("Lost delete COMMIT acknowledgement"); }
       } }) }));
       bound = true;
       const recoveryCalls = conformance.observations.executions();
-      const recovered = await runEffect(recovering.run(recovering.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: recoveringId }));
+      const recovered = await runEffect(recovering.run(recovering.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: recoveringId }));
       expect(recovered).toMatchObject({ id: recoveringId });
       expect(conformance.observations.executions()).toBe(recoveryCalls + 1);
       expect(pids.length).toBeGreaterThanOrEqual(2);
@@ -190,7 +192,7 @@ export async function payloadPreferencePublicationScenario(input: {
       await input.seed(interruptedId, ["native-interrupted"]);
       const beforeInterrupt = await inventory();
       const pending = conformance.observations.pendingReads();
-      const fiber = Effect.runFork(host.run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: interruptedId }));
+      const fiber = Effect.runFork(host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(conformance.runtime).commands.delete, { collection: "posts", id: interruptedId }));
       try {
         const deadline = performance.now() + 5000;
         while (conformance.observations.pendingReads() === pending && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));

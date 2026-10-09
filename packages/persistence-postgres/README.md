@@ -17,11 +17,11 @@ grant a new capability.
 | `database/` | Driver resources, physical sessions, Drizzle execution, SQL transaction profiles and table definitions | [relationalTransaction/session.ts](src/database/relationalTransaction/session.ts), [schema.ts](src/database/schema.ts) |
 | `scope/` | Authentic deployment/scope selection, authorization epochs, fencing and scope clocks | [scopeAuthorityResolution.ts](src/scope/scopeAuthorityResolution.ts), [execution/ScopeExecution.ts](src/scope/execution/ScopeExecution.ts) |
 | `installation/` | Protected structure, maintenance interlock, installed definitions, framework schemas and migration coordination | [installationLifecycle.ts](src/installation/installationLifecycle.ts), [frameworkSchema/](src/installation/frameworkSchema/) |
-| `application/` | Analysis, active bindings, schema authority, readiness, revisions, relation serving and write ownership | [applicationActivation.ts](src/application/applicationActivation.ts), [applicationReadiness.ts](src/application/applicationReadiness.ts) |
+| `application/` | Analysis, serving construction, active bindings, schema authority, readiness, revisions, relations and write ownership | [applicationServing.ts](src/application/applicationServing.ts), [applicationActivation.ts](src/application/applicationActivation.ts), [applicationReadiness.ts](src/application/applicationReadiness.ts) |
 | `storage/` | Documents, relational values, pending working sets, indexes, uniqueness, relations, search, catalog and history | [documents/logicalDocuments/workingSet.ts](src/storage/documents/logicalDocuments/workingSet.ts), [catalog/logicalStorageDefinitions.ts](src/storage/catalog/logicalStorageDefinitions.ts) |
 | `execution/` | Prepared lifetimes, attempt/session state, journal, finite capture, claims, OCC evidence and persistence recovery | [sessionJournalStore.ts](src/execution/sessionJournalStore.ts), [transactionSessionActivation.ts](src/execution/transactionSessionActivation.ts) |
 | `commit/` | Conflict-checked atomic publication, durable outcomes, commit facts, event intents and feed | [pointCommitTransaction.ts](src/commit/pointCommitTransaction.ts), [publication/publication.ts](src/commit/publication/publication.ts) |
-| `frameworks/` | Restricted CMS/Commerce direct and borrowed execution, finite atomic Commerce, and cross-domain commands | [cmsTransaction/cmsAdapter.ts](src/frameworks/cmsTransaction/cmsAdapter.ts), [commerceTransaction/commerceAdapter.ts](src/frameworks/commerceTransaction/commerceAdapter.ts) |
+| `frameworks/` | Restricted CMS/Commerce direct and borrowed execution, finite atomic Commerce, and cross-domain commands | [cmsTransaction/construction.ts](src/frameworks/cmsTransaction/construction.ts), [cmsTransaction/api.ts](src/frameworks/cmsTransaction/api.ts), [commerceTransaction/commerceAdapter.ts](src/frameworks/commerceTransaction/commerceAdapter.ts) |
 | `tasks/` | Durable task run/attempt records, compute delivery, external-effect authority, wake and repair scheduling | [taskAttemptLifecycleGateway.ts](src/tasks/taskAttemptLifecycleGateway.ts) |
 | `sync/` | Live query records and freshness/change observations | [scopeSyncChangeSourceReadV1.ts](src/sync/scopeSyncChangeSourceReadV1.ts) |
 | `values/` | Persistence-owned JSON capture, exact-key checks and encoding helpers | [privateJsonData.ts](src/values/privateJsonData.ts) |
@@ -52,12 +52,15 @@ These are responsibilities, not six services that every call must construct or
 six mandatory SQL round trips. See the concrete direct and composed flows in the
 execution map.
 
-## Remaining Structural Work
+## Construction And Remaining Structural Work
 
-The source and test hierarchy makes current ownership visible. The
-[construction plan](../../roadmaps/execution-architecture/03-consumer-construction-and-domain-apis.md)
-still owns replacement of persistence-shaped Payload binding inputs and repeated
-serving graph assembly. Large existing implementation bodies such as the journal
+The source and test hierarchy makes current ownership visible. Application owns
+construction of the serving graph; its read serving factory constructs only
+protected read selection. CMS issues scoped read/command bindings from those
+owners and trusted source/policy selection. Payload binds native operations to
+these capabilities. The [construction plan](../../roadmaps/execution-architecture/03-consumer-construction-and-domain-apis.md)
+owns that connected cutover and the named test-only raw construction witnesses.
+Large existing implementation bodies such as the journal
 store and database schema retain their behavior here; splitting them requires
 their actual internal responsibilities and consumers to migrate together.
 

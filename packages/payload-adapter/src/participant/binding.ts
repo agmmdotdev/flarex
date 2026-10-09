@@ -1,25 +1,23 @@
 import { Cause, Effect, Scope } from "effect";
-import { cmsError, getCmsCommand, makeBorrowedCmsAttempt, type CmsCommand,
-  type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
-import { LogicalParticipantInvocationError } from
-  "@flarex/persistence-postgres/internal/logical-participant-admission";
+import { cmsError, type CmsCommand, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
+import { makeBorrowedCmsInvocation } from "@flarex/persistence-postgres/internal/cms-execution";
+import { LogicalParticipantInvocationError } from "@flarex/persistence-postgres/internal/logical-participant-admission";
 import type { LogicalParticipantBorrow, SessionJournalAttempt } from "@flarex/persistence-postgres/session-journal-store";
 import type { Json } from "flarex-protocol/json";
-import type { PayloadRuntime } from "../runtime";
+import type { PayloadNative } from "../runtime/native";
 
 export const projectPayloadParticipantFailure = (cause: CmsTransactionError): LogicalParticipantInvocationError =>
   new LogicalParticipantInvocationError({
     kind: cause.reason === "resourceFailure" || cause.reason === "storedCorruption" ||
-      cause.reason === "statementFailure" || cause.reason === "decisionUncertain"
-      ? "infrastructure" : "rejection",
+      cause.reason === "statementFailure" || cause.reason === "decisionUncertain" ? "infrastructure" : "rejection",
     cause,
   });
 
-/** One scoped facade borrows only its exact root; every operation keeps its own CMS lifetime. */
+/** The adapter selects native methods; CMS owns borrowed execution and completion. */
 export const bindPayloadParticipant: (
-  commands: PayloadRuntime["commands"], sourceKey: string, attempt: SessionJournalAttempt, isNativeLive: () => boolean,
+  commands: PayloadNative["commands"], attempt: SessionJournalAttempt, isNativeLive: () => boolean,
 ) => Effect.Effect<LogicalParticipantBorrow, CmsTransactionError, Scope.Scope> = Effect.fn("PayloadParticipant.bind")(function* (
-  commands: PayloadRuntime["commands"], sourceKey: string, attempt: SessionJournalAttempt, isNativeLive: () => boolean,
+  commands: PayloadNative["commands"], attempt: SessionJournalAttempt, isNativeLive: () => boolean,
 ) {
   if (!isNativeLive()) return yield* Effect.fail(cmsError("closed"));
   const scope = yield* Effect.scope;
@@ -40,7 +38,7 @@ export const bindPayloadParticipant: (
     const admission = input.admissions[0];
     if (admission === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
     const cms = yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-      const borrowed = yield* restore(makeBorrowedCmsAttempt({ ...input, admission }));
+      const borrowed = yield* restore(makeBorrowedCmsInvocation({ ...input, admission }));
       yield* Scope.addFinalizer(scope, Effect.sync(() => { live = false; }).pipe(Effect.andThen(borrowed.abort)));
       return borrowed;
     }));
@@ -48,20 +46,12 @@ export const bindPayloadParticipant: (
       yield* cms.abort;
       return yield* Effect.fail(cmsError("closed"));
     }
-    return Object.freeze({
-      abort: cms.abort,
-      currentUsage: cms.currentUsage,
+    return Object.freeze({ abort: cms.abort, currentUsage: cms.currentUsage,
       invoke: Effect.fn("PayloadParticipant.invoke")(function* (method: string, args: Json) {
         if (!live || !isNativeLive()) return yield* Effect.fail(cmsError("closed"));
         const selected = command(method);
         if (selected === undefined) return yield* Effect.fail(cmsError("unsupportedProfile"));
-        const definition = getCmsCommand(selected);
-        if (definition === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
-        const result = yield* cms.withinDeadline(definition.run(cms.context, args));
-        const closed = yield* cms.close;
-        return Object.freeze({ result, changes: closed.changes,
-          eventIntents: closed.events.map(intent => Object.freeze({ sourceKey, intent })),
-          workBytes: closed.workBytes, workCalls: closed.workCalls });
+        return yield* cms.invoke(selected, args);
       }, Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectPayloadParticipantFailure)))),
     });
   }, Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectPayloadParticipantFailure))));

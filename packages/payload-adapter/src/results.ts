@@ -26,6 +26,13 @@ export const payloadResults = {
   page: (value: unknown) => capture(decodePage, value),
   count: (value: unknown) => capture(decodeCount, value),
 };
+/** Core has already captured canonical JSON. Reuse the result owner for typed
+ * operations and stored replay without another getter/cycle/byte capture. */
+export const payloadCanonicalResults = {
+  document: (value: Json) => decodeDocument(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))),
+  page: (value: Json) => decodePage(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))),
+  count: (value: Json) => decodeCount(value).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))),
+};
 export type PayloadDocument = typeof Document.Type;
 export type PayloadPageResult = typeof Page.Type;
 export type PayloadCountResult = typeof Count.Type;

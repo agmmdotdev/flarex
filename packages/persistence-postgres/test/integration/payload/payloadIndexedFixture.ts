@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Effect, Schema } from "effect";
 import { eq } from "drizzle-orm";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
@@ -7,10 +8,6 @@ import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
 import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
 import type { CmsDocumentReadTestHooks } from "../../../src/frameworks/cmsTransaction/documents";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
@@ -55,10 +52,8 @@ export const makeIndexedPayloadFixture = Effect.fn("IndexedPayload.fixture")(fun
   const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle,
     session, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
     authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
-    application: fixture.relationActivation, identityAndAccessPolicy: { subject: "indexed-payload" }, commands: [...Object.values(runtime.commands), seed],
-    materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
-      developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle), uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
-      candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
+    application: fixture.relationActivation, identityAndAccessPolicy: { subject: "indexed-payload" }, commands: [...Object.values(inspectPayloadRuntimeForTest(runtime).commands), seed],
+    materialization: fixture.servingOwners.materialization };
   const host = yield* Effect.acquireRelease(makeCmsHost(input, hooks), value => value.close);
   const db = persistence.drizzle;
   const inventory = async () => ({

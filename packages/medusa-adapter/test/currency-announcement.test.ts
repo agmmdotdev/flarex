@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
-import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
+import { makePayloadConformanceRuntime, inspectPayloadRuntimeForTest } from "../../payload-adapter/src/testing";
 import { payloadScalarContentIdentity } from "../../payload-adapter/src/testing/profiles";
 import { defineCmsCommand } from "../../persistence-postgres/src/frameworks/cmsTransaction/commands";
 import { makeCurrencyAnnouncementHost, type CurrencyAnnouncementHostInput } from "../../persistence-postgres/src/frameworks/crossDomainCommand/host";
@@ -339,7 +339,7 @@ describe("selected logical Currency announcement", () => {
             identityAndAccessPolicy: { profile: "logical-native-payload-announcement" }, materialization: {},
             expectedContentIdentity: compiled.contentIdentity, currency: fixture.hostInput.logicalStorage,
             applicationSource: fixture.applicationSource, payloadSource: compiled.sourceContract,
-            currencyCommand: currencyAnnouncementWrite, cmsCommand: native.runtime.commands.create,
+            currencyCommand: currencyAnnouncementWrite, cmsCommand: inspectPayloadRuntimeForTest(native.runtime).commands.create,
             applicationTable: "users" };
           const host = yield* Effect.acquireRelease(makeCurrencyAnnouncementHost(input), value => value.close);
           const args = (title: string, code: string) => ({

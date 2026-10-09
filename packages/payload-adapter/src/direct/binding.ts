@@ -1,30 +1,41 @@
 import { Effect } from "effect";
-import { cmsError, makeCmsHost, makeCmsReadHost, type CmsHost, type CmsReadHost, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
-import type { PayloadHostInput, PayloadReadHostInput } from "../runtime";
+import { cmsError, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
+import { bindCmsCommand, bindCmsRead, type CmsCommandBinding, type CmsReadBinding } from
+  "@flarex/persistence-postgres/internal/cms-execution";
+import type { PayloadHost, PayloadReadHost } from "../api";
+import { payloadCanonicalResults } from "../results";
 import type { PayloadNative } from "../runtime/native";
+import { registerPayloadHost } from "../runtime/registry";
 
-/** Direct command hosts share the native instance and its exact Scope. */
+/** Direct operations share the exact native instance and retained CMS host. */
 export function bindPayloadDirect(native: PayloadNative) {
   const { commands, retainHost } = native;
-  const bind = Effect.fn("PayloadAdapter.bind")(function* <Failure>(input: PayloadHostInput<Failure>): Effect.fn.Return<CmsHost, CmsTransactionError> {
-    const host = yield* retainHost(Effect.suspend(() => makeCmsHost({ ...input,
-      commands: Object.values(commands), expectedContentIdentity: native.contentIdentity })));
-    return {
-      requestBudget: host.requestBudget,
-      close: host.close,
-      newRequestKey: host.newRequestKey,
-      run: (key, command, args) => Effect.suspend(() => native.isLive() ? host.run(key, command, args) : Effect.fail(cmsError("closed"))),
-      read: (command, args) => Effect.suspend(() => native.isLive() ? host.read(command, args) : Effect.fail(cmsError("closed"))),
-    };
+  const live = <A>(work: Effect.Effect<A, CmsTransactionError>) =>
+    Effect.suspend(() => native.isLive() ? work : Effect.fail(cmsError("closed")));
+  const bind = Effect.fn("PayloadAdapter.bind")(function* (binding: CmsCommandBinding): Effect.fn.Return<PayloadHost, CmsTransactionError> {
+    const execution = yield* retainHost(bindCmsCommand(binding, Object.values(commands), native.contentIdentity));
+    const host = Object.freeze<PayloadHost>({
+      requestBudget: execution.requestBudget, close: execution.close, newRequestKey: execution.newRequestKey,
+      create: (key, args) => live(execution.run(key, commands.create, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.document(value)))),
+      update: (key, args) => live(execution.run(key, commands.update, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.document(value)))),
+      delete: (key, args) => live(execution.run(key, commands.delete, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.document(value)))),
+      find: args => live(execution.read(commands.find, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.page(value)))),
+      findByID: args => live(execution.read(commands.findByID, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.document(value)))),
+      count: args => live(execution.read(commands.count, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.count(value)))),
+    });
+    registerPayloadHost(host, execution, native);
+    return host;
   });
-  const bindRead = Effect.fn("PayloadAdapter.bindRead")(function* <Failure>(input: PayloadReadHostInput<Failure>): Effect.fn.Return<CmsReadHost, CmsTransactionError> {
-    const host = yield* retainHost(Effect.suspend(() => makeCmsReadHost({ ...input,
-      commands: [commands.find, commands.findByID, commands.count], expectedContentIdentity: native.contentIdentity })));
-    return {
-      requestBudget: host.requestBudget,
-      close: host.close,
-      read: (command, args) => Effect.suspend(() => native.isLive() ? host.read(command, args) : Effect.fail(cmsError("closed"))),
-    };
+  const bindRead = Effect.fn("PayloadAdapter.bindRead")(function* (binding: CmsReadBinding): Effect.fn.Return<PayloadReadHost, CmsTransactionError> {
+    const execution = yield* retainHost(bindCmsRead(binding, [commands.find, commands.findByID, commands.count], native.contentIdentity));
+    const host = Object.freeze<PayloadReadHost>({
+      requestBudget: execution.requestBudget, close: execution.close,
+      find: args => live(execution.read(commands.find, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.page(value)))),
+      findByID: args => live(execution.read(commands.findByID, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.document(value)))),
+      count: args => live(execution.read(commands.count, args)).pipe(Effect.flatMap(value => Effect.fromResult(payloadCanonicalResults.count(value)))),
+    });
+    registerPayloadHost(host, execution, native);
+    return host;
   });
   return { bind, bindRead };
 }

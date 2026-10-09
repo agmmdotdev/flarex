@@ -1,3 +1,5 @@
+import { makeCmsCommandBinding } from "@flarex/persistence-postgres/internal/cms-construction";
+import { inspectPayloadRuntimeForTest } from "@flarex/payload-adapter/internal/testing";
 import { createHash } from "node:crypto";
 import { awaitEffectTransactionSettlement } from "../../../../persistence-postgres/src/database/effectTransaction";
 import { maxCorePerformanceSeriesSamples } from "./measurementPlan";
@@ -8,7 +10,6 @@ import type { makeNativeProductOperationDiagnostics } from "./nativeProductOpera
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from
   "@flarex/persistence-postgres/internal/commerce-values";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { inspectFiniteOperationCommitAuthority, inspectLogicalParticipantAdmissionBundle } from "../../../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
@@ -19,7 +20,6 @@ import { decodeCanonicalFlarexValueEvidenceV1, normalizeFlarexValueV1 } from "fl
 import { decodeAppDocumentIdentityV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { fxAppRowRevisions } from "../../../../persistence-postgres/src/database/schema";
 import type { ApplicationNativeMutationUserDocument } from "../../../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
-import { encodeCanonicalJson } from "flarex-protocol/json";
 import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from
@@ -1548,7 +1548,17 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     } finally { await runEffect(priceReader.close); }
   }
 
-  function standalonePayloadHostInput(compiled: NonNullable<typeof compiledPayload>, session: typeof currency.session) {
+  const standalonePayloadBinding = Effect.fn("MixedFixture.makePayloadBinding")(function* (
+    compiled: NonNullable<typeof compiledPayload>, session: typeof currency.session,
+  ) {
+    const serving = yield* application.makeServing(session);
+    return yield* makeCmsCommandBinding({ serving, hostRuntime: preparedHostTestRuntime(currency.persistence.drizzle),
+      identityAndAccessPolicy: { profile: "payload.scalar", release: "3.88.0",
+        access: "closed-headless-local-api", hook: "none" },
+      profile: { kind: "source", schemaVersionId: logicalSchemaVersionId, source: compiled.sourceContract } });
+  });
+
+  function standalonePayloadFaultHostInput(compiled: NonNullable<typeof compiledPayload>, session: typeof currency.session) {
     return { hostRuntime: preparedHostTestRuntime(currency.persistence.drizzle),
       database: currency.persistence.drizzle, controlDatabase: currency.control.drizzle, session,
       deploymentId: currency.deploymentId,
@@ -1573,8 +1583,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     if (compiledPayload === undefined) throw new Error("Missing selected Payload source");
     return runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiledPayload);
-      const host = yield* runtime.bind(standalonePayloadHostInput(compiledPayload, currency.session));
-      return yield* host.read(runtime.commands.findByID, { collection: "posts", id }).pipe(Effect.ensuring(host.close));
+      const host = yield* runtime.bind(yield* standalonePayloadBinding(compiledPayload, currency.session));
+      return yield* host.findByID({ collection: "posts", id }).pipe(Effect.ensuring(host.close));
     })));
   }
 
@@ -1701,8 +1711,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     }
     const result = await runEffect(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiledPayload);
-      const host = yield* makeCmsHost({ ...standalonePayloadHostInput(compiledPayload, postgresSession ?? currency.session),
-        commands: [runtime.commands.create], expectedContentIdentity: compiledPayload.contentIdentity },
+      const host = yield* makeCmsHost({ ...standalonePayloadFaultHostInput(compiledPayload, postgresSession ?? currency.session),
+        commands: [inspectPayloadRuntimeForTest(runtime).commands.create], expectedContentIdentity: compiledPayload.contentIdentity },
       separate === undefined ? undefined : { afterAdmission: tx => Effect.tryPromise({
         try: async () => {
           const observed = await tx.execute<{ pid: number; schemaName: string; applicationName: string;
@@ -1727,7 +1737,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
         },
         catch: cause => new CmsTransactionError({ reason: "resourceFailure", cause }),
       }) });
-      return yield* host.run(host.newRequestKey(), runtime.commands.create, {
+      return yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, {
         collection: "posts", data: { title, publishedAt: "2026-01-01" },
       }).pipe(Effect.ensuring(host.close));
     })));

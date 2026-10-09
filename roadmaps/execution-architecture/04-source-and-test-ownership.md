@@ -99,5 +99,7 @@ remain unchanged.
 The package guides and [execution map](architecture.md) identify the actual entry
 points, trust/lifetime boundaries and corresponding tests. Remaining construction
 leaks and large implementation bodies are stated separately instead of being
-declared solved by a folder move. Performance work resumes only after this
-organization checkpoint is validated and committed.
+declared solved by a folder move. The owner's complete organization goal continues
+through [construction](03-consumer-construction-and-domain-apis.md) and
+[file cohesion](05-file-cohesion-and-readable-flows.md). Performance remains
+paused until those organization gates close.

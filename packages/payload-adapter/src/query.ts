@@ -14,12 +14,13 @@ const Predicate = Schema.Struct({ equals: Schema.optionalKey(Schema.Union([Schem
     !(value.greater_than !== undefined && value.greater_than_equal !== undefined) &&
     !(value.less_than !== undefined && value.less_than_equal !== undefined) ? undefined : "Expected equality or a numeric range"));
 export type PayloadCollection = PayloadConfiguration["tables"][number];
+export const PayloadWhere = Schema.Record(Schema.String, Predicate);
 
 /** Metadata-derived query policy is compiled once per collection, never per request. */
 export function makePayloadQuery(collection: PayloadCollection) {
   const unique = collection.fields.filter(field => field.kind !== "relationship" && field.unique === true).map(field => field.name);
   const allowed = new Set(["id", ...unique, ...(collection.indexes?.flatMap(index => index.fields) ?? [])]);
-  const Where = Schema.Record(Schema.String, Predicate).check(Schema.makeFilter(value => {
+  const Where = PayloadWhere.check(Schema.makeFilter(value => {
     for (const [name, predicate] of Object.entries(value)) {
       if (!allowed.has(name)) return "Unsupported query field";
       const field = collection.fields.find(candidate => candidate.name === name);

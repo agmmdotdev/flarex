@@ -1,4 +1,5 @@
 export { UnsupportedPayloadCapability } from "./errors";
+export { inspectPayloadRuntimeForTest, inspectPayloadHostForTest, withPayloadRuntimeScopeForTest } from "./testing/runtimeInspection";
 export { makePayloadConformanceRuntime, makePayloadManagedReadAccessRuntime,
   type PayloadConformanceRuntime } from "./testing/conformance";
 export {

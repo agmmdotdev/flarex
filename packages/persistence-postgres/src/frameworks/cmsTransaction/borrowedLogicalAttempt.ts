@@ -1,7 +1,7 @@
 import { Clock, Effect, Result } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
-import type { SessionJournalAttempt } from "../../execution/sessionJournalStore";
+import type { AdmittedCompletion, LogicalBorrowedParticipantOperation, SessionJournalAttempt } from "../../execution/sessionJournalStore";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissionEffect } from
@@ -12,7 +12,7 @@ import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction, Logical
 import { makeLogicalDocumentWorkingSet } from "../../storage/documents/logicalDocuments/workingSet";
 import { requireLogicalDocumentRootEvaluatorOpen } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import { makeCmsCommandContext } from "./context";
-import type { CmsCommandContext } from "./commands";
+import { getCmsCommand, type CmsCommand, type CmsCommandContext } from "./commands";
 import { cmsError, cmsLimits, CmsTransactionError,
   type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 
@@ -33,7 +33,7 @@ export type BorrowedCmsAttemptInput = Readonly<{
 /** One Payload Local API invocation borrows the root's historical view. All
  * checked reads use short transactions; Payload callbacks see no open SQL
  * transaction and cannot settle or publish the root. */
-export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(function* (
+const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(function* (
   input: BorrowedCmsAttemptInput,
 ) {
   let closePreparedLifetime: Effect.Effect<void> = Effect.void;
@@ -83,7 +83,7 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
           state.writeMechanics.indexes, undefined, constructionTx);
         return Object.freeze({ lifetime, id, working });
       });
-    }), (_state, _checkedRead, { lifetime, id, working }) => Effect.sync(() => {
+    }), (state, _checkedRead, { lifetime, id, working }) => Effect.sync(() => {
         const ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences"> = {
           documents: working.documents,
           relations: Object.freeze({ incoming: (request: CmsRequestContext, presented: CmsPresentedTransactionId) => lifetime.operation(request, presented,
@@ -103,10 +103,44 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
           return Object.freeze({ changes, events,
             workBytes: cmsLimits.commandBytes - lifetime.remainingBytes(), workCalls: lifetime.usedCalls() });
         }).pipe(Effect.ensuring(lifetime.close));
-        return Object.freeze({ context, close, abort: lifetime.close, withinDeadline: lifetime.withinDeadline,
+        return Object.freeze({ context, close, sourceKey: state.sourceKey,
+          abort: lifetime.close, withinDeadline: lifetime.withinDeadline,
           currentUsage: () => Object.freeze({ workBytes: cmsLimits.commandBytes - lifetime.remainingBytes(),
             workCalls: lifetime.usedCalls() }) });
     })
   ).pipe(Effect.mapError(cause => projectCheckedReadFailure(cause)),
     Effect.onError(() => closePreparedLifetime));
+});
+
+export interface BorrowedCmsInvocation {
+  readonly abort: Effect.Effect<void>;
+  readonly currentUsage: LogicalBorrowedParticipantOperation["currentUsage"];
+  readonly invoke: (command: CmsCommand, args: Json) => Effect.Effect<AdmittedCompletion, CmsTransactionError>;
+}
+
+/** The root admission selects the source and method. A native adapter selects
+ * only its authentic command token; CMS owns execution and the single closure. */
+export const makeBorrowedCmsInvocation = Effect.fn("LogicalCms.makeInvocation")(function* (
+  input: BorrowedCmsAttemptInput,
+): Effect.fn.Return<BorrowedCmsInvocation, CmsTransactionError> {
+  const method = input.method;
+  const capturedInput = Object.freeze({ ...input, method });
+  let open = true;
+  const borrowed = yield* makeBorrowedCmsAttempt(capturedInput);
+  const abort = Effect.sync(() => { open = false; }).pipe(Effect.andThen(borrowed.abort));
+  const invoke = Effect.fn("LogicalCms.invoke")(function* (command: CmsCommand, args: Json) {
+    if (!open) return yield* Effect.fail(cmsError("closed"));
+    const definition = getCmsCommand(command);
+    if (definition === undefined || definition.name !== method)
+      return yield* Effect.fail(cmsError("invalidAuthority"));
+    // Claim the invocation before the first asynchronous callback. Concurrent
+    // and repeated uses cannot execute native business logic a second time.
+    open = false;
+    const result = yield* borrowed.withinDeadline(definition.run(borrowed.context, args));
+    const closed = yield* borrowed.close;
+    return Object.freeze({ result, changes: closed.changes,
+      eventIntents: Object.freeze(closed.events.map(intent => Object.freeze({ sourceKey: borrowed.sourceKey, intent }))),
+      workBytes: closed.workBytes, workCalls: closed.workCalls });
+  });
+  return Object.freeze({ abort, currentUsage: borrowed.currentUsage, invoke });
 });

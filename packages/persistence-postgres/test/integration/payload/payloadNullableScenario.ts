@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Deferred, Effect, Fiber, Result, Schema } from "effect";
 import { expect, vi } from "vitest";
 import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
@@ -71,7 +72,7 @@ export const payloadNullableScenario = Effect.fn("NullablePayload.scenario")(fun
       }),
     })) } } } };
   expect(yield* applicationUniqueDeclarationsMatch(tested.fixture.control.drizzle, changed, bound)).toBe(false);
-  const create = (data: JsonObject) => host.run(host.newRequestKey(), runtime.commands.create, { collection: "items", data });
+  const create = (data: JsonObject) => host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data });
   const first = document(yield* create({ title: "first", category: "red" }));
   expect(first).toMatchObject({ alias: null, amount: null, available: null, releaseAt: null, note: "draft" });
   expect(document(yield* create({ title: "second", category: "red", alias: null, amount: null, available: null, releaseAt: null, note: null })))
@@ -81,28 +82,28 @@ export const payloadNullableScenario = Effect.fn("NullablePayload.scenario")(fun
   const before = yield* Effect.promise(tested.inventory);
   expect(before.claims).toHaveLength(5);
   for (const [data, paths] of [[{ alias: "held" }, ["alias"]], [{ amount: 10 }, ["category", "amount"]]] as const) {
-    expect(yield* host.run(host.newRequestKey(), runtime.commands.update, { collection: "items", id: first.id, data }).pipe(Effect.result))
+    expect(yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.update, { collection: "items", id: first.id, data }).pipe(Effect.result))
       .toMatchObject({ _tag: "Failure", failure: { reason: "documentInvalid", cause: { status: 400,
         data: { errors: paths.map(path => ({ path, message: "Value must be unique" })) } } } });
     expect(yield* Effect.promise(tested.inventory)).toEqual(before);
   }
   expect(yield* create({ title: null, category: "red" }).pipe(Effect.result)).toMatchObject({ _tag: "Failure", failure: { reason: "documentInvalid" } });
   expect(yield* Effect.promise(tested.inventory)).toEqual(before);
-  expect(yield* host.read(runtime.commands.count, aliasQuery(null))).toEqual({ totalDocs: 2 });
-  expect(yield* host.read(runtime.commands.count, tupleQuery(null))).toEqual({ totalDocs: 2 });
-  expect(yield* host.read(runtime.commands.count, upperQuery(10))).toEqual({ totalDocs: 0 });
-  expect(yield* host.read(runtime.commands.find, upperQuery(10, true))).toMatchObject({ totalDocs: 1, docs: [{ id: active.id }] });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, aliasQuery(null))).toEqual({ totalDocs: 2 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, tupleQuery(null))).toEqual({ totalDocs: 2 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(10))).toEqual({ totalDocs: 0 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.find, upperQuery(10, true))).toMatchObject({ totalDocs: 1, docs: [{ id: active.id }] });
   const transition = defineCmsCommand({ name: "nullableKeyTransition", mode: "write", run: Effect.fn(function* (ctx, fail) {
-    yield* ctx.nested(runtime.commands.update, { collection: "items", id: active.id, data: { alias: null, amount: null } });
-    expect(yield* ctx.nested(runtime.commands.count, aliasQuery("held"))).toEqual({ totalDocs: 0 });
-    expect(yield* ctx.nested(runtime.commands.count, aliasQuery(null))).toEqual({ totalDocs: 3 });
-    expect(yield* ctx.nested(runtime.commands.count, tupleQuery(null))).toEqual({ totalDocs: 3 });
-    expect(yield* ctx.nested(runtime.commands.count, upperQuery(10, true))).toEqual({ totalDocs: 0 });
-    const replacement = yield* ctx.nested(runtime.commands.create, { collection: "items", data: { title: "replacement", category: "red", alias: "held", amount: 10 } });
-    expect(yield* ctx.nested(runtime.commands.count, aliasQuery("held"))).toEqual({ totalDocs: 1 });
-    expect(yield* ctx.nested(runtime.commands.count, tupleQuery(10))).toEqual({ totalDocs: 1 });
-    expect(yield* ctx.nested(runtime.commands.count, upperQuery(10, true))).toEqual({ totalDocs: 1 });
-    if (fail === true) yield* ctx.nested(runtime.commands.create, { collection: "items", data: { title: "first", category: "red" } });
+    yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.update, { collection: "items", id: active.id, data: { alias: null, amount: null } });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, aliasQuery("held"))).toEqual({ totalDocs: 0 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, aliasQuery(null))).toEqual({ totalDocs: 3 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, tupleQuery(null))).toEqual({ totalDocs: 3 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(10, true))).toEqual({ totalDocs: 0 });
+    const replacement = yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: { title: "replacement", category: "red", alias: "held", amount: 10 } });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, aliasQuery("held"))).toEqual({ totalDocs: 1 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, tupleQuery(10))).toEqual({ totalDocs: 1 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(10, true))).toEqual({ totalDocs: 1 });
+    if (fail === true) yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: { title: "first", category: "red" } });
     return replacement;
   }) });
   const missingStorageValue = defineCmsCommand({ name: "missingNullableStorageValue", mode: "write", run: Effect.fn(function* (ctx) {
@@ -125,13 +126,13 @@ export const payloadNullableScenario = Effect.fn("NullablePayload.scenario")(fun
     expect(yield* pending.run(key, transition, false)).toEqual(replacement);
     expect(yield* Effect.promise(tested.inventory)).toEqual(after);
   }));
-  const updated = document(yield* host.run(host.newRequestKey(), runtime.commands.update,
+  const updated = document(yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.update,
     { collection: "items", id: first.id, data: { alias: "new", amount: 11, releaseAt: "2026-09-20T00:00:00.000Z" } }));
-  const retained = document(yield* host.run(host.newRequestKey(), runtime.commands.update,
+  const retained = document(yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.update,
     { collection: "items", id: first.id, data: { note: "changed" } }));
   expect(retained).toMatchObject({ alias: updated.alias, amount: 11, releaseAt: updated.releaseAt, note: "changed" });
-  expect(yield* host.read(runtime.commands.count, aliasQuery(null))).toEqual({ totalDocs: 2 });
-  expect(yield* host.read(runtime.commands.count, tupleQuery(null))).toEqual({ totalDocs: 2 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, aliasQuery(null))).toEqual({ totalDocs: 2 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, tupleQuery(null))).toEqual({ totalDocs: 2 });
   const falsy = document(yield* create({ title: "falsy", category: "red", alias: "", amount: 0, available: false, note: "" }));
   expect(falsy).toMatchObject({ alias: "", amount: 0, available: false, note: "" });
   const beforeConflict = yield* Effect.promise(tested.inventory);
@@ -141,16 +142,16 @@ export const payloadNullableScenario = Effect.fn("NullablePayload.scenario")(fun
     .toMatchObject({ _tag: "Failure", failure: { reason: "documentInvalid" } });
   expect(yield* Effect.promise(tested.inventory)).toEqual(beforeConflict);
   yield* create({ title: "minimum", category: "red", amount: -Number.MAX_VALUE });
-  expect(yield* host.read(runtime.commands.count, upperQuery(-Number.MAX_VALUE))).toEqual({ totalDocs: 0 });
-  expect(yield* host.read(runtime.commands.count, upperQuery(-Number.MAX_VALUE, true))).toEqual({ totalDocs: 1 });
-  expect(yield* host.read(runtime.commands.count, upperQuery(-0))).toEqual({ totalDocs: 1 });
-  expect(yield* host.read(runtime.commands.count, upperQuery(0, true))).toEqual({ totalDocs: 2 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(-Number.MAX_VALUE))).toEqual({ totalDocs: 0 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(-Number.MAX_VALUE, true))).toEqual({ totalDocs: 1 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(-0))).toEqual({ totalDocs: 1 });
+  expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(0, true))).toEqual({ totalDocs: 2 });
   expect(tested.scans()).toBe(0);
   const scannedRanges = defineCmsCommand({ name: "scannedNullableRanges", mode: "read", run: Effect.fn(function* (ctx) {
-    yield* ctx.nested(runtime.commands.find, { collection: "items", limit: 32 });
+    yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.find, { collection: "items", limit: 32 });
     // Reuse an already scanned view: residual matching must exclude null too.
-    expect(yield* ctx.nested(runtime.commands.count, upperQuery(-0))).toEqual({ totalDocs: 1 });
-    expect(yield* ctx.nested(runtime.commands.count, upperQuery(0, true))).toEqual({ totalDocs: 2 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(-0))).toEqual({ totalDocs: 1 });
+    expect(yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.count, upperQuery(0, true))).toEqual({ totalDocs: 2 });
     return null;
   }) });
   yield* Effect.scoped(Effect.gen(function* () {
@@ -165,7 +166,7 @@ export const concurrentNullableScenario = Effect.fn("NullablePayload.concurrent"
   const entered = yield* Deferred.make<void>();
   const release = yield* Deferred.make<void>();
   const held = defineCmsCommand({ name: "heldNullableInsert", mode: "write", run: Effect.fn(function* (ctx) {
-    const result = yield* ctx.nested(runtime.commands.create, { collection: "items", data: {
+    const result = yield* ctx.nested(inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: {
       title: "held", category: "red", alias: nullKey ? null : "same", amount: null,
     } });
     yield* Deferred.succeed(entered, undefined);
@@ -176,7 +177,7 @@ export const concurrentNullableScenario = Effect.fn("NullablePayload.concurrent"
   yield* Effect.gen(function* () {
     const fiber = yield* pending.run(pending.newRequestKey(), held, null).pipe(Effect.result, Effect.forkScoped);
     yield* Deferred.await(entered).pipe(Effect.timeout(5_000));
-    yield* host.run(host.newRequestKey(), runtime.commands.create, { collection: "items", data: {
+    yield* host.run(host.newRequestKey(), inspectPayloadRuntimeForTest(runtime).commands.create, { collection: "items", data: {
       title: "competitor", category: "red", alias: nullKey ? null : "same", amount: null,
     } });
     const before = yield* Effect.promise(tested.inventory);

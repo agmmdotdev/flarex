@@ -60,7 +60,10 @@ The concrete entry determines its snapshot, retry, callback and settlement profi
 
 ### Direct Payload Or Medusa Read
 
-1. The adapter creates native runtime behavior and binds a restricted reader.
+1. Trusted Payload composition creates an Application read serving instance and
+   an issued CMS read binding. The adapter creates its native runtime and binds
+   `find`, `findByID` and `count`; operation callers supply native arguments.
+   Medusa retains its admitted Commerce reader construction.
 2. [CMS read construction](../../packages/persistence-postgres/src/frameworks/cmsTransaction/read/host.ts)
    or [Commerce read construction](../../packages/persistence-postgres/src/frameworks/commerceTransaction/read/host.ts)
    captures authentic definitions, installed references and preparation lifetime.
@@ -148,8 +151,11 @@ facts and observations; it does not make authoritative commit decisions.
 
 ## Dependency And Folder Direction
 
-This is the current package responsibility map. Construction/API simplification
-remains pending under its [focused plan](03-consumer-construction-and-domain-apis.md).
+This is the current package responsibility map. Application serving and issued
+CMS/Payload construction are implemented under the active
+[focused plan](03-consumer-construction-and-domain-apis.md). The remaining
+[file cohesion work](05-file-cohesion-and-readable-flows.md) organizes substantial
+implementation bodies without changing execution ownership.
 
 ```text
 Medusa adapter                 Payload adapter
@@ -193,6 +199,12 @@ Payload now separates `runtime/native.ts`, `direct/binding.ts`,
 `participant/binding.ts` and `testing/`. Direct and borrowed calls use the same
 native commands. The ordinary runtime supplies its participant binding; fixed
 hooks, fault scenarios, counters and raw native inspection stay in test support.
+Its ordinary runtime exposes bound native methods, not command tokens or
+persistence-shaped options. Application owns the serving graph; CMS issues
+separate scoped read and command bindings. Borrowed invocation lookup, deadline,
+closure and completion belong to CMS, while native method/error meaning remains
+in Payload. See the [construction plan](03-consumer-construction-and-domain-apis.md)
+for the exact capability and retirement inventory.
 
 The [persistence source guide](../../packages/persistence-postgres/README.md)
 maps database, scope, installation, application, storage, execution, commit and

@@ -9,6 +9,9 @@
   "exports": {
     "./internal/execution-diagnostics": "./src/execution/diagnostics/operation.ts",
     "./internal/cms-adapter": "./src/frameworks/cmsTransaction/cmsAdapter.ts",
+    "./internal/cms-construction": "./src/frameworks/cmsTransaction/construction.ts",
+    "./internal/cms-execution": "./src/frameworks/cmsTransaction/api.ts",
+    "./internal/application-serving": "./src/application/applicationServing.ts",
     "./internal/commerce-adapter": "./src/frameworks/commerceTransaction/commerceAdapter.ts",
     "./internal/logical-relational-admission": "./src/storage/documents/logicalDocuments/relationalAdmission.ts",
     "./internal/logical-document-admission": "./src/execution/logicalDocumentAdmission.ts",

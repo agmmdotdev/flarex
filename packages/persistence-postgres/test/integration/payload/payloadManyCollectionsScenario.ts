@@ -1,3 +1,4 @@
+import { inspectPayloadRuntimeForTest } from "../../../../payload-adapter/src/testing";
 import { Effect } from "effect";
 import { expect } from "vitest";
 import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
@@ -24,10 +25,11 @@ export async function payloadManyCollectionsScenario(persistence: PGliteFlarexPe
       deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
       authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
       application: fixture.relationActivation, identityAndAccessPolicy: { subject: "many-collection-reader" },
-      commands: [runtime.commands.find, runtime.commands.count], materialization: {},
+      commands: [inspectPayloadRuntimeForTest(runtime).commands.find, inspectPayloadRuntimeForTest(runtime).commands.count],
+      materialization: fixture.servingOwners.materialization,
     }, { documentReads: { beforeRead: selection => Effect.sync(() => { if (selection === "scan") scans++; }) } }), value => value.close);
     for (const collection of ["collection-0", "collection-32"]) {
-      expect(yield* host.read(runtime.commands.count, { collection, where: { title: { equals: "absent" } } })).toEqual({ totalDocs: 0 });
+      expect(yield* host.read(inspectPayloadRuntimeForTest(runtime).commands.count, { collection, where: { title: { equals: "absent" } } })).toEqual({ totalDocs: 0 });
     }
     expect(scans).toBe(0);
   })));

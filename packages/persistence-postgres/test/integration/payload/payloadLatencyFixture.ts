@@ -1,12 +1,9 @@
+import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
 import { Effect, Result, Scope } from "effect";
 import { compilePayloadCollections } from "../../../../payload-adapter/src/collections";
 import { makePayloadRuntime } from "../../../../payload-adapter/src/runtime";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import { dataBindingActivationRequest } from "../../../src/installation/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
 import { preparedHostTestRuntime } from "../../execution/preparation/preparedHostRuntimeTestSupport";
@@ -97,9 +94,10 @@ async function preparePayloadLatencySetup(
   return { fixture, target, physicalLocator };
 }
 
-export async function preparePayloadLatencyHostInput(
+export async function preparePayloadLatencyBinding(
   persistence: PostgresFlarexPersistence,
   compiled: Effect.Success<ReturnType<typeof compilePayloadLatencyCollections>>,
+  scope: Scope.Scope,
   protectedResource?: ProtectedPayloadLatencyResource,
 ) {
   if (protectedResource !== undefined && (protectedResource.owner.persistence !== persistence ||
@@ -123,16 +121,10 @@ export async function preparePayloadLatencyHostInput(
   const preferenceTarget = protectedResource === undefined ? target : await runEffect(makeFrameworkSchemaTarget({
     deploymentId: fixture.deploymentId, database: runtimePersistence.drizzle,
     canonicalPhysicalDatabaseIdentity: "cms-host-fixture", physicalLocator }));
-  return { hostRuntime: preparedHostTestRuntime(runtimePersistence.drizzle), database: runtimePersistence.drizzle,
-    controlDatabase: runtimeControl.drizzle, session: protectedResource?.session ?? makePostgresRelationalSession(persistence),
-    deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, authority: runtimeComposition.authorityPorts,
-    application: runtimeComposition.relationActivation, pointCommitAuthority: runtimeComposition.pointCommitAuthority,
-    identityAndAccessPolicy: { subject: "payload-latency" }, payloadPreferenceTarget: preferenceTarget,
-    materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(runtimeControl.drizzle),
-      developerIndexes: createAppDeveloperIndexDefinitionPortV1(runtimeControl.drizzle),
-      uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(runtimeControl.drizzle),
-      candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: runtimeComposition.candidateValidation,
-        pointCommitAuthority: runtimeComposition.pointCommitAuthority }) } };
+  const session = protectedResource?.session ?? makePostgresRelationalSession(persistence);
+  return runEffect(runtimeComposition.makeServing(session).pipe(Effect.flatMap(serving => makeCmsCommandBinding({ serving,
+    hostRuntime: preparedHostTestRuntime(runtimePersistence.drizzle), identityAndAccessPolicy: { subject: "payload-latency" },
+    profile: { kind: "fullProof", payloadPreferenceTarget: preferenceTarget } })), Effect.provideService(Scope.Scope, scope)));
 }
 
 /** The caller owns the Scope through runtime use and shutdown. Fixture setup
@@ -141,7 +133,7 @@ export async function preparePayloadLatencyHostInput(
 export async function preparePayloadLatencyRuntime(persistence: PostgresFlarexPersistence, scope: Scope.Scope,
   protectedResource?: ProtectedPayloadLatencyResource) {
   const compiled = protectedResource?.compiled ?? await runEffect(compilePayloadLatencyCollections());
-  const input = await preparePayloadLatencyHostInput(persistence, compiled, protectedResource);
+  const input = await preparePayloadLatencyBinding(persistence, compiled, scope, protectedResource);
   return runEffect(Effect.gen(function* () {
     const runtime = yield* makePayloadRuntime(compiled);
     const host = yield* runtime.bind(input);
