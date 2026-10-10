@@ -48,3 +48,38 @@ it("keeps omission and descriptor refusal ahead of strict native byte measuremen
   expect(captured(copied)).toEqual({ value: "mutated" });
   expect(issued).toEqual({ value: [1] });
 });
+
+it("finishes native validation and ordered omissions before deferred strict refusal", () => {
+  const omitted: string[][] = [];
+  let inspections = 0;
+  const cause = new Error("Late native reflection refused");
+  const later = new Proxy({}, { getPrototypeOf() { inspections++; throw cause; } });
+  expect(captureCommerceInput({ first: "x".repeat(200), omitted: undefined, later },
+    { commandBytes: 10, valueNodes: 100 }, path => omitted.push([...path])))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput", cause } });
+  expect(inspections).toBe(1);
+  expect(omitted).toEqual([["omitted"]]);
+  const paths: string[][] = [];
+  expect(captureCommerceInput({ invalid: Infinity, omitted: undefined, nested: { absent: undefined } },
+    { commandBytes: 1024, valueNodes: 100 }, path => paths.push([...path])))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  expect(paths).toEqual([["omitted"], ["nested", "absent"]]);
+  expect(captureCommerceInput({ invalid: Infinity, later: { first: { second: true } } },
+    { commandBytes: 1024, valueNodes: 3 }))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+});
+
+it("retains dense arrays, active-cycle and prototype refusal after normalization", () => {
+  const cycle: { self?: unknown } = {};
+  cycle.self = cycle;
+  const accessor = Object.defineProperty({}, "hidden", { enumerable: true, get() { throw new Error("Getter executed"); } });
+  for (const value of [cycle, Object.create({ inherited: true }), new Date(), Array(1), [undefined],
+    { [Symbol("hidden")]: true }, accessor, Object.defineProperty({}, "hidden", { value: 1 })]) {
+    expect(captureCommerceInput(value)).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  }
+  const alias = { values: [1, 2] };
+  const result = captured([alias, alias]);
+  expect(result).toEqual([{ values: [1, 2] }, { values: [1, 2] }]);
+  alias.values[0] = 9;
+  expect(result).toEqual([{ values: [1, 2] }, { values: [1, 2] }]);
+});

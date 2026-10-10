@@ -34,12 +34,7 @@ export function capturePrivateJsonData<Failure>(
   Readonly<{ value: Json; bytes: number }>,
   Failure
 > {
-  const budget = { remaining: maximum };
-  return snapshot(input, 0, budget, failure, false, policy?.canonicalNumbers === true).pipe(
-    Result.map((value) =>
-      Object.freeze({ value, bytes: maximum - budget.remaining }),
-    ),
-  );
+  return capture(input, maximum, failure, false, policy?.canonicalNumbers === true);
 }
 
 /** Internal trusted handoff. Foreign wrappers still undergo their complete own
@@ -47,122 +42,192 @@ export function capturePrivateJsonData<Failure>(
 export function useCapturedPrivateJsonData<Failure>(input: unknown, maximum: number,
   failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
 ): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
-  const budget = { remaining: maximum };
-  return snapshot(input, 0, budget, failure, true).pipe(Result.map(value =>
-    Object.freeze({ value, bytes: maximum - budget.remaining })));
+  return capture(input, maximum, failure, true, false);
 }
-function spend<Failure>(
-  budget: { remaining: number },
-  bytes: number,
-  failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
-): Result.Result<void, Failure> {
-  budget.remaining -= bytes;
-  return budget.remaining < 0
-    ? Result.fail(failure("limitExceeded"))
-    : Result.succeed(undefined);
-}
-function snapshot<Failure>(
+
+/** Omit own undefined object members while capturing their descriptors once.
+ * Descriptor/node/depth refusals and ordered omission callbacks precede strict
+ * JSON/byte refusal. Only successfully captured values receive ownership facts. */
+export function capturePrivateJsonDataOmittingUndefined<Failure>(
   input: unknown,
-  depth: number,
-  budget: { remaining: number },
+  bounds: Readonly<{ bytes: number; nodes: number; depth: number }>,
+  failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
+  onOmitted?: (path: readonly string[]) => void,
+): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
+  return capture(input, bounds.bytes, failure, true, false, { bounds, onOmitted });
+}
+
+interface CaptureRefusal {
+  readonly reason: "limitExceeded" | "invalidInput";
+  readonly cause?: unknown;
+}
+interface OmissionCapture {
+  readonly bounds: Readonly<{ bytes: number; nodes: number; depth: number }>;
+  readonly onOmitted: ((path: readonly string[]) => void) | undefined;
+}
+
+/** This bounded inspection owns descriptor safety, first refusal and issuance.
+ * Its local traversal state is folded into Result only at the parse boundary;
+ * per-node Result generators would allocate without adding another boundary. */
+function capture<Failure>(
+  input: unknown,
+  maximum: number,
   failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
   owned: boolean,
-  canonicalNumbers = false,
-): Result.Result<Json, Failure> {
-  return Result.gen(function* () {
-    if (depth > 64) return yield* Result.fail(failure("limitExceeded"));
-    const issued = inspectCapturedPrivateJsonData(input);
+  canonicalNumbers: boolean,
+  omission?: OmissionCapture,
+): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
+  let remaining = maximum;
+  let visitedNodes = 0;
+  let strictRefusal: CaptureRefusal | undefined;
+  let nativeRefusal: CaptureRefusal | undefined;
+  const active = new Set<object>();
+  const refuseStrict = (reason: CaptureRefusal["reason"], cause?: unknown): void => {
+    strictRefusal ??= { reason, cause };
+  };
+  const spend = (bytes: number): void => {
+    if (strictRefusal !== undefined) return;
+    remaining -= bytes;
+    if (remaining < 0) refuseStrict("limitExceeded");
+  };
+  const visit = (valueInput: unknown, depth: number, path: readonly string[]): Json => {
+    if (nativeRefusal !== undefined || (omission === undefined && strictRefusal !== undefined)) return null;
+    const issued = inspectCapturedPrivateJsonData(valueInput);
+    if (omission !== undefined) {
+      visitedNodes += issued?.nodes ?? 1;
+      if (visitedNodes > omission.bounds.nodes || depth + (issued?.depth ?? 0) > omission.bounds.depth) {
+        nativeRefusal = { reason: "limitExceeded" };
+        return null;
+      }
+    }
+    if (depth > 64) { refuseStrict("limitExceeded"); return null; }
     if (issued !== undefined && !(canonicalNumbers && issued.negativeZero)) {
-      if (depth + issued.depth > 64) return yield* Result.fail(failure("limitExceeded"));
-      yield* spend(budget, issued.bytes, failure);
+      if (depth + issued.depth > 64) { refuseStrict("limitExceeded"); return null; }
+      spend(issued.bytes);
+      if (strictRefusal !== undefined) return null;
       return owned ? issued.value : detachIssuedJson(issued.value);
     }
     if (
-      input === null ||
-      typeof input === "string" ||
-      typeof input === "number" ||
-      typeof input === "boolean"
+      valueInput === null || typeof valueInput === "string" ||
+      typeof valueInput === "number" || typeof valueInput === "boolean"
     ) {
-      const measured = measureCanonicalJsonUtf8Bytes(input, budget.remaining);
-      if (measured.kind !== "success")
-        return yield* Result.fail(
-          failure(
-            measured.kind === "exceeded" ? "limitExceeded" : "invalidInput",
-          ),
-        );
-      yield* spend(budget, measured.bytes, failure);
-      return canonicalNumbers && typeof input === "number" && Object.is(input, -0) ? 0 : input;
+      if (strictRefusal !== undefined) return null;
+      const measured = measureCanonicalJsonUtf8Bytes(valueInput, remaining);
+      if (measured.kind !== "success") {
+        refuseStrict(measured.kind === "exceeded" ? "limitExceeded" : "invalidInput");
+        return null;
+      }
+      spend(measured.bytes);
+      return canonicalNumbers && typeof valueInput === "number" && Object.is(valueInput, -0) ? 0 : valueInput;
     }
-    if (typeof input !== "object")
-      return yield* Result.fail(failure("invalidInput"));
-    const meta = yield* Result.try({
-      try: () => ({
-        array: Array.isArray(input),
-        prototype: Object.getPrototypeOf(input),
-        keys: Reflect.ownKeys(input),
-      }),
-      catch: (cause) => failure("invalidInput", cause),
-    });
-    if (
-      (meta.array
-        ? meta.prototype !== Array.prototype
-        : meta.prototype !== Object.prototype && meta.prototype !== null) ||
-      meta.keys.some((key) => typeof key !== "string")
-    )
-      return yield* Result.fail(failure("invalidInput"));
-    const remainingBefore = budget.remaining;
-    yield* spend(budget, 2, failure);
-    if (meta.keys.length > budget.remaining + 1)
-      return yield* Result.fail(failure("limitExceeded"));
+    if (typeof valueInput !== "object") { refuseStrict("invalidInput"); return null; }
+    let isArray: boolean;
+    let prototype: unknown;
+    let keys: readonly PropertyKey[];
+    try {
+      isArray = Array.isArray(valueInput);
+      prototype = Object.getPrototypeOf(valueInput);
+      keys = Reflect.ownKeys(valueInput);
+    } catch (cause) {
+      if (omission === undefined) refuseStrict("invalidInput", cause);
+      else nativeRefusal = { reason: "invalidInput", cause };
+      return null;
+    }
+    if ((isArray ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) ||
+      (omission !== undefined && active.has(valueInput))) {
+      if (omission === undefined) refuseStrict("invalidInput");
+      else nativeRefusal = { reason: "invalidInput" };
+      return null;
+    }
+    if (omission !== undefined) {
+      active.add(valueInput);
+      if (keys.length > omission.bounds.nodes) { nativeRefusal = { reason: "limitExceeded" }; return null; }
+    } else if (keys.some(key => typeof key !== "string")) {
+      refuseStrict("invalidInput"); return null;
+    }
+    const remainingBefore = remaining;
+    const refusalBefore = strictRefusal;
+    spend(2);
+    if (omission === undefined && keys.length > remaining + 1) { refuseStrict("limitExceeded"); return null; }
     const array: Json[] = [];
     const entries: [string, Json][] = [];
     let nodes = 1, relativeDepth = 0, negativeZero = false;
-    const keys = meta.array
-      ? meta.keys.filter((key) => key !== "length")
-      : meta.keys;
-    for (const [index, key] of keys.entries()) {
-      if (typeof key !== "string" || (meta.array && key !== String(index)))
-        return yield* Result.fail(failure("invalidInput"));
-      const descriptor = yield* Result.try({
-        try: () => Object.getOwnPropertyDescriptor(input, key),
-        catch: (cause) => failure("invalidInput", cause),
-      });
-      if (
-        descriptor === undefined ||
-        !Object.hasOwn(descriptor, "value") ||
-        descriptor.enumerable !== true
-      )
-        return yield* Result.fail(failure("invalidInput"));
-      if (index > 0) yield* spend(budget, 1, failure);
-      if (!meta.array) {
-        const keySize = measureCanonicalJsonUtf8Bytes(key, budget.remaining);
-        if (keySize.kind !== "success")
-          return yield* Result.fail(failure("limitExceeded"));
-        yield* spend(budget, keySize.bytes + 1, failure);
+    let index = 0;
+    let arrayKeysDense = true;
+    for (const key of keys) {
+      if (isArray && key === "length") continue;
+      if (typeof key !== "string" || (omission === undefined && isArray && key !== String(index))) {
+        if (omission === undefined) refuseStrict("invalidInput");
+        else nativeRefusal = { reason: "invalidInput" };
+        return null;
       }
-      const value = yield* snapshot(descriptor.value, depth + 1, budget, failure, owned, canonicalNumbers);
+      let descriptor: PropertyDescriptor | undefined;
+      try { descriptor = Object.getOwnPropertyDescriptor(valueInput, key); }
+      catch (cause) {
+        if (omission === undefined) refuseStrict("invalidInput", cause);
+        else nativeRefusal = { reason: "invalidInput", cause };
+        return null;
+      }
+      if (descriptor === undefined || !Object.hasOwn(descriptor, "value") || descriptor.enumerable !== true) {
+        if (omission === undefined) refuseStrict("invalidInput");
+        else nativeRefusal = { reason: "invalidInput" };
+        return null;
+      }
+      if (omission !== undefined && descriptor.value === undefined && !isArray) {
+        omission.onOmitted?.([...path, key]);
+        continue;
+      }
+      if (index > 0) spend(1);
+      if (!isArray && strictRefusal === undefined) {
+        const keySize = measureCanonicalJsonUtf8Bytes(key, remaining);
+        if (keySize.kind !== "success") refuseStrict("limitExceeded");
+        else spend(keySize.bytes + 1);
+      }
+      const value = visit(descriptor.value, depth + 1, omission?.onOmitted === undefined ? [] : [...path, key]);
+      if (nativeRefusal !== undefined || (omission === undefined && strictRefusal !== undefined)) return null;
       const child = inspectCapturedPrivateJsonData(value);
       nodes += child?.nodes ?? 1;
       relativeDepth = Math.max(relativeDepth, 1 + (child?.depth ?? 0));
       negativeZero ||= child?.negativeZero ?? (typeof value === "number" && Object.is(value, -0));
-      if (meta.array) array.push(value);
+      if (isArray) array.push(value);
       else entries.push([key, value]);
+      if (omission !== undefined && isArray && key !== String(index)) {
+        // Native normalization checks density after visiting all array members.
+        // Retain this fact without changing descriptor or node refusal order.
+        arrayKeysDense = false;
+      }
+      index++;
     }
-    if (meta.array) {
-      const length = yield* Result.try({
-        try: () => Object.getOwnPropertyDescriptor(input, "length"),
-        catch: (cause) => failure("invalidInput", cause),
-      });
-      if (length?.value !== array.length)
-        return yield* Result.fail(failure("invalidInput"));
-      const value = Object.freeze(array);
-      capturedValues.set(value, Object.freeze({ value, bytes: remainingBefore - budget.remaining,
-        nodes, depth: relativeDepth, negativeZero }));
-      return value;
+    if (isArray) {
+      let length: PropertyDescriptor | undefined;
+      try { length = Object.getOwnPropertyDescriptor(valueInput, "length"); }
+      catch (cause) {
+        if (omission === undefined) refuseStrict("invalidInput", cause);
+        else nativeRefusal = { reason: "invalidInput", cause };
+        return null;
+      }
+      if (length?.value !== array.length || !arrayKeysDense) {
+        if (omission === undefined) refuseStrict("invalidInput");
+        else nativeRefusal = { reason: "invalidInput" };
+        return null;
+      }
     }
-    const value = Object.freeze(Object.fromEntries(entries));
-    capturedValues.set(value, Object.freeze({ value, bytes: remainingBefore - budget.remaining,
+    if (omission !== undefined) {
+      active.delete(valueInput);
+      // The strict capture's container key-count check precedes child byte or
+      // primitive checks. Omitted keys become known only after native validation.
+      if (refusalBefore === undefined && index + (isArray ? 1 : 0) > remainingBefore - 1)
+        strictRefusal = { reason: "limitExceeded" };
+    }
+    if (strictRefusal !== undefined) return null;
+    const value = isArray ? Object.freeze(array) : Object.freeze(Object.fromEntries(entries));
+    capturedValues.set(value, Object.freeze({ value, bytes: remainingBefore - remaining,
       nodes, depth: relativeDepth, negativeZero }));
     return value;
-  });
+  };
+  const value = visit(input, 0, []);
+  const refusal = nativeRefusal ?? strictRefusal;
+  return refusal === undefined
+    ? Result.succeed(Object.freeze({ value, bytes: maximum - remaining }))
+    : Result.fail(failure(refusal.reason, refusal.cause));
 }

@@ -206,6 +206,7 @@ interface PreparedWriteMechanicsState {
   readonly projection: Pick<PreparedLogicalDocumentWriteMechanics,
     "tables" | "relationalCapabilities" | "searchDefinitions" | "indexes" | "unique">;
   readonly metadataProjections: readonly PreparedFiniteMetadataProjection[];
+  readonly metadataByTable: ReadonlyMap<CatalogTableId, PreparedFiniteMetadataProjection>;
   readonly lifetimes: readonly NonNullable<Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>>[];
   readonly tablesByName: ReadonlyMap<string, LogicalDocumentTable>;
   readonly tablesById: ReadonlyMap<CatalogTableId, LogicalDocumentTable>;
@@ -310,6 +311,20 @@ const issueWriteMechanics = Effect.fnUntraced(function* <Failure>(
   const tablesById = new Map(tables.map(table => [table.tableId, table]));
   if (tablesByName.size !== tables.length || tablesById.size !== tables.length)
     return yield* Effect.fail(error("invalidAuthority"));
+  const metadataProjections = Object.freeze([...(input.metadataProjections ??
+    (input.metadataProjection === undefined ? [] : [input.metadataProjection]))]);
+  // Retain the original first matching issuer, never an accepting verdict.
+  const metadataByTable = new Map<CatalogTableId, PreparedFiniteMetadataProjection>();
+  const metadataRouting: { tableId: CatalogTableId; projectionOrdinal: number }[] = [];
+  for (const table of tables) {
+    const projectionOrdinal = metadataProjections.findIndex(projection =>
+      finiteMetadataTableKey(projection, table.tableId, "table") !== null);
+    const projection = metadataProjections[projectionOrdinal];
+    if (projection !== undefined) {
+      metadataByTable.set(table.tableId, projection);
+      metadataRouting.push({ tableId: table.tableId, projectionOrdinal });
+    }
+  }
   const indexes = Object.freeze([...input.indexes]), unique = Object.freeze([...input.unique]);
   const searchDefinitions = Object.freeze([...(input.searchDefinitions ?? [])]);
   const indexesByTable = groupedMechanics(indexes, index => index.access.tableId);
@@ -358,11 +373,11 @@ const issueWriteMechanics = Effect.fnUntraced(function* <Failure>(
     groupedIndexes: [...indexesByTable].map(([tableId, definitions]) => ({ tableId, count: definitions.length })),
     groupedUnique: [...uniqueByTable].map(([tableId, definitions]) => ({ tableId, count: definitions.length })),
     groupedSearch: [...searchByTable].map(([tableId, definitions]) => ({ tableId, count: definitions.length })),
+    metadataRouting,
   })).pipe(Effect.mapError(cause => error("resourceFailure", cause)));
   const prepared = makeWriteMechanicsToken();
   preparedWriteMechanics.set(prepared, { projection: Object.freeze({ tables, relationalCapabilities: capabilities,
-    searchDefinitions, indexes, unique }), metadataProjections: input.metadataProjections ??
-    (input.metadataProjection === undefined ? [] : [input.metadataProjection]),
+    searchDefinitions, indexes, unique }), metadataProjections, metadataByTable,
     lifetimes, tablesByName, tablesById, indexesByTable, uniqueByTable, foreignKeys,
     indexCandidates, uniqueCandidates, searchCandidates, relationalAccess });
   for (const owner of lifetimes) {
@@ -554,8 +569,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
     return yield* Effect.fail(state.error("invalidAuthority"));
   if (root?.pins.metadataWatermark !== undefined && (writeMechanics?.metadataProjections.length ?? 0) === 0)
     return yield* Effect.fail(state.error("invalidAuthority"));
-  const projectionForTable = (tableId: CatalogTableId) => writeMechanics?.metadataProjections.find(projection =>
-    finiteMetadataTableKey(projection, tableId, "table") !== null);
+  const projectionForTable = (tableId: CatalogTableId) => writeMechanics?.metadataByTable.get(tableId);
   const consumeMetadataResult = (projection: PreparedFiniteMetadataProjection, key: LogicalMetadataKey): Result.Result<void, Failure> => {
     if (root?.pins.metadataWatermark === undefined) return Result.succeed(undefined);
     return consumeLogicalDocumentRootMetadataDependency(root, projection, key).pipe(
@@ -578,16 +592,20 @@ export const makeLogicalDocumentWorkingSet = Effect.fnUntraced(function* <Failur
       consumeMetadataResult(projection, { namespace: tableKey.namespace, ownerKey: tableKey.ownerKey,
         contractKey: finiteMetadataContractKey(kind, definitionId) });
   };
-  const consumeAccessMetadata = (tableId: CatalogTableId, families: readonly string[], fields: readonly string[]) => observeExecution("LogicalDocuments.consumeAccessMetadata", Effect.gen(function* () {
+  const consumeAccessMetadataResult = (tableId: CatalogTableId, families: readonly string[], fields: readonly string[]) => Result.gen(function* () {
     if (root?.pins.metadataWatermark === undefined) return;
     const projection = projectionForTable(tableId);
-    if (projection === undefined) return yield* Effect.fail(error("invalidAuthority"));
-    for (const family of families) for (const field of new Set(fields)) {
+    if (projection === undefined) return yield* Result.fail(error("invalidAuthority"));
+    const selectedFields = new Set(fields);
+    for (const family of families) for (const field of selectedFields) {
       const key = finiteMetadataAccessKey(projection, tableId, family, field);
-      if (key === null) return yield* Effect.fail(error("invalidAuthority"));
-      yield* Effect.fromResult(consumeMetadataResult(projection, key));
+      if (key === null) return yield* Result.fail(error("invalidAuthority"));
+      yield* consumeMetadataResult(projection, key);
     }
-  }));
+  });
+  const consumeAccessMetadata = (tableId: CatalogTableId, families: readonly string[], fields: readonly string[]) =>
+    observeExecution("LogicalDocuments.consumeAccessMetadata", Effect.suspend(() =>
+      Effect.fromResult(consumeAccessMetadataResult(tableId, families, fields))));
   const foreignKeys = writeMechanics?.foreignKeys ?? (readProfile === undefined ? yield* Effect.fromResult(prepareLogicalRelationalForeignKeys(state.tables, state.error)) : []);
   for (const foreignKey of writeMechanics === undefined ? foreignKeys : []) {
     const reverse = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, foreignKey.source.tableId,

@@ -1,8 +1,8 @@
 # Core Performance
 
-Status: **the connected mutation cutover is implemented and measured, and work
-is paused for owner discussion; complete native-relative acceptance remains
-unmet.** The local standalone-read
+Status: **the connected mutation cutover is implemented and measured; the owner
+has resumed its connected CPU correction for standalone and mixed mutations.
+Complete native-relative acceptance remains unmet.** The local standalone-read
 implementation and consumer cutover are complete; its separate read-tuning pause
 remains in place. Standalone mutations are part of the active connected redesign.
 The installation interlock, query-required preparation and independent direct
@@ -26,7 +26,13 @@ owns complete baseline comparisons and retained evidence. Remaining request CPU,
 SQL and latency excess, including the Medusa tail, remain open. The owner has
 requested [saved behavior reconciliation](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#saved-behavior-reconciliation)
 at the current owners. That correctness/measurement/acquisition reconciliation
-does not resume performance tuning or claim native-relative acceptance.
+did not establish native-relative acceptance. The approved
+[CPU execution correction](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#connected-cpu-execution-correction)
+has implemented value capture, query transport and quiet execution mechanics;
+complete CPU and latency acceptance still require its connected outcome-value
+and ordinary readiness continuation. It preserves the separate standalone-read
+pause. The [CPU correction ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cpu-execution-results.md)
+owns its measured partial result and limits.
 The connected generation owns Application and selected logical source preparation
 together. CMS materialization templates and Commerce source catalogues must refresh
 with that generation after a legitimate metadata change. Finite consumers must

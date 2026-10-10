@@ -1,4 +1,4 @@
-import { Context, Effect, Option, References, Tracer, type Fiber } from "effect";
+import { Context, Effect, References, Tracer, type Fiber } from "effect";
 
 /** Trusted SDK composition only. This policy observes work without changing
  * its value, failure channel, requirements or resource owner. */
@@ -13,15 +13,28 @@ export class ExecutionDiagnostics extends Context.Service<ExecutionDiagnostics, 
   "Flarex/ExecutionDiagnostics",
 ) {}
 
-/** Selected stable operations have no diagnostic stack/span construction on
- * quiet requests. Only an explicitly composed SDK policy observes their name. */
+/** SDK diagnostics stay opt-in. Former named operations explicitly retain
+ * caller tracing without constructing diagnostic stacks on quiet requests. */
 export function observeExecution<Value, Failure, Requirements>(
   name: string,
   work: Effect.Effect<Value, Failure, Requirements>,
+  tracing: "sdk" | "caller" = "sdk",
 ): Effect.Effect<Value, Failure, Requirements> {
   return Effect.withFiber(fiber => {
-    const policy = Context.getOption(fiber.context, ExecutionDiagnostics);
-    return Option.isNone(policy) ? work : policy.value.observe(name, work);
+    const context = fiber.context;
+    const policy = Context.getOrUndefined(context, ExecutionDiagnostics);
+    if (policy !== undefined) return policy.observe(name, work);
+    if (tracing === "sdk") return work;
+    const enabled = Context.getOrUndefined(context, References.TracerEnabled);
+    if (enabled === false) return work;
+    const configured = enabled === true ||
+      Context.getOrUndefined(context, Tracer.Tracer) !== undefined ||
+      Context.getOrUndefined(context, Tracer.ParentSpan) !== undefined ||
+      Context.getOrUndefined(context, References.TracerTimingEnabled) !== undefined ||
+      Context.getOrUndefined(context, References.TracerSpanAnnotations) !== undefined ||
+      Context.getOrUndefined(context, References.TracerSpanLinks) !== undefined;
+    return configured ? Effect.useSpan(name, {}, span =>
+      Effect.provideService(work, Tracer.ParentSpan, span)) : work;
   });
 }
 
@@ -61,8 +74,8 @@ export function captureExecutionDiagnosticContext(fiber: Fiber.Fiber<unknown, un
   if (timing !== undefined) context = Context.add(context, References.TracerTimingEnabled, timing);
   if (annotations !== undefined) context = Context.add(context, References.TracerSpanAnnotations, annotations);
   if (links !== undefined) context = Context.add(context, References.TracerSpanLinks, links);
-  const policy = Context.getOption(fiber.context, ExecutionDiagnostics);
-  if (Option.isSome(policy)) context = Context.add(context, ExecutionDiagnostics, policy.value);
+  const policy = Context.getOrUndefined(fiber.context, ExecutionDiagnostics);
+  if (policy !== undefined) context = Context.add(context, ExecutionDiagnostics, policy);
   if (parent !== undefined) context = Context.add(context, Tracer.ParentSpan, parent);
   return context;
 }

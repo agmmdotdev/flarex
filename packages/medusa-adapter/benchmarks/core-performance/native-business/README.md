@@ -7,8 +7,11 @@ Payload 3.88.0 with `@payloadcms/db-postgres` 3.88.0. It changes no Flarex runti
 The selected contract is [preflight 26](../../../../../roadmaps/mixed-mutation-core/26-native-business-baseline-preflight.md).
 
 The [connected generation measurement checkpoint](./connected-generation-results.md)
-records the complete current Flarex/native comparisons, CPU and database costs,
+records the earlier complete Flarex/native comparisons, CPU and database costs,
 retained compressed evidence, and the unmet native-relative gates.
+The successor [CPU execution correction checkpoint](./cpu-execution-results.md)
+records the current capture/composition/publication mechanics, fresh CPU and
+quiet cohorts, their unmet gates and the next connected owner correction.
 
 ## What is measured
 

@@ -1,4 +1,4 @@
-import { Clock, Context, Effect, Option, References, Scope, Tracer } from "effect";
+import { Cause, Clock, Context, Effect, Exit, Option, References, Scope, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
 import { captureExecutionDiagnosticContext, ExecutionDiagnostics, observeExecution, withExecutionDiagnosticDefaults, type ExecutionDiagnosticPolicy } from "../../../src/execution/diagnostics/operation";
 
@@ -20,6 +20,42 @@ function collector() {
 }
 
 describe("private core invocation tracing", () => {
+  it("keeps SDK diagnostics opt-in even when the caller supplies a tracer", async () => {
+    const trace = collector();
+    await Effect.runPromise(observeExecution("sdk-only operation", Effect.succeed(1)).pipe(Effect.withTracer(trace.tracer)));
+    expect(trace.spans).toHaveLength(0);
+  });
+  it("observes selected operations under an explicit caller tracer with parent, annotations and links", async () => {
+    const trace = collector();
+    const parent = Tracer.externalSpan({ traceId: "selected", spanId: "parent" });
+    const linked = Tracer.externalSpan({ traceId: "linked", spanId: "selected" });
+    const result = await Effect.runPromise(withExecutionDiagnosticDefaults(observeExecution("selected operation", snapshot, "caller")).pipe(
+      Effect.withTracer(trace.tracer), Effect.withParentSpan(parent),
+      Effect.annotateSpans({ request: "selected" }), Effect.linkSpans(linked, { relation: "selected" }),
+    ));
+    const span = trace.spans[0];
+    expect(span?.name).toBe("selected operation");
+    expect(result.parent).toBe(span);
+    if (span === undefined) throw new Error("Missing selected operation span");
+    expect(Option.getOrUndefined(span.parent)).toBe(parent);
+    expect(span.attributes.get("request")).toBe("selected");
+    expect(span.links).toEqual([{ span: linked, attributes: { relation: "selected" } }]);
+  });
+
+  it("preserves a selected operation's complete Cause and explicit disabled tracing", async () => {
+    const trace = collector();
+    const failure = Cause.combine(Cause.fail("first"), Cause.die("defect"));
+    const work = withExecutionDiagnosticDefaults(observeExecution("selected failure", Effect.failCause(failure), "caller"));
+    const enabled = await Effect.runPromiseExit(work.pipe(Effect.withTracer(trace.tracer)));
+    expect(Exit.isFailure(enabled) && enabled.cause).toEqual(failure);
+    expect(trace.spans.map(span => span.name)).toEqual(["selected failure"]);
+    const disabledTrace = collector();
+    const disabled = await Effect.runPromiseExit(work.pipe(Effect.withTracer(disabledTrace.tracer),
+      Effect.provideService(References.TracerEnabled, false)));
+    expect(Exit.isFailure(disabled) && disabled.cause).toEqual(failure);
+    expect(disabledTrace.spans).toHaveLength(0);
+  });
+
   it("disables tracing and timing before the named root, without treating Reference defaults as configuration", async () => {
     expect(Context.get(Context.empty(), References.TracerEnabled)).toBe(true);
     expect(Context.getOrUndefined(Context.empty(), References.TracerEnabled)).toBeUndefined();

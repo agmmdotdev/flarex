@@ -1,3 +1,5 @@
+import { observeExecution } from "../execution/diagnostics/operation";
+// Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { ScopeClockCorruptionError, ScopeClockNotFoundError } from "./scopeClockErrors";
 import { observeDrizzleQuery } from "../database/drizzleQueryObservation";
 import { copyFiniteDate } from "@flarex/utils/dates";
@@ -426,16 +428,14 @@ export const lockScopeClockForShareInTransactionEffect = Effect.fn(
 /** KEY SHARE lifecycle protection; callers own snapshot isolation, validated
  * command reads, or provisional selection revalidated in the accepting transaction.
  * Strong lifecycle writers retain FOR UPDATE. */
-export const lockScopeClockForSnapshotReadInTransactionEffect = Effect.fn(
-  "ScopeClock.lockForSnapshotRead",
-)((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "snapshotRead"));
+export const lockScopeClockForSnapshotReadInTransactionEffect = (db: ScopeClockTransaction, scopeId: ScopeId) =>
+  observeExecution("ScopeClock.lockForSnapshotRead", Effect.suspend(() => lockScopeClockForDataAccess(db, scopeId, "snapshotRead")), "caller");
 
 /** Attempt/data writes and sequence publication; scope transitions require the strong helper. */
-export const lockScopeClockForOrdinaryWriteInTransactionEffect = Effect.fn(
-  "ScopeClock.lockForOrdinaryWrite",
-)((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "ordinaryWrite"));
+export const lockScopeClockForOrdinaryWriteInTransactionEffect = (db: ScopeClockTransaction, scopeId: ScopeId) =>
+  observeExecution("ScopeClock.lockForOrdinaryWrite", Effect.suspend(() => lockScopeClockForDataAccess(db, scopeId, "ordinaryWrite")), "caller");
 
-const lockScopeClockForDataAccess = Effect.fn("ScopeClock.lockForDataAccess")(function* (
+const lockScopeClockForDataAccess = Effect.fnUntraced(function* (
   db: ScopeClockTransaction, scopeId: ScopeId, access: "snapshotRead" | "ordinaryWrite",
 ) {
   const observed = exactAttemptClockObservations.get(db);
@@ -449,7 +449,7 @@ const lockScopeClockForDataAccess = Effect.fn("ScopeClock.lockForDataAccess")(fu
   const row = rows[0];
   if (row === undefined) return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
   return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
-});
+}, work => observeExecution("ScopeClock.lockForDataAccess", work, "caller"));
 
 export const lockScopeClockForUpdateInTransactionEffect = Effect.fn(
   "ScopeClock.lockForUpdateInTransaction",

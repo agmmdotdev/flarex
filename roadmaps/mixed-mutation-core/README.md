@@ -155,8 +155,13 @@ The selected [shared execution evidence redesign](./27-shared-execution-evidence
 connects retained preparation/fresh admission, owned values/ordered capture and
 prepared contributions/fresh publication. Standalone Payload and Medusa migrate
 alongside mixed callers in each affected package. CPU reduction and complete
-native-relative latency are separate acceptance obligations; runtime cutover has
-not started. Exact immutable pins, source permissions, writer/installation proof
+native-relative latency are separate acceptance obligations. The connected
+generation cutover is implemented; the approved
+[CPU execution correction](./27-shared-execution-evidence-redesign-preflight.md#connected-cpu-execution-correction)
+has replaced capture, quiet composition and publication transport mechanics;
+outcome-value and ordinary readiness work remain, with complete CPU/latency
+acceptance still unmet. Exact immutable
+pins, source permissions, writer/installation proof
 and fresh post-wait checks retain their recorded gates.
 Its [dedicated measurement SDK](../../packages/executor/test/performance/measurement/README.md)
 has one entry point for measurement and comparison; construction, artifact types

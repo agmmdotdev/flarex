@@ -146,9 +146,9 @@ import {
   applicationDomainFailureDetail,
   applicationIndexTransitionScalarArray,
   applicationIndexTransitionByteArray,
-  applicationMaterializationParameters,
   applicationIndexCoverageArray,
 } from "./domainApplication";
+import { buildApplicationPublicationStatement } from "./domainPublicationSql";
 import {
   type AcceptedApplicationPublication,
   readAcceptedApplicationPublication,
@@ -795,11 +795,8 @@ export const materializeAcceptedApplicationPublicationRows = Effect.fnUntraced(f
     ${scalar(unique.map(definition=>definition.schemaVersionId),"text",fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId)},
     ${scalar(unique.map(definition=>definition.deploymentId),"text",fxControlUniqueConstraintDefinitions.deploymentId)},
     ${input.deferCoverage === true}::boolean`;
-  const invocation = (selected:PreparedApplicationMaterializationBlock) => sql`select kind,coverage_ordinal,coverage_definition,
-    coverage_attempt::text,coverage_epoch,coverage_fence::text,reason,row_count,index_count,unique_count,validation_count,coverage_count,search_count,search_build_count,intrinsic_count,
-    intrinsic_live_count,intrinsic_tombstone_count,intrinsic_key_bytes,index_coverage_count,unique_coverage_count
-    from ${sql.identifier(schemaName)}.fx_apply_app_publication(${prefix},${emptyIntrinsic.keyParameters},${stop}::text,
-      ${applicationMaterializationParameters(materializationValues(selected),schemaName)})`;
+  const invocation = (selected:PreparedApplicationMaterializationBlock) =>
+    buildApplicationPublicationStatement(schemaName, prefix, emptyIntrinsic.keyParameters, stop, materializationValues(selected));
   const mapFailure = (cause:unknown) => {
     if (applicationDomainFailureDetail(cause,"fx_accept_app_index_transitions") !== null) {
       const failure = emptyIntrinsic.mapFailure(cause);

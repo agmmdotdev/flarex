@@ -1,7 +1,7 @@
 import { Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { expect, it } from "vitest";
-import { capturePrivateJsonData, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../src/values/privateJsonData";
+import { capturePrivateJsonData, capturePrivateJsonDataOmittingUndefined, inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../src/values/privateJsonData";
 
 const failure = (reason: "invalidInput" | "limitExceeded", cause?: unknown) => ({ reason, cause });
 const success = <Value, Failure>(result: Result.Result<Value, Failure>): Value => {
@@ -74,4 +74,54 @@ it("normalizes negative zero only under the binding's explicit canonical-number 
   expect(inspectCapturedPrivateJsonData(canonical.value)?.negativeZero).toBe(false);
   expect(Object.is(original.value.nested[0], -0)).toBe(true);
   expect(success(useCapturedPrivateJsonData(original.value, 1024, failure)).value).toBe(original.value);
+});
+
+it("captures omission descriptors once and issues exact immutable accounting", () => {
+  const reflected: string[] = [];
+  const source = { omitted: undefined, nested: ["雪", -0, { absent: undefined, kept: true }] };
+  const foreign = new Proxy(source, {
+    ownKeys(target) { reflected.push("keys"); return Reflect.ownKeys(target); },
+    getOwnPropertyDescriptor(target, key) { reflected.push(String(key)); return Reflect.getOwnPropertyDescriptor(target, key); },
+  });
+  const omitted: string[][] = [];
+  const captured = success(capturePrivateJsonDataOmittingUndefined(foreign,
+    { bytes: 1024, nodes: 20, depth: 16 }, failure, path => omitted.push([...path])));
+  expect(reflected).toEqual(["keys", "omitted", "nested"]);
+  expect(omitted).toEqual([["omitted"], ["nested", "2", "absent"]]);
+  expect(captured.value).toEqual({ nested: ["雪", -0, { kept: true }] });
+  expect(inspectCapturedPrivateJsonData(captured.value)).toMatchObject({
+    bytes: captured.bytes, nodes: 6, depth: 3, negativeZero: true,
+  });
+  expect(captured.bytes).toBe(new TextEncoder().encode(JSON.stringify(captured.value)).length);
+  source.nested[0] = "changed";
+  expect(captured.value).toEqual({ nested: ["雪", -0, { kept: true }] });
+  const exact = success(capturePrivateJsonDataOmittingUndefined(captured.value,
+    { bytes: captured.bytes, nodes: 6, depth: 3 }, failure));
+  expect(exact.value).toBe(captured.value);
+  expect(capturePrivateJsonDataOmittingUndefined(captured.value,
+    { bytes: captured.bytes - 1, nodes: 6, depth: 3 }, failure))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  if (!isJsonObject(captured.value) || !Array.isArray(captured.value.nested)) throw new Error("Missing captured members");
+  expect(inspectCapturedPrivateJsonData(captured.value.nested)).toMatchObject({ nodes: 5, depth: 2 });
+  expect(inspectCapturedPrivateJsonData(foreign)).toBeUndefined();
+});
+
+it("retains strict byte refusal before reflecting later foreign children", () => {
+  let inspections = 0;
+  const later = new Proxy({}, { getPrototypeOf() { inspections++; throw new Error("Later foreign input"); } });
+  expect(capturePrivateJsonData({ first: "x".repeat(100), later }, 20, failure))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  expect(inspections).toBe(0);
+});
+
+it("preserves normalized container key-count precedence and omitted key accounting", () => {
+  const bounds = { bytes: 3, nodes: 20, depth: 16 };
+  expect(capturePrivateJsonDataOmittingUndefined({ a: Infinity, b: 1, c: 2 }, bounds, failure))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  expect(capturePrivateJsonDataOmittingUndefined({ a: Infinity }, { ...bounds, bytes: 1024 }, failure))
+    .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+  const omittedOnly = success(capturePrivateJsonDataOmittingUndefined({ a: undefined, b: undefined, c: undefined },
+    { ...bounds, bytes: 2 }, failure));
+  expect(omittedOnly).toEqual({ value: {}, bytes: 2 });
+  expect(inspectCapturedPrivateJsonData(omittedOnly.value)).toMatchObject({ nodes: 1, depth: 0 });
 });

@@ -117,32 +117,6 @@ export interface ApplicationMaterializationValues {
   readonly search: readonly PreparedLogicalSearchApplication[];
 }
 
-function materializationScalarArray<T>(values: readonly T[], type: "integer" | "bigint" | "boolean" | "text",
-  encoder?: Parameters<typeof sql.param>[1]): SQL {
-  return sql`array[${sql.join(values.map(item => sql`${sql.param(item, encoder)}::${sql.raw(type)}`), sql`, `)}]::${sql.raw(type)}[]`;
-}
-
-export function applicationMaterializationParameters(value: ApplicationMaterializationValues, schemaName: string): SQL {
-  return sql`    ${applicationTupleArray(fxAppRowRevisions, "fx_app_row_write", value.rows, schemaName)}, ${materializationScalarArray(value.rowPages, "integer")},
-    ${applicationTupleArray(fxAppIndexEntryRevisions, "fx_app_index_write", value.indexes.map(entry => entry.row), schemaName)},
-    ${materializationScalarArray(value.indexes.map(entry => entry.prior), "bigint")}, ${materializationScalarArray(value.indexes.map(entry => entry.historical), "boolean")},
-    ${uniqueOwnerArray(value.unique.owners, schemaName)}, ${applicationTupleArray(fxAppUniqueKeys, "fx_app_unique_write", value.unique.previous, schemaName)},
-    ${applicationTupleArray(fxAppUniqueKeys, "fx_app_unique_write", value.unique.next, schemaName)},
-    ${applicationIndexCoverageArray(value.validation, schemaName)}, ${applicationIndexCoverageArray(value.indexCoverage, schemaName)},
-    ${applicationUniqueCoverageArray(value.uniqueCoverage, schemaName)}, ${sql.param(value.commitSeq, fxAppRowRevisions.commitSeq)}::bigint,
-    ${sql.param(value.scopeUuid, fxAppRowRevisions.scopeUuid)}::uuid,
-    ${materializationScalarArray(value.search.map(search => search.definition.tableId), "integer", fxAppSearchEntryCurrent.tableId)},
-    ${materializationScalarArray(value.search.map(search => search.definition.logicalIndexId), "integer", fxAppSearchEntryCurrent.logicalIndexId)},
-    ${materializationScalarArray(value.search.map(search => search.definition.sourceSha256), "text", fxAppSearchEntryCurrent.sourceSha256)},
-    ${materializationScalarArray(value.search.map(search => search.definition.kind === "jsonContainment"), "boolean")},
-    ${materializationScalarArray(value.search.map(search => search.ids.length), "integer")},
-    array[${sql.join(value.search.flatMap(search => search.ids).map(id => sql`${sql.param(id, fxAppSearchEntryCurrent.rowId)}::bytea`), sql`, `)}]::bytea[],
-    ${materializationScalarArray(value.search.map(search => search.textPages.flat().length), "integer")},
-    ${applicationTupleArray(fxAppSearchEntryCurrent, "fx_app_search_write", value.search.flatMap(search => search.textPages.flat()), schemaName)},
-    ${materializationScalarArray(value.search.map(search => search.jsonPages.flat().length), "integer")},
-    ${applicationTupleArray(fxAppJsonEntryCurrent, "fx_app_json_write", value.search.flatMap(search => search.jsonPages.flat()), schemaName)}`;
-}
-
 /** Prepared tuples are fixed domain values compiled from the authoritative
  * Drizzle columns. They cannot select a table, operation or SQL expression. */
 export function buildAppRowBatchStatement(rows: readonly RowWrite[], schemaName: string, verification: readonly RowWrite[] = []): SQL {

@@ -1,40 +1,10 @@
 import { Result } from "effect";
-import { useCapturedPrivateJsonData, inspectCapturedPrivateJsonData, commerceError, defaultCommerceResources, type CommerceResources, type Json, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-/** Medusa builds plain option objects with undefined members. Omit those members
- * at this foreign boundary, then use the core's strict captured JSON contract. */
+import { capturePrivateJsonDataOmittingUndefined, commerceError, defaultCommerceResources, type CommerceResources, type Json, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+
+/** Native Medusa option objects omit own undefined members. The value owner
+ * captures that representation once; Medusa selects its native limits here. */
 export function captureCommerceInput(input: unknown, resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources, onOmitted?: (path: readonly string[]) => void): Result.Result<Json, CommerceTransactionError> {
-  let nodes = 0;
-  const active = new Set<object>();
-  const visit = (value: unknown, depth: number, path: readonly string[]): Result.Result<unknown, CommerceTransactionError> => Result.gen(function* () {
-    const issued = inspectCapturedPrivateJsonData(value);
-    if (issued !== undefined) {
-      if (nodes + issued.nodes > resources.valueNodes || depth + issued.depth > 16)
-        return yield* Result.fail(commerceError("limitExceeded"));
-      nodes += issued.nodes;
-      return issued.value;
-    }
-    if (++nodes > resources.valueNodes || depth > 16) return yield* Result.fail(commerceError("limitExceeded"));
-    if (value === null || typeof value !== "object") return value;
-    const meta = yield* Result.try({ try: () => ({ array: Array.isArray(value), prototype: Object.getPrototypeOf(value), keys: Reflect.ownKeys(value) }), catch: cause => commerceError("invalidInput", cause) });
-    if (active.has(value) || (meta.array ? meta.prototype !== Array.prototype : meta.prototype !== Object.prototype && meta.prototype !== null)) return yield* Result.fail(commerceError("invalidInput"));
-    active.add(value);
-    const entries: [string, unknown][] = [];
-    if (meta.keys.length > resources.valueNodes) return yield* Result.fail(commerceError("limitExceeded"));
-    for (const key of meta.keys) {
-      if (meta.array && key === "length") continue;
-      if (typeof key !== "string") return yield* Result.fail(commerceError("invalidInput"));
-      const property = yield* Result.try({ try: () => Object.getOwnPropertyDescriptor(value, key), catch: cause => commerceError("invalidInput", cause) });
-      if (property === undefined || !("value" in property) || !property.enumerable) return yield* Result.fail(commerceError("invalidInput"));
-      if (property.value === undefined && !meta.array) { onOmitted?.([...path, key]); continue; }
-      entries.push([key, yield* visit(property.value, depth + 1, onOmitted === undefined ? [] : [...path, key])]);
-    }
-    active.delete(value);
-    if (meta.array) {
-      const length = yield* Result.try({ try: () => Object.getOwnPropertyDescriptor(value, "length"), catch: cause => commerceError("invalidInput", cause) });
-      if (entries.length !== length?.value || entries.some(([key], index) => key !== String(index))) return yield* Result.fail(commerceError("invalidInput"));
-      return entries.map(([, member]) => member);
-    }
-    return Object.fromEntries(entries);
-  });
-  return visit(input, 0, []).pipe(Result.flatMap(value => useCapturedPrivateJsonData(value, resources.commandBytes, commerceError)), Result.map(value => value.value));
+  return capturePrivateJsonDataOmittingUndefined(input,
+    { bytes: resources.commandBytes, nodes: resources.valueNodes, depth: 16 },
+    commerceError, onOmitted).pipe(Result.map(captured => captured.value));
 }

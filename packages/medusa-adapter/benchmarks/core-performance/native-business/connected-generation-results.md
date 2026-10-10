@@ -1,6 +1,6 @@
 # Connected generation measurement checkpoint
 
-This is a correctness-validated, measured implementation checkpoint, not native-relative performance acceptance. All five complete quiet graphs failed the unchanged **5 ms paired added median / 10 ms paired added P95** gates. Work stops here at the owner's request for discussion.
+This is a historical correctness-validated, measured implementation checkpoint, not native-relative performance acceptance. All five complete quiet graphs failed the unchanged **5 ms paired added median / 10 ms paired added P95** gates. The [CPU execution correction checkpoint](./cpu-execution-results.md) records the successor implementation and current measurements; the numbers below remain this earlier cohort's evidence.
 
 The implementation replaces repeated protected static preparation with original generation-owned evidence across Application, Payload, Commerce and AtomicCommerce. It preserves fresh authentication, liveness, native acceptance, dynamic readiness, OCC, locks, atomic publication, cancellation and recovery. Initial finite entry refreshes the whole graph once before business. Frozen retry and persisted cold redispatch have explicit contracts on the same replacement owner. Migration 0140 extends the metadata writer interlock; installed databases require that migration before the protected profile accepts them. No durable business data is deleted.
 

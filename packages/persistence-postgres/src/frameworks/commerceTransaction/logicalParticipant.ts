@@ -1,3 +1,5 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
+// Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { Clock, Effect } from "effect";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import {
@@ -103,7 +105,7 @@ const closures = new WeakMap<object, ClosureState>();
 
 /** A native participant borrows its root's transaction and lifetime. It owns no
  * commit allocation, outcome, initialization receipt or physical settlement. */
-export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(function* (
+export const makeLogicalCommerceParticipant = Effect.fnUntraced(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
   allowReferenceReplacement = false, selectedResources?: CommerceResources,
@@ -147,7 +149,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
   const store = yield* working.relationalTable(initialContext, id, first.localName);
   const names = state.tableNames;
   const projectActivity = makeLogicalCommerceActivityProjection(names);
-  const close = Effect.fn("LogicalCommerce.close")(function* () {
+  const close = Effect.fnUntraced(function* () {
     const changes = yield* working.close();
     const activity = yield* working.readActivityContribution(yield* working.closedActivityContribution);
     // SAFETY: only this registry authenticates a closed admission/lifetime pair.
@@ -156,12 +158,12 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
       maximumIndexEntries: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities,
       maximumFacts: resources.facts });
     return closure;
-  });
-  const callActivity = Effect.fn("LogicalCommerce.callActivity")(function* (
+  }, work => observeExecution("LogicalCommerce.close", work, "caller"));
+  const callActivity = Effect.fnUntraced(function* (
     cursor: ReturnType<typeof working.activityCursor>,
   ) {
     return yield* projectActivity(yield* working.readActivityContribution(yield* working.activityContribution, cursor));
-  });
+  }, work => observeExecution("LogicalCommerce.callActivity", work, "caller"));
   return Object.freeze({ store, resources, close,
     transactionTime: (context: BoundedRequestContext) => working.readTransactionTime(context, id),
     activityCursor: working.activityCursor, callActivity,
@@ -186,11 +188,11 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
         desiredKeys: selection.desiredKeys });
     }) } : {}),
     table: (context: Parameters<typeof working.relationalTable>[0], table: string) => working.relationalTable(context, id, table) });
-});
+}, work => observeExecution("LogicalCommerce.make", work, "caller"));
 
 /** The atomic root inspects authenticated in-memory activity before it
  * consumes the same closure for publication. This grants no storage handle. */
-export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspectActivity")(function* (
+export const inspectLogicalCommerceActivity = Effect.fnUntraced(function* (
   closure: LogicalCommerceClosure, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
 ) {
   const closed = closures.get(closure);
@@ -198,11 +200,11 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
     return yield* Effect.fail(commerceError("invalidAuthority"));
   yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   return yield* closed.activity();
-});
+}, work => observeExecution("LogicalCommerce.inspectActivity", work, "caller"));
 
 /** Both live call evidence and closed aggregate evidence use the same projection.
  * Neither view carries a storage or settlement capability. */
-export const projectLogicalCommerceActivity = Effect.fn("LogicalCommerce.projectActivity")(function* (
+export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
   names: Pick<ReadonlyMap<CatalogTableId, string>, "get">,
   activity: Pick<LogicalDocumentChanges, "attempts" | "lifecycle" | "observedRows" | "setNull" | "referenceReplacements">,
 ) {
@@ -264,7 +266,7 @@ export const projectLogicalCommerceActivity = Effect.fn("LogicalCommerce.project
   return Object.freeze({ mutations: Object.freeze(detached.mutations), lifecycle: Object.freeze(detached.lifecycle),
     observedRows: Object.freeze(detached.observedRows), setNull: Object.freeze(detached.setNull),
     referenceReplacements: Object.freeze(detached.referenceReplacements) });
-});
+}, work => observeExecution("LogicalCommerce.projectActivity", work, "caller"));
 
 // Only the checked JSON fields assembled above enter this projection. This is
 // deliberate detachment of an owned contribution, not an unknown-input parser.
@@ -289,7 +291,7 @@ export function makeLogicalCommerceActivityProjection(names: Pick<ReadonlyMap<Ca
 }
 
 /** The root consumes exactly once while the source callback is still live. */
-export const consumeLogicalCommerceClosure = Effect.fn("LogicalCommerce.consume")(function* (
+export const consumeLogicalCommerceClosure = Effect.fnUntraced(function* (
   closure: LogicalCommerceClosure, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
 ) {
   const closed = closures.get(closure);
@@ -298,10 +300,10 @@ export const consumeLogicalCommerceClosure = Effect.fn("LogicalCommerce.consume"
   closures.delete(closure);
   const state = yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   return Object.freeze({ ...closed, state });
-});
+}, work => observeExecution("LogicalCommerce.consume", work, "caller"));
 
 /** Called only after the outer owner has acquired publication exclusion. */
-export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.prepareContribution")(function* (
+export const prepareLogicalCommerceContribution = Effect.fnUntraced(function* (
   closed: Effect.Success<ReturnType<typeof consumeLogicalCommerceClosure>>, clock: ScopeClockRecord,
   allowReferenceReplacement = false,
 ) {
@@ -428,4 +430,4 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
   });
   return Object.freeze({ changes: Object.freeze(rootChanges), derivedIds, hasReferenceReplacement: replacements.length > 0,
     materialize });
-});
+}, work => observeExecution("LogicalCommerce.prepareContribution", work, "caller"));

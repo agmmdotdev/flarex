@@ -1,3 +1,5 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
+// Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { Cause, Effect, Exit } from "effect";
 import type { Json } from "flarex-protocol/json";
 import { canonicalizeJsonOutcome } from "../../values/jsonOutcome";
@@ -72,7 +74,7 @@ function makeParticipantInvocation(
   eventCapture: ReturnType<typeof makeAtomicEventCapture> | undefined,
 ) {
   const events: Json[] = [];
-  const invoke = Effect.fn("AtomicCommerce.invokeParticipant")(function* (
+  const invoke = Effect.fnUntraced(function* (
     manager: BoundedRequestContext,
     nested: CommerceCommand,
     nestedArgs: Json,
@@ -112,7 +114,7 @@ function makeParticipantInvocation(
       input: value.value,
       result: result.value,
     });
-  });
+  }, work => observeExecution("AtomicCommerce.invokeParticipant", work, "caller"));
   return { invoke, events };
 }
 
@@ -142,7 +144,7 @@ function makeAtomicCommerceExecution(
   const contributions: OpenContribution[] = [];
   const logicalWork = new Map<AtomicCommerceAdmission, LogicalWorking>();
   const logicalCalls = new Map<AtomicCommerceAdmission, LogicalCommerceCallObservation[]>();
-  const makeWorking = Effect.fn("AtomicCommerce.makeWorking")(function* (
+  const makeWorking = Effect.fnUntraced(function* (
     admission: AtomicCommerceAdmission, manager: BoundedRequestContext,
   ): Effect.fn.Return<Working, CommerceTransactionError> {
     if (admission.kind === "physical") {
@@ -159,12 +161,12 @@ function makeAtomicCommerceExecution(
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;
-  });
+  }, work => observeExecution("AtomicCommerce.makeWorking", work, "caller"));
   let facts = 0;
   let replacementPlanned = false;
   const observations: AtomicCommerceCallObservation[] = [];
-  const callParticipant: AtomicCommerceContext["call"] = Effect.fn("AtomicCommerce.callParticipant")(
-    (participant, command, inputArgs) =>
+  const callParticipant: AtomicCommerceContext["call"] =
+    (participant, command, inputArgs) => observeExecution("AtomicCommerce.callParticipant", Effect.suspend(() =>
       lifetime.nested(
         lifetime.context,
         id,
@@ -226,8 +228,7 @@ function makeAtomicCommerceExecution(
             return call.result;
           }),
         getCommerceCommand(command)?.mode,
-      ),
-  );
+      )), "caller");
   const context = Object.freeze<AtomicCommerceContext>({
     eventGroupId: key,
     checkpoint: lifetime.operation(lifetime.context, id, "read", Effect.void),

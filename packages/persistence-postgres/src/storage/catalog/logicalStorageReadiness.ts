@@ -1,3 +1,4 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
 import { Data, Effect, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
@@ -97,7 +98,7 @@ export const prepareLogicalReadDemand = Effect.fn("LogicalStorageReadiness.prepa
   const mechanics = yield* prepareLogicalReadMechanics(metadata);
   const inspectIndexes = makeLogicalIndexReadinessInspector(input, lifetime);
   const inspectSearch = makeLogicalSearchReadinessInspector(input.deploymentId);
-  const inspectDemand = Effect.fn("LogicalStorageReadiness.inspectReadDemand")(function* (
+  const inspectDemand = Effect.fnUntraced(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     demand: LogicalStorageReadDemand, checkedActive?: CheckedApplicationActiveHead,
   ) {
@@ -123,7 +124,7 @@ export const prepareLogicalReadDemand = Effect.fn("LogicalStorageReadiness.prepa
     }
     return Object.freeze({ status: "ready" as const, readiness: "queryRequired" as const,
       schemaVersionId: input.schemaVersionId, tableId: demand.kind === "clock" ? undefined : demand.tableId, snapshotCommitSeq: clock.lastCommitSeq });
-  });
+  }, work => observeExecution("LogicalStorageReadiness.inspectReadDemand", work, "caller"));
   return Object.freeze({ mechanics, inspectDemand });
 });
 
@@ -313,7 +314,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     targetEpoch: Object.freeze({ ...originalProtection.target.epoch }), controlEpoch: Object.freeze({ ...originalProtection.control.epoch }),
   });
   if (retainedProtection !== undefined) yield* chargeHostPreparation({ targetEpoch: retainedProtection.targetEpoch, controlEpoch: retainedProtection.controlEpoch });
-  const validateStaticCatalog = Effect.fn("LogicalStorageReadiness.validateStaticCatalog")(function* (
+  const validateStaticCatalog = Effect.fnUntraced(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority,
     protection?: ApplicationRelationReadinessProtection,
   ) {
@@ -339,19 +340,19 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       catch: cause => new LogicalStorageReadinessError({ reason: "resourceFailure", cause }) });
     if (protection !== undefined && !hasLocatedReadCommittedTargetDatabaseV1(target, protection.target.database))
       return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
-    const validate = Effect.fn("LogicalStorageReadiness.validateCatalogSnapshot")(function* (reader: FlarexMetadataTransaction) {
+    const validate = Effect.fnUntraced(function* (reader: FlarexMetadataTransaction) {
       const current = yield* loadPublishedPhysicalRequirementSnapshotV1(ports.controlDb, captured, reader);
       if (current === null || !publishedPhysicalRequirementSnapshotsEqual(requirements, current))
         return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
       yield* validatePreparedAppUniqueConstraintCatalog(constraints.preparation, ports.controlDb, reader);
-    });
+    }, work => observeExecution("LogicalStorageReadiness.validateCatalogSnapshot", work, "caller"));
     yield* (hasLocatedReadCommittedTargetDatabaseV1(target, ports.controlDb) ? validate(tx) :
       runEffectTransaction<Effect.Success<ReturnType<typeof validate>>, Effect.Error<ReturnType<typeof validate>>,
         LogicalStorageReadinessError, FlarexMetadataTransaction>(callback => ports.controlDb.transaction(callback),
         "Logical readiness catalog validation rolled back", validate,
         cause => new LogicalStorageReadinessError({ reason: "resourceFailure", cause })));
     if (protection !== undefined) yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, protection.target, protection.control));
-  });
+  }, work => observeExecution("LogicalStorageReadiness.validateStaticCatalog", work, "caller"));
   const definitionById = new Map(requirements.definitions.map(definition => [definition.indexDefinitionId, definition]));
   const sourceTableIds = new Map(sourceTables.map(member => [member.source.key, new Set(member.tables)]));
   // Definition bodies belong to the catalog charge. These are additional
@@ -362,7 +363,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       sourceKey, keys: [...tableIds], entryCount: tableIds.size,
     })),
   });
-  const inspectDemand = Effect.fn("LogicalStorageReadiness.inspectFiniteDemand")(function* (
+  const inspectDemand = Effect.fnUntraced(function* (
     sourceKey: string, selectedUnique: ReadonlyMap<LocatedAppUniqueConstraintDefinitionV1["uniqueConstraintDefinitionId"], LocatedAppUniqueConstraintDefinitionV1>,
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     demand: LogicalStorageReadDemand, checkedActive?: CheckedApplicationActiveHead,
@@ -393,8 +394,8 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       return yield* makeLogicalSearchReadinessInspector(captured.deploymentId)([definition], tx, authority, clock);
     }
     return Object.freeze({ status: "ready" as const });
-  });
-  const inspect = Effect.fn("LogicalStorageReadiness.inspect")(function* (
+  }, work => observeExecution("LogicalStorageReadiness.inspectFiniteDemand", work, "caller"));
+  const inspect = Effect.fnUntraced(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     checkedActive?: CheckedApplicationActiveHead,
     protection?: ApplicationRelationReadinessProtection,
@@ -404,15 +405,19 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       additionalSearchFrontierTableIds, checkedActive);
     if (indexes.status === "not_ready") return indexes;
     const latestCoverage = indexes.coverage;
-    const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock,
+    // Structural coverage may observe concurrent progress after admission.
+    // Its consumers must use that same clock; the returned read snapshot and
+    // index snapshot checks continue to use the original admission clock.
+    const coverageClock = latestCoverage?.clock ?? clock;
+    const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, coverageClock,
       "concurrentProgress", latestCoverage);
     if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
-    const searchReadiness = yield* search.inspect(tx, authority, clock, latestCoverage);
+    const searchReadiness = yield* search.inspect(tx, authority, coverageClock, latestCoverage);
     if (searchReadiness.status === "not_ready")
       return Object.freeze({ ...searchReadiness, kind: "search" as const });
     return Object.freeze({ status: "ready" as const, readiness: "full" as const, schemaVersionId: captured.schemaVersionId, manifestSha256Hex,
       snapshotCommitSeq: clock.lastCommitSeq, indexDefinitionIds: definitionIds, unique: eligibility });
-  });
+  }, work => observeExecution("LogicalStorageReadiness.inspect", work, "caller"));
   /** Source-complete closure is derived here, never supplied by adapters or
    * method allowlists. Incoming edges include reverse/delete obligations and
    * outgoing edges include target identities. Repeat for each added source. */
@@ -461,7 +466,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     const definitions = Object.freeze(requirements.definitions.filter(definition => selectedTables.has(definition.tableId)));
     const selectedUnique = yield* selectPreparedAppUniqueConstraintSet(unique, constraints.preparation, tableIds);
     const selectedSearch = search.selectTables(tableIds);
-    const inspectSelected = Effect.fn("LogicalStorageReadiness.inspectSelected")(function* (
+    const inspectSelected = Effect.fnUntraced(function* (
       tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
       checkedActive?: CheckedApplicationActiveHead,
       protection?: ApplicationRelationReadinessProtection,
@@ -470,14 +475,15 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       const indexes = yield* inspectIndexes(tx, authority, clock, definitions,
         additionalSearchFrontierTableIds.filter(tableId => selectedTables.has(tableId)), checkedActive);
       if (indexes.status === "not_ready") return indexes;
-      const eligibility = yield* selectedUnique.inspectSelected(tx, authority, clock, indexes.coverage);
+      const coverageClock = indexes.coverage?.clock ?? clock;
+      const eligibility = yield* selectedUnique.inspectSelected(tx, authority, coverageClock, indexes.coverage);
       if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
-      const searchReadiness = yield* selectedSearch.inspectSelected(tx, authority, clock, indexes.coverage);
+      const searchReadiness = yield* selectedSearch.inspectSelected(tx, authority, coverageClock, indexes.coverage);
       if (searchReadiness.status === "not_ready") return Object.freeze({ ...searchReadiness, kind: "search" as const });
       return Object.freeze({ status: "ready" as const, readiness: "selected" as const,
         schemaVersionId: captured.schemaVersionId, manifestSha256Hex, sourceKeys, tableIds,
         snapshotCommitSeq: clock.lastCommitSeq, indexDefinitionIds: Object.freeze(definitions.map(definition => definition.indexDefinitionId)) });
-    });
+    }, work => observeExecution("LogicalStorageReadiness.inspectSelected", work, "caller"));
     return Object.freeze({ inspectSelected, sourceKeys, tableIds,
       reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
       applicationAnalysis });
@@ -521,7 +527,7 @@ export type PreparedLogicalStorageCatalog = Extract<Effect.Success<ReturnType<ty
 
 /** Private issuer provenance pins construction to its exact catalog owners.
  * A host lease proves mechanics lifetime only, never attempt authority. */
-export const requirePreparedLogicalStorageCatalog = Effect.fn("LogicalStorageReadiness.requireCatalog")(function* (
+export const requirePreparedLogicalStorageCatalog = Effect.fnUntraced(function* (
   catalog: PreparedLogicalStorageCatalog, ports: AppUniqueConstraintSetBuildPortsV1,
   unique: AppUniqueConstraintSetEligibilityPortV1,
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
@@ -537,7 +543,7 @@ export const requirePreparedLogicalStorageCatalog = Effect.fn("LogicalStorageRea
     protectedControl.epoch.namespaceOid !== issued.controlIdentity.namespaceOid))
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
   return catalog;
-});
+}, work => observeExecution("LogicalStorageReadiness.requireCatalog", work, "caller"));
 
 /** One index coverage owner serves full and exact demanded definitions. */
 export function makeLogicalIndexReadinessInspector(
@@ -547,7 +553,7 @@ export function makeLogicalIndexReadinessInspector(
   /** Call inside the accepting owner's transaction after it locks the scope
    * clock. This observes fresh structural coverage; the outer binding owner
    * must still select this exact schema/digest and authenticate semantic gates. */
-  const inspectIndexes = Effect.fn("LogicalStorageReadiness.inspectIndexes")(function* (
+  const inspectIndexes = Effect.fnUntraced(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     definitions: readonly PhysicalDefinitionRequirementV1[], selectedAdditionalSearchFrontierTableIds: ReadonlyArray<CatalogTableId>,
     checkedActive?: CheckedApplicationActiveHead,
@@ -622,6 +628,6 @@ export function makeLogicalIndexReadinessInspector(
         indexDefinitionId: uncoveredIndexDefinitionId });
     }
     return Object.freeze({ status: "ready" as const, coverage: latestCoverage });
-  });
+  }, work => observeExecution("LogicalStorageReadiness.inspectIndexes", work, "caller"));
   return inspectIndexes;
 }

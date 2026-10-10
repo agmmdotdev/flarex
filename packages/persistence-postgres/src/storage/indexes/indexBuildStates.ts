@@ -1,3 +1,5 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
+// Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq, getTableColumns, gt, inArray, lte, type SQLWrapper } from "drizzle-orm";
@@ -257,7 +259,7 @@ export const MAX_REQUIRED_INDEX_BUILDS = 512;
 /** Shared structural gate under the caller's locked clock. The caller supplies
  * its authenticated complete requirement set. Enabled state alone is not a
  * serving grant or proof of coverage at an arbitrary read snapshot. */
-export const readRequiredEnabledIndexBuildsInTransactionEffect = Effect.fn("IndexBuildState.readRequiredEnabled")(
+export const readRequiredEnabledIndexBuildsInTransactionEffect = Effect.fnUntraced(
   function* (tx: AppRowTransaction, clock: IndexBuildStorageAuthority, definitionIds: readonly CatalogIndexDefinitionId[], lock: "key share" | "share" | "update") {
     if (definitionIds.length > MAX_REQUIRED_INDEX_BUILDS || new Set(definitionIds).size !== definitionIds.length)
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
@@ -278,7 +280,7 @@ export const readRequiredEnabledIndexBuildsInTransactionEffect = Effect.fn("Inde
     }
     return Object.freeze({ status: "ready" as const, rows: Object.freeze(rows) });
   },
-);
+  work => observeExecution("IndexBuildState.readRequiredEnabled", work, "caller"));
 
 export type ReadFencedIndexBuildStateError =
   | InvalidIndexBuildStateReadInputError
@@ -768,7 +770,7 @@ export function prepareApplicationMaterializationCoverageCapture(tx: AppRowTrans
 
 
 /** Keep this value within the guarded transaction that produced it. */
-export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuildState.readCoverageContext")(
+export const readIndexCoverageContextInTransactionEffect = Effect.fnUntraced(
   function* (tx: AppRowTransaction, clock: ScopeClockRecord,
     checkedActive?: CheckedApplicationActiveHead,
     capturedCoverage?: CapturedApplicationMaterializationCoverage): Effect.fn.Return<IndexCoverageContext, IndexMaintenanceError> {
@@ -803,7 +805,7 @@ export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuild
     }).pipe(Effect.mapError(cause => cause instanceof IndexMaintenanceError ? cause :
       new IndexMaintenanceError({ reason: cause.reason, retryable: cause.retryable, cause: cause.cause })));
   },
-);
+  work => observeExecution("IndexBuildState.readCoverageContext", work, "caller"));
 
 /** Prepare only selected, uncovered source-table pointers in the accepting
  * transaction. The context is the sole holder of the batch result; callers
@@ -820,9 +822,7 @@ export const readIndexCoverageTableFrontiersInTransactionEffect = Effect.fn(
 });
 
 /** Call under the caller's scope-clock/snapshot transaction before admitting a read. */
-export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
-  "IndexBuildState.isSnapshotCovered",
-)(function* (
+export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   state: IndexBuildStateRecord,
   definition: IndexCoverageDefinition,
@@ -889,7 +889,7 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
       ? yield* Effect.die("Selected index table frontier missing from transaction batch")
       : yield* Effect.fromResult(batched);
   return latest === null || latest <= covered;
-});
+}, work => observeExecution("IndexBuildState.isSnapshotCovered", work, "caller"));
 
 function decodeReadInput(
   value: unknown,

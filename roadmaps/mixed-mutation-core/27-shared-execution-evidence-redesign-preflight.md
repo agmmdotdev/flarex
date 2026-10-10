@@ -1488,7 +1488,7 @@ improvement and complete latency acceptance remain distinct reported states.
 ### Complete protected admission and quiet owned execution
 
 Status: **connected correction implemented, with complete native-relative
-acceptance still unmet; work is paused for owner discussion.** Protected static
+acceptance still unmet; the owner has resumed the connected CPU correction below.** Protected static
 catalogue replay, source-generation lifetime and original finite handoff are
 replaced at their actual owners. Selected standalone Payload uses the genuine
 protected profile and one trusted settlement; explicit full-proof consumers keep
@@ -1827,3 +1827,136 @@ replacement makes it unused, and keep a single current runtime implementation.
 The complete earlier source checkpoint remains recoverable; it is evidence,
 not a second runtime. Pending framework policy, row-tail and
 immutable-cache work must remain named and cannot be reported as merged.
+
+## Connected CPU execution correction
+
+Status: **the selected capture, quiet composition, metadata routing and
+publication transport replacements are implemented across standalone and mixed
+mutations; complete native-relative acceptance remains unmet.** This resumes the existing
+performance program after saved-behavior reconciliation. The separate
+standalone-read tuning pause remains in place.
+
+### Outcome, evidence and owners
+
+Reduce complete-request CPU and latency in both existing Medusa workflow graphs
+and preserve Application and Payload consumers of the shared owners. The retained
+connected comparison reports 171 ms paired added thread CPU for mixed workflow
+and 187 ms for standalone workflow. Fresh root-only profiles reproduce substantial
+execution CPU and show recurring Effect invocation/Result machinery, descriptor
+capture and Drizzle rendering/mapping. Sample shares identify investigation
+targets; they neither allocate the complete excess to an owner nor prove that
+all additional work is avoidable. The native reference omits Flarex authority,
+atomic settlement, revision history and recovery work.
+
+The existing generation already owns immutable schema/catalog preparation and
+physical sessions already retain their extracted Drizzle schema and lazy views.
+Replace repeated mechanics inside those owners rather than add another engine,
+preparation registry or accepting cache. Persistence owns pure capture,
+readiness/composition and installed SQL execution; Medusa owns omission and native
+callback semantics. Native framework business logic retains its owner.
+
+### Selected replacement and challenged alternatives
+
+- Combine descriptor-safe Medusa normalization with the existing private JSON
+  capture/accounting traversal where its contract permits one pass. Preserve
+  exact issued provenance, immutable captured data, omitted own undefined
+  properties, dense arrays, numerical policy, cycle/depth/byte/node limits and
+  first failure. A mutable native callback still receives its detached input;
+  structural similarity or caller object identity grants no reuse.
+  Medusa's existing normalization reports a later descriptor/node refusal before
+  a strict JSON byte or nonfinite-number refusal. Accumulate strict refusal during
+  the native descriptor traversal and expose it only after normalization succeeds;
+  ordinary strict capture retains its immediate first-byte-failure behavior. Only
+  complete successful trees enter the existing private issuer registry.
+- Extend the existing quiet execution diagnostic policy to hot readiness
+  operations and replace pure per-member Effect composition with ordered Result
+  calculations. Prepare invariant lookup/SQL structure with the existing bounded
+  mechanics or installed materialization owner. Actual SQL, fresh acceptance,
+  cancellation, retry, failure and cleanup remain Effect operations. Blanket
+  removal of Effect or caller tracing is not selected.
+  Quiet operations resolve the existing diagnostic policy per invocation; an
+  explicitly enabled caller tracer retains named spans, annotations, links,
+  parentage and complete failure observation. Pure metadata consumption stays
+  ordered and checks its original root/projection on every consumption.
+  Existing SDK-only operations remain opt-in; migrated named operations select
+  caller tracing explicitly in the same diagnostic owner.
+  Readiness may observe committed progress after admission under READ COMMITTED.
+  Unique/search consumers must receive the coverage issuer's observation clock,
+  while original snapshot coverage, dependencies and OCC retain the admission
+  clock. Rejecting a future issuer observation against the older clock is a
+  composition defect, not permission to relax the issuer guard or cache readiness.
+- Replace demonstrated per-cell SQL AST assembly for installed publication
+  tuple transport with a retained owner-local positional encoder. Bind fresh
+  values and execute through the actual transaction session and its observation,
+  decoder and error boundary. Preserve SQL casts, escaping, codecs and statement
+  ordering. No cache of query results or readiness verdicts is introduced. A
+  broad override of Drizzle row mapping without exact contract evidence is not
+  selected.
+
+These changes are one continuing connected execution correction, not separate
+helper deliverables. Lower counts alone cannot close it. Further owner changes
+must follow complete-request attribution and retain the accepted transaction
+profiles; no competing lifetime or settlement capability is added.
+
+### Contracts, cutover and removal
+
+Replace private capture/composition/query-building contracts where required and
+migrate their actual standalone and mixed callers and fixtures together. Delete
+displaced traversals and SQL assembly in the same cutover. Keep existing foreign
+detachment, installed server functions, canonical bytes and durable journal,
+seal/result/history formats. No durable data migration or deletion is selected.
+Any newly required durable disposition or host lifecycle needs its explicit gate.
+
+Preserve complete fresh authentication/revocation, actual query readiness,
+original snapshots/OCC, exact dependency accounting, native events/results,
+mutation isolation, sticky first refusal, callback drain, generation release,
+rollback-only state, replay/recovery and one authoritative atomic publication.
+Compilation must not change when a failure becomes observable or execute later
+foreign work after an earlier refusal.
+
+### Validation and complete acceptance
+
+Run affected owner/consumer witnesses on PGlite and ordinary-role PostgreSQL,
+including invalid inputs, adversarial getters/proxies, own omissions, aliasing,
+budget precedence, concurrent roots, cancellation and publication corruption or
+conflict. Verify query SQL/parameter equivalence and codec edge cases at the
+installed SQL owner. Run relevant strict typechecks, lint/source guards and both
+project reviews against the stable complete diff, then remove obsolete code and
+create one coherent commit only after successful verification.
+
+Retain complete matched native graphs for Product, Payload create, standalone
+Medusa, mixed Payload and mixed workflow. Use five warmups and at least 30
+alternating pairs for quiet final acceptance, and separate complete root-counter
+and database cohorts. Declare paired added median thread CPU allowance at one
+Windows counter quantum (16 ms); report an unresolved sub-quantum result rather
+than zero. Require lower complete added CPU without a connected-profile
+regression, with calibration/resolution visible. The fixed paired latency gates
+remain at most 5 ms added median and 10 ms added P95. Failed acceptance requires
+correction of its actual owner and cannot be replaced by sample shares, isolated
+helper speed, fewer SQL statements or a relaxed target.
+
+### Remaining connected correction
+
+The implemented mechanics do not finish this outcome. The
+[CPU correction ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cpu-execution-results.md)
+owns the complete measurements and their limits; both workflow graphs and the
+other connected consumers still miss the fixed targets.
+
+The strongest next source-grounded correction is the JSON outcome pipeline.
+`captureJsonOutcomeValue` detaches captured data, then `normalizeJson` validates
+and reconstructs it again; command and borrowed workflow boundaries repeat that
+pipeline, and result canonicalization captures it again. Normalize canonical
+numbers during safe capture and retain genuine immutable value evidence across
+trusted consumers while preserving every ordered byte charge, first refusal,
+escaping/native mutable copy and full foreign stored-outcome verification.
+Canonical result bytes, hashes and persisted identity formats remain obligations.
+Record the concrete cutover and affected callers before that runtime change.
+
+Ordinary readiness readers also reconstruct fixed scope-clock/index projections
+and joins. Investigate retaining native SQL/projection mechanics with their
+existing genuine preparation/session owners, binding fresh invocation parameters
+and preserving all auth, lifetime, locking, observed-clock and refresh-after-miss
+checks. Existing scope observations, static schema preparation and finite capture
+maps already have owners; do not introduce duplicate caches or acceptance reuse.
+These directions identify repeated source mechanics, not exclusive measured CPU
+savings or permission to relax complete acceptance.

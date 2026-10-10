@@ -28,6 +28,7 @@ import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition } 
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../persistence-postgres/src/execution/diagnostics/operation";
 
 const cleanup: Array<() => Promise<void>> = [];
 const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
@@ -516,6 +517,27 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const before = await inventory();
     expect(Exit.isFailure(await runEffect(Effect.exit(invalid.host.run(invalid.host.newRequestKey(), args("invalid-native-input")))))).toBe(true);
     expect(await inventory()).toEqual(before);
+  }, 60_000);
+
+  it.runIf(driver === "postgres")("accepts fresh coverage when publication advances after the original admission clock", async () => {
+    const publishing = await assemble(undefined, "coverage-progress-publisher");
+    const admitted = await assemble(undefined, "coverage-progress-reader");
+    const before = await inventory();
+    let publications = 0;
+    const policy: ExecutionDiagnosticPolicy = {
+      observe: (name, work) => name === "LogicalStorageReadiness.inspectIndexes" && publications === 0
+        ? Effect.suspend(() => {
+          publications++;
+          // The ordinary-role publisher commits on another connection after
+          // admission has read its clock, before readiness observes coverage.
+          return Effect.promise(() => runEffect(publishing.host.run(publishing.host.newRequestKey(), args("coverage-progress-published")))).pipe(
+            Effect.andThen(work));
+        }) : work,
+    };
+    expect(await runEffect(admitted.host.run(admitted.host.newRequestKey(), args("coverage-progress-admitted")).pipe(
+      Effect.provideService(ExecutionDiagnostics, policy)))).toMatchObject([{ value: "coverage-progress-admitted" }]);
+    expect(publications).toBe(1);
+    expect((await inventory()).logical.commits).toHaveLength(before.logical.commits.length + 2);
   }, 60_000);
 
   it("decodes encoded inputs once and validates transformed stored results on replay", async () => {
