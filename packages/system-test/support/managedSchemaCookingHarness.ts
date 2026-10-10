@@ -1,23 +1,67 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { makeApplicationActivationRepository } from "@flarex/persistence-postgres/internal/application-activation";
+import {
+  makeApplicationActivationRepository,
+} from "@flarex/persistence-postgres/internal/application-activation-construction";
 import { deepStrictEqual, rejects } from "node:assert/strict";
-import { decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate, readFencedIndexBuildStateEffect, readIndexCoverageContextInTransactionEffect, isIndexBuildSnapshotCoveredInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/indexBuildStates";
-import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/scopeClock";
-import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction } from "@flarex/persistence-postgres/internal/app-unique-constraint-definitions-v1";
-import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect, uniqueConstraintBuildStateSelection, uniqueMaintenanceBindingPredicate } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
-import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
+import {
+  decodeIndexBuildStateRowResult,
+  indexBuildStateSelection,
+  indexMaintenanceBindingPredicate,
+  readFencedIndexBuildStateEffect,
+  readIndexCoverageContextInTransactionEffect,
+  isIndexBuildSnapshotCoveredInTransactionEffect,
+} from "@flarex/persistence-postgres/internal/system-test/indexBuildStates";
+import {
+  lockScopeClockForShareInTransactionEffect,
+  lockScopeClockForUpdateInTransactionEffect,
+} from "@flarex/persistence-postgres/internal/system-test/scopeClock";
+import {
+  prepareAppUniqueConstraintDefinitionBindingV1Effect,
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+} from "@flarex/persistence-postgres/internal/app-unique-constraint-definitions-v1";
+import {
+  reconcileAppUniqueConstraintSetBuildV1Effect,
+  advanceAppUniqueConstraintSetBackfillV1Effect,
+  loadAppUniqueConstraintSetEligibilityForReadinessV1Effect,
+  uniqueConstraintBuildStateSelection,
+  uniqueMaintenanceBindingPredicate,
+} from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
+import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
 import { SchemaManifestAppIndexDescriptorSchema } from "flarex-protocol/schema-manifest";
-import { ensureAppUniqueConstraintSetClosureV1Effect } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-closure-v1";
+import {
+  ensureAppUniqueConstraintSetClosureV1Effect,
+} from "@flarex/persistence-postgres/internal/app-unique-constraint-set-closure-v1";
 import { Effect, Result, Scope } from "effect";
-import { openApplicationQuerySnapshot, readApplicationQueryIndex, readApplicationQueryPoint } from "@flarex/persistence-postgres/internal/application-query-snapshot";
+import {
+  openApplicationQuerySnapshot,
+  readApplicationQueryIndex,
+  readApplicationQueryPoint,
+} from "@flarex/persistence-postgres/internal/application-query-snapshot";
 import { ScopeExecutionLive } from "@flarex/persistence-postgres/internal/scope-execution";
-import { decodeAppDocumentIdV1, decodeAppDocumentIdentityV1, appRowIdHexV1FromBytes } from "flarex-protocol/app-document-id";
+import {
+  decodeAppDocumentIdV1,
+  decodeAppDocumentIdentityV1,
+  appRowIdHexV1FromBytes,
+} from "flarex-protocol/app-document-id";
 import { and, eq } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
-import { locateAppIndexDefinitionByIdEffect } from "@flarex/persistence-postgres/internal/system-test/appIndexDefinitions";
-import { scanAppIndexAtSnapshotInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/appIndexEntries";
-import { buildAppDeveloperOrderedIndexV1Effect, AppDeveloperOrderedIndexBuildDecisionUncertainV1Error, AppDeveloperOrderedIndexBuildIntegrationV1Error, AppDeveloperOrderedIndexBuildStateV1Error } from "@flarex/persistence-postgres/internal/app-developer-ordered-index-build-v1";
+import {
+  locateAppIndexDefinitionByIdEffect,
+} from "@flarex/persistence-postgres/internal/system-test/appIndexDefinitions";
+import {
+  scanAppIndexAtSnapshotInTransactionEffect,
+} from "@flarex/persistence-postgres/internal/system-test/appIndexEntries";
+import {
+  buildAppDeveloperOrderedIndexV1Effect,
+  AppDeveloperOrderedIndexBuildDecisionUncertainV1Error,
+  AppDeveloperOrderedIndexBuildIntegrationV1Error,
+  AppDeveloperOrderedIndexBuildStateV1Error,
+} from "@flarex/persistence-postgres/internal/app-developer-ordered-index-build-v1";
 import { decodeAppOrderedIndexKeyV1 } from "flarex-protocol/ordered-index";
 import {
   claimPreparedApplicationManagedSchemaPlanResult,
@@ -72,7 +116,14 @@ import {
   createApplicationManagedSchemaPlanningPort,
 } from
   "@flarex/persistence-postgres/internal/application-managed-schema-planning";
-import { fxSystemScopeExecutionAuthorities, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemIndexMaintenanceObligations, fxSystemUniqueMaintenanceObligations, fxAppIndexEntryRevisions } from
+import {
+  fxSystemScopeExecutionAuthorities,
+  fxSystemIndexBuildStates,
+  fxSystemUniqueConstraintBuilds,
+  fxSystemIndexMaintenanceObligations,
+  fxSystemUniqueMaintenanceObligations,
+  fxAppIndexEntryRevisions,
+} from
   "@flarex/persistence-postgres/internal/system-test/schema";
 import {
   PointCommitStaleAuthorityV1Error,
@@ -109,7 +160,9 @@ import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
 import { isJson, jsonEqual, type Json } from "flarex-protocol/json";
 import { IndexBuildAttemptFenceSchema } from "flarex-protocol/index-build-state";
-import { AppUniqueConstraintSetBuildAttemptFenceV1Schema } from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import {
+  AppUniqueConstraintSetBuildAttemptFenceV1Schema,
+} from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { ValidatorValueErrorV1 } from "flarex-protocol/validator-engine";
 import {

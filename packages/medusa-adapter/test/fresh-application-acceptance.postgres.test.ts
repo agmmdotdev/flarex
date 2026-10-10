@@ -1,18 +1,43 @@
 import { Cause, Effect, Exit, Result, Tracer } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool, type PoolClient } from "pg";
-import { isPreparedApplicationBinding, prepareApplicationBindingSelection, withPreparedApplicationBindingBasisInTransaction } from
-  "../../persistence-postgres/src/application/applicationActivation";
-import { readCheckedApplicationActiveHead, type CheckedApplicationActiveHead } from
-  "../../persistence-postgres/src/application/applicationActiveHeadRead";
-import { fxSystemApplicationActivations } from "../../persistence-postgres/src/application/applicationActivationSchema";
-import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../persistence-postgres/src/scope/scopeClock";
-import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
+import {
+  isPreparedApplicationBinding,
+} from "../../persistence-postgres/src/application/activation/selectionIdentity";
+import {
+  prepareApplicationBindingSelection,
+} from "../../persistence-postgres/src/application/activation/repositoryIdentity";
+import {
+  withPreparedApplicationBindingBasisInTransaction,
+} from "../../persistence-postgres/src/application/activation/bindingAcceptance";
+import {
+  readCheckedApplicationActiveHead,
+} from "../../persistence-postgres/src/application/activeHead/identity";
+import {
+  type CheckedApplicationActiveHead,
+} from "../../persistence-postgres/src/application/activeHead/contracts";
+import {
+  fxSystemApplicationActivations,
+} from "../../persistence-postgres/src/application/applicationActivationSchema";
+import {
+  lockScopeClockForSnapshotReadInTransactionEffect,
+} from "../../persistence-postgres/src/scope/scopeClock";
+import {
+  defineCommerceCommand,
+  makeCommerceHost,
+} from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
-import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/database/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/database/relationalTransaction/model";
+import {
+  issueRelationalSession,
+  runRelationalSession,
+} from "../../persistence-postgres/src/database/relationalTransaction/session";
+import {
+  RelationalSessionError,
+} from "../../persistence-postgres/src/database/relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../../persistence-postgres/src/database/drizzleStatementEffect";
-import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
+import type {
+  FlarexMetadataTransaction,
+} from "../../persistence-postgres/src/database/metadataTransaction";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";

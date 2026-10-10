@@ -33,9 +33,13 @@ import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicatio
   "../../../../persistence-postgres/src/application/applicationMutationAdmission";
 import {
   claimApplicationActiveSelection,
+} from "../../../../persistence-postgres/src/application/activation/selectionIdentity";
+import {
   prepareCurrentApplicationBinding,
+} from "../../../../persistence-postgres/src/application/activation/currentBinding";
+import {
   type CurrentApplicationFiniteEntry,
-} from "../../../../persistence-postgres/src/application/applicationActivation";
+} from "../../../../persistence-postgres/src/application/activation/contracts";
 import { prepareLogicalRelationalAdmission } from
   "../../../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
 import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from
@@ -103,7 +107,10 @@ import type { PointMutationOccBoundJournalV1,
   PointMutationOccRuntimeNeutralRunnerInputV1,
   PointMutationOccRuntimeNeutralRunnerV1 } from
   "../../../src/mutation/authentication/storedAttemptAuthentication";
-import { createFinitePointMutationExecution, type AuthenticatedFiniteEntry as AuthenticatedFiniteInitialEntry } from
+import {
+  createFinitePointMutationExecution,
+  type AuthenticatedFiniteEntry as AuthenticatedFiniteInitialEntry,
+} from
   "../../../src/mutation/execution/finitePointMutationExecution";
 import { createApplicationMutationGrantVerificationKernelV1 } from
   "../../../src/mutation/authentication/applicationMutationGrantVerificationKernel";
@@ -137,7 +144,11 @@ import { executePrivateProductAttemptOperation,
   "@flarex/medusa-adapter/internal/product-attempt";
 import { preparePrivateProductLaunchAttempt } from
   "../../../../medusa-adapter/src/product-launch-workflow";
-import { admittedCommerceEventGroup, captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants } from
+import {
+  admittedCommerceEventGroup,
+  captureAtomicCommerceParticipants,
+  prepareAtomicCommerceParticipants,
+} from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeBorrowedLogicalAttempt } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -165,7 +176,10 @@ import {
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
 } from "@flarex/persistence-postgres/internal/application-syscall-errors";
-import { runMixedMutationInProcess, type MixedMutationExecutionHost } from "./mixedMutationInProcessRuntime";
+import {
+  runMixedMutationInProcess,
+  type MixedMutationExecutionHost,
+} from "./mixedMutationInProcessRuntime";
 import type {
   PostgresFixtureEndpoints,
 } from "../../../../persistence-postgres/test/support/postgresHelpers";

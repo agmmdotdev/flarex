@@ -14,7 +14,7 @@ import type {
   PreparedFiniteActiveApplication,
   AcceptedApplicationBinding,
   ApplicationActiveSelection,
-} from "../../application/applicationActivation";
+} from "../../application/activation/contracts";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import type { FiniteEntryAttemptKernelContext } from "../transactionSessionAttemptKernel";
 import type {

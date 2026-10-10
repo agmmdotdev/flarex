@@ -1,7 +1,9 @@
 import { afterAll, expect, it } from "vitest";
 import { Clock, Deferred, Effect, Fiber, Schema } from "effect";
 import { sql } from "drizzle-orm";
-import { prepareApplicationBindingSelection } from "../../../src/application/applicationActivation";
+import {
+  prepareApplicationBindingSelection,
+} from "../../../src/application/activation/repositoryIdentity";
 import { makeBoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
 import {
   withCommerceAdmission,

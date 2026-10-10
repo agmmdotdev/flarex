@@ -5,10 +5,14 @@ import { sql } from "drizzle-orm";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../../src/scope/scopeClock";
 import { validateApplicationWriteOwnershipForCommit } from "../../../src/application/ownership/Commit";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
-import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
+import {
+  makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
 import { postgresUrl, useFileScopedPostgresPersistence } from "../../support/postgresHelpers";
 import { applicationWritePolicyScenario } from "./applicationWritePolicyScenario";
-import { makeApplicationSchemaAuthorityPublisher } from "../../../src/application/applicationSchemaAuthority";
+import {
+  makeApplicationSchemaAuthorityPublisher,
+} from "../../../src/application/applicationSchemaAuthority";
 import { relationReadinessFixture } from "../relations/applicationRelationReadinessFixture";
 
 describe.skipIf(postgresUrl === null)("Application table write ownership (Postgres)", () => {

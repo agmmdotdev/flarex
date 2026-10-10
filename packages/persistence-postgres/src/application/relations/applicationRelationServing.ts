@@ -11,9 +11,13 @@ import type { CatalogEdgeDefinitionId } from "flarex-protocol/catalog";
 
 import {
   ApplicationActiveHeadStateError,
+} from "../activeHead/errors";
+import {
   readCoherentApplicationActiveHeadForShareInTransactionEffect,
-  type DecodedApplicationActiveHead,
 } from "../applicationActiveHeadRead";
+import {
+  type DecodedApplicationActiveHead,
+} from "../activeHead/contracts";
 import {
   fxSystemApplicationReadiness,
   fxSystemApplicationReadinessRelations,

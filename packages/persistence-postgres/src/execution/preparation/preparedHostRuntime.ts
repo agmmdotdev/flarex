@@ -72,6 +72,16 @@ class PreparationCharge extends Context.Service<
   }
 >()("Flarex/HostPreparationCharge") {}
 
+/** Request evidence has its own bounded lifetime. Its authentic nested issuers
+ * must not borrow a retained allocation from an ambient construction. All other
+ * services, failures and resource scopes remain in the original Effect context. */
+export function withoutRetainedHostPreparation<A, E, R>(
+  preparation: Effect.Effect<A, E, Exclude<R, PreparationCharge>>,
+): Effect.Effect<A, E, R> {
+  return Effect.updateContext(preparation, (context: Context.Context<R>) =>
+    Context.omit(PreparationCharge)(context));
+}
+
 /** A shared composition resource, not one implicit runtime per shop. */
 export const makePreparedHostRuntime = Effect.fn("PreparedHostRuntime.make")(
   function* (input: {

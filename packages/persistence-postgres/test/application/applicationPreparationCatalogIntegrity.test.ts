@@ -1,13 +1,29 @@
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Tracer } from "effect";
 import { expect, it } from "vitest";
-import { prepareApplicationBindingSelection, readApplicationBindingPreparationInputs } from "../../src/application/applicationActivation";
-import { createApplicationRelationSchemaAuthorityPort, readResolvedApplicationRelationManifestBinding } from "../../src/application/relations/applicationRelationSchemaAuthority";
+import {
+  prepareApplicationBindingSelection,
+} from "../../src/application/activation/repositoryIdentity";
+import {
+  readApplicationBindingPreparationInputs,
+} from "../../src/application/activation/bindingPreparation";
+import {
+  createApplicationRelationSchemaAuthorityPort,
+  readResolvedApplicationRelationManifestBinding,
+} from "../../src/application/relations/applicationRelationSchemaAuthority";
 import { prepareApplicationRelationReadinessFromSchema } from "../../src/application/relations/readiness";
-import { readApplicationBindingProjectionInTransaction } from "../../src/application/applicationBindingProjection";
+import {
+  readApplicationBindingProjectionInTransaction,
+} from "../../src/application/applicationBindingProjection";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
-import { fxControlApplicationManifestSchemaBindings, fxControlSchemaVersionUniqueConstraintSets, fxControlSchemaVersions,
-  fxControlSchemaVersionRelationBindings, fxControlRelations, fxControlEdgeDefinitions } from "../../src/database/schema";
+import {
+  fxControlApplicationManifestSchemaBindings,
+  fxControlSchemaVersionUniqueConstraintSets,
+  fxControlSchemaVersions,
+  fxControlSchemaVersionRelationBindings,
+  fxControlRelations,
+  fxControlEdgeDefinitions,
+} from "../../src/database/schema";
 import { publishApplicationRelationBindingEffect } from "../../src/application/relations/binding";
 import type { PGliteFlarexPersistence } from "../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../src/database/postgres";

@@ -1,36 +1,76 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Tracer } from "effect";
 import { expect, it } from "vitest";
-import { isPreparedApplicationBinding, prepareCurrentApplicationBinding, type ApplicationBindingInput,
-  readApplicationBindingTargetProtection, type CurrentApplicationPreparationFailure, type CurrentApplicationPreparationRefresh } from "../../src/application/applicationActivation";
-import { captureApplicationReadinessInTransaction, prepareCapturedApplicationReadiness,
-  withStoredApplicationReadinessForBindingInTransaction } from "../../src/application/applicationReadiness";
+import {
+  isPreparedApplicationBinding,
+  readApplicationBindingTargetProtection,
+} from "../../src/application/activation/selectionIdentity";
+import {
+  prepareCurrentApplicationBinding,
+} from "../../src/application/activation/currentBinding";
+import {
+  type ApplicationBindingInput,
+  type CurrentApplicationPreparationRefresh,
+} from "../../src/application/activation/contracts";
+import {
+  type CurrentApplicationPreparationFailure,
+} from "../../src/application/activation/errors";
+import {
+  captureApplicationReadinessInTransaction,
+  prepareCapturedApplicationReadiness,
+} from "../../src/application/readiness/preparation";
+import {
+  withStoredApplicationReadinessForBindingInTransaction,
+} from "../../src/application/readiness/acceptance";
 import { prepareInstalledPairAuthority } from "../../src/scope/scopeAuthorityControlRead";
 import { runDrizzleStatementEffect } from "../../src/database/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
-import { withApplicationBindingEvidenceInTransaction } from "../../src/application/applicationBindingProjection";
+import {
+  withApplicationBindingEvidenceInTransaction,
+} from "../../src/application/applicationBindingProjection";
 import { makeApplicationAnalysisRepository } from "../../src/application/applicationAnalysisRegistration";
-import { getCoLocatedReadInstallationReferencesResult, isManagedInstallationTransaction } from "../../src/installation/installationLifecycle";
+import {
+  getCoLocatedReadInstallationReferencesResult,
+  isManagedInstallationTransaction,
+} from "../../src/installation/installationLifecycle";
 import { prepareProtectedMetadata, hasProtectedMetadataFinalGuardScope,
   openProtectedMetadataFinalGuardScope } from "../../src/execution/preparation/preparedMetadataEpoch";
 import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../src/database/postgres";
 import { withInstallationMaintenance } from "../../src/database/postgresInstallationMaintenance";
 import { retainPreparedHost } from "../../src/execution/preparation/preparedHostRuntime";
-import { makePostgresRelationalSession, runRelationalSession } from "../../src/database/relationalTransaction/session";
-import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForUpdateInTransactionEffect,
-  advanceScopeAuthorizationRevocationEpochInTransactionEffect, exactScopeWriteClockObservationIdentity,
-  readExactScopeWriteClockObservation, requireScopeAuthorizationRevocationEpochInTransactionEffect } from "../../src/scope/scopeClock";
+import {
+  makePostgresRelationalSession,
+  runRelationalSession,
+} from "../../src/database/relationalTransaction/session";
+import {
+  lockScopeClockForSnapshotReadInTransactionEffect,
+  lockScopeClockForUpdateInTransactionEffect,
+  advanceScopeAuthorizationRevocationEpochInTransactionEffect,
+  exactScopeWriteClockObservationIdentity,
+  readExactScopeWriteClockObservation,
+  requireScopeAuthorizationRevocationEpochInTransactionEffect,
+} from "../../src/scope/scopeClock";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { isLocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
-import { createApplicationNativeMutationPGliteFixtureWithPersistence, createApplicationNativeMutationPostgresFixture } from "./applicationNativeMutationTestFixture";
+import {
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
+  createApplicationNativeMutationPostgresFixture,
+} from "./applicationNativeMutationTestFixture";
 import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
-import { createActivationServingFileScopedPostgresFixture, createCoLocatedReadInstallationFixture, createFileScopedPostgresFixture,
-  createProtectedFileScopedPostgresFixture, postgresUrl } from "../support/postgresHelpers";
+import {
+  createActivationServingFileScopedPostgresFixture,
+  createCoLocatedReadInstallationFixture,
+  createFileScopedPostgresFixture,
+  createProtectedFileScopedPostgresFixture,
+  postgresUrl,
+} from "../support/postgresHelpers";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { runEffect } from "../support/effectTestRuntime";
 import { prepareActivatedCoverageProof } from "../commit/publicationActivatedCoverageProof";
 import { runEffectTransaction } from "../../src/database/effectTransaction";
 import { ExecutionDiagnostics } from "../../src/execution/diagnostics/operation";
-import { readCheckedApplicationActiveHead } from "../../src/application/applicationActiveHeadRead";
+import {
+  readCheckedApplicationActiveHead,
+} from "../../src/application/activeHead/identity";
 import { eq, sql } from "drizzle-orm";
 import { fxControlScopes, fxControlSchemaVersions, fxControlIndexDefinitions,
   fxControlSchemaVersionUniqueConstraintSets } from "../../src/database/schema";

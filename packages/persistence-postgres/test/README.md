@@ -71,6 +71,46 @@ not publish through a second engine. Vitest's per-file isolation preserves the
 file-scoped fixture lifecycle. Measurement probes are separate from correctness
 acceptance and carry no new performance result merely because their paths moved.
 
+## Application Lifecycle Tests
+
+The [Application source guide](../src/application/README.md) follows construction,
+readiness, activation, preparation and fresh business-request acceptance.
+The former combined readiness cases follow the responsibility they actually prove:
+
+| Suite under `application/` | Contract |
+| --- | --- |
+| `readiness/settlement.test.ts`, `readiness/settlement.postgres.test.ts` | Ordered readiness refusal, settlement/replay, stored evidence and native SQL classification |
+| `readiness/physicalCoverage.test.ts` | Required physical structures and exact coverage/correlation |
+| `activation/active.test.ts`, `activation/active.postgres.test.ts` | Atomic activation, CAS/replay, head/history integrity and active reads |
+| `activation/bindingPreparation.test.ts`, `activation/bindingPreparation.postgres.test.ts` | Authentic capture, detached evidence and fresh transaction-bound acceptance |
+| `activation/finitePreparation.test.ts`, `activation/finitePreparation.postgres.test.ts` | Initial, confirmed replacement and cold-recovery evidence |
+| `tasks/selectionAndRun.test.ts`, `tasks/admission.postgres.test.ts` | Task selection and admitted durable run behavior |
+| `actions/admissionAndLifecycle.test.ts`, `admission/mutation.test.ts` | Their distinct execution authority and lifecycle |
+| `queries/snapshot.test.ts` | Query snapshot, point/index reads and exact budget/dependency behavior |
+| `activation/casTokenCapture.test.ts`, `activation/databaseBoundary.test.ts` | Real API malformed-input capture and genuine Drizzle SQLSTATE failures |
+| `activation/compositePreparationLifetime.test.ts`, `activation/compositePreparationLifetime.postgres.test.ts` | Request/retained ownership through authentic nested relation and policy preparation |
+| `activation/consumerApi.workerd.test.ts` | Actual consumer value exports load in Workerd without database construction; cloned authority still refuses |
+
+`support/readinessFixture.ts` constructs the actual control/target installation
+and ports and closes only databases it owns. `readinessPostgresFixture.ts` owns
+the real driver fixture; provisioning and ordinary runtime roles remain distinct.
+Artifacts, publication, preparation and evidence have separate support modules.
+Query snapshots, mutation authority and task selection helpers stay with their
+test owner. The support code invokes genuine production operations and does not
+implement an alternate orchestration engine.
+
+Existing `applicationCurrentPreparation`, `applicationStandaloneBinding`,
+`applicationPreparationCatalogIntegrity`, finite correlation, prepared metadata,
+relation and write-ownership suites retain their distinct witnesses. Moving
+readiness cases does not replace those consumer and failure proofs.
+
+The [connected current Application scenario](../../system-test/support/application/lifecycleScenario.ts)
+adds real source analysis/publication, nonactivating candidate readiness, atomic
+activation faults, CAS/replay and uncertain-response recovery on both drivers.
+It reuses this package's native fixture and detached inspection rather than
+reconstructing persistence behavior. See the [system test guide](../../system-test/README.md)
+for the driver entries and the distinct historical proof obligation.
+
 ## Driver And Runtime Lanes
 
 An unsuffixed `*.test.ts` may execute PGlite. It is not automatically a unit test.

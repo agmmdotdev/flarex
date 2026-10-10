@@ -57,6 +57,10 @@ flowchart TD
 
 This overview shows responsibility sharing, not an executable universal pipeline.
 The concrete entry determines its snapshot, retry, callback and settlement profile.
+The [Application reading map](../../packages/persistence-postgres/src/application/README.md)
+follows trusted construction, readiness settlement, activation and request use
+through the concrete source owners. It distinguishes deployment setup from fresh
+transactional acceptance and explains request, retained, current and finite profiles.
 
 ### Direct Payload Or Medusa Read
 
@@ -170,35 +174,36 @@ CMS/Payload construction are implemented under the active
 [file cohesion work](05-file-cohesion-and-readable-flows.md) organizes substantial
 implementation bodies without changing execution ownership.
 
-```text
-Medusa adapter                 Payload adapter
-  native services                native Local API
-  direct bindings                direct bindings
-  participant bindings           participant bindings
-  finite workflow binding        request/access/hook lifecycle
-             \                   /
-       explicit trusted capabilities
-                      |
-Application executor: query / mutation / participant orchestration
-                      |
-Postgres persistence: admission / reads / pending state / commit / recovery
-                      |
-             authoritative database
-
-Host adapters own transport, connection and runtime wiring.
-Installation owns protected database structure and maintenance.
-Test support owns fixtures, fault injection and conformance instrumentation.
+```mermaid
+flowchart TD
+  Medusa[Medusa native services and workflows] --> Framework[Trusted direct or participant capabilities]
+  Payload[Payload Local API and request lifecycle] --> Framework
+  Invocation[Standard Application invocation] -->|mutations| Executor[Mutation attempts, execution and retry]
+  Invocation -->|queries, actions and Tasks| Profiles[Their admitted runtime and profile owners]
+  Executor -->|invoke borrowed operations| Framework
+  Framework -->|native data work| Persistence[Postgres admission, storage and settlement]
+  Executor -->|journal, publication and recovery| Persistence
+  Profiles -->|admitted database work| Persistence
+  Persistence --> Database[Authoritative Postgres state]
 ```
 
-The Application executor need not sit between a direct native operation and
-persistence. It coordinates Application execution and its participants. Shared
-lower owners enforce database rules for both direct and composed execution.
+Host adapters own transport, connection and runtime wiring. Installation owns
+protected database structure and maintenance. Test support owns fixtures, fault
+injection and conformance instrumentation.
+
+Direct native operations use their framework capabilities without passing through
+Application invocation or mutation execution. Standard Application invocation
+constructs each admitted Application system and invokes its runtime. Mutation
+execution delegates attempt, participant and retry work to the executor. Shared
+lower owners enforce database rules for both direct and composed execution;
+queries, actions and Tasks retain their distinct execution profiles.
 
 | Existing owner | Organization direction |
 | --- | --- |
 | `packages/medusa-adapter` | Keep native modules, query/repository integration and workflow composition together; distinguish direct bindings from borrowed participant bindings |
 | `packages/payload-adapter` | Keep native Local API and request semantics; separate direct/borrowed construction and test-only profiles |
-| `packages/executor` | Keep framework-neutral Application query/mutation execution, participant invocation and retry ownership |
+| `packages/standard-application-invocation` | Keep deployed Application query/mutation/action/Task construction, authorization and runtime invocation; [ApplicationQuerySystem](../../packages/standard-application-invocation/src/ApplicationQuerySystem.ts) owns query orchestration |
+| `packages/executor` | Keep framework-neutral mutation attempts, participant invocation, execution and retry; ordinary invocation, sync, task wake/repair and maintenance remain distinct |
 | `packages/persistence-postgres` | Group transaction/admission, storage and settlement responsibilities; framework facades expose restricted capabilities |
 | `packages/flarex-backend` and deployable hosts | Runtime/transport composition, without duplicate database or business rules |
 

@@ -1,5 +1,15 @@
-import { readApplicationSelectionOwnershipInTransaction, type ApplicationActiveSelection } from "../../../application/applicationActivation";
-import { readAcceptedApplicationBinding, type AcceptedApplicationBinding } from "../../../application/applicationActivation";
+import {
+  readApplicationSelectionOwnershipInTransaction,
+} from "../../../application/activation/bindingAcceptance";
+import {
+  type ApplicationActiveSelection,
+} from "../../../application/activation/contracts";
+import {
+  readAcceptedApplicationBinding,
+} from "../../../application/activation/bindingAcceptance";
+import {
+  type AcceptedApplicationBinding,
+} from "../../../application/activation/contracts";
 import type { ScopeClockRecord } from "../../../scope/scopeClock";
 import type { CanonicalApplicationWriteOwnership } from "../../../application/ownership/Model";
 import { Effect } from "effect";

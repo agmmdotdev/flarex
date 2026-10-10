@@ -5,10 +5,16 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { sql } from "drizzle-orm";
-import { initializeFullProofInstallation, verifyInstallationWriterProtection, InstallationLifecycleError } from "../installation/installationLifecycle";
+import {
+  initializeFullProofInstallation,
+  verifyInstallationWriterProtection,
+  InstallationLifecycleError,
+} from "../installation/installationLifecycle";
 import { prepareTypedMaintenanceMigration } from "../storage/indexes/indexMaintenanceMigration";
 import type { FlarexMetadataDatabase } from "../application/deployments";
-import { backfillStandaloneApplicationBindings } from "../application/applicationActivation";
+import {
+  backfillStandaloneApplicationBindings,
+} from "../application/activation/readBindingPublication";
 import { backfillBindingMetadataProjections } from "../installation/frameworkSchema/binding/repository";
 import { backfillLogicalReadProjections } from "../storage/catalog/logicalStorageDefinitions";
 

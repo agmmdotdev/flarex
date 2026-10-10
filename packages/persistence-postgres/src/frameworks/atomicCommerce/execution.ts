@@ -14,7 +14,9 @@ import { requireCommerceAdmission } from "../commerceTransaction/admission";
 import { makeCommerceStore, type CommerceRowClosure } from "../commerceTransaction/store";
 import { inspectLogicalCommerceActivity, makeLogicalCommerceParticipant,
   type LogicalCommerceClosure } from "../commerceTransaction/logicalParticipant";
-import { requireLogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
+import {
+  requireLogicalRelationalAdmission,
+} from "../../storage/documents/logicalDocuments/relationalAdmission";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
 import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
@@ -27,7 +29,9 @@ import {
 } from "./events";
 import type { PreparedAtomicCommerceConfiguration } from "./configuration";
 import type { AtomicCommerceAdmission } from "./admission";
-import { invalidateAcceptedApplicationBindingInTransaction } from "../../application/applicationActivation";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../../application/activation/acceptedBinding";
 import type { LogicalCommerceCallObservation } from "./participants";
 import {
   hashAtomicCommerceBytes,

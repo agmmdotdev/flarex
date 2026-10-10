@@ -1,4 +1,6 @@
-import { invalidateAcceptedApplicationBindingInTransaction } from "../../application/applicationActivation";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../../application/activation/acceptedBinding";
 import { invalidateSharedLogicalSourceBindingChecks } from "../documents/logicalDocuments/sourceAdmission";
 import { fxSystemIndexMaintenanceObligations } from "../../database/schema";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
@@ -78,7 +80,9 @@ import {
   CommitFeedSqlErrorV1,
 } from "../../commit/commitFeed";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../scope/scopeAuthorityControlRead";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../scope/scopeAuthorityControlRead";
 import { hasExactOwnDataKeys } from "../../values/exactOwnDataKeys";
 import {
   decodeIndexBuildStateRowResult, indexBuildStateSelection, indexMaintenanceBindingPredicate,

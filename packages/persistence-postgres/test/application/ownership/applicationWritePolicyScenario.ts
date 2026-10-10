@@ -2,46 +2,104 @@ import { assertIndexMaintenanceIntegrity } from "../../storage/indexes/indexMain
 import { expect } from "vitest";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import { orderedIndexCompositionRefusals } from "../../storage/indexes/orderedIndexCompositionRefusals";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions,
-  fxSystemCommits, fxSystemIdempotency, fxSystemScopeClocks, fxSystemIndexBuildStates } from "../../../src/database/schema";
+import {
+  createAppDeveloperIndexDefinitionPortV1,
+} from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
+import {
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import {
+  fxAppRowCurrent,
+  fxAppRowRevisions,
+  fxAppIndexEntryCurrent,
+  fxAppIndexEntryRevisions,
+  fxSystemCommits,
+  fxSystemIdempotency,
+  fxSystemScopeClocks,
+  fxSystemIndexBuildStates,
+} from "../../../src/database/schema";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import {
+  CommitSyscallSequenceV1Schema,
+  canonicalizeSessionJournalEffect,
+  canonicalizeSuccessfulResultV1Effect,
+} from "flarex-protocol/commit-protocol";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
-import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
-import { relationReadinessFixture, enableApplicationPhysicalBuilds, prepareReadinessEvidence, prepareAdditionalRelationRevision, uuidSequence } from "../relations/applicationRelationReadinessFixture";
+import {
+  TransactionFunctionPathV1Schema,
+  TransactionRequestKeyV1Schema,
+} from "flarex-protocol/transaction-session";
+import {
+  relationReadinessFixture,
+  enableApplicationPhysicalBuilds,
+  prepareReadinessEvidence,
+  prepareAdditionalRelationRevision,
+  uuidSequence,
+} from "../relations/applicationRelationReadinessFixture";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
-import { runEffect, runEffectFailure, prepareSessionJournalSeal, completeSessionJournalSeal } from "../../support/effectTestRuntime";
-import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
-import { readApplicationBindingProjectionInTransaction } from "../../../src/application/applicationBindingProjection";
+import {
+  runEffect,
+  runEffectFailure,
+  prepareSessionJournalSeal,
+  completeSessionJournalSeal,
+} from "../../support/effectTestRuntime";
+import {
+  makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
+import {
+  readApplicationBindingProjectionInTransaction,
+} from "../../../src/application/applicationBindingProjection";
 import { isApplicationBindingReference } from "../../../src/installation/frameworkSchema/binding/canonical";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../../src/scope/scopeClock";
 import { readApplicationWriteOwnershipInTransaction } from "../../../src/application/ownership/Repository";
 import { ApplicationWriteOwnershipHistoryBudget } from "../../../src/application/ownership/Policy";
 import { validateApplicationWriteOwnershipForCommit } from "../../../src/application/ownership/Commit";
 import { fxSystemApplicationWriteOwnership } from "../../../src/application/ownership/Schema";
-import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations, fxSystemApplicationReadBindings } from "../../../src/application/applicationActivationSchema";
-import { createPointMutationSessionActivationPersistenceV1 } from "../../../src/execution/transactionSessionActivation";
-import { activatePointMutationSession, pointMutationSessionActivationFixture, TEST_GRANT_RETENTION_POLICY_V1 } from "../../execution/transactionSessionActivationTestSupport";
+import {
+  fxSystemApplicationActiveHeads,
+  fxSystemApplicationActivations,
+  fxSystemApplicationReadBindings,
+} from "../../../src/application/applicationActivationSchema";
+import {
+  createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/transactionSessionActivation";
+import {
+  activatePointMutationSession,
+  pointMutationSessionActivationFixture,
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../../execution/transactionSessionActivationTestSupport";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
-import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "../../commit/point/support/relations";
+import {
+  selectorFromRelationAnchor,
+  relationAuthorityFromAnchor,
+} from "../../commit/point/support/relations";
 import { relationBuildRowId } from "../relations/applicationRelationBuildTestSupport";
-import { issueSetupSeededSyscallValidatorProofV1 } from "../revision/applicationRevisionSyscallValidatorTestSupport";
+import {
+  issueSetupSeededSyscallValidatorProofV1,
+} from "../revision/applicationRevisionSyscallValidatorTestSupport";
 import { fxSystemTransactionJournals, fxSystemTransactionSessions } from "../../../src/database/schema";
 import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
-import { makeApplicationSchemaAuthorityPublisher } from "../../../src/application/applicationSchemaAuthority";
+import {
+  makeApplicationSchemaAuthorityPublisher,
+} from "../../../src/application/applicationSchemaAuthority";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
-import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/point/support/commandEvidence";
+import {
+  pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
+} from "../../commit/point/support/commandEvidence";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
 } from "../../../src/commit/point/construction";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppUniqueConstraintSetEligibilityPortV1 } from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  createAppUniqueConstraintDefinitionPortV1,
+} from "../../../src/storage/unique/appUniqueConstraintCommitV1";
+import {
+  createAppUniqueConstraintSetEligibilityPortV1,
+} from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
 import { hashPolicyFixture } from "./applicationWritePolicyFixture";
 import { encodeCanonicalJson, isJson, isJsonObject } from "flarex-protocol/json";
 import { canonicalizeApplicationWriteOwnership } from "../../../src/application/ownership/Codec";

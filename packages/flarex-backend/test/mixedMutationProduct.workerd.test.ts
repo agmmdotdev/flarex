@@ -13,6 +13,7 @@ import {
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Option, Result, Schema } from "effect";
+import { expectExpiredMixedOwnerCleanup } from "./support/mixedMutationCleanupAssertions";
 import {
   locateAppIndexDefinitionByIdEffect,
 } from "../../persistence-postgres/src/storage/indexes/appIndexDefinitions";
@@ -43,9 +44,12 @@ import { changedMixedMutationExecutableSource } from "./support/mixedMutationApp
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import {
+  CommerceTransactionError,
   commerceError,
   logicalCommerceError,
 } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import { LogicalParticipantAdmissionError } from "../../persistence-postgres/src/storage/documents/logicalDocuments/participantErrors";
+import { FiniteStorageCaptureError } from "../../persistence-postgres/src/execution/finiteStorageCapture";
 import { defineCommerceCommand } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { executePrivateProductAttemptOperation } from "../../medusa-adapter/src/product-attempt";
@@ -215,13 +219,17 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
       let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
       let readChecked = false;
       let checkingRead = false;
-      let dataStatements = 0;
+      let directPhysicalDataStatements = 0;
+      let snapshotCaptureStatements = 0;
       let readHeadStatements = 0;
       let freezeHeadStatements = 0;
       fixture = await createMixedMutationProductFixture({ driver, suffix: `selected-read-${changed.toLowerCase()}-${driver}`,
         hooks: {
           observeSql: (phase, sql) => {
-            if (checkingRead && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) dataStatements += 1;
+            if (checkingRead && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) directPhysicalDataStatements += 1;
+            // This identifies a coupled query, not execution of its gated storage body.
+            if (checkingRead && /\bfx_accept_finite_storage_capture\b/.test(sql) &&
+              /\bfx_read_snapshot_index_page\b/.test(sql) && /\bfx_read_snapshot_rows\b/.test(sql)) snapshotCaptureStatements += 1;
             if (/\bfrom\s+"fx_system_(?:data_binding_head|application_active_head)"/i.test(sql)) {
               if (checkingRead) readHeadStatements += 1;
               if (phase === "freeze") freezeHeadStatements += 1;
@@ -230,6 +238,11 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
           afterProductBorrow: (method, borrowed) => method !== "update" ? Effect.void : Effect.gen(function* () {
             const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
               fixture.currency.deploymentId, fixture.logicalSchemaVersionId).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+            const observedProductSource = requirements.evidence.candidate.sources.find(source => source.key === "medusa.product");
+            const observedProductBinding = observedProductSource?.bindings.find(binding => binding.localName === "product");
+            const observedProductTableId = observedProductBinding === undefined ? undefined : requirements.evidence.tableBindings
+              .find(table => logicalTableKey(table.table) === logicalTableKey(observedProductBinding.table))?.tableId;
+            if (observedProductTableId === undefined) throw new Error("Missing authentic Product observation table");
             const source = requirements.evidence.candidate.sources.find(source => source.key ===
               (changed === "unrelated" ? "medusa.currency" : "medusa.product"));
             if (source === undefined) throw new Error("Missing native readiness source");
@@ -264,6 +277,10 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
               expect(updated).toHaveLength(1);
             }, catch: cause => commerceError("resourceFailure", cause) });
             const store = yield* borrowed.context.table("product");
+            const activityCursor = borrowed.activityCursor();
+            const beforeReadActivity = yield* borrowed.callActivity(activityCursor);
+            expect(beforeReadActivity.observedRows).toEqual([]);
+            expect(beforeReadActivity.mutations).toEqual([]);
             checkingRead = true;
             const read = yield* Effect.result(store.find(borrowed.context.manager, {
               predicate: { kind: "in", column: "id", values: [fixture.seed.productId] },
@@ -271,12 +288,40 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
             }));
             checkingRead = false;
             if (fixture.hasSqlObserver) expect(readHeadStatements).toBe(0);
+            if (fixture.hasSqlObserver) expect(snapshotCaptureStatements).toBeGreaterThan(0);
             if (changed === "required") {
               expect(read).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
-              expect(dataStatements).toBe(0);
+              expect(directPhysicalDataStatements).toBe(0);
+              if (!Result.isFailure(read)) throw new Error("Expected demanded-index readiness refusal");
+              expect(read.failure).toBeInstanceOf(CommerceTransactionError);
+              const admission = read.failure.cause;
+              expect(admission).toBeInstanceOf(LogicalParticipantAdmissionError);
+              if (!(admission instanceof LogicalParticipantAdmissionError))
+                throw new Error("Expected original participant readiness refusal", { cause: admission });
+              expect(admission.reason).toBe("notReady");
+              expect(admission.cause).toBeInstanceOf(FiniteStorageCaptureError);
+              if (!(admission.cause instanceof FiniteStorageCaptureError))
+                throw new Error("Expected original finite-capture readiness refusal", { cause: admission.cause });
+              expect(admission.cause.reason).toBe("notReady");
+              // The retired selected build fails native body eligibility before hydration.
+              // Its refusal latches rollback-only, so no activity call follows this failure.
             } else {
               expect(read).toMatchObject({ _tag: "Success", success: [{ id: fixture.seed.productId }] });
-              if (fixture.hasSqlObserver) expect(dataStatements).toBeGreaterThan(0);
+              if (!Result.isSuccess(read)) throw new Error("Expected demanded snapshot read");
+              const afterReadActivity = yield* borrowed.callActivity(activityCursor);
+              expect(afterReadActivity.mutations).toEqual([]);
+              expect(afterReadActivity.observedRows).toHaveLength(1);
+              expect(read.success).toHaveLength(1);
+              const observation = afterReadActivity.observedRows[0];
+              if (observation === undefined) throw new Error("Missing authentic Product read observation");
+              expect(observation.table).toBe("product");
+              const { _id, _creationTime, ...businessRow } = observation.row;
+              if (typeof _id !== "string") throw new Error("Missing canonical Product document identity");
+              expect(decodeAppDocumentIdentityV1(_id).tableId).toBe(observedProductTableId);
+              if (typeof _creationTime !== "number") throw new Error("Missing canonical Product creation time");
+              expect(Number.isSafeInteger(_creationTime)).toBe(true);
+              expect(_creationTime).toBeGreaterThanOrEqual(0);
+              expect(businessRow).toEqual(read.success[0]);
             }
             readChecked = true;
           }),
@@ -503,9 +548,7 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
         if (fixture.hasSqlObserver) expect(fixture.getOpenTransactionDepth()).toBe(0);
         if (driver === "postgres") expect(await fixture.observePgNativeSqlTransactions()).toMatchObject({ openTransactions: 0 });
       } finally {
-        await expect(fixture.close()).rejects.toMatchObject({
-          _tag: "PointMutationSessionAttemptTerminalizationV1Error", issue: { reason: "executionClaimUnavailable" },
-        });
+        await expectExpiredMixedOwnerCleanup(fixture.close);
       }
       if (fixture.hasSqlObserver) expect(fixture.getOpenTransactionDepth()).toBe(0);
     }

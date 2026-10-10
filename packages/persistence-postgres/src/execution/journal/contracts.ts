@@ -36,7 +36,7 @@ import type {
 import type {
   ApplicationBindingInput,
   ApplicationActiveSelection,
-} from "../../application/applicationActivation";
+} from "../../application/activation/contracts";
 import type {
   LogicalJournalContributionError,
 } from "../../storage/documents/logicalDocuments/journalContribution";

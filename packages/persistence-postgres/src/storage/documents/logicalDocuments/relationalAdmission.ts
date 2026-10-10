@@ -1,6 +1,12 @@
 import { Data, Effect, Result, Schema } from "effect";
-import { prepareLogicalReadAdmission, requireLogicalReadAdmission, LogicalReadAdmissionError,
-  type LogicalReadAdmission, type ManagedLogicalReadPorts, type LogicalReadSelection } from "./readAdmission";
+import {
+  prepareLogicalReadAdmission,
+  requireLogicalReadAdmission,
+  LogicalReadAdmissionError,
+  type LogicalReadAdmission,
+  type ManagedLogicalReadPorts,
+  type LogicalReadSelection,
+} from "./readAdmission";
 import type { LogicalSourceReadPin } from "../logicalReadMetadata";
 
 export type LogicalRelationalReadAdmission = LogicalReadAdmission;
@@ -29,7 +35,7 @@ import type {
   ApplicationBindingInput,
   AcceptedApplicationBinding,
   ApplicationBindingObservation,
-} from "../../../application/applicationActivation";
+} from "../../../application/activation/contracts";
 import type {
   AppUniqueConstraintSetBuildPortsV1,
   AppUniqueConstraintSetEligibilityPortV1,

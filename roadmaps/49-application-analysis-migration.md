@@ -3791,6 +3791,16 @@ consumer proofs run on the retired schema. Historical compatibility proofs use
 an explicit copied migration journal capped before retirement and reach the
 displaced targets only through `internal/system-test` package subpaths.
 
+The retained FSV04/FSV05 runtime harnesses currently have a schema/runtime gap:
+their pre-0064 journals omit the installation and split scope-authority state
+required by the shared current runtime. They fail in historical fixture setup
+and do not provide current Application readiness/activation acceptance. Keep
+their historical assertions, migration witnesses and helper consumers until a
+matched historical-runtime or explicit consumer-migration disposition replaces
+them. Current Application proofs use the installed current schema and genuine
+unversioned owners; do not create a hybrid historical schema to make those
+older runtime harnesses pass.
+
 Stop here. `AA-R9` routing, bindings, deployment, caller selection, auth and
 production cutover remain unauthorized.
 

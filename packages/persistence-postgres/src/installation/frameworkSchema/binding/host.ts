@@ -2,21 +2,40 @@ import { Cause, Effect, Option, Result } from "effect";
 import { and, eq, inArray } from "drizzle-orm";
 import { projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { prepareLogicalStorageReadiness, prepareLogicalStorageMetadataProjection } from "../../../storage/catalog/logicalStorageReadiness";
+import {
+  prepareLogicalStorageReadiness,
+  prepareLogicalStorageMetadataProjection,
+} from "../../../storage/catalog/logicalStorageReadiness";
 import { readUniqueMaintenanceRequirements } from "../../../storage/unique/appUniqueConstraintSetBuildV1";
-import { loadPublishedPhysicalRequirementSnapshotV1, IndexBuildReconciliationCatalogV1Error } from "../../../storage/indexes/indexBuildReconciliation";
+import {
+  loadPublishedPhysicalRequirementSnapshotV1,
+  IndexBuildReconciliationCatalogV1Error,
+} from "../../../storage/indexes/indexBuildReconciliation";
 import { SchemaVersionArtifactPersistenceError } from "../../../storage/catalog/schemaVersionArtifacts";
-import { AppIndexDefinitionReadPersistenceError, AppSchemaVersionIndexBindingPersistenceError } from "../../../storage/indexes/appIndexDefinitions";
-import { inspectFiniteMetadataProjection, type FiniteMetadataOwner } from "../../../execution/finiteMetadataDependencies";
-import type { AppUniqueConstraintSetEligibilityPortV1 } from "../../../storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  AppIndexDefinitionReadPersistenceError,
+  AppSchemaVersionIndexBindingPersistenceError,
+} from "../../../storage/indexes/appIndexDefinitions";
+import {
+  inspectFiniteMetadataProjection,
+  type FiniteMetadataOwner,
+} from "../../../execution/finiteMetadataDependencies";
+import type {
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../../storage/unique/appUniqueConstraintSetBuildV1";
 import type { ScopeClockRecord } from "../../../scope/scopeClock";
 import type { FlarexMetadataDatabase } from "../../../application/deployments";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import {
   hasApplicationBindingComposition,
+} from "../../../application/activation/repositoryIdentity";
+import {
   type ApplicationBindingSelectionReader,
-} from "../../../application/applicationActivation";
-import { readApplicationBindingProjectionInTransaction, readApplicationBindingEvidenceInTransaction } from "../../../application/applicationBindingProjection";
+} from "../../../application/activation/contracts";
+import {
+  readApplicationBindingProjectionInTransaction,
+  readApplicationBindingEvidenceInTransaction,
+} from "../../../application/applicationBindingProjection";
 import { verifyLogicalSchemaBindingInTransaction, verifyBindingApplicationReference,
   type BindingApplicationAcceptance, type PreparedLogicalStorage } from "./logicalSchema";
 import {

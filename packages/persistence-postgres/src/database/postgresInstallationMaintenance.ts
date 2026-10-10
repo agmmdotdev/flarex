@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { FINITE_PUBLICATION_FUNCTIONS } from "../commit/finitePublicationInstallation";
-import { APPLICATION_DOMAIN_FUNCTIONS, APPLICATION_DOMAIN_TYPES } from "../storage/materialization/domainInstallation";
+import {
+  APPLICATION_DOMAIN_FUNCTIONS,
+  APPLICATION_DOMAIN_TYPES,
+} from "../storage/materialization/domainInstallation";
 import { INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS, INDEX_MAINTENANCE_BUILD_PERMISSIONS,
   INDEX_MAINTENANCE_OBLIGATION_TABLES } from "../storage/indexes/indexMaintenanceInstallation";
 import { prepareTypedMaintenanceMigration } from "../storage/indexes/indexMaintenanceMigration";
@@ -14,20 +17,54 @@ import { flarexSchema } from "./schema";
 import { attestProtectedMetadataInstallation } from "../execution/preparation/preparedMetadataEpoch";
 import { InstallationLifecycleError, verifyInstallationWriterProtection, verifyManagedRuntimePrivileges,
   type InstallationAccessProfile } from "../installation/installationLifecycle";
-import { backfillStandaloneApplicationBindings } from "../application/applicationActivation";
+import {
+  backfillStandaloneApplicationBindings,
+} from "../application/activation/readBindingPublication";
 import { backfillBindingMetadataProjections } from "../installation/frameworkSchema/binding/repository";
 import { backfillLogicalReadProjections } from "../storage/catalog/logicalStorageDefinitions";
-import { frameworkSchemaTargetSnapshot, hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget, type FrameworkSchemaTargetCompositionError } from "../installation/frameworkSchema/target";
-import { makeFrameworkSchemaArtifactMaintenanceReader, type FrameworkSchemaArtifactRepository } from "../installation/frameworkSchema/artifact/repository";
-import { makeFrameworkInstaller, type FrameworkFreshInstallationRequest, type FrameworkInstallerPolicy } from "../installation/migrationCoordination/installer";
-import { makePostgresMaintenanceFrameworkMigrationTargetEffect, type PostgresFrameworkMigrationOptions } from "../installation/migrationCoordination/postgresTarget";
-import { FrameworkMigrationSessionResourceIssue, FrameworkMigrationDecisionUncertainIssue, FrameworkMigrationTargetCompositionError,
-  runFrameworkMigrationTargetTransactionEffect, withFrameworkMigrationRawTransactionEffect, type FrameworkMigrationTarget } from "../installation/migrationCoordination/targetSession";
-import { CatalogControlSessionResourceIssue, makeCatalogControlSessionStarter, remainingCatalogControlMilliseconds,
-  type CatalogControlReadInput, type CatalogControlSessionDriver } from "./catalogControlSession";
-import type { FrameworkSchemaArtifactRepositoryConfigurationError } from "../installation/frameworkSchema/artifact/errors";
-import type { RestoredFrameworkSchemaAvailabilityHead } from "../installation/frameworkSchema/installation/storedMetadataRestoration";
-import type { FrameworkMigrationCoordinatorFailure } from "../installation/migrationCoordination/coordinatorContracts";
+import {
+  frameworkSchemaTargetSnapshot,
+  hasFrameworkSchemaTargetDatabase,
+  type FrameworkSchemaTarget,
+  type FrameworkSchemaTargetCompositionError,
+} from "../installation/frameworkSchema/target";
+import {
+  makeFrameworkSchemaArtifactMaintenanceReader,
+  type FrameworkSchemaArtifactRepository,
+} from "../installation/frameworkSchema/artifact/repository";
+import {
+  makeFrameworkInstaller,
+  type FrameworkFreshInstallationRequest,
+  type FrameworkInstallerPolicy,
+} from "../installation/migrationCoordination/installer";
+import {
+  makePostgresMaintenanceFrameworkMigrationTargetEffect,
+  type PostgresFrameworkMigrationOptions,
+} from "../installation/migrationCoordination/postgresTarget";
+import {
+  FrameworkMigrationSessionResourceIssue,
+  FrameworkMigrationDecisionUncertainIssue,
+  FrameworkMigrationTargetCompositionError,
+  runFrameworkMigrationTargetTransactionEffect,
+  withFrameworkMigrationRawTransactionEffect,
+  type FrameworkMigrationTarget,
+} from "../installation/migrationCoordination/targetSession";
+import {
+  CatalogControlSessionResourceIssue,
+  makeCatalogControlSessionStarter,
+  remainingCatalogControlMilliseconds,
+  type CatalogControlReadInput,
+  type CatalogControlSessionDriver,
+} from "./catalogControlSession";
+import type {
+  FrameworkSchemaArtifactRepositoryConfigurationError,
+} from "../installation/frameworkSchema/artifact/errors";
+import type {
+  RestoredFrameworkSchemaAvailabilityHead,
+} from "../installation/frameworkSchema/installation/storedMetadataRestoration";
+import type {
+  FrameworkMigrationCoordinatorFailure,
+} from "../installation/migrationCoordination/coordinatorContracts";
 
 declare const maintenanceBrand: unique symbol;
 export interface InstallationMaintenance { readonly [maintenanceBrand]: true }

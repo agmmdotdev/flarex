@@ -1,5 +1,7 @@
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import type { ApplicationReadBindingSelectionReader } from "../../../application/applicationActivation";
+import type {
+  ApplicationReadBindingSelectionReader,
+} from "../../../application/activation/contracts";
 import type { PreparedCoLocatedReadInstallation } from "../../../installation/installationLifecycle";
 import type { LogicalSourceReadPin } from "../../../storage/catalog/logicalStorageDefinitions";
 import type { CmsHostConfiguration } from "../hostConfiguration";

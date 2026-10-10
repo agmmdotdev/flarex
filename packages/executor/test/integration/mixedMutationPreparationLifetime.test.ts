@@ -4,13 +4,15 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
-import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
+import {
+  decodePointMutationExactRuntimeResultV1Effect,
+} from "flarex-protocol/point-mutation-exact-runtime";
 import {
   PointCommitConflictV1Error,
 } from "../../../persistence-postgres/src/commit/point/errors";
 import {
   ApplicationActivationError,
-} from "../../../persistence-postgres/src/application/applicationActivation";
+} from "../../../persistence-postgres/src/application/activation/errors";
 import {
   installAppSchemaCandidateValidationEffect,
 } from "../../../persistence-postgres/src/storage/catalog/appSchemaCandidateValidation";

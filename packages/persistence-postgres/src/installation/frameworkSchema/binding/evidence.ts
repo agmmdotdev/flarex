@@ -1,5 +1,10 @@
-import type { ApplicationActiveSelection } from "../../../application/applicationActivation";
-import { verifyPayloadPreferenceBinding, type PayloadContentProfiles } from "../../../frameworks/payloadPreferences/binding";
+import type {
+  ApplicationActiveSelection,
+} from "../../../application/activation/contracts";
+import {
+  verifyPayloadPreferenceBinding,
+  type PayloadContentProfiles,
+} from "../../../frameworks/payloadPreferences/binding";
 import { Effect, Option } from "effect";
 import { withBindingMigrationGraphLimits } from "../../migrationCoordination/graphLimits";
 import { withFrameworkMigrationPlanVerification } from "../../migrationCoordination/planVerificationScope";
@@ -9,7 +14,9 @@ import type {
   FrameworkSchemaTarget,
   FrameworkSchemaTargetSnapshot,
 } from "../target";
-import { lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect } from "../installation/availabilityHeadRepository";
+import {
+  lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect,
+} from "../installation/availabilityHeadRepository";
 import { sameBindingValue } from "./canonical";
 import { bindingError } from "./errors";
 import {
@@ -25,7 +32,11 @@ import type { VerifiedBindingLane } from "./repository";
 import { scopePhysicalLocatorsEqual } from "../../../scope/scopePhysicalLocator";
 import { verifyPayloadContentBinding } from "./content";
 import { verifyCommerceBinding } from "../../../frameworks/commerceTransaction/binding";
-import { requireCommerceProfile, type CommerceProfile, type CommerceProfileState } from "../../../frameworks/commerceTransaction/profile";
+import {
+  requireCommerceProfile,
+  type CommerceProfile,
+  type CommerceProfileState,
+} from "../../../frameworks/commerceTransaction/profile";
 import { MAX_COMMERCE_BINDINGS } from "./model";
 import { installationRuntimeData } from "../installation/runtimeData";
 import { validateCommerceProfileSet } from "./commerceBinding";

@@ -6,16 +6,22 @@ import {
   validateApplicationBindingBasisInTransaction,
   withValidatedApplicationBindingBasisInTransaction,
   withPreparedApplicationBindingBasisInTransaction,
+  readAcceptedApplicationBinding,
+} from "./activation/bindingAcceptance";
+import {
   type PreparedApplicationBinding,
   type ApplicationBindingInput,
   type AcceptedApplicationBinding,
   type ApplicationBindingObservation,
-  readAcceptedApplicationBinding,
-  withStandaloneApplicationBindingInTransaction,
   type PreparedStandaloneApplicationBinding,
-} from "./applicationActivation";
+} from "./activation/contracts";
+import {
+  withStandaloneApplicationBindingInTransaction,
+} from "./activation/standaloneBinding";
 import type { AppRowTransaction } from "../storage/documents/appRows";
-import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
+import type {
+  CheckedApplicationActiveHead,
+} from "./activeHead/contracts";
 import type { ScopeClockRecord } from "../scope/scopeClock";
 import { requireScopeAuthorizationRevocationEpochInTransactionEffect } from "../scope/scopeClock";
 

@@ -10,10 +10,10 @@ import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type {
   AcceptedApplicationBinding,
   ApplicationBindingInput,
-} from "../../../application/applicationActivation";
+} from "../../../application/activation/contracts";
 import {
   withValidatedApplicationBindingBasisInTransaction,
-} from "../../../application/applicationActivation";
+} from "../../../application/activation/bindingAcceptance";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
 import type { DataBindingHeadToken } from "../../../installation/frameworkSchema/binding/model";

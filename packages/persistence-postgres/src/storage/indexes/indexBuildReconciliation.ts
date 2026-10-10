@@ -1,4 +1,6 @@
-import { invalidateAcceptedApplicationBindingInTransaction } from "../../application/applicationActivation";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../../application/activation/acceptedBinding";
 import { invalidateSharedLogicalSourceBindingChecks } from "../documents/logicalDocuments/sourceAdmission";
 import { fxSystemIndexMaintenanceObligations } from "../../database/schema";
 import { insertIndexBuildState } from "./indexBuildLifecycleDml";
@@ -15,8 +17,14 @@ import {
   type CatalogTableId,
   type CatalogIndexId,
 } from "flarex-protocol/catalog";
-import { canonicalizeAppIndexPhysicalSpecV1, type CanonicalAppIndexPhysicalSpecV1 } from "flarex-protocol/index-definition";
-import { APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1, type AppOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
+import {
+  canonicalizeAppIndexPhysicalSpecV1,
+  type CanonicalAppIndexPhysicalSpecV1,
+} from "flarex-protocol/index-definition";
+import {
+  APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+  type AppOrderedIndexPhysicalSpecV1,
+} from "flarex-protocol/ordered-index";
 import type { LogicalSchemaCandidate } from "flarex-protocol/internal/logical-schema-candidate";
 import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { isLogicalSchemaAdmissionManifest } from "../catalog/logicalSchemaAdmissionEvidence";
@@ -52,10 +60,15 @@ import {
 } from "./appIndexDefinitions";
 import type { AppRowTransaction } from "../documents/appRows";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
-import { InvalidIndexBuildReconciliationInputV1Error, publishedPhysicalRequirementSnapshots } from "../../installation/publishedPhysicalRequirementProvenance";
+import {
+  InvalidIndexBuildReconciliationInputV1Error,
+  publishedPhysicalRequirementSnapshots,
+} from "../../installation/publishedPhysicalRequirementProvenance";
 export { InvalidIndexBuildReconciliationInputV1Error } from "../../installation/publishedPhysicalRequirementProvenance";
 import { runEffectTransaction } from "../../database/effectTransaction";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../scope/scopeAuthorityControlRead";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../scope/scopeAuthorityControlRead";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { hasExactOwnDataKeys } from "../../values/exactOwnDataKeys";
 import {

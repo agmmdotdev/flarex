@@ -34,8 +34,13 @@ import { captureFiniteEntryObservationInTransactionEffect, closeFiniteEntryObser
 import {
   type FiniteEntryAttemptKernelContext,
 } from "./transactionSessionAttemptKernel";
-import { encodeFiniteMetadataComparison, prepareFiniteMetadataEntryComparison, acceptFiniteMetadataEntryComparisonVerdict, submitFiniteMetadataEntryComparisonEffect,
-  type PreparedFiniteMetadataProjection } from "./finiteMetadataDependencies";
+import {
+  encodeFiniteMetadataComparison,
+  prepareFiniteMetadataEntryComparison,
+  acceptFiniteMetadataEntryComparisonVerdict,
+  submitFiniteMetadataEntryComparisonEffect,
+  type PreparedFiniteMetadataProjection,
+} from "./finiteMetadataDependencies";
 import {
   bytesEqual,
   encodeBytesToLowercaseHex,
@@ -181,9 +186,15 @@ import type { ScopePhysicalLocator } from "../scope/scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "../scope/scopePhysicalLocator";
 import { ScopeExecutionAuthorityError } from "../scope/execution/Errors";
 import { liveScopeExecution } from "../scope/execution/ScopeExecution";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction, acquireCoLocatedInstallationAdmission, acquireInstallationAdmission,
+import {
+  closeInstallationAdmission,
+  lockInstallationForCurrentTransaction,
+  acquireCoLocatedInstallationAdmission,
+  acquireInstallationAdmission,
   requireAdmittedTargetInstallationSchema,
-  type PreparedCoLocatedReadInstallation, type PreparedInstallation } from "../installation/installationLifecycle";
+  type PreparedCoLocatedReadInstallation,
+  type PreparedInstallation,
+} from "../installation/installationLifecycle";
 import {
   INSTALLED_SCOPE_AUTHORITY_TARGET,
   ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION,
@@ -251,11 +262,17 @@ import {
 } from "./claims/transactionExecutionClaimLiveness";
 import {
   claimApplicationExecutableActiveSelection,
+} from "../application/activation/selectionIdentity";
+import {
   validateApplicationExecutableActiveSelectionInTransaction,
+} from "../application/activation/bindingAcceptance";
+import {
   ApplicationActivationError,
+} from "../application/activation/errors";
+import {
   type ApplicationActiveSelection,
   type CurrentApplicationFiniteEntry,
-} from "../application/applicationActivation";
+} from "../application/activation/contracts";
 import {
   readPreparedFiniteApplicationMutationActivationInputs,
   type ApplicationMutationActivationBasis,

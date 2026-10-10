@@ -59,7 +59,8 @@ Read this preflight with:
   for simulation ownership and real-system evidence;
 - [`49-application-analysis-migration.md`](./49-application-analysis-migration.md)
   for the current Application Analysis and consumer authority;
-- [`../packages/standard-application-definition/src/v1.ts`](../packages/standard-application-definition/src/v1.ts),
+- [`../packages/application-definition/src/index.ts`](../packages/application-definition/src/index.ts),
+  [`preparedDefinitionV1.ts`](../packages/standard-application-definition/src/preparedDefinitionV1.ts),
   [`authoringV1.ts`](../packages/standard-application-definition/src/authoringV1.ts),
   and
   [`applicationSource.ts`](../packages/standard-application-definition/src/applicationSource.ts)

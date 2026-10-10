@@ -5,8 +5,11 @@
 **Owner-authorized organization goal active.** Journal consumer contracts,
 concrete journal owners and schema declarations are separated. The journal,
 schema and test cutover follows these concrete owners. Point publication source,
-API and test organization is complete with connected consumer verification;
-activation/readiness and session organization remain open.
+API and test organization is complete with connected consumer verification.
+Activation/readiness source, consumer and test replacement is complete with
+connected consumer validation. Session organization, Invocation API/construction
+separation, relation readiness fold organization and the final reading-map audit
+remain open.
 The owner requested continued organization, readable end-to-end flows, sensible
 folder/file boundaries, file splitting, clean APIs and corresponding tests.
 The [source/test layout](04-source-and-test-ownership.md) and admitted local
@@ -23,9 +26,10 @@ type and construction breaks are authorized with complete caller migration.
 Domain folders expose the outer owners. The journal now has distinct attempt,
 operation, evidence, persistence and seal owners; database declarations follow
 their actual dependency graph. Point publication has concrete settlement owners
-and a separate consumer/construction boundary. Application activation/readiness and session
-activation also contain substantial lifecycle and protocol work. Audit their
-actual ownership rather than splitting at an arbitrary line count.
+and a separate consumer/construction boundary. Application activation/readiness
+has concrete lifecycle and protocol owners. Session activation and the relation
+readiness fold retain substantial mixed responsibilities; their selected
+replacement follows actual ownership rather than an arbitrary line count.
 
 | Existing owner | Responsibilities to separate or verify |
 | --- | --- |
@@ -431,13 +435,14 @@ rerun/publication assertions rather than requiring displaced observation names.
 ### Application Activation And Readiness Decomposition
 
 Follow point publication with a connected replacement of the concrete
-Activation/Readiness layout and its consumers. Selection claims and transaction
-lending invalidation currently reach concrete Activation construction from lower
+Activation/Readiness layout and its consumers. The displaced selection claims and
+transaction lending invalidation reached concrete Activation construction from lower
 materialization, index and installation owners. Readiness obtains unique
 preparation and acceptance through concrete point publication. Separating only
 error declarations would leave these dependency cycles and hide the actual
-serving flow. This layout is selected for the organization goal; its concrete
-cutover remains unimplemented.
+serving flow. The replacement follows the owners below and the
+[Application reading map](../../packages/persistence-postgres/src/application/README.md).
+Its connected correctness and consumer gates determine completion.
 
 Use `application/activation/` for the following actual responsibilities:
 
@@ -479,6 +484,14 @@ environments and package routes together. Separate system-test inspection from
 construction. Remove the displaced implementation bodies and constructor
 reexports; do not retain forwarding paths to avoid moving callers.
 
+The actual cross-package Activation consumers need six contract types, the
+existing error class and one read-only selection claim. Export exactly those
+bindings through `internal/application-activation`; the authentic constructor
+has the separate `internal/application-activation-construction` route.
+Protection, lifetime, control-database and capture-port readers remain with
+their concrete local owners. The unused readiness package route and speculative
+preparation/acceptance routes are removed rather than retained as future APIs.
+
 Preserve request evidence without an ambient lease or executable verdict, actual
 retained charging/disposal and exact transaction/selection/clock/checked-head
 lending identity. Installation acquisition remains before scope/metadata locks;
@@ -489,19 +502,58 @@ confirmed replacement and cold recovery remain distinct; finite relation
 refusal remains. Indexed full-proof maintenance can refuse `storedState` before
 the final `concurrentHead` check, and the cutover preserves that order.
 
+The concrete identity cuts keep checked-head contracts, errors and the existing
+two registries below its SQL reader. Accepted-token identity and lending
+invalidation stay together; relation-aware accepted reads belong to binding
+acceptance. The existing current finite-loan class and issuance symbol have one
+private identity owner below both current and finite preparation. Metadata
+projection and pure frame/head capture remain below SQL orchestration. These
+cuts remove the real construction backedges without duplicating authority.
+
+Composite relation preparation now guards retained charges and disposal with
+the actual retained lifetime, preserving fresh relation acceptance and the
+original token registry. Request evidence survives unrelated ambient-host
+closure while retained evidence refuses use. The existing prepared-host owner
+removes only its optional allocation service while running an explicitly
+request-owned preparation. The complete authentic nested relation, unique and
+physical graph has no retained charge, lease or disposal registration; other
+services, scopes, request budgets and fresh acceptance remain intact. Application
+binding dispatch applies that context policy. Direct relation preparation callers
+state their request/retained profile explicitly. Avoid proliferating profile
+arguments across lower issuers or disguising a retained allocation as a no-op
+lease. This is the selected request-lifecycle correction, not a new host contract.
+
+CAS token capture keeps its no-getter, own-descriptor, exact-key, enumeration,
+bigint-range and digest contract. Separate foreign reflection failures from pure
+shape refusals: ordinary invalid tokens return the existing typed Result failure
+without throwing through a catch. Preserve operation, revision and cause
+projection, and retain malformed/proxy cases through the real activation API.
+Native transaction bridges keep their full Cause and settlement order. Retry
+classification changes require a decisive driver-boundary witness rather than
+being inferred from a static difference. Genuine native Drizzle SQLSTATE 40001
+and 40P01 witnesses exposed Activation's raw-envelope classification defect.
+The existing statement boundary now unwraps only the real Drizzle error for
+that retry decision, preserving the original outer cause, operation and revision.
+Nonretryable SQL and native transaction-bridge classification stay unchanged.
+
+Issuer lookup accepts meaningful foreign `unknown` only where authentication
+actually requires it, with an object/null guard before private registry lookup.
+Registration and known-reader dispatch use their existing named domain contracts.
+Moved reusable Effect operations use an unnamed `Effect.fn` boundary while
+retaining their exact generator bodies and requirements; no new implicit tracing
+span or transaction bridge is added.
+
 Keep durable legacy/relation/policy head formats and activation/serving login
 pairing exact. History, maintenance, ownership, revocation, read-binding and head
 changes stay atomic. Callback rollback, cleanup failures, interruption and
 uncertain settlement keep their complete Cause and ordering. This organization
 does not authorize hosted activation or a general migration/reset.
 
-Finalize the unique eligibility/preparation/acceptance dependency against the
-selected point-publication owner after its cutover. Preserve exact factory
-authentication and the finite metadata registry instead of introducing a wrapper
-port or substitute issuer. Validate consumer value-import graphs and genuine
-Worker witnesses separately; lightweight claims must avoid SQL, installation
-construction and Node crypto, while accepting operations remain actual SQL
-owners.
+Unique eligibility, preparation and acceptance use the concrete point-publication
+owners with exact factory authentication and the existing finite metadata
+registry. Consumer value-import graphs and genuine Worker witnesses have
+separate proofs; lightweight claims avoid SQL, installation construction and
+Node crypto, while accepting operations remain actual SQL owners.
 
 Tests follow binding preparation, current preparation, catalog integrity, finite
 correlation, serving, standalone/backfill, active admission, metadata, relation
@@ -512,29 +564,48 @@ case, fault boundary and expected refusal. Validate paired drivers, connected
 consumers, cleanup/cancellation, stale/clone/closed issuers, current refresh,
 finite replacement/recovery and full-Cause settlement before removal and commit.
 
+### Stored Readiness Reader Correction
+
+The relation-to-legacy-to-relation transition exposed dropped target correlation
+in stored Readiness. Its accepting catalog read opened a second transaction on
+the already-held PGlite database. Schema authority and unique preparation now
+respect the same authenticated reader boundary.
+
+The private issued stored projection retains the authentic located target.
+For colocated control data, schema, physical requirements and unique
+closure/definition reads use the actual accepting transaction. The existing
+point unique facade carries that reader to the unique catalog owner. A separate
+control database retains its bounded native reader. Keep factory, database and authority authentication,
+fresh catalog correlation, eligibility and mutable build checks. This replaces
+an accidental nested transaction, not the execution or settlement profile.
+
+No public capability, canonical format, durable row, issuer registry or database
+authority changes. Preserve the original transition witness and its timeout;
+prove the native transaction does not nest on the held database, the full head
+transition succeeds, and stale selections still refuse. Validate PGlite and
+ordinary-role PostgreSQL, same-database and separate-control paths, native faults
+and full-Cause rollback. Review the connected owner change and remove diagnostic
+instrumentation before the organization cutover commits.
+
 ### Request Binding Lifecycle Correction
 
-The existing ambient-host standalone witness exposes an Application issuer
-defect: `issueLegacyBindingPreparation` registers every token for host disposal,
-including request-owned preparations whose `lifetime` is absent. The host's
-disposal set then strongly retains those request tokens and deletes their issuer
-registry entries when that unrelated host closes. This contradicts the accepted
+The ambient-host standalone witness exposed unconditional host disposal of
+request-owned Application preparations. The corrected issuer follows the accepted
 [request/retained contract](../core-performance/read-admission-construction-preflight.md):
 request entries are bounded weakly held evidence, carry no retained lease and
 must not accumulate in an ambient host allocation.
 
-Register legacy binding head preparation and host disposal only when the actual
-preparation carries its retained lifetime. Keep request registry entries weak;
+Legacy binding head preparation and host disposal register only when the actual
+preparation carries its retained lifetime. Request registry entries stay weak;
 they still grant no executable or serving verdict, and every business use keeps
 the existing fresh binding/source/clock acceptance. Do not change the protected
 standalone or finite issuers that genuinely own retained lifetimes, the general
 host runtime or relation-only preparation semantics. The composite issuer's
 legacy branch uses this same corrected owner.
 
-Carry the captured request/retained profile into the nested stored-readiness
-issuer as well. Its unconditional ambient lifetime capture and disposal would
-otherwise invalidate surviving request bindings during their first fresh
-transactional acceptance. Request readiness remains weak issuer-owned evidence
+The nested stored-readiness issuer captures the same request/retained profile,
+so ambient disposal cannot invalidate surviving request bindings during their
+first fresh transactional acceptance. Request readiness remains weak issuer-owned evidence
 without a host lease; retained readiness and the existing independent read-ready
 and finite issuance routes keep their actual host lifetimes and cleanup.
 
@@ -543,6 +614,115 @@ ambient-host closure, while authentic retained selections refuse after their
 issuer closes. Validate the exact profile with PGlite and ordinary-role Postgres
 and retain clone/wrong-issuer, fresh acceptance and source closure proofs. This
 is a lifecycle correction during organization, not a performance acceptance.
+
+### Current Application Consumer Proof
+
+The connected consumer proof follows current Application analysis, publication,
+readiness and activation on the installed current schema. Reuse the existing
+native Application fixture and publish a genuine second revision with a changed
+schema. Its initial active revision provides the exact head/history baseline:
+settling the new candidate's readiness must leave that baseline unchanged.
+Then exercise current activation CAS, atomic failure, exact replay, fresh
+refusals and reconstructed reads through the actual owners. Keep inspection and
+fault injection with their existing test owner; the system harness does not
+implement another authority, publisher or SQL engine. No deferred fixture mode
+or competing construction graph is needed.
+
+The historical FSV04/FSV05 runtime proofs remain governed by
+[Application analysis retirement](../49-application-analysis-migration.md).
+Their journals deliberately stop before migration 0064, while their shared
+runtime now requires current installation and split scope-authority contracts.
+That historical schema/runtime drift fails during unchanged fixture setup and
+cannot establish current consumer acceptance. Preserve the historical tests,
+byte/count assertions, migration witnesses and named helper consumers. Repair
+or retirement requires their own matched-runtime or consumer-migration
+disposition; adding current tables to a historical journal is not a fix.
+
+The current proof asserts current contracts directly and supplements the owner
+and native query/mutation/action/Task witnesses. It does not relabel retired
+protocol hashes, verdict tables or verifier lifecycles as current guarantees.
+Validate the same current scenario on PGlite and ordinary-role PostgreSQL,
+with genuine analysis provenance, failure/Cause, replay and nonactivation
+witnesses. Include its fixture and callers in the final cutover reviews.
+
+### Selected Session Organization
+
+**Preflight recorded; implementation remains open.** Finish the connected
+Activation/Readiness correction and commit before replacing Session owners.
+`execution/transactionSessionActivation.ts` still combines operation contracts,
+target construction, ordinary and finite activation, exact attempt loading,
+claim acquisition/renewal, terminalization, recovery identity and native bridges.
+Its imports serve Application, journal, publication, recovery, tasks, storage,
+installation and both drivers. Organize that complete connected graph rather
+than extracting only another contract file.
+
+The current dependency has two concrete problems. Session activation and journal
+finite-entry activation depend on each other because lower finite state and
+correlation live beside upper Application orchestration. Error-only Executor
+imports also reach target construction and finite storage's Node crypto. The
+generic read-committed runner pulls Session construction into catalog, index,
+installation and task owners. These are responsibility boundaries, not merely
+large-file or import-count concerns.
+
+| Replacement owner | Responsibility |
+| --- | --- |
+| `execution/session/contracts`, `errors`, `inputCapture` | Exact consumer outcomes/errors and the existing evidence, selector, abort and configuration capture |
+| `execution/session/constructionContracts`, `kernelContracts` | Trusted construction methods, original symbol identities, fault inputs and exact-attempt work/context contracts |
+| `execution/session/attemptAuthority` | Shared clock/session/lease locking, authority, retention and correlation verdicts |
+| `execution/session/activation`, `durableActivation` | Outer ordinary/Application activation and durable session, lease, journal and claim creation/replay |
+| `execution/session/finiteSession` | Lower provisional anchor, reservation, continuation, row correlation and replacement; one transaction-scoped expectation registry below journal and Application orchestration |
+| `execution/session/finiteActivation` | Upper Application finite activation using the existing admission and journal owners |
+| `execution/session/attemptLoad`, `attemptKernel` | Exact reload, running tail/context/facet, native accepting transaction, work, final guard and closure |
+| `execution/claims/acquisition`, `renewal` | Existing claim operations beside their current model, persistence and liveness owners |
+| `execution/session/recoveryCapture`, `terminalization` | Singular inert recovery identity/projection and exact abort/expiry with existing child cleanup |
+| `execution/session/target` | Actual located driver, installation, capture and resolver assembly |
+| `database/locatedReadCommittedRunner` and local contracts/identity | Generic native runner, transaction target contracts and exact target/database association; existing failure leaf stays singular |
+| `execution/session/api` and trusted construction route | Explicit SQL-free consumer boundary separated from factories, issuers and target construction |
+
+Keep table-inferred row types in the contract leaf. Shared lease derivation,
+attempt authority and journal-root authentication belong below the individual
+activation, loading and claim operations. Detached evidence projections stay
+with input capture; precise transaction-failure projections stay with their
+existing error owners. Both finite expectation registries belong to the lower
+finite Session owner, with specific seeding and closure operations rather than
+exported maps. These boundaries remove the draft's cross-owner dependency cycle.
+Validate the actual emitted graph and its external dependencies after migration.
+
+The ordinary Application factory composes a separate finite-operation constructor.
+Extract that closure with its five actual inputs: ports, lease duration,
+execution-claim duration, session-ID supplier and claim-owner supplier. Preserve
+when configuration is captured and when suppliers execute. Do not introduce an
+umbrella context or move the whole mixed factory into another large file.
+
+Reuse the existing running tail, finite anchor, metadata dependencies, claim
+persistence/liveness, located Effect transaction bridge and settlement owners.
+Keep ordinary, inert Application, finite initial, continuation, replacement and
+cold recovery contracts distinct. Preserve lock order, post-wait database time,
+claim generation/fencing, retained-floor checks, exact session-row correlation,
+final metadata guards, once-only journal cleanup and complete Cause. Do not
+replace these with a universal engine or a shared mutable state service.
+
+This cutover breaks package import/export and trusted construction locations,
+including the current `transaction-session-activation` route.
+Migrate all callers, test helpers, package routes, bridge guards and discovery
+lanes, then delete the displaced monolith and kernel forwarding surfaces.
+Original symbols, nominal errors, issuer registries, stored protocol versions,
+canonical encodings, physical tables and durable rows retain their exact
+identities. SQL-free recovery inspection remains inert. Remove unreachable
+private correlation/projection chains or unused construction arguments only
+after compiler-reference and connected behavioral proof; retain their genuinely
+used shared predicates and the singular finite expectation registry.
+
+Tests follow activation, exact loading/kernel, claims, finite lifecycle,
+terminalization and recovery, with authentic shared driver scenarios. Completion
+requires exact declaration/nested-body and nominal-identity accounting, an actual
+consumer dependency graph without the introduced owner cycle, genuine Workerd
+consumer loading, affected strict typechecks, source/discovery/bridge guards,
+lint, paired PGlite/ordinary-role PostgreSQL and connected Application, journal,
+publication, claim and recovery proofs. Run both reviews on the final checkpoint,
+remove displaced paths and commit one coherent outcome. This organization adds
+no execution profile, developer API, hosted activation, schema reset or
+native-relative performance claim.
 
 1. Finish construction/API migration and its validation, review and commit.
 2. Record the concrete module/dependency and caller inventory for each substantial
@@ -556,6 +736,129 @@ is a lifecycle correction during organization, not a performance acceptance.
 The ordering follows dependencies and risk, not a per-file or per-turn size cap.
 Existing retained formats and legacy consumers need named ownership and removal
 gates. This plan does not authorize silent deletion of their durable data.
+
+### Existing Invocation Consumer And Construction Separation
+
+**Selected after Session; implementation remains open.** The clean invocation
+facade imports the existing Standard Query, Mutation and Action System modules
+for their Context identities and invocation operations. Those modules also
+construct trusted persistence and runtime Layers. An already-injected consumer
+therefore loads concrete SQL construction through a value import it does not
+need. Application Task start and Standard Task start/read have the same actual
+boundary. Separate those existing responsibilities; no new service, engine,
+execution profile or developer API is selected.
+
+Use direct family-owned consumer and trusted construction modules:
+
+| Existing mixed owner | Consumer source and package route | Trusted construction source and package route |
+| --- | --- | --- |
+| Application Query System | `query/api.ts`, `internal/application-query-api` | `query/construction.ts`, `internal/application-query-construction` |
+| Application Mutation System | `mutation/api.ts`, `internal/application-mutation-api` | `mutation/construction.ts`, `internal/application-mutation-construction` |
+| Application Action System | `action/api.ts`, `internal/application-action-api` | `action/construction.ts`, `internal/application-action-construction` |
+| Application Task System | `task/applicationApi.ts`, `internal/application-task-api` | `task/applicationConstruction.ts`, `internal/application-task-construction` |
+| Standard Application Task System | `task/standardApi.ts`, `internal/standard-application-task-api` | `task/standardConstruction.ts`, `internal/standard-application-task-construction` |
+| Standard Application Task Read Query | `task/readApi.ts`, `internal/standard-application-task-read-api` | `task/readConstruction.ts`, `internal/standard-application-task-read-construction` |
+
+These are real declaration and operation owners, not forwarding files. Keep
+substantial query evaluation/RPC, mutation execution and Action invocation in
+their family execution owners when they have distinct captured dependencies.
+Their original ordered construction remains visible in the construction module.
+Move existing nominal errors to family error leaves; consumer APIs may export
+those lightweight contracts and operations, never trusted factories or issuers.
+Preserve every existing Context key and class identity, exact R/E and Scope
+requirements, Layer contract, configuration throw and invocation result.
+
+Move the Mutation authenticated-identity WeakMap once to `mutation/identity.ts`.
+Its existing specific prepare/capture/claim/inspect operations serve actual
+Mutation construction and Task mutation authority. Do not export mutable state
+or create a second registry. The Task read-store WeakSet and issuance token stay
+with their actual persistence owner; only trusted read construction needs that
+runtime authenticity check.
+
+The pure Task run-list contracts/constants and existing run/result/cancellation
+port composition retain their current responsibilities. Task compute delivery,
+provider recovery, lifecycle, repair and wake owners remain separate. Their size
+or similar names do not justify another decomposition or capability cutover.
+
+Migrate the six mixed routes and every exact value/type/test caller, then remove
+their displaced modules and package routes without compatibility forwarding.
+Update the concrete clean-facade route allowlist, Task provenance guard, genuine
+Query RPC Promise bridge sites, source maps and discovery lanes. Preserve
+request refusal before I/O, replay/selection order, complete Cause and cleanup,
+authenticated mutation identity, authoritative committed outcomes, Task scope
+and outer-only settlement. No stored format, schema or durable row changes.
+
+Completion requires strict declaration-enabled types, actual consumer value
+graphs excluding SQL/driver/crypto construction, unchanged clean-root contracts,
+precise service/identity and request tests, current paired native Application and
+Task consumers, existing genuine Worker/RPC/callback/outbound witnesses, guards,
+lint, both reviews and one coherent commit. An import-clean result does not
+establish a new Worker profile, hosted activation or native-relative performance.
+
+The bounded catalog/build, structural installation, Action/Task authority,
+delivery/recovery/repair and native physical-session owners retain their coupled
+lifecycles. Finish the resulting source/API/test reading map and connected
+discovery audit before closing this organization goal.
+
+### Application Relation Readiness Fold Organization
+
+**Selected after invocation separation; implementation remains open.** The
+existing fold combines verified bundle loading, ordinary and active preparation,
+accepting transactions, five process-local registries, host retention, activation
+catalog borrowing, atomic root/child settlement and stored replay. Its current
+Activation consumers load this entire construction owner for individual
+operations. Organize those real responsibilities while preserving one authentic
+fold lifecycle and the existing lower relation-set readiness owner.
+
+Use `application/relations/readinessFold/` alongside `relations/readiness/`:
+
+| Owner | Responsibility |
+| --- | --- |
+| `contracts`, `errors`, `state` | Exact consumer/context/capability contracts, singular nominal errors and trusted prepared/validated/replay state; external construction references remain type-only. |
+| `identity` | The original repository, prepared active-read, ready-result, activation-view and catalog-lease registries and symbols; specific issuance/claim/lending/retention/disposal operations. |
+| `canonical`, `correlation`, `transactions` | Original domain frames/digests, pure schema/evidence correlations and the existing query/error/located transaction bridge. |
+| `bundle`, `storedEvidence` | Verified manifest/function/task publication and exact candidate/receipt/root/child replay with original comparison order. |
+| `preparation`, `acceptance` | Actual schema/current/stored-active preparation, then ordered fresh clock/candidate/unique/physical/relation/ownership acceptance. |
+| `settlement` | Atomic schema/root/ordered-child insertion, exact replay and existing ready/active-ready reads; no active-head publication. |
+| `activeRead` | Active planning/lending, complete cold/protected acceptance, tail reauthentication and once-only lazy host retention. |
+| `activationCatalog` | Real activation target/view construction and catalog lease lifetime with actual borrowed ownership/physical/unique readers. |
+| `repository` | Captured exact composition and recognizable ordered operations registered once. |
+
+Stored evidence sits below acceptance and settlement. Issuance and catalog-lease
+claims do not import repository or catalog SQL construction. Preserve the lazy
+active-preparation closure over the actual captured state; construction must not
+invoke it or pass every dependency through a generic context. The five registry
+maps move once and remain private. The lower relation-set definition/evidence
+issuers, protected metadata, physical, unique and managed-installation owners
+retain their authentic identities and mechanics.
+
+Keep active planning separate from authoritative admission. Preserve complete
+cold/protected acceptance order, exact token-pair/target/control correlation,
+fresh unique/physical/frontier checks, history budgets, detached public values
+and immutable trusted lending. Activation takes the policy-dependent catalog
+lock before the target transaction; borrowers use that actual lease transaction.
+Same-control acceptance borrows the target transaction only after authentic
+database matching. Retention/disposal and lease closure retain their original
+lifetimes. Canonical formats, durable rows, manifests and scalar policy identity
+do not change.
+
+Migrate every exact Activation/Serving/relation-query/logical-readiness/framework
+and test consumer to its actual owner. Update current measurement source maps
+and original span attribution without starting a performance campaign. Then
+remove `applicationRelationReadinessFold.ts` without a forwarding route.
+Organize fold persistence, active serving/capability/commit and native lock/race
+cases around their original fixtures; retain the shared real head-transition
+scenario and lower readiness/build/source-commit support. Tests must not reproduce
+the fold engine or manufacture authority observations.
+
+Completion requires exact original declaration/nested-body/frame accounting,
+singular identity, actual dependency-cycle verification, paired fold/readiness/
+catalog proofs, connected Activation/preparation/lifetime/finite and relation
+query/Mutation journal/point/Worker consumers, precise types, source/discovery/
+span guards, lint, both reviews, displaced-path removal and a coherent commit.
+Preserve rollback, lost acknowledgement, original Cause, stale/copy/foreign
+refusal and metadata epoch guards. This introduces no relation capability,
+universal readiness engine, hosted activation, migration or performance claim.
 
 ## Completion Gates
 

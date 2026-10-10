@@ -1,14 +1,34 @@
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { prepareApplicationBindingSelection, withAcceptedApplicationBinding } from "../../src/application/applicationActivation";
-import { fxSystemApplicationReadiness, fxSystemApplicationReadinessRelations } from "../../src/application/relations/applicationRelationSchema";
+import {
+  prepareApplicationBindingSelection,
+} from "../../src/application/activation/repositoryIdentity";
+import {
+  withAcceptedApplicationBinding,
+} from "../../src/application/activation/bindingAcceptance";
+import {
+  fxSystemApplicationReadiness,
+  fxSystemApplicationReadinessRelations,
+} from "../../src/application/relations/applicationRelationSchema";
 import type { FlarexMetadataTransaction } from "../../src/database/metadataTransaction";
-import { fxControlBoundApplicationSchemas, fxControlIndexDefinitions, fxControlSchemaVersionUniqueConstraintSets, fxSystemApplicationRevisionsV2 } from "../../src/database/schema";
+import {
+  fxControlBoundApplicationSchemas,
+  fxControlIndexDefinitions,
+  fxControlSchemaVersionUniqueConstraintSets,
+  fxSystemApplicationRevisionsV2,
+} from "../../src/database/schema";
 import { lockScopeClockForShareInTransactionEffect } from "../../src/scope/scopeClock";
-import { prepareReadinessEvidence, relationReadinessFixture } from "./relations/applicationRelationReadinessFixture";
+import {
+  prepareReadinessEvidence,
+  relationReadinessFixture,
+} from "./relations/applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
-import { postgresUrl, useFileScopedPostgresPersistence, withTemporaryPostgresPersistencePair } from "../support/postgresHelpers";
+import {
+  postgresUrl,
+  useFileScopedPostgresPersistence,
+  withTemporaryPostgresPersistencePair,
+} from "../support/postgresHelpers";
 
 describe.skipIf(postgresUrl === null)("active readiness admission locks", () => {
   const withPersistence = useFileScopedPostgresPersistence();

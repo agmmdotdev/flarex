@@ -25,9 +25,11 @@ import type {
 import type {
   ApplicationActiveSelection,
   AcceptedApplicationBinding,
+} from "../../activation/contracts";
+import type {
   ValidateApplicationRelationActiveSelectionInTransactionError,
   ValidateApplicationRelationActiveSelectionError,
-} from "../../applicationActivation";
+} from "../../activation/errors";
 import type { AppRowTransaction } from "../../../storage/documents/appRows";
 import type { ApplicationRelationReadinessFoldRepository } from
   "../applicationRelationReadinessFold";

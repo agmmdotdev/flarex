@@ -1,21 +1,42 @@
 import { afterAll, expect, it } from "vitest";
 import { Effect, Tracer } from "effect";
 import { and, eq } from "drizzle-orm";
-import { fxSystemApplicationFunctions, fxSystemApplicationPublications } from "../../../src/application/relations/applicationRelationSchema";
+import {
+  fxSystemApplicationFunctions,
+  fxSystemApplicationPublications,
+} from "../../../src/application/relations/applicationRelationSchema";
 import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
 import { fxSystemDataBindingHeads } from "../../../src/installation/frameworkSchema/binding/schema";
-import { makePostgresRelationalSession, runRelationalSession } from "../../../src/database/relationalTransaction/session";
+import {
+  makePostgresRelationalSession,
+  runRelationalSession,
+} from "../../../src/database/relationalTransaction/session";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { createRelationalPGliteFixture } from "../../database/relationalPGliteWorkerTestSupport";
 import { createFileScopedPostgresFixture, postgresUrl } from "../../support/postgresHelpers";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { prepareAdditionalRelationRevision } from "../../application/relations/applicationRelationReadinessFixture";
-import { prepareCmsApplicationFromBinding, requirePreparedCmsApplication, requireCmsAdmission, withCmsAdmission, type CmsAdmission } from "../../../src/frameworks/cmsTransaction/admission";
-import { readAcceptedApplicationBindingProjection } from "../../../src/application/applicationBindingProjection";
+import {
+  prepareAdditionalRelationRevision,
+} from "../../application/relations/applicationRelationReadinessFixture";
+import {
+  prepareCmsApplicationFromBinding,
+  requirePreparedCmsApplication,
+  requireCmsAdmission,
+  withCmsAdmission,
+  type CmsAdmission,
+} from "../../../src/frameworks/cmsTransaction/admission";
+import {
+  readAcceptedApplicationBindingProjection,
+} from "../../../src/application/applicationBindingProjection";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../../src/scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../../src/scope/scopeAuthorityResolution";
 
-import { prepareApplicationBindingSelection, lendApplicationBindingPreparationInputs } from "../../../src/application/applicationActivation";
+import {
+  prepareApplicationBindingSelection,
+} from "../../../src/application/activation/repositoryIdentity";
+import {
+  lendApplicationBindingPreparationInputs,
+} from "../../../src/application/activation/bindingPreparation";
 import { retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
 
 const cleanup: Array<() => Promise<void>> = [];

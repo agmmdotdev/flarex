@@ -1,5 +1,8 @@
 import { Cause, Effect, Schema } from "effect";
-import { chargeHostPreparation, retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
+import {
+  chargeHostPreparation,
+  retainPreparedHost,
+} from "../../../src/execution/preparation/preparedHostRuntime";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -36,7 +39,12 @@ import {
   type AppRowRevisionV1,
 } from "../../../src/storage/documents/appRows";
 import { projectCe0CmsRequestFailure } from "./ce0CmsReferencePersistence";
-import { prepareCurrentApplicationBinding, hasApplicationBindingComposition } from "../../../src/application/applicationActivation";
+import {
+  prepareCurrentApplicationBinding,
+} from "../../../src/application/activation/currentBinding";
+import {
+  hasApplicationBindingComposition,
+} from "../../../src/application/activation/repositoryIdentity";
 
 const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.String));
 const hash = makeLivePrivateSha256V1({

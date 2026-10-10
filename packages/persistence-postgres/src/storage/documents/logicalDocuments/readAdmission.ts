@@ -2,19 +2,41 @@ import { Data, Effect, Option } from "effect";
 import { sql } from "drizzle-orm";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { readApplicationBindingTargetProtection, type PreparedStandaloneApplicationBinding } from "../../../application/applicationActivation";
-import { withStandaloneApplicationBindingEvidenceInTransaction } from "../../../application/applicationBindingProjection";
+import {
+  readApplicationBindingTargetProtection,
+} from "../../../application/activation/selectionIdentity";
+import {
+  type PreparedStandaloneApplicationBinding,
+} from "../../../application/activation/contracts";
+import {
+  withStandaloneApplicationBindingEvidenceInTransaction,
+} from "../../../application/applicationBindingProjection";
 import type { FlarexMetadataDatabase } from "../../../application/deployments";
-import { verifyPreparedLogicalSchemaBinding } from "../../../installation/frameworkSchema/binding/logicalSchema";
+import {
+  verifyPreparedLogicalSchemaBinding,
+} from "../../../installation/frameworkSchema/binding/logicalSchema";
 import type { DataBindingHeadToken } from "../../../installation/frameworkSchema/binding/model";
-import { readBindingSelectedEvidence, prepareBindingSelectedStructure, type PreparedBindingSelectedStructure } from "../../../installation/frameworkSchema/binding/repository";
+import {
+  readBindingSelectedEvidence,
+  prepareBindingSelectedStructure,
+  type PreparedBindingSelectedStructure,
+} from "../../../installation/frameworkSchema/binding/repository";
 import type { PreparedInstallation } from "../../../installation/installationLifecycle";
-import { prepareLogicalReadMetadata, LogicalReadMetadataError, type LogicalReadSourceRoot, type LogicalSourceReadPin } from "../logicalReadMetadata";
+import {
+  prepareLogicalReadMetadata,
+  LogicalReadMetadataError,
+  type LogicalReadSourceRoot,
+  type LogicalSourceReadPin,
+} from "../logicalReadMetadata";
 import { prepareLogicalReadDemand } from "../../catalog/logicalStorageReadiness";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import { runDrizzleStatementEffect } from "../../../database/drizzleStatementEffect";
-import { openProtectedMetadataFinalGuardScope, closeProtectedMetadataFinalGuardScope,
-  prepareProtectedMetadataFinalGuardBatch, acceptProtectedMetadataFinalGuardBatch } from "../../../execution/preparation/preparedMetadataEpoch";
+import {
+  openProtectedMetadataFinalGuardScope,
+  closeProtectedMetadataFinalGuardScope,
+  prepareProtectedMetadataFinalGuardBatch,
+  acceptProtectedMetadataFinalGuardBatch,
+} from "../../../execution/preparation/preparedMetadataEpoch";
 import type { ScopeClockRecord } from "../../../scope/scopeClock";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
 import type { LogicalStorageReadDemand, LogicalStorageReadReadiness } from "./model";

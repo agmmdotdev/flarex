@@ -113,7 +113,7 @@ import {
 } from "../../storage/documents/logicalDocuments/sourceAdmission";
 import type {
   AcceptedApplicationBinding,
-} from "../../application/applicationActivation";
+} from "../../application/activation/contracts";
 import {
   decodeLogicalParticipantDependencyEvidence,
 } from "../../storage/documents/logicalDocuments/journalEvidence";

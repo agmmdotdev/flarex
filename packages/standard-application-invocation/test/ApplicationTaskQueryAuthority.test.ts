@@ -3,13 +3,13 @@ import {
   decodeApplicationTaskRuntimeTargetV1,
   type ApplicationTaskRuntimeTargetV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
-import { ApplicationActivationError } from
-  "@flarex/persistence-postgres/internal/application-activation";
+import {
+  ApplicationActivationError,
+} from "@flarex/persistence-postgres/internal/application-activation";
 import type {
   ApplicationActiveSelection,
   ApplicationActiveSelectionBasis,
-} from
-  "@flarex/persistence-postgres/internal/application-activation";
+} from "@flarex/persistence-postgres/internal/application-activation";
 import { createApplicationNativeMutationPGliteFixture } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";

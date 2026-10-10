@@ -1,6 +1,8 @@
 import type { Json } from "flarex-protocol/json";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import type { ApplicationBindingSelectionReader } from "../../application/applicationActivation";
+import type {
+  ApplicationBindingSelectionReader,
+} from "../../application/activation/contracts";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { CmsRequestBudget } from "../../execution/preparation/frameworkExecutionPolicy";
 import type { PreparedHostRuntime } from "../../execution/preparation/preparedHostRuntime";

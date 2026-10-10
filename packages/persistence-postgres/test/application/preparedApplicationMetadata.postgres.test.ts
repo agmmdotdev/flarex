@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
-import { validateApplicationBindingBasisInTransaction } from "../../src/application/applicationActivation";
-import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
-  openProtectedMetadataFinalGuardScope, prepareProtectedMetadata } from "../../src/execution/preparation/preparedMetadataEpoch";
+import {
+  validateApplicationBindingBasisInTransaction,
+} from "../../src/application/activation/bindingAcceptance";
+import {
+  closeProtectedMetadataFinalGuardScope,
+  flushProtectedMetadataFinalGuards,
+  openProtectedMetadataFinalGuardScope,
+  prepareProtectedMetadata,
+} from "../../src/execution/preparation/preparedMetadataEpoch";
 import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../src/database/postgres";
 import { isLocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../src/scope/scopeClock";

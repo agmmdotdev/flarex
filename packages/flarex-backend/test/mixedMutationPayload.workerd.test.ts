@@ -14,6 +14,7 @@ import { fxAppRowRevisions, fxSystemIdempotency, fxSystemTransactionJournalRecei
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
+import { expectExpiredMixedOwnerCleanup } from "./support/mixedMutationCleanupAssertions";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
@@ -138,7 +139,28 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       }) } });
     try {
       const before = await publishedCounts(fixture);
-      await expect(fixture.runExecution()).rejects.toBeDefined();
+      const participant = fixture.payload?.profile.participant;
+      if (participant === undefined) throw new Error("Missing selected Payload profile");
+      await expect(fixture.runExecution(`export default { users: { create: { isMutation: true,
+        isPublic: true, _handler: async (ctx) => {
+          const id = await ctx.db.insert("users", { name: "before" });
+          const updated = await ctx.privateMixed.call("medusa.product", "update", ${JSON.stringify(fixture.seed.updateInput)});
+          const pending = await ctx.privateMixed.call("medusa.product", "retrieve", ${JSON.stringify(fixture.seed.retrieveInput)});
+          const listed = await ctx.privateMixed.call("medusa.product", "listByHandle", ${JSON.stringify(fixture.seed.listInput)});
+          const created = await ctx.privateMixed.call(${JSON.stringify(participant)},
+            "payload-create", { collection: "posts", data: { title: pending.title, publishedAt: "2026-01-01" } });
+          const afterHook = await ctx.privateMixed.call(${JSON.stringify(participant)},
+            "payload-findByID", { collection: "posts", id: created.id });
+          const enabled = await ctx.privateMixed.call(${JSON.stringify(participant)},
+            "payload-update", { collection: "posts", id: created.id, data: { enabled: true } });
+          const final = await ctx.privateMixed.call(${JSON.stringify(participant)},
+            "payload-findByID", { collection: "posts", id: created.id });
+          // A new identity requires the genuine capture frontier after all pending calls.
+          await ctx.db.insert("users", { name: "after-expiry-frontier" });
+          await ctx.db.patch(id, { name: final.title + ":" + final.score });
+          return { id, updated, pending, listed, created, afterHook, enabled, final };
+        },
+      } } };`)).rejects.toBeDefined();
       expect(revoked).toBe(true);
       expect(tentativeMethods).toEqual(["payload-findByID", "payload-update", "payload-findByID"]);
       expect(fixture.nativeInvokeCount.get("payload-create")).toBe(1);
@@ -150,9 +172,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
         if (fixture.hasSqlObserver) expect(fixture.getOpenTransactionDepth()).toBe(0);
         if (driver === "postgres") expect(await fixture.observePgNativeSqlTransactions()).toMatchObject({ openTransactions: 0 });
       } finally {
-        await expect(fixture.close()).rejects.toMatchObject({
-          _tag: "PointMutationSessionAttemptTerminalizationV1Error", issue: { reason: "executionClaimUnavailable" },
-        });
+        await expectExpiredMixedOwnerCleanup(fixture.close);
       }
       if (fixture.hasSqlObserver) expect(fixture.getOpenTransactionDepth()).toBe(0);
     }

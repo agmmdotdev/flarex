@@ -1,7 +1,11 @@
 import { withExecutionDiagnosticDefaults } from "../../execution/diagnostics/operation";
 import { makeCommerceCommandContext } from "./context";
 import { runWithRequestRecovery } from "../../database/relationalTransaction/requestRecovery";
-import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext, type CommerceHost } from "./commands";
+import {
+  getCommerceCommand,
+  type CommerceCommand,
+  type CommerceHost,
+} from "./commands";
 export { defineCommerceCommand } from "./commands";
 export type { CommerceCommand, CommerceCommandContext, CommerceHost } from "./commands";
 import { Cause, Effect, Exit, Schema } from "effect";
@@ -10,31 +14,74 @@ import { sql } from "drizzle-orm";
 import type { Json } from "flarex-protocol/json";
 import { canonicalizeJsonOutcome } from "../../values/jsonOutcome";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
+import {
+  TransactionRequestKeyV1Schema,
+  TransactionFunctionPathV1Schema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionRequestSha256V1Schema,
+} from "flarex-protocol/transaction-session";
 import { capturePrivateCanonicalValue } from "../../installation/frameworkSchema/privateCanonicalValue";
 import { isSyntheticBindingReference } from "../../installation/frameworkSchema/binding/canonical";
 import type { InstallationBindingReference } from "../../installation/frameworkSchema/binding/model";
 import { captureCommerceJsonData, lockCommerceRequest } from "./request";
-import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../../execution/preparation/boundedRequestLifetime";
-import { hasApplicationBindingComposition, prepareCurrentApplicationBinding, invalidateAcceptedApplicationBindingInTransaction } from "../../application/applicationActivation";
+import {
+  makeBoundedRequestLifetime,
+  type BoundedRequestContext,
+} from "../../execution/preparation/boundedRequestLifetime";
+import {
+  hasApplicationBindingComposition,
+} from "../../application/activation/repositoryIdentity";
+import {
+  prepareCurrentApplicationBinding,
+} from "../../application/activation/currentBinding";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../../application/activation/acceptedBinding";
 import { captureExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
 import { hasFrameworkSchemaTargetDatabase } from "../../installation/frameworkSchema/target";
-import { hasRelationalSessionDatabase, runRelationalSession, readRelationalSessionCoLocatedInstallation,
-  startRelationalRequestDeadline, boundRelationalRequestDeadline } from "../../database/relationalTransaction/session";
+import {
+  hasRelationalSessionDatabase,
+  runRelationalSession,
+  readRelationalSessionCoLocatedInstallation,
+  startRelationalRequestDeadline,
+  boundRelationalRequestDeadline,
+} from "../../database/relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import { createCommittedJsonOutcomeResolver } from "../../commit/committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
-import { withCommerceAdmission, requireCommerceAdmission, enterCommercePublication, type CommerceAdmission } from "./admission";
+import {
+  withCommerceAdmission,
+  requireCommerceAdmission,
+  enterCommercePublication,
+  type CommerceAdmission,
+} from "./admission";
 import { prepareInstallationRuntime } from "../../installation/frameworkSchema/installation/runtime";
-import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation, type CommerceRowObservation } from "./store";
+import {
+  makeCommerceStore,
+  type RelationalRowFact,
+  type CommerceLifecycleObservation,
+  type CommerceRowObservation,
+} from "./store";
 import { makeLogicalCommerceParticipant } from "./logicalParticipant";
 import { hasLiveLogicalCommerceRows, requireLogicalCommerceInitialization } from "./logicalInitialization";
-import { prepareLogicalRelationalAdmission, requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
+import {
+  prepareLogicalRelationalAdmission,
+  requireLogicalRelationalAdmission,
+  type LogicalRelationalAdmission,
+} from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { captureCommerceResources, defaultCommerceResources, type CommerceResources } from "./resources";
-import { captureLogicalCommerceSelection, prepareLogicalCommerceContract, type LogicalCommerceSelectionInput } from "./logicalSelection";
+import {
+  captureLogicalCommerceSelection,
+  prepareLogicalCommerceContract,
+  type LogicalCommerceSelectionInput,
+} from "./logicalSelection";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
-import { commerceIdentityEvidence, commerceRequestHash as hash, projectCommerceRequestFailure } from "./request";
+import {
+  commerceIdentityEvidence,
+  commerceRequestHash as hash,
+  projectCommerceRequestFailure,
+} from "./request";
 import { PhysicalSessionDeadlineIssue } from "../../database/physicalSession/errors";
 
 import type { CommerceHostConfiguration } from "./hostConfiguration";

@@ -1,4 +1,7 @@
-import { isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
+import {
+  isCanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
+} from "flarex-protocol/value";
 import { createHash, randomUUID } from "node:crypto";
 import { Effect, Exit, Result, Scope, Tracer } from "effect";
 import { expect, vi } from "vitest";
@@ -6,20 +9,42 @@ import { PglitePreparedQuery } from "drizzle-orm/pglite";
 import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { createMixedMutationPerformanceTrace } from "../performance/mixedMutationPerformanceTrace";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { captureFiniteApplicationMetadata, inspectFiniteApplicationMetadata, prepareRetainedApplicationBindingSelection,
-  readCapturedFiniteApplicationMetadata, readFiniteApplicationStorageCaptureMetadata,
-  type AcceptedApplicationBinding, type FiniteApplicationMetadata } from "../../src/application/applicationActivation";
-import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs,
-  withPreparedFiniteApplicationMutationAdmissionInTransaction } from "../../src/application/applicationMutationAdmission";
-import { withApplicationBindingEvidenceInTransaction } from "../../src/application/applicationBindingProjection";
+import {
+  captureFiniteApplicationMetadata,
+  inspectFiniteApplicationMetadata,
+  readCapturedFiniteApplicationMetadata,
+  readFiniteApplicationStorageCaptureMetadata,
+} from "../../src/application/activation/finiteIdentity";
+import {
+  prepareRetainedApplicationBindingSelection,
+} from "../../src/application/activation/repositoryIdentity";
+import {
+  type AcceptedApplicationBinding,
+  type FiniteApplicationMetadata,
+} from "../../src/application/activation/contracts";
+import {
+  prepareFiniteApplicationMutationAdmission,
+  readPreparedFiniteApplicationMutationInputs,
+  withPreparedFiniteApplicationMutationAdmissionInTransaction,
+} from "../../src/application/applicationMutationAdmission";
+import {
+  withApplicationBindingEvidenceInTransaction,
+} from "../../src/application/applicationBindingProjection";
 import { retainPreparedHost } from "../../src/execution/preparation/preparedHostRuntime";
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
-import { createApplicationMutationSessionActivationPersistenceV1 } from "../../src/execution/transactionSessionActivation";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+} from "../../src/execution/transactionSessionActivation";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
-import { payloadScalarFields, payloadScalarConfiguration } from "../../../payload-adapter/src/testing/profiles";
+import {
+  payloadScalarFields,
+  payloadScalarConfiguration,
+} from "../../../payload-adapter/src/testing/profiles";
 import { policyManifestFixture } from "./ownership/applicationWritePolicyFixture";
 import { preparePayloadRelationSuccessor } from "../integration/payload/payloadRelationFixture";
-import { deriveApplicationSyscallValidator } from "../../src/application/revision/applicationRevisionSyscallValidatorV1";
+import {
+  deriveApplicationSyscallValidator,
+} from "../../src/application/revision/applicationRevisionSyscallValidatorV1";
 import { fxControlSchemaVersionUniqueConstraintSets } from "../../src/database/schema";
 import { and, eq } from "drizzle-orm";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
@@ -27,20 +52,30 @@ import type { PGliteFlarexPersistence } from "../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../src/database/postgres";
 import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import type { cmsHostFixture } from "../frameworks/cmsTransaction/cmsHostFixture";
-import { relationReadinessFixture, prepareReadinessEvidence } from "./relations/applicationRelationReadinessFixture";
+import {
+  relationReadinessFixture,
+  prepareReadinessEvidence,
+} from "./relations/applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
 import { applicationMutationActivationEvidenceFixture } from "./applicationMutationActivationFixture";
 import { createApplicationNativeMutationMixedFixture } from "./applicationNativeMutationTestFixture";
 import type { FiniteEntryAttemptKernelContext } from "../../src/execution/transactionSessionAttemptKernel";
-import type { ApplicationActivationTargetProfile } from "../../src/application/applicationReadiness";
+import type {
+  ApplicationActivationTargetProfile,
+} from "../../src/application/readiness/contracts";
 import { captureFiniteApplicationAttemptMetadata, prepareFiniteAttemptMetadataProjection,
   type FiniteApplicationStorageDemand } from "../../src/storage/documents/logicalDocuments/sourceAdmission";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../src/scope/scopeAuthorityResolution";
-import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
-import { produceStandardApplicationCurrentSourceBundleV1, makeStandardApplicationCurrentAnalysisV1,
-  MiniflareApplicationAnalysisWorkerLoader } from "../../../system-test/support/standardApplicationCurrentAnalysisHarness";
+import {
+  prepareStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
+import {
+  produceStandardApplicationCurrentSourceBundleV1,
+  makeStandardApplicationCurrentAnalysisV1,
+  MiniflareApplicationAnalysisWorkerLoader,
+} from "../../../system-test/support/standardApplicationCurrentAnalysisHarness";
 
 /** A genuine selected legacy entry keeps its original metadata while fresh ownership changes. */
 export async function finiteApplicationMetadataScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,

@@ -2,12 +2,23 @@ import { Data, Effect, Result, Schema } from "effect";
 import { requireAppDocumentIdentityV1ForTableResult } from "flarex-protocol/app-document-id";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
 import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
-import type { CatalogSchemaVersionId, SchemaManifestAppTableDeclarationV1 } from "flarex-protocol/schema-manifest";
+import type {
+  CatalogSchemaVersionId,
+  SchemaManifestAppTableDeclarationV1,
+} from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
+import {
+  isCanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
+} from "flarex-protocol/value";
 import { validateValidatorValueV1, type ValidatorIdPolicyV1 } from "flarex-protocol/validator-engine";
-import type { ApplicationBindingInput } from "../../../application/applicationActivation";
-import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../../unique/appUniqueConstraintSetBuildV1";
+import type {
+  ApplicationBindingInput,
+} from "../../../application/activation/contracts";
+import type {
+  AppUniqueConstraintSetBuildPortsV1,
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../unique/appUniqueConstraintSetBuildV1";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
 import type { DataBindingHeadToken } from "../../../installation/frameworkSchema/binding/model";
@@ -17,7 +28,11 @@ import type { ScopeClockRecord } from "../../../scope/scopeClock";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
 import { getStableLogicalIndexIdentityByNameEffect } from "../../catalog/stableLogicalIndexCatalog";
 import type { LogicalDocumentWrite } from "./model";
-import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceConstruction } from "./sourceAdmission";
+import {
+  prepareLogicalSourceEvidence,
+  LogicalSourceAdmissionError,
+  type LogicalSourceConstruction,
+} from "./sourceAdmission";
 
 export class LogicalApplicationSourceAdmissionError extends Data.TaggedError("LogicalApplicationSourceAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" | "documentInvalid" | "unsupportedProfile";

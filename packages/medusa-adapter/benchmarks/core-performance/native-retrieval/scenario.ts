@@ -13,17 +13,40 @@ import { ProductModuleService } from "@medusajs/product/services";
 import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
 import type NativeProductModuleService from "../../../../../third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service";
 import { moduleIntegrationTestRunner as nativeRunner } from "./native-runner";
-import { mikroOrmModuleTestPersistenceAdapter } from "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter";
-import { productIntegrationTestRunner, getLogicalProductRunnerFixture } from "../../../test/support/logical-product-runner";
-import { makeCommerceReadHost } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/read/host";
-import { logicalCommerceBatchResources } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/resources";
+import {
+  mikroOrmModuleTestPersistenceAdapter,
+} from "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter";
+import {
+  productIntegrationTestRunner,
+  getLogicalProductRunnerFixture,
+} from "../../../test/support/logical-product-runner";
+import {
+  makeCommerceReadHost,
+} from "../../../../persistence-postgres/src/frameworks/commerceTransaction/read/host";
+import {
+  logicalCommerceBatchResources,
+} from "../../../../persistence-postgres/src/frameworks/commerceTransaction/resources";
 import { nativeRetrievalRelevantDemand } from "./fixtures";
-import { observeNativeRetrievalService, observePromotedRetrievalPrototype,
-  observeRetrievalPgClients, observeRetrievalAcceptingComponents,
-  observeRetrievalPgProtocol, destroyIdleRetrievalPoolClients, prepareNativeRetrievalConnectionReset,
-  type RetrievalComponentSpan, type RetrievalObservation, type RetrievalProtocolObservation } from "./observation";
-import { openRetrievalServerObserver, readRetrievalRuntimeSettings, retrievalServerDifference,
-  requireRetrievalServerObservedCalls, selectRetrievalServerDatabases, type RetrievalDatabaseIdentity } from "./server";
+import {
+  observeNativeRetrievalService,
+  observePromotedRetrievalPrototype,
+  observeRetrievalPgClients,
+  observeRetrievalAcceptingComponents,
+  observeRetrievalPgProtocol,
+  destroyIdleRetrievalPoolClients,
+  prepareNativeRetrievalConnectionReset,
+  type RetrievalComponentSpan,
+  type RetrievalObservation,
+  type RetrievalProtocolObservation,
+} from "./observation";
+import {
+  openRetrievalServerObserver,
+  readRetrievalRuntimeSettings,
+  retrievalServerDifference,
+  requireRetrievalServerObservedCalls,
+  selectRetrievalServerDatabases,
+  type RetrievalDatabaseIdentity,
+} from "./server";
 
 const root = new URL("../../../../../", import.meta.url);
 const output = new URL("./", import.meta.url);
@@ -147,27 +170,34 @@ function nativeManager(service: NativeProductModuleService): object {
 
 const hash = (text: string | Uint8Array) => createHash("sha256").update(text).digest("hex");
 async function sourceEvidence() {
-  const paths = ["third_party/medusa/SOURCE.json", "pnpm-lock.yaml", "packages/medusa-adapter/package.json",
-    "third_party/medusa/upstream/pnpm-lock.yaml", "packages/medusa-product/src/services/product-module-service.ts",
+  const paths = [
+    "third_party/medusa/SOURCE.json",
+    "pnpm-lock.yaml",
+    "packages/medusa-adapter/package.json",
+    "third_party/medusa/upstream/pnpm-lock.yaml",
+    "packages/medusa-product/src/services/product-module-service.ts",
     "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
     "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
     "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
-    "packages/medusa-adapter/src/product-commands/reads.ts", "packages/medusa-adapter/src/product-module.ts",
+    "packages/medusa-adapter/src/product-commands/reads.ts",
+    "packages/medusa-adapter/src/product-module.ts",
     "packages/medusa-adapter/test/support/logical-product-runner.ts",
     "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
     "packages/medusa-adapter/test/support/logical-product-fixture.ts",
     "packages/persistence-postgres/test/storage/documents/logicalReadMetadataScalingTestSupport.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/fixtures.ts",
-    "packages/medusa-adapter/src/commerce-module.ts", "packages/medusa-adapter/src/module-definition.ts",
+    "packages/medusa-adapter/src/commerce-module.ts",
+    "packages/medusa-adapter/src/module-definition.ts",
     "packages/medusa-adapter/src/product-module.ts",
     "packages/persistence-postgres/test/application/applicationNativeMutationTestFixture.ts",
-    "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts", "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+    "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+    "packages/medusa-adapter/vitest.native-retrieval.config.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
     "third_party/medusa/upstream/packages/modules/product/dist/index.js",
     "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
-            "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+    "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
     "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
     "third_party/medusa/upstream/packages/medusa-test-utils/src/module-test-runner.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/native-runner.ts",
@@ -178,8 +208,10 @@ async function sourceEvidence() {
     "packages/medusa-product/dist/services/product-module-service.js",
     "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
     "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
-    "packages/medusa-utils/package.json", "packages/medusa-utils/tsconfig.json",
-    "packages/medusa-product/package.json", "packages/medusa-product/tsconfig.json",
+    "packages/medusa-utils/package.json",
+    "packages/medusa-utils/tsconfig.json",
+    "packages/medusa-product/package.json",
+    "packages/medusa-product/tsconfig.json",
     "tools/medusa/tsconfig.fork.json",
     "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
     "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
@@ -191,8 +223,50 @@ async function sourceEvidence() {
     "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts",
     "packages/persistence-postgres/src/storage/documents/logicalDocuments/indexReads.ts",
     "packages/persistence-postgres/src/storage/catalog/logicalStorageReadiness.ts",
-    "packages/persistence-postgres/src/application/applicationActivation.ts",
-    "packages/persistence-postgres/src/application/applicationReadiness.ts",
+    "packages/persistence-postgres/src/application/activation/acceptedBinding.ts",
+    "packages/persistence-postgres/src/application/activation/activationPersistence.ts",
+    "packages/persistence-postgres/src/application/activation/activeRead.ts",
+    "packages/persistence-postgres/src/application/activation/bindingAcceptance.ts",
+    "packages/persistence-postgres/src/application/activation/bindingPreparation.ts",
+    "packages/persistence-postgres/src/application/activation/capture.ts",
+    "packages/persistence-postgres/src/application/activation/constructionContracts.ts",
+    "packages/persistence-postgres/src/application/activation/contracts.ts",
+    "packages/persistence-postgres/src/application/activation/currentBinding.ts",
+    "packages/persistence-postgres/src/application/activation/currentEntryIdentity.ts",
+    "packages/persistence-postgres/src/application/activation/databaseBoundary.ts",
+    "packages/persistence-postgres/src/application/activation/errors.ts",
+    "packages/persistence-postgres/src/application/activation/finiteIdentity.ts",
+    "packages/persistence-postgres/src/application/activation/finitePreparation.ts",
+    "packages/persistence-postgres/src/application/activation/headCapture.ts",
+    "packages/persistence-postgres/src/application/activation/limits.ts",
+    "packages/persistence-postgres/src/application/activation/metadataProjection.ts",
+    "packages/persistence-postgres/src/application/activation/readBindingPublication.ts",
+    "packages/persistence-postgres/src/application/activation/repository.ts",
+    "packages/persistence-postgres/src/application/activation/repositoryIdentity.ts",
+    "packages/persistence-postgres/src/application/activation/selectionIdentity.ts",
+    "packages/persistence-postgres/src/application/activation/standaloneBinding.ts",
+    "packages/persistence-postgres/src/application/applicationActivationApi.ts",
+    "packages/persistence-postgres/src/application/activeHead/contracts.ts",
+    "packages/persistence-postgres/src/application/activeHead/errors.ts",
+    "packages/persistence-postgres/src/application/activeHead/identity.ts",
+    "packages/persistence-postgres/src/application/readiness/acceptance.ts",
+    "packages/persistence-postgres/src/application/readiness/activationTarget.ts",
+    "packages/persistence-postgres/src/application/readiness/bundle.ts",
+    "packages/persistence-postgres/src/application/readiness/coldEvidence.ts",
+    "packages/persistence-postgres/src/application/readiness/constructionContracts.ts",
+    "packages/persistence-postgres/src/application/readiness/contracts.ts",
+    "packages/persistence-postgres/src/application/readiness/controlSchema.ts",
+    "packages/persistence-postgres/src/application/readiness/databaseBoundary.ts",
+    "packages/persistence-postgres/src/application/readiness/errors.ts",
+    "packages/persistence-postgres/src/application/readiness/frames.ts",
+    "packages/persistence-postgres/src/application/readiness/identity.ts",
+    "packages/persistence-postgres/src/application/readiness/limits.ts",
+    "packages/persistence-postgres/src/application/readiness/outcomes.ts",
+    "packages/persistence-postgres/src/application/readiness/persistence.ts",
+    "packages/persistence-postgres/src/application/readiness/physicalCoverage.ts",
+    "packages/persistence-postgres/src/application/readiness/preparation.ts",
+    "packages/persistence-postgres/src/application/readiness/repository.ts",
+    "packages/persistence-postgres/src/application/readiness/storedAuthority.ts",
     "packages/persistence-postgres/src/application/relations/applicationRelationReadinessFold.ts",
     "packages/persistence-postgres/src/application/applicationActiveHeadRead.ts",
     "packages/persistence-postgres/src/application/applicationBindingProjection.ts",
@@ -205,10 +279,13 @@ async function sourceEvidence() {
     "packages/persistence-postgres/src/installation/frameworkSchema/installation/runtime.ts",
     "packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts",
     "packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedLogicalAttempt.ts",
-    "packages/medusa-adapter/src/query/read.ts", "packages/medusa-adapter/src/commerce-relations.ts",
-    "packages/persistence-postgres/src/storage/documents/appRows.ts", "packages/persistence-postgres/src/database/postgres.ts",
+    "packages/medusa-adapter/src/query/read.ts",
+    "packages/medusa-adapter/src/commerce-relations.ts",
+    "packages/persistence-postgres/src/storage/documents/appRows.ts",
+    "packages/persistence-postgres/src/database/postgres.ts",
     "packages/persistence-postgres/src/execution/transactionSessionAttemptKernel.ts",
-    "packages/persistence-postgres/drizzle/meta/_journal.json"];
+    "packages/persistence-postgres/drizzle/meta/_journal.json",
+  ];
   if (managedRead) paths.push("packages/persistence-postgres/src/installation/installationLifecycle.ts",
     "packages/persistence-postgres/src/database/postgresInstallationMaintenance.ts",
     "packages/persistence-postgres/src/application/applicationStandaloneBinding.ts",

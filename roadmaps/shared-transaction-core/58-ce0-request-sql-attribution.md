@@ -83,8 +83,8 @@ provisioning resolution, active heads and activation frames, schema manifests,
 ordered/unique definitions, readiness, write ownership and data-binding evidence.
 This work spans preparation and current transaction admission; repeated SQL text
 does not imply it is safe to reuse stale authority. The responsible owners are
-`scopeAuthorityResolution.ts`, `applicationActivation.ts`,
-`applicationRelationReadinessFold.ts`, `applicationReadiness.ts`,
+`scopeAuthorityResolution.ts`, `application/activation/`,
+`applicationRelationReadinessFold.ts`, `application/readiness/`,
 `applicationBindingProjection.ts` and `cmsTransaction/admission.ts`.
 Protected metadata/readiness-root gates remain required before replacing deep
 integrity verification with a cached commitment.

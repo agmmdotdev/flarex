@@ -22,11 +22,19 @@ import {
 } from "./applicationSchemaAuthority";
 import {
   ApplicationActivationError,
+} from "./activation/errors";
+import {
   hasApplicationActivationPlanningComposition,
+} from "./activation/bindingPreparation";
+import {
   validateApplicationActiveSelectionInTransaction,
+} from "./activation/bindingAcceptance";
+import {
   type ApplicationActivationRepository,
-} from "./applicationActivation";
-import type { ReadApplicationReadinessError } from "./applicationReadiness";
+} from "./activation/contracts";
+import type {
+  ReadApplicationReadinessError,
+} from "./readiness/errors";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { runLocatedReadCommittedEffect } from "../database/locatedReadCommittedEffect";
 import {

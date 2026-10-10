@@ -94,14 +94,20 @@ import {
 import {
   claimApplicationRelationActiveSelection,
   claimApplicationExecutableActiveSelection,
+} from "./activation/selectionIdentity";
+import {
   type ApplicationRelationActiveSelectionSnapshot,
   type ApplicationRelationActiveSelectionBasis,
-  type ValidateApplicationRelationActiveSelectionInTransactionError,
-  validateApplicationExecutableActiveSelectionInTransaction,
   type ApplicationActiveSelection,
-  type ApplicationActivationError,
   type ApplicationExecutableActiveSelection,
-} from "./applicationActivation";
+} from "./activation/contracts";
+import {
+  type ValidateApplicationRelationActiveSelectionInTransactionError,
+  type ApplicationActivationError,
+} from "./activation/errors";
+import {
+  validateApplicationExecutableActiveSelectionInTransaction,
+} from "./activation/bindingAcceptance";
 import {
   type AppRelationEdgeQueryObservation,
   type AppRelationEdgeReadError,

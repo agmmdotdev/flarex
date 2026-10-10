@@ -41,13 +41,35 @@ import type { AppIndexDefinitionRecord } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import { hasExactOwnDataKeys } from "../../values/exactOwnDataKeys";
-import { decodeScopeClockRecordResult, scopeClockSelection, exactScopeWriteClockObservationIdentity, type ScopeClockRecord } from "../../scope/scopeClock";
-import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readApplicationSchemaForHeadForShareInTransactionEffect,
-  readCheckedApplicationActiveHead, readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
-  type CheckedApplicationActiveHead, type CoherentApplicationActiveHead } from "../../application/applicationActiveHeadRead";
-import { decodeApplicationMaterializationObservation } from "../../application/applicationActiveHeadRead";
-import { readRegisteredManagedMetadataPairFinalGuards } from "../../execution/preparation/preparedMetadataEpoch";
-import { decodeIndexMaintenanceObligationResult, IndexMaintenanceError, type IndexMaintenanceObligation } from "./indexMaintenanceModel";
+import {
+  decodeScopeClockRecordResult,
+  scopeClockSelection,
+  exactScopeWriteClockObservationIdentity,
+  type ScopeClockRecord,
+} from "../../scope/scopeClock";
+import {
+  readCoherentApplicationActiveHeadForShareInTransactionEffect,
+  readApplicationSchemaForHeadForShareInTransactionEffect,
+  readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
+} from "../../application/applicationActiveHeadRead";
+import {
+  readCheckedApplicationActiveHead,
+} from "../../application/activeHead/identity";
+import {
+  type CheckedApplicationActiveHead,
+  type CoherentApplicationActiveHead,
+} from "../../application/activeHead/contracts";
+import {
+  decodeApplicationMaterializationObservation,
+} from "../../application/applicationActiveHeadRead";
+import {
+  readRegisteredManagedMetadataPairFinalGuards,
+} from "../../execution/preparation/preparedMetadataEpoch";
+import {
+  decodeIndexMaintenanceObligationResult,
+  IndexMaintenanceError,
+  type IndexMaintenanceObligation,
+} from "./indexMaintenanceModel";
 import {
   fxSystemIndexBuildStates,
   fxSystemIndexMaintenanceObligations,

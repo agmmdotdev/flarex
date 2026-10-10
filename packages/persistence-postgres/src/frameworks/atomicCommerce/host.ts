@@ -2,7 +2,9 @@ import { withExecutionDiagnosticDefaults } from "../../execution/diagnostics/ope
 import { Cause, Effect } from "effect";
 import { retainPreparedHost, chargeHostPreparation } from "../../execution/preparation/preparedHostRuntime";
 import { sql } from "drizzle-orm";
-import { prepareCurrentApplicationBinding } from "../../application/applicationActivation";
+import {
+  prepareCurrentApplicationBinding,
+} from "../../application/activation/currentBinding";
 import { runRelationalSession, readRelationalSessionCoLocatedInstallation, startRelationalRequestDeadline,
   boundRelationalRequestDeadline } from "../../database/relationalTransaction/session";
 import { runWithRequestRecovery } from "../../database/relationalTransaction/requestRecovery";
@@ -10,11 +12,18 @@ import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect
 import { enterCommercePublication } from "../commerceTransaction/admission";
 import { createCommittedJsonOutcomeResolver } from "../../commit/committedPointOutcome";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
-import { lockCommerceRequest, projectCommerceRequestFailure as projectCommerceFailure } from "../commerceTransaction/request";
+import {
+  lockCommerceRequest,
+  projectCommerceRequestFailure as projectCommerceFailure,
+} from "../commerceTransaction/request";
 import { PhysicalSessionDeadlineIssue } from "../../database/physicalSession/errors";
 import type { AtomicCommerceHost } from "./commands";
 import { withAtomicCommerceAdmissions } from "./admission";
-import { captureAtomicCommerceConfiguration, prepareAtomicCommerceConfiguration, type AtomicCommerceHostInput } from "./configuration";
+import {
+  captureAtomicCommerceConfiguration,
+  prepareAtomicCommerceConfiguration,
+  type AtomicCommerceHostInput,
+} from "./configuration";
 import type { RequestLimits } from "../../execution/preparation/boundedRequestLifetime";
 import { captureAtomicCommerceRequest, prepareAtomicCommerceRequestEvidence } from "./request";
 import { executeAtomicCommerceRequest } from "./execution";

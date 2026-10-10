@@ -7,16 +7,23 @@ import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 import { logicalCurrencyFixture } from "../../medusa-adapter/test/support/logical-currency-fixture";
 import {
   prepareApplicationBindingSelection,
+} from "../../persistence-postgres/src/application/activation/repositoryIdentity";
+import {
   readApplicationBindingTargetProtection,
-} from "../../persistence-postgres/src/application/applicationActivation";
+} from "../../persistence-postgres/src/application/activation/selectionIdentity";
 import {
   prepareLogicalSourceEvidence,
   withSharedLogicalSourceBindingChecks,
 } from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
 import * as hostPreparation from "../../persistence-postgres/src/execution/preparation/preparedHostRuntime";
-import { prepareApplicationActiveHeadStructure, readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
-  readCheckedApplicationSchemaForHeadForShareInTransactionEffect, releaseCheckedApplicationActiveHead } from
-  "../../persistence-postgres/src/application/applicationActiveHeadRead";
+import {
+  prepareApplicationActiveHeadStructure,
+  releaseCheckedApplicationActiveHead,
+} from "../../persistence-postgres/src/application/activeHead/identity";
+import {
+  readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
+  readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
+} from "../../persistence-postgres/src/application/applicationActiveHeadRead";
 import {
   applicationActivationFrame,
   applicationActiveHeadFrame,
@@ -34,9 +41,14 @@ import {
   lockScopeClockForShareInTransactionEffect,
   type ScopeClockRecord,
 } from "../../persistence-postgres/src/scope/scopeClock";
-import { openProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
-  closeProtectedMetadataFinalGuardScope } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
-import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
+import {
+  openProtectedMetadataFinalGuardScope,
+  flushProtectedMetadataFinalGuards,
+  closeProtectedMetadataFinalGuardScope,
+} from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
+import type {
+  FlarexMetadataTransaction,
+} from "../../persistence-postgres/src/database/metadataTransaction";
 import { prepareBindingSelectedStructure, readBindingSelectedEvidence, readBindingActivation } from
   "../../persistence-postgres/src/installation/frameworkSchema/binding/repository";
 import { captureBindingValue, isDataBindingActivationFrame, isDataBindingHeadFrame } from

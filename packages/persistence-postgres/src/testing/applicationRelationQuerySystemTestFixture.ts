@@ -83,11 +83,13 @@ import { makeApplicationPublicationRepository } from
   "../application/applicationPublication";
 import {
   makeApplicationActivationRepository,
+} from "../application/activation/repository";
+import {
   type ApplicationActiveSelection,
   type CoherentActiveApplication,
   type CoherentActiveRelationApplication,
   type ApplicationRelationActivationRepository,
-} from "../application/applicationActivation";
+} from "../application/activation/contracts";
 import { fxSystemApplicationActiveHeads } from
   "../application/applicationActivationSchema";
 import {
@@ -122,8 +124,9 @@ import {
   createApplicationRelationTaskCatalogSnapshotPort,
   makeApplicationRelationTaskBindingRepository,
 } from "../application/relations/applicationRelationTaskBindings";
-import { makeApplicationReadinessRepository } from
-  "../application/applicationReadiness";
+import {
+  makeApplicationReadinessRepository,
+} from "../application/readiness/repository";
 import { makeApplicationSchemaAuthorityPublisher } from
   "../application/applicationSchemaAuthority";
 import {

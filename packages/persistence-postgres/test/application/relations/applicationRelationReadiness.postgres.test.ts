@@ -1,8 +1,15 @@
-import { issueSetupSeededSyscallValidatorProofV1 } from "../revision/applicationRevisionSyscallValidatorTestSupport";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction } from "../../../src/installation/installationLifecycle";
+import {
+  issueSetupSeededSyscallValidatorProofV1,
+} from "../revision/applicationRevisionSyscallValidatorTestSupport";
+import {
+  closeInstallationAdmission,
+  lockInstallationForCurrentTransaction,
+} from "../../../src/installation/installationLifecycle";
 import { setTimeout as delay } from "node:timers/promises";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
-import { loseBindingCommitResponse } from "../../installation/frameworkSchema/frameworkDataBindingPostgresTestSupport";
+import {
+  loseBindingCommitResponse,
+} from "../../installation/frameworkSchema/frameworkDataBindingPostgresTestSupport";
 
 import {
   canonicalizeApplicationManifestV1,
@@ -52,7 +59,10 @@ import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import type { PoolClient } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import * as scopeClock from "../../../src/scope/scopeClock";
-import { exactRelationCommitRowId, publishExactRelationSourceCommit } from "./applicationRelationSourceCommitFixture";
+import {
+  exactRelationCommitRowId,
+  publishExactRelationSourceCommit,
+} from "./applicationRelationSourceCommitFixture";
 
 import {
   advanceAppSchemaCandidateValidationEffect,
@@ -77,13 +87,23 @@ import {
 } from "../../../src/application/applicationAnalysisRegistration";
 import {
   claimApplicationActiveSelection,
-  type ApplicationActiveSelection,
   claimApplicationRelationActiveSelection,
+} from "../../../src/application/activation/selectionIdentity";
+import {
+  type ApplicationActiveSelection,
+} from "../../../src/application/activation/contracts";
+import {
   makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
+import {
   prepareApplicationBindingSelection,
+} from "../../../src/application/activation/repositoryIdentity";
+import {
   validateApplicationBindingBasisInTransaction,
+} from "../../../src/application/activation/bindingAcceptance";
+import {
   type ApplicationRelationActivationContext,
-} from "../../../src/application/applicationActivation";
+} from "../../../src/application/activation/constructionContracts";
 import {
   fxSystemApplicationActivations,
   fxSystemApplicationActiveHeads,
@@ -95,8 +115,9 @@ import {
   type ApplicationRelationBindingRepository,
   publishApplicationRelationBindingEffect,
 } from "../../../src/application/relations/binding";
-import { makeApplicationReadinessRepository } from
-  "../../../src/application/applicationReadiness";
+import {
+  makeApplicationReadinessRepository,
+} from "../../../src/application/readiness/repository";
 import { makeApplicationPublicationRepository } from
   "../../../src/application/applicationPublication";
 import { createApplicationRelationServingInspector } from
@@ -236,7 +257,12 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistencePair,
 } from "../../support/postgresHelpers";
-import { applyExactRelationSourceCommit, prepareReadinessEvidence, readyExactRelationReadFixture, relationReadinessFixture } from "./applicationRelationReadinessFixture";
+import {
+  applyExactRelationSourceCommit,
+  prepareReadinessEvidence,
+  readyExactRelationReadFixture,
+  relationReadinessFixture,
+} from "./applicationRelationReadinessFixture";
 import { withPostgresExecutionObservation } from "../../performance/postgresExecutionObservation";
 import { readApplicationBindingProjectionInTransaction } from
   "../../../src/application/applicationBindingProjection";

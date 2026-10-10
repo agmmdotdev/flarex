@@ -4,7 +4,9 @@ import { dirname, resolve } from "node:path";
 import { Effect, Schema, Tracer } from "effect";
 import { expect, it, vi } from "vitest";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
-import { readLogicalStorageRequirements } from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
+import {
+  readLogicalStorageRequirements,
+} from "../../persistence-postgres/src/storage/catalog/logicalStorageDefinitions";
 import { currencyCommands } from "../src/currency-service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { observeRetrievalPgClients, type RetrievalObservation } from
@@ -22,20 +24,65 @@ const variants = [
   { name: "sourceWidth", options: { includeProduct: true } },
   { name: "definitionCount", options: { includeUserNameIndex: true } },
 ] as const;
-const sourcePaths = ["packages/medusa-adapter/test/fresh-application-acceptance-scaling.postgres.test.ts",
+const sourcePaths = [
+  "packages/medusa-adapter/test/fresh-application-acceptance-scaling.postgres.test.ts",
   "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   "packages/persistence-postgres/test/application/applicationNativeMutationTestFixture.ts",
   "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
-  "packages/persistence-postgres/src/application/applicationActivation.ts",
+  "packages/persistence-postgres/src/application/activation/acceptedBinding.ts",
+  "packages/persistence-postgres/src/application/activation/activationPersistence.ts",
+  "packages/persistence-postgres/src/application/activation/activeRead.ts",
+  "packages/persistence-postgres/src/application/activation/bindingAcceptance.ts",
+  "packages/persistence-postgres/src/application/activation/bindingPreparation.ts",
+  "packages/persistence-postgres/src/application/activation/capture.ts",
+  "packages/persistence-postgres/src/application/activation/constructionContracts.ts",
+  "packages/persistence-postgres/src/application/activation/contracts.ts",
+  "packages/persistence-postgres/src/application/activation/currentBinding.ts",
+  "packages/persistence-postgres/src/application/activation/currentEntryIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/databaseBoundary.ts",
+  "packages/persistence-postgres/src/application/activation/errors.ts",
+  "packages/persistence-postgres/src/application/activation/finiteIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/finitePreparation.ts",
+  "packages/persistence-postgres/src/application/activation/headCapture.ts",
+  "packages/persistence-postgres/src/application/activation/limits.ts",
+  "packages/persistence-postgres/src/application/activation/metadataProjection.ts",
+  "packages/persistence-postgres/src/application/activation/readBindingPublication.ts",
+  "packages/persistence-postgres/src/application/activation/repository.ts",
+  "packages/persistence-postgres/src/application/activation/repositoryIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/selectionIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/standaloneBinding.ts",
+  "packages/persistence-postgres/src/application/applicationActivationApi.ts",
+  "packages/persistence-postgres/src/application/activeHead/contracts.ts",
+  "packages/persistence-postgres/src/application/activeHead/errors.ts",
+  "packages/persistence-postgres/src/application/activeHead/identity.ts",
   "packages/persistence-postgres/src/application/applicationBindingProjection.ts",
   "packages/persistence-postgres/src/application/applicationMutationAdmission.ts",
-  "packages/persistence-postgres/src/application/applicationReadiness.ts",
+  "packages/persistence-postgres/src/application/readiness/acceptance.ts",
+  "packages/persistence-postgres/src/application/readiness/activationTarget.ts",
+  "packages/persistence-postgres/src/application/readiness/bundle.ts",
+  "packages/persistence-postgres/src/application/readiness/coldEvidence.ts",
+  "packages/persistence-postgres/src/application/readiness/constructionContracts.ts",
+  "packages/persistence-postgres/src/application/readiness/contracts.ts",
+  "packages/persistence-postgres/src/application/readiness/controlSchema.ts",
+  "packages/persistence-postgres/src/application/readiness/databaseBoundary.ts",
+  "packages/persistence-postgres/src/application/readiness/errors.ts",
+  "packages/persistence-postgres/src/application/readiness/frames.ts",
+  "packages/persistence-postgres/src/application/readiness/identity.ts",
+  "packages/persistence-postgres/src/application/readiness/limits.ts",
+  "packages/persistence-postgres/src/application/readiness/outcomes.ts",
+  "packages/persistence-postgres/src/application/readiness/persistence.ts",
+  "packages/persistence-postgres/src/application/readiness/physicalCoverage.ts",
+  "packages/persistence-postgres/src/application/readiness/preparation.ts",
+  "packages/persistence-postgres/src/application/readiness/repository.ts",
+  "packages/persistence-postgres/src/application/readiness/storedAuthority.ts",
   "packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts",
   "packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission.ts",
   "packages/persistence-postgres/src/storage/documents/logicalDocuments/documentAdmission.ts",
   "packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts",
   "packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts",
-  "packages/persistence-postgres/src/execution/exactRunningAttemptTail.ts", "pnpm-lock.yaml"];
+  "packages/persistence-postgres/src/execution/exactRunningAttemptTail.ts",
+  "pnpm-lock.yaml",
+];
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 async function sourceEvidence() {
   return Promise.all(sourcePaths.map(async path => ({ path,

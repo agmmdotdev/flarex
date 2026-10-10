@@ -17,8 +17,10 @@ import {
 
 import {
   readCoherentApplicationActiveHeadForShareInTransactionEffect,
-  type ApplicationActiveHeadStateError,
 } from "../application/applicationActiveHeadRead";
+import {
+  type ApplicationActiveHeadStateError,
+} from "../application/activeHead/errors";
 import {
   ScopeExecution,
   type ScopeExecutionError,

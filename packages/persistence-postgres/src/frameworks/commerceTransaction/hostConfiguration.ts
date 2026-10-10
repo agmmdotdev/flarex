@@ -1,6 +1,8 @@
 import type { Json } from "flarex-protocol/json";
 import type { PreparedHostRuntime } from "../../execution/preparation/preparedHostRuntime";
-import type { ApplicationBindingSelectionReader } from "../../application/applicationActivation";
+import type {
+  ApplicationBindingSelectionReader,
+} from "../../application/activation/contracts";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
 import type { RelationalSession } from "../../database/relationalTransaction/session";

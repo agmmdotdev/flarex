@@ -1,9 +1,19 @@
-import { chargeHostPreparation, registerHostPreparationDisposal, PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
+import {
+  chargeHostPreparation,
+  registerHostPreparationDisposal,
+  PreparedHostRuntimeError,
+} from "../../execution/preparation/preparedHostRuntime";
 import { insertUniqueConstraintBuild } from "../indexes/indexBuildLifecycleDml";
 import {
   type PointCommitPublicationObservation,
 } from "../../commit/point/observation";
-import { applyApplicationCoverage, ApplicationCoveragePersistenceError, APPLICATION_COVERAGE_MAX_ROWS, type CoverageProof, type UniqueCoverageWrite } from "../materialization/domainCoverage";
+import {
+  applyApplicationCoverage,
+  ApplicationCoveragePersistenceError,
+  APPLICATION_COVERAGE_MAX_ROWS,
+  type CoverageProof,
+  type UniqueCoverageWrite,
+} from "../materialization/domainCoverage";
 import type { Json } from "flarex-protocol/json";
 import {
   readCommitFeedPageInTransactionV1Effect,
@@ -19,9 +29,16 @@ import { publicationModeForTable, readIndexCoverageContextInTransactionEffect,
   borrowIndexCoverageContextInTransaction, readPreparedIndexCoverageTableFrontiers,
   readIndexCoverageTableFrontiersInTransactionEffect,
   type IndexCoverageContext } from "../indexes/indexBuildStates";
-import { decodeUniqueMaintenanceObligationResult, UniqueMaintenanceError, type UniqueMaintenanceObligation } from "../indexes/indexMaintenanceModel";
+import {
+  decodeUniqueMaintenanceObligationResult,
+  UniqueMaintenanceError,
+  type UniqueMaintenanceObligation,
+} from "../indexes/indexMaintenanceModel";
 import { applicationDomainFailureDetail } from "../materialization/domainApplication";
-import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../application/applicationActivationSchema";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "../../application/applicationActivationSchema";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
@@ -114,7 +131,9 @@ import {
   type LoadAppSchemaCandidateValidationError,
   type PreparedAppSchemaCandidateValidationInstall,
 } from "../catalog/appSchemaCandidateValidation";
-import { readApplicationActiveRevisionForShareInTransactionEffect } from "../../application/applicationActiveHeadRead";
+import {
+  readApplicationActiveRevisionForShareInTransactionEffect,
+} from "../../application/applicationActiveHeadRead";
 import {
   readCurrentAppRowInTransactionEffect,
   AppRowReadPersistenceError,
@@ -143,10 +162,15 @@ import {
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "../../scope/scopeAuthorityResolution";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../scope/scopeAuthorityControlRead";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../scope/scopeAuthorityControlRead";
 import type { ScopePhysicalLocator } from "../../scope/scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "../../scope/scopePhysicalLocator";
-import { fxSystemUniqueConstraintBuilds, fxSystemUniqueMaintenanceObligations } from "../../database/schema";
+import {
+  fxSystemUniqueConstraintBuilds,
+  fxSystemUniqueMaintenanceObligations,
+} from "../../database/schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../execution/readCommittedTransactionFailure";
@@ -155,7 +179,9 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../execution/transactionSessionAttemptKernel";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../../execution/transactionSessionActivation";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../../execution/transactionSessionActivation";
 
 const INPUT_KEYS = Object.freeze(["deploymentId", "scopeId", "schemaVersionId"] as const);
 const BACKFILL_INPUT_KEYS = Object.freeze([
@@ -397,15 +423,17 @@ export const chargeUniqueConstraintPreparation = Effect.fn("AppUniqueConstraintS
 
 /** Closed catalog inputs only. No target observation or eligibility is issued. */
 export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.prepareCatalog")(
-  function* (port: AppUniqueConstraintSetEligibilityPortV1, input: AppUniqueConstraintSetEligibilityInputV1) {
+  function* (port: AppUniqueConstraintSetEligibilityPortV1, input: AppUniqueConstraintSetEligibilityInputV1,
+    reader?: FlarexMetadataTransaction) {
     const state = eligibilityPortStates.get(port);
     if (state === undefined) return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
     const captured = Object.freeze({ deploymentId: input.deploymentId, scopeId: input.scopeId, schemaVersionId: input.schemaVersionId });
-    const closure = yield* readAppUniqueConstraintSetClosureV1Effect(state.ports.controlDb, captured.deploymentId, captured.schemaVersionId);
+    const closure = yield* readAppUniqueConstraintSetClosureV1Effect(state.ports.controlDb, captured.deploymentId, captured.schemaVersionId,
+      undefined, reader);
     if (closure === null) return Object.freeze({ status: "not_ready" as const, reason: "setNotClosed" as const,
       blocksAllTables: true, tableIds: [] as const });
     const tableIds = uniqueConstraintTableIds(closure);
-    const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(state.ports.controlDb,
+    const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(reader ?? state.ports.controlDb,
       captured.deploymentId, captured.scopeId, captured.schemaVersionId, tableIds, closure.members.length);
     if (definitions === null || !appUniqueConstraintDefinitionsMatchMembers(definitions, closure.members))
       return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));

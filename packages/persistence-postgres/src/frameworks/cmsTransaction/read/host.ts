@@ -2,15 +2,36 @@ import { Cause, Clock, Effect, Schema } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import type { Json } from "flarex-protocol/json";
-import { hasApplicationBindingComposition, prepareStandaloneApplicationBindingSelection } from "../../../application/applicationActivation";
-import { decodeCmsRequestBudget, defaultCmsRequestBudget, type CmsRequestBudget } from "../../../execution/preparation/frameworkExecutionPolicy";
-import { prepareLogicalDocumentReadAdmission, requireLogicalDocumentReadAdmission } from "../../../storage/documents/logicalDocuments/documentAdmission";
-import { chargeHostPreparation, retainPreparedHost } from "../../../execution/preparation/preparedHostRuntime";
+import {
+  hasApplicationBindingComposition,
+  prepareStandaloneApplicationBindingSelection,
+} from "../../../application/activation/repositoryIdentity";
+import {
+  decodeCmsRequestBudget,
+  defaultCmsRequestBudget,
+  type CmsRequestBudget,
+} from "../../../execution/preparation/frameworkExecutionPolicy";
+import {
+  prepareLogicalDocumentReadAdmission,
+  requireLogicalDocumentReadAdmission,
+} from "../../../storage/documents/logicalDocuments/documentAdmission";
+import {
+  chargeHostPreparation,
+  retainPreparedHost,
+} from "../../../execution/preparation/preparedHostRuntime";
 import { capturePrivateJsonData } from "../../../values/privateJsonData";
-import { hasRelationalSessionDatabase, runCoLocatedRelationalReadSession } from "../../../database/relationalTransaction/session";
+import {
+  hasRelationalSessionDatabase,
+  runCoLocatedRelationalReadSession,
+} from "../../../database/relationalTransaction/session";
 import { prepareStandaloneReadTransaction } from "../../../storage/documents/standaloneReadTransaction";
-import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../../scope/scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../../execution/transactionSessionAttemptKernel";
+import {
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+} from "../../../scope/scopeAuthorityResolution";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../../execution/transactionSessionAttemptKernel";
 import { makeCmsCommandContext } from "../context";
 import { makeSourceCmsReadDocuments } from "../documents";
 import { getCmsCommand, type CmsCommand } from "../commands";
@@ -18,7 +39,13 @@ import { projectCmsRequestFailure } from "../failure";
 import type { CmsReadHostTestHooks } from "../testSupport";
 import type { CmsReadHostInput } from "./configuration";
 import { makeCmsRequestLifetime } from "../lifetime";
-import { cmsError, cmsLimits, type CmsRequestContext, type CmsPresentedTransactionId, type CmsTransactionError } from "../model";
+import {
+  cmsError,
+  cmsLimits,
+  type CmsRequestContext,
+  type CmsPresentedTransactionId,
+  type CmsTransactionError,
+} from "../model";
 
 export interface CmsReadHost {
   readonly requestBudget: CmsRequestBudget;

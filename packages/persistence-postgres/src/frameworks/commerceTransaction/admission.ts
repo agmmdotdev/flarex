@@ -1,22 +1,59 @@
 import { Effect, Option } from "effect";
-import type { ApplicationBindingInput } from "../../application/applicationActivation";
-import { isApplicationBindingPreparation, withAcceptedApplicationBinding, type AcceptedApplicationBinding, type ApplicationBindingObservation } from "../../application/applicationActivation";
-import { withApplicationBindingEvidenceInTransaction } from "../../application/applicationBindingProjection";
-import { readAcceptedApplicationBindingProjection, type ApplicationBindingReference } from "../../application/applicationBindingProjection";
-import { readBindingCandidate, readBindingHead, readRetainedBindingActivation } from "../../installation/frameworkSchema/binding/repository";
-import { verifyBindingApplicationReference } from "../../installation/frameworkSchema/binding/logicalSchema";
+import type {
+  ApplicationBindingInput,
+} from "../../application/activation/contracts";
+import {
+  isApplicationBindingPreparation,
+} from "../../application/activation/selectionIdentity";
+import {
+  withAcceptedApplicationBinding,
+} from "../../application/activation/bindingAcceptance";
+import {
+  type AcceptedApplicationBinding,
+  type ApplicationBindingObservation,
+} from "../../application/activation/contracts";
+import {
+  withApplicationBindingEvidenceInTransaction,
+} from "../../application/applicationBindingProjection";
+import {
+  readAcceptedApplicationBindingProjection,
+  type ApplicationBindingReference,
+} from "../../application/applicationBindingProjection";
+import {
+  readBindingCandidate,
+  readBindingHead,
+  readRetainedBindingActivation,
+} from "../../installation/frameworkSchema/binding/repository";
+import {
+  verifyBindingApplicationReference,
+} from "../../installation/frameworkSchema/binding/logicalSchema";
 import { lockBindingInstallation } from "../../installation/frameworkSchema/binding/evidence";
 import { installationRuntimeData } from "../../installation/frameworkSchema/installation/runtimeData";
-import { acceptPreparedInstallation, type PreparedInstallationRuntime } from "../../installation/frameworkSchema/installation/runtime";
+import {
+  acceptPreparedInstallation,
+  type PreparedInstallationRuntime,
+} from "../../installation/frameworkSchema/installation/runtime";
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
 import { validateCommerceProfileSet } from "../../installation/frameworkSchema/binding/commerceBinding";
-import type { InstallationBindingReference, DataBindingHeadToken } from "../../installation/frameworkSchema/binding/model";
-import { commerceBindings, bindingInstallationReference } from "../../installation/frameworkSchema/binding/model";
-import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
+import type {
+  InstallationBindingReference,
+  DataBindingHeadToken,
+} from "../../installation/frameworkSchema/binding/model";
+import {
+  commerceBindings,
+  bindingInstallationReference,
+} from "../../installation/frameworkSchema/binding/model";
+import {
+  frameworkSchemaTargetSnapshot,
+  type FrameworkSchemaTarget,
+} from "../../installation/frameworkSchema/target";
 import { scopePhysicalLocatorsEqual } from "../../scope/scopePhysicalLocator";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect, type ScopeClockRecord } from "../../scope/scopeClock";
+import {
+  lockScopeClockForOrdinaryWriteInTransactionEffect,
+  type ScopeClockRecord,
+} from "../../scope/scopeClock";
 import type { CommerceProfile } from "./profile";
 import { verifyCommerceBinding, verifyCommerceInstallation } from "./binding";
 import { commerceError } from "./model";

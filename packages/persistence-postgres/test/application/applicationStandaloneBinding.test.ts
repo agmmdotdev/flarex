@@ -1,13 +1,28 @@
 import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { expect, it } from "vitest";
-import { canonicalStandaloneApplicationBinding, decodeStandaloneApplicationBinding } from "../../src/application/applicationStandaloneBinding";
-import { backfillStandaloneApplicationBindings } from "../../src/application/applicationActivation";
-import { fxSystemApplicationActiveHeads, fxSystemApplicationReadBindings } from "../../src/application/applicationActivationSchema";
+import {
+  canonicalStandaloneApplicationBinding,
+  decodeStandaloneApplicationBinding,
+} from "../../src/application/applicationStandaloneBinding";
+import {
+  backfillStandaloneApplicationBindings,
+} from "../../src/application/activation/readBindingPublication";
+import {
+  fxSystemApplicationActiveHeads,
+  fxSystemApplicationReadBindings,
+} from "../../src/application/applicationActivationSchema";
 import { fxSystemApplicationReadiness } from "../../src/application/relations/applicationRelationSchema";
-import { fxSystemPreparedMetadataEpoch, fxSystemMetadataContractObservations, fxSystemScopeClocks } from "../../src/database/schema";
+import {
+  fxSystemPreparedMetadataEpoch,
+  fxSystemMetadataContractObservations,
+  fxSystemScopeClocks,
+} from "../../src/database/schema";
 import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
-import { relationReadinessFixture, prepareReadinessEvidence } from "./relations/applicationRelationReadinessFixture";
+import {
+  relationReadinessFixture,
+  prepareReadinessEvidence,
+} from "./relations/applicationRelationReadinessFixture";
 import { runEffect } from "../support/effectTestRuntime";
 
 it("publishes a parent-derived binding and backfills an existing activation without altering its durable head", async () => {

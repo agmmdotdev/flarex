@@ -1,3 +1,4 @@
+import { postgresUrl, withTemporaryPostgresPersistence } from "../../support/postgresHelpers";
 import { PGlite } from "@electric-sql/pglite";
 import {
   makeStandardApplicationTaskSha256V1,
@@ -25,18 +26,22 @@ import {
 } from "flarex-protocol/storage-authority";
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import { exactRelationCommitRowId } from "./applicationRelationSourceCommitFixture";
 import {
   applicationRelationActiveSelectionMatchesSnapshot,
   claimApplicationActiveSelection,
   claimApplicationRelationActiveSelection,
+} from "../../../src/application/activation/selectionIdentity";
+import {
   makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
+import {
   validateApplicationActiveSelectionInTransaction,
   validateApplicationRelationActiveSelectionInTransaction,
   validateApplicationRelationActiveSelectionForReadiness,
-} from "../../../src/application/applicationActivation";
+} from "../../../src/application/activation/bindingAcceptance";
 import {
   hasApplicationRelationReadinessFoldAuthority,
   makeApplicationRelationReadinessFoldRepository,
@@ -1673,237 +1678,16 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
   });
 
   it("moves one active head from relation A1 through Legacy B2 to relation C3", async () => {
-    const ready = await readyExactRelationReadFixture();
-    const relationA1 = ready.active;
-    expect(relationA1.basis.activationSequence).toBe(1n);
-
-    const legacy = await prepareLegacyRevisionInRelationFixture(ready.fixture);
-
-    const retainedRelationA1 = await runEffect(
-      ready.fixture.relationActivation.readActive(),
-    );
-    expect(retainedRelationA1.expectedActiveHead).toEqual(
-      relationA1.expectedActiveHead,
-    );
-    expect(Result.isSuccess(
-      claimApplicationRelationActiveSelection(retainedRelationA1.selection),
-    )).toBe(true);
-    const validatedRelationA1 = await ready.fixture.persistence.drizzle
-      .transaction(async tx => {
-        const clock = await runEffect(
-          lockScopeClockForShareInTransactionEffect(
-            tx,
-            ready.fixture.authority.scopeId,
-          ),
-        );
-        return runEffect(
-          validateApplicationRelationActiveSelectionInTransaction(
-            relationA1.selection,
-            tx,
-            clock,
-          ),
-        );
-      });
-    expect(validatedRelationA1.activationSequence).toBe(1n);
-
-    const coldRelationActivation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
-      deploymentId: ready.fixture.deploymentId,
-      scopeId: ready.fixture.authority.scopeId,
-      readiness: ready.fixture.legacyReadiness,
-      relationReadiness: makeApplicationRelationReadinessFoldRepository(
-        ready.fixture.foldContext,
-      ),
-      authority: ready.fixture.authorityPorts,
-    });
-    const coldRelationA1 = await runEffect(coldRelationActivation.readActive());
-    expect(coldRelationA1.expectedActiveHead).toEqual(
-      relationA1.expectedActiveHead,
-    );
-    expect(Result.isSuccess(
-      claimApplicationRelationActiveSelection(coldRelationA1.selection),
-    )).toBe(true);
-
-    const legacyB2 = await runEffect(
-      ready.fixture.relationActivation.activate({
-        revisionId: legacy.readiness.revisionId,
-        expectedActiveHead: relationA1.expectedActiveHead,
-      }),
-    );
-    expect(legacyB2).toMatchObject({
-      status: "activated",
-      disposition: "inserted",
-      revisionId: legacy.readiness.revisionId,
-      activationSequence: 2n,
-      previousActivationSequence: 1n,
-    });
-    const activeLegacyB2 = await runEffect(
-      ready.fixture.relationActivation.readActive(),
-    );
-    const legacyBasis = Result.getOrThrow(
-      claimApplicationActiveSelection(activeLegacyB2.selection),
-    );
-    expect(legacyBasis).toMatchObject({
-      revisionId: legacy.readiness.revisionId,
-      activationSequence: 2n,
-    });
-    expect(Result.isFailure(
-      claimApplicationRelationActiveSelection(activeLegacyB2.selection),
-    )).toBe(true);
-    const staleRelationA1 = await ready.fixture.persistence.drizzle
-      .transaction(async tx => {
-        const clock = await runEffect(
-          lockScopeClockForShareInTransactionEffect(
-            tx,
-            ready.fixture.authority.scopeId,
-          ),
-        );
-        return runEffectFailure(
-          validateApplicationRelationActiveSelectionInTransaction(
-            relationA1.selection,
-            tx,
-            clock,
-          ),
-        );
-      });
-    expect(staleRelationA1).toMatchObject({
-      _tag: "ApplicationActivationError",
-      operation: "validateSelection",
-      reason: "concurrentHead",
-    });
-
-    await settleCandidateValidation(
-      ready.fixture.candidateValidation,
-      ready.fixture.deploymentId,
-      ready.fixture.authority.scopeId,
-      ready.fixture.relation.binding.schemaVersionId,
-    );
-    const retainedLegacyB2 = await runEffect(
-      ready.fixture.relationActivation.readActive(),
-    );
-    expect(retainedLegacyB2.expectedActiveHead).toEqual(
-      activeLegacyB2.expectedActiveHead,
-    );
-    expect(Result.isSuccess(
-      claimApplicationActiveSelection(retainedLegacyB2.selection),
-    )).toBe(true);
-
-    const relationC = await prepareAdditionalRelationRevision(ready.fixture);
-    const relationC3 = await runEffect(
-      ready.fixture.relationActivation.activate({
-        revisionId: relationC.readiness.revisionId,
-        expectedActiveHead: retainedLegacyB2.expectedActiveHead,
-      }),
-    );
-    expect(relationC3).toMatchObject({
-      status: "activated",
-      disposition: "inserted",
-      revisionId: relationC.readiness.revisionId,
-      activationSequence: 3n,
-      previousActivationSequence: 2n,
-    });
-    const activeRelationC3 = await runEffect(
-      ready.fixture.relationActivation.readActive(),
-    );
-    const relationBasis = Result.getOrThrow(
-      claimApplicationRelationActiveSelection(activeRelationC3.selection),
-    );
-    expect(relationBasis).toMatchObject({
-      revisionId: relationC.readiness.revisionId,
-      activationSequence: 3n,
-      relationCount: relationC.readiness.relationCount,
-    });
-    expect(Result.isFailure(
-      claimApplicationActiveSelection(activeRelationC3.selection),
-    )).toBe(true);
-
-    const [staleLegacyB2, currentRelationC3] =
-      await ready.fixture.persistence.drizzle.transaction(async tx => {
-        const clock = await runEffect(
-          lockScopeClockForShareInTransactionEffect(
-            tx,
-            ready.fixture.authority.scopeId,
-          ),
-        );
-        return Promise.all([
-          runEffectFailure(validateApplicationActiveSelectionInTransaction(
-            retainedLegacyB2.selection,
-            tx,
-            clock,
-          )),
-          runEffect(validateApplicationRelationActiveSelectionInTransaction(
-            activeRelationC3.selection,
-            tx,
-            clock,
-          )),
-        ]);
-      });
-    expect(staleLegacyB2).toMatchObject({
-      _tag: "ApplicationActivationError",
-      operation: "validateSelection",
-      reason: "concurrentHead",
-    });
-    expect(currentRelationC3.activationSequence).toBe(3n);
-
-    const activations = await ready.fixture.persistence.drizzle.select().from(
-      fxSystemApplicationActivations,
-    ).orderBy(asc(fxSystemApplicationActivations.activationSequence));
-    expect(activations.map(row => ({
-      activationSequence: row.activationSequence,
-      previousActivationSequence: row.previousActivationSequence,
-      revisionId: row.revisionId,
-      readinessContractVersion: row.readinessContractVersion,
-      legacyWitness: row.legacyReadinessSha256 !== null,
-      relationWitness: row.relationReadinessSha256 !== null,
-      relationSetWitness: row.relationSetReadinessSha256 !== null,
-      relationCount: row.relationCount,
-    }))).toEqual([
-      {
-        activationSequence: 1n,
-        previousActivationSequence: null,
-        revisionId: ready.readiness.revisionId,
-        readinessContractVersion: 2,
-        legacyWitness: false,
-        relationWitness: true,
-        relationSetWitness: true,
-        relationCount: ready.readiness.relationCount,
-      },
-      {
-        activationSequence: 2n,
-        previousActivationSequence: 1n,
-        revisionId: legacy.readiness.revisionId,
-        readinessContractVersion: 1,
-        legacyWitness: true,
-        relationWitness: false,
-        relationSetWitness: false,
-        relationCount: null,
-      },
-      {
-        activationSequence: 3n,
-        previousActivationSequence: 2n,
-        revisionId: relationC.readiness.revisionId,
-        readinessContractVersion: 2,
-        legacyWitness: false,
-        relationWitness: true,
-        relationSetWitness: true,
-        relationCount: relationC.readiness.relationCount,
-      },
-    ]);
-    expect(new Set([
-      relationA1.expectedActiveHead.headSha256,
-      legacyB2.expectedActiveHead.headSha256,
-      relationC3.expectedActiveHead.headSha256,
-    ]).size).toBe(3);
-    const finalHeads = await ready.fixture.persistence.drizzle.select().from(
-      fxSystemApplicationActiveHeads,
-    );
-    expect(finalHeads).toHaveLength(1);
-    expect(finalHeads[0]).toMatchObject({
-      activationSequence: 3n,
-      revisionId: relationC.readiness.revisionId,
-      readinessContractVersion: 2,
-      relationCount: relationC.readiness.relationCount,
-    });
+    await exerciseActiveHeadTransition();
   });
+
+  it.skipIf(postgresUrl === null)("moves one active head from relation A1 through Legacy B2 to relation C3 (PostgreSQL)",
+    () => withTemporaryPostgresPersistence(async persistence => {
+      expect((await persistence.query<{ superuser: boolean }>(
+        "select rolsuper as superuser from pg_roles where rolname=current_user",
+      )).rows[0]?.superuser).toBe(false);
+      await exerciseActiveHeadTransition({ persistence });
+    }), 60_000);
 
   it("atomically folds two ordered relations, exactly replays, and stays outside legacy activation", async () => {
     const fixture = await relationReadinessFixture();
@@ -3106,3 +2890,253 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     ))).rejects.toThrow();
   });
 });
+
+async function exerciseActiveHeadTransition(options: Parameters<typeof readyExactRelationReadFixture>[0] = {}) {
+    const ready = await readyExactRelationReadFixture(options);
+    const relationA1 = ready.active;
+    expect(relationA1.basis.activationSequence).toBe(1n);
+
+    const legacy = await prepareLegacyRevisionInRelationFixture(ready.fixture);
+
+    const retainedRelationA1 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    );
+    expect(retainedRelationA1.expectedActiveHead).toEqual(
+      relationA1.expectedActiveHead,
+    );
+    expect(Result.isSuccess(
+      claimApplicationRelationActiveSelection(retainedRelationA1.selection),
+    )).toBe(true);
+    const validatedRelationA1 = await ready.fixture.persistence.drizzle
+      .transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForShareInTransactionEffect(
+            tx,
+            ready.fixture.authority.scopeId,
+          ),
+        );
+        return runEffect(
+          validateApplicationRelationActiveSelectionInTransaction(
+            relationA1.selection,
+            tx,
+            clock,
+          ),
+        );
+      });
+    expect(validatedRelationA1.activationSequence).toBe(1n);
+
+    const coldRelationActivation = makeApplicationActivationRepository({ activation: { kind: "fullProof" },
+      deploymentId: ready.fixture.deploymentId,
+      scopeId: ready.fixture.authority.scopeId,
+      readiness: ready.fixture.legacyReadiness,
+      relationReadiness: makeApplicationRelationReadinessFoldRepository(
+        ready.fixture.foldContext,
+      ),
+      authority: ready.fixture.authorityPorts,
+    });
+    const coldRelationA1 = await runEffect(coldRelationActivation.readActive());
+    expect(coldRelationA1.expectedActiveHead).toEqual(
+      relationA1.expectedActiveHead,
+    );
+    expect(Result.isSuccess(
+      claimApplicationRelationActiveSelection(coldRelationA1.selection),
+    )).toBe(true);
+
+    const legacyB2 = await runEffect(
+      ready.fixture.relationActivation.activate({
+        revisionId: legacy.readiness.revisionId,
+        expectedActiveHead: relationA1.expectedActiveHead,
+      }),
+    );
+    expect(legacyB2).toMatchObject({
+      status: "activated",
+      disposition: "inserted",
+      revisionId: legacy.readiness.revisionId,
+      activationSequence: 2n,
+      previousActivationSequence: 1n,
+    });
+    let activeNativeCallbacks = 0;
+    let overlappingNativeRequests = 0;
+    let nativeRequests = 0;
+    const database = ready.fixture.persistence.drizzle;
+    const originalTransaction = database.transaction.bind(database);
+    const transaction = vi.spyOn(database, "transaction").mockImplementation((callback, transactionOptions) => {
+      nativeRequests++;
+      if (activeNativeCallbacks !== 0) overlappingNativeRequests++;
+      return originalTransaction(async tx => {
+        activeNativeCallbacks++;
+        try { return await callback(tx); }
+        finally { activeNativeCallbacks--; }
+      }, transactionOptions);
+    });
+    const activeLegacyB2 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    ).finally(() => transaction.mockRestore());
+    expect(nativeRequests).toBeGreaterThan(0);
+    expect(overlappingNativeRequests).toBe(0);
+    expect(activeNativeCallbacks).toBe(0);
+    const legacyBasis = Result.getOrThrow(
+      claimApplicationActiveSelection(activeLegacyB2.selection),
+    );
+    expect(legacyBasis).toMatchObject({
+      revisionId: legacy.readiness.revisionId,
+      activationSequence: 2n,
+    });
+    expect(Result.isFailure(
+      claimApplicationRelationActiveSelection(activeLegacyB2.selection),
+    )).toBe(true);
+    const staleRelationA1 = await ready.fixture.persistence.drizzle
+      .transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForShareInTransactionEffect(
+            tx,
+            ready.fixture.authority.scopeId,
+          ),
+        );
+        return runEffectFailure(
+          validateApplicationRelationActiveSelectionInTransaction(
+            relationA1.selection,
+            tx,
+            clock,
+          ),
+        );
+      });
+    expect(staleRelationA1).toMatchObject({
+      _tag: "ApplicationActivationError",
+      operation: "validateSelection",
+      reason: "concurrentHead",
+    });
+
+    await settleCandidateValidation(
+      ready.fixture.candidateValidation,
+      ready.fixture.deploymentId,
+      ready.fixture.authority.scopeId,
+      ready.fixture.relation.binding.schemaVersionId,
+    );
+    const retainedLegacyB2 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    );
+    expect(retainedLegacyB2.expectedActiveHead).toEqual(
+      activeLegacyB2.expectedActiveHead,
+    );
+    expect(Result.isSuccess(
+      claimApplicationActiveSelection(retainedLegacyB2.selection),
+    )).toBe(true);
+
+    const relationC = await prepareAdditionalRelationRevision(ready.fixture);
+    const relationC3 = await runEffect(
+      ready.fixture.relationActivation.activate({
+        revisionId: relationC.readiness.revisionId,
+        expectedActiveHead: retainedLegacyB2.expectedActiveHead,
+      }),
+    );
+    expect(relationC3).toMatchObject({
+      status: "activated",
+      disposition: "inserted",
+      revisionId: relationC.readiness.revisionId,
+      activationSequence: 3n,
+      previousActivationSequence: 2n,
+    });
+    const activeRelationC3 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    );
+    const relationBasis = Result.getOrThrow(
+      claimApplicationRelationActiveSelection(activeRelationC3.selection),
+    );
+    expect(relationBasis).toMatchObject({
+      revisionId: relationC.readiness.revisionId,
+      activationSequence: 3n,
+      relationCount: relationC.readiness.relationCount,
+    });
+    expect(Result.isFailure(
+      claimApplicationActiveSelection(activeRelationC3.selection),
+    )).toBe(true);
+
+    const [staleLegacyB2, currentRelationC3] =
+      await ready.fixture.persistence.drizzle.transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForShareInTransactionEffect(
+            tx,
+            ready.fixture.authority.scopeId,
+          ),
+        );
+        return Promise.all([
+          runEffectFailure(validateApplicationActiveSelectionInTransaction(
+            retainedLegacyB2.selection,
+            tx,
+            clock,
+          )),
+          runEffect(validateApplicationRelationActiveSelectionInTransaction(
+            activeRelationC3.selection,
+            tx,
+            clock,
+          )),
+        ]);
+      });
+    expect(staleLegacyB2).toMatchObject({
+      _tag: "ApplicationActivationError",
+      operation: "validateSelection",
+      reason: "concurrentHead",
+    });
+    expect(currentRelationC3.activationSequence).toBe(3n);
+
+    const activations = await ready.fixture.persistence.drizzle.select().from(
+      fxSystemApplicationActivations,
+    ).orderBy(asc(fxSystemApplicationActivations.activationSequence));
+    expect(activations.map(row => ({
+      activationSequence: row.activationSequence,
+      previousActivationSequence: row.previousActivationSequence,
+      revisionId: row.revisionId,
+      readinessContractVersion: row.readinessContractVersion,
+      legacyWitness: row.legacyReadinessSha256 !== null,
+      relationWitness: row.relationReadinessSha256 !== null,
+      relationSetWitness: row.relationSetReadinessSha256 !== null,
+      relationCount: row.relationCount,
+    }))).toEqual([
+      {
+        activationSequence: 1n,
+        previousActivationSequence: null,
+        revisionId: ready.readiness.revisionId,
+        readinessContractVersion: 2,
+        legacyWitness: false,
+        relationWitness: true,
+        relationSetWitness: true,
+        relationCount: ready.readiness.relationCount,
+      },
+      {
+        activationSequence: 2n,
+        previousActivationSequence: 1n,
+        revisionId: legacy.readiness.revisionId,
+        readinessContractVersion: 1,
+        legacyWitness: true,
+        relationWitness: false,
+        relationSetWitness: false,
+        relationCount: null,
+      },
+      {
+        activationSequence: 3n,
+        previousActivationSequence: 2n,
+        revisionId: relationC.readiness.revisionId,
+        readinessContractVersion: 2,
+        legacyWitness: false,
+        relationWitness: true,
+        relationSetWitness: true,
+        relationCount: relationC.readiness.relationCount,
+      },
+    ]);
+    expect(new Set([
+      relationA1.expectedActiveHead.headSha256,
+      legacyB2.expectedActiveHead.headSha256,
+      relationC3.expectedActiveHead.headSha256,
+    ]).size).toBe(3);
+    const finalHeads = await ready.fixture.persistence.drizzle.select().from(
+      fxSystemApplicationActiveHeads,
+    );
+    expect(finalHeads).toHaveLength(1);
+    expect(finalHeads[0]).toMatchObject({
+      activationSequence: 3n,
+      revisionId: relationC.readiness.revisionId,
+      readinessContractVersion: 2,
+      relationCount: relationC.readiness.relationCount,
+    });
+  }

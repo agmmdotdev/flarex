@@ -1,3 +1,45 @@
+import { databaseTimestampFromUnknown } from "../database/databaseTimestamp";
+import { fxSystemApplicationRevisionSchemasV1 } from "../database/schema";
+import { observeExecution } from "../execution/diagnostics/operation";
+import {
+  type FiniteEntryObservation,
+  readFiniteEntryApplicationObservation,
+} from "../execution/finiteEntryObservation";
+import {
+  authenticateProtectedTargetMetadataSnapshot,
+  hasProtectedMetadataFinalGuardScope,
+  registerProtectedMetadataFinalGuard,
+} from "../execution/preparation/preparedMetadataEpoch";
+import type { TrustedScopeAuthority } from "../scope/scopeAuthorityResolution";
+import type { ScopeClockRecord } from "../scope/scopeClock";
+import type { AppRowTransaction } from "../storage/documents/appRows";
+import type {
+  CheckedApplicationActiveHead,
+  CoherentApplicationActiveHead,
+  DecodedApplicationActivation,
+  DecodedApplicationActiveHead,
+  PreparedApplicationActiveHeadStructure,
+} from "./activeHead/contracts";
+import { ApplicationActiveHeadStateError } from "./activeHead/errors";
+import {
+  type ApplicationActiveHeadPreparationState,
+  issueCheckedApplicationHeadObservation,
+  issueCheckedCoherentApplicationHeadObservation,
+  readApplicationActiveHeadPreparationState,
+  readCheckedActiveHeadState,
+  readCheckedApplicationActiveHead,
+  readIssuedCheckedApplicationActiveHeadState,
+} from "./activeHead/identity";
+import {
+  applicationActivationFrame,
+  type ApplicationActivationReadinessCommitment,
+  applicationActiveHeadFrame,
+} from "./applicationActivationFrames";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "./applicationActivationSchema";
+import { fxSystemApplicationRevisionSchemas } from "./relations/applicationRelationSchema";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -8,105 +50,13 @@ import {
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
-import { ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { Effect, Result, Schema } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
-
-import {
-  applicationActivationFrame,
-  applicationActiveHeadFrame,
-  type ApplicationActivationReadinessCommitment,
-} from "./applicationActivationFrames";
-import {
-  fxSystemApplicationActivations,
-  fxSystemApplicationActiveHeads,
-} from "./applicationActivationSchema";
-import {
-  fxSystemApplicationRevisionSchemas,
-} from "./relations/applicationRelationSchema";
-import type { AppRowTransaction } from "../storage/documents/appRows";
-import type { ScopeClockRecord } from "../scope/scopeClock";
-import { databaseTimestampFromUnknown } from "../database/databaseTimestamp";
-import type { TrustedScopeAuthority } from "../scope/scopeAuthorityResolution";
-import { fxSystemApplicationRevisionSchemasV1 } from "../database/schema";
-import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
-  authenticateProtectedTargetMetadataSnapshot,
-  type ProtectedTargetMetadataEvidence } from "../execution/preparation/preparedMetadataEpoch";
-import type { PreparedHostPreparationCharge } from "../execution/preparation/preparedHostRuntime";
-import type { ApplicationActiveSelectionBasis, ApplicationBindingObservation } from "./applicationActivation";
-import { readFiniteEntryApplicationObservation, type FiniteEntryObservation } from "../execution/finiteEntryObservation";
-import { observeExecution } from "../execution/diagnostics/operation";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 const UTF8 = new TextEncoder();
+
 const MAX_FRAME_BYTES = 1_048_576;
-
-export class ApplicationActiveHeadStateError extends Data.TaggedError(
-  "ApplicationActiveHeadStateError",
-)<{
-  readonly reason: "storedState" | "resourceFailure";
-  readonly retryable: boolean;
-  readonly revisionId?: string;
-  readonly cause?: unknown;
-}> {}
-
-interface DecodedApplicationActiveHeadBase {
-  readonly evidenceByteLength: number;
-  readonly scopeId: TrustedScopeAuthority["scopeId"];
-  readonly activationSequence: bigint;
-  readonly revisionId: string;
-  readonly readinessSha256: Uint8Array;
-  readonly writePolicySetSha256: string | null;
-  readonly writeOwnershipSha256: string | null;
-  readonly activationSha256: Uint8Array;
-  readonly headSha256: Uint8Array;
-}
-
-export type DecodedApplicationActiveHead =
-  | Readonly<DecodedApplicationActiveHeadBase & {
-      readonly readinessKind: "legacy";
-      readonly readinessContractVersion: 1;
-      readonly relationSetReadinessSha256: null;
-      readonly relationCount: null;
-    }>
-  | Readonly<DecodedApplicationActiveHeadBase & {
-      readonly readinessKind: "relation";
-      readonly readinessContractVersion: 2 | 3;
-      readonly relationSetReadinessSha256: Uint8Array;
-      readonly relationCount: number;
-    }>;
-
-interface DecodedApplicationActivationBase {
-  readonly evidenceByteLength: number;
-  readonly scopeId: TrustedScopeAuthority["scopeId"];
-  readonly activationSequence: bigint;
-  readonly previousActivationSequence: bigint | null;
-  readonly revisionId: string;
-  readonly readinessSha256: Uint8Array;
-  readonly writePolicySetSha256: string | null;
-  readonly writeOwnershipSha256: string | null;
-  readonly activationRequestSha256: Uint8Array;
-  readonly activationSha256: Uint8Array;
-  readonly activatedAt: Date;
-}
-
-export type DecodedApplicationActivation =
-  | Readonly<DecodedApplicationActivationBase & {
-      readonly readinessKind: "legacy";
-      readonly readinessContractVersion: 1;
-      readonly relationSetReadinessSha256: null;
-      readonly relationCount: null;
-    }>
-  | Readonly<DecodedApplicationActivationBase & {
-      readonly readinessKind: "relation";
-      readonly readinessContractVersion: 2 | 3;
-      readonly relationSetReadinessSha256: Uint8Array;
-      readonly relationCount: number;
-    }>;
-
-export interface CoherentApplicationActiveHead {
-  readonly head: DecodedApplicationActiveHead;
-  readonly activation: DecodedApplicationActivation;
-}
 
 const CapturedActiveHeadColumnsSchema = Schema.Struct({
   scopeId: Schema.toType(ScopeIdSchema), sequenceText: Schema.BigIntFromString, revisionId: Schema.String,
@@ -116,7 +66,9 @@ const CapturedActiveHeadColumnsSchema = Schema.Struct({
   writeOwnershipSha256: Schema.NullOr(Schema.Uint8Array), activationSha256: Schema.Uint8Array,
   createdAtText: Schema.String, updatedAtText: Schema.String,
 });
+
 const decodeCapturedActiveHeadColumnsResult = Schema.decodeUnknownResult(CapturedActiveHeadColumnsSchema);
+
 const CapturedActivationColumnsSchema = Schema.Struct({
   scopeId: Schema.toType(ScopeIdSchema), sequenceText: Schema.BigIntFromString,
   previousSequenceText: Schema.NullOr(Schema.BigIntFromString), revisionId: Schema.String,
@@ -127,6 +79,7 @@ const CapturedActivationColumnsSchema = Schema.Struct({
   activationRequestSha256: Schema.Uint8Array, legacyReadinessSha256: Schema.NullOr(Schema.Uint8Array),
   relationReadinessSha256: Schema.NullOr(Schema.Uint8Array), activatedAtText: Schema.String,
 });
+
 const decodeCapturedActivationColumnsResult = Schema.decodeUnknownResult(CapturedActivationColumnsSchema);
 
 /** Raw scalar/byte projection only; the canonical head decoder remains authority. */
@@ -150,27 +103,6 @@ export const decodeCapturedApplicationActivationRowEffect = Effect.fn("Applicati
     activationSha256: row.evidenceSha256, activatedAt });
 });
 
-declare const checkedActiveHeadBrand: unique symbol;
-/** A locked head observation. The original issuer records whether complete
- * activation coherence has been established; this handle alone is not readiness. */
-export interface CheckedApplicationActiveHead {
-  readonly [checkedActiveHeadBrand]: true;
-}
-
-type CheckedActiveHeadState = {
-  readonly tx: AppRowTransaction;
-  readonly clock: ScopeClockRecord;
-  readonly head: DecodedApplicationActiveHead;
-  active?: CoherentApplicationActiveHead;
-  schema?: Effect.Success<ReturnType<typeof readApplicationSchemaForHeadForShareInTransactionEffect>>;
-  preparation?: ApplicationActiveHeadPreparationState;
-};
-const checkedActiveHeads = new WeakMap<object, CheckedActiveHeadState>();
-
-export function isCheckedApplicationActiveHead(observation: ApplicationBindingObservation): observation is CheckedApplicationActiveHead {
-  return checkedActiveHeads.has(observation);
-}
-
 /** Ordinary entry owns only the head lock/decoder. Activation restoration stays
  * at the original accepting source's readiness position. */
 export const readCheckedApplicationActiveHeadForShareInTransactionEffect = Effect.fnUntraced(function* (
@@ -178,35 +110,10 @@ export const readCheckedApplicationActiveHeadForShareInTransactionEffect = Effec
 ) {
   const head = yield* readApplicationActiveHeadInTransaction(tx, clock.scopeId, true);
   if (head === null) return null;
-  // SAFETY: membership and the private phase are established only by this issuer.
-  const checked = Object.freeze({}) as CheckedApplicationActiveHead;
-  checkedActiveHeads.set(checked, { tx, clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) }, head: structuredClone(head) });
+  const checked = issueCheckedApplicationHeadObservation(tx, clock, head);
   onIssued(checked);
   return Object.freeze({ head, checked });
 }, work => observeExecution("ApplicationActiveHead.readCheckedHeadForShare", work));
-
-declare const preparedHeadStructureBrand: unique symbol;
-export interface PreparedApplicationActiveHeadStructure { readonly [preparedHeadStructureBrand]: true }
-interface ApplicationActiveHeadPreparationState {
-  readonly protection: ProtectedTargetMetadataEvidence;
-  readonly charge: PreparedHostPreparationCharge | undefined;
-  readonly expected: Pick<ApplicationActiveSelectionBasis, "authority" | "revisionId" | "activationSequence" | "activationSha256" | "headSha256">;
-  active?: CoherentApplicationActiveHead;
-  schema?: Effect.Success<ReturnType<typeof readApplicationSchemaForHeadForShareInTransactionEffect>>;
-}
-const preparedHeadStructures = new WeakMap<object, ApplicationActiveHeadPreparationState>();
-
-/** Called by the nominal Application binding issuer during host construction.
- * Lazy readers retain only decoded immutable bodies under this captured epoch. */
-export function prepareApplicationActiveHeadStructure(protection: ProtectedTargetMetadataEvidence,
-  charge: ApplicationActiveHeadPreparationState["charge"],
-  expected: ApplicationActiveHeadPreparationState["expected"]): PreparedApplicationActiveHeadStructure {
-  // SAFETY: the private registry authenticates this inert preparation handle.
-  const prepared = Object.freeze({}) as PreparedApplicationActiveHeadStructure;
-  preparedHeadStructures.set(prepared, { protection, charge, expected: { ...expected,
-    authority: { ...expected.authority }, activationSha256: copyBytes(expected.activationSha256), headSha256: copyBytes(expected.headSha256) } });
-  return prepared;
-}
 
 /** A missing head is deliberately never retained: READ COMMITTED may observe a later insertion. */
 export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect = Effect.fn(
@@ -216,7 +123,7 @@ export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect
   prepared?: PreparedApplicationActiveHeadStructure,
   finiteEntry?: FiniteEntryObservation) {
   const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx)
-    ? undefined : preparedHeadStructures.get(prepared);
+    ? undefined : readApplicationActiveHeadPreparationState(prepared);
   if (prepared !== undefined && hasProtectedMetadataFinalGuardScope(tx) && preparation === undefined)
     return yield* storedState();
   if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
@@ -229,53 +136,11 @@ export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect
     yield* decodeObservedCoherentApplicationActiveHead(tx, clock.scopeId, captured, preparation);
   if (active === null) return null;
   const matchingPreparation = preparation !== undefined && preparedHeadMatchesSelection(active.head, preparation) ? preparation : undefined;
-  // SAFETY: only this fresh locked reader issues the inert handle; the WeakMap owns its evidence.
-  const checked = Object.freeze({}) as CheckedApplicationActiveHead;
-  checkedActiveHeads.set(checked, {
-    tx,
-    clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) },
-    head: structuredClone(active.head),
-    // The issuer's copy cannot be changed through the validated basis or a coverage context.
-    active: structuredClone(active),
-    ...(matchingPreparation === undefined ? {} : { preparation: matchingPreparation }),
-  });
+  const checked = issueCheckedCoherentApplicationHeadObservation(tx, clock, active, matchingPreparation);
   // The owning callback records the handle before this Effect can yield back to cancellation.
   onIssued(checked);
   return Object.freeze({ active, checked });
 });
-
-/** Wrong transaction or lifecycle identity is invalid; ordinary clock progress requests a fresh read. */
-export function readCheckedApplicationActiveHead(
-  checked: CheckedApplicationActiveHead,
-  tx: AppRowTransaction,
-  clock: ScopeClockRecord,
-): Result.Result<"refresh" | CoherentApplicationActiveHead, ApplicationActiveHeadStateError> {
-  return Result.gen(function* () {
-    const state = yield* readCheckedActiveHeadState(checked, tx, clock);
-    if (state === "refresh") return "refresh" as const;
-    if (state.active === undefined)
-      return yield* Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }));
-    return structuredClone(state.active);
-  });
-}
-
-function readCheckedActiveHeadState(checked: CheckedApplicationActiveHead, tx: AppRowTransaction,
-  clock: ScopeClockRecord): Result.Result<"refresh" | CheckedActiveHeadState, ApplicationActiveHeadStateError> {
-  const state = checkedActiveHeads.get(checked);
-  if (state === undefined || state.tx !== tx || state.clock.scopeId !== clock.scopeId ||
-    state.clock.storageGeneration !== clock.storageGeneration ||
-    state.clock.storageGenerationFence !== clock.storageGenerationFence ||
-    state.clock.epoch !== clock.epoch) {
-    return Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }));
-  }
-  if (clock.lastCommitSeq < state.clock.lastCommitSeq ||
-    clock.oldestAvailableCommitSeq < state.clock.oldestAvailableCommitSeq)
-    return Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }));
-  if (state.clock.lastCommitSeq !== clock.lastCommitSeq ||
-    state.clock.oldestAvailableCommitSeq !== clock.oldestAvailableCommitSeq ||
-    state.clock.updatedAt.getTime() !== clock.updatedAt.getTime()) return Result.succeed("refresh");
-  return Result.succeed(state);
-}
 
 /** Completion authenticates the same transaction/clock loan and uses its exact
  * decoded locked head, without a second head query or an early activation read. */
@@ -286,7 +151,7 @@ export const completeCheckedApplicationActiveHeadInTransactionEffect = Effect.fn
   const state = yield* Effect.fromResult(readCheckedActiveHeadState(checked, tx, clock));
   if (state === "refresh") return "refresh" as const;
   if (state.active === undefined) {
-    const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx) ? undefined : preparedHeadStructures.get(prepared);
+    const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx) ? undefined : readApplicationActiveHeadPreparationState(prepared);
     if (prepared !== undefined && hasProtectedMetadataFinalGuardScope(tx) && preparation === undefined) return yield* storedState();
     if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
       preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
@@ -299,16 +164,12 @@ export const completeCheckedApplicationActiveHeadInTransactionEffect = Effect.fn
   return structuredClone(state.active);
 }, work => observeExecution("ApplicationActiveHead.completeCheckedHead", work));
 
-export function releaseCheckedApplicationActiveHead(checked: CheckedApplicationActiveHead | undefined): void {
-  if (checked !== undefined) checkedActiveHeads.delete(checked);
-}
-
 export const readCheckedApplicationSchemaForHeadForShareInTransactionEffect = Effect.fn(
   "ApplicationActiveHead.readCheckedSchemaForHead",
 )(function* (checked: CheckedApplicationActiveHead, tx: AppRowTransaction, clock: ScopeClockRecord) {
   const active = yield* Effect.fromResult(readCheckedApplicationActiveHead(checked, tx, clock));
   if (active === "refresh") return "refresh" as const;
-  const state = checkedActiveHeads.get(checked);
+  const state = readIssuedCheckedApplicationActiveHeadState(checked);
   if (state === undefined) return yield* storedState(active.head.revisionId);
   if (state.preparation?.schema !== undefined) return Object.freeze({ ...state.preparation.schema });
   state.schema ??= yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head);
@@ -473,6 +334,7 @@ export const readApplicationSchemaForHeadForShareInTransactionEffect = Effect.fn
       return yield* decodeApplicationSchemaBinding(head, bindings);
     },
   );
+
 const decodeApplicationSchemaBinding = Effect.fn("ApplicationActiveHead.decodeSchemaBinding")(
   function* (head: DecodedApplicationActiveHead,
     bindings: readonly (typeof fxSystemApplicationRevisionSchemasV1.$inferSelect | typeof fxSystemApplicationRevisionSchemas.$inferSelect)[]) {
@@ -634,6 +496,7 @@ export const decodeApplicationMaterializationObservation = Effect.fn("Applicatio
     return Object.freeze({ ...active, schema });
   },
 );
+
 const decodeObservedCoherentApplicationActiveHead = Effect.fn("ApplicationActiveHead.decodeFiniteEntryObservation")(
   function* (tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"],
     captured: Result.Result.Success<ReturnType<typeof readFiniteEntryApplicationObservation>>,
@@ -652,6 +515,7 @@ const decodeObservedCoherentApplicationActiveHead = Effect.fn("ApplicationActive
     return Object.freeze({ head, activation });
   },
 );
+
 const retainCoherentApplicationHeadPreparation = Effect.fn("ApplicationActiveHead.retainCoherentPreparation")(
   function* (tx: AppRowTransaction, head: DecodedApplicationActiveHead, activation: DecodedApplicationActivation,
     preparation: ApplicationActiveHeadPreparationState | undefined) {

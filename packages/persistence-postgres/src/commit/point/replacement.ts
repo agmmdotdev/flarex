@@ -17,7 +17,9 @@ import {
   type TransactionAttemptFence,
   TransactionAttemptFenceSchema,
 } from "flarex-protocol/transaction-session";
-import { type PreparedFiniteActiveApplication } from "../../application/applicationActivation";
+import {
+  type PreparedFiniteActiveApplication,
+} from "../../application/activation/contracts";
 import { type ApplicationMutationAdmissionError } from "../../application/applicationMutationAdmission";
 import {
   inspectCommittedOutcomeInTransaction,
@@ -130,7 +132,9 @@ import {
   type runPreparedFiniteSessionJournalEntryEffect,
 } from "../../execution/journal/finiteEntryActivation";
 import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCommittedTransactionFailure";
-import { type PointMutationSessionAuthorityResolutionPortsV1 } from "../../execution/transactionSessionActivation";
+import {
+  type PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/transactionSessionActivation";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,

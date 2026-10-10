@@ -4,41 +4,81 @@ import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candida
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { loadPublishedPhysicalRequirementSnapshotV1, publishedPhysicalRequirementSnapshotsEqual,
-  type PhysicalDefinitionRequirementV1, type PublishedPhysicalRequirementSnapshotV1 } from "../indexes/indexBuildReconciliation";
+import {
+  loadPublishedPhysicalRequirementSnapshotV1,
+  publishedPhysicalRequirementSnapshotsEqual,
+  type PhysicalDefinitionRequirementV1,
+  type PublishedPhysicalRequirementSnapshotV1,
+} from "../indexes/indexBuildReconciliation";
 import { verifyApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
 import { prepareFiniteMetadataProjection } from "../../execution/finiteMetadataDependencies";
 import { canonicalAppIndexPhysicalSpecBytesHexV1ToBytes } from "flarex-protocol/index-definition";
 import { decodeAppOrderedIndexPhysicalSpecV1Result } from "flarex-protocol/ordered-index";
-import { canonicalizeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
+import {
+  canonicalizeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
 import type { AppUniqueConstraintSetMemberV1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import type { JsonObject } from "flarex-protocol/json";
 import { readRequiredEnabledIndexBuildsInTransactionEffect, decodeIndexBuildStateRowResult,
   readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
   isIndexBuildSnapshotCoveredInTransactionEffect,
   validateIndexBuildStateFrontierResult } from "../indexes/indexBuildStates";
-import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, selectPreparedAppUniqueConstraintSet, inspectSelectedAppUniqueConstraintDefinitions,
+import {
+  hasAppUniqueConstraintSetEligibilityCompositionV1,
+  prepareAppUniqueConstraintSet,
+  acceptPreparedAppUniqueConstraintSet,
+  selectPreparedAppUniqueConstraintSet,
+  inspectSelectedAppUniqueConstraintDefinitions,
   chargeUniqueConstraintPreparation,
   validatePreparedAppUniqueConstraintCatalog,
-  type AppUniqueConstraintSetEligibilityPortV1, type AppUniqueConstraintSetBuildPortsV1 } from "../unique/appUniqueConstraintSetBuildV1";
+  type AppUniqueConstraintSetEligibilityPortV1,
+  type AppUniqueConstraintSetBuildPortsV1,
+} from "../unique/appUniqueConstraintSetBuildV1";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
-import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord } from "../../scope/scopeClock";
+import {
+  lockScopeClockForSnapshotReadInTransactionEffect,
+  type ScopeClockRecord,
+} from "../../scope/scopeClock";
 import type { AppRowTransaction } from "../documents/appRows";
-import type { CheckedApplicationActiveHead } from "../../application/applicationActiveHeadRead";
+import type {
+  CheckedApplicationActiveHead,
+} from "../../application/activeHead/contracts";
 import type { IndexCoverageContext } from "../indexes/indexBuildStates";
-import { chargeHostPreparation, captureHostPreparationLifetime, registerHostPreparationDisposal } from "../../execution/preparation/preparedHostRuntime";
-import { prepareLogicalSearchBuild, makeLogicalSearchReadinessInspector } from "../search/logicalSearchBuild";
+import {
+  chargeHostPreparation,
+  captureHostPreparationLifetime,
+  registerHostPreparationDisposal,
+} from "../../execution/preparation/preparedHostRuntime";
+import {
+  prepareLogicalSearchBuild,
+  makeLogicalSearchReadinessInspector,
+} from "../search/logicalSearchBuild";
 import { prepareLogicalStrongReferenceProjections } from "../documents/logicalStrongReferenceProjection";
 import { prepareLogicalRelationalTableMechanics } from "../documents/logicalDocuments/relationalRows";
 import type { LogicalStorageReadDemand } from "../documents/logicalDocuments/model";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../unique/appUniqueConstraintDefinitions";
 import { prepareLogicalReadMechanics } from "../documents/logicalDocuments/workingSet";
-import { requirePreparedLogicalReadMetadata, type PreparedLogicalReadMetadata } from "../documents/logicalReadMetadata";
-import { authenticateProtectedReadinessMetadataPair, readProtectedReadinessCatalogIdentity, type ProtectedReadinessCatalogIdentity,
-  protectedMetadataEpochsEqual, type ProtectedTargetMetadataEvidence } from "../../execution/preparation/preparedMetadataEpoch";
-import { readOriginalCurrentApplicationGenerationProtection, readApplicationBindingTargetProtection,
-  type ApplicationBindingInput } from "../../application/applicationActivation";
-import type { ApplicationRelationReadinessProtection } from "../../application/relations/applicationRelationReadinessFold";
+import {
+  requirePreparedLogicalReadMetadata,
+  type PreparedLogicalReadMetadata,
+} from "../documents/logicalReadMetadata";
+import {
+  authenticateProtectedReadinessMetadataPair,
+  readProtectedReadinessCatalogIdentity,
+  type ProtectedReadinessCatalogIdentity,
+  protectedMetadataEpochsEqual,
+  type ProtectedTargetMetadataEvidence,
+} from "../../execution/preparation/preparedMetadataEpoch";
+import {
+  readOriginalCurrentApplicationGenerationProtection,
+  readApplicationBindingTargetProtection,
+} from "../../application/activation/selectionIdentity";
+import {
+  type ApplicationBindingInput,
+} from "../../application/activation/contracts";
+import type {
+  ApplicationRelationReadinessProtection,
+} from "../../application/relations/applicationRelationReadinessFold";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
 import { runEffectTransaction } from "../../database/effectTransaction";

@@ -3,22 +3,38 @@ import { logicalMaterializationBatchBudget } from "./policy";
 import { projectLogicalPointExpectation, type LogicalDocumentPointEvidence } from "./pointEvidence";
 import type { LogicalDocumentChange } from "./workingSet";
 import { Cause, Data, Effect, Exit, Result } from "effect";
-import { acceptApplicationPublication,readAcceptedApplicationPublication } from "../../materialization/publicationAcceptance";
-import { prepareApplicationDocumentSettlementFromOriginalsEffect } from "../../materialization/settlementPlan";
+import {
+  acceptApplicationPublication,
+  readAcceptedApplicationPublication,
+} from "../../materialization/publicationAcceptance";
+import {
+  prepareApplicationDocumentSettlementFromOriginalsEffect,
+} from "../../materialization/settlementPlan";
 import {
   materializeAcceptedApplicationPublicationRows,
 } from "../../materialization/materialization";
 import {
   captureOriginalApplicationPublicationBuildLocks,
 } from "../../materialization/originalBuildLocks";
-import { invalidateAcceptedApplicationBindingInTransaction } from "../../../application/applicationActivation";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../../../application/activation/acceptedBinding";
 import {
   runPointCommitPromiseEffect,
 } from "../../../commit/point/promiseBoundary";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
-import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
-import type { ApplicationDocumentMaterializationOptions, ApplicationDocumentDefinitionCommand, ApplicationDocumentMaterializationCommand,
-  PreparedPointCommitApplicationRelations } from "../../materialization/model";
+import {
+  SnapshotTokenSchema,
+  projectScopeEpochUuidV1Result,
+  projectScopeIdUuidV1Result,
+  type CommitSeq,
+} from "flarex-protocol/storage-authority";
+import type {
+  ApplicationDocumentMaterializationOptions,
+  ApplicationDocumentDefinitionCommand,
+  ApplicationDocumentMaterializationCommand,
+  PreparedPointCommitApplicationRelations,
+} from "../../materialization/model";
 import {
   validateApplicationUniqueTransitionBudget,
   lockPointCommitIntrinsicIndexBuilds,
@@ -43,8 +59,12 @@ import {
 import {
   AppUniqueKeyConflictError,
 } from "../../unique/appUniqueKeyErrors";
-import { ApplicationRelationCommitResourceExhaustionError, ApplicationRelationConstraintError,
-  ApplicationRelationTargetDeleteRestrictedError, ApplicationRelationTargetNotLiveError } from "../../../application/relations/applicationRelationCommit";
+import {
+  ApplicationRelationCommitResourceExhaustionError,
+  ApplicationRelationConstraintError,
+  ApplicationRelationTargetDeleteRestrictedError,
+  ApplicationRelationTargetNotLiveError,
+} from "../../../application/relations/applicationRelationCommit";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../unique/appUniqueConstraintDefinitions";
 import type { LocatedAppIndexDefinitionV1 } from "../../indexes/appIndexDefinitions";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";

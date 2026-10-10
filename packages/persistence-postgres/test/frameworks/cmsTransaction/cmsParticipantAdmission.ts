@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { enterApplicationDocumentParticipant, readPreparedApplicationDocumentParticipant } from "../../../src/storage/materialization/participant";
+import {
+  enterApplicationDocumentParticipant,
+  readPreparedApplicationDocumentParticipant,
+} from "../../../src/storage/materialization/participant";
 import {
   prepareCmsApplicationFromBinding,
   requirePreparedCmsApplication,
@@ -19,8 +22,12 @@ import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
 import { orderedIndexCompositionRefusals } from "../../storage/indexes/orderedIndexCompositionRefusals";
 import { retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
-import { prepareApplicationBindingSelection } from "../../../src/application/applicationActivation";
-import { captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect } from "../../../src/storage/catalog/appSchemaCandidateValidation";
+import {
+  prepareApplicationBindingSelection,
+} from "../../../src/application/activation/repositoryIdentity";
+import {
+  captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
+} from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import { runRelationalSession } from "../../../src/database/relationalTransaction/session";
 
 /** The extracted participant must reject structural copies and expired admission. */

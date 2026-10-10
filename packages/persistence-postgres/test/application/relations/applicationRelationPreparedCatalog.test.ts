@@ -1,8 +1,13 @@
 import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Result } from "effect";
 import { expect, it } from "vitest";
-import { acceptPreparedApplicationRelationActiveRead, prepareApplicationRelationActiveRead } from "../../../src/application/relations/applicationRelationReadinessFold";
-import { AppUniqueConstraintCatalogCorruptionError } from "../../../src/storage/unique/appUniqueConstraintDefinitions";
+import {
+  acceptPreparedApplicationRelationActiveRead,
+  prepareApplicationRelationActiveRead,
+} from "../../../src/application/relations/applicationRelationReadinessFold";
+import {
+  AppUniqueConstraintCatalogCorruptionError,
+} from "../../../src/storage/unique/appUniqueConstraintDefinitions";
 import { fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
 import { runEffectTransaction } from "../../../src/database/effectTransaction";
 import { retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
@@ -28,7 +33,7 @@ for (const driver of ["PGlite", "PostgreSQL"] as const) {
         .where(eq(fxSystemApplicationActiveHeads.scopeId, fixture.authority.scopeId));
       expect(activeHead).toHaveLength(1);
       const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(resource.drizzle),
-        prepareApplicationRelationActiveRead(fixture.fold, fixture.input)));
+        prepareApplicationRelationActiveRead(fixture.fold, fixture.input, "retained")));
       let callbacks = 0;
       const accept = () => retained.use(prepared => runEffectTransaction(
         work => resource.drizzle.transaction(work), "Unique catalog admission rollback", tx => Effect.gen(function* () {

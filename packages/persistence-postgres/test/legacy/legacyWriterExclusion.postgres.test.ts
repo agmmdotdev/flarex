@@ -3,10 +3,17 @@ import { Effect } from "effect";
 import { sql } from "drizzle-orm";
 import { postgresUrl, withTemporaryPostgresPersistencePair } from "../support/postgresHelpers";
 import { legacyWriterExclusionScenario } from "./legacyWriterExclusionScenario";
-import { createApplicationNativeMutationPostgresFixture } from "../application/applicationNativeMutationTestFixture";
-import { relationReadinessFixture, prepareReadinessEvidence } from "../application/relations/applicationRelationReadinessFixture";
+import {
+  createApplicationNativeMutationPostgresFixture,
+} from "../application/applicationNativeMutationTestFixture";
+import {
+  relationReadinessFixture,
+  prepareReadinessEvidence,
+} from "../application/relations/applicationRelationReadinessFixture";
 import { runEffect } from "../support/effectTestRuntime";
-import { makeApplicationActivationRepository } from "../../src/application/applicationActivation";
+import {
+  makeApplicationActivationRepository,
+} from "../../src/application/activation/repository";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
 import { validateApplicationWriteOwnershipForCommit } from "../../src/application/ownership/Commit";
 

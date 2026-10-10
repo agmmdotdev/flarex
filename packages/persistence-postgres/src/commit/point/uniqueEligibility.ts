@@ -98,7 +98,8 @@ export const preparePointCommitUniqueConstraintSet = Effect.fn(
   value: unknown,
   input: AppUniqueConstraintSetEligibilityInputV1,
   controlDb: FlarexMetadataDatabase,
-  authority: TrustedScopeAuthorityResolutionPorts
+  authority: TrustedScopeAuthorityResolutionPorts,
+  reader?: AppRowTransaction
 ) {
   const eligibility =
     typeof value === "object" && value !== null
@@ -119,7 +120,7 @@ export const preparePointCommitUniqueConstraintSet = Effect.fn(
       })
     );
   }
-  return yield* prepareAppUniqueConstraintSet(eligibility, input);
+  return yield* prepareAppUniqueConstraintSet(eligibility, input, reader);
 },);
 
 export const acceptPreparedPointCommitUniqueConstraintSet = Effect.fn(

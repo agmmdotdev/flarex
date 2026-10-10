@@ -1,7 +1,12 @@
 import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
-import { inspectPayloadRuntimeForTest, withPayloadRuntimeScopeForTest } from "../../../../payload-adapter/src/testing";
+import {
+  inspectPayloadRuntimeForTest,
+  withPayloadRuntimeScopeForTest,
+} from "../../../../payload-adapter/src/testing";
 import { selectScopeClockRows } from "../../../src/scope/scopeClock";
-import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
+import {
+  makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
 import { ScopeIdSchema, ScopeEpochSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { insertInitialScopeClockInTransactionResult } from "../../../src/scope/scopeClockInitialization";
 import { validateApplicationWriteOwnershipForCommit } from "../../../src/application/ownership/Commit";
@@ -11,11 +16,22 @@ import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import { randomUUID } from "node:crypto";
 import { and, eq, getTableName, sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { closeInstallationAdmission, lockInstallationForCurrentTransaction, requireAdmittedTargetInstallationSchema } from "../../../src/installation/installationLifecycle";
+import {
+  closeInstallationAdmission,
+  lockInstallationForCurrentTransaction,
+  requireAdmittedTargetInstallationSchema,
+} from "../../../src/installation/installationLifecycle";
 import { decodeAppDocumentIdentityV1Result, decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
-import { canonicalizeAppUniqueConstraintSetV1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
-import { createApplicationRelationReadPort } from "../../../src/application/relations/applicationRelationRead";
-import { openApplicationRelationQuerySnapshot, readApplicationRelationQueryIncomingSources } from "../../../src/application/applicationQuerySnapshot";
+import {
+  canonicalizeAppUniqueConstraintSetV1,
+} from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import {
+  createApplicationRelationReadPort,
+} from "../../../src/application/relations/applicationRelationRead";
+import {
+  openApplicationRelationQuerySnapshot,
+  readApplicationRelationQueryIncomingSources,
+} from "../../../src/application/applicationQuerySnapshot";
 import { ScopeExecutionLive } from "../../../src/scope/execution/ScopeExecution";
 import { readApplicationWriteOwnershipInTransaction } from "../../../src/application/ownership/Repository";
 import { withApplicationWriteOwnershipCatalog } from "../../../src/application/ownership/Catalog";
@@ -23,7 +39,11 @@ import { ApplicationWriteOwnershipHistoryBudget } from "../../../src/application
 import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../../src/scope/scopeAuthorityResolution";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../../src/scope/scopeClock";
-import { fxControlSchemaVersionUniqueConstraintSets, fxControlSchemaVersionUniqueConstraintBindings, fxSystemScopeClocks } from "../../../src/database/schema";
+import {
+  fxControlSchemaVersionUniqueConstraintSets,
+  fxControlSchemaVersionUniqueConstraintBindings,
+  fxSystemScopeClocks,
+} from "../../../src/database/schema";
 import { expect } from "vitest";
 import { Effect, Exit, Fiber, Result } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
@@ -32,12 +52,24 @@ import { payloadRelationContentIdentity } from "../../../../payload-adapter/src/
 import { makeCmsHost, type CmsHostInput } from "../../../src/frameworks/cmsTransaction/host";
 import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
-import { dataBindingActivationRequest, makeDataBindingHost } from "../../../src/installation/frameworkSchema/binding/host";
+import {
+  dataBindingActivationRequest,
+  makeDataBindingHost,
+} from "../../../src/installation/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
-import { fxAppEdgeCurrent, fxAppEdgeAdjacencyVersions, fxSystemCommitRelationAdjacencyChanges, fxSystemCommits } from "../../../src/database/schema";
-import { fxSystemCommitPayloadPreferenceDeletions } from "../../../src/frameworks/payloadPreferences/factsSchema";
+import {
+  fxAppEdgeCurrent,
+  fxAppEdgeAdjacencyVersions,
+  fxSystemCommitRelationAdjacencyChanges,
+  fxSystemCommits,
+} from "../../../src/database/schema";
+import {
+  fxSystemCommitPayloadPreferenceDeletions,
+} from "../../../src/frameworks/payloadPreferences/factsSchema";
 import { preparePayloadRelationSuccessor, preparePayloadRelationRevision } from "./payloadRelationFixture";
-import { type relationReadinessFixture } from "../../application/relations/applicationRelationReadinessFixture";
+import {
+  type relationReadinessFixture,
+} from "../../application/relations/applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import type { PayloadContentProfiles } from "../../../src/frameworks/payloadPreferences/binding";
 

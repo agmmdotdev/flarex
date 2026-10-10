@@ -32,8 +32,7 @@ import type {
   ApplicationActivationRepository,
   ApplicationActiveSelection,
   ApplicationRelationActivationRepository,
-} from
-  "@flarex/persistence-postgres/internal/application-activation";
+} from "@flarex/persistence-postgres/internal/application-activation";
 import {
   selectApplicationMutationAdmission,
   selectApplicationMutationCallbackAdmission,

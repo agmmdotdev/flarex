@@ -4,7 +4,8 @@ import { expect } from "vitest";
 import { prepareLogicalSchemaCandidate } from "@flarex/analysis/internal/logical-schema-candidate";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { makeDataBindingHost, dataBindingActivationRequest } from "../../../persistence-postgres/src/installation/frameworkSchema/binding/host";
+import { makeDataBindingHost, dataBindingActivationRequest,
+  type DataBindingActivationReport } from "../../../persistence-postgres/src/installation/frameworkSchema/binding/host";
 import { readBindingSelectedEvidence } from "../../../persistence-postgres/src/installation/frameworkSchema/binding/repository";
 import { makeCatalogControlSessionStarter, startCatalogControlDeadline } from "../../../persistence-postgres/src/database/catalogControlSession";
 import { makePostgresCatalogControlSessionDriver } from "../../../persistence-postgres/src/database/postgresCatalogControlSession";
@@ -22,11 +23,16 @@ import { captureLogicalCommerceSelection, prepareLogicalCommerceContract } from 
 import { fxSystemLogicalSourceInitializations } from "../../../persistence-postgres/src/storage/catalog/logicalStorageInitialization";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { MixedMutationProductFixture } from "./mixedMutationWorkerdFixture";
+import type { Json } from "flarex-protocol/json";
 
 /** Re-admit unchanged source semantics when a new real Application analysis is
  * selected, then activate its genuine binding. A fresh Product reader selects
  * the resulting catalog rather than retaining the old standalone selection. */
-export async function rebindMixedMutationApplication(fixture: MixedMutationProductFixture, requestId: string) {
+export async function rebindMixedMutationApplication(fixture: MixedMutationProductFixture, requestId: string): Promise<{
+  activated: DataBindingActivationReport<Effect.Error<ReturnType<MixedMutationProductFixture["application"]["activation"]["readActive"]>>>;
+  proveCurrentInitializationAndWrite: () => Promise<{ title: string; readCallbacks: number; writeCallbacks: number }>;
+  readCurrentProduct: () => Promise<Json>;
+}> {
   const { currency, application } = fixture;
   const location = { scopeId: fixture.activation.anchor.scopeId,
     storageGeneration: fixture.activation.anchor.storageGeneration };

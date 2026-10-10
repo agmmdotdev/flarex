@@ -4,10 +4,16 @@ import { isTerminalTransactionSessionLifecycleV1 } from "../../execution/transac
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
-import { readPreparedFiniteApplicationTerminalProjection,
-  type PreparedFiniteActiveApplication } from "../../application/applicationActivation";
+import {
+  readPreparedFiniteApplicationTerminalProjection,
+} from "../../application/activation/finiteIdentity";
+import {
+  type PreparedFiniteActiveApplication,
+} from "../../application/activation/contracts";
 import { snapshotSchemaManifestValue } from "../../storage/catalog/schemaManifestValueSnapshot";
-import type { OriginalApplicationControlRead } from "../../application/applicationReadiness";
+import type {
+  OriginalApplicationControlRead,
+} from "../../application/readiness/contracts";
 
 import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
@@ -68,7 +74,9 @@ import {
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedRepeatableReadAttemptTargetV1,
 } from "../../execution/transactionSessionAttemptKernel";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/transactionSessionActivation";
 import {
   materializeEffect,
   materializeFiniteExecutionSchema,

@@ -1,7 +1,18 @@
-import { chargeHostPreparation, captureHostPreparationLifetime, type PreparedHostPreparationLifetime } from "../../execution/preparation/preparedHostRuntime";
-import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
+import {
+  chargeHostPreparation,
+  captureHostPreparationLifetime,
+  type PreparedHostPreparationLifetime,
+} from "../../execution/preparation/preparedHostRuntime";
+import {
+  frameworkSchemaTargetSnapshot,
+  type FrameworkSchemaTarget,
+} from "../../installation/frameworkSchema/target";
 import { scopePhysicalLocatorsEqual } from "../../scope/scopePhysicalLocator";
-import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedInstallationRuntime } from "../../installation/frameworkSchema/installation/runtime";
+import {
+  prepareInstallationRuntime,
+  acceptPreparedInstallation,
+  type PreparedInstallationRuntime,
+} from "../../installation/frameworkSchema/installation/runtime";
 import type { InstallationRuntimeData } from "../../installation/frameworkSchema/installation/runtimeData";
 import { bindingInstallationReference } from "../../installation/frameworkSchema/binding/model";
 import { runRelationalSession, type RelationalSession } from "../../database/relationalTransaction/session";
@@ -11,27 +22,61 @@ import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transac
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option, Schema, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import type { LocatedAppUniqueConstraintDefinitionV1 } from "../../storage/unique/appUniqueConstraintDefinitions";
+import type {
+  LocatedAppUniqueConstraintDefinitionV1,
+} from "../../storage/unique/appUniqueConstraintDefinitions";
 import type { LocatedAppIndexDefinitionV1 } from "../../storage/indexes/appIndexDefinitions";
-import { captureApplicationWritePolicyData, PayloadConfigurationSchema, type PayloadConfiguration, type ApplicationWritePolicyError } from "@flarex/analysis/internal/application-write-policy";
-import type { ApplicationBindingInput, AcceptedApplicationBinding, ApplicationBindingObservation } from "../../application/applicationActivation";
-import { lendApplicationBindingPreparationInputs, withAcceptedApplicationBinding } from "../../application/applicationActivation";
-import { type ApplicationRelationSchemaAuthority } from "../../application/relations/applicationRelationSchemaAuthority";
+import {
+  captureApplicationWritePolicyData,
+  PayloadConfigurationSchema,
+  type PayloadConfiguration,
+  type ApplicationWritePolicyError,
+} from "@flarex/analysis/internal/application-write-policy";
+import type {
+  ApplicationBindingInput,
+  AcceptedApplicationBinding,
+  ApplicationBindingObservation,
+} from "../../application/activation/contracts";
+import {
+  lendApplicationBindingPreparationInputs,
+} from "../../application/activation/bindingPreparation";
+import {
+  withAcceptedApplicationBinding,
+} from "../../application/activation/bindingAcceptance";
+import {
+  type ApplicationRelationSchemaAuthority,
+} from "../../application/relations/applicationRelationSchemaAuthority";
 import { readAcceptedApplicationBindingProjection } from "../../application/applicationBindingProjection";
-import { readBindingCandidate, readBindingHead } from "../../installation/frameworkSchema/binding/repository";
+import {
+  readBindingCandidate,
+  readBindingHead,
+} from "../../installation/frameworkSchema/binding/repository";
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
 import { verifyAcceptedPayloadContentBinding } from "../../installation/frameworkSchema/binding/content";
-import type { DataBindingSetFrame, DataBindingHeadToken } from "../../installation/frameworkSchema/binding/model";
+import type {
+  DataBindingSetFrame,
+  DataBindingHeadToken,
+} from "../../installation/frameworkSchema/binding/model";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import type { ScopeClockRecord } from "../../scope/scopeClock";
-import type { TrustedScopeAuthority, ExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
+import type {
+  TrustedScopeAuthority,
+  ExactTrustedScopeAuthorityResolutionPorts,
+} from "../../scope/scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
 import { cmsError, type CmsTransactionError } from "./model";
 import { prepareLogicalWriteMechanics } from "../../storage/documents/logicalDocuments/workingSet";
-import type { PreparedLogicalDocumentWriteMechanics, LogicalDocumentTable } from "../../storage/documents/logicalDocuments/model";
-import { issueApplicationRevisionSyscallValidatorStateV1, sessionPinnedSyscallValidatorState,
-  revokeApplicationRevisionSyscallValidatorStateV1, type ApplicationRevisionSyscallValidatorV1 } from "../../application/revision/applicationRevisionSyscallValidatorStateV1";
+import type {
+  PreparedLogicalDocumentWriteMechanics,
+  LogicalDocumentTable,
+} from "../../storage/documents/logicalDocuments/model";
+import {
+  issueApplicationRevisionSyscallValidatorStateV1,
+  sessionPinnedSyscallValidatorState,
+  revokeApplicationRevisionSyscallValidatorStateV1,
+  type ApplicationRevisionSyscallValidatorV1,
+} from "../../application/revision/applicationRevisionSyscallValidatorStateV1";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 
 declare const admissionBrand: unique symbol;

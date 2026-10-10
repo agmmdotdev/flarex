@@ -4431,7 +4431,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "afa3d61a633325481d49992eb2bdd946dcca5e04f8a3c4569d0500fbcaddfc80"
+      "targetSha256": "6025df3fb920e3dbeca78897884737604af4a0b8d388de5a05e2b0b17216778a"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -4681,7 +4681,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
       "classification": "authored",
-      "targetSha256": "7c5ee93cd278eadffe45f526a59924912fbd37341fb11d5ae0fdd360f1735b55"
+      "targetSha256": "bf4c00c7d86827169b9d720f71716d5ee8bca435a147e6e53e411b2162ae62fe"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server-descriptor-observer.json.gz",
@@ -4901,7 +4901,7 @@
     {
       "target": "packages/medusa-adapter/test/fresh-application-acceptance.postgres.test.ts",
       "classification": "authored",
-      "targetSha256": "7279c9882d51cfe66db80cea9a38592a08d1474d8a98903515d708dd103cc05a"
+      "targetSha256": "293bd7794304db6c930be91513a3778fa292fec2dc919ce1a8cd99b7cb7a9c80"
     },
     {
       "target": "packages/medusa-adapter/test/fresh-framework-acceptance.postgres.test.ts",
@@ -4911,7 +4911,7 @@
     {
       "target": "packages/medusa-adapter/test/fresh-application-acceptance-scaling.postgres.test.ts",
       "classification": "authored",
-      "targetSha256": "fdadc52d038c5f6d7de7f51c6bf995e79136fa454b820b9ca16f85815ac55c5f"
+      "targetSha256": "bb4b24bbc6c47e0033fbfe527f03767a42edbad4c7531feceee91134bd607018"
     },
     {
       "target": "packages/medusa-adapter/test/support/protected-acceptance-observation.ts",
@@ -5093,7 +5093,7 @@
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
       "classification": "authored",
-      "targetSha256": "5ed03f9a098f6be0fc0c3f84b2fb450df0ecf304b1627bc964886c80b1bd7621"
+      "targetSha256": "1fd43cd6a6e57d685402314fdb86f6cbf6827db7712ff01e6ddb2ddf479e80b7"
     },
     {
       "target": "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.postgres.test.ts",

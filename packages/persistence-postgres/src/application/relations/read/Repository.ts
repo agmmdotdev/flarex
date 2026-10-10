@@ -1,17 +1,23 @@
 import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../../deployments";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../../scope/scopeAuthorityControlRead";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../../scope/scopeAuthorityControlRead";
 import {
   applicationRelationActiveSelectionMatchesSnapshot,
   claimApplicationRelationActiveSelection,
+} from "../../activation/selectionIdentity";
+import {
   validateApplicationRelationActiveSelectionForReadiness,
   validateApplicationRelationActiveSelectionInTransaction,
+  readAcceptedApplicationBinding,
+} from "../../activation/bindingAcceptance";
+import {
   type ApplicationActiveSelection,
   type ApplicationRelationActiveSelectionSnapshot,
   type AcceptedApplicationBinding,
-  readAcceptedApplicationBinding,
-} from "../../applicationActivation";
+} from "../../activation/contracts";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from
   "../../../execution/transactionSessionActivation";
 import {

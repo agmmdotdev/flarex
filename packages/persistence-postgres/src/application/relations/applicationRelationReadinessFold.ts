@@ -1,10 +1,22 @@
-import { captureHostPreparationLifetime, chargeHostPreparation, registerHostPreparationDisposal,
-  type PreparedHostPreparationLifetime } from "../../execution/preparation/preparedHostRuntime";
-import { authenticateProtectedReadinessMetadataPair, readProtectedReadinessCatalogIdentity,
-  type ProtectedReadinessCatalogIdentity, type ProtectedTargetMetadataEvidence } from "../../execution/preparation/preparedMetadataEpoch";
+import {
+  captureHostPreparationLifetime,
+  chargeHostPreparation,
+  registerHostPreparationDisposal,
+  withoutRetainedHostPreparation,
+  type PreparedHostPreparationLifetime,
+} from "../../execution/preparation/preparedHostRuntime";
+import {
+  authenticateProtectedReadinessMetadataPair,
+  readProtectedReadinessCatalogIdentity,
+  type ProtectedReadinessCatalogIdentity,
+  type ProtectedTargetMetadataEvidence,
+} from "../../execution/preparation/preparedMetadataEpoch";
 import { chargeRelationReadinessPreparation } from "./readiness/Repository";
 import { chargePhysicalDefinitionPreparation } from "../../installation/physicalDefinitionLifecycle";
-import { locatePublishedAppIndexDefinitionsEffect, type LocatedAppIndexDefinitionV1 } from "../../storage/indexes/appIndexDefinitions";
+import {
+  locatePublishedAppIndexDefinitionsEffect,
+  type LocatedAppIndexDefinitionV1,
+} from "../../storage/indexes/appIndexDefinitions";
 import { chargeUniqueConstraintPreparation, lendPreparedAppUniqueConstraintDefinitions,
   validatePreparedAppUniqueConstraintCatalog } from "../../storage/unique/appUniqueConstraintSetBuildV1";
 import { appUniqueConstraintEligibilityFrame } from "../../storage/unique/appUniqueConstraintSetBuildV1";
@@ -65,12 +77,18 @@ import {
 import {
   type ApplicationPhysicalReadinessResult,
   type ApplicationReadinessAuthority,
-  ApplicationReadinessError,
-  validateApplicationPhysicalReadinessInTransactionEffect,
-  selectApplicationActivationTargetResult,
   type ApplicationActivationTargetProfile,
   type ApplicationActivationTargetPreparation,
-} from "../applicationReadiness";
+} from "../readiness/contracts";
+import {
+  ApplicationReadinessError,
+} from "../readiness/errors";
+import {
+  validateApplicationPhysicalReadinessInTransactionEffect,
+} from "../readiness/physicalCoverage";
+import {
+  selectApplicationActivationTargetResult,
+} from "../readiness/activationTarget";
 import {
   ApplicationRelationSemanticValidationAttemptFenceSchema,
   getPreparedApplicationRelationReadinessDefinitions,
@@ -466,9 +484,12 @@ export function hasPreparedApplicationRelationReadRepository(input: PreparedAppl
 /** Immutable planning inputs may be retained by a host. Each acceptance still
  * validates live evidence; preparation issues no ready result or active selection. */
 export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.prepareActiveRead")(
-  (repository: ApplicationRelationReadinessFoldRepository, input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string }) => {
+  (repository: ApplicationRelationReadinessFoldRepository, input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string },
+    profile: "request" | "retained") => {
     const state = repositoryStates.get(repository);
-    return state === undefined ? failureForOperation("readReady", "invalidComposition") : state.prepareActive(input);
+    if (state === undefined) return failureForOperation("readReady", "invalidComposition");
+    const preparation = state.prepareActive(input);
+    return profile === "request" ? withoutRetainedHostPreparation(preparation) : preparation;
   },
 );
 

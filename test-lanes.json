@@ -1007,7 +1007,11 @@
             "test/application/revision/applicationRevisionRegistrationV1.postgres.test.ts",
             "test/application/applicationAnalysisRegistration.postgres.test.ts",
             "test/application/relations/applicationRelationBinding.postgres.test.ts",
-            "test/application/applicationReadiness.postgres.test.ts",
+            "test/application/readiness/settlement.postgres.test.ts",
+            "test/application/activation/active.postgres.test.ts",
+            "test/application/activation/bindingPreparation.postgres.test.ts",
+            "test/application/activation/finitePreparation.postgres.test.ts",
+            "test/application/tasks/admission.postgres.test.ts",
             "test/application/applicationActivationMigration.postgres.test.ts",
             "--no-file-parallelism"
           ]

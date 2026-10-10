@@ -6,20 +6,34 @@ import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { expect } from "vitest";
 import { ProductStatus } from "@medusajs/framework/utils/portable";
 import type { IProductModuleService } from "@medusajs/framework/types";
-import type { CommerceTransactionError } from "../../../../persistence-postgres/src/frameworks/commerceTransaction/model";
+import type {
+  CommerceTransactionError,
+} from "../../../../persistence-postgres/src/frameworks/commerceTransaction/model";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { PrivateProductAttemptExecution } from "../../../src/product-attempt";
 import { productAttemptSeed } from "../../../test/support/product-attempt-seed";
-import { createMixedMutationPerformanceTrace, type TraceDispatchRecord, type TraceInvocationRecord } from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
-import { prepareMixedMutationPerformanceSeries } from "../../../../flarex-backend/test/support/mixedMutationWorkerdFixture";
-import { makeNativeProductOperationDiagnostics } from "../../../../executor/test/performance/support/nativeProductOperationDiagnostics";
+import {
+  createMixedMutationPerformanceTrace,
+  type TraceDispatchRecord,
+  type TraceInvocationRecord,
+} from "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
+import {
+  prepareMixedMutationPerformanceSeries,
+} from "../../../../flarex-backend/test/support/mixedMutationWorkerdFixture";
+import {
+  makeNativeProductOperationDiagnostics,
+} from "../../../../executor/test/performance/support/nativeProductOperationDiagnostics";
 import { observeRetrievalPgClients, type RetrievalObservation } from "../native-retrieval/observation";
 import { readRetrievalRuntimeSettings, openRetrievalServerObserver, retrievalServerDifference,
   selectRetrievalServerDatabases, requireRetrievalServerObservedCalls } from "../native-retrieval/server";
-import { BenchmarkCpuProfiler, CPU_SAMPLING_INTERVAL_MICROSECONDS } from "../../../../executor/test/performance/support/benchmarkCpuProfiler";
+import {
+  BenchmarkCpuProfiler,
+  CPU_SAMPLING_INTERVAL_MICROSECONDS,
+} from "../../../../executor/test/performance/support/benchmarkCpuProfiler";
 
 const root = fileURLToPath(new URL("../../../../../", import.meta.url));
-const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
+const sources = [
+  "packages/medusa-adapter/benchmarks/core-performance/mixed-native-read/scenario.ts",
   "packages/executor/test/performance/support/benchmarkCpuProfiler.ts",
   "packages/flarex-backend/test/support/mixedMutationWorkerdFixture.ts",
   "packages/flarex-backend/test/support/mixedMutationWorkerdAdapter.ts",
@@ -124,10 +138,52 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/persistence-postgres/src/frameworks/commerceTransaction/host.ts",
   "packages/persistence-postgres/src/frameworks/atomicCommerce/admission.ts",
   "packages/persistence-postgres/src/frameworks/crossDomainCommand/host.ts",
-  "packages/persistence-postgres/src/application/applicationActivation.ts",
+  "packages/persistence-postgres/src/application/activation/acceptedBinding.ts",
+  "packages/persistence-postgres/src/application/activation/activationPersistence.ts",
+  "packages/persistence-postgres/src/application/activation/activeRead.ts",
+  "packages/persistence-postgres/src/application/activation/bindingAcceptance.ts",
+  "packages/persistence-postgres/src/application/activation/bindingPreparation.ts",
+  "packages/persistence-postgres/src/application/activation/capture.ts",
+  "packages/persistence-postgres/src/application/activation/constructionContracts.ts",
+  "packages/persistence-postgres/src/application/activation/contracts.ts",
+  "packages/persistence-postgres/src/application/activation/currentBinding.ts",
+  "packages/persistence-postgres/src/application/activation/currentEntryIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/databaseBoundary.ts",
+  "packages/persistence-postgres/src/application/activation/errors.ts",
+  "packages/persistence-postgres/src/application/activation/finiteIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/finitePreparation.ts",
+  "packages/persistence-postgres/src/application/activation/headCapture.ts",
+  "packages/persistence-postgres/src/application/activation/limits.ts",
+  "packages/persistence-postgres/src/application/activation/metadataProjection.ts",
+  "packages/persistence-postgres/src/application/activation/readBindingPublication.ts",
+  "packages/persistence-postgres/src/application/activation/repository.ts",
+  "packages/persistence-postgres/src/application/activation/repositoryIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/selectionIdentity.ts",
+  "packages/persistence-postgres/src/application/activation/standaloneBinding.ts",
+  "packages/persistence-postgres/src/application/applicationActivationApi.ts",
+  "packages/persistence-postgres/src/application/activeHead/contracts.ts",
+  "packages/persistence-postgres/src/application/activeHead/errors.ts",
+  "packages/persistence-postgres/src/application/activeHead/identity.ts",
   "packages/persistence-postgres/src/application/applicationBindingProjection.ts",
   "packages/persistence-postgres/src/application/applicationActiveHeadRead.ts",
-  "packages/persistence-postgres/src/application/applicationReadiness.ts",
+  "packages/persistence-postgres/src/application/readiness/acceptance.ts",
+  "packages/persistence-postgres/src/application/readiness/activationTarget.ts",
+  "packages/persistence-postgres/src/application/readiness/bundle.ts",
+  "packages/persistence-postgres/src/application/readiness/coldEvidence.ts",
+  "packages/persistence-postgres/src/application/readiness/constructionContracts.ts",
+  "packages/persistence-postgres/src/application/readiness/contracts.ts",
+  "packages/persistence-postgres/src/application/readiness/controlSchema.ts",
+  "packages/persistence-postgres/src/application/readiness/databaseBoundary.ts",
+  "packages/persistence-postgres/src/application/readiness/errors.ts",
+  "packages/persistence-postgres/src/application/readiness/frames.ts",
+  "packages/persistence-postgres/src/application/readiness/identity.ts",
+  "packages/persistence-postgres/src/application/readiness/limits.ts",
+  "packages/persistence-postgres/src/application/readiness/outcomes.ts",
+  "packages/persistence-postgres/src/application/readiness/persistence.ts",
+  "packages/persistence-postgres/src/application/readiness/physicalCoverage.ts",
+  "packages/persistence-postgres/src/application/readiness/preparation.ts",
+  "packages/persistence-postgres/src/application/readiness/repository.ts",
+  "packages/persistence-postgres/src/application/readiness/storedAuthority.ts",
   "packages/persistence-postgres/src/application/ownership/Capture.ts",
   "packages/persistence-postgres/src/application/ownership/Commit.ts",
   "packages/persistence-postgres/src/application/ownership/Repository.ts",
@@ -242,7 +298,8 @@ const sources = ["packages/medusa-adapter/benchmarks/core-performance/mixed-nati
   "packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts",
   "packages/persistence-postgres/src/installation/installationLifecycle.ts",
   "packages/persistence-postgres/src/database/postgresInstallationMaintenance.ts",
-  "packages/medusa-adapter/src/product-attempt.ts"] as const;
+  "packages/medusa-adapter/src/product-attempt.ts",
+] as const;
 const sourceHashes = async () => Object.fromEntries(await Promise.all(sources.map(async path =>
   [path, createHash("sha256").update(await readFile(join(root, path))).digest("hex")] as const)));
 const Count = Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 30 }));

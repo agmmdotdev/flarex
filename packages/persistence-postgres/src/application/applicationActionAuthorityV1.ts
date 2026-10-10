@@ -30,11 +30,17 @@ import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import {
   ApplicationActivationError,
+} from "./activation/errors";
+import {
   claimApplicationActiveSelection,
+} from "./activation/selectionIdentity";
+import {
   validateApplicationActiveSelectionInTransaction,
+} from "./activation/bindingAcceptance";
+import {
   type ApplicationActiveSelection,
   type ApplicationActiveSelectionBasis,
-} from "./applicationActivation";
+} from "./activation/contracts";
 import type { AppRowTransaction } from "../storage/documents/appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { databaseTimestampFromUnknown } from "../database/databaseTimestamp";

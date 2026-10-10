@@ -23,23 +23,37 @@ import {
 
 import {
   claimApplicationExecutableActiveSelection,
+} from "./activation/selectionIdentity";
+import {
   hasApplicationActivationPlanningComposition,
+} from "./activation/bindingPreparation";
+import {
   validateApplicationExecutableActiveSelectionInTransaction,
+} from "./activation/bindingAcceptance";
+import {
   prepareFiniteActiveApplication,
+} from "./activation/repositoryIdentity";
+import {
   readPreparedFiniteApplicationMutationConstruction,
   readPreparedFiniteActiveApplication,
   readPreparedFiniteApplicationAuthority,
+} from "./activation/finiteIdentity";
+import {
   withPreparedFiniteActiveApplicationInTransaction,
+} from "./activation/finitePreparation";
+import {
   type AcceptedApplicationBinding,
   type CurrentApplicationFiniteEntry,
   type PreparedFiniteActiveApplication,
   type ApplicationActiveSelection,
   type ApplicationBindingInput,
   type ApplicationActivationRepository,
-  type ApplicationActivationError,
   type ApplicationExecutableActiveSelection,
+} from "./activation/contracts";
+import {
+  type ApplicationActivationError,
   type ValidateApplicationRelationActiveSelectionInTransactionError,
-} from "./applicationActivation";
+} from "./activation/errors";
 import type { AppRowTransaction } from "../storage/documents/appRows";
 import {
   hasApplicationSchemaAuthorityComposition,
@@ -81,7 +95,10 @@ import {
 import { runLocatedReadCommittedEffect } from
   "../database/locatedReadCommittedEffect";
 import { runApplicationAdmissionQuery } from "./applicationAdmissionQuery";
-import { chargeHostPreparation, registerHostPreparationDisposal } from "../execution/preparation/preparedHostRuntime";
+import {
+  chargeHostPreparation,
+  registerHostPreparationDisposal,
+} from "../execution/preparation/preparedHostRuntime";
 
 export interface ApplicationMutationAdmission {
   readonly selection: ApplicationActiveSelection;

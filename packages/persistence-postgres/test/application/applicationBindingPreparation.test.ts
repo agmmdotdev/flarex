@@ -1,24 +1,66 @@
 import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Result, Tracer } from "effect";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { CommitSeqSchema, ScopeIdSchema, type ScopeId } from "flarex-protocol/storage-authority";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
-import { prepareApplicationBindingSelection, claimApplicationExecutableActiveSelection, type ApplicationBindingPreparation } from "../../src/application/applicationActivation";
-import { readApplicationBindingPreparationInputs, readAcceptedApplicationBinding, withAcceptedApplicationBinding,
-  requireAcceptedApplicationBindingObservation, invalidateAcceptedApplicationBindingInTransaction,
-  type AcceptedApplicationBinding } from "../../src/application/applicationActivation";
-import { readCheckedApplicationActiveHead, type CheckedApplicationActiveHead } from "../../src/application/applicationActiveHeadRead";
-import { readAcceptedApplicationBindingProjection } from "../../src/application/applicationBindingProjection";
-import { readApplicationBindingProjectionInTransaction, withApplicationBindingEvidenceInTransaction } from "../../src/application/applicationBindingProjection";
-import { borrowIndexCoverageContextInTransaction, matchIndexCoverageContextInTransaction,
-  readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
-  readPreparedIndexCoverageTableFrontiers, type IndexCoverageContext } from "../../src/storage/indexes/indexBuildStates";
-import { fxControlIndexDefinitions, fxSystemScopeClocks, fxSystemUniqueConstraintBuilds } from "../../src/database/schema";
+import {
+  prepareApplicationBindingSelection,
+} from "../../src/application/activation/repositoryIdentity";
+import {
+  claimApplicationExecutableActiveSelection,
+} from "../../src/application/activation/selectionIdentity";
+import {
+  type ApplicationBindingPreparation,
+} from "../../src/application/activation/contracts";
+import {
+  readApplicationBindingPreparationInputs,
+} from "../../src/application/activation/bindingPreparation";
+import {
+  readAcceptedApplicationBinding,
+  withAcceptedApplicationBinding,
+} from "../../src/application/activation/bindingAcceptance";
+import {
+  requireAcceptedApplicationBindingObservation,
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../../src/application/activation/acceptedBinding";
+import {
+  type AcceptedApplicationBinding,
+} from "../../src/application/activation/contracts";
+import {
+  readCheckedApplicationActiveHead,
+} from "../../src/application/activeHead/identity";
+import {
+  type CheckedApplicationActiveHead,
+} from "../../src/application/activeHead/contracts";
+import {
+  readAcceptedApplicationBindingProjection,
+} from "../../src/application/applicationBindingProjection";
+import {
+  readApplicationBindingProjectionInTransaction,
+  withApplicationBindingEvidenceInTransaction,
+} from "../../src/application/applicationBindingProjection";
+import {
+  borrowIndexCoverageContextInTransaction,
+  matchIndexCoverageContextInTransaction,
+  readIndexCoverageContextInTransactionEffect,
+  readIndexCoverageTableFrontiersInTransactionEffect,
+  readPreparedIndexCoverageTableFrontiers,
+  type IndexCoverageContext,
+} from "../../src/storage/indexes/indexBuildStates";
+import {
+  fxControlIndexDefinitions,
+  fxSystemScopeClocks,
+  fxSystemUniqueConstraintBuilds,
+} from "../../src/database/schema";
 import type { AppRowTransaction } from "../../src/storage/documents/appRows";
-import { createPhysicalDefinitionLifecyclePort, createLocatedPhysicalDefinitionLifecycleTarget,
-  preparePhysicalDefinitionLifecycleSubjectEffect, beginPhysicalDefinitionDrainingEffect } from "../../src/installation/physicalDefinitionLifecycle";
+import {
+  createPhysicalDefinitionLifecyclePort,
+  createLocatedPhysicalDefinitionLifecycleTarget,
+  preparePhysicalDefinitionLifecycleSubjectEffect,
+  beginPhysicalDefinitionDrainingEffect,
+} from "../../src/installation/physicalDefinitionLifecycle";
 import { fxSystemApplicationReadiness } from "../../src/application/relations/applicationRelationSchema";
 import { fxSystemApplicationActiveHeads } from "../../src/application/applicationActivationSchema";
 import { lockScopeClockForSnapshotReadInTransactionEffect,
@@ -30,18 +72,42 @@ import { prepareAdditionalRelationRevision } from "./relations/applicationRelati
 import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import { createFileScopedPostgresFixture, postgresUrl } from "../support/postgresHelpers";
 import { runEffect } from "../support/effectTestRuntime";
-import { prepareCmsApplicationFromBinding, requirePreparedCmsApplication } from "../../src/frameworks/cmsTransaction/admission";
+import {
+  prepareCmsApplicationFromBinding,
+  requirePreparedCmsApplication,
+} from "../../src/frameworks/cmsTransaction/admission";
 import { retainPreparedHost } from "../../src/execution/preparation/preparedHostRuntime";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
-import { createLocatedAppSchemaCandidateValidationTarget } from "../../src/storage/catalog/appSchemaCandidateValidation";
-import { registerLocatedReadCommittedTargetDatabaseV1 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  registerLocatedReadCommittedTargetDatabaseV1,
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../../src/execution/transactionSessionAttemptKernel";
 
 async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence) {
   const schema = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schema === undefined) throw new Error("Missing fixture schema");
   const controlPersistence = "pool" in persistence ? persistence : await createMigratedPGlitePersistence();
+  let activationTransaction: AppRowTransaction | undefined;
+  const wrapServingTarget = (target: LocatedReadCommittedAttemptTargetV1): LocatedReadCommittedAttemptTargetV1 => {
+    const wrapped = Object.freeze({
+      ...target,
+      // The late activation witness lends its exact accepting transaction;
+      // setup and every other operation use the genuine target unchanged.
+      getCurrentClock: (requestedScope: ScopeId) => activationTransaction === undefined
+        ? target.getCurrentClock(requestedScope)
+        : runEffect(lockScopeClockForSnapshotReadInTransactionEffect(activationTransaction, requestedScope)),
+      [RUN_LOCATED_READ_COMMITTED_V1]: work => activationTransaction === undefined
+        ? target[RUN_LOCATED_READ_COMMITTED_V1](work)
+        : work(activationTransaction),
+    } satisfies LocatedReadCommittedAttemptTargetV1);
+    registerLocatedReadCommittedTargetDatabaseV1(wrapped, persistence.drizzle);
+    return wrapped;
+  };
   const base = await cmsHostFixture(persistence, { controlPersistence,
+    wrapServingTarget,
     physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName: schema } });
+  expect(Object.isFrozen(base.fixture.authorityPorts.scopeClockTargets)).toBe(true);
   const spans: string[] = [];
   const scopeId = base.fixture.authority.scopeId;
   const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
@@ -379,25 +445,8 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   }
   const active = await runEffect(base.fixture.relationActivation.readActive());
   const next = await prepareAdditionalRelationRevision(base.fixture);
-  const activationTarget = Object.freeze({ ...createLocatedAppSchemaCandidateValidationTarget(persistence.drizzle,
-    active.basis.authority.physicalLocator, async work => {
-      if (acceptingTransaction === undefined) throw new Error("Activation witness has no accepting transaction");
-      return work(acceptingTransaction);
-    }),
-    // Authority resolution reads the clock before invoking the target runner.
-    // Route that fresh observation through the same genuine transaction too;
-    // a database-level read would wait on the connection held by this witness.
-    getCurrentClock: async (requestedScope: ScopeId) => {
-      if (acceptingTransaction === undefined) throw new Error("Activation witness has no accepting transaction");
-      return runEffect(lockScopeClockForSnapshotReadInTransactionEffect(acceptingTransaction, requestedScope));
-    },
-  });
-  registerLocatedReadCommittedTargetDatabaseV1(activationTarget, persistence.drizzle);
-  const resolveActivationTarget = vi.spyOn(base.fixture.authorityPorts.scopeClockTargets, "resolve")
-    .mockResolvedValue(activationTarget);
-  try {
-    await persistence.drizzle.transaction(async tx => {
-      acceptingTransaction = tx;
+  await persistence.drizzle.transaction(async tx => {
+      activationTransaction = tx;
       try {
         await runEffect(Effect.gen(function* () {
           const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
@@ -411,9 +460,8 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
               () => Effect.void, binding))).toMatchObject({ reason: "invalidComposition" });
           }));
         }));
-      } finally { acceptingTransaction = undefined; }
+      } finally { activationTransaction = undefined; }
     });
-  } finally { resolveActivationTarget.mockRestore(); }
   await expect(accept(prepared)).rejects.toMatchObject({ reason: "concurrentHead" });
   expect((await accept(await prepare())).revisionId).toBe(next.readiness.revisionId);
 }

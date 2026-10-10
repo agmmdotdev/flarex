@@ -1,37 +1,76 @@
 import { Data, Effect, Result, Scope } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "./deployments";
-import { makeApplicationActivationRepository, makeApplicationStandaloneBindingSelectionReader,
-  closeApplicationStandaloneBindingSelectionReader } from "./applicationActivation";
-import { makeApplicationReadinessRepository, type ApplicationActivationTargetProfile,
-  type ApplicationReadinessColdMaterializationPort, type ApplicationReadinessContext } from "./applicationReadiness";
+import {
+  makeApplicationActivationRepository,
+} from "./activation/repository";
+import {
+  makeApplicationStandaloneBindingSelectionReader,
+} from "./activation/standaloneBinding";
+import {
+  closeApplicationStandaloneBindingSelectionReader,
+} from "./activation/repositoryIdentity";
+import {
+  makeApplicationReadinessRepository,
+} from "./readiness/repository";
+import {
+  type ApplicationActivationTargetProfile,
+  type ApplicationReadinessColdMaterializationPort,
+} from "./readiness/contracts";
+import {
+  type ApplicationReadinessContext,
+} from "./readiness/constructionContracts";
 import { makeApplicationSchemaAuthorityPublisher } from "./applicationSchemaAuthority";
 import { createApplicationTaskCatalogSnapshotPort } from "./tasks/applicationTaskBindings";
 import { createApplicationRelationBuildPort } from "./relations/applicationRelationBuild";
 import { createApplicationRelationCommitPort } from "./relations/applicationRelationCommit";
 import { createApplicationRelationReadPort } from "./relations/applicationRelationRead";
-import { makeApplicationRelationReadinessFoldRepository } from "./relations/applicationRelationReadinessFold";
+import {
+  makeApplicationRelationReadinessFoldRepository,
+} from "./relations/applicationRelationReadinessFold";
 import { createApplicationRelationReadinessPort } from "./relations/readiness";
-import { createApplicationRelationSchemaAuthorityPort } from "./relations/applicationRelationSchemaAuthority";
+import {
+  createApplicationRelationSchemaAuthorityPort,
+} from "./relations/applicationRelationSchemaAuthority";
 import { createApplicationRelationServingInspector } from "./relations/applicationRelationServing";
-import { createApplicationRelationTaskCatalogSnapshotPort } from "./relations/applicationRelationTaskBindings";
+import {
+  createApplicationRelationTaskCatalogSnapshotPort,
+} from "./relations/applicationRelationTaskBindings";
 import { createAppSchemaCandidateReadinessPort, createAppSchemaCandidateValidationPort,
   createAppSchemaCandidateWriteGuardPort } from "../storage/catalog/appSchemaCandidateValidation";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../storage/unique/appUniqueConstraintCommitV1";
-import { createAppUniqueConstraintSetEligibilityPortV1 } from "../storage/unique/appUniqueConstraintSetBuildV1";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import {
+  createAppUniqueConstraintSetEligibilityPortV1,
+} from "../storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../storage/indexes/appDeveloperIndexCommitV1";
 import { createPhysicalDefinitionLifecyclePort } from "../installation/physicalDefinitionLifecycle";
 import {
   createPointCommitPublisherPortV1,
 } from "../commit/point/construction";
 import { makeInstallationProtectedScopeAuthorityControlReader } from "../scope/scopeAuthorityControlRead";
-import type { LocatedScopeClockReader, TrustedScopeAuthorityResolutionPorts, ExactTrustedScopeAuthorityResolutionPorts } from "../scope/scopeAuthorityResolution";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../execution/transactionSessionActivation";
+import type {
+  LocatedScopeClockReader,
+  TrustedScopeAuthorityResolutionPorts,
+  ExactTrustedScopeAuthorityResolutionPorts,
+} from "../scope/scopeAuthorityResolution";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../execution/transactionSessionActivation";
 import type { ScopePhysicalLocator } from "../scope/scopeMetadataTypes";
 import { scopePhysicalLocatorsEqual } from "../scope/scopePhysicalLocator";
-import { hasLocatedReadCommittedTargetDatabaseV1, isLocatedReadCommittedAttemptTargetV1, type LocatedReadCommittedAttemptTargetV1 } from "../execution/transactionSessionAttemptKernel";
-import { hasRelationalSessionDatabase, readRelationalSessionCoLocatedInstallation, type RelationalSession } from "../database/relationalTransaction/session";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+  isLocatedReadCommittedAttemptTargetV1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../execution/transactionSessionAttemptKernel";
+import {
+  hasRelationalSessionDatabase,
+  readRelationalSessionCoLocatedInstallation,
+  type RelationalSession,
+} from "../database/relationalTransaction/session";
 import { getCoLocatedReadInstallationReferencesResult } from "../installation/installationLifecycle";
 
 type ApplicationServingProtection = NonNullable<ApplicationReadinessContext<unknown, unknown>["protectedMetadata"]>;

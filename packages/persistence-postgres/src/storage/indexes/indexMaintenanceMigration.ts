@@ -10,11 +10,19 @@ import { runEffectTransaction, runEffectTransactionSettlement } from "../../data
 import { lockSchemaManifestBindingDeploymentEffect } from "../catalog/schemaManifestTableBindings";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
 import { readUniqueMaintenanceRequirements } from "../unique/appUniqueConstraintSetBuildV1";
-import { readCoherentApplicationActiveHeadForShareInTransactionEffect,
-  readApplicationSchemaForHeadForShareInTransactionEffect } from "../../application/applicationActiveHeadRead";
+import {
+  readCoherentApplicationActiveHeadForShareInTransactionEffect,
+  readApplicationSchemaForHeadForShareInTransactionEffect,
+} from "../../application/applicationActiveHeadRead";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../scope/scopeClock";
-import { decodeLegacyIndexMaintenanceEvidenceResult, verifyLegacyIndexMaintenanceEvidence } from "../../legacy/LegacyIndexMaintenanceEvidence";
-import { decodeLegacyUniqueMaintenanceEvidenceResult, verifyLegacyUniqueMaintenanceEvidence } from "../unique/LegacyUniqueMaintenanceEvidence";
+import {
+  decodeLegacyIndexMaintenanceEvidenceResult,
+  verifyLegacyIndexMaintenanceEvidence,
+} from "../../legacy/LegacyIndexMaintenanceEvidence";
+import {
+  decodeLegacyUniqueMaintenanceEvidenceResult,
+  verifyLegacyUniqueMaintenanceEvidence,
+} from "../unique/LegacyUniqueMaintenanceEvidence";
 import { decodeIndexMaintenanceObligationResult, decodeUniqueMaintenanceObligationResult,
   type IndexMaintenanceObligation, type UniqueMaintenanceObligation } from "./indexMaintenanceModel";
 import { TYPED_MAINTENANCE_STAGE_SQL } from "./indexMaintenanceInstallation";

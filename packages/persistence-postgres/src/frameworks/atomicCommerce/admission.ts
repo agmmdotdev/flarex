@@ -1,17 +1,32 @@
 import { Cause, Effect, Option } from "effect";
-import { withCommerceInstallationAdmissions, type CommerceAdmission } from "../commerceTransaction/admission";
+import {
+  withCommerceInstallationAdmissions,
+  type CommerceAdmission,
+} from "../commerceTransaction/admission";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
-import { commerceBindings, bindingInstallationReference } from "../../installation/frameworkSchema/binding/model";
-import { readBindingCandidate, readBindingHead } from "../../installation/frameworkSchema/binding/repository";
+import {
+  commerceBindings,
+  bindingInstallationReference,
+} from "../../installation/frameworkSchema/binding/model";
+import {
+  readBindingCandidate,
+  readBindingHead,
+} from "../../installation/frameworkSchema/binding/repository";
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
 import type { FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
-import type { ApplicationBindingInput, ApplicationBindingObservation } from "../../application/applicationActivation";
+import type {
+  ApplicationBindingInput,
+  ApplicationBindingObservation,
+} from "../../application/activation/contracts";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../../scope/scopeClock";
 import type { CatalogTableId } from "flarex-protocol/catalog";
-import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
+import {
+  requireLogicalRelationalAdmission,
+  type LogicalRelationalAdmission,
+} from "../../storage/documents/logicalDocuments/relationalAdmission";
 import type { prepareAtomicCommerceParticipants } from "./participants";
 import { requireLogicalCommerceInitialization } from "../commerceTransaction/logicalInitialization";
 

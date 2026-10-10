@@ -1,5 +1,6 @@
-import type { ApplicationActivationRepository } from
-  "@flarex/persistence-postgres/internal/application-activation";
+import type {
+  ApplicationActivationRepository,
+} from "@flarex/persistence-postgres/internal/application-activation";
 import {
   selectApplicationTask,
   type ApplicationTaskSelectionContext,

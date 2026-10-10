@@ -1,10 +1,18 @@
 import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
-import { inspectPayloadRuntimeForTest, withPayloadRuntimeScopeForTest } from "../../../../payload-adapter/src/testing";
+import {
+  inspectPayloadRuntimeForTest,
+  withPayloadRuntimeScopeForTest,
+} from "../../../../payload-adapter/src/testing";
 import { expect } from "vitest";
 import { Effect, Exit, Fiber, Result } from "effect";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result, appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import {
+  appRowIdHexV1ToBytes,
+  decodeAppDocumentIdentityV1Result,
+  appDocumentIdV1FromRowIdentity,
+  decodeAppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
 import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
 import { appRowIdHexV1FromBytes } from "flarex-protocol/app-document-id";
 import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
@@ -17,11 +25,22 @@ import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
 import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
 import { type CmsHostTestHooks } from "../../../src/frameworks/cmsTransaction/testSupport";
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
-import { dataBindingActivationRequest, makeDataBindingHost } from "../../../src/installation/frameworkSchema/binding/host";
-import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
+import {
+  dataBindingActivationRequest,
+  makeDataBindingHost,
+} from "../../../src/installation/frameworkSchema/binding/host";
+import {
+  makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
 import { preparePayloadRelationSuccessor, preparePayloadRelationRevision } from "./payloadRelationFixture";
-import { barrier, withDeadline, heldNativeRace, overlappingSnapshotRace, type payloadRelationScenario } from "./payloadRelationScenario";
+import {
+  barrier,
+  withDeadline,
+  heldNativeRace,
+  overlappingSnapshotRace,
+  type payloadRelationScenario,
+} from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { postgresFailureCode } from "../../support/postgresFailureCode";
 

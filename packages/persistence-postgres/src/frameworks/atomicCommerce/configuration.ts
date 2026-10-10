@@ -1,17 +1,31 @@
 import { Effect, Result, Schema } from "effect";
-import { hasApplicationBindingComposition, type ApplicationBindingInput } from "../../application/applicationActivation";
+import {
+  hasApplicationBindingComposition,
+} from "../../application/activation/repositoryIdentity";
+import {
+  type ApplicationBindingInput,
+} from "../../application/activation/contracts";
 import { hasFrameworkSchemaTargetDatabase } from "../../installation/frameworkSchema/target";
 import { hasRelationalSessionDatabase } from "../../database/relationalTransaction/session";
 import { captureExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
+import type {
+  ExactTrustedScopeAuthorityResolutionPorts,
+  TrustedScopeAuthority,
+} from "../../scope/scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
 import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfiguration";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
 import type { RequestLimits } from "../../execution/preparation/boundedRequestLifetime";
 import { defaultCommerceResources } from "../commerceTransaction/resources";
-import { CommerceCallLimit, CommerceCommandByteLimit, FrameworkCommandMilliseconds } from "../../execution/preparation/frameworkExecutionPolicy";
-import { logicalMaterializationBatchBudget } from "../../storage/documents/logicalDocuments/materialization";
+import {
+  CommerceCallLimit,
+  CommerceCommandByteLimit,
+  FrameworkCommandMilliseconds,
+} from "../../execution/preparation/frameworkExecutionPolicy";
+import {
+  logicalMaterializationBatchBudget,
+} from "../../storage/documents/logicalDocuments/materialization";
 import { getAtomicCommerceCommand, type AtomicCommerceCommand } from "./commands";
 import {
   prepareAtomicCommerceParticipants,

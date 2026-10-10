@@ -17,7 +17,7 @@ grant a new capability.
 | `database/` | Driver resources, physical sessions, Drizzle execution, SQL transaction profiles and domain-owned table definitions | [relationalTransaction/session.ts](src/database/relationalTransaction/session.ts), [schema guide](src/database/schema/README.md) |
 | `scope/` | Authentic deployment/scope selection, authorization epochs, fencing and scope clocks | [scopeAuthorityResolution.ts](src/scope/scopeAuthorityResolution.ts), [execution/ScopeExecution.ts](src/scope/execution/ScopeExecution.ts) |
 | `installation/` | Protected structure, maintenance interlock, installed definitions, framework schemas and migration coordination | [installationLifecycle.ts](src/installation/installationLifecycle.ts), [frameworkSchema/](src/installation/frameworkSchema/) |
-| `application/` | Analysis, serving construction, active bindings, schema authority, readiness, revisions, relations and write ownership | [applicationServing.ts](src/application/applicationServing.ts), [applicationActivation.ts](src/application/applicationActivation.ts), [applicationReadiness.ts](src/application/applicationReadiness.ts) |
+| `application/` | Analysis, serving construction, active bindings, schema authority, readiness, revisions, relations and write ownership | [Application guide](src/application/README.md), [applicationServing.ts](src/application/applicationServing.ts), [activation/repository.ts](src/application/activation/repository.ts), [readiness/repository.ts](src/application/readiness/repository.ts) |
 | `storage/` | Documents, relational values, pending working sets, indexes, uniqueness, relations, search, catalog and history | [documents/logicalDocuments/workingSet.ts](src/storage/documents/logicalDocuments/workingSet.ts), [catalog/logicalStorageDefinitions.ts](src/storage/catalog/logicalStorageDefinitions.ts) |
 | `execution/` | Prepared lifetimes, attempt/session state, journal, finite capture, claims, OCC evidence and persistence recovery | [journal/api.ts](src/execution/journal/api.ts), [sessionJournalStore.ts](src/execution/sessionJournalStore.ts), [transactionSessionActivation.ts](src/execution/transactionSessionActivation.ts) |
 | `commit/` | Conflict-checked atomic publication, durable outcomes, commit facts, event intents and feed | [point guide](src/commit/point/README.md), [point/construction.ts](src/commit/point/construction.ts), [publication/publication.ts](src/commit/publication/publication.ts) |
@@ -73,8 +73,11 @@ replacement and recovery owners. Consumers load the lightweight
 `point-commit-transaction` API; trusted composition and readiness use the
 separate internal construction and eligibility routes. Lower error families and
 materialization evidence have their actual domain owners. Follow their ordering
-in the [point guide](src/commit/point/README.md). Activation/readiness still have
-substantial combined bodies to organize under the
+in the [point guide](src/commit/point/README.md). Activation and readiness have
+distinct contracts, private identities, preparation, acceptance, persistence and
+ordered repository assembly. Follow setup, activation and business-request use
+in the [Application guide](src/application/README.md). Remaining session and
+consumer cohesion work is owned by the
 [file cohesion plan](../../roadmaps/execution-architecture/05-file-cohesion-and-readable-flows.md).
 
 The root `index.ts` retains the existing persistence contracts. Internal contract

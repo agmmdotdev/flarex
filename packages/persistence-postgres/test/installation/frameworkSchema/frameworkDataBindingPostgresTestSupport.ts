@@ -10,21 +10,34 @@ import { lockScopeClockForUpdateInTransactionEffect } from "../../../src/scope/s
 import { expect } from "vitest";
 import type { PoolClient } from "pg";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
-import type { ApplicationNativeMutationPostgresFixture } from "../../application/applicationNativeMutationTestFixture";
-import { composeApplicationNativeMutationReadiness } from "../../application/applicationNativeMutationTestFixture";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../../src/scope/scopeAuthorityControlRead";
-import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../../../src/scope/scopeAuthorityResolution";
+import type {
+  ApplicationNativeMutationPostgresFixture,
+} from "../../application/applicationNativeMutationTestFixture";
+import {
+  composeApplicationNativeMutationReadiness,
+} from "../../application/applicationNativeMutationTestFixture";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../../src/scope/scopeAuthorityControlRead";
+import type {
+  ExactTrustedScopeAuthorityResolutionPorts,
+  TrustedScopeAuthorityResolutionPorts,
+} from "../../../src/scope/scopeAuthorityResolution";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../../src/execution/transactionSessionAttemptKernel";
-import { createLocatedPointMutationSessionActivationTargetV1 } from "../../../src/execution/transactionSessionActivation";
+import {
+  createLocatedPointMutationSessionActivationTargetV1,
+} from "../../../src/execution/transactionSessionActivation";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   type PostgresLocatedReadCommittedRunnerOptionsV1,
 } from "../../../src/database/postgresLocatedReadCommitted";
-import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
+import {
+  makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
 import { makeFrameworkSchemaTarget } from "../../../src/installation/frameworkSchema/target";
 import {
   makeDataBindingHost,

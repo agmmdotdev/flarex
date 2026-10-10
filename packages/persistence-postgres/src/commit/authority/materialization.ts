@@ -1,7 +1,15 @@
-import { claimApplicationExecutableActiveSelection, type ApplicationActiveSelection } from "../../application/applicationActivation";
+import {
+  claimApplicationExecutableActiveSelection,
+} from "../../application/activation/selectionIdentity";
+import {
+  type ApplicationActiveSelection,
+} from "../../application/activation/contracts";
 import type { FiniteApplicationExecutionEvidence } from "./model";
 import { type ScopeClockRow } from "../../scope/scopeClock";
-import { isRetainedTransactionSessionIdentityV1, isTerminalTransactionSessionLifecycleV1 } from "../../execution/transactionSessionAttemptFacet";
+import {
+  isRetainedTransactionSessionIdentityV1,
+  isTerminalTransactionSessionLifecycleV1,
+} from "../../execution/transactionSessionAttemptFacet";
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,

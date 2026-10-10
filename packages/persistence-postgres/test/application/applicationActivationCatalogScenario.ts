@@ -2,16 +2,35 @@ import { Effect } from "effect";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { sql } from "drizzle-orm";
 import { expect, vi } from "vitest";
-import { payloadScalarFields, payloadScalarConfiguration } from "../../../payload-adapter/src/testing/profiles";
+import {
+  payloadScalarFields,
+  payloadScalarConfiguration,
+} from "../../../payload-adapter/src/testing/profiles";
 import { policyManifestFixture } from "./ownership/applicationWritePolicyFixture";
-import { makeApplicationActivationRepository } from "../../src/application/applicationActivation";
-import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../src/application/applicationActivationSchema";
-import { makeApplicationRelationReadinessFoldRepository, readApplicationActivationRelatedPhysicalRequirements, readApplicationRelationActivationUniqueRequirements, withApplicationActivationCatalogLock, type ApplicationActivationCatalogLease } from "../../src/application/relations/applicationRelationReadinessFold";
-import { loadRelatedPublishedPhysicalRequirementSnapshotV1 } from "../../src/storage/indexes/indexBuildReconciliation";
+import {
+  makeApplicationActivationRepository,
+} from "../../src/application/activation/repository";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "../../src/application/applicationActivationSchema";
+import {
+  makeApplicationRelationReadinessFoldRepository,
+  readApplicationActivationRelatedPhysicalRequirements,
+  readApplicationRelationActivationUniqueRequirements,
+  withApplicationActivationCatalogLock,
+  type ApplicationActivationCatalogLease,
+} from "../../src/application/relations/applicationRelationReadinessFold";
+import {
+  loadRelatedPublishedPhysicalRequirementSnapshotV1,
+} from "../../src/storage/indexes/indexBuildReconciliation";
 import { readUniqueMaintenanceRequirements } from "../../src/storage/unique/appUniqueConstraintSetBuildV1";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../../src/database/schema";
 import { isLocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
-import { prepareReadinessEvidence, relationReadinessFixture } from "./relations/applicationRelationReadinessFixture";
+import {
+  prepareReadinessEvidence,
+  relationReadinessFixture,
+} from "./relations/applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import { preparePayloadRelationSuccessor } from "../integration/payload/payloadRelationFixture";
 
@@ -42,21 +61,24 @@ export async function applicationActivationCatalogScenario(
   for (const failAt of [1, 2]) {
     for (const code of ["40001", "40P01", "55P03", "23505"]) {
       for (const wrapped of [false, true]) {
-        let reads = 0;
-        const original = fixture.control.drizzle.select.bind(fixture.control.drizzle);
-        const providerCause = Object.assign(new Error("Injected catalog query failure"), { code });
-        const failureCause = wrapped ? new DrizzleQueryError("catalog query", [], providerCause) : providerCause;
-        const failureSelect = vi.spyOn(fixture.control.drizzle, "select").mockImplementation((...args: Parameters<typeof original>) => {
-          if (++reads === failAt) throw failureCause;
-          return original(...args);
+        await fixture.control.drizzle.transaction(async catalogTx => {
+          let reads = 0;
+          const original = catalogTx.select.bind(catalogTx);
+          const providerCause = Object.assign(new Error("Injected catalog query failure"), { code });
+          const failureCause = wrapped ? new DrizzleQueryError("catalog query", [], providerCause) : providerCause;
+          const failureSelect = vi.spyOn(catalogTx, "select").mockImplementation((...args: Parameters<typeof original>) => {
+            if (++reads === failAt) throw failureCause;
+            return original(...args);
+          });
+          try {
+            const failure = await runEffectFailure(readUniqueMaintenanceRequirements(fixture.control.drizzle,
+              fixture.deploymentId, fixture.relation.binding.schemaVersionId, catalogTx));
+            expect(failure).toMatchObject({ reason: "resourceFailure", retryable: code !== "23505",
+              cause: { _tag: failAt === 1 ? "AppUniqueConstraintSetClosurePersistenceV1Error" : "AppUniqueConstraintCatalogPersistenceError",
+                cause: failureCause } });
+            expect(reads).toBe(failAt);
+          } finally { failureSelect.mockRestore(); }
         });
-        try {
-          const failure = await runEffectFailure(readUniqueMaintenanceRequirements(fixture.control.drizzle,
-            fixture.deploymentId, fixture.relation.binding.schemaVersionId));
-          expect(failure).toMatchObject({ reason: "resourceFailure", retryable: code !== "23505",
-            cause: { _tag: failAt === 1 ? "AppUniqueConstraintSetClosurePersistenceV1Error" : "AppUniqueConstraintCatalogPersistenceError",
-              cause: failureCause } });
-        } finally { failureSelect.mockRestore(); }
       }
     }
   }
@@ -105,8 +127,11 @@ export async function applicationActivationCatalogScenario(
           on fx_system_unique_constraint_build for each row when (new.maintenance_activation_sequence = 2)
           execute function test_reject_unique_maintenance('${code}')`));
         try {
-          expect(await runEffectFailure(activation.activate(input))).toMatchObject({ reason: "resourceFailure", retryable: code === "55P03",
-            cause: { _tag: "AppUniqueConstraintSetBuildIntegrationV1Error" } });
+          const failure = await runEffectFailure(activation.activate(input));
+          expect(failure).toMatchObject({ reason: "resourceFailure", retryable: code === "55P03",
+            cause: { _tag: "UniqueMaintenanceError", reason: "resourceFailure", retryable: code === "55P03",
+              cause: { cause: { code } } } });
+          expect(failure).toHaveProperty("cause.cause", expect.any(DrizzleQueryError));
           armed = false;
           expect(reachedMaintenance).toBe(0);
           expect(await snapshot()).toEqual(before);
@@ -118,7 +143,8 @@ export async function applicationActivationCatalogScenario(
     } finally { await fixture.persistence.drizzle.execute(sql`drop function test_reject_unique_maintenance()`); }
     const failure = await runEffectFailure(activation.activate(input));
     armed = false;
-    expect(failure).toMatchObject({ reason: "resourceFailure", retryable: true });
+    expect(failure).toMatchObject({ reason: "resourceFailure", retryable: false });
+    expect(failure.cause).toBe(injectedFailure);
     expect(reachedMaintenance).toBe(1);
     expect(await snapshot()).toEqual(before);
     injectedFailure = new Error("Terminal maintenance fault");

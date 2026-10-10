@@ -1,20 +1,42 @@
 import { Cause, Effect } from "effect";
 import type { Json } from "flarex-protocol/json";
-import { hasApplicationBindingComposition, prepareStandaloneApplicationBindingSelection } from "../../../application/applicationActivation";
-import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../../../execution/preparation/boundedRequestLifetime";
+import {
+  hasApplicationBindingComposition,
+  prepareStandaloneApplicationBindingSelection,
+} from "../../../application/activation/repositoryIdentity";
+import {
+  makeBoundedRequestLifetime,
+  type BoundedRequestContext,
+} from "../../../execution/preparation/boundedRequestLifetime";
 import { hasFrameworkSchemaTargetDatabase } from "../../../installation/frameworkSchema/target";
 import { canonicalizeJsonOutcome } from "../../../values/jsonOutcome";
-import { prepareLogicalRelationalReadAdmission } from "../../../storage/documents/logicalDocuments/relationalAdmission";
-import { chargeHostPreparation, retainPreparedHost } from "../../../execution/preparation/preparedHostRuntime";
-import { hasRelationalSessionDatabase, runCoLocatedRelationalReadSession } from "../../../database/relationalTransaction/session";
+import {
+  prepareLogicalRelationalReadAdmission,
+} from "../../../storage/documents/logicalDocuments/relationalAdmission";
+import {
+  chargeHostPreparation,
+  retainPreparedHost,
+} from "../../../execution/preparation/preparedHostRuntime";
+import {
+  hasRelationalSessionDatabase,
+  runCoLocatedRelationalReadSession,
+} from "../../../database/relationalTransaction/session";
 import { prepareStandaloneReadTransaction } from "../../../storage/documents/standaloneReadTransaction";
-import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../../scope/scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../../execution/transactionSessionAttemptKernel";
+import {
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+} from "../../../scope/scopeAuthorityResolution";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../../execution/transactionSessionAttemptKernel";
 import { getCommerceCommand, type CommerceCommand } from "../commands";
 import { makeCommerceCommandContext } from "../context";
 import { makeLogicalCommerceReadParticipant } from "../logicalParticipant";
 import { requireLogicalCommerceReadInitialization } from "../logicalInitialization";
-import { decodeCommerceInitialization, decodeCommerceReadInitializationDigest } from "../initializationContract";
+import {
+  decodeCommerceInitialization,
+  decodeCommerceReadInitializationDigest,
+} from "../initializationContract";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../model";
 import { captureCommerceJsonData, projectCommerceRequestFailure } from "../request";
 import { captureCommerceResources, defaultCommerceResources } from "../resources";

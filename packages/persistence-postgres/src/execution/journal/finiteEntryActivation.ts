@@ -4,9 +4,21 @@ import type {
   CanonicalApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
-import { withPreparedFiniteReplacementApplicationInTransaction, withPreparedRecoveredFiniteApplicationInTransaction, requirePreparedFiniteApplicationSelection,
-  type PreparedFiniteActiveApplication, type AcceptedApplicationBinding, type ApplicationActiveSelection,
-  type ApplicationActivationError } from "../../application/applicationActivation";
+import {
+  withPreparedFiniteReplacementApplicationInTransaction,
+  withPreparedRecoveredFiniteApplicationInTransaction,
+} from "../../application/activation/finitePreparation";
+import {
+  requirePreparedFiniteApplicationSelection,
+} from "../../application/activation/finiteIdentity";
+import {
+  type PreparedFiniteActiveApplication,
+  type AcceptedApplicationBinding,
+  type ApplicationActiveSelection,
+} from "../../application/activation/contracts";
+import {
+  type ApplicationActivationError,
+} from "../../application/activation/errors";
 import {
   ApplicationMutationAdmissionError,
   requireFiniteReplacementApplicationExecutionAuthority,
@@ -15,8 +27,12 @@ import {
   captureFiniteReplacementAttemptInTransactionEffect,
   acceptFiniteEntryForContinuationInTransactionEffect,
 } from "../transactionSessionActivation";
-import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
-  openProtectedMetadataFinalGuardScope, registerManagedMetadataSnapshotFinalGuard } from "../preparation/preparedMetadataEpoch";
+import {
+  closeProtectedMetadataFinalGuardScope,
+  flushProtectedMetadataFinalGuards,
+  openProtectedMetadataFinalGuardScope,
+  registerManagedMetadataSnapshotFinalGuard,
+} from "../preparation/preparedMetadataEpoch";
 import { readAdmittedCoLocatedInstallationPair } from "../../installation/installationLifecycle";
 import {
   LogicalParticipantAdmissionError,
@@ -39,10 +55,18 @@ import {
 import type { FiniteEntryObservation } from "../finiteEntryObservation";
 import { SessionJournalPersistenceV1Error } from "./errors";
 import type { ResolvedJournalTargetV1 } from "./state";
-import { readPreparedFiniteEntryIssuer, retainPreparedFiniteEntryControl, readRunningFiniteEntryControl,
-  runPreparedFiniteEntryCaptureEffect, claimRunningFiniteEntryCapture, replaceFiniteEntryContinuationCapture,
-  readOriginalFiniteExecutionAuthority, type PreparedFiniteSessionJournalEntry, type FiniteEntryTransactionCapture,
-  type FiniteReplacementOrigin } from "./finiteEntry";
+import {
+  readPreparedFiniteEntryIssuer,
+  retainPreparedFiniteEntryControl,
+  readRunningFiniteEntryControl,
+  runPreparedFiniteEntryCaptureEffect,
+  claimRunningFiniteEntryCapture,
+  replaceFiniteEntryContinuationCapture,
+  readOriginalFiniteExecutionAuthority,
+  type PreparedFiniteSessionJournalEntry,
+  type FiniteEntryTransactionCapture,
+  type FiniteReplacementOrigin,
+} from "./finiteEntry";
 
 export const prepareFiniteSessionJournalEntryControlEffect = Effect.fn("SessionJournalStore.prepareFiniteEntryControl")(
   function* (entry: PreparedFiniteSessionJournalEntry, authority: StoredOccExecutionEvidenceAuthorityV1,
@@ -111,7 +135,7 @@ export const runPreparedFiniteReplacementSessionJournalEntryEffect = Effect.fn(
       yield* registerManagedMetadataSnapshotFinalGuard(tx, pair.database, pair.control);
     }
     const fresh = yield* captureFiniteReplacementAttemptInTransactionEffect(tx, input, original);
-    const accept = (accepted: Readonly<{ selection: ApplicationActiveSelection; basis: import("../../application/applicationActivation").ApplicationActiveSelectionBasis }>,
+    const accept = (accepted: Readonly<{ selection: ApplicationActiveSelection; basis: import("../../application/activation/contracts").ApplicationActiveSelectionBasis }>,
       binding: AcceptedApplicationBinding) => Effect.gen(function* () {
         yield* requireFiniteReplacementApplicationExecutionAuthority(accepted.basis, fresh.executionAuthority).pipe(
           Effect.tapError(failure => failure instanceof ApplicationMutationAdmissionError

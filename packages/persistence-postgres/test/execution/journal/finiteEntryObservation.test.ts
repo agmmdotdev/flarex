@@ -6,8 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AppRowTransaction } from "../../../src/storage/documents/appRows";
 import {
-  captureFiniteEntryObservationInTransactionEffect, closeFiniteEntryObservation,
-  readFiniteEntryApplicationObservation, readFiniteEntryBindingObservation, readFiniteEntryPlanningObservation,
+  captureFiniteEntryObservationInTransactionEffect,
+  closeFiniteEntryObservation,
+  readFiniteEntryApplicationObservation,
+  readFiniteEntryBindingObservation,
+  readFiniteEntryPlanningObservation,
   type FiniteEntryObservation,
 } from "../../../src/execution/finiteEntryObservation";
 import {
@@ -15,9 +18,14 @@ import {
   closeExactAttemptScopeClockObservation, type ScopeClockRecord,
 } from "../../../src/scope/scopeClock";
 import {
-  readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect, releaseCheckedApplicationActiveHead,
-  type CheckedApplicationActiveHead,
+  readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
 } from "../../../src/application/applicationActiveHeadRead";
+import {
+  releaseCheckedApplicationActiveHead,
+} from "../../../src/application/activeHead/identity";
+import {
+  type CheckedApplicationActiveHead,
+} from "../../../src/application/activeHead/contracts";
 import { fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
 import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
 import {
@@ -42,8 +50,10 @@ import {
   makePGliteFrameworkMigrationTargetEffect,
 } from "../../installation/frameworkSchema/frameworkMigrationPGliteTarget";
 import {
-  createApplicationNativeMutationPGliteFixtureWithPersistence, createApplicationNativeMutationPostgresFixture,
-  type ApplicationNativeMutationFixture, type ApplicationNativeMutationPersistence,
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
+  createApplicationNativeMutationPostgresFixture,
+  type ApplicationNativeMutationFixture,
+  type ApplicationNativeMutationPersistence,
 } from "../../application/applicationNativeMutationTestFixture";
 import {
   applicationMutationActivationFixture,

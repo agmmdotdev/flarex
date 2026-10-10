@@ -15,13 +15,23 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import type { GrantRetentionPolicyV1 } from "flarex-protocol/grant-retention-policy";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import { hasApplicationRelationReadPortAuthorityForPointCommit } from "../application/relations/applicationRelationRead";
+import {
+  hasApplicationRelationReadPortAuthorityForPointCommit,
+} from "../application/relations/applicationRelationRead";
 import type { ApplicationRelationReadPort } from "../application/relations/applicationRelationRead";
 import { LogicalParticipantAdmissionError } from "../storage/documents/logicalDocuments/participantErrors";
-import { issueLogicalParticipantAdmissionBundle } from "../storage/documents/logicalDocuments/participantAdmission";
-import type { LogicalParticipantSelection } from "../storage/documents/logicalDocuments/participantAdmission";
-import type { ApplicationBindingInput } from "../application/applicationActivation";
-import { withSharedLogicalSourceBindingChecks } from "../storage/documents/logicalDocuments/sourceAdmission";
+import {
+  issueLogicalParticipantAdmissionBundle,
+} from "../storage/documents/logicalDocuments/participantAdmission";
+import type {
+  LogicalParticipantSelection,
+} from "../storage/documents/logicalDocuments/participantAdmission";
+import type {
+  ApplicationBindingInput,
+} from "../application/activation/contracts";
+import {
+  withSharedLogicalSourceBindingChecks,
+} from "../storage/documents/logicalDocuments/sourceAdmission";
 import { fxSystemTransactionSessions } from "../database/schema";
 import { ExactRunningAttemptTransactionV1Error } from "./transactionSessionAttemptKernel";
 import { claimConfirmedFiniteEntryAttempt } from "./journal/finiteEntry";

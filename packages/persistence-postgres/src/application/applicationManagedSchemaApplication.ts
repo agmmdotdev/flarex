@@ -46,7 +46,7 @@ import {
 import {
   type ApplicationActivationReceipt,
   type ApplicationActivationRepository,
-} from "./applicationActivation";
+} from "./activation/contracts";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthorityResolutionPorts,

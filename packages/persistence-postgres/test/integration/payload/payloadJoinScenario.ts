@@ -13,10 +13,18 @@ import { Effect, Fiber, Exit, Tracer } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { makePayloadConformanceRuntime } from "../../../../payload-adapter/src/testing";
 import { payloadJoinContentIdentity } from "../../../../payload-adapter/src/testing/profiles";
-import { createApplicationRelationReadPort } from "../../../src/application/relations/applicationRelationRead";
+import {
+  createApplicationRelationReadPort,
+} from "../../../src/application/relations/applicationRelationRead";
 import { makeApplicationServing } from "../../../src/application/applicationServing";
 import { makeCmsCommandBinding } from "../../../src/frameworks/cmsTransaction/construction";
-import { prepareApplicationBindingSelection, withAcceptedApplicationBinding, readAcceptedApplicationBinding } from "../../../src/application/applicationActivation";
+import {
+  prepareApplicationBindingSelection,
+} from "../../../src/application/activation/repositoryIdentity";
+import {
+  withAcceptedApplicationBinding,
+  readAcceptedApplicationBinding,
+} from "../../../src/application/activation/bindingAcceptance";
 import { lockScopeClockForShareInTransactionEffect } from "../../../src/scope/scopeClock";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
@@ -24,7 +32,12 @@ import { defineCmsCommand, type CmsCommandContext } from "../../../src/framework
 import { cmsError } from "../../../src/frameworks/cmsTransaction/model";
 import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
 import { Result } from "effect";
-import { barrier, overlappingSnapshotRace, withDeadline, type payloadRelationScenario } from "./payloadRelationScenario";
+import {
+  barrier,
+  overlappingSnapshotRace,
+  withDeadline,
+  type payloadRelationScenario,
+} from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const object = (value: Json): JsonObject => { if (!isJsonObject(value)) throw new Error("Expected document"); return value; };

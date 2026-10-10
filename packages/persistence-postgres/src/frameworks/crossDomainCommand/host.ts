@@ -3,11 +3,19 @@ import { sql } from "drizzle-orm";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import type { Json } from "flarex-protocol/json";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
-import { projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
+import {
+  projectScopeEpochUuidV1Result,
+  projectScopeIdUuidV1Result,
+} from "flarex-protocol/storage-authority";
 import { TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema,
   TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
-import type { ApplicationBindingSelectionReader } from "../../application/applicationActivation";
-import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../../application/applicationActivation";
+import type {
+  ApplicationBindingSelectionReader,
+} from "../../application/activation/contracts";
+import {
+  hasApplicationBindingComposition,
+  prepareApplicationBindingSelection,
+} from "../../application/activation/repositoryIdentity";
 import type { ApplicationParticipantOptions } from "../../storage/materialization/participant";
 import { makeBoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import type { CmsHostInput } from "../cmsTransaction/host";
@@ -24,17 +32,36 @@ import { createCommittedPointOutcomeResolverV1 } from "../../commit/committedPoi
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
-import { requireLogicalApplicationSourceAdmission, prepareLogicalApplicationSourceAdmission } from "../../storage/documents/logicalDocuments/applicationAdmission";
+import {
+  requireLogicalApplicationSourceAdmission,
+  prepareLogicalApplicationSourceAdmission,
+} from "../../storage/documents/logicalDocuments/applicationAdmission";
 import { prepareLogicalStorageReadiness } from "../../storage/catalog/logicalStorageReadiness";
-import { requireLogicalDocumentSourceAdmission, prepareLogicalDocumentSourceAdmission } from "../../storage/documents/logicalDocuments/documentAdmission";
-import { requireLogicalRelationalAdmission, prepareLogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
+import {
+  requireLogicalDocumentSourceAdmission,
+  prepareLogicalDocumentSourceAdmission,
+} from "../../storage/documents/logicalDocuments/documentAdmission";
+import {
+  requireLogicalRelationalAdmission,
+  prepareLogicalRelationalAdmission,
+} from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
-import { chargeHostPreparation, retainPreparedHost, type PreparedHostRuntime } from "../../execution/preparation/preparedHostRuntime";
-import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../../database/relationalTransaction/session";
+import {
+  chargeHostPreparation,
+  retainPreparedHost,
+  type PreparedHostRuntime,
+} from "../../execution/preparation/preparedHostRuntime";
+import {
+  hasRelationalSessionDatabase,
+  runRelationalSession,
+  type RelationalSession,
+} from "../../database/relationalTransaction/session";
 import { runWithRequestRecovery } from "../../database/relationalTransaction/requestRecovery";
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import { makeInstallationProtectedScopeAuthorityControlReader } from "../../scope/scopeAuthorityControlRead";
+import {
+  makeInstallationProtectedScopeAuthorityControlReader,
+} from "../../scope/scopeAuthorityControlRead";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../scope/scopeClock";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";

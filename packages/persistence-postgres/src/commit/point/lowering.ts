@@ -34,7 +34,7 @@ import type {
 } from "./constructionContracts";
 import {
   invalidateAcceptedApplicationBindingInTransaction,
-} from "../../application/applicationActivation";
+} from "../../application/activation/acceptedBinding";
 import {
   corruption,
   type PointCommitCorruptionV1Error,

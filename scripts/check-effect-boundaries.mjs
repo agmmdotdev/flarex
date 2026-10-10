@@ -164,8 +164,8 @@ const allowedRunPromiseExitSites = new Map([
   [siteKey("packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskQueryCallback.ts", "ApplicationTaskQueryCallbackTarget.invoke"), 1],
   [siteKey("packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskMutationCallback.ts", "ApplicationTaskMutationCallbackTarget.invoke"), 1],
   // These located transaction owners retain full Cause until native settlement.
-  [siteKey("packages/persistence-postgres/src/application/applicationActivation.ts", "runLocatedTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/application/applicationReadiness.ts", "runLocatedTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/application/activation/databaseBoundary.ts", "runLocatedTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/application/readiness/databaseBoundary.ts", "runLocatedTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/application/tasks/applicationTaskSystemRunCreation.ts", "runEffectInTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/commit/point/promiseBoundary.ts", "runPointCommitInTransactionEffect"), 1],
   // Dedicated installation maintenance owns draining and page settlement.

@@ -1,14 +1,20 @@
 import type { PointCommitPublicationObservation } from "./observation";
-import type { LogicalParticipantCommitAuthority } from "../../storage/documents/logicalDocuments/participantAdmission";
+import type {
+  LogicalParticipantCommitAuthority,
+} from "../../storage/documents/logicalDocuments/participantAdmission";
 import type { Effect } from "effect";
 import type {
   prepareAtomicCommerceEvents,
   ParticipantEventSelection,
 } from "../../frameworks/atomicCommerce/events";
-import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from "../../storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import type {
+  IntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../../storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import type { AppDeveloperIndexDefinitionPortV1 } from "../../storage/indexes/appDeveloperIndexCommitV1";
 import type { AppUniqueConstraintDefinitionPortV1 } from "../../storage/unique/appUniqueConstraintCommitV1";
-import type { AppUniqueConstraintSetEligibilityPortV1 } from "../../storage/unique/appUniqueConstraintSetBuildV1";
+import type {
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../storage/unique/appUniqueConstraintSetBuildV1";
 import type { ApplicationRelationCommitPort } from "../../application/relations/commit/Model";
 import type { AppSchemaCandidateWriteGuardPort } from "../../storage/catalog/appSchemaCandidateValidation";
 import type { ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
@@ -17,7 +23,9 @@ import type {
   PointMutationAttemptReplacementFiniteEntryError,
   PointMutationAttemptReplacementSqlOperationV1,
 } from "./errors";
-import type { PreparedFiniteActiveApplication } from "../../application/applicationActivation";
+import type {
+  PreparedFiniteActiveApplication,
+} from "../../application/activation/contracts";
 import type { PreparedFiniteSessionJournalEntry } from "../../execution/journal/finiteEntry";
 
 export type PointCommitTransactionProofStepV1 =

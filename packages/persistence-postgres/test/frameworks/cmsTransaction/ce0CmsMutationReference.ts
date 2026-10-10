@@ -1,5 +1,8 @@
 import { Cause, Clock, Effect, Schema } from "effect";
-import { chargeHostPreparation, retainPreparedHost } from "../../../src/execution/preparation/preparedHostRuntime";
+import {
+  chargeHostPreparation,
+  retainPreparedHost,
+} from "../../../src/execution/preparation/preparedHostRuntime";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -55,11 +58,19 @@ import {
   ce0PersistenceStep as persistenceStep,
   projectCe0CmsRequestFailure as projectFailure,
 } from "./ce0CmsReferencePersistence";
-import { prepareCe0FirstInsertMaterialization, type Ce0FirstInsertMaterializationOptions } from "../../performance/ce0FirstInsertMaterialization";
+import {
+  prepareCe0FirstInsertMaterialization,
+  type Ce0FirstInsertMaterializationOptions,
+} from "../../performance/ce0FirstInsertMaterialization";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { LogicalDocumentChange } from "../../../src/storage/documents/logicalDocuments/workingSet";
 import { makeCe0FirstInsertDocuments } from "../../performance/ce0FirstInsertDocuments";
-import { prepareCurrentApplicationBinding, hasApplicationBindingComposition } from "../../../src/application/applicationActivation";
+import {
+  prepareCurrentApplicationBinding,
+} from "../../../src/application/activation/currentBinding";
+import {
+  hasApplicationBindingComposition,
+} from "../../../src/application/activation/repositoryIdentity";
 import {
   writeCe0PublicationReference,
   advanceCe0PublicationReference,

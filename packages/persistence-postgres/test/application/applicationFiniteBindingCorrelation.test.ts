@@ -1,18 +1,47 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema, Tracer } from "effect";
 import { expect, it } from "vitest";
-import { decodeReplacementScopeIdV1, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import {
+  decodeReplacementScopeIdV1,
+  StorageGenerationFenceSchema,
+} from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { prepareLogicalSourceEvidence, withSharedLogicalSourceBindingChecks } from "../../src/storage/documents/logicalDocuments/sourceAdmission";
+import {
+  prepareLogicalSourceEvidence,
+  withSharedLogicalSourceBindingChecks,
+} from "../../src/storage/documents/logicalDocuments/sourceAdmission";
 import { prepareLogicalStorageReadiness } from "../../src/storage/catalog/logicalStorageReadiness";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../src/scope/scopeAuthorityResolution";
 import { logicalCurrencyFixture } from "../../../medusa-adapter/test/support/logical-currency-fixture";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
 import { runEffect } from "../support/effectTestRuntime";
-import { prepareApplicationBindingSelection, requireAcceptedApplicationBindingObservation,
-  type AcceptedApplicationBinding } from "../../src/application/applicationActivation";
-import { prepareLogicalRelationalAdmission } from "../../src/storage/documents/logicalDocuments/relationalAdmission";
-import { withLogicalParticipantCommitApplicationBindingInTransaction } from "../../src/storage/documents/logicalDocuments/participantAdmission";
+import {
+  ExecutionDiagnostics,
+  type ExecutionDiagnosticPolicy,
+} from "../../src/execution/diagnostics/operation";
+import {
+  prepareApplicationBindingSelection,
+} from "../../src/application/activation/repositoryIdentity";
+import {
+  requireAcceptedApplicationBindingObservation,
+} from "../../src/application/activation/acceptedBinding";
+import {
+  type AcceptedApplicationBinding,
+} from "../../src/application/activation/contracts";
+import {
+  prepareLogicalRelationalAdmission,
+} from "../../src/storage/documents/logicalDocuments/relationalAdmission";
+import {
+  withLogicalParticipantCommitApplicationBindingInTransaction,
+} from "../../src/storage/documents/logicalDocuments/participantAdmission";
 import { postgresUrl } from "../support/postgresHelpers";
+
+// Compose the actual core observation policy alongside the existing tracer.
+// useSpan retains the original Cause, as in the measurement SDK composition.
+const diagnostics: ExecutionDiagnosticPolicy = {
+  observe: (name, work) => Effect.useSpan(name, {}, span =>
+    Effect.provideService(work, Tracer.ParentSpan, span)),
+};
+
 it("retains full source proof authenticity across serialized SQL and overlapping owner lifetimes", async () => {
   const cleanup: Array<() => Promise<void>> = [];
   try {
@@ -90,7 +119,7 @@ it("retains full source proof authenticity across serialized SQL and overlapping
           expect(count(readinessProof) - beforeReadiness).toBe(1);
         }));
       }
-    })).pipe(Effect.provideService(Tracer.Tracer, tracer))));
+    })).pipe(Effect.provideService(Tracer.Tracer, tracer), Effect.provideService(ExecutionDiagnostics, diagnostics))));
   } finally { for (const close of cleanup.reverse()) await close(); }
 }, 240_000);
 
@@ -135,7 +164,7 @@ async function verifyThreeSourceAcceptance(driver: "pglite" | "postgres") {
           }), commerceAccepted);
         }, accepted);
       });
-    }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
+    }).pipe(Effect.provideService(Tracer.Tracer, tracer), Effect.provideService(ExecutionDiagnostics, diagnostics))));
     expect(entered).toEqual(selected.map(source => source.source.key));
     expect(count("ApplicationReadiness.validateStoredIssuedReadiness")).toBe(1);
     expect(count("ApplicationActiveHead.readCheckedCoherentForShare")).toBe(1);
@@ -167,7 +196,7 @@ async function verifyThreeSourceAcceptance(driver: "pglite" | "postgres") {
       expect(outcome.cause).toBe(original);
       if (escaped === undefined) throw new Error("Missing genuine callback binding");
       expect(Result.isFailure(requireAcceptedApplicationBindingObservation(escaped, application, tx, clock))).toBe(true);
-    })));
+    }).pipe(Effect.provideService(Tracer.Tracer, tracer), Effect.provideService(ExecutionDiagnostics, diagnostics))));
   } finally { for (const close of cleanup.reverse()) await close(); }
 }
 

@@ -1,11 +1,21 @@
 import { cmsRelationReadFailure } from "../../../src/frameworks/cmsTransaction/relations";
-import { ApplicationActivationError } from "../../../src/application/applicationActivation";
-import { TrustedScopeAuthorityResolutionError, TrustedScopeAuthorityPortError } from "../../../src/scope/scopeAuthorityResolution";
+import {
+  ApplicationActivationError,
+} from "../../../src/application/activation/errors";
+import {
+  TrustedScopeAuthorityResolutionError,
+  TrustedScopeAuthorityPortError,
+} from "../../../src/scope/scopeAuthorityResolution";
 import { expect, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { PayloadConfigurationSchema } from "@flarex/analysis/internal/application-write-policy";
 import { payloadJoinQuery, makePayloadPopulation } from "../../../../payload-adapter/src/testing";
-import { payloadJoinConfiguration, payloadManyConfiguration, payloadScalarConfiguration, payloadRelationConfiguration } from "../../../../payload-adapter/src/testing/profiles";
+import {
+  payloadJoinConfiguration,
+  payloadManyConfiguration,
+  payloadScalarConfiguration,
+  payloadRelationConfiguration,
+} from "../../../../payload-adapter/src/testing/profiles";
 import { makePayloadConformanceRuntime } from "../../../../payload-adapter/src/testing";
 import { isOptionalPostRelationSuccessor } from "../../../src/application/ownership/Successor";
 import { payloadScalarFields } from "../../../../payload-adapter/src/testing/profiles";

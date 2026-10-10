@@ -1,6 +1,13 @@
-import type { ApplicationActivationTargetProfile } from "../../src/application/applicationReadiness";
-import { constructApplicationLegacyServingOwners, constructApplicationReadinessOwners, retainApplicationServing,
-  makeApplicationReadServing, ApplicationServingError } from "../../src/application/applicationServing";
+import type {
+  ApplicationActivationTargetProfile,
+} from "../../src/application/readiness/contracts";
+import {
+  constructApplicationLegacyServingOwners,
+  constructApplicationReadinessOwners,
+  retainApplicationServing,
+  makeApplicationReadServing,
+  ApplicationServingError,
+} from "../../src/application/applicationServing";
 import type { RelationalSession } from "../../src/database/relationalTransaction/session";
 import type { PhysicalSessionObservation } from "../../src/database/physicalSession/observation";
 import type {
@@ -87,8 +94,10 @@ import {
 } from "../../src/application/applicationAnalysisRegistration";
 import {
   makeApplicationActivationRepository,
+} from "../../src/application/activation/repository";
+import {
   type CoherentActiveApplication,
-} from "../../src/application/applicationActivation";
+} from "../../src/application/activation/contracts";
 import { createApplicationRelationCommitPort } from
   "../../src/application/relations/applicationRelationCommit";
 import {
@@ -103,7 +112,9 @@ import {
   createApplicationManagedSchemaApplicationPort,
   type ApplicationManagedSchemaApplicationPort,
 } from "../../src/application/applicationManagedSchemaApplication";
-import { makeApplicationReadinessRepository } from "../../src/application/applicationReadiness";
+import {
+  makeApplicationReadinessRepository,
+} from "../../src/application/readiness/repository";
 import {
   makeApplicationSchemaAuthorityPublisher,
   type ApplicationSchemaAuthority,
@@ -145,10 +156,18 @@ import {
   type PostgresFlarexPersistence,
 } from "../../src/database/postgres";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
-import { closeProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards, hasProtectedMetadataFinalGuardScope,
-  type ProtectedMetadataPreparation } from "../../src/execution/preparation/preparedMetadataEpoch";
-import { acquireCoLocatedInstallationAdmission, closeInstallationAdmission, lockInstallationForCurrentTransaction,
-  type PreparedCoLocatedReadInstallation } from "../../src/installation/installationLifecycle";
+import {
+  closeProtectedMetadataFinalGuardScope,
+  flushProtectedMetadataFinalGuards,
+  hasProtectedMetadataFinalGuardScope,
+  type ProtectedMetadataPreparation,
+} from "../../src/execution/preparation/preparedMetadataEpoch";
+import {
+  acquireCoLocatedInstallationAdmission,
+  closeInstallationAdmission,
+  lockInstallationForCurrentTransaction,
+  type PreparedCoLocatedReadInstallation,
+} from "../../src/installation/installationLifecycle";
 import type { FlarexPersistence } from "../../src/index";
 import type { LocatedScopeClockReader } from
   "../../src/scope/scopeAuthorityResolution";
@@ -157,11 +176,17 @@ import {
 } from "../../src/execution/transactionSessionAttemptKernel";
 import {
   fxSystemApplicationPublicationsV1,
+  fxSystemApplicationReadinessV1,
+  fxSystemApplicationRevisionSchemasV1,
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemScopeClocks,
   fxSystemScopeExecutionAuthorities,
 } from "../../src/database/schema";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "../../src/application/applicationActivationSchema";
 import {
   makeInstallationProtectedScopeAuthorityControlReader,
 } from "../../src/scope/scopeAuthorityControlRead";
@@ -1561,6 +1586,31 @@ export function composeApplicationNativeMutationReadiness(
     pointCommitAuthority: sessionAuthority, cold: fixtureColdMaterialization(options),
     ...(options.protectedMetadata === undefined ? {} : { protectedMetadata: options.protectedMetadata }),
   });
+}
+
+/** Read-only, detached evidence for the current connected lifecycle proof. */
+export async function inspectApplicationNativeMutationLifecycleForTest(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  revisionId: string,
+) {
+  const db = fixture.target.drizzle;
+  const scopeId = fixture.authority.scopeId;
+  const [readiness, revisionSchemas, history, heads] = await Promise.all([
+    db.select().from(fxSystemApplicationReadinessV1).where(and(
+      eq(fxSystemApplicationReadinessV1.scopeId, scopeId),
+      eq(fxSystemApplicationReadinessV1.revisionId, revisionId),
+    )),
+    db.select().from(fxSystemApplicationRevisionSchemasV1).where(and(
+      eq(fxSystemApplicationRevisionSchemasV1.scopeId, scopeId),
+      eq(fxSystemApplicationRevisionSchemasV1.revisionId, revisionId),
+    )),
+    db.select().from(fxSystemApplicationActivations)
+      .where(eq(fxSystemApplicationActivations.scopeId, scopeId))
+      .orderBy(fxSystemApplicationActivations.activationSequence),
+    db.select().from(fxSystemApplicationActiveHeads)
+      .where(eq(fxSystemApplicationActiveHeads.scopeId, scopeId)),
+  ]);
+  return structuredClone({ readiness, revisionSchemas, history, heads });
 }
 
 function fixtureColdMaterialization(options: Pick<ApplicationNativeMutationFixtureOptions, "runtimeHostIdentity" | "compatibilityDate">) {

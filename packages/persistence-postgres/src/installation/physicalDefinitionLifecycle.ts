@@ -1,6 +1,14 @@
-import { invalidateAcceptedApplicationBindingInTransaction } from "../application/applicationActivation";
-import { invalidateSharedLogicalSourceBindingChecks } from "../storage/documents/logicalDocuments/sourceAdmission";
-import { chargeHostPreparation, registerHostPreparationDisposal, PreparedHostRuntimeError } from "../execution/preparation/preparedHostRuntime";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../application/activation/acceptedBinding";
+import {
+  invalidateSharedLogicalSourceBindingChecks,
+} from "../storage/documents/logicalDocuments/sourceAdmission";
+import {
+  chargeHostPreparation,
+  registerHostPreparationDisposal,
+  PreparedHostRuntimeError,
+} from "../execution/preparation/preparedHostRuntime";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -45,7 +53,9 @@ import {
 import type { AppRowTransaction } from "../storage/documents/appRows";
 import type { FlarexMetadataDatabase } from "../application/deployments";
 import { runEffectTransaction } from "../database/effectTransaction";
-import { AppUniqueConstraintSetClosurePersistenceV1Error } from "../storage/unique/appUniqueConstraintSetClosureV1";
+import {
+  AppUniqueConstraintSetClosurePersistenceV1Error,
+} from "../storage/unique/appUniqueConstraintSetClosureV1";
 import type { FlarexMetadataTransaction } from "../database/metadataTransaction";
 import {
   getAppIndexDefinitionByIdEffect,

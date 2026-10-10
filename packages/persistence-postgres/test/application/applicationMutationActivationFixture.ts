@@ -1,21 +1,47 @@
 import { Effect } from "effect";
 import { copyBytesToArrayBuffer, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1, prepareApplicationMutationGrantV1,
-  assembleApplicationMutationGrantJwsV1, createApplicationMutationGrantVerifierNamespaceV1, verifyApplicationMutationGrantV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
-import type { ApplicationMutationGrantVerificationKeyV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
-import type { CanonicalApplicationMutationExecutionAuthorityV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
+import {
+  APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+  prepareApplicationMutationGrantV1,
+  assembleApplicationMutationGrantJwsV1,
+  createApplicationMutationGrantVerifierNamespaceV1,
+  verifyApplicationMutationGrantV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
+import type {
+  ApplicationMutationGrantVerificationKeyV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
+import type {
+  CanonicalApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { canonicalizePointMutationRequestV1 } from "flarex-protocol/point-mutation-start";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { TransactionGrantDeploymentIdV1Schema, TransactionGrantKeyIdV1Schema, TransactionGrantTimestampV1Schema,
-  canonicalizeTransactionGrantIdentityAccessPolicyV1, transactionGrantIdentityAccessPolicySha256BytesV1FromHex } from "flarex-protocol/transaction-grant";
-import { CanonicalTransactionArgumentsBytesV1Schema, TransactionArgumentsSha256V1Schema, TransactionAuthorizationGrantIdV1Schema,
-  TransactionAuthorizationRevocationEpochSchema, TransactionFunctionPathV1Schema, TransactionFunctionKindV1Schema,
-  TransactionPolicyVersionV1Schema, TransactionRequestKeyV1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
+import {
+  TransactionGrantDeploymentIdV1Schema,
+  TransactionGrantKeyIdV1Schema,
+  TransactionGrantTimestampV1Schema,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
+} from "flarex-protocol/transaction-grant";
+import {
+  CanonicalTransactionArgumentsBytesV1Schema,
+  TransactionArgumentsSha256V1Schema,
+  TransactionAuthorizationGrantIdV1Schema,
+  TransactionAuthorizationRevocationEpochSchema,
+  TransactionFunctionPathV1Schema,
+  TransactionFunctionKindV1Schema,
+  TransactionPolicyVersionV1Schema,
+  TransactionRequestKeyV1Schema,
+  TransactionRequestSha256V1Schema,
+} from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1, canonicalizeFlarexValueJsonV1 } from "flarex-protocol/value";
-import type { ApplicationActiveSelection } from "../../src/application/applicationActivation";
-import type { PreparedApplicationMutationSessionActivationV1 } from "../../src/execution/transactionSessionActivation";
+import type {
+  ApplicationActiveSelection,
+} from "../../src/application/activation/contracts";
+import type {
+  PreparedApplicationMutationSessionActivationV1,
+} from "../../src/execution/transactionSessionActivation";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
 import { runEffect } from "../support/effectTestRuntime";
 

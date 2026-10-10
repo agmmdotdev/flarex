@@ -9,15 +9,31 @@ import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId,
 import type { MetadataSequence } from "flarex-protocol/commit-protocol";
 import { ReplacementScopeIdV1Schema, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { readApplicationBindingTargetProtection, isPreparedApplicationBinding, requireAcceptedApplicationBindingObservation,
-  captureFiniteApplicationMetadata, inspectFiniteApplicationMetadata, type FiniteApplicationMetadata,
+import {
+  readApplicationBindingTargetProtection,
+  isPreparedApplicationBinding,
+} from "../../../application/activation/selectionIdentity";
+import {
+  requireAcceptedApplicationBindingObservation,
+} from "../../../application/activation/acceptedBinding";
+import {
+  captureFiniteApplicationMetadata,
+  inspectFiniteApplicationMetadata,
   readCapturedFiniteApplicationMetadata,
   readFiniteApplicationStorageCaptureMetadata,
   readFiniteApplicationCapturePorts,
   readPreparedFiniteApplicationMetadataProjections,
   readPreparedFiniteApplicationPublicationDefinitions,
-  type AcceptedApplicationBinding, type ApplicationBindingObservation, type ApplicationBindingInput } from "../../../application/applicationActivation";
-import { isCheckedApplicationActiveHead } from "../../../application/applicationActiveHeadRead";
+} from "../../../application/activation/finiteIdentity";
+import {
+  type FiniteApplicationMetadata,
+  type AcceptedApplicationBinding,
+  type ApplicationBindingObservation,
+  type ApplicationBindingInput,
+} from "../../../application/activation/contracts";
+import {
+  isCheckedApplicationActiveHead,
+} from "../../../application/activeHead/identity";
 import { withApplicationBindingEvidenceInTransaction, withPreparedApplicationBindingEvidenceInTransaction,
   type ApplicationBindingEvidence } from "../../../application/applicationBindingProjection";
 import type {
@@ -30,8 +46,12 @@ import {
   locateAppIndexDefinitionByIdEffect,
   type LocatedAppIndexDefinitionV1,
 } from "../../indexes/appIndexDefinitions";
-import { readBindingSelectedEvidence,
-  prepareBindingSelectedStructure, retainBindingSelectedStructure, type PreparedBindingSelectedStructure } from "../../../installation/frameworkSchema/binding/repository";
+import {
+  readBindingSelectedEvidence,
+  prepareBindingSelectedStructure,
+  retainBindingSelectedStructure,
+  type PreparedBindingSelectedStructure,
+} from "../../../installation/frameworkSchema/binding/repository";
 import { verifyLogicalSchemaBindingInTransaction, verifyLogicalSchemaReadBindingInTransaction,
   verifyPreparedLogicalSchemaBinding,
   type SelectedLogicalStorageReadiness } from "../../../installation/frameworkSchema/binding/logicalSchema";
@@ -65,12 +85,21 @@ import type {
   SessionJournalAttempt,
 } from "../../../execution/journal/contracts";
 import type { LogicalParticipantAttemptRoot } from "./participantAdmission";
-import { prepareFiniteMetadataProjection, mergeFiniteMetadataProjections, mergeFiniteMetadataContractProjections,
-  finiteMetadataTableKey, finiteMetadataContractKey, requireCurrentFiniteMetadataProjection,
-  matchesFiniteTableWriteClosureProjections, requireFiniteTableWriteClosures,
-  prepareFiniteTableWriteClosureComparison, acceptFiniteTableWriteClosureComparison,
-  type FiniteMetadataComparisonExpected, type FiniteTableWriteClosureComparison,
-  type PreparedFiniteMetadataProjection } from "../../../execution/finiteMetadataDependencies";
+import {
+  prepareFiniteMetadataProjection,
+  mergeFiniteMetadataProjections,
+  mergeFiniteMetadataContractProjections,
+  finiteMetadataTableKey,
+  finiteMetadataContractKey,
+  requireCurrentFiniteMetadataProjection,
+  matchesFiniteTableWriteClosureProjections,
+  requireFiniteTableWriteClosures,
+  prepareFiniteTableWriteClosureComparison,
+  acceptFiniteTableWriteClosureComparison,
+  type FiniteMetadataComparisonExpected,
+  type FiniteTableWriteClosureComparison,
+  type PreparedFiniteMetadataProjection,
+} from "../../../execution/finiteMetadataDependencies";
 import {
   disposeFiniteMetadataProjection,
   readFiniteMetadataProjectionPreparationPayload,

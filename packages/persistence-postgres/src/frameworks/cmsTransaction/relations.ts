@@ -1,13 +1,29 @@
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { Effect, Option, Schema } from "effect";
-import { appDocumentIdV1FromRowIdentity, decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
-import { readAcceptedApplicationBinding } from "../../application/applicationActivation";
-import type { ApplicationRelationReadPort, ApplicationRelationReadCapability } from "../../application/relations/applicationRelationRead";
-import { readIncomingAppRelationEdgePageInTransactionEffect, type ReadIncomingAppRelationEdgePageInput } from "../../storage/relations";
+import {
+  appDocumentIdV1FromRowIdentity,
+  decodeAppDocumentIdentityV1Result,
+} from "flarex-protocol/app-document-id";
+import {
+  readAcceptedApplicationBinding,
+} from "../../application/activation/bindingAcceptance";
+import type {
+  ApplicationRelationReadPort,
+  ApplicationRelationReadCapability,
+} from "../../application/relations/applicationRelationRead";
+import {
+  readIncomingAppRelationEdgePageInTransactionEffect,
+  type ReadIncomingAppRelationEdgePageInput,
+} from "../../storage/relations";
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
 import type { CmsRequestLifetime } from "./lifetime";
 import type { CmsDocuments } from "./documents";
-import { cmsError, type CmsRequestContext, type CmsPresentedTransactionId, type CmsTransactionError } from "./model";
+import {
+  cmsError,
+  type CmsRequestContext,
+  type CmsPresentedTransactionId,
+  type CmsTransactionError,
+} from "./model";
 
 export type CmsIncomingSource = "relatedPost" | "relatedPosts";
 export interface CmsRelations {

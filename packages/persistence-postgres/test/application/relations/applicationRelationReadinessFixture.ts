@@ -1,59 +1,169 @@
-import { constructApplicationServingOwners, retainApplicationServing } from "../../../src/application/applicationServing";
+import {
+  constructApplicationServingOwners,
+  retainApplicationServing,
+} from "../../../src/application/applicationServing";
 import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
-import type { ApplicationActivationTargetProfile } from "../../../src/application/applicationReadiness";
-import { canonicalizeApplicationManifestV1, canonicalizeApplicationManifestV2, verifyApplicationManifestWithRelations, type ApplicationManifestV1, type ApplicationManifestV2 } from "@flarex/analysis/application-analysis";
-import { produceApplicationTaskBindingsV1 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
-import { hashCanonicalTaskCatalogV1, makeStandardApplicationTaskSha256V1 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
+import type {
+  ApplicationActivationTargetProfile,
+} from "../../../src/application/readiness/contracts";
+import {
+  canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifestV2,
+  verifyApplicationManifestWithRelations,
+  type ApplicationManifestV1,
+  type ApplicationManifestV2,
+} from "@flarex/analysis/application-analysis";
+import {
+  produceApplicationTaskBindingsV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import {
+  hashCanonicalTaskCatalogV1,
+  makeStandardApplicationTaskSha256V1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import {
+  prepareStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import {
+  CommitSyscallSequenceV1Schema,
+  canonicalizeSessionJournalEffect,
+  canonicalizeSuccessfulResultV1Effect,
+} from "flarex-protocol/commit-protocol";
 import { type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, decodeReplacementScopeIdV1, projectScopeIdUuidV1, type ScopeId } from "flarex-protocol/storage-authority";
+import {
+  CommitSeqSchema,
+  decodeReplacementScopeIdV1,
+  projectScopeIdUuidV1,
+  type ScopeId,
+} from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { expect } from "vitest";
-import { exactRelationCommitRowId, publishExactRelationSourceCommit } from "./applicationRelationSourceCommitFixture";
+import {
+  exactRelationCommitRowId,
+  publishExactRelationSourceCommit,
+} from "./applicationRelationSourceCommitFixture";
 import { policyManifestFixture } from "../ownership/applicationWritePolicyFixture";
 import { createMigratedPGlitePersistence } from "../../support/pgliteTestFixture";
-import { advanceAppSchemaCandidateValidationEffect, createAppSchemaCandidateValidationPort, createLocatedAppSchemaCandidateValidationTarget, installAppSchemaCandidateValidationEffect, settleAppSchemaCandidateValidationEffect } from "../../../src/storage/catalog/appSchemaCandidateValidation";
+import {
+  advanceAppSchemaCandidateValidationEffect,
+  createAppSchemaCandidateValidationPort,
+  createLocatedAppSchemaCandidateValidationTarget,
+  installAppSchemaCandidateValidationEffect,
+  settleAppSchemaCandidateValidationEffect,
+} from "../../../src/storage/catalog/appSchemaCandidateValidation";
 import { locateAppIndexDefinitionByIdEffect } from "../../../src/storage/indexes/appIndexDefinitions";
-import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
-import { readAppUniqueConstraintSetClosureV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
-import { closeAppUniqueConstraintSetV1InTransactionEffect, prepareAppUniqueConstraintSetClosureV1Effect } from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
-import { makeApplicationActivationRepository } from "../../../src/application/applicationActivation";
-import { makeApplicationAnalysisRepository, type ApplicationAnalysisAuthority } from "../../../src/application/applicationAnalysisRegistration";
+import {
+  reconcileAppUniqueConstraintSetBuildV1Effect,
+  advanceAppUniqueConstraintSetBackfillV1Effect,
+} from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  readAppUniqueConstraintSetClosureV1Effect,
+} from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
+import {
+  closeAppUniqueConstraintSetV1InTransactionEffect,
+  prepareAppUniqueConstraintSetClosureV1Effect,
+} from "../../../src/storage/unique/appUniqueConstraintSetClosureV1";
+import {
+  makeApplicationActivationRepository,
+} from "../../../src/application/activation/repository";
+import {
+  makeApplicationAnalysisRepository,
+  type ApplicationAnalysisAuthority,
+} from "../../../src/application/applicationAnalysisRegistration";
 import { makeApplicationPublicationRepository } from "../../../src/application/applicationPublication";
-import { makeApplicationReadinessRepository } from "../../../src/application/applicationReadiness";
-import { type ApplicationRelationBindingPublication, publishApplicationRelationBindingEffect } from "../../../src/application/relations/binding";
-import { createApplicationRelationBuildPort } from "../../../src/application/relations/applicationRelationBuild";
-import { createApplicationRelationCommitPort } from "../../../src/application/relations/applicationRelationCommit";
-import { makeApplicationRelationPublicationRepository } from "../../../src/application/relations/applicationRelationPublication";
-import { createApplicationRelationReadPort } from "../../../src/application/relations/applicationRelationRead";
-import { fxSystemApplicationReadiness, fxSystemApplicationReadinessRelations } from "../../../src/application/relations/applicationRelationSchema";
-import { makeApplicationRelationTaskBindingRepository } from "../../../src/application/relations/applicationRelationTaskBindings";
-import { makeApplicationSchemaAuthorityPublisher } from "../../../src/application/applicationSchemaAuthority";
-import { makeApplicationTaskBindingRepository } from "../../../src/application/tasks/applicationTaskBindings";
+import {
+  makeApplicationReadinessRepository,
+} from "../../../src/application/readiness/repository";
+import {
+  type ApplicationRelationBindingPublication,
+  publishApplicationRelationBindingEffect,
+} from "../../../src/application/relations/binding";
+import {
+  createApplicationRelationBuildPort,
+} from "../../../src/application/relations/applicationRelationBuild";
+import {
+  createApplicationRelationCommitPort,
+} from "../../../src/application/relations/applicationRelationCommit";
+import {
+  makeApplicationRelationPublicationRepository,
+} from "../../../src/application/relations/applicationRelationPublication";
+import {
+  createApplicationRelationReadPort,
+} from "../../../src/application/relations/applicationRelationRead";
+import {
+  fxSystemApplicationReadiness,
+  fxSystemApplicationReadinessRelations,
+} from "../../../src/application/relations/applicationRelationSchema";
+import {
+  makeApplicationRelationTaskBindingRepository,
+} from "../../../src/application/relations/applicationRelationTaskBindings";
+import {
+  makeApplicationSchemaAuthorityPublisher,
+} from "../../../src/application/applicationSchemaAuthority";
+import {
+  makeApplicationTaskBindingRepository,
+} from "../../../src/application/tasks/applicationTaskBindings";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import { buildAppDeveloperOrderedIndexV1Effect, buildIntrinsicCreationTimeIndexV1Effect } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
-import { loadPublishedPhysicalRequirementSnapshotV1, reconcilePublishedIndexBuildsV1Effect } from "../../../src/storage/indexes/indexBuildReconciliation";
-import { createPGliteLocatedPointMutationSessionActivationTargetV1, createPGliteLocatedSplitScopeClockTarget, createPGliteSplitScopeAuthorityProvisioner } from "../../../src/database/pglite";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  buildAppDeveloperOrderedIndexV1Effect,
+  buildIntrinsicCreationTimeIndexV1Effect,
+} from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import {
+  loadPublishedPhysicalRequirementSnapshotV1,
+  reconcilePublishedIndexBuildsV1Effect,
+} from "../../../src/storage/indexes/indexBuildReconciliation";
+import {
+  createPGliteLocatedPointMutationSessionActivationTargetV1,
+  createPGliteLocatedSplitScopeClockTarget,
+  createPGliteSplitScopeAuthorityProvisioner,
+} from "../../../src/database/pglite";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../../../src/execution/transactionSessionAttemptKernel";
 import type { SplitScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
-import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "../../../src/application/applicationActivationSchema";
 import { deployments, fxSystemScopeClocks } from "../../../src/database/schema";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
-import { createPointMutationSessionActivationPersistenceV1, type LocatedPointMutationSessionActivationTargetOptionsV1 } from "../../../src/execution/transactionSessionActivation";
+import {
+  createPointMutationSessionActivationPersistenceV1,
+  type LocatedPointMutationSessionActivationTargetOptionsV1,
+} from "../../../src/execution/transactionSessionActivation";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
 import type { StableTableCatalogTransaction } from "../../../src/storage/catalog/stableTableCatalog";
-import { ensureRelationBuildTestWebCrypto, relationBuildRowId, relationBuildPublicationInput } from "./applicationRelationBuildTestSupport";
-import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect } from "../../support/effectTestRuntime";
-import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../../commit/point/support/relations";
-import { TEST_GRANT_RETENTION_POLICY_V1, activatePointMutationSession, pointMutationSessionActivationFixture } from "../../execution/transactionSessionActivationTestSupport";
+import {
+  ensureRelationBuildTestWebCrypto,
+  relationBuildRowId,
+  relationBuildPublicationInput,
+} from "./applicationRelationBuildTestSupport";
+import {
+  completeSessionJournalSeal,
+  prepareSessionJournalSeal,
+  runEffect,
+} from "../../support/effectTestRuntime";
+import {
+  relationAuthorityFromAnchor,
+  selectorFromRelationAnchor,
+} from "../../commit/point/support/relations";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+  activatePointMutationSession,
+  pointMutationSessionActivationFixture,
+} from "../../execution/transactionSessionActivationTestSupport";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { ApplicationNativeMutationPersistence } from "../applicationNativeMutationTestFixture";
-import { createPostgresLocatedPointMutationSessionActivationTargetV1, createPostgresLocatedSplitScopeClockTarget, createPostgresSplitScopeAuthorityProvisioner, type PostgresFlarexPersistence } from "../../../src/database/postgres";
+import {
+  createPostgresLocatedPointMutationSessionActivationTargetV1,
+  createPostgresLocatedSplitScopeClockTarget,
+  createPostgresSplitScopeAuthorityProvisioner,
+  type PostgresFlarexPersistence,
+} from "../../../src/database/postgres";
 const LOCATOR = Object.freeze({
   kind: "database_per_scope",
   databaseKey: "application_relation_readiness_fold_target",
@@ -312,6 +422,8 @@ export async function setExactRelationAdjacencyVersion(
 
 export interface RelationReadinessFixtureOptions {
   readonly activationProfile?: ApplicationActivationTargetProfile;
+  /** Wrap the genuine target before serving owners capture their immutable ports. */
+  readonly wrapServingTarget?: (target: LocatedReadCommittedAttemptTargetV1) => LocatedReadCommittedAttemptTargetV1;
   readonly physicalLocator?: SplitScopePhysicalLocator;
   readonly sessionTargetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
@@ -382,6 +494,7 @@ export async function relationReadinessFixture(
     bindingAdmission: options.bindingAdmission === true,
     ...(options.sessionTargetOptions === undefined ? {} : { sessionTargetOptions: options.sessionTargetOptions }),
     ...(options.activationProfile === undefined ? {} : { activationProfile: options.activationProfile }),
+    ...(options.wrapServingTarget === undefined ? {} : { wrapServingTarget: options.wrapServingTarget }),
   });
   const { pointTarget, authorityPorts, pointCommitAuthority, relationCommit, servingInspector,
     relationBuild, relations, candidateValidation, physicalDefinitionLifecycle, foldContext, fold,
@@ -588,6 +701,7 @@ export function composeRelationReadinessFixtureRuntime(
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; physicalLocator: SplitScopePhysicalLocator;
     bindingAdmission: boolean; sessionTargetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
     activationProfile?: ApplicationActivationTargetProfile;
+    wrapServingTarget?: (target: LocatedReadCommittedAttemptTargetV1) => LocatedReadCommittedAttemptTargetV1;
     protectedMetadata?: Parameters<typeof makeApplicationReadinessRepository>[0]["protectedMetadata"];
     coldRuntime?: Readonly<{ runtimeHostIdentity: string; compatibilityDate: string }> }>,
 ) {
@@ -606,8 +720,9 @@ export function composeRelationReadinessFixtureRuntime(
   if (input.sessionTargetOptions?.managedInstallation !== undefined && input.activationProfile === undefined)
     throw new Error("A managed relation fixture requires its genuine activation target profile");
   const activationProfile: ApplicationActivationTargetProfile = input.activationProfile ?? { kind: "fullProof" };
+  const servingTarget = input.wrapServingTarget === undefined ? locatedTarget : input.wrapServingTarget(locatedTarget);
   const owners = constructApplicationServingOwners({ controlDatabase: control.drizzle, database: target.drizzle,
-    target: locatedTarget, scopeSessionTarget: pointTarget, deploymentId: input.deploymentId, scopeId: input.scopeId,
+    target: servingTarget, scopeSessionTarget: pointTarget, deploymentId: input.deploymentId, scopeId: input.scopeId,
     activation: activationProfile,
     ...(input.protectedMetadata === undefined ? {} : { protectedMetadata: input.protectedMetadata }),
     cold: { runtimeHostIdentity: input.coldRuntime?.runtimeHostIdentity ?? RUNTIME_HOST_IDENTITY,

@@ -4,40 +4,93 @@ import { projectCmsRequestFailure } from "./failure";
 import type { CmsHostConfiguration } from "./hostConfiguration";
 import type { CmsHostTestHooks } from "./testSupport";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/transactionSessionActivation";
 import { makeCmsCommandContext } from "./context";
-import { decodeCmsRequestBudget, defaultCmsRequestBudget, type CmsRequestBudget } from "../../execution/preparation/frameworkExecutionPolicy";
+import {
+  decodeCmsRequestBudget,
+  defaultCmsRequestBudget,
+  type CmsRequestBudget,
+} from "../../execution/preparation/frameworkExecutionPolicy";
 import { runWithRequestRecovery } from "../../database/relationalTransaction/requestRecovery";
 import { prepareCmsRelations, makeCmsRelations, type CmsRelations } from "./relations";
-import { hasApplicationRelationReadPortAuthorityForControlDb, hasApplicationRelationReadPortAuthorityForPointCommit, type ApplicationRelationReadPort } from "../../application/relations/applicationRelationRead";
-import { hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
+import {
+  hasApplicationRelationReadPortAuthorityForControlDb,
+  hasApplicationRelationReadPortAuthorityForPointCommit,
+  type ApplicationRelationReadPort,
+} from "../../application/relations/applicationRelationRead";
+import {
+  hasFrameworkSchemaTargetDatabase,
+  type FrameworkSchemaTarget,
+} from "../../installation/frameworkSchema/target";
 import { Clock, Cause, Effect, Option, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
-import { canonicalizeSuccessfulResultV1Effect, type CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
+import {
+  canonicalizeSuccessfulResultV1Effect,
+  type CanonicalSuccessfulResultV1,
+} from "flarex-protocol/commit-protocol";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
+import {
+  TransactionRequestKeyV1Schema,
+  TransactionFunctionPathV1Schema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionRequestSha256V1Schema,
+} from "flarex-protocol/transaction-session";
 import { capturePrivateJsonData } from "../../values/privateJsonData";
-import { prepareCurrentApplicationBinding, invalidateAcceptedApplicationBindingInTransaction,
-  hasApplicationBindingComposition } from "../../application/applicationActivation";
-import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../../storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  prepareCurrentApplicationBinding,
+} from "../../application/activation/currentBinding";
+import {
+  invalidateAcceptedApplicationBindingInTransaction,
+} from "../../application/activation/acceptedBinding";
+import {
+  hasApplicationBindingComposition,
+} from "../../application/activation/repositoryIdentity";
+import type {
+  AppUniqueConstraintSetBuildPortsV1,
+  AppUniqueConstraintSetEligibilityPortV1,
+} from "../../storage/unique/appUniqueConstraintSetBuildV1";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
 import { prepareLogicalDocumentSourceAdmission, requireLogicalDocumentSourceAdmission,
   type LogicalDocumentSourceAdmission } from "../../storage/documents/logicalDocuments/documentAdmission";
 import { captureExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import { hasRelationalSessionDatabase, runRelationalSession, readRelationalSessionCoLocatedInstallation,
-  startRelationalRequestDeadline, boundRelationalRequestDeadline } from "../../database/relationalTransaction/session";
+import {
+  hasRelationalSessionDatabase,
+  runRelationalSession,
+  readRelationalSessionCoLocatedInstallation,
+  startRelationalRequestDeadline,
+  boundRelationalRequestDeadline,
+} from "../../database/relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
 import { createCommittedPointOutcomeResolverV1 } from "../../commit/committedPointOutcome";
-import { prepareCmsApplicationCommit, enterCmsApplicationCommit, enterSourceCmsCommit, type CmsMaterializationOptions } from "./publication";
-import { prepareCmsApplicationFromBinding, prepareCmsPreferences, withCmsAdmission, requireCmsAdmission, type CmsAdmission } from "./admission";
+import {
+  prepareCmsApplicationCommit,
+  enterCmsApplicationCommit,
+  enterSourceCmsCommit,
+  type CmsMaterializationOptions,
+} from "./publication";
+import {
+  prepareCmsApplicationFromBinding,
+  prepareCmsPreferences,
+  withCmsAdmission,
+  requireCmsAdmission,
+  type CmsAdmission,
+} from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
 import { makeCmsDocuments, makeSourceCmsDocuments } from "./documents";
 import { makePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
-import { cmsError, cmsLimits, type CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
+import {
+  cmsError,
+  cmsLimits,
+  type CmsTransactionError,
+  type CmsRequestContext,
+  type CmsPresentedTransactionId,
+} from "./model";
 import { chargeHostPreparation, retainPreparedHost } from "../../execution/preparation/preparedHostRuntime";
 import { prepareSourceCmsDocumentMaterialization } from "./contribution";
 import { PhysicalSessionDeadlineIssue } from "../../database/physicalSession/errors";

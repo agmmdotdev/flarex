@@ -25,11 +25,17 @@ import { Data, Effect, Result } from "effect";
 
 import {
   claimApplicationActiveSelection,
+} from "../activation/selectionIdentity";
+import {
   validateApplicationActiveSelectionInTransaction,
+} from "../activation/bindingAcceptance";
+import {
   type ApplicationActiveSelection,
   type ApplicationActiveSelectionBasis,
+} from "../activation/contracts";
+import {
   type ApplicationActivationError,
-} from "../applicationActivation";
+} from "../activation/errors";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
 import { runApplicationAdmissionQuery } from "../applicationAdmissionQuery";
 import {

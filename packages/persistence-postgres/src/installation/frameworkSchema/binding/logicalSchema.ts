@@ -1,12 +1,19 @@
 import { Effect, Result } from "effect";
 import type { prepareLogicalStorageReadiness } from "../../../storage/catalog/logicalStorageReadiness";
-import { immutableApplicationBindingReference, type ApplicationBindingReference,
-  type readApplicationBindingEvidenceInTransaction } from "../../../application/applicationBindingProjection";
+import {
+  immutableApplicationBindingReference,
+  type ApplicationBindingReference,
+  type readApplicationBindingEvidenceInTransaction,
+} from "../../../application/applicationBindingProjection";
 import type { FlarexMetadataTransaction } from "../../../database/metadataTransaction";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../../../scope/scopeClock";
-import type { CheckedApplicationActiveHead } from "../../../application/applicationActiveHeadRead";
-import type { ApplicationRelationReadinessProtection } from "../../../application/relations/applicationRelationReadinessFold";
+import type {
+  CheckedApplicationActiveHead,
+} from "../../../application/activeHead/contracts";
+import type {
+  ApplicationRelationReadinessProtection,
+} from "../../../application/relations/applicationRelationReadinessFold";
 import type { DataBindingActivationFrame, DataBindingSetFrame } from "./model";
 import type { StoredBindingValue } from "./repository";
 import { sameBindingValue } from "./canonical";

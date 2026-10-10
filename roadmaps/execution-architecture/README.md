@@ -16,9 +16,10 @@ source and tests. Read them before the individual implementation plans.
 
 Performance tuning remains paused until the complete organization goal closes.
 The source/test layout, flow guides and admitted CMS/Payload construction/API
-replacement are complete. Responsibility-based file splitting,
-import/export cleanup and the matching test and documentation organization remain
-active.
+replacement are complete. Journal, database schema, point publication and
+Application activation/readiness have concrete source and test owners. Session,
+Invocation API/construction and relation readiness fold organization remain
+active, followed by reconciliation of the complete reading map.
 The [file cohesion plan](05-file-cohesion-and-readable-flows.md) owns those
 remaining structural gates. Necessary private breaks and caller migration are
 authorized; broader capabilities retain their own approval and proof gates.
@@ -111,11 +112,12 @@ unproved or separately gated; accepted local measurements do not close them.
 The paused publication experiment is archived separately and supplies no accepted
 successor runtime contract.
 
-Browser-target Workerd journal/exact-runner witnesses retain a startup gap:
-their journal value imports reach Node crypto through persistence capture and
-installation SQL construction. This is an existing dependency/runtime boundary,
-not closed by source organization. Its core/host contract must be resolved before
-those witnesses establish Worker runtime support.
+Journal capabilities, RPC and the complete consumer API have actual Workerd
+witnesses. Their consumer errors and frozen projections are separated from SQL
+construction. Broader exact-runner publication and activation imports retain
+their independent runtime-boundary gate; the journal proof does not establish
+that larger execution profile. The [file-cohesion plan](05-file-cohesion-and-readable-flows.md)
+owns the connected Session boundary replacement.
 
 The raw atomic Product protected-acceptance witness also retains a core contract
 gap: its native call deliberately invalidates the metadata epoch, and the

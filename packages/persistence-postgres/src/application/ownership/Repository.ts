@@ -4,15 +4,29 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { isJson, isJsonObject, encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { decodeCapturedApplicationActivationRowEffect, decodeCapturedApplicationActiveHeadRowEffect, activationMatchesHead,
-  type CoherentApplicationActiveHead } from "../applicationActiveHeadRead";
+import {
+  decodeCapturedApplicationActivationRowEffect,
+  decodeCapturedApplicationActiveHeadRowEffect,
+  activationMatchesHead,
+} from "../applicationActiveHeadRead";
+import {
+  type CoherentApplicationActiveHead,
+} from "../activeHead/contracts";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
 import { canonicalizeApplicationWriteOwnership, decodeStoredApplicationWriteOwnership } from "./Codec";
 import { digestApplicationWriteOwnership } from "./Digest";
 import { ApplicationWriteOwnershipError, type CanonicalApplicationWriteOwnership } from "./Model";
 import { ApplicationWriteOwnershipHistoryBudget } from "./Policy";
-import { prepareApplicationOwnershipSuccessor, admitsApplicationOwnershipSuccessor, type ApplicationOwnershipSuccessorCapturePort } from "./Successor";
-import { captureApplicationWriteOwnershipInTransaction, decodeCapturedOwnershipEnvelopeResult, decodeCapturedOwnershipBodyResult } from "./Capture";
+import {
+  prepareApplicationOwnershipSuccessor,
+  admitsApplicationOwnershipSuccessor,
+  type ApplicationOwnershipSuccessorCapturePort,
+} from "./Successor";
+import {
+  captureApplicationWriteOwnershipInTransaction,
+  decodeCapturedOwnershipEnvelopeResult,
+  decodeCapturedOwnershipBodyResult,
+} from "./Capture";
 
 export interface ApplicationWriteOwnershipSnapshot {
   readonly active: CoherentApplicationActiveHead | null;

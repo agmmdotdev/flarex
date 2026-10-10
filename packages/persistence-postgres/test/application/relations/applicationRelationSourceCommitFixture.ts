@@ -1,33 +1,78 @@
 import { expect } from "vitest";
 import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
-import type { ApplicationActiveSelection } from "../../../src/application/applicationActivation";
-import { makeApplicationSchemaAuthorityPublisher } from "../../../src/application/applicationSchemaAuthority";
-import { createApplicationRelationSchemaAuthorityPort } from "../../../src/application/relations/applicationRelationSchemaAuthority";
+import type {
+  ApplicationActiveSelection,
+} from "../../../src/application/activation/contracts";
+import {
+  makeApplicationSchemaAuthorityPublisher,
+} from "../../../src/application/applicationSchemaAuthority";
+import {
+  createApplicationRelationSchemaAuthorityPort,
+} from "../../../src/application/relations/applicationRelationSchemaAuthority";
 import { applicationMutationActivationFixture } from "../applicationMutationActivationFixture";
-import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1, type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import {
+  appDocumentIdV1FromRowIdentity,
+  decodeAppRowIdHexV1,
+  type AppDocumentIdV1,
+  type AppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import {
+  CommitSyscallSequenceV1Schema,
+  canonicalizeSessionJournalEffect,
+  canonicalizeSuccessfulResultV1Effect,
+} from "flarex-protocol/commit-protocol";
 import { type CommitSeq, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { ApplicationRelationBindingPublication } from "../../../src/application/relations/binding";
-import type { ApplicationRelationCommitPort, LocatedApplicationRelationDefinitionSet } from "../../../src/application/relations/applicationRelationCommit";
+import type {
+  ApplicationRelationCommitPort,
+  LocatedApplicationRelationDefinitionSet,
+} from "../../../src/application/relations/applicationRelationCommit";
 import type { FlarexMetadataDatabase } from "../../../src/application/deployments";
-import { createAppSchemaCandidateValidationPortForPointCommitAuthority, createAppSchemaCandidateWriteGuardPort } from "../../../src/storage/catalog/appSchemaCandidateValidation";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
-import { createAppUniqueConstraintSetEligibilityPortV1 } from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
+import {
+  createAppSchemaCandidateValidationPortForPointCommitAuthority,
+  createAppSchemaCandidateWriteGuardPort,
+} from "../../../src/storage/catalog/appSchemaCandidateValidation";
+import {
+  createAppDeveloperIndexDefinitionPortV1,
+} from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
+import {
+  createAppUniqueConstraintDefinitionPortV1,
+} from "../../../src/storage/unique/appUniqueConstraintCommitV1";
+import {
+  createAppUniqueConstraintSetEligibilityPortV1,
+} from "../../../src/storage/unique/appUniqueConstraintSetBuildV1";
+import {
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../../../src/storage/indexes/intrinsicCreationTimeIndexBuildV1";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
 } from "../../../src/commit/point/construction";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
-import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../src/scope/scopeAuthorityResolution";
+import type {
+  ExactTrustedScopeAuthorityResolutionPorts,
+} from "../../../src/scope/scopeAuthorityResolution";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
-import { createApplicationMutationSessionActivationPersistenceV1 } from "../../../src/execution/transactionSessionActivation";
-import { issueSetupSeededSyscallValidatorProofV1 } from "../revision/applicationRevisionSyscallValidatorTestSupport";
-import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect } from "../../support/effectTestRuntime";
-import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../../commit/point/support/relations";
-import { pointCommitCommandFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../../commit/point/support/commandEvidence";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/transactionSessionActivation";
+import {
+  issueSetupSeededSyscallValidatorProofV1,
+} from "../revision/applicationRevisionSyscallValidatorTestSupport";
+import {
+  completeSessionJournalSeal,
+  prepareSessionJournalSeal,
+  runEffect,
+} from "../../support/effectTestRuntime";
+import {
+  relationAuthorityFromAnchor,
+  selectorFromRelationAnchor,
+} from "../../commit/point/support/relations";
+import {
+  pointCommitCommandFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
+} from "../../commit/point/support/commandEvidence";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../execution/transactionSessionActivationTestSupport";
 
 /** Deterministic UUID-v4 identities accepted by the real journal insert owner. */
