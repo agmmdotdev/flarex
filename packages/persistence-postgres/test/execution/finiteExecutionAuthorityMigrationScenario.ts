@@ -3,8 +3,15 @@ import { sql } from "drizzle-orm";
 import type { FlarexSqlClient } from "../../src";
 import { scopeExecutionAuthorityInstallationSql } from "../../src/installation/scopeExecutionAuthorityInstallation";
 import { writeJournalThrough, type DrizzleCopyFixture } from "../support/migrationFixtureSupport";
-import { insertLegacySessionTestScope, insertSnapshotLeaseFixture, insertTransactionSessionFixture,
-  SESSION_TEST_EPOCH_UUID, SESSION_TEST_SCOPE_UUID, transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
+import {
+  insertLegacySessionTestScope,
+  insertSnapshotLeaseFixture,
+  insertTransactionSessionFixture,
+  SESSION_TEST_EPOCH_UUID,
+  SESSION_TEST_SCOPE_UUID,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "./session/support/sessionStorage";
 
 /** Historical SQL deliberately targets the installed predecessor layout. */
 export async function finiteExecutionAuthorityMigrationScenario(

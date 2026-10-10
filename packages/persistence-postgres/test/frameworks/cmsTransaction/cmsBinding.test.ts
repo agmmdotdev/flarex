@@ -1,7 +1,9 @@
 import { Effect, Exit, Scope } from "effect";
 import { expect, it } from "vitest";
 import { makeApplicationServing, type ApplicationReadServing } from "../../../src/application/applicationServing";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../../src/database/locatedTransactionIdentity";
 import { makePreparedHostRuntime } from "../../../src/execution/preparation/preparedHostRuntime";
 import { defineCmsCommand } from "../../../src/frameworks/cmsTransaction/commands";
 import { bindCmsCommand, bindCmsRead, makeCmsCommandBinding, makeCmsReadBinding,

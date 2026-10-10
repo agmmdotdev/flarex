@@ -13,14 +13,17 @@ import type {
   PreparedPointMutationSessionActivationV1,
   PreparedApplicationMutationSessionActivationV1,
   PreparedFiniteApplicationMutationSessionActivation,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import type { PointMutationJournalV1 } from "../journal/pointMutationJournal";
 import { readPreparedFiniteApplicationMutationActivationInputs } from "@flarex/persistence-postgres/internal/application-mutation-admission";
 import { isJsonObjectFromUnknown, jsonEqual } from "flarex-protocol/json";
 import {
   type PointMutationAttemptReplacementObservationV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
-import { readFiniteRecoveryAttempt, type FiniteRecoveryAttempt } from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  readFiniteRecoveryAttempt,
+  type FiniteRecoveryAttempt,
+} from "@flarex/persistence-postgres/internal/session";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
   type CanonicalApplicationMutationExecutionAuthorityV1,
@@ -233,7 +236,7 @@ export interface ApplicationPointMutationSessionActivationV1 {
   >;
 }
 export type ApplicationPointMutationFiniteStartError = ApplicationPointMutationSessionActivationExecutionV1Error |
-  Effect.Error<ReturnType<NonNullable<PointMutationJournalV1["prepareFiniteEntry"]>>> |
+  Effect.Error<ReturnType<NonNullable<PointMutationJournalV1["prepareInitialFiniteEntry"]>>> |
   Effect.Error<ReturnType<ApplicationMutationSessionActivationPersistenceV1["activateFiniteEffect"]>>;
 
 export class ApplicationPointMutationSessionActivationContractV1Error
@@ -372,11 +375,11 @@ export function createApplicationPointMutationSessionActivationV1(
 
   const withFiniteStart: ApplicationPointMutationSessionActivationV1["withFiniteStart"] =
     Effect.fn("ExecutorApplicationPointMutationSessionActivation.withFiniteStart")(function* (input, continueEntry) {
-      if (journal?.prepareFiniteEntry === undefined || journal.openConfirmedFiniteEntry === undefined)
+      if (journal?.prepareInitialFiniteEntry === undefined || journal.openConfirmedFiniteEntry === undefined)
         return yield* Effect.fail(new ApplicationPointMutationSessionActivationContractV1Error());
       const original = yield* Effect.fromResult(readPreparedFiniteApplicationMutationActivationInputs(input.preparedAdmission, input.admissionContext));
       const captured = yield* capturePreparedApplicationActivationEvidence(input, original.executionAuthority);
-      const prepareFiniteEntry = journal.prepareFiniteEntry.bind(journal);
+      const prepareFiniteEntry = journal.prepareInitialFiniteEntry.bind(journal);
       return yield* Effect.scoped(Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const preparation = yield* prepareFiniteEntry();
         const result = yield* restore(persistence.activateFiniteEffect({ ...input, evidence: captured.activation.evidence }, preparation));

@@ -5,7 +5,7 @@ import type { TransactionExecutionClaimObservationV1 } from
 import type {
   PointMutationExecutionClaimAbortReasonV1,
   PointMutationSessionAttemptSelectorV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 
 const pointMutationExecutionClaimBrand: unique symbol = Symbol(
   "FlarexExecutor/PointMutationExecutionClaimV1",

@@ -6,7 +6,7 @@ import type { CmsHostTestHooks } from "./testSupport";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../execution/transactionSessionActivation";
+} from "../../execution/session/constructionContracts";
 import { makeCmsCommandContext } from "./context";
 import {
   decodeCmsRequestBudget,

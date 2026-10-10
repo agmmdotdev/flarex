@@ -14,8 +14,12 @@ import {
   frameworkSchemaTargetSnapshot,
 } from "../../installation/frameworkSchema/target";
 import type { FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../locatedTransactionIdentity";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../locatedTransactionIdentity";
 import { scopePhysicalLocatorsEqual } from "../../scope/scopePhysicalLocator";
 import {
   admitSyntheticBindingInTransaction,

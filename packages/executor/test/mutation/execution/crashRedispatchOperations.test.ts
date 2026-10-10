@@ -1,6 +1,6 @@
 import {
   PointMutationExecutionClaimAcquisitionStaleV1Error,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import { Effect, Result } from "effect";
 import { ReplacementScopeIdV1Schema } from
   "flarex-protocol/storage-authority";

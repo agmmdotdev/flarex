@@ -574,11 +574,11 @@ transaction/storage change. A source count or a passing unit test does not prove
 database behavior. Start from these existing witnesses, preserving their
 intended semantics while revising assertions for deliberately replaced storage:
 
-- [Native commit](../../packages/persistence-postgres/test/commit/pointCommitTransaction.postgres.test.ts):
+- [Native commit tests](../../packages/persistence-postgres/test/commit/point/):
   zero-row success, multi-row rollback, unchanged/moved keys, unique conflicts,
   same-scope serialization, duplicate requests, late failure, uncertain COMMIT.
 - [Index snapshots](../../packages/persistence-postgres/src/application/applicationQuerySnapshot.ts),
-  [journal queries](../../packages/persistence-postgres/test/execution/sessionJournalStore.postgres.test.ts),
+  [journal queries](../../packages/persistence-postgres/test/execution/journal/sessionJournalStore.postgres.test.ts),
   and [index compaction](../../packages/persistence-postgres/test/storage/history/retainedIndexHistoryCompaction.postgres.test.ts):
   returned-row dependencies, phantoms, pagination, overlay and retained anchors.
 - [Wake claims](../../packages/persistence-postgres/test/commit/commitWakeOutbox.postgres.test.ts)
@@ -586,7 +586,8 @@ intended semantics while revising assertions for deliberately replaced storage:
   exact claims, expiry, old epochs, compaction races, complete causes, no callback replay.
 - [CMS](../../packages/persistence-postgres/test/frameworks/cmsTransaction/cmsHostScenario.ts),
   [Payload preference publication](../../packages/persistence-postgres/test/frameworks/payloadPreferences/payloadPreferencePublicationScenario.ts),
-  [commerce publication](../../packages/persistence-postgres/test/commercePublicationScenario.ts),
+  [commerce entry](../../packages/persistence-postgres/test/frameworks/commerceTransaction/commercePublicationEntry.test.ts),
+  [commerce publication boundary](../../packages/persistence-postgres/test/frameworks/commerceTransaction/commercePublicationBoundary.test.ts),
   and [named composition](./05-named-command-preflight.md): connected late rollback,
   same-request visibility, net-zero writes and shared finalization.
 - [Payload Local API tests](../../packages/payload-adapter/test) and
@@ -629,7 +630,7 @@ selected deletion; agree latency/storage acceptance margins before measurement.
   [CMS participant](../../packages/persistence-postgres/src/frameworks/cmsTransaction/publication.ts),
   [commerce participant](../../packages/persistence-postgres/src/frameworks/commerceTransaction/publication.ts).
 - [Journal store](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts),
-  [session owner](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts),
+  [Session owners](../../packages/persistence-postgres/src/execution/session/README.md),
   [stored evidence](../../packages/persistence-postgres/src/execution/storedAttemptEvidence.ts),
   [independent verifier](../../packages/executor/src/mutation/authentication/stored/authenticationVerification.ts).
 

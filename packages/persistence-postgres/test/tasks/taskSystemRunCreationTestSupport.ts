@@ -39,8 +39,9 @@ import type { LocatedTrustedScopeAuthority } from
 import {
   makeTaskSystemRunCreationStoreV1,
 } from "../../src/tasks/taskSystemRunCreationV1";
-import type { LocatedReadCommittedAttemptTargetV1 } from
-  "../../src/execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../src/database/locatedTransactionIdentity";
 import { runEffect } from "../support/effectTestRuntime";
 import { TASK_DEFINITION_ID } from
   "./taskSystemRunAttemptStoreTestSupport";

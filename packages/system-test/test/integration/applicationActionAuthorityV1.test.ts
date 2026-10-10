@@ -10,8 +10,9 @@ import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
 } from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
-import { RUN_LOCATED_READ_COMMITTED_V1 } from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import {
   AAV_A1_LOCATOR,
   proveApplicationActionAuthorityV1,

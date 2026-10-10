@@ -42,10 +42,10 @@ import {
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/constructionContracts";
 import {
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/execution/session/kernelContracts";
 import {
   prepareSessionJournalSeal as prepareSeal,
   runEffect,
@@ -57,7 +57,9 @@ import {
   revokeSetupSeededSyscallValidatorProofV1,
   SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
 } from "../../application/revision/applicationRevisionSyscallValidatorTestSupport";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../session/support/activationEvidence";
 import {
   selectorFromAnchor,
   syscallSequence,

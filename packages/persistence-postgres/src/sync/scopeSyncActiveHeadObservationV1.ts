@@ -33,8 +33,9 @@ import {
 import {
   defineScopedReadOperation,
 } from "../scope/execution/ScopedTransaction";
-import type { LocatedReadCommittedAttemptTargetV1 } from
-  "../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../database/locatedTransactionIdentity";
 
 const decodeActivationSequenceResult = Schema.decodeUnknownResult(
   Schema.toType(ApplicationActivationSequenceV1Schema),

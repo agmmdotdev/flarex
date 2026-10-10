@@ -108,9 +108,13 @@ import {
 } from "../../../src/execution/journal/api";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
+} from "../../../src/execution/claims/acquisition";
+import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/session/activation";
+import {
   createPointMutationSessionAttemptLoadPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/attemptLoad";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
 import { createStoredOccExecutionEvidenceLoaderV1 } from "../../../src/execution/storedOccExecution";
 import { relationBuildRowId } from "./applicationRelationBuildTestSupport";
@@ -133,9 +137,11 @@ import {
 } from "../../commit/point/support/commandEvidence";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-  activatePointMutationSession,
   pointMutationSessionActivationFixture,
-} from "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/activationEvidence";
+import {
+  activatePointMutationSession,
+} from "../../execution/session/support/attemptFixture";
 import {
   issueSetupSeededSyscallValidatorProofV1,
 } from "../revision/applicationRevisionSyscallValidatorTestSupport";

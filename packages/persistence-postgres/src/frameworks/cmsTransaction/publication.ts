@@ -49,7 +49,9 @@ import { type ResolveCommittedPointOutcomeInputV1 } from "../../commit/committed
 
 import { type TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/session/constructionContracts";
 
 import type { ScopePublicationOptions } from "../../commit/publication/scopePublicationModel";
 export type CmsMaterializationOptions =

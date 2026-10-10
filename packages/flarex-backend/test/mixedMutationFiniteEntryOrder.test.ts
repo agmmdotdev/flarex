@@ -22,7 +22,7 @@ import {
 } from "../../persistence-postgres/test/application/applicationMutationActivationFixture";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-} from "../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
+} from "../../persistence-postgres/test/execution/session/support/activationEvidence";
 import {
   preparedHostTestRuntime,
 } from "../../persistence-postgres/test/execution/preparation/preparedHostRuntimeTestSupport";
@@ -34,7 +34,7 @@ import {
 } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-} from "../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import {
   prepareFiniteApplicationMutationAdmission,
   readPreparedFiniteApplicationMutationInputs,
@@ -44,8 +44,10 @@ import {
 } from "../../persistence-postgres/src/execution/sessionJournalStore";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
+import {
   PointMutationSessionActivationV1Error,
-} from "../../persistence-postgres/src/execution/transactionSessionActivation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   FiniteMetadataError,
   prepareFiniteMetadataEntryComparison,
@@ -55,7 +57,7 @@ import {
   inspectPreparedFiniteSessionJournalEntry,
 } from "@flarex/persistence-postgres/internal/system-test/session-journal-inspection";
 import * as finiteEntryActivation from "../../persistence-postgres/src/execution/journal/finiteEntryActivation";
-import * as sessionActivation from "../../persistence-postgres/src/execution/transactionSessionActivation";
+import * as finiteSession from "../../persistence-postgres/src/execution/session/finiteSession";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemMetadataContractObservations, fxSystemPreparedMetadataEpoch,
   fxSystemScopeClocks, fxSystemScopeExecutionAuthorities, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims, fxSystemTransactionJournals,
   fxSystemTransactionSessions } from "../../persistence-postgres/src/database/schema";
@@ -65,8 +67,8 @@ import {
   type MixedMutationFinalEntryTestContext,
 } from "./support/mixedMutationWorkerdFixture";
 
-type EntryContext = Parameters<typeof sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect>[1];
-type EntryProjection = NonNullable<Parameters<typeof sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect>[3]>;
+type EntryContext = Parameters<typeof finiteSession.acceptFiniteEntryForContinuationInTransactionEffect>[1];
+type EntryProjection = NonNullable<Parameters<typeof finiteSession.acceptFiniteEntryForContinuationInTransactionEffect>[3]>;
 type Owner = Awaited<ReturnType<typeof createPostgresPersistence>>;
 
 class EntryOrderTestResourceError extends Data.TaggedError("EntryOrderTestResourceError")<{
@@ -207,8 +209,8 @@ describe.skipIf(postgresUrl === null)("finite entry ordered actual refusals", ()
           },
           onFiniteEntryPrepared: preparation => {
             if (inspectPreparedFiniteSessionJournalEntry(preparation) === undefined) throw new Error("Missing original entry preparation");
-            const original = sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect;
-            runSpy = vi.spyOn(sessionActivation, "acceptFiniteEntryForContinuationInTransactionEffect").mockImplementation((...args) =>
+            const original = finiteSession.acceptFiniteEntryForContinuationInTransactionEffect;
+            runSpy = vi.spyOn(finiteSession, "acceptFiniteEntryForContinuationInTransactionEffect").mockImplementation((...args) =>
               Effect.gen(function* () {
                 if (owner === undefined) throw new Error("Missing data owner");
                 if (args[3] === undefined) throw new Error("Missing authentic complete entry projection");
@@ -247,8 +249,8 @@ describe.skipIf(postgresUrl === null)("finite entry ordered actual refusals", ()
         const exit = yield* Effect.exit(Effect.scoped(Effect.gen(function* () {
           const preparation = yield* store.prepareFiniteEntryEffect([]);
           if (inspectPreparedFiniteSessionJournalEntry(preparation) === undefined) return yield* Effect.die("Missing full-artifact entry preparation");
-          const original = sessionActivation.acceptFiniteEntryForContinuationInTransactionEffect;
-          runSpy = vi.spyOn(sessionActivation, "acceptFiniteEntryForContinuationInTransactionEffect").mockImplementation((...args) =>
+          const original = finiteSession.acceptFiniteEntryForContinuationInTransactionEffect;
+          runSpy = vi.spyOn(finiteSession, "acceptFiniteEntryForContinuationInTransactionEffect").mockImplementation((...args) =>
             Effect.gen(function* () {
               if (args[3] === undefined) throw new Error("Missing authentic complete entry projection");
               fault = yield* Effect.acquireRelease(invalidateActualEntry(dataOwner.persistence, args[1], args[3], mode).pipe(Effect.orDie), value => value.releaseEffect).pipe(Scope.provide(testScope));

@@ -97,7 +97,7 @@ import {
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 const FRAME_CODEC_VERSION = 2;
 const MAX_SIGNED_INT64 = 9_223_372_036_854_775_807n;

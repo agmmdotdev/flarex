@@ -41,8 +41,9 @@ import {
   makeTaskSystemRequestedEffectLedgerV1,
   type TaskSystemRunReadQueryObserverV1,
 } from "../../src/tasks/taskSystemRunReadV1";
-import { RUN_LOCATED_READ_COMMITTED_V1 } from
-  "../../src/execution/transactionSessionAttemptKernel";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+} from "../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   ACCEPTED_ATTEMPT_UUID,

@@ -6,8 +6,9 @@ import {
 } from "@flarex/utils/bytes";
 import { Effect, Encoding, Result, Schema } from "effect";
 
-import type { PointMutationSessionAttemptSelectorV1 } from
-  "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/internal/session";
 
 import {
   AppDocumentSystemFieldV1Error,

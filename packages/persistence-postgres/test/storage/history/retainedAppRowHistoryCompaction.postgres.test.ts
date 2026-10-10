@@ -23,8 +23,9 @@ import {
   withPostgresSequentialScansDisabled,
   withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
-import { setFlarexActivationClock } from
-  "../../execution/transactionSessionActivationTestSupport";
+import {
+  setFlarexActivationClock,
+} from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 

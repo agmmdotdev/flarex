@@ -83,8 +83,12 @@ import {
   borrowClosedLogicalDocumentRoot,
 } from "../../storage/documents/logicalDocuments/rootEvaluator";
 import type { LogicalDocumentRootEvaluator } from "../../storage/documents/logicalDocuments/rootEvaluator";
-import type { FiniteEntryAttemptKernelContext } from "../transactionSessionAttemptKernel";
-import { captureFiniteAttemptReservationInTransaction } from "../transactionSessionActivation";
+import type {
+  FiniteEntryAttemptKernelContext,
+} from "../session/kernelContracts";
+import {
+  captureFiniteAttemptReservationInTransaction,
+} from "../session/finiteSession";
 import { readPreparedFiniteSessionJournalEntrySchema } from "./finiteEntryActivation";
 import { issueFrozenFiniteAttempt } from "./freezeClosedRoot";
 import type { FrozenFiniteOperation } from "./frozenAttempt";

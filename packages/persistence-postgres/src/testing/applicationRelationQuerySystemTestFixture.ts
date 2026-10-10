@@ -185,8 +185,9 @@ import type { LocatedScopeClockReader, TrustedScopeAuthorityResolutionPorts } fr
   "../scope/scopeAuthorityResolution";
 import type { SplitScopePhysicalLocator } from
   "../scope/scopeMetadataTypes";
-import type { LocatedReadCommittedAttemptTargetV1 } from
-  "../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../database/locatedTransactionIdentity";
 
 const LOCATOR = Object.freeze({
   kind: "database_per_scope",

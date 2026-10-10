@@ -23,9 +23,9 @@ import {
   RETAINED_HISTORY_SCHEDULER_CONTINUATION_CODEC_V1,
   RETAINED_HISTORY_SCHEDULER_KEY_V1,
 } from "./retainedHistorySchedulerModelV1";
-import {
-  type LocatedReadCommittedAttemptTargetV1,
-} from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import {
   type LocatedReadCommittedTransactionFailureV1,
 } from "../../execution/readCommittedTransactionFailure";

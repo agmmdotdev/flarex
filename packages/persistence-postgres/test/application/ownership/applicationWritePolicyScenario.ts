@@ -65,12 +65,14 @@ import {
 } from "../../../src/application/applicationActivationSchema";
 import {
   createPointMutationSessionActivationPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
 import {
   activatePointMutationSession,
+} from "../../execution/session/support/attemptFixture";
+import {
   pointMutationSessionActivationFixture,
   TEST_GRANT_RETENTION_POLICY_V1,
-} from "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/activationEvidence";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
 import {
   selectorFromRelationAnchor,

@@ -1,7 +1,7 @@
 import {
   withExecutionDiagnosticDefaults,
 } from "@flarex/persistence-postgres/internal/execution-diagnostics";
-import { Cause, Data, Duration, Effect, Exit, Random, type Result } from "effect";
+import { Cause, Data, Duration, Effect, Exit, Random, type Result, type Scope } from "effect";
 import {
   borrowFrozenFiniteCommitValues,
   type FrozenFiniteAttempt,
@@ -28,18 +28,20 @@ import type { FiniteAttemptNonacceptanceProof } from "@flarex/persistence-postgr
 import type {
   PointMutationSessionAttemptTerminalizationPersistenceV1,
   PointMutationExecutionClaimAcquisitionV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   PointMutationExecutionClaimAcquisitionInputV1Error,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { isJsonObject } from "flarex-protocol/json";
 import { normalizeFlarexValueJsonV1 } from "flarex-protocol/value";
 import { requirePointMutationArgumentSemanticSizeV1 } from "flarex-protocol/point-mutation-start";
 import { activateConfirmedFiniteReplacement, activateConfirmedFiniteRecoveryReplacement, type ActivatedPointMutationSessionV1,
   type ApplicationPointMutationSessionActivationV1, type ApplicationPointMutationFiniteStartError } from "../session/pointMutationSessionActivation";
-import type { PreparedFiniteApplicationMutationSessionActivation, PointMutationSessionActivationResultV1 } from
-  "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PreparedFiniteApplicationMutationSessionActivation,
+  PointMutationSessionActivationResultV1,
+} from "@flarex/persistence-postgres/internal/session";
 import { getActivatedPointMutationSessionStateV1 } from "../session/pointMutationSessionActivationState";
 import type {
   PointMutationExecutionClaimVaultV1,
@@ -173,7 +175,8 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
   const replaceOrReplay: (request: ReplacementRequest, proof: FiniteAttemptNonacceptanceProof) => Effect.Effect<
     Effect.Success<ReturnType<PointFiniteAttemptReplacementPort["replaceFinite"]>> |
       Extract<PointFiniteAttemptResolution, { kind: "committed" }>,
-    Effect.Error<ReturnType<PointFiniteAttemptReplacementPort["replaceFinite"]>> | PointCommitPublicationV1Error | FinitePointMutationOutcomeUnresolvedError
+    Effect.Error<ReturnType<PointFiniteAttemptReplacementPort["replaceFinite"]>> | PointCommitPublicationV1Error | FinitePointMutationOutcomeUnresolvedError,
+    Scope.Scope
   > = Effect.fn("FinitePointMutationExecution.replaceOrReplay")(
     (request: ReplacementRequest, proof: FiniteAttemptNonacceptanceProof) => {
       const command = request.command;
@@ -336,13 +339,13 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
       if (original === undefined) return yield* Effect.fail(new FinitePointMutationExecutionError({ reason: "invalidEntry" }));
       const base = yield* prepareRunnerBase(original.prepared.evidence.validatedArgsJson);
       yield* finiteOccRetryBackoff(ticket.command.authorityPins.attemptFence);
-      return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+      return yield* Effect.scoped(Effect.uninterruptibleMask(restore => Effect.gen(function* () {
         const replaced = yield* restore(replaceOrReplay({ kind: "frozen", command: ticket.command }, ticket.proof));
         if (replaced.kind === "committed") return recoveredFinitePublication(replaced);
         const fresh = yield* Effect.fromResult(activateConfirmedFiniteReplacement(ticket.activated, replaced, journal, executionClaims.issuer));
         return yield* restore(continueCommittedEntry(fresh, base, entry =>
           runner.run(entry.runnerInput).pipe(Effect.flatMap(entry.prepareFiniteCommit), Effect.flatMap(entry.settleFiniteCommit))));
-      }));
+      })));
     });
   const retryFailedAttempt: FinitePointMutationExecution["retryFailedAttempt"] =
     failure => withExecutionDiagnosticDefaults(retryFailedAttemptOperation(failure));
@@ -368,7 +371,7 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
       }
       const base = yield* prepareRunnerBase(evidence.prepared.evidence.validatedArgsJson);
       yield* finiteOccRetryBackoff(evidence.command.authorityPins.attemptFence);
-      return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+      return yield* Effect.scoped(Effect.uninterruptibleMask(restore => Effect.gen(function* () {
       const replaced = yield* restore(replaceOrReplay({ kind: "recovered", command: evidence.command }, resolved.proof));
       if (replaced.kind === "committed") return recoveredFinitePublication(replaced);
       if (replaced.kind !== "replaced" || replaced.finiteEntry === undefined || journal.inspectFiniteExecutionEntry === undefined)
@@ -391,7 +394,7 @@ export function createFinitePointMutationExecution(dependencies: FinitePointMuta
         scopeId: fresh.context.anchor.scopeId, sessionId: fresh.context.anchor.sessionId, attemptFence: fresh.context.anchor.attemptFence },
         expectedSnapshotToken: fresh.context.anchor.snapshotToken, executionClaim: replaced.executionClaim }) : Effect.void)));
       return yield* restore(executeCommittedEntry(activated, base));
-      }));
+      })));
     });
   const redispatchExactPointMutationAttempt: FinitePointMutationExecution["redispatchExactPointMutationAttempt"] =
     selector => withExecutionDiagnosticDefaults(redispatchExactPointMutationAttemptOperation(selector));

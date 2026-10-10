@@ -8,8 +8,13 @@ import { describe, expect, it } from "vitest";
 import { createPostgresPersistence } from "../../src/database/postgres";
 import { bootstrapInstallationMigrations } from "../../src/database/postgresInstallationMaintenance";
 import { postgresUrl, withTemporaryPostgresSchema } from "../support/postgresHelpers";
-import { insertSessionTestScope, insertTransactionSessionFixture, SESSION_TEST_SCOPE_UUID,
-  transactionSessionFixture, transactionSessionIdAt } from "../execution/sessionAuthorityTestSupport";
+import {
+  insertSessionTestScope,
+  insertTransactionSessionFixture,
+  SESSION_TEST_SCOPE_UUID,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "../execution/session/support/sessionStorage";
 
 describe.skipIf(postgresUrl === null)("whole mutation migration 0127 on ordinary-role PostgreSQL", () => {
   it.each(["running", "aborted"] as const)("preserves a %s predecessor through the actual maintenance owner", async lifecycle => {

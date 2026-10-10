@@ -56,6 +56,25 @@ sidecar policy, unique failures, limits and
 Build-lock identity and both identity maps remain together. Error classes have
 one declaration in their domain; matchers and SQL owners consume those classes.
 
+## Follow A Finite Retry
+
+The [replacement owner](replacement.ts) validates the command and nonacceptance
+proof, then calls its scoped preparation factory. The existing
+[current Application preparation](../../application/activation/currentBinding.ts)
+acquires the current generation before native replacement locks. The factory
+returns that Application evidence together with an entry-preparation operation
+using the same generation's participant selections.
+
+The [executor journal](../../../../executor/src/mutation/journal/pointMutationJournal.ts)
+keeps each preparation's captured participants with its confirmed attempt.
+Initial activation uses the constructor's set; replacement supplies a fresh set
+with the same declared operation profile. Original attempts retain their own
+callbacks and source capabilities. The
+[finite executor](../../../../executor/src/mutation/execution/finitePointMutationExecution.ts)
+owns the graph's Scope through execution, settlement and cleanup. Native entry
+preparation has its own shorter Scope inside replacement. A new graph does not
+rewrite signed authority or bypass native head, epoch or executable checks.
+
 The [test guide](../../../test/README.md) identifies driver, fault and runtime
 witnesses. The [execution map](../../../../../roadmaps/execution-architecture/architecture.md)
 connects this owner to direct and borrowed framework execution. These modules

@@ -5,7 +5,9 @@ import type {
   SessionJournalIndexedQueryOperationV1,
   SessionJournalRelationIncomingOperationV1,
   SessionJournalPointOperationV1,
+  SessionJournalStorePersistence,
 } from "@flarex/persistence-postgres/internal/session-journal";
+import { LogicalParticipantAdmissionError } from "@flarex/persistence-postgres/internal/logical-participant-errors";
 import {
   TransactionExecutionClaimFenceV1Schema,
   TransactionExecutionClaimOwnerV1Schema,
@@ -17,12 +19,12 @@ import {
   SessionJournalLeasePromotionV1Error,
   SessionJournalPersistenceV1Error,
 } from "@flarex/persistence-postgres/internal/session-journal";
-import {
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAttemptLoadResultV1,
-  type PointMutationSessionAttemptSelectorV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
-import { Effect, Fiber, Result } from "effect";
+import type {
+  PointMutationSessionAnchorV1,
+  PointMutationSessionAttemptLoadResultV1,
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/internal/session";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { decodeAppDocumentIdV1, decodeAppRowIdHexV1 } from
   "flarex-protocol/app-document-id";
 import {
@@ -84,6 +86,7 @@ import {
   UnsupportedPointMutationJournalOperationV1Error,
   PointMutationJournalParticipantSetV1Error,
   PointMutationJournalParticipantSelectionV1Error,
+  PointMutationJournalParticipantRejectedV1Error,
 } from "../../../src/mutation/journal/errors";
 import {
   createPointMutationExecutionClaimVaultV1,
@@ -173,10 +176,12 @@ const executionClaimsByJournal = new WeakMap<
 >();
 
 describe("C03 executor point-mutation journal boundary", () => {
-  const inertParticipant = (participant: string) => ({ participant,
+  const inertParticipant = (participant: string): PointMutationJournalAdmittedParticipantV1 => ({ participant,
     admission: { participant, operationMethods: ["read"], profileRevision: "a".repeat(64),
-      sources: [] }, borrow: () => Effect.die("unused") }) as unknown as
-    PointMutationJournalAdmittedParticipantV1;
+      sources: [] }, borrow: () => Effect.die("unused") });
+  const inertSource = (methods: readonly string[] = ["read"]) => ({
+    selection: { bindAttemptEffect: () => Effect.die("unused source") }, methods,
+  });
 
   it.each([
     ["duplicate", ["source.one", "source.one"]],
@@ -189,6 +194,200 @@ describe("C03 executor point-mutation journal boundary", () => {
       await loadedAttempt(), executionScopeForJournal(harness.journal)));
     expect(failure).toBeInstanceOf(PointMutationJournalParticipantSetV1Error);
     expect((failure as PointMutationJournalParticipantSetV1Error).reason).toBe(reason);
+  });
+
+  it("prepares the eagerly captured initial graph after caller arrays change", async () => {
+    const operationMethods = ["read"];
+    const sourceMethods = ["read"];
+    const source = inertSource(sourceMethods);
+    const sources = [source];
+    const initial = inertParticipant("source.one");
+    const participants: PointMutationJournalAdmittedParticipantV1[] = [
+      { ...initial, admission: { ...initial.admission, operationMethods, sources } },
+    ];
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: participants });
+    operationMethods.push("write");
+    sourceMethods.push("write");
+    sources.push(inertSource());
+    participants.push(inertParticipant("source.two"));
+    const prepare = harness.journal.prepareInitialFiniteEntry;
+    if (prepare === undefined) throw new Error("Missing finite initial preparation");
+    const failure = await runFailure(Effect.scoped(prepare()));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantRejectedV1Error);
+    expect(harness.finiteEntrySelections).toHaveLength(1);
+    expect(harness.finiteEntrySelections[0]).toEqual([{ ...initial.admission,
+      operationMethods: ["read"], sources: [{ selection: source.selection, methods: ["read"] }] }]);
+  });
+
+  it("captures a fresh graph lazily and forwards its actual source selection", async () => {
+    const initial = inertParticipant("source.one");
+    const initialSource = inertSource();
+    const freshSource = inertSource();
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: [
+      { ...initial, admission: { ...initial.admission, sources: [initialSource] } },
+    ] });
+    let admissionReads = 0;
+    const fresh = { ...initial, get admission(): PointMutationJournalAdmittedParticipantV1["admission"] {
+      admissionReads += 1;
+      return { ...initial.admission, sources: [freshSource] };
+    } };
+    const prepare = harness.journal.prepareFiniteEntry;
+    if (prepare === undefined) throw new Error("Missing finite fresh preparation");
+    const preparation = prepare([fresh]);
+    expect(admissionReads).toBe(0);
+    const failure = await runFailure(Effect.scoped(preparation));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantRejectedV1Error);
+    expect(admissionReads).toBe(4);
+    expect(harness.finiteEntrySelections).toHaveLength(1);
+    expect(harness.finiteEntrySelections[0]?.[0]?.sources[0]?.selection).toBe(freshSource.selection);
+  });
+
+  it.each(["initial", "fresh"] as const)("retains the first duplicate refusal for %s preparation without reading its admission", async kind => {
+    const initial = inertParticipant("source.one");
+    let duplicateAdmissionReads = 0;
+    const duplicate = { ...initial, get admission(): PointMutationJournalAdmittedParticipantV1["admission"] {
+      duplicateAdmissionReads += 1;
+      throw new Error("Duplicate admission must not be read");
+    } };
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: kind === "initial" ? [initial, duplicate] : [initial] });
+    const prepareInitial = harness.journal.prepareInitialFiniteEntry;
+    const prepareFresh = harness.journal.prepareFiniteEntry;
+    if (prepareInitial === undefined || prepareFresh === undefined) throw new Error("Missing finite preparation");
+    const failure = await runFailure(Effect.scoped(kind === "initial" ? prepareInitial() : prepareFresh([initial, duplicate])));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantSetV1Error);
+    expect(failure).toMatchObject({ reason: "duplicate", participant: "source.one" });
+    expect(duplicateAdmissionReads).toBe(0);
+    expect(harness.finiteEntrySelections).toHaveLength(0);
+  });
+
+  it("retains invalid initial-set precedence before reading a fresh graph", async () => {
+    const initial = inertParticipant("source.one");
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: [initial, initial] });
+    let freshAdmissionReads = 0;
+    const fresh = { ...initial, get admission(): PointMutationJournalAdmittedParticipantV1["admission"] {
+      freshAdmissionReads += 1;
+      throw new Error("Fresh graph must not be read after initial refusal");
+    } };
+    const prepare = harness.journal.prepareFiniteEntry;
+    if (prepare === undefined) throw new Error("Missing finite fresh preparation");
+    const failure = await runFailure(Effect.scoped(prepare([fresh])));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantSetV1Error);
+    expect(failure).toMatchObject({ reason: "duplicate" });
+    expect(freshAdmissionReads).toBe(0);
+    expect(harness.finiteEntrySelections).toHaveLength(0);
+  });
+
+  it.each(["initial", "fresh"] as const)("rejects oversized %s sets before any participant fields are read", async kind => {
+    const initial = inertParticipant("source.one");
+    let selectorReads = 0;
+    const unread = { ...initial, get participant(): string {
+      selectorReads += 1;
+      throw new Error("Oversized set must refuse before member capture");
+    } };
+    const oversized = [unread, unread, unread, unread];
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: kind === "initial" ? oversized : [initial] });
+    const prepareInitial = harness.journal.prepareInitialFiniteEntry;
+    const prepareFresh = harness.journal.prepareFiniteEntry;
+    if (prepareInitial === undefined || prepareFresh === undefined) throw new Error("Missing finite preparation");
+    const failure = await runFailure(Effect.scoped(kind === "initial" ? prepareInitial() : prepareFresh(oversized)));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantSetV1Error);
+    expect(failure).toMatchObject({ reason: "tooMany" });
+    expect(selectorReads).toBe(0);
+    expect(harness.finiteEntrySelections).toHaveLength(0);
+  });
+
+  it.each(["initial", "fresh"] as const)("rejects invalid %s selectors before reading admission", async kind => {
+    const initial = inertParticipant("source.one");
+    let admissionReads = 0;
+    const invalid = { ...initial, participant: " source.one", get admission(): PointMutationJournalAdmittedParticipantV1["admission"] {
+      admissionReads += 1;
+      throw new Error("Invalid selector must refuse before admission capture");
+    } };
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: kind === "initial" ? [invalid] : [initial] });
+    const prepareInitial = harness.journal.prepareInitialFiniteEntry;
+    const prepareFresh = harness.journal.prepareFiniteEntry;
+    if (prepareInitial === undefined || prepareFresh === undefined) throw new Error("Missing finite preparation");
+    const failure = await runFailure(Effect.scoped(kind === "initial" ? prepareInitial() : prepareFresh([invalid])));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantSetV1Error);
+    expect(failure).toMatchObject({ reason: "invalidSelector", participant: " source.one" });
+    expect(admissionReads).toBe(0);
+    expect(harness.finiteEntrySelections).toHaveLength(0);
+  });
+
+  it.each(["profile", "operationMethods", "sourceCount", "sourceMethods", "participant"] as const)(
+    "refuses fresh %s topology changes before Store issuance", async change => {
+      const initial = inertParticipant("source.one");
+      const source = inertSource();
+      const admitted = { ...initial, admission: { ...initial.admission, sources: [source] } };
+      const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: [admitted] });
+      const participant = change === "participant" ? "source.two" : initial.participant;
+      const fresh = { ...admitted, participant, admission: { ...admitted.admission, participant,
+        profileRevision: change === "profile" ? "b".repeat(64) : admitted.admission.profileRevision,
+        operationMethods: change === "operationMethods" ? ["read", "write"] : admitted.admission.operationMethods,
+        sources: change === "sourceCount" ? [source, inertSource()] : change === "sourceMethods" ? [inertSource(["write"])] : [inertSource()],
+      } };
+      const prepare = harness.journal.prepareFiniteEntry;
+      if (prepare === undefined) throw new Error("Missing finite fresh preparation");
+      const failure = await runFailure(Effect.scoped(prepare([fresh])));
+      expect(failure).toBeInstanceOf(PointMutationJournalParticipantSelectionV1Error);
+      expect(failure).toMatchObject({ participant });
+      expect(harness.finiteEntrySelections).toHaveLength(0);
+    },
+  );
+
+  it.each(["added", "removed"] as const)("refuses a %s fresh participant before Store issuance", async change => {
+    const participant = inertParticipant("source.one");
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: [participant] });
+    const prepare = harness.journal.prepareFiniteEntry;
+    if (prepare === undefined) throw new Error("Missing finite fresh preparation");
+    const failure = await runFailure(Effect.scoped(prepare(change === "added"
+      ? [participant, inertParticipant("source.two")] : [])));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantSetV1Error);
+    expect(failure).toMatchObject({ reason: "invalidSelector" });
+    expect(harness.finiteEntrySelections).toHaveLength(0);
+  });
+
+  it.each(["initial", "fresh"] as const)("preserves nominal native failure provenance for %s preparation", async kind => {
+    const participant = inertParticipant("source.one");
+    const nativeFailure = new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause: "selected source refused" });
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: [participant],
+      prepareFiniteEntry: () => Effect.fail(nativeFailure) });
+    const prepareInitial = harness.journal.prepareInitialFiniteEntry;
+    const prepareFresh = harness.journal.prepareFiniteEntry;
+    if (prepareInitial === undefined || prepareFresh === undefined) throw new Error("Missing finite preparation");
+    const failure = await runFailure(Effect.scoped(kind === "initial" ? prepareInitial() : prepareFresh([participant])));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantRejectedV1Error);
+    expect(failure).toMatchObject({ cause: nativeFailure });
+    if (!(failure instanceof PointMutationJournalParticipantRejectedV1Error)) throw new Error("Expected participant refusal");
+    expect(failure.cause).toBe(nativeFailure);
+    expect(harness.finiteEntrySelections).toHaveLength(1);
+  });
+
+  it.each(["initial", "fresh"] as const)("retains an already classified native %s preparation error by identity", async kind => {
+    const participant = inertParticipant("source.one");
+    const nativeFailure = new InvalidSessionJournalInputV1Error({ operation: "openAttempt", reason: "invalidAttemptPins" });
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: [participant],
+      prepareFiniteEntry: () => Effect.fail(nativeFailure) });
+    const prepareInitial = harness.journal.prepareInitialFiniteEntry;
+    const prepareFresh = harness.journal.prepareFiniteEntry;
+    if (prepareInitial === undefined || prepareFresh === undefined) throw new Error("Missing finite preparation");
+    const failure = await runFailure(Effect.scoped(kind === "initial" ? prepareInitial() : prepareFresh([participant])));
+    expect(failure).toBeInstanceOf(InvalidSessionJournalInputV1Error);
+    expect(failure).toBe(nativeFailure);
+    expect(harness.finiteEntrySelections).toHaveLength(1);
+  });
+
+  it("preserves a fresh capture getter defect before Store issuance", async () => {
+    const participant = inertParticipant("source.one");
+    const defect = new Error("Trusted graph getter defect");
+    const fresh = { ...participant, get admission(): PointMutationJournalAdmittedParticipantV1["admission"] { throw defect; } };
+    const harness = createHarness({ executionProfile: "finiteRoot", admittedParticipants: [participant] });
+    const prepare = harness.journal.prepareFiniteEntry;
+    if (prepare === undefined) throw new Error("Missing finite fresh preparation");
+    const exit = await runEffect(Effect.exit(Effect.scoped(prepare([fresh]))));
+    if (!Exit.isFailure(exit)) throw new Error("Expected full capture defect Cause");
+    expect(exit.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([defect]);
+    expect(harness.finiteEntrySelections).toHaveLength(0);
   });
 
   it("refuses an unselected participant before invoking its persistence callback", async () => {
@@ -903,6 +1102,9 @@ describe("C03 executor point-mutation journal boundary", () => {
 
 interface HarnessOptions {
   readonly admittedParticipants?: readonly PointMutationJournalAdmittedParticipantV1[];
+  readonly executionProfile?: "durableOperations" | "finiteRoot";
+  readonly prepareFiniteEntry?: (participants: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0]) =>
+    Effect.Effect<never, Effect.Error<ReturnType<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>>>;
   readonly openAttemptFailure?: InvalidSessionJournalInputV1Error;
   readonly resolvePointTable?: (
     persistenceAttempt: unknown,
@@ -944,6 +1146,7 @@ interface JournalHarness {
   readonly operations: SessionJournalPointOperationV1[];
   readonly indexedOperations: SessionJournalIndexedQueryOperationV1[];
   readonly relationOperations: SessionJournalRelationIncomingOperationV1[];
+  readonly finiteEntrySelections: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0][];
   readonly completeSealCalls: number;
   readonly completedJournal: CanonicalSessionJournal;
   readonly completedResult: CanonicalSuccessfulResultV1;
@@ -954,6 +1157,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   const operations: SessionJournalPointOperationV1[] = [];
   const indexedOperations: SessionJournalIndexedQueryOperationV1[] = [];
   const relationOperations: SessionJournalRelationIncomingOperationV1[] = [];
+  const finiteEntrySelections: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0][] = [];
   let completeSealCalls = 0;
   let completedJournal: CanonicalSessionJournal | undefined;
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
@@ -967,6 +1171,14 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
       : options.runPointOperation(table, operation);
   };
   const persistence = Object.freeze({
+    // This refusal-only port records boundary inputs; it never manufactures a
+    // Store preparation or a confirmed native attempt capability.
+    prepareFiniteEntryEffect: (participants: Parameters<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>[0]) => {
+      finiteEntrySelections.push(participants);
+      return options.prepareFiniteEntry === undefined
+        ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause: "inert finite boundary" }))
+        : options.prepareFiniteEntry(participants);
+    },
     admitLogicalParticipantsEffect: () => Effect.succeed(Object.freeze({ kind: "test-participant-admission" })),
     openAttemptEffect: () => options.openAttemptFailure === undefined
       ? Effect.succeed(persistenceAttempt)
@@ -1099,7 +1311,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   const journal: PointMutationJournalV1 = Reflect.apply(
     createPointMutationJournalV1,
     undefined,
-    [persistence, executionClaims.admission, syscallValidator, options.admittedParticipants],
+    [persistence, executionClaims.admission, syscallValidator, options.admittedParticipants, options.executionProfile],
   );
   const samePersistenceJournal = journal;
   executionClaimsByJournal.set(journal, executionClaims);
@@ -1110,6 +1322,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
     operations,
     indexedOperations,
     relationOperations,
+    finiteEntrySelections,
     get completeSealCalls() {
       return completeSealCalls;
     },

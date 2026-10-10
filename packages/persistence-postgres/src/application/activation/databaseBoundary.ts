@@ -6,7 +6,7 @@ import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCo
 import {
   type LocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
 import type { ApplicationActivationContext } from "./constructionContracts";

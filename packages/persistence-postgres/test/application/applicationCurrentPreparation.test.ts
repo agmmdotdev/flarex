@@ -1,8 +1,9 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Result, Tracer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Scope, Tracer } from "effect";
 import { expect, it } from "vitest";
 import {
   isPreparedApplicationBinding,
   readApplicationBindingTargetProtection,
+  readLegacyApplicationBindingPreparation,
 } from "../../src/application/activation/selectionIdentity";
 import {
   prepareCurrentApplicationBinding,
@@ -50,7 +51,9 @@ import {
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
 } from "../../src/scope/scopeClock";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../src/database/locatedTransactionIdentity";
 import {
   createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture,
@@ -95,6 +98,147 @@ const verifyUpdateClockObservation = (tx: FlarexMetadataTransaction, scopeId: Sc
   expect(yield* requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId)).toBe(changed.current);
   return yield* Effect.fail(new Error("Clock observation witness rollback"));
 });
+
+async function verifyScopedFreshFiniteGenerations(
+  acquire: Effect.Effect<Readonly<{ binding: ApplicationBindingInput; payload: void }>, CurrentApplicationPreparationFailure, Scope.Scope>,
+  moveHead: Awaited<ReturnType<typeof createApplicationNativeMutationPGliteFixtureWithPersistence>>["moveHead"],
+  constructionCount: () => number,
+) {
+  const originalScope = await runEffect(Scope.make());
+  const freshScope = await runEffect(Scope.make());
+  const nextScope = await runEffect(Scope.make());
+  try {
+    const original = await runEffect(acquire.pipe(Scope.provide(originalScope)));
+    expect(isPreparedApplicationBinding(original.binding)).toBe(true);
+    expect(constructionCount()).toBe(1);
+    const unchanged = await runEffect(Effect.scoped(acquire));
+    expect(unchanged.binding).toBe(original.binding);
+    expect(constructionCount()).toBe(1);
+    const freshHead = await moveHead();
+    const fresh = await runEffect(acquire.pipe(Scope.provide(freshScope)));
+    expect(fresh.binding).not.toBe(original.binding);
+    expect(readLegacyApplicationBindingPreparation(fresh.binding)?.basis.activationSequence).toBe(freshHead.basis.activationSequence);
+    expect(readLegacyApplicationBindingPreparation(fresh.binding)?.basis.headSha256).toEqual(freshHead.basis.headSha256);
+    expect(constructionCount()).toBe(2);
+    // The original frozen attempt may still own this old generation. Selecting
+    // the new graph must finish without waiting for that attempt's Scope.
+    expect(isPreparedApplicationBinding(original.binding)).toBe(true);
+    expect(isPreparedApplicationBinding(fresh.binding)).toBe(true);
+    const nextHead = await moveHead();
+    const next = await runEffect(acquire.pipe(Scope.provide(nextScope)));
+    expect(next.binding).not.toBe(fresh.binding);
+    expect(readLegacyApplicationBindingPreparation(next.binding)?.basis.activationSequence).toBe(nextHead.basis.activationSequence);
+    expect(readLegacyApplicationBindingPreparation(next.binding)?.basis.headSha256).toEqual(nextHead.basis.headSha256);
+    expect(constructionCount()).toBe(3);
+    expect(isPreparedApplicationBinding(fresh.binding)).toBe(true);
+    await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
+    expect(isPreparedApplicationBinding(original.binding)).toBe(false);
+    expect(isPreparedApplicationBinding(fresh.binding)).toBe(true);
+    await runEffect(Scope.close(freshScope, Exit.succeed(undefined)));
+    expect(isPreparedApplicationBinding(fresh.binding)).toBe(false);
+    expect(isPreparedApplicationBinding(next.binding)).toBe(true);
+  } finally {
+    await runEffect(Scope.close(nextScope, Exit.succeed(undefined)));
+    await runEffect(Scope.close(freshScope, Exit.succeed(undefined)));
+    await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
+  }
+}
+
+it("acquires fresh full-proof finite graphs while original attempts remain borrowed", async () => {
+  const control = await createMigratedPGlitePersistence();
+  const target = await createMigratedPGlitePersistence();
+  const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
+    runtimeHostIdentity: "flarex.test/current-scoped-full-proof", compatibilityDate: "2026-09-28",
+  }, { control, target });
+  let constructions = 0;
+  const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
+    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => { constructions++; }), {})));
+  try {
+    await verifyScopedFreshFiniteGenerations(retained.use(slot => slot.acquireFreshFinitePreparation),
+      () => application.moveHead(), () => constructions);
+  } finally { await runEffect(retained.close); }
+}, 180_000);
+
+it("cancels fresh finite staging without losing the original borrow or gate", async () => {
+  const control = await createMigratedPGlitePersistence();
+  const target = await createMigratedPGlitePersistence();
+  const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
+    runtimeHostIdentity: "flarex.test/current-scoped-cancellation", compatibilityDate: "2026-09-28",
+  }, { control, target });
+  const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
+    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.void, {})));
+  const originalScope = await runEffect(Scope.make());
+  try {
+    const original = await runEffect(retained.use(slot => slot.acquireFreshFinitePreparation).pipe(Scope.provide(originalScope)));
+    const charged = Result.getOrThrow(retained.readUsage()).chargedBytes;
+    await application.moveHead();
+    let injected = false;
+    let interrupt: (() => void) | undefined;
+    const tracer = Tracer.make({ span(options) {
+      if (options.name === "ApplicationActivation.currentBindingSchema" && !injected && interrupt !== undefined) {
+        injected = true;
+        interrupt();
+      }
+      return new Tracer.NativeSpan(options);
+    } });
+    const diagnostics = { observe: <A, E, R>(name: string, work: Effect.Effect<A, E, R>) => work.pipe(Effect.withSpan(name)) };
+    const pending = Effect.runFork(Effect.withFiber(fiber => {
+      interrupt = () => fiber.interruptUnsafe();
+      return Effect.scoped(retained.use(slot => slot.acquireFreshFinitePreparation)).pipe(Effect.withTracer(tracer),
+        Effect.provideService(ExecutionDiagnostics, diagnostics));
+    }));
+    const cancelled = await runEffect(Fiber.await(pending));
+    expect(injected).toBe(true);
+    expect(Exit.isFailure(cancelled) && Cause.hasInterruptsOnly(cancelled.cause)).toBe(true);
+    expect(isPreparedApplicationBinding(original.binding)).toBe(true);
+    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(charged);
+    await runEffect(Effect.scoped(retained.use(slot => slot.acquireFreshFinitePreparation).pipe(Effect.tap(fresh => Effect.sync(() => {
+      expect(fresh.binding).not.toBe(original.binding);
+      expect(isPreparedApplicationBinding(fresh.binding)).toBe(true);
+      expect(isPreparedApplicationBinding(original.binding)).toBe(true);
+    })))));
+    await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
+    expect(isPreparedApplicationBinding(original.binding)).toBe(false);
+  } finally {
+    await runEffect(Scope.close(originalScope, Exit.succeed(undefined)));
+    await runEffect(retained.close);
+  }
+}, 180_000);
+
+it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL)(
+  "acquires fresh managed finite graphs while original attempts remain borrowed", async () => {
+    const controlOwner = await createFileScopedPostgresFixture();
+    try {
+      const control = await createProtectedFileScopedPostgresFixture("managed", controlOwner);
+      try {
+        const dual = await createActivationServingFileScopedPostgresFixture();
+        try {
+          const target = dual.serving;
+          const pair = await createCoLocatedReadInstallationFixture({ target, control, controlOwner });
+          const refs = Result.getOrThrow(getCoLocatedReadInstallationReferencesResult(pair.installation, target.persistence.drizzle));
+          const controlProtection = await runEffect(prepareProtectedMetadata(target.persistence.drizzle, refs.controlInstallation));
+          const physicalLocator = { kind: "database_per_scope", databaseKey: "current-scoped-preparation", schemaName: target.schemaName } as const;
+          const activationTarget = createPostgresLocatedPointMutationSessionActivationTargetV1(dual.activation.persistence,
+            physicalLocator, { directInstallation: dual.activation.installation });
+          if (!isLocatedReadCommittedAttemptTargetV1(activationTarget)) throw new Error("Missing genuine activation writer");
+          const application = await createApplicationNativeMutationPostgresFixture({
+            runtimeHostIdentity: "flarex.test/current-scoped-managed", compatibilityDate: "2026-09-28", physicalLocator,
+            activationProfile: { kind: "installed", installation: dual.pair, target: activationTarget },
+            managedInstallation: { installation: pair.installation, controlProtection },
+            protectedMetadata: { database: target.persistence.drizzle, token: target.protectedMetadata },
+          }, { control: control.persistence, target: target.persistence });
+          let constructions = 0;
+          const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.persistence.drizzle),
+            prepareCurrentApplicationBinding(application.activation, target.persistence.drizzle,
+              () => Effect.sync(() => { constructions++; }), { installation: pair.installation })));
+          try {
+            await verifyScopedFreshFiniteGenerations(retained.use(slot => slot.acquireFreshFinitePreparation),
+              () => application.moveHead(), () => constructions);
+          } finally { await runEffect(retained.close); }
+        } finally { await dual.dispose(); }
+      } finally { await control.dispose(); }
+    } finally { await controlOwner.dispose(); }
+  }, 240_000);
 
 it("retains fullProof construction while proving every actual command afresh", async () => {
   const control = await createMigratedPGlitePersistence();

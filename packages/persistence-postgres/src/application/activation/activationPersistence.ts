@@ -4,7 +4,9 @@ import {
   inspectFiniteMetadataProjection,
   mergeFiniteMetadataProjections,
 } from "../../execution/finiteMetadataDependencies";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import {
   advanceScopeAuthorizationRevocationEpochInTransactionEffect,

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
-
-import { createPGlitePersistence } from "../../src/database/pglite";
+import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   POSTGRES_SIGNED_BIGINT_MAX_TEXT,
   SESSION_TEST_EPOCH_UUID,
@@ -13,7 +12,7 @@ import {
   snapshotLeaseFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "./sessionAuthorityTestSupport";
+} from "./support/sessionStorage";
 
 describe("S07 transaction-session authority schema", () => {
   it("stores maximum exact authorities and an epoch-independent snapshot pin", async () => {

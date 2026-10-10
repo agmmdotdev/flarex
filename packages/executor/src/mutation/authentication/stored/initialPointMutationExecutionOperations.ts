@@ -12,7 +12,7 @@ import type {
 } from "@flarex/persistence-postgres/transaction-execution-claim";
 import type {
   PointMutationSessionAnchorV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import {

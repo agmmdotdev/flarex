@@ -18,7 +18,9 @@ import { bindingInstallationReference } from "../../installation/frameworkSchema
 import { runRelationalSession, type RelationalSession } from "../../database/relationalTransaction/session";
 import { lockScopeClockForShareInTransactionEffect } from "../../scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../scope/scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../database/locatedTransactionIdentity";
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option, Schema, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
@@ -64,7 +66,9 @@ import type {
   TrustedScopeAuthority,
   ExactTrustedScopeAuthorityResolutionPorts,
 } from "../../scope/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import { cmsError, type CmsTransactionError } from "./model";
 import { prepareLogicalWriteMechanics } from "../../storage/documents/logicalDocuments/workingSet";
 import type {

@@ -1,5 +1,13 @@
+import {
+  PointMutationExecutionClaimLivenessInputV1Error,
+  PointMutationExecutionClaimLivenessConfigurationV1Error,
+  PointMutationExecutionClaimLivenessStaleV1Error,
+  PointMutationExecutionClaimLivenessCorruptionV1Error,
+  PointMutationExecutionClaimLivenessPersistenceV1Error,
+  PointMutationExecutionClaimLivenessUncertainV1Error,
+} from "./transactionExecutionClaimErrors";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { Data, Effect, Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { INSTALLED_SCOPE_AUTHORITY_TARGET } from "../../scope/scopeAuthorityControlRead";
 import { readPreparedFiniteApplicationMutationAuthority, type PreparedFiniteApplicationMutationAdmission,
   type ApplicationMutationAdmissionContext } from "../../application/applicationMutationAdmission";
@@ -34,8 +42,9 @@ import {
   type TransactionExecutionClaimObservationV1,
   type TransactionExecutionClaimPinV1,
 } from "./transactionExecutionClaimModel";
-import type { PointMutationSessionAttemptSelectorV1 } from
-  "../transactionSessionActivation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "../session/contracts";
 
 const decodeDeploymentId = Schema.decodeUnknownResult(
   Schema.toType(TransactionGrantDeploymentIdV1Schema),
@@ -82,71 +91,6 @@ export type PointMutationExecutionClaimLivenessResultV1 =
   | Readonly<{
       readonly kind: "consumedByFinishing";
     }>;
-
-export class PointMutationExecutionClaimLivenessInputV1Error
-  extends Data.TaggedError("PointMutationExecutionClaimLivenessInputV1Error")<{
-    readonly reason: "invalidInput";
-    readonly cause?: unknown;
-  }> {}
-
-export class PointMutationExecutionClaimLivenessConfigurationV1Error
-  extends Data.TaggedError(
-    "PointMutationExecutionClaimLivenessConfigurationV1Error",
-  )<{
-    readonly reason:
-      | "invalidClaimDuration"
-      | "invalidLeaseRenewalDuration"
-      | "claimDurationExceedsLeaseRenewalDuration"
-      | "leaseRenewalDurationExceedsRetentionBudget";
-  }> {}
-
-export class PointMutationExecutionClaimLivenessStaleV1Error
-  extends Data.TaggedError("PointMutationExecutionClaimLivenessStaleV1Error")<{
-    readonly reason:
-      | "scopeChanged"
-      | "deploymentChanged"
-      | "attemptMissing"
-      | "attemptReplaced"
-      | "lifecycleChanged"
-      | "generationChanged"
-      | "epochChanged"
-      | "revocationEpochChanged"
-      | "leaseExpired"
-      | "authorizationExpired"
-      | "claimOwnerChanged"
-      | "claimFenceChanged"
-      | "claimExpired";
-  }> {}
-
-export class PointMutationExecutionClaimLivenessCorruptionV1Error
-  extends Data.TaggedError(
-    "PointMutationExecutionClaimLivenessCorruptionV1Error",
-  )<{
-    readonly reason:
-      | "clockInvalid"
-      | "sessionInvalid"
-      | "leaseInvalid"
-      | "journalRootInvalid"
-      | "claimInvalid"
-      | "claimLeaseOrderingInvalid"
-      | "mutationInvalid";
-    readonly cause?: unknown;
-  }> {}
-
-export class PointMutationExecutionClaimLivenessPersistenceV1Error
-  extends Data.TaggedError(
-    "PointMutationExecutionClaimLivenessPersistenceV1Error",
-  )<{
-    readonly operation: "prelude" | "transaction";
-    readonly cause: unknown;
-  }> {}
-
-export class PointMutationExecutionClaimLivenessUncertainV1Error
-  extends Data.TaggedError(
-    "PointMutationExecutionClaimLivenessUncertainV1Error",
-  )<{
-    readonly cause: unknown;
-  }> {}
 
 export type PointMutationExecutionClaimLivenessV1Error =
   | PointMutationExecutionClaimLivenessInputV1Error
@@ -212,123 +156,6 @@ export interface LocatedPointMutationExecutionClaimLivenessTargetV1
         TrustedScopeAuthorityResolutionError
     >
   >;
-}
-
-export interface ProjectExecutionClaimRenewalInputV1 {
-  readonly databaseNowMilliseconds: number;
-  readonly currentLeaseExpiresAtMilliseconds: number;
-  readonly currentClaimExpiresAtMilliseconds: number;
-  readonly authorizationGrantExpiresAtMilliseconds: number;
-  readonly hardExpiresAtMilliseconds: number;
-  readonly claimDurationMilliseconds: number;
-  readonly leaseRenewalDurationMilliseconds: number;
-  readonly maximumLiveSnapshotRetentionMilliseconds: number;
-  readonly phase: "open" | "sealed" | "relationConflicted" | "failed";
-}
-
-export type ProjectExecutionClaimRenewalIssueV1 =
-  | "invalidEvidence"
-  | "authorityExpired"
-  | "leaseExpired"
-  | "claimExpired"
-  | "claimAfterLease"
-  | "leaseAfterAuthorityTarget"
-  | "leaseRetentionBudgetExceeded"
-  | "sealedLeaseMismatch";
-
-export interface ProjectExecutionClaimRenewalV1 {
-  readonly targetLeaseExpiresAtMilliseconds: number;
-  readonly targetClaimExpiresAtMilliseconds: number;
-}
-
-export function projectExecutionClaimRenewalV1Result(
-  input: ProjectExecutionClaimRenewalInputV1,
-): Result.Result<
-  ProjectExecutionClaimRenewalV1,
-  ProjectExecutionClaimRenewalIssueV1
-> {
-  const values = [
-    input.databaseNowMilliseconds,
-    input.currentLeaseExpiresAtMilliseconds,
-    input.currentClaimExpiresAtMilliseconds,
-    input.authorizationGrantExpiresAtMilliseconds,
-    input.hardExpiresAtMilliseconds,
-    input.claimDurationMilliseconds,
-    input.leaseRenewalDurationMilliseconds,
-    input.maximumLiveSnapshotRetentionMilliseconds,
-  ];
-  if (
-    values.some((value) => !Number.isSafeInteger(value)) ||
-    input.databaseNowMilliseconds <= 0 ||
-    input.claimDurationMilliseconds <= 0 ||
-    input.leaseRenewalDurationMilliseconds <= 0 ||
-    input.maximumLiveSnapshotRetentionMilliseconds <= 0 ||
-    input.claimDurationMilliseconds > input.leaseRenewalDurationMilliseconds ||
-    input.leaseRenewalDurationMilliseconds >
-      input.maximumLiveSnapshotRetentionMilliseconds ||
-    input.databaseNowMilliseconds >
-      Number.MAX_SAFE_INTEGER - input.leaseRenewalDurationMilliseconds ||
-    input.databaseNowMilliseconds >
-      Number.MAX_SAFE_INTEGER - input.claimDurationMilliseconds
-  ) {
-    return Result.fail("invalidEvidence");
-  }
-  const authorityTarget = Math.min(
-    input.authorizationGrantExpiresAtMilliseconds,
-    input.hardExpiresAtMilliseconds,
-  );
-  if (authorityTarget <= input.databaseNowMilliseconds) {
-    return Result.fail("authorityExpired");
-  }
-  if (input.currentLeaseExpiresAtMilliseconds <= input.databaseNowMilliseconds) {
-    return Result.fail("leaseExpired");
-  }
-  if (input.currentClaimExpiresAtMilliseconds <= input.databaseNowMilliseconds) {
-    return Result.fail("claimExpired");
-  }
-  if (
-    input.currentClaimExpiresAtMilliseconds >
-      input.currentLeaseExpiresAtMilliseconds
-  ) {
-    return Result.fail("claimAfterLease");
-  }
-  if (input.currentLeaseExpiresAtMilliseconds > authorityTarget) {
-    return Result.fail("leaseAfterAuthorityTarget");
-  }
-  if (
-    input.currentLeaseExpiresAtMilliseconds - input.databaseNowMilliseconds >
-      input.maximumLiveSnapshotRetentionMilliseconds
-  ) {
-    return Result.fail("leaseRetentionBudgetExceeded");
-  }
-  if (
-    input.phase === "sealed" &&
-    input.currentLeaseExpiresAtMilliseconds !== authorityTarget
-  ) {
-    return Result.fail("sealedLeaseMismatch");
-  }
-
-  const targetLeaseExpiresAtMilliseconds = input.phase === "sealed"
-    ? input.currentLeaseExpiresAtMilliseconds
-    : Math.max(
-      input.currentLeaseExpiresAtMilliseconds,
-      Math.min(
-        input.databaseNowMilliseconds + input.leaseRenewalDurationMilliseconds,
-        authorityTarget,
-      ),
-    );
-  const targetClaimExpiresAtMilliseconds = Math.max(
-    input.currentClaimExpiresAtMilliseconds,
-    Math.min(
-      input.databaseNowMilliseconds + input.claimDurationMilliseconds,
-      targetLeaseExpiresAtMilliseconds,
-      authorityTarget,
-    ),
-  );
-  return Result.succeed(Object.freeze({
-    targetLeaseExpiresAtMilliseconds,
-    targetClaimExpiresAtMilliseconds,
-  }));
 }
 
 export function createPointMutationExecutionClaimLivenessV1(

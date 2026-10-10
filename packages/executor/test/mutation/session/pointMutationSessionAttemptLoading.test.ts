@@ -5,11 +5,11 @@ import type {
   PointMutationSessionAttemptTerminalizationResultV1,
   PointMutationSessionTerminalLifecycleV1,
   PointMutationSessionTerminalizedLifecycleV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   PointMutationSessionAttemptLoadV1Error,
   PointMutationSessionAttemptTerminalizationV1Error,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   TransactionExecutionClaimFenceV1Schema,
   TransactionExecutionClaimOwnerV1Schema,

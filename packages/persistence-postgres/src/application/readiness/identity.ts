@@ -22,7 +22,9 @@ import type {
   PreparedColdEvidence,
 } from "./coldEvidence";
 import type { ApplicationReadinessContext } from "./constructionContracts";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type {
   ProtectedMetadataPreparation,

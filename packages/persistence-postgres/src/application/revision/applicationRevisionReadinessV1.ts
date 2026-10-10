@@ -88,7 +88,7 @@ import type {
 import type { ReadSchemaVersionArtifactError } from "../../storage/catalog/schemaVersionArtifacts";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../execution/transactionSessionActivation";
+} from "../../database/locatedReadCommittedRunner";
 import {
   loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect,
   validatePointCommitUniqueConstraintEligibilityInTransactionV1Effect,
@@ -107,7 +107,7 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 
 const READINESS_TARGET_DB: unique symbol = Symbol(
   "FlarexDB/applicationRevisionReadinessTargetDbV1",

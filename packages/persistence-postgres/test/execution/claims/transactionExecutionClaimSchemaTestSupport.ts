@@ -2,7 +2,7 @@ import type { FlarexSqlClient } from "../../../src";
 import {
   SESSION_TEST_SCOPE_UUID,
   transactionSessionIdAt,
-} from "../sessionAuthorityTestSupport";
+} from "../session/support/sessionStorage";
 
 export const EXECUTION_CLAIM_TEST_OWNER =
   "61000000-0000-4000-8000-000000000101";

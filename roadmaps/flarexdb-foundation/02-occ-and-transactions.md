@@ -1505,7 +1505,8 @@ Path classification remains clean replacement:
   `packages/executor/src/mutation/claims/pointMutationExecutionClaim.ts` and
   `packages/executor/src/mutation/session/pointMutationSessionAttemptDisposition.ts`, with
   acquisition and terminalization persistence remaining owned by
-  `packages/persistence-postgres/src/execution/transactionSessionActivation.ts`;
+  `packages/persistence-postgres/src/execution/claims/acquisition.ts` and
+  `packages/persistence-postgres/src/execution/session/terminalization.ts`;
 - keep the claim-fenced journal admission in `sessionJournalStore.ts`; later
   B2b2b2b/C06-B work must compose these owners rather than adding parallel
   authority;

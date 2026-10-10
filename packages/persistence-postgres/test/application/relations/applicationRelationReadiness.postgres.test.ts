@@ -222,13 +222,17 @@ import { createStoredAttemptEvidenceLoaderV1 } from
   "../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
+} from "../../../src/execution/claims/acquisition";
+import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/session/activation";
+import {
   createPointMutationSessionAttemptLoadPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/attemptLoad";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/database/locatedTransactionIdentity";
 import {
   ensureRelationBuildTestWebCrypto,
   relationBuildDocumentId,
@@ -268,9 +272,11 @@ import { readApplicationBindingProjectionInTransaction } from
   "../../../src/application/applicationBindingProjection";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-  activatePointMutationSession,
   pointMutationSessionActivationFixture,
-} from "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/activationEvidence";
+import {
+  activatePointMutationSession,
+} from "../../execution/session/support/attemptFixture";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 

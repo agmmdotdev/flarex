@@ -9,7 +9,7 @@ import {
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,

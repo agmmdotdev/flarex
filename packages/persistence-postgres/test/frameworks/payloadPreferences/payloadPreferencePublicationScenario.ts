@@ -17,7 +17,9 @@ import { fxSystemCommits, fxSystemScopeClocks, fxAppRowCurrent, fxAppRowRevision
 import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
 import { compactRetainedCommitHistoryPageEffect, createRetainedCommitHistoryCompactionPort } from "../../../src/storage/history/retainedCommitHistoryCompaction";
 import { createLocatedRetainedHistoryFloorTargetInternal } from "../../../src/storage/history/retainedHistoryFloorObservation";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../../../src/execution/transactionSessionActivation";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../../../src/database/locatedReadCommittedRunner";
 import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../src/scope/scopeAuthorityResolution";
 import type { LocatedRetainedHistoryFloorTarget } from "../../../src/storage/history/retainedHistoryFloorObservation";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";

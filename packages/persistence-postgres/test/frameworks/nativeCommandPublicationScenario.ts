@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   captureSessionStorage,
   expectSessionPayloadScrubbed,
-} from "../execution/terminalSessionStorageScenario";
+} from "../execution/session/support/terminalStorageScenario";
 import { Effect } from "effect";
 import { expect } from "vitest";
 import {
@@ -12,7 +12,7 @@ import {
 } from "flarex-protocol/commit-protocol";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/execution/session/activation";
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
 import {
   createAppDeveloperIndexQueryPortV1,
@@ -39,7 +39,9 @@ import { makeApplicationSchemaAuthorityPublisher } from "../../src/application/a
 import {
   createAppUniqueConstraintDefinitionPortV1,
 } from "../../src/storage/unique/appUniqueConstraintCommitV1";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../execution/session/support/activationEvidence";
 import {
   selectorFromRelationAnchor,
   relationAuthorityFromAnchor,

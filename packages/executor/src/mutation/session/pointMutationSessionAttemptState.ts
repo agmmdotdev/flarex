@@ -1,6 +1,6 @@
 import type {
   PointMutationSessionAttemptFacetObservationV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import type { TransactionRequestKeyV1 } from
   "flarex-protocol/transaction-session";
 import type { MetadataSequence } from "flarex-protocol/commit-protocol";

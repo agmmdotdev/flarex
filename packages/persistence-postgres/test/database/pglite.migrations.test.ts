@@ -26,7 +26,7 @@ import {
   SESSION_TEST_SCOPE_UUID,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "../execution/sessionAuthorityTestSupport";
+} from "../execution/session/support/sessionStorage";
 import {
   FRAMEWORK_COORDINATOR_METADATA_IDENTITY_SEQUENCE_NAMES,
   FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES,

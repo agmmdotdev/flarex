@@ -4,7 +4,10 @@ import type { ApplicationWriteOwnershipHistoryBudget } from "../../application/o
 import { readApplicationWriteOwnershipInTransaction } from "../../application/ownership/Repository";
 import { withApplicationWriteOwnershipCatalog } from "../../application/ownership/Catalog";
 import { ApplicationWriteOwnershipError } from "../../application/ownership/Model";
-import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import { Effect, Result } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";

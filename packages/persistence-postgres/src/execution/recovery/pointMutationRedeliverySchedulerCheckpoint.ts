@@ -21,7 +21,7 @@ import {
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 
 export interface PointMutationRedeliverySchedulerRunV1 {
   readonly _tag: "PointMutationRedeliverySchedulerRunV1";

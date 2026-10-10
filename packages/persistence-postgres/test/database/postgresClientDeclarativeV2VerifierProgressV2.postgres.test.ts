@@ -26,7 +26,7 @@ import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
   insertSessionTestScope,
-} from "../execution/sessionAuthorityTestSupport";
+} from "../execution/session/support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const scopeId = `scope_${SESSION_TEST_SCOPE_UUID}`;

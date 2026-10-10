@@ -24,8 +24,9 @@ import type { PublishApplicationRelationBindingInput } from
   "../../../../src/application/relations/binding";
 import type { StoredAttemptEvidenceAuthorityV1 } from
   "../../../../src/execution/storedAttemptEvidence";
-import type { PointMutationSessionAnchorV1 } from
-  "../../../../src/execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../../src/execution/session/contracts";
 import {
   runEffect,
   runSessionJournalPointOperation,

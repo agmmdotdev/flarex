@@ -98,7 +98,6 @@
     "./stored-occ-execution": "./src/execution/storedOccExecution.ts",
     "./transaction-execution-claim": "./src/execution/claims/transactionExecutionClaim.ts",
     "./transaction-execution-claim-liveness": "./src/execution/claims/transactionExecutionClaimLiveness.ts",
-    "./transaction-session-activation": "./src/execution/transactionSessionActivation.ts",
     "./internal/system-test/applicationRevisionSyscallValidatorStateV1": "./src/application/revision/applicationRevisionSyscallValidatorStateV1.ts",
     "./internal/system-test/deployments": "./src/application/deployments.ts",
     "./internal/system-test/defaultMigrationsFolder": "./src/installation/defaultMigrationsFolder.ts",
@@ -109,7 +108,6 @@
     "./internal/system-test/schemaVersionArtifacts": "./src/storage/catalog/schemaVersionArtifacts.ts",
     "./internal/system-test/scopeMetadataTypes": "./src/scope/scopeMetadataTypes.ts",
     "./internal/system-test/candidateRuntimePublicationRepositoryV1": "./src/application/candidateRuntimePublicationRepositoryV1.ts",
-    "./internal/system-test/transactionSessionAttemptKernel": "./src/execution/transactionSessionAttemptKernel.ts",
     "./internal/system-test/appRows": "./src/storage/documents/appRows.ts",
     "./internal/system-test/appSchemaCandidateValidation": "./src/storage/catalog/appSchemaCandidateValidation.ts",
     "./internal/system-test/indexBuildStates": "./src/storage/indexes/indexBuildStates.ts",
@@ -128,7 +126,6 @@
     "./internal/system-test/storedCommitAuthorityEvidence": "./src/commit/storedCommitAuthorityEvidence.ts",
     "./internal/system-test/storedOccExecution": "./src/execution/storedOccExecution.ts",
     "./internal/system-test/transactionExecutionClaimLiveness": "./src/execution/claims/transactionExecutionClaimLiveness.ts",
-    "./internal/system-test/transactionSessionActivation": "./src/execution/transactionSessionActivation.ts",
     "./internal/system-test/applicationRevisionRegistrationV1": "./src/application/revision/applicationRevisionRegistrationV1.ts",
     "./internal/system-test/authenticatedDeclarativeV2CommandBridgeV1": "./src/legacy/authenticatedDeclarativeV2CommandBridgeV1.ts",
     "./internal/system-test/pglite": "./src/database/pglite.ts",
@@ -168,7 +165,11 @@
     "./internal/read-committed-transaction-failure": "./src/execution/readCommittedTransactionFailure.ts",
     "./internal/transaction-execution-claim-errors": "./src/execution/claims/transactionExecutionClaimErrors.ts",
     "./internal/app-row-errors": "./src/storage/documents/appRowErrors.ts",
-    "./internal/app-index-entry-errors": "./src/storage/indexes/appIndexEntryErrors.ts"
+    "./internal/app-index-entry-errors": "./src/storage/indexes/appIndexEntryErrors.ts",
+    "./internal/session": "./src/execution/session/api.ts",
+    "./internal/session-construction": "./src/execution/session/construction.ts",
+    "./internal/located-read-committed-runner": "./src/database/locatedReadCommittedRunner.ts",
+    "./internal/system-test/session-kernel": "./src/execution/session/kernelTestApi.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

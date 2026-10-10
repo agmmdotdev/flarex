@@ -68,7 +68,7 @@ import {
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 const UTF8 = new TextEncoder();
 const MAX_TRANSACTION_EXECUTIONS = 3;

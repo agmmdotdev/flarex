@@ -82,7 +82,7 @@ import {
   registerLocatedReadCommittedTargetDatabaseV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 
 async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence) {
   const schema = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;

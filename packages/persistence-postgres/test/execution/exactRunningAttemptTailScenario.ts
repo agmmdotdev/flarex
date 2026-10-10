@@ -10,8 +10,14 @@ import { readRunningAttemptTail } from "../../src/execution/exactRunningAttemptT
 import { inspectTransactionExecutionClaimV1Result } from "../../src/execution/claims/transactionExecutionClaimPersistence";
 import { fxSystemTransactionJournals } from "../../src/database/schema";
 import { insertExecutionClaimFixture } from "./claims/transactionExecutionClaimSchemaTestSupport";
-import { insertOpenTransactionJournalFixture, insertSessionTestScope, insertTransactionSessionFixture,
-  SESSION_TEST_SCOPE_UUID, transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
+import {
+  insertOpenTransactionJournalFixture,
+  insertSessionTestScope,
+  insertTransactionSessionFixture,
+  SESSION_TEST_SCOPE_UUID,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "./session/support/sessionStorage";
 
 export async function runningAttemptTailScenario(
   persistence: FlarexSqlClient & Readonly<{ drizzle: FlarexMetadataDatabase }>,

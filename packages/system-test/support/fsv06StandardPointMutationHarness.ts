@@ -45,7 +45,7 @@ import {
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type RunLocatedReadCommittedTransactionV1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import type { LocatedScopeClockReader } from
   "@flarex/persistence-postgres/internal/system-test/scopeAuthorityResolution";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from
@@ -65,8 +65,9 @@ import {
   claimActiveApplicationRevisionInvocationBasisV1,
   readActiveApplicationRevisionV1,
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionActivationV1";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
 import {
   ApplicationPointMutationRouteIndependentDispatcherV1Error,
   invokeLegacyApplicationPointMutationV1,

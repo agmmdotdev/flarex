@@ -141,7 +141,7 @@ import {
 } from "./taskSystemScopeAuthorityV1";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../execution/transactionSessionActivation";
+} from "../database/locatedReadCommittedRunner";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../execution/readCommittedTransactionFailure";
@@ -149,7 +149,7 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 const TARGET_DB: unique symbol = Symbol(
   "FlarexDB/taskComputeDeliveryRepositoryTargetDbV1",

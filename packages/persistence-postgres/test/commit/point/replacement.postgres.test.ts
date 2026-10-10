@@ -7,12 +7,16 @@ import {
   PointMutationAttemptReplacementCorruptionV1Error,
   type PointMutationAttemptReplacementSqlOperationV1,
 } from "../../../src/commit/point/errors";
-import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../../src/execution/transactionSessionActivation";
+import {
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
+} from "../../../src/execution/session/terminalization";
 import {
   runEffect,
   runEffectFailure as runFailure,
 } from "../../support/effectTestRuntime";
-import { executionClaimForAnchor } from "../../execution/transactionSessionActivationTestSupport";
+import {
+  executionClaimForAnchor,
+} from "../../execution/session/support/attemptFixture";
 import {
   withPostgresPersistence,
   uuidFactory,

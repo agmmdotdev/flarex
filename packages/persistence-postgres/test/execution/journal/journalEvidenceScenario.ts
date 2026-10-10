@@ -23,7 +23,9 @@ import type {
   SessionJournalAttempt,
   SessionJournalStorePersistence,
 } from "../../../src/execution/journal/api";
-import type { PointMutationSessionAnchorV1 } from "../../../src/execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../src/execution/session/contracts";
 import {
   completeSessionJournalSeal, prepareSessionJournalSeal, runEffect,
   runEffectFailure, runSessionJournalPointOperation,

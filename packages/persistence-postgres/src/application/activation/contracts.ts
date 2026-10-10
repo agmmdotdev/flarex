@@ -24,7 +24,7 @@ import type {
   CurrentApplicationEntryFailure,
   CurrentApplicationPreparationFailure,
 } from "./errors";
-import type { Effect, Result } from "effect";
+import type { Effect, Result, Scope } from "effect";
 
 export interface ApplicationActiveCasToken {
   readonly activationSequence: bigint;
@@ -207,6 +207,11 @@ export type CurrentApplicationEntry = <Value, InstallationFailure, SetupFailure,
   InstallationFailure | SetupFailure | BusinessFailure | CurrentApplicationEntryFailure, SetupRequirements | BusinessRequirements>;
 
 export interface CurrentApplicationPreparation<Payload, ConstructionFailure, ConstructionRequirements> {
+  readonly acquireFreshFinitePreparation: Effect.Effect<
+    Readonly<{ binding: ApplicationBindingInput; payload: Payload }>,
+    ConstructionFailure | CurrentApplicationPreparationFailure,
+    ConstructionRequirements | Scope.Scope
+  >;
   readonly withEntry: <Value, Failure, Requirements>(work: (
     graph: Readonly<{ binding: ApplicationBindingInput; payload: Payload }>, enter: CurrentApplicationEntry,
     finite: CurrentApplicationFiniteEntry,

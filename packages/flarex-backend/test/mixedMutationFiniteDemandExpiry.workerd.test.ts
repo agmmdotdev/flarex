@@ -26,8 +26,9 @@ import {
 import type {
   FiniteSessionJournalParticipantSelection,
 } from "../../persistence-postgres/src/execution/journal/api";
-import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
-  "../../persistence-postgres/src/execution/transactionSessionActivation";
+import {
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
 import { fxAppRowRevisions, fxSystemCommits, fxSystemTransactionSessions } from
   "../../persistence-postgres/src/database/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";

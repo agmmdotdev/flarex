@@ -16,7 +16,9 @@ import { createActivationServingFileScopedPostgresFixture, createCoLocatedReadIn
 import { getCoLocatedReadInstallationReferencesResult } from "../../../src/installation/installationLifecycle";
 import { prepareProtectedMetadata } from "../../../src/execution/preparation/preparedMetadataEpoch";
 import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../../src/database/postgres";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../../src/database/locatedTransactionIdentity";
 import { composeRelationReadinessFixtureRuntime } from "../../application/relations/applicationRelationReadinessFixture";
 import { makeFrameworkSchemaTarget } from "../../../src/installation/frameworkSchema/target";
 import type { SplitScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";

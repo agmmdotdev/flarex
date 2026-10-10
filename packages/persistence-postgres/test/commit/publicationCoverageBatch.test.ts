@@ -29,7 +29,11 @@ import { createPGlitePersistence } from "../../src/database/pglite";
 import { createPostgresPersistence } from "../../src/database/postgres";
 import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { postgresUrl, withTemporaryPostgresSchema } from "../support/postgresHelpers";
-import { insertSessionTestScope, SESSION_TEST_EPOCH_UUID, SESSION_TEST_SCOPE_UUID } from "../execution/sessionAuthorityTestSupport";
+import {
+  insertSessionTestScope,
+  SESSION_TEST_EPOCH_UUID,
+  SESSION_TEST_SCOPE_UUID,
+} from "../execution/session/support/sessionStorage";
 
 type TestPersistence = Pick<FlarexPersistence, "query" | "migrate" | "insertDeploymentMetadata" | "insertScopeMetadata"> &
   { readonly drizzle: FlarexMetadataDatabase };

@@ -23,9 +23,9 @@ import {
   TASK_REPAIR_SCHEDULER_CONTINUATION_CODEC_V1,
   TASK_REPAIR_SCHEDULER_KEY_V1,
 } from "./taskRepairSchedulerModelV1";
-import {
-  type LocatedReadCommittedAttemptTargetV1,
-} from "../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../database/locatedTransactionIdentity";
 import {
   type LocatedReadCommittedTransactionFailureV1,
 } from "../execution/readCommittedTransactionFailure";

@@ -26,7 +26,7 @@ import {
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import { type TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import { closeExactAttemptScopeClockObservation } from "../../scope/scopeClock";
 import { hasAppSchemaCandidateWriteGuardComposition } from "../../storage/catalog/appSchemaCandidateValidation";

@@ -28,7 +28,9 @@ import type {
   SessionJournalAttempt,
 } from "../../../execution/journal/contracts";
 import type { TrustedScopeAuthority } from "../../../scope/scopeAuthorityResolution";
-import type { PointMutationExecutionProfile } from "../../../execution/transactionSessionActivation";
+import type {
+  PointMutationExecutionProfile,
+} from "../../../execution/session/contracts";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import type { LogicalStorageReadDemand } from "./model";
 import type {

@@ -78,8 +78,12 @@ import {
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionSessions,
 } from "../../database/schema";
-import { RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1 } from "../transactionSessionAttemptKernel";
-import type { ExactRunningAttemptKernelContextV1 } from "../transactionSessionAttemptKernel";
+import {
+  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
+} from "../session/kernelContracts";
+import type {
+  ExactRunningAttemptKernelContextV1,
+} from "../session/kernelContracts";
 import {
   strictEventEnvelope,
   canonicalizeStoredRequestEffect,

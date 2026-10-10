@@ -75,16 +75,18 @@ import {
 } from "../../database/schema";
 import {
   ExactRunningAttemptTransactionV1Error,
+} from "../session/errors";
+import {
   RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1,
-} from "../transactionSessionAttemptKernel";
+} from "../session/kernelContracts";
 import type {
   ExactRunningAttemptKernelContextV1,
   FiniteEntryAttemptKernelContext,
-} from "../transactionSessionAttemptKernel";
+} from "../session/kernelContracts";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
   isLocatedExactRunningAttemptReadSyscallKernelV1,
-} from "../transactionSessionReadSyscallKernel";
+} from "../session/kernelContracts";
 import {
   decodeCommitFinalSyscallSequenceResult,
   nextCommitSyscallSequence,

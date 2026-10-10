@@ -7,7 +7,9 @@ import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { FrameworkSchemaTarget } from "../../installation/frameworkSchema/target";
 import type { RelationalSession } from "../../database/relationalTransaction/session";
 import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 /** Trusted deployment composition shared by standalone and atomic commerce.

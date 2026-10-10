@@ -114,11 +114,19 @@ import {
 } from "../../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../../../src/execution/session/activation";
+import {
   createLocatedPointMutationSessionActivationTargetV1,
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../../../src/execution/transactionSessionActivation";
-import { LOCATED_READ_COMMITTED_RUNNER_V1 } from "../../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../../src/execution/session/target";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../../src/execution/session/contracts";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../../src/execution/session/constructionContracts";
+import {
+  LOCATED_READ_COMMITTED_RUNNER_V1,
+} from "../../../../src/database/locatedTransactionIdentity";
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
@@ -135,11 +143,15 @@ import {
 } from "../../../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
+  pointMutationSessionActivationFixture,
+} from "../../../execution/session/support/activationEvidence";
+import {
   activatePointMutationSession,
   executionClaimForAnchor,
-  pointMutationSessionActivationFixture,
+} from "../../../execution/session/support/attemptFixture";
+import {
   setFlarexActivationClock,
-} from "../../../execution/transactionSessionActivationTestSupport";
+} from "../../../execution/session/support/authorityClock";
 import { deferredSignal } from "./postgresFaults";
 
 export const describePostgres: typeof describe | typeof describe.skip = postgresUrl === null ? describe.skip : describe;

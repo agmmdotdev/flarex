@@ -60,9 +60,13 @@ import {
 } from "../storage/history/retainedHistoryFloorObservation";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "./locatedReadCommittedRunner";
+import {
   createLocatedPointMutationSessionActivationTargetV1,
-  type LocatedPointMutationSessionActivationTargetOptionsV1,
-} from "../execution/transactionSessionActivation";
+} from "../execution/session/target";
+import type {
+  LocatedPointMutationSessionActivationTargetOptionsV1,
+} from "../execution/session/constructionContracts";
 import {
   createLocatedTaskSystemRunAttemptTargetV1,
   type LocatedTaskSystemRunAttemptTargetV1,

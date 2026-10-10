@@ -60,7 +60,7 @@ import {
   insertTransactionSessionFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "../execution/sessionAuthorityTestSupport";
+} from "../execution/session/support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 

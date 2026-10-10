@@ -37,7 +37,7 @@ import {
   isLocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import { runEffect } from "../support/effectTestRuntime";
 
 const locator = Object.freeze({

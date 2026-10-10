@@ -6,7 +6,7 @@ import * as publicationObservationOwner from "../../../src/commit/point/observat
 import {
   captureSessionStorage,
   expectSessionPayloadScrubbed,
-} from "../../execution/terminalSessionStorageScenario";
+} from "../../execution/session/support/terminalStorageScenario";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { eq } from "drizzle-orm";

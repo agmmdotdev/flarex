@@ -76,13 +76,15 @@ import {
 } from "../../database/schema";
 import {
   ExactRunningAttemptTransactionV1Error,
+} from "../session/errors";
+import {
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
-} from "../transactionSessionAttemptKernel";
+} from "../session/kernelContracts";
 import type {
   ExactRunningAttemptKernelContextV1,
   FiniteEntryAttemptKernelContext,
-} from "../transactionSessionAttemptKernel";
+} from "../session/kernelContracts";
 import {
   encodeLogicalAppWrite,
   decodeLogicalAppWriteResult,

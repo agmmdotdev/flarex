@@ -29,7 +29,9 @@ import {
   normalizeFlarexValueV1,
 } from "flarex-protocol/value";
 import { hasExactOwnDataKeys } from "../../values/exactOwnDataKeys";
-import type { PointMutationSessionAttemptSelectorV1 } from "../transactionSessionActivation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "../session/contracts";
 import {
   decodeCommitSyscallSequenceResult,
   decodeTransactionSessionIdResult,

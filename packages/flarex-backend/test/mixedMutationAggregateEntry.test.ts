@@ -27,8 +27,10 @@ import {
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
+import {
   PointMutationSessionAttemptTerminalizationV1Error,
-} from "../../persistence-postgres/src/execution/transactionSessionActivation";
+} from "@flarex/persistence-postgres/internal/session";
 import { installOneEntryCommitResponseFault } from "./support/postgresCommitResponseFault";
 
 type EntryParticipants = Parameters<NonNullable<MixedMutationProductFixtureHooks["transformFiniteEntrySources"]>>[0];

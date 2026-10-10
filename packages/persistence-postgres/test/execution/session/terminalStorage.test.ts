@@ -1,10 +1,17 @@
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
+import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 import { describe, it } from "vitest";
-import { createPGlitePersistence } from "../../src/database/pglite";
-import { createPostgresPersistence } from "../../src/database/postgres";
-import { makeDrizzleCopyFixture } from "../support/migrationFixtureSupport";
-import { verifyTerminalSessionMigration, verifyTerminalSessionSchema } from "./terminalSessionStorageScenario";
-import { postgresUrl, withTemporaryPostgresPersistence, withTemporaryPostgresSchema } from "../support/postgresHelpers";
+import { createPGlitePersistence } from "../../../src/database/pglite";
+import { createPostgresPersistence } from "../../../src/database/postgres";
+import { makeDrizzleCopyFixture } from "../../support/migrationFixtureSupport";
+import {
+  verifyTerminalSessionMigration,
+  verifyTerminalSessionSchema,
+} from "./support/terminalStorageScenario";
+import {
+  postgresUrl,
+  withTemporaryPostgresPersistence,
+  withTemporaryPostgresSchema,
+} from "../../support/postgresHelpers";
 
 describe("terminal session storage", () => {
   it("enforces complete active bodies and absent terminal bodies on PGlite", async () => {

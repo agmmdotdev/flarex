@@ -64,7 +64,7 @@ remain deferred contract changes, not unfinished phases of this cutover.
 
 ## Checked kernel contract and correction
 
-[transactionSessionActivation](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
+[Attempt loading](../../packages/persistence-postgres/src/execution/session/attemptLoad.ts)
 owns `loadLockedRunningAttempt`: scope clock, session, snapshot lease,
 journal root, execution claim, then database time after locking. Its exact
 reload and replay callers observe the facet after those checks. Preserve that acquisition

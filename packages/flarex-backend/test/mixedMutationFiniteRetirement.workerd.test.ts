@@ -20,7 +20,9 @@ import { captureFiniteMetadataReservation } from "../../persistence-postgres/src
 import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { createPhysicalDefinitionLifecyclePort, preparePhysicalDefinitionLifecycleSubjectEffect,
   beginPhysicalDefinitionDrainingEffect, finalizePhysicalDefinitionRetirementEffect, inspectPhysicalDefinitionLifecycleEffect } from "../../persistence-postgres/src/installation/physicalDefinitionLifecycle";
-import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from "../../persistence-postgres/src/execution/transactionSessionActivation";
+import {
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
 import { fxSystemSnapshotLeases, fxSystemTransactionSessions, fxSystemScopeExecutionAuthorities } from "../../persistence-postgres/src/database/schema";
 import { selectApplicationMutationAdmission } from "../../persistence-postgres/src/application/applicationMutationAdmission";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";

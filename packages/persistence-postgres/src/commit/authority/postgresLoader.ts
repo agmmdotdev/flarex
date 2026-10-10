@@ -73,10 +73,10 @@ import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution
 import {
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedRepeatableReadAttemptTargetV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../execution/transactionSessionActivation";
+} from "../../execution/session/constructionContracts";
 import {
   materializeEffect,
   materializeFiniteExecutionSchema,

@@ -10,7 +10,9 @@ import {
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
 } from "../../../src/database/schema";
-import type { PointMutationSessionAnchorV1 } from "../../../src/execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../src/execution/session/contracts";
 import type {
   PinnedPointTableV1,
   SessionJournalPointOperationV1,

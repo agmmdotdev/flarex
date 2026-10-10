@@ -23,7 +23,7 @@ import {
   insertLegacySessionTestScope,
   SESSION_TEST_SCOPE_UUID,
   SESSION_TEST_EPOCH_UUID,
-} from "../../execution/sessionAuthorityTestSupport";
+} from "../../execution/session/support/sessionStorage";
 
 /** Historical SQL deliberately exercises the removed 0096 columns and workspace. */
 export async function verifyUniqueOwnershipMigration(

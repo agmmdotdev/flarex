@@ -58,17 +58,25 @@ import {
 import { decodeOrderedIndexRowIdHexV1 } from "flarex-protocol/ordered-index";
 import {
   createPointMutationSessionActivationPersistenceV1,
-  type LocatedPointMutationSessionActivationTargetOptionsV1,
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
+import type {
+  LocatedPointMutationSessionActivationTargetOptionsV1,
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../src/execution/session/constructionContracts";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../src/execution/session/contracts";
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-  activatePointMutationSession,
   pointMutationSessionActivationFixture,
+} from "../session/support/activationEvidence";
+import {
+  activatePointMutationSession,
+} from "../session/support/attemptFixture";
+import {
   setFlarexActivationClock,
-} from "../transactionSessionActivationTestSupport";
+} from "../session/support/authorityClock";
 import {
   sharedLocator,
   SEEDED_ROW_ID,

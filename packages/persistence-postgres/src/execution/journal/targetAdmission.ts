@@ -16,9 +16,11 @@ import { LogicalParticipantAdmissionError } from "../../storage/documents/logica
 import type { LogicalParticipantAttemptReadTransaction } from "../../storage/documents/logicalDocuments/participantAdmission";
 import {
   ExactRunningAttemptTransactionV1Error,
+} from "../session/errors";
+import {
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   isLocatedExactRunningAttemptKernelV1,
-} from "../transactionSessionAttemptKernel";
+} from "../session/kernelContracts";
 import { mapExactAdmissionFailure, corruption } from "./journalFailures";
 import type { JournalAttemptOwner } from "./attemptOwner";
 

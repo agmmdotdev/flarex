@@ -1,6 +1,9 @@
 import { Data, Effect, Schema } from "effect";
 import { bytesEqual } from "@flarex/utils/bytes";
-import { readFiniteRecoveryAttempt, type FiniteRecoveryAttempt } from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  readFiniteRecoveryAttempt,
+  type FiniteRecoveryAttempt,
+} from "@flarex/persistence-postgres/internal/session";
 import { canonicalizeApplicationMutationExecutionAuthorityV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import { deriveInertApplicationMutationGrantEvidenceV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
 import { TransactionExecutionClaimFenceV1Schema } from "@flarex/persistence-postgres/transaction-execution-claim";

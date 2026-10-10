@@ -9,7 +9,6 @@ import {
 } from "../../persistence-postgres/src/commit/point/construction";
 import {
   PointCommitConflictV1Error,
-  PointMutationAttemptReplacementFiniteEntryError,
 } from "../../persistence-postgres/src/commit/point/errors";
 import {
   type PointFiniteCommitCommand,
@@ -33,10 +32,10 @@ import { createRetainedHistoryFloorObservationPort, createRetainedHistoryFloorPi
   observeRetainedHistoryFloorCandidateEffect } from "../../persistence-postgres/src/storage/history/retainedHistoryFloorObservation";
 import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-} from "../../persistence-postgres/src/execution/transactionSessionActivation";
+} from "@flarex/persistence-postgres/internal/session-construction";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-} from "../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
+} from "../../persistence-postgres/test/execution/session/support/activationEvidence";
 import {
   readFrozenFiniteAttempt,
 } from "../../persistence-postgres/src/testing/sessionJournalInspection";
@@ -112,16 +111,12 @@ async function conflict(fixture: Fixture, captured: ReturnType<typeof capturePub
 }
 
 function replacement(fixture: Fixture) {
-  const prepare = fixture.journal.prepareFiniteEntry;
-  if (prepare === undefined) throw new Error("Missing genuine finite entry preparation owner");
   return createPointMutationAttemptReplacementPortV1(fixture.pointCommitPorts, {
     ...(fixture.publisherOptions?.logicalOperationProfiles === undefined ? {} : {
       logicalOperationProfiles: fixture.publisherOptions.logicalOperationProfiles,
     }),
     leaseDurationMilliseconds: 120_000, executionClaimDurationMilliseconds: 60_000,
-    finiteEntry: { application: fixture.preparedFiniteApplication,
-      prepareEntry: () => prepare.call(fixture.journal).pipe(Effect.mapError(cause =>
-        new PointMutationAttemptReplacementFiniteEntryError({ cause }))) },
+    finiteEntry: fixture.acquireFiniteReplacementEntry,
   });
 }
 
@@ -380,10 +375,10 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       const value = await execute(fixture, source);
       expect(value).toMatchObject({ posts: [{ enabled: true }, { enabled: true }] });
       let validatedRows = 0;
-      const predecessorQueries: string[] = [];
+      const publicationQueries: string[] = [];
       const observedSteps: string[] = [];
       const observed = capturePublisher(fixture, { ...fixture.publisherOptions, observeQuery: query => {
-        predecessorQueries.push(query.name);
+        publicationQueries.push(query.name);
       }, afterTransactionStep: async event => {
         observedSteps.push(event.step);
         if (event.step === "finiteParticipantDocumentValidated") validatedRows++;
@@ -403,8 +398,10 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       original.document.canonicalBytes.fill(0);
       original.document.sha256.fill(0);
       expect(readFrozenFiniteAttempt(observed.command().frozenAttempt)?.originalRows[0]?.document.canonicalBytes).toEqual(originalBytes);
-      expect(predecessorQueries.filter(name => name === "loadRowHeads")).toHaveLength(1);
-      expect(predecessorQueries).not.toContain("loadPriorDocuments");
+      expect(publicationQueries.filter(name => name === "acceptPublication")).toHaveLength(1);
+      expect(publicationQueries.filter(name => name === "applyPublication")).toHaveLength(1);
+      expect(publicationQueries).not.toContain("loadRowHeads");
+      expect(publicationQueries).not.toContain("loadPriorDocuments");
       expect(observedSteps).toEqual(expect.arrayContaining(["clockLocked", "sessionLocked", "beforeCommit"]));
       expect(validatedRows).toBe(3);
       expect(await fixture.readCurrentProduct()).toMatchObject({ title: fixture.seed.newTitle });
@@ -679,19 +676,19 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       const command = captured.command();
       const firstProof = proofs[0];
       if (firstProof === undefined) throw new Error("Missing authentic replacement proof");
-      const forged = await Effect.runPromise(replacer.replaceFinite({ ...command,
-        frozenAttempt: structuredClone(command.frozenAttempt), proof: firstProof }).pipe(Effect.result));
+      const forged = await Effect.runPromise(Effect.scoped(replacer.replaceFinite({ ...command,
+        frozenAttempt: structuredClone(command.frozenAttempt), proof: firstProof }).pipe(Effect.result)));
       expect(forged).toMatchObject({ _tag: "Failure", failure: { _tag: "PointMutationAttemptReplacementCorruptionV1Error", reason: "commandInvalid" } });
-      const recoveredWithCertificate = await Effect.runPromise(replacer.replaceRecoveredFinite({
+      const recoveredWithCertificate = await Effect.runPromise(Effect.scoped(replacer.replaceRecoveredFinite({
         ...command, proof: firstProof,
         // @ts-expect-error Recovered redispatch explicitly excludes every frozen certificate.
         frozenAttempt: command.frozenAttempt,
-      }).pipe(Effect.result));
+      }).pipe(Effect.result)));
       expect(recoveredWithCertificate).toMatchObject({ _tag: "Failure", failure: { reason: "replacementMutationInvalid" } });
       expect(await session(fixture)).toEqual(fenced);
       expect(Object.fromEntries(fixture.nativeInvokeCount)).toEqual(calls);
-      const results = await Promise.all(proofs.map(proof => Effect.runPromise(
-        replacer.replaceFinite({ ...captured.command(), proof }).pipe(Effect.result))));
+      const results = await Promise.all(proofs.map(proof => Effect.runPromise(Effect.scoped(
+        replacer.replaceFinite({ ...captured.command(), proof }).pipe(Effect.result)))));
       expect(results.filter(Result.isSuccess), results.filter(Result.isFailure)
         .map(result => Cause.pretty(Cause.fail(result.failure))).join("\n")).toHaveLength(1);
       expect(results.filter(Result.isFailure)).toHaveLength(1);
@@ -930,7 +927,7 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)("real Po
       expect(resolution.kind).toBe("noncommit");
       expect(await session(fixture)).toEqual(fenced);
       if (resolution.kind !== "noncommit") throw new Error("Expected the issuer's reconstructed proof");
-      const fresh = await Effect.runPromise(replacement(fixture).replaceFinite({ ...captured.command(), proof: resolution.proof }));
+      const fresh = await Effect.runPromise(Effect.scoped(replacement(fixture).replaceFinite({ ...captured.command(), proof: resolution.proof })));
       expect(fresh).toMatchObject({ kind: "replaced", attemptFence: fenced.attemptFence + 1n });
       expect((await session(fixture)).attemptFence).toBe(fenced.attemptFence + 1n);
       expect(fixture.retryContexts).toHaveLength(0);

@@ -10,7 +10,7 @@ import {
 } from "@flarex/persistence-postgres/internal/retained-history-scheduler-directory";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresLocatedRetainedHistoryFloorTarget,

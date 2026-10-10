@@ -21,7 +21,7 @@ import {
   isLocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";
@@ -29,7 +29,7 @@ import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
   insertSessionTestScope,
-} from "../execution/sessionAuthorityTestSupport";
+} from "../execution/session/support/sessionStorage";
 import {
   runEffect,
   runEffectFailure,

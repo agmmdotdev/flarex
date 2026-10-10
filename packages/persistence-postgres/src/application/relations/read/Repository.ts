@@ -18,8 +18,9 @@ import {
   type ApplicationRelationActiveSelectionSnapshot,
   type AcceptedApplicationBinding,
 } from "../../activation/contracts";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from
-  "../../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../execution/session/constructionContracts";
 import {
   hasApplicationRelationCommitAuthorityForControlDb,
   hasApplicationRelationCommitAuthorityForPointCommit,

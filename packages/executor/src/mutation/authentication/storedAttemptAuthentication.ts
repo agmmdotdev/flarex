@@ -29,11 +29,10 @@ import {
 import type {
   StoredOccExecutionEvidenceLoaderV1,
 } from "@flarex/persistence-postgres/stored-occ-execution";
-import {
-  type PointMutationExecutionClaimAcquisitionV1Error,
-  type PointMutationSessionAttemptSelectorV1,
-} from
-  "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PointMutationExecutionClaimAcquisitionV1Error,
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/internal/session";
 import type { TransactionExecutionClaimPinV1 } from "@flarex/persistence-postgres/transaction-execution-claim";
 import type { PointMutationExecutionClaimLivenessV1 } from
   "@flarex/persistence-postgres/transaction-execution-claim-liveness";

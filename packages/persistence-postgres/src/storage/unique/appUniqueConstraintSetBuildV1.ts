@@ -178,10 +178,10 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../execution/transactionSessionActivation";
+} from "../../database/locatedReadCommittedRunner";
 
 const INPUT_KEYS = Object.freeze(["deploymentId", "scopeId", "schemaVersionId"] as const);
 const BACKFILL_INPUT_KEYS = Object.freeze([

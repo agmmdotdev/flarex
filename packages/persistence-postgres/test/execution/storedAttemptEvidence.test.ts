@@ -15,7 +15,7 @@ import { canonicalizeAppUniqueKeyV1Result } from "../../src/storage/unique/appUn
 import {
   captureSessionStorage,
   expectSessionPayloadScrubbed,
-} from "./terminalSessionStorageScenario";
+} from "./session/support/terminalStorageScenario";
 
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
@@ -306,14 +306,26 @@ import {
 } from "../../src/database/schema";
 import {
   PointMutationExecutionClaimAcquisitionStaleV1Error,
+} from "../../src/execution/claims/transactionExecutionClaimErrors";
+import {
   createPointMutationExecutionClaimAcquisitionV1,
+} from "../../src/execution/claims/acquisition";
+import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../src/execution/session/activation";
+import {
   createPointMutationSessionAttemptLoadPersistenceV1,
+} from "../../src/execution/session/attemptLoad";
+import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAttemptSelectorV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/execution/session/terminalization";
+import type {
+  PointMutationSessionAnchorV1,
+  PointMutationSessionAttemptSelectorV1,
+} from "../../src/execution/session/contracts";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../src/execution/session/constructionContracts";
 import {
   TransactionExecutionClaimFenceV1Schema,
   TransactionExecutionClaimOwnerV1Schema,
@@ -323,11 +335,13 @@ import {
 } from "../../src/execution/readCommittedTransactionFailure";
 import {
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
-  RUN_LOCATED_READ_COMMITTED_V1,
   isLocatedPointCommitPublicationTargetV1,
-  isLocatedReadCommittedAttemptTargetV1,
   type LocatedPointCommitPublicationTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/execution/session/kernelContracts";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../src/database/locatedTransactionIdentity";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
@@ -383,10 +397,14 @@ import {
 } from "../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-  activatePointMutationSession,
   pointMutationSessionActivationFixture,
+} from "./session/support/activationEvidence";
+import {
+  activatePointMutationSession,
+} from "./session/support/attemptFixture";
+import {
   setFlarexActivationClock,
-} from "./transactionSessionActivationTestSupport";
+} from "./session/support/authorityClock";
 import {
   registerStoredAttemptEvidenceLoaderBoundaryTests,
   registerStoredAttemptEvidenceLoaderIntegrityTests,

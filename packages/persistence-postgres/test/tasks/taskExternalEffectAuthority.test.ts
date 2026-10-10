@@ -60,7 +60,7 @@ import {
 } from "../../src/tasks/taskExternalEffectAuthority";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/database/locatedReadCommittedRunner";
 import {
   makeApplicationTaskSystemRunAttemptStoreV1,
 } from "../../src/tasks/taskSystemRunAttemptStoreV1";

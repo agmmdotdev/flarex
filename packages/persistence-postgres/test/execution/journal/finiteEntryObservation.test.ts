@@ -30,7 +30,7 @@ import { fxSystemApplicationActiveHeads } from "../../../src/application/applica
 import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
 import {
   captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
 } from "../../../src/storage/catalog/appSchemaCandidateValidation";

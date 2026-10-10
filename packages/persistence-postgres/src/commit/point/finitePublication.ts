@@ -119,8 +119,10 @@ import {
   isLocatedPointCommitPublicationTargetV1,
   type LocatedPointCommitPublicationTargetV1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
+} from "../../execution/session/kernelContracts";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import {
   closeInstallationAdmission,
   lockInstallationForCurrentTransaction,

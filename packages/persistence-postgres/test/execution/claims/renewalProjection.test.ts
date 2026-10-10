@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   projectExecutionClaimRenewalV1Result,
   type ProjectExecutionClaimRenewalInputV1,
-} from "../../../src/execution/claims/transactionExecutionClaimLiveness";
+} from "../../../src/execution/claims/renewalProjection";
 
 const BASE = Object.freeze({
   databaseNowMilliseconds: 1_000,

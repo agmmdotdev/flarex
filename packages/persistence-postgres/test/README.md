@@ -13,6 +13,7 @@ first, then use the corresponding test folder.
 | `storage/` | Documents, pending reads, indexes, uniqueness, relation edges, catalog, search and retained history |
 | `execution/` | Preparation lifetimes, journal, finite capture, claims, session activation, OCC and recovery evidence |
 | `execution/journal/` | Paired receipt/replay and multi-source scenarios, finite-entry installation/lifecycle and the actual consumer API Worker boundary |
+| `execution/session/`, `execution/claims/` | Session activation, exact attempt loading, finite authority, terminalization and authentic claim acquisition/renewal |
 | `commit/` | Atomic publication, durable outcome resolution, commit feed, event evidence and publication coverage |
 | `commit/point/` | Point publication, finishing, replacement, relation recovery, full-Cause boundaries and the actual lightweight consumer API in Worker |
 | `frameworks/` | CMS and Commerce host contracts, atomic workflow boundaries and supported cross-domain execution |
@@ -70,6 +71,36 @@ database use, `postgresFaults` owns native faults and blockers, and
 not publish through a second engine. Vitest's per-file isolation preserves the
 file-scoped fixture lifecycle. Measurement probes are separate from correctness
 acceptance and carry no new performance result merely because their paths moved.
+
+## Session And Claim Lifecycle Tests
+
+The [Session source guide](../src/execution/session/README.md) distinguishes
+consumer contracts, trusted construction and bounded native execution.
+
+| Suite under `execution/` | Contract |
+| --- | --- |
+| `session/activation.test.ts`, `session/activation.postgres.test.ts` | Captured start evidence, authority and exact activation/replay |
+| `claims/acquisition.test.ts`, `claims/acquisition.postgres.test.ts`, `claims/renewal.test.ts` | Authentic execution ownership, acquisition and renewal |
+| `claims/renewalProjection.test.ts`, `claims/transactionExecutionClaimLiveness.postgres.test.ts` | Pure deadline/retention verdicts and the distinct native liveness operation |
+| `session/attemptLoad.test.ts`, `session/attemptLoad.postgres.test.ts` | Exact attempt loading, current authority and locked structure |
+| `session/attemptKernel.test.ts`, `session/attemptKernel.postgres.test.ts` | Native callback lifetime, final authority and private syscall boundary |
+| `session/terminalization.test.ts`, `session/terminalization.postgres.test.ts` | Abort/expiry, final guards, rollback and cleanup |
+| `session/finiteActivation.test.ts`, `session/finiteSession.test.ts`, `session/finiteSession.postgres.test.ts` | Finite entry, continuation/replacement and real authority barriers |
+| `session/attemptFacet.test.ts`, `session/terminalStorage.test.ts`, `session/sessionSchema.test.ts`, `session/sessionSchema.postgres.test.ts` | Pure facet projection, retained storage and driver-specific schema obligations |
+| `session/consumerApi.test.ts`, `session/consumerApi.workerd.test.ts` | Broad-facade exclusion and actual SQL-free Worker loading with copied recovery refusal |
+
+`session/support/activationEvidence` owns pure evidence, while `attemptFixture`
+owns the one authentic test claim map. `authorityClock`, `activationFixture` and
+`attemptLoadFixture` retain their concrete fixtures. `postgresFixture`,
+`postgresLocks` and `postgresFiniteFixture` own native database resources,
+blockers and installed/direct profiles. `sessionStorage` and
+`terminalStorageScenario` retain the genuine schema/storage scenarios.
+
+PGlite activation suites explicitly close their owned driver. Ordinary Postgres
+suites retain file-scoped reset/rebuild/disposal; finite barrier cases retain
+their original temporary installed/direct resources and ordinary/provisioning
+role gates. Parameterized profiles, native blockers and cleanup order stay with
+the tests that exercise them. Discovery lanes list the concrete suite roots.
 
 ## Application Lifecycle Tests
 

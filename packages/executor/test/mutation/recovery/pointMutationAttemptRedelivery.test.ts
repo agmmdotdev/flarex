@@ -5,7 +5,7 @@ import {
 } from "@flarex/persistence-postgres/point-mutation-attempt-discovery";
 import {
   PointMutationExecutionClaimAcquisitionStaleV1Error,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import { Deferred, Effect, Fiber } from "effect";
 import { ReplacementScopeIdV1Schema } from
   "flarex-protocol/storage-authority";

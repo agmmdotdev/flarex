@@ -106,7 +106,9 @@ import {
 } from "../../../execution/finiteMetadataDependencies";
 import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
 import type { LogicalMetadataKey } from "flarex-protocol/commit-protocol";
-import { hasProvisionalFiniteEntry } from "../../../execution/transactionSessionActivation";
+import {
+  hasProvisionalFiniteEntry,
+} from "../../../execution/session/finiteSession";
 import type { FiniteEntryObservation } from "../../../execution/finiteEntryObservation";
 import {
   authenticateProtectedReadinessMetadataPair,

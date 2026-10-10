@@ -20,8 +20,10 @@ import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
   isLocatedReadCommittedAttemptTargetV1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
-import { createLocatedPointMutationSessionActivationTargetV1 } from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
+import {
+  createLocatedPointMutationSessionActivationTargetV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
 import { LocatedReadCommittedTransactionFailureV1 } from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
 import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Cause, Effect, Exit, Result } from "effect";

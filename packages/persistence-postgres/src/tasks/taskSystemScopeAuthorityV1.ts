@@ -11,8 +11,9 @@ import {
   captureScopePhysicalLocator,
   scopePhysicalLocatorsEqual,
 } from "../scope/scopePhysicalLocator";
-import type { LocatedReadCommittedAttemptTargetV1 } from
-  "../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../database/locatedTransactionIdentity";
 
 export type TaskSystemScopeAuthorityMismatchV1 =
   | "physical_locator"

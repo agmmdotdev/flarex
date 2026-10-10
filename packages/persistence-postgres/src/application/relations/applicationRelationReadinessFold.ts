@@ -25,7 +25,7 @@ import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { UniqueMaintenanceError } from "../../storage/indexes/indexMaintenanceModel";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import { isManagedInstallationTransaction } from "../../installation/installationLifecycle";
 import { ApplicationWriteOwnershipError } from "../ownership/Model";
 import { readApplicationWriteOwnershipInTransaction } from "../ownership/Repository";
@@ -199,9 +199,9 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../execution/readCommittedTransactionFailure";
-import {
-  type LocatedReadCommittedAttemptTargetV1,
-} from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 
 const UTF8 = new TextEncoder();
 const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });

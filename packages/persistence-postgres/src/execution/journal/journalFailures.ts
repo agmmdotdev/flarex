@@ -41,12 +41,16 @@ import {
   LogicalParticipantAdmissionError,
   LogicalParticipantInvocationError,
 } from "../../storage/documents/logicalDocuments/participantErrors";
-import { ExactRunningAttemptTransactionV1Error } from "../transactionSessionAttemptKernel";
-import type { ExactRunningAttemptKernelContextV1 } from "../transactionSessionAttemptKernel";
+import {
+  ExactRunningAttemptTransactionV1Error,
+} from "../session/errors";
+import type {
+  ExactRunningAttemptKernelContextV1,
+} from "../session/kernelContracts";
 import {
   PointMutationSessionAuthorityCorruptionV1Error,
   PointMutationSessionAttemptLoadV1Error,
-} from "../transactionSessionActivation";
+} from "../session/errors";
 
 export function mapAdmittedKernelFailure(
   cause: unknown,

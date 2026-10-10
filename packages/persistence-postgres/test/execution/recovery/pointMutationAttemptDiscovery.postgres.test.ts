@@ -24,7 +24,7 @@ import {
   insertOpenTransactionJournalFixture,
   insertTransactionSessionFixture,
   transactionSessionFixture,
-} from "../sessionAuthorityTestSupport";
+} from "../session/support/sessionStorage";
 
 const SCOPE_UUID = "87100000-0000-0000-0000-000000000001";
 const OTHER_SCOPE_UUID = "87100000-0000-0000-0000-000000000002";

@@ -18,8 +18,9 @@ import {
   type PointCommitPublicationV1Error,
   type PointCommitPublisherPortV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
-import type { PointMutationSessionAttemptSelectorV1 } from
-  "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/internal/session";
 
 import type { PointMutationExecutionClaimVaultV1 } from
   "../../claims/pointMutationExecutionClaim";

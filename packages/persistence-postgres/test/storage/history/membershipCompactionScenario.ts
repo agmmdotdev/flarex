@@ -40,9 +40,9 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../src/execution/readCommittedTransactionFailure";
-import {
-  type RunLocatedReadCommittedTransactionV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "../../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 /** Same bounded terminal deletion, rollback, lost-response and reuse witness on both drivers. */

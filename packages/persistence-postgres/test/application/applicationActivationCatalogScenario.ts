@@ -26,7 +26,9 @@ import {
 } from "../../src/storage/indexes/indexBuildReconciliation";
 import { readUniqueMaintenanceRequirements } from "../../src/storage/unique/appUniqueConstraintSetBuildV1";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../../src/database/schema";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../src/database/locatedTransactionIdentity";
 import {
   prepareReadinessEvidence,
   relationReadinessFixture,

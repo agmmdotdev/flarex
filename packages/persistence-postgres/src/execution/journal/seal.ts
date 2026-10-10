@@ -47,10 +47,16 @@ import { projectSealedAttemptLeasePromotionV1Result } from "../sealedAttemptLeas
 import type { SealedAttemptLeasePromotionIssueV1 } from "../sealedAttemptLeasePromotion";
 import {
   ExactRunningAttemptTransactionV1Error,
+} from "../session/errors";
+import {
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
+} from "../session/kernelContracts";
+import {
   RUN_LOCATED_REPEATABLE_READ_V1,
-} from "../transactionSessionAttemptKernel";
-import type { ExactRunningAttemptKernelContextV1 } from "../transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
+import type {
+  ExactRunningAttemptKernelContextV1,
+} from "../session/kernelContracts";
 import {
   TEXT_ENCODER,
   encodeSessionJournal,

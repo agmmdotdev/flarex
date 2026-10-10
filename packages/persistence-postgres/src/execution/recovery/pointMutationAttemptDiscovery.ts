@@ -37,8 +37,9 @@ import {
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
 } from "../../scope/scopeAuthorityResolution";
-import type { PointMutationSessionAttemptSelectorV1 } from
-  "../transactionSessionActivation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "../session/contracts";
 
 export const MAX_POINT_MUTATION_ATTEMPT_DISCOVERY_LIMIT_V1 = 100;
 

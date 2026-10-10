@@ -2,7 +2,7 @@ import type {
   PointMutationSessionActivationResultV1,
   PreparedApplicationMutationSessionActivationV1,
   PreparedPointMutationSessionActivationV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import type {
   CanonicalApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";

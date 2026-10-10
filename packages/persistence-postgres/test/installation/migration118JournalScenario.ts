@@ -4,8 +4,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 import type { FlarexSqlClient } from "../../src";
-import { insertLegacySessionTestScope, insertTransactionSessionFixture,
-  transactionSessionFixture, transactionSessionIdAt } from "../execution/sessionAuthorityTestSupport";
+import {
+  insertLegacySessionTestScope,
+  insertTransactionSessionFixture,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "../execution/session/support/sessionStorage";
 
 type MigratingClient = Pick<FlarexSqlClient, "query"> & Readonly<{ migrate: () => Promise<void> }>;
 

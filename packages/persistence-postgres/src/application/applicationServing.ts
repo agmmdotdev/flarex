@@ -58,14 +58,14 @@ import type {
 } from "../scope/scopeAuthorityResolution";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
-} from "../execution/transactionSessionActivation";
+} from "../execution/session/constructionContracts";
 import type { ScopePhysicalLocator } from "../scope/scopeMetadataTypes";
 import { scopePhysicalLocatorsEqual } from "../scope/scopePhysicalLocator";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 import {
   hasRelationalSessionDatabase,
   readRelationalSessionCoLocatedInstallation,

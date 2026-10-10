@@ -18,7 +18,7 @@ import {
 } from "../../../src/database/schema";
 import type {
   PointMutationSessionAnchorV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/contracts";
 import {
   prepareSessionJournalSeal as prepareSeal,
   runSessionJournalPointOperation as runPointOperation,

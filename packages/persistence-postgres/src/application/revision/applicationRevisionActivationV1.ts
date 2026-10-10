@@ -78,7 +78,7 @@ import {
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type RunLocatedReadCommittedTransactionV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 
 const UTF8 = new TextEncoder();
 const HASH_BUDGET = Object.freeze({ maximumInputBytes: 64 * 1_048_576 });

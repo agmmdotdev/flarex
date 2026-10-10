@@ -119,11 +119,19 @@ import {
   fxSystemAppSchemaCandidateValidations,
 } from "../../database/schema";
 import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCommittedTransactionFailure";
-import { RUN_LOCATED_READ_COMMITTED_V1, registerLocatedReadCommittedTargetDatabaseV1, isLocatedReadCommittedAttemptTargetV1, type LocatedReadCommittedAttemptTargetV1, type RunLocatedReadCommittedTransactionV1 } from "../../execution/transactionSessionAttemptKernel";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
-  "../../execution/transactionSessionActivation";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from
-  "../../execution/transactionSessionActivation";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+  registerLocatedReadCommittedTargetDatabaseV1,
+  isLocatedReadCommittedAttemptTargetV1,
+  type LocatedReadCommittedAttemptTargetV1,
+  type RunLocatedReadCommittedTransactionV1,
+} from "../../database/locatedTransactionIdentity";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../../database/locatedReadCommittedRunner";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/session/constructionContracts";
 
 const INPUT_KEYS = Object.freeze(["deploymentId", "scopeId", "schemaVersionId"] as const);
 const decodeScopeIdResult = Schema.decodeUnknownResult(Schema.toType(ScopeIdSchema));

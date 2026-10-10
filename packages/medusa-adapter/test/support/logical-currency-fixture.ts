@@ -9,7 +9,7 @@ import type {
 } from "../../../persistence-postgres/src/database/physicalSession/observation";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-} from "../../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import { Effect, Result } from "effect";
 import {
   prepareLogicalSchemaCandidate,
@@ -110,7 +110,7 @@ import type {
 } from "../../../persistence-postgres/src/scope/scopeAuthorityResolution";
 import type {
   LocatedReadCommittedAttemptTargetV1,
-} from "../../../persistence-postgres/src/execution/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import type {
   CommerceHost,
 } from "../../../persistence-postgres/src/frameworks/commerceTransaction/commands";

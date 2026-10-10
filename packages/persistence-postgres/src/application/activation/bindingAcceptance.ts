@@ -1,6 +1,8 @@
 import { observeExecution } from "../../execution/diagnostics/operation";
 import type { FiniteEntryObservation } from "../../execution/finiteEntryObservation";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import {
   type ExactTrustedScopeAuthorityResolutionPorts,
   resolveLocatedTrustedScopeAuthorityByIdEffect,

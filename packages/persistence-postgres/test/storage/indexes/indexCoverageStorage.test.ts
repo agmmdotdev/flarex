@@ -40,7 +40,7 @@ import {
   insertLegacySessionTestScope,
   SESSION_TEST_SCOPE_UUID,
   SESSION_TEST_EPOCH_UUID,
-} from "../../execution/sessionAuthorityTestSupport";
+} from "../../execution/session/support/sessionStorage";
 
 async function requireInjectedMigrationFailure(persistence: Pick<FlarexPersistence, "migrate">, missingTable: string) {
   const failure: unknown = await persistence.migrate().then(() => null, cause => cause);

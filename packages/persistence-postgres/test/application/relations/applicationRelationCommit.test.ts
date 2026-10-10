@@ -48,8 +48,9 @@ import {
   type LocatedApplicationRelationDefinitionSet,
 } from "../../../src/application/relations/applicationRelationCommit";
 import { createPGlitePersistence } from "../../../src/database/pglite";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from
-  "../../../src/execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../src/execution/session/constructionContracts";
 import { runEffect } from "../../support/effectTestRuntime";
 
 type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;

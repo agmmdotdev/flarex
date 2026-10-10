@@ -57,8 +57,10 @@ import { createStoredAttemptEvidenceLoaderV1 } from
   "../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../src/execution/session/constructionContracts";
 import {
   completeSessionJournalSeal,
   prepareSessionJournalSeal,
@@ -82,8 +84,10 @@ import {
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   pointMutationSessionActivationFixture,
+} from "../../execution/session/support/activationEvidence";
+import {
   setFlarexActivationClock,
-} from "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const LEASE_DURATION_MILLISECONDS = 300_000;

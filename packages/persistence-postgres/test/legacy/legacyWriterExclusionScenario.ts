@@ -12,13 +12,21 @@ import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
 } from "../../src/commit/point/construction";
-import { createPointMutationSessionActivationPersistenceV1 } from "../../src/execution/transactionSessionActivation";
+import {
+  createPointMutationSessionActivationPersistenceV1,
+} from "../../src/execution/session/activation";
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../src/execution/storedAttemptEvidence";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
 import { validateApplicationWriteOwnershipForCommit } from "../../src/application/ownership/Commit";
 import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect, runEffectFailure } from "../support/effectTestRuntime";
-import { activatePointMutationSession, pointMutationSessionActivationFixture, TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
+import {
+  activatePointMutationSession,
+} from "../execution/session/support/attemptFixture";
+import {
+  pointMutationSessionActivationFixture,
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../execution/session/support/activationEvidence";
 import { issueSetupSeededSyscallValidatorProofV1 } from "../application/revision/applicationRevisionSyscallValidatorTestSupport";
 import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "../commit/point/support/relations";
 import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/point/support/commandEvidence";

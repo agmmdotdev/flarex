@@ -26,7 +26,7 @@ import {
 import {
   captureFiniteReplacementAttemptInTransactionEffect,
   acceptFiniteEntryForContinuationInTransactionEffect,
-} from "../transactionSessionActivation";
+} from "../session/finiteSession";
 import {
   closeProtectedMetadataFinalGuardScope,
   flushProtectedMetadataFinalGuards,
@@ -43,7 +43,7 @@ import {
 import type {
   FiniteEntryAttemptKernelContext,
   ExactRunningAttemptKernelInputV1,
-} from "../transactionSessionAttemptKernel";
+} from "../session/kernelContracts";
 import {
   prepareFiniteTerminalControlEffect,
   type PreparedFiniteTerminalControl,

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { Effect, Schema } from "effect";
+import { Cause, Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
@@ -12,7 +12,9 @@ import {
 import {
   PointMutationAttemptReplacementFiniteEntryError,
 } from "../../persistence-postgres/src/commit/point/errors";
-import { PointMutationExecutionClaimAcquisitionStaleV1Error } from "../../persistence-postgres/src/execution/transactionSessionActivation";
+import {
+  PointMutationExecutionClaimAcquisitionStaleV1Error,
+} from "@flarex/persistence-postgres/internal/session";
 import type { FiniteMetadataReservation } from "../../persistence-postgres/src/execution/finiteMetadataReservation";
 import { readFiniteAttemptAnchorRow } from "../../persistence-postgres/src/execution/finiteAttemptAnchor";
 import { commerceError } from "../../persistence-postgres/src/frameworks/commerceTransaction/model";
@@ -35,12 +37,14 @@ const signedExecutionFields = { authority: fxSystemTransactionSessions.applicati
   sha256: fxSystemTransactionSessions.applicationExecutionAuthoritySha256 };
 
 describe.each(drivers)("whole Worker metadata ABA retry on %s", driver => {
-  it("reruns the root once at the same data snapshot after restoring the exact signed pins", async () => {
+  for (const advanceTargetEpoch of [false, true]) it(advanceTargetEpoch
+    ? "reruns restored signed root after sanctioned target epoch advance before fresh capture"
+    : "reruns the root once at the same data snapshot after restoring the exact signed pins", async () => {
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
     let freshReservation: FiniteMetadataReservation | undefined;
     let freshSession: typeof fxSystemTransactionSessions.$inferSelect | undefined;
     fixture = await createMixedMutationProductFixture({ driver,
-      suffix: `metadata-aba-retry-${driver}`, payloadProfile: "success", hooks: {
+      suffix: `metadata-aba-${advanceTargetEpoch ? "epoch-" : ""}retry-${driver}`, payloadProfile: "success", hooks: {
         afterProductBorrow: method => method !== "update" || fixture.retryContexts.length === 0 ? Effect.void : Effect.tryPromise({
           try: async () => {
             const [session] = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionSessions)
@@ -143,7 +147,25 @@ describe.each(drivers)("whole Worker metadata ABA retry on %s", driver => {
       expect(conflict.snapshotCommitSeq).toBe(conflict.currentCommitSeq);
       expect(conflict.conflict.capturedMetadataWatermark).toBe(initialMetadataWatermark);
       expect(conflict.conflict.lastChangedMetadataSequence).toBeGreaterThan(initialMetadataWatermark);
-      expect(await fixture.retryWholeAttempt(conflict)).toMatchObject({ kind: "published" });
+      // Sanctioned target metadata writer; changes epoch, no row or selected semantics.
+      // Runs BEFORE the fresh Scope factory/native entry capture, never after it.
+      if (advanceTargetEpoch) await currency.testOwner.query("update fx_system_application_candidate_v1 set candidate_id = candidate_id where false");
+      const retried = fixture.retryWholeAttempt(conflict);
+      // Existing retryWholeAttempt is the fixture Promise boundary. Capture its
+      // original rejection unchanged, finish entry/business diagnostics, then
+      // rethrow the exact original value; no nominal/full-Cause flattening.
+      const completed = await retried.then(value => ({ ok: true as const, value }), cause => ({ ok: false as const, cause }));
+      expect(fixture.retryContexts).toHaveLength(1);
+      expect(fixture.nativeInvokeCount.get("update")).toBe(2);
+      expect(fixture.nativeInvokeCount.get("payload-create")).toBe(2);
+      expect(freshReservation).toBeDefined();
+      expect(freshSession).toBeDefined();
+      if (freshSession === undefined) throw new Error("Fresh confirmed attempt did not reach business");
+      expect({ authority: freshSession.applicationExecutionAuthorityJson,
+        canonicalBytes: freshSession.applicationExecutionAuthorityCanonicalBytes,
+        sha256: freshSession.applicationExecutionAuthoritySha256 }).toEqual(signedBefore);
+      if (!completed.ok) throw completed.cause;
+      expect(completed.value).toMatchObject({ kind: "published" });
       expect(fixture.retryContexts).toHaveLength(1);
       const fresh = fixture.retryContexts[0];
       if (fresh === undefined) throw new Error("Missing whole-root retry context");
@@ -236,8 +258,16 @@ describe.each(drivers)("whole Worker metadata ABA retry on %s", driver => {
       }
       const callsBefore = Object.fromEntries(fixture.nativeInvokeCount);
       const retryFailure = await fixture.retryWholeAttempt(conflict).then(() => null, cause => cause);
-      expect(retryFailure).toBeInstanceOf(PointMutationAttemptReplacementFiniteEntryError);
-      expect(retryFailure).toMatchObject({ cause: { _tag: "ApplicationMutationAdmissionError",
+      expect(Cause.isCause(retryFailure)).toBe(true);
+      if (!Cause.isCause(retryFailure)) throw new Error("Expected complete incompatible retry Cause", { cause: retryFailure });
+      expect(Cause.hasDies(retryFailure)).toBe(false);
+      expect(Cause.hasInterrupts(retryFailure)).toBe(false);
+      expect(retryFailure.reasons).toHaveLength(1);
+      const retryReason = retryFailure.reasons[0];
+      if (retryReason === undefined || !Cause.isFailReason(retryReason))
+        throw new Error("Expected the original typed admission refusal", { cause: retryFailure });
+      expect(retryReason.error).toBeInstanceOf(PointMutationAttemptReplacementFiniteEntryError);
+      expect(retryReason.error).toMatchObject({ cause: { _tag: "ApplicationMutationAdmissionError",
         reason: "invalidExecutionAuthority", retryable: false } });
       const closed = await inspect();
       expect(closed).toEqual({ ...before, sessions: [{ ...originalSession, lifecycle: "aborted",

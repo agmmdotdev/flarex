@@ -34,7 +34,7 @@ import { retainPreparedHost } from "../../src/execution/preparation/preparedHost
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/execution/session/activation";
 import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import {
   payloadScalarFields,
@@ -58,10 +58,14 @@ import {
 } from "./relations/applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import { preparedHostTestRuntime } from "../execution/preparation/preparedHostRuntimeTestSupport";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../execution/session/support/activationEvidence";
 import { applicationMutationActivationEvidenceFixture } from "./applicationMutationActivationFixture";
 import { createApplicationNativeMutationMixedFixture } from "./applicationNativeMutationTestFixture";
-import type { FiniteEntryAttemptKernelContext } from "../../src/execution/transactionSessionAttemptKernel";
+import type {
+  FiniteEntryAttemptKernelContext,
+} from "../../src/execution/session/kernelContracts";
 import type {
   ApplicationActivationTargetProfile,
 } from "../../src/application/readiness/contracts";

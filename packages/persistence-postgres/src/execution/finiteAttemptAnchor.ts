@@ -19,7 +19,9 @@ import {
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "../commit/authority/postgresLoader";
 import { decodeTransactionExecutionClaimFenceV1, decodeTransactionExecutionClaimOwnerV1,
   type TransactionExecutionClaimPinV1, type TransactionExecutionClaimObservationV1 } from "./claims/transactionExecutionClaimModel";
-import type { PointMutationSessionAttemptSelectorV1 } from "./transactionSessionActivation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "./session/contracts";
 import { MAX_TRANSACTION_ATTEMPT_FENCE, TRANSACTION_SESSION_PROTOCOL_VERSION_V1, TransactionAttemptFenceSchema,
   TransactionSessionLifecycleV1Schema } from "flarex-protocol/transaction-session";
 import type { TransactionExecutionClaimOwnerV1 } from "./claims/transactionExecutionClaimModel";

@@ -7,8 +7,14 @@ import { sql } from "drizzle-orm";
 import { expect } from "vitest";
 import type { FlarexSqlClient } from "../../src";
 import { fxAppRowRevisions, fxSystemTransactionSessions } from "../../src/database/schema";
-import { SESSION_TEST_SCOPE_UUID, SESSION_TEST_EPOCH_UUID, insertSessionTestScope,
-  insertTransactionSessionFixture, transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
+import {
+  SESSION_TEST_SCOPE_UUID,
+  SESSION_TEST_EPOCH_UUID,
+  insertSessionTestScope,
+  insertTransactionSessionFixture,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "./session/support/sessionStorage";
 
 const MigrationJournal = Schema.Struct({ version: Schema.String, dialect: Schema.String,
   entries: Schema.Array(Schema.Struct({ idx: Schema.Int, version: Schema.String, when: Schema.Number,

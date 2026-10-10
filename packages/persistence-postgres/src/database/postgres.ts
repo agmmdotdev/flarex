@@ -45,9 +45,11 @@ import {
 } from "../storage/history/retainedHistoryFloorObservation";
 import {
   createLocatedPointMutationSessionActivationTargetV1,
+} from "../execution/session/target";
+import {
   FINITE_STORAGE_CAPTURE_DRIVER,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
-} from "../execution/transactionSessionActivation";
+} from "../execution/session/constructionContracts";
 import { makePostgresPhysicalSessionDriver, type PostgresPhysicalSessionDriver } from "./physicalSession/postgres";
 import type { PhysicalSessionErrors } from "./physicalSession/model";
 import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
@@ -61,7 +63,7 @@ import {
 import type { LocatedScopeClockReader } from "../scope/scopeAuthorityResolution";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "./locatedTransactionIdentity";
 import type {
   ScopePhysicalLocator,
   SplitScopePhysicalLocator,

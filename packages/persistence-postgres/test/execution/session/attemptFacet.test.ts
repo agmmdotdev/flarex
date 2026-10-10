@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
-
 import {
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
@@ -14,13 +13,12 @@ import {
   TransactionAttemptFenceSchema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
-
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
   type FreshTransactionAttemptFacetInputV1,
-} from "../../src/execution/transactionSessionAttemptFacet";
-import { fxSystemTransactionJournals } from "../../src/database/schema";
+} from "../../../src/execution/transactionSessionAttemptFacet";
+import { fxSystemTransactionJournals } from "../../../src/database/schema";
 
 const VALID_INPUT = Object.freeze({
   scopeUuid: ScopeUuidV1Schema.make(

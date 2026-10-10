@@ -60,7 +60,7 @@ import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { selectApplicationMutationAdmission } from "../../../src/application/applicationMutationAdmission";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
 import {
   issueLogicalParticipantAttemptAdmission,
@@ -83,7 +83,9 @@ import { createApplicationNativeMutationPGliteFixtureWithPersistence,
 import {
   applicationMutationActivationFixture,
 } from "../../application/applicationMutationActivationFixture";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../session/support/activationEvidence";
 import { createPGlitePersistence } from "../../../src/database/pglite";
 import { newTestPGlite } from "../../support/pgliteSearchExtensions";
 import { createFileScopedPostgresFixture, postgresUrl } from "../../support/postgresHelpers";

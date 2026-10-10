@@ -18,13 +18,17 @@ import {
 } from "../../../src/execution/journal/api";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/claims/acquisition";
 import {
   ExactRunningAttemptTransactionV1Error,
+} from "../../../src/execution/session/errors";
+import {
+  reconcileExactRunningAttemptTransactionFailureV1,
+} from "../../../src/execution/session/errorProjections";
+import {
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   isLocatedExactRunningAttemptKernelV1,
-  reconcileExactRunningAttemptTransactionFailureV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/execution/session/kernelContracts";
 import {
   prepareSessionJournalSeal as prepareSeal,
   runEffect,

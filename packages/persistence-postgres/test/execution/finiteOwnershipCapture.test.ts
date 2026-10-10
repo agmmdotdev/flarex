@@ -9,11 +9,15 @@ import { createMigratedPGlitePersistence } from "../support/pgliteTestFixture";
 import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture, createActivationServingFileScopedPostgresFixture,
   createCoLocatedReadInstallationFixture, postgresUrl } from "../support/postgresHelpers";
 import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../src/database/postgres";
-import { isLocatedReadCommittedAttemptTargetV1 } from "../../src/execution/transactionSessionAttemptKernel";
+import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../src/database/locatedTransactionIdentity";
 import { finiteApplicationMetadataScenario } from "../application/finiteApplicationMetadataScenario";
 import * as finiteStorageCapture from "../../src/execution/finiteStorageCapture";
 import type { FiniteStorageCaptureOperation, FiniteStorageCaptureProfile } from "../../src/execution/finiteStorageCapture";
-import type { ExactRunningAttemptKernelInputV1 } from "../../src/execution/transactionSessionAttemptKernel";
+import type {
+  ExactRunningAttemptKernelInputV1,
+} from "../../src/execution/session/kernelContracts";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import type { ScopePhysicalLocator } from "../../src/scope/scopeMetadataTypes";
 import { runEffect } from "../support/effectTestRuntime";

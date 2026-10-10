@@ -29,7 +29,7 @@ import {
   insertOpenTransactionJournalFixture,
   insertTransactionSessionFixture,
   transactionSessionFixture,
-} from "../sessionAuthorityTestSupport";
+} from "../session/support/sessionStorage";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   writeJournalThrough0032,

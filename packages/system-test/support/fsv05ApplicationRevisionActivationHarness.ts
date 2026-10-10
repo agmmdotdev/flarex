@@ -50,8 +50,9 @@ import {
 import {
   settleApplicationRevisionReadinessV1,
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionReadinessV1";
-import { RUN_LOCATED_READ_COMMITTED_V1 } from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,

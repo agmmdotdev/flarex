@@ -11,7 +11,7 @@ import {
 } from "../../scope/scopeAuthorityResolution";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../execution/transactionSessionActivation";
+} from "../../execution/session/constructionContracts";
 import {
   type PointCommitFinishingTransitionV1Error,
   corruption,

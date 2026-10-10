@@ -15,7 +15,9 @@ import type { LocatedAppUniqueConstraintDefinitionV1 } from "../unique/appUnique
 import type { LocatedAppIndexDefinitionV1 } from "../indexes/appIndexDefinitions";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../../scope/scopeClock";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/session/constructionContracts";
 import type { ScopePublicationOptions } from "../../commit/publication/scopePublicationModel";
 import { enterLogicalDocumentMaterialization, logicalMaterializationError, projectLogicalDocumentMaterializationFailure } from "../documents/logicalDocuments/materialization";
 import { captureHostPreparationLifetime, chargeHostPreparation, type PreparedHostPreparationLifetime } from "../../execution/preparation/preparedHostRuntime";

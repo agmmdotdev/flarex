@@ -43,7 +43,7 @@ import {
 } from "../../../src/execution/readCommittedTransactionFailure";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/database/locatedReadCommittedRunner";
 import {
   createApplicationNativeMutationPGliteFixture,
   type ApplicationNativeMutationPGliteFixture,

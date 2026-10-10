@@ -27,10 +27,10 @@ import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/database/locatedTransactionIdentity";
 import {
   createLocatedPointMutationSessionActivationTargetV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/target";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   type PostgresLocatedReadCommittedRunnerOptionsV1,

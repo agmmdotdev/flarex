@@ -15,7 +15,11 @@ import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "../../persist
 import { makePostgresCatalogControlSessionDriver } from "../../persistence-postgres/src/database/postgresCatalogControlSession";
 import { makeCatalogControlSessionStarter, startCatalogControlDeadline, type CatalogControlSessionStarter } from "../../persistence-postgres/src/database/catalogControlSession";
 import { postgresUrl, withTemporaryPostgresPersistence } from "../../persistence-postgres/test/support/postgresHelpers";
-import { insertSessionTestScope, SESSION_TEST_SCOPE_UUID, SESSION_TEST_EPOCH_UUID } from "../../persistence-postgres/test/execution/sessionAuthorityTestSupport";
+import {
+  insertSessionTestScope,
+  SESSION_TEST_SCOPE_UUID,
+  SESSION_TEST_EPOCH_UUID,
+} from "../../persistence-postgres/test/execution/session/support/sessionStorage";
 import { ensureStableTableIdentityEffect } from "../../persistence-postgres/src/storage/catalog/stableTableCatalog";
 import { deployments, fxControlScopes, fxControlTables, fxControlSchemaVersions, fxControlIndexDefinitions, fxControlUniqueConstraintDefinitions,
   fxControlLogicalReadSources, fxControlLogicalReadTables, fxControlLogicalReadAccess } from "../../persistence-postgres/src/database/schema";

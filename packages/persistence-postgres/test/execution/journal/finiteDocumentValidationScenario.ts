@@ -20,7 +20,9 @@ import type {
   SessionJournalAttempt,
   PinnedPointTableV1,
 } from "../../../src/execution/journal/api";
-import type { PointMutationSessionAnchorV1 } from "../../../src/execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../src/execution/session/contracts";
 import {
   issueSetupSeededSyscallValidatorProofV1,
 } from "../../application/revision/applicationRevisionSyscallValidatorTestSupport";

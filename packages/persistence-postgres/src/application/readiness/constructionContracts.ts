@@ -4,7 +4,9 @@ import type {
   TrustedScopeAuthorityResolutionPorts,
   ExactTrustedScopeAuthorityResolutionPorts,
 } from "../../scope/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import type { ApplicationSchemaAuthorityPublisher } from "../applicationSchemaAuthority";
 import type { ApplicationTaskCatalogSnapshotPort } from "../tasks/applicationTaskBindings";
 import type { AppSchemaCandidateReadinessPort } from "../../storage/catalog/appSchemaCandidateValidation";

@@ -3,9 +3,9 @@ import {
   type ApplicationRelationCommitPort,
   hasApplicationRelationCommitAuthorityForPointCommit,
 } from "../../application/relations/applicationRelationCommit";
-import {
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/session/constructionContracts";
 import {
   type AppDeveloperIndexDefinitionPortV1,
 } from "../../storage/indexes/appDeveloperIndexCommitV1";

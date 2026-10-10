@@ -4,9 +4,14 @@ import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { selectApplicationMutationAdmission } from "../../src/application/applicationMutationAdmission";
-import { createApplicationMutationSessionActivationPersistenceV1 } from "../../src/execution/transactionSessionActivation";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+} from "../../src/execution/session/activation";
 import { createSessionJournalStorePersistence } from "../../src/execution/sessionJournalStore";
-import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
+import {
+  captureSessionStorage,
+  expectSessionPayloadScrubbed,
+} from "./session/support/terminalStorageScenario";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../src/execution/storedAttemptEvidence";
 import {
   createPointCommitFinishingTransitionPortV1,
@@ -18,7 +23,9 @@ import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "../comm
 import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1 } from "../commit/point/support/commandEvidence";
 import { issueSetupSeededSyscallValidatorProofV1 } from "../application/revision/applicationRevisionSyscallValidatorTestSupport";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "./session/support/activationEvidence";
 import type { ApplicationNativeMutationPGliteFixture,
   ApplicationNativeMutationPostgresFixture } from "../application/applicationNativeMutationTestFixture";
 

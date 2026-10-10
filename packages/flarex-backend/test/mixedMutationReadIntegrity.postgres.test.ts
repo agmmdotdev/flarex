@@ -12,7 +12,9 @@ import { getCoLocatedReadInstallationReferences, loadCoLocatedReadInstallation, 
   isManagedInstallationTransaction } from "../../persistence-postgres/src/installation/installationLifecycle";
 import { prepareProtectedMetadata } from "../../persistence-postgres/src/execution/preparation/preparedMetadataEpoch";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/database/metadataTransaction";
-import { createLocatedPointMutationSessionActivationTargetV1 } from "../../persistence-postgres/src/execution/transactionSessionActivation";
+import {
+  createLocatedPointMutationSessionActivationTargetV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
 
 const cases = ["placement", "escapedPlacement", "controlPolicy", "targetPolicy", "controlMaintenance", "targetMaintenance",
   "controlLogin", "controlNamespace", "controlIncarnation", "controlEpoch", "targetEpoch",

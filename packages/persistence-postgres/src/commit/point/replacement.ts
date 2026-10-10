@@ -38,6 +38,7 @@ import { recordFiniteReplacementTerminalRefusal } from "./capabilities";
 import { capturePointMutationAttemptReplacementCommandResult } from "./capture";
 import {
   type PointCommitTransactionProofOptionsV1,
+  type PointMutationAttemptReplacementFiniteEntryComposition,
   type PointMutationAttemptReplacementOptionsV1,
 } from "./constructionContracts";
 import {
@@ -132,9 +133,9 @@ import {
   type runPreparedFiniteSessionJournalEntryEffect,
 } from "../../execution/journal/finiteEntryActivation";
 import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCommittedTransactionFailure";
-import {
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/session/constructionContracts";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
@@ -142,10 +143,12 @@ import {
 import {
   isLocatedExactRunningAttemptKernelV1,
   isLocatedPointCommitPublicationTargetV1,
+} from "../../execution/session/kernelContracts";
+import {
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import { type TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import { type AppRowTransaction } from "../../storage/documents/appRows";
 import { loadPointCommitHeads } from "../../storage/materialization/materialization";
@@ -157,7 +160,7 @@ export interface PreparedFiniteReplacementEntry {
 }
 
 export const prepareFiniteReplacementEntryEffect = Effect.fn("PointMutationAttemptReplacement.prepareFiniteEntry")(
-  function*(composition: NonNullable<PointMutationAttemptReplacementOptionsV1["finiteEntry"]>) {
+  function*(composition: PointMutationAttemptReplacementFiniteEntryComposition) {
     const preparation = yield* composition.prepareEntry();
     const application = composition.application;
     return { preparation, application } satisfies PreparedFiniteReplacementEntry;
@@ -934,9 +937,10 @@ export function bindPointMutationAttemptReplacement(ports: PointMutationSessionA
     if(!isLocatedPointCommitPublicationTargetV1(located.target) || !isLocatedExactRunningAttemptKernelV1(located.target))
       return yield* Effect.fail(replacementCorruption("readCommittedCapabilityMissing"));
     const target = located.target;
+    const composition = yield* options.finiteEntry();
     let admissionRefusal: ApplicationMutationAdmissionError | undefined;
     return yield* Effect.scoped(Effect.gen(function*() {
-      const entry: PreparedFiniteReplacementEntry = yield* prepareFiniteReplacementEntryEffect(options.finiteEntry!);
+      const entry: PreparedFiniteReplacementEntry = yield* prepareFiniteReplacementEntryEffect(composition);
       const transaction = runFiniteCommitTransactionEffect(target, tx => Effect.gen(function*() {
         const clock = yield* finiteCommitPromiseEffect(() => lockPointCommitClock(tx, command, proofOptions));
         yield* finiteCommitPromiseEffect(() => emitReplacementStep(options, command, "clockLocked"));

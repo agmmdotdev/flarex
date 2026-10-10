@@ -12,7 +12,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   PointMutationExecutionClaimAcquisitionPersistenceV1Error,
   type PointMutationExecutionClaimAcquisitionV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   TransactionExecutionClaimFenceV1Schema,
   TransactionExecutionClaimOwnerV1Schema,

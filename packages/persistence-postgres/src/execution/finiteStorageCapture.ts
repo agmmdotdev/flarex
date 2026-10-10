@@ -28,14 +28,19 @@ import type { PostgresPhysicalSessionDriver } from "../database/physicalSession/
 import type { CatalogTableId, CatalogIndexDefinitionId } from "flarex-protocol/catalog";
 import type { ScanAppIndexAtSnapshotV1Input, PreparedAppIndexSnapshotRead } from "../storage/indexes/appIndexEntries";
 import type { ReadAppRowsAtSnapshotV1Input, PreparedAppRowsSnapshotRead } from "../storage/documents/appRows";
-import type { ExactRunningAttemptKernelInputV1 } from "./transactionSessionAttemptKernel";
+import type {
+  ExactRunningAttemptKernelInputV1,
+} from "./session/kernelContracts";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect, resolveLocatedTrustedScopeAuthorityEffect,
   TrustedScopeAuthorityPortError, type LocatedScopeClockReader, type ExactTrustedScopeAuthorityResolutionPorts } from "../scope/scopeAuthorityResolution";
 import type { LocatedTrustedScopeAuthority, TrustedScopeAuthorityError } from "../scope/scopeAuthorityResolution";
 import {
   ScopeClockCorruptionError,
 } from "../scope/scopeClockErrors";
-import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "./transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../database/locatedTransactionIdentity";
 
 import { decodeCapturedApplicationWriteOwnershipEffect } from "../application/ownership/Repository";
 import { ApplicationWriteOwnershipHistoryBudget, denyManagedApplicationTableWrites } from "../application/ownership/Policy";
@@ -43,7 +48,9 @@ import { ApplicationWriteOwnershipError } from "../application/ownership/Model";
 
 
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import type { PointMutationSessionAttemptSelectorV1 } from "./transactionSessionActivation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "./session/contracts";
 import type { TransactionExecutionClaimPinV1 } from "./claims/transactionExecutionClaimModel";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../storage/unique/appUniqueConstraintDefinitions";

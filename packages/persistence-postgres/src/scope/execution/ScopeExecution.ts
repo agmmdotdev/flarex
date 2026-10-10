@@ -22,9 +22,9 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../execution/readCommittedTransactionFailure";
-import {
-  type LocatedReadCommittedAttemptTargetV1,
-} from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import { ScopeExecutionAuthorityError } from "./Errors";
 import {
   closeScopedTransaction,

@@ -42,7 +42,7 @@ import {
   snapshotLeaseFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "../execution/sessionAuthorityTestSupport";
+} from "../execution/session/support/sessionStorage";
 
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)

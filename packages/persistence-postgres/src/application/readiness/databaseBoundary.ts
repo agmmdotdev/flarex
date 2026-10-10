@@ -27,7 +27,7 @@ import { runEffectTransaction } from "../../database/effectTransaction";
 import {
   type LocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import { LocatedReadCommittedTransactionFailureV1 } from "../../execution/readCommittedTransactionFailure";
 
 export function controlDatabaseTime(

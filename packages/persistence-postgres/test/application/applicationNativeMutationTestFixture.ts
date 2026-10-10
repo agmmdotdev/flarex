@@ -16,7 +16,7 @@ import type {
 } from "../../src/scope/scopeAuthorityResolution";
 import type {
   LocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import { webcrypto } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
@@ -173,7 +173,7 @@ import type { LocatedScopeClockReader } from
   "../../src/scope/scopeAuthorityResolution";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import {
   fxSystemApplicationPublicationsV1,
   fxSystemApplicationReadinessV1,

@@ -53,7 +53,7 @@ import {
 } from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import {
   FSV05_SUPPORTED_LOCATOR,
   prepareFsv05ReadyRevisionFixtureV1,

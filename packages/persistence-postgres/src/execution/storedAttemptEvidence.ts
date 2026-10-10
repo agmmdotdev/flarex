@@ -106,11 +106,13 @@ import {
 import {
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedRepeatableReadAttemptTargetV1,
-} from "./transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 import type {
   PointMutationSessionAttemptSelectorV1,
+} from "./session/contracts";
+import type {
   PointMutationSessionAuthorityResolutionPortsV1,
-} from "./transactionSessionActivation";
+} from "./session/constructionContracts";
 
 type TransactionSessionRow =
   typeof fxSystemTransactionSessions.$inferSelect;

@@ -176,9 +176,9 @@
                                                  "stored policy corruption"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "94a143a1582be62174f1762bea93517f8b26f8492edfefc8b0fae86c9eab2259",
+                        "targetSha256":  "38c1a3a875807a350d80e05ad11cbd47f59280aa62a2ababae172a6a00c6903b",
                         "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.b exact recursive Legacy and Application aggregate, receipt, evidence, effect, and replay schemas"
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b exact recursive Legacy and Application aggregate, receipt, evidence, effect, and replay schemas; delegate the identical record predicate to its existing utility leaf"
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",

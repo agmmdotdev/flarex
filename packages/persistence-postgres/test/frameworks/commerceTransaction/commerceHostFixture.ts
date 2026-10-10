@@ -6,7 +6,9 @@ import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import type { RelationalSession } from "../../../src/database/relationalTransaction/session";
 import type { TrustedScopeAuthorityResolutionPorts } from "../../../src/scope/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../../src/execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../../src/database/locatedTransactionIdentity";
 import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTargetSnapshot } from "../../../src/installation/frameworkSchema/target";
 import { makeDataBindingHost, dataBindingActivationRequest, type DataBindingHost, type DataBindingHostInput } from "../../../src/installation/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";

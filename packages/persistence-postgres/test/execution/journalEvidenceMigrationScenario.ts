@@ -4,9 +4,12 @@ import {
   injectMigrationFailure, restoreMigrationFile, writeJournalThrough, type DrizzleCopyFixture,
 } from "../support/migrationFixtureSupport";
 import {
-  insertLegacyOpenTransactionJournalFixture, insertLegacySessionTestScope, insertTransactionSessionFixture,
-  transactionSessionFixture, transactionSessionIdAt,
-} from "./sessionAuthorityTestSupport";
+  insertLegacyOpenTransactionJournalFixture,
+  insertLegacySessionTestScope,
+  insertTransactionSessionFixture,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "./session/support/sessionStorage";
 
 /** Exact development checkpoint upgrade; historical columns exist only inside this witness. */
 export async function verifyJournalEvidenceMigration(

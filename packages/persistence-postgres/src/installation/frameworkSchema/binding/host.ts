@@ -51,7 +51,7 @@ import { runLocatedReadCommittedEffect } from "../../../database/locatedReadComm
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../../execution/transactionSessionAttemptKernel";
+} from "../../../database/locatedTransactionIdentity";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../execution/readCommittedTransactionFailure";

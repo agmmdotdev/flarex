@@ -26,7 +26,7 @@ import {
 import type {
   PointMutationSessionAnchorV1,
   PointMutationSessionAttemptSelectorV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/execution/session/contracts";
 import {
   StoredAttemptEvidencePersistenceV1Error,
   type StoredAttemptEvidenceAuthorityV1,

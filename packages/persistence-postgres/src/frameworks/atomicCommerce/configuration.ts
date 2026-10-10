@@ -12,7 +12,9 @@ import type {
   ExactTrustedScopeAuthorityResolutionPorts,
   TrustedScopeAuthority,
 } from "../../scope/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
 import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfiguration";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";

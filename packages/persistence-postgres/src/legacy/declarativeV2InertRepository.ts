@@ -41,7 +41,7 @@ import {
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 export interface DeclarativeV2InertRepositoryBudgetV1 {
   readonly maximumCalls: number;

@@ -20,13 +20,21 @@ import type { SharedDatabaseScopePhysicalLocator } from
   "../../../src/scope/scopeMetadataTypes";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
+} from "../../../src/execution/claims/acquisition";
+import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/session/activation";
+import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-  type LocatedPointMutationSessionActivationTargetOptionsV1,
-  type PointMutationSessionActivationResolutionPortsV1,
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAttemptSelectorV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/terminalization";
+import type {
+  LocatedPointMutationSessionActivationTargetOptionsV1,
+  PointMutationSessionActivationResolutionPortsV1,
+} from "../../../src/execution/session/constructionContracts";
+import type {
+  PointMutationSessionAnchorV1,
+  PointMutationSessionAttemptSelectorV1,
+} from "../../../src/execution/session/contracts";
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../../../src/execution/claims/transactionExecutionClaimLiveness";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
@@ -35,9 +43,13 @@ import { postgresUrl, withTemporaryPostgresPersistence } from
 import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
+} from "../session/support/attemptFixture";
+import {
   pointMutationSessionActivationFixture,
+} from "../session/support/activationEvidence";
+import {
   setFlarexActivationClock,
-} from "../transactionSessionActivationTestSupport";
+} from "../session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const LIVENESS_POLICY = Result.getOrThrow(makeGrantRetentionPolicyV1Result({

@@ -12,7 +12,9 @@ import {
   readConfirmedFiniteRootEntryCapture,
 } from "../../../src/execution/journal/finiteEntry";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../session/support/activationEvidence";
 
 type Capture = Effect.Success<ReturnType<FiniteEntryRun>>;
 type RunArguments = Parameters<FiniteEntryRun>;

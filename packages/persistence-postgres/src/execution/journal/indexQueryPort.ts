@@ -3,7 +3,9 @@ import {
 } from "../../storage/indexes/appDeveloperIndexCommitV1";
 import type { AppDeveloperIndexDefinitionPortV1 } from "../../storage/indexes/appDeveloperIndexCommitV1";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../session/constructionContracts";
 
 const appDeveloperIndexQueryPortBrand: unique symbol = Symbol(
   "FlarexDB/AppDeveloperIndexQueryPortV1",

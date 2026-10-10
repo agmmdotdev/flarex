@@ -22,16 +22,17 @@ import type { ScopePhysicalLocator } from
   "../../../src/scope/scopeMetadataTypes";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/database/locatedReadCommittedRunner";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../src/execution/readCommittedTransactionFailure";
-import {
-  type RunLocatedReadCommittedTransactionV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "../../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { setFlarexActivationClock } from
-  "../../execution/transactionSessionActivationTestSupport";
+import {
+  setFlarexActivationClock,
+} from "../../execution/session/support/authorityClock";
 
 const physicalLocator = Object.freeze({
   kind: "shared_database" as const,

@@ -18,8 +18,7 @@ import {
   PointMutationExecutionClaimAcquisitionStaleV1Error,
   type PointMutationExecutionClaimAcquisitionV1Error,
   type PointMutationSessionAttemptSelectorV1,
-} from
-  "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import type {
   PointMutationExecutionClaimDispatchAcquisitionV1,
   PointMutationExecutionClaimDispatchAcquisitionResultV1,

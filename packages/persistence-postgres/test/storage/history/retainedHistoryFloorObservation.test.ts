@@ -41,19 +41,25 @@ import type {
   "../../../src/scope/scopeMetadataTypes";
 import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/session/activation";
+import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/database/locatedReadCommittedRunner";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../src/execution/readCommittedTransactionFailure";
-import {
-  type RunLocatedReadCommittedTransactionV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "../../../src/database/locatedTransactionIdentity";
 import {
   activatePointMutationSession,
+} from "../../execution/session/support/attemptFixture";
+import {
   pointMutationSessionActivationFixture,
+} from "../../execution/session/support/activationEvidence";
+import {
   setFlarexActivationClock,
-} from "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/authorityClock";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { lockScopeClockForUpdateInTransactionEffect, lockScopeClockForSnapshotReadInTransactionEffect,
   openExactAttemptScopeClockObservation, closeExactAttemptScopeClockObservation } from "../../../src/scope/scopeClock";

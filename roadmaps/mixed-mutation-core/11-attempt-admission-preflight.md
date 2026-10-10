@@ -54,7 +54,7 @@ stack or a latency prediction.
 
 ## Baseline evidence and current integrity boundary
 
-The [attempt kernel](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
+The [attempt kernel](../../packages/persistence-postgres/src/execution/session/attemptKernel.ts)
 checks the target scope clock, session, snapshot lease, journal, execution
 claim, server time and final protected epoch. [Participant admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts)
 and [source admission](../../packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts)

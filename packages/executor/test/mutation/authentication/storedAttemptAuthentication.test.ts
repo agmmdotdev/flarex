@@ -163,10 +163,10 @@ import {
 } from "../../../src/mutation/session/pointMutationSessionActivation";
 import type {
   PointMutationSessionAttemptLoadResultV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   PointMutationSessionAttemptTerminalizationPersistenceV1Error,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   TransactionExecutionClaimFenceV1Schema,
   TransactionExecutionClaimOwnerV1Schema,

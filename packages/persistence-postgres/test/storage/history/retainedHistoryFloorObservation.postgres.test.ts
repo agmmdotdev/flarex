@@ -29,10 +29,12 @@ import { createPostgresLocatedReadCommittedTransactionRunnerV1 } from
   "../../../src/database/postgresLocatedReadCommitted";
 import type { SharedDatabaseScopePhysicalLocator } from
   "../../../src/scope/scopeMetadataTypes";
-import { createPointMutationSessionActivationPersistenceV1 } from
-  "../../../src/execution/transactionSessionActivation";
-import type { RunLocatedReadCommittedTransactionV1 } from
-  "../../../src/execution/transactionSessionAttemptKernel";
+import {
+  createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/session/activation";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "../../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
 import {
@@ -41,10 +43,13 @@ import {
 } from "../../support/postgresHelpers";
 import {
   activatePointMutationSession,
+} from "../../execution/session/support/attemptFixture";
+import {
   pointMutationSessionActivationFixture,
+} from "../../execution/session/support/activationEvidence";
+import {
   setFlarexActivationClock,
-} from
-  "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 

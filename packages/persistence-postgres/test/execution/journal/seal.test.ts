@@ -19,7 +19,7 @@ import {
 import { verifyJournalSealSequence } from "./journalEvidenceScenario";
 import type {
   PointMutationSessionAnchorV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/contracts";
 import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
@@ -27,7 +27,9 @@ import {
   runEffectFailure as runFailure,
   runSessionJournalPointOperation as runPointOperation,
 } from "../../support/effectTestRuntime";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../session/support/activationEvidence";
 import {
   selectorFromAnchor,
   syscallSequence,

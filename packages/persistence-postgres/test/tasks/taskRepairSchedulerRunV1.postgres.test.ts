@@ -41,7 +41,7 @@ import type { SharedDatabaseScopePhysicalLocator } from
   "../../src/scope/scopeMetadataTypes";
 import {
   isLocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import { runEffect } from "../support/effectTestRuntime";
 import {
   postgresUrl,

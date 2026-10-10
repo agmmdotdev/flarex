@@ -36,7 +36,9 @@ import {
   fxSystemTransactionJournals,
   fxSystemTransactionJournalWriteEvents,
 } from "../../database/schema";
-import type { ExactRunningAttemptKernelContextV1 } from "../transactionSessionAttemptKernel";
+import type {
+  ExactRunningAttemptKernelContextV1,
+} from "../session/kernelContracts";
 import { canonicalizeStoredOutcomeEffect } from "./codecs";
 import type {
   SessionJournalStoredRequest,

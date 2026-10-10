@@ -6,10 +6,16 @@ import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import type { FlarexSqlClient } from "../../src";
-import { SESSION_TEST_EPOCH_UUID, SESSION_TEST_SCOPE_UUID, insertOpenTransactionJournalFixture,
+import {
+  SESSION_TEST_EPOCH_UUID,
+  SESSION_TEST_SCOPE_UUID,
+  insertOpenTransactionJournalFixture,
   insertLegacyOpenTransactionJournalFixture,
-  insertLegacySessionTestScope, insertTransactionSessionFixture, transactionSessionFixture,
-  transactionSessionIdAt } from "../execution/sessionAuthorityTestSupport";
+  insertLegacySessionTestScope,
+  insertTransactionSessionFixture,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "../execution/session/support/sessionStorage";
 
 type MigratingClient = Pick<FlarexSqlClient, "query"> & Readonly<{ migrate: () => Promise<void> }>;
 

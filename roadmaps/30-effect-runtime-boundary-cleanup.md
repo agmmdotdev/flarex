@@ -60,7 +60,8 @@ allowed boundary categories are:
 - Postgres driver and Drizzle transaction callbacks that require Promises:
   - `packages/persistence-postgres/src/database/postgresRuntime.ts`
   - `packages/persistence-postgres/src/storage/catalog/stableTableCatalog.ts`
-  - `packages/persistence-postgres/src/execution/transactionSessionActivation.ts`
+  - `packages/persistence-postgres/src/execution/session/target.ts`
+  - `packages/persistence-postgres/src/database/locatedReadCommittedRunner.ts`
 - Local development, analyzer, artifact materializer, executor HTTP, and
   backend push adapter APIs:
   - `packages/flarex-dev/src/analyze.ts`

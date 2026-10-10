@@ -87,7 +87,7 @@ import {
   createApplicationMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session-construction";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import {
   makeApplicationPointMutationRunner,

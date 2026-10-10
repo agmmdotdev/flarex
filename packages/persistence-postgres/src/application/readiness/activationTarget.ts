@@ -1,7 +1,7 @@
 import {
   type LocatedReadCommittedAttemptTargetV1,
   hasLocatedReadCommittedTargetDatabaseV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import type { ScopePhysicalLocator } from "../../scope/scopeMetadataTypes";
 import {
   Result,

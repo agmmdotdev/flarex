@@ -76,7 +76,7 @@ Use these sources in order:
 7. Current code and decisive tests prove exact implemented behavior. The active
    replacement session-start boundary is:
    - [`packages/executor/src/mutation/session/pointMutationSessionActivation.ts`](../packages/executor/src/mutation/session/pointMutationSessionActivation.ts)
-   - [`packages/persistence-postgres/src/execution/transactionSessionActivation.ts`](../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
+   - [Session activation](../packages/persistence-postgres/src/execution/session/activation.ts) and [finite activation](../packages/persistence-postgres/src/execution/session/finiteActivation.ts)
    The older prototype behavior remains visible in:
    - [`packages/executor/src/invocation/sessions.ts`](../packages/executor/src/invocation/sessions.ts)
    - [`packages/executor/src/invocation/retry.ts`](../packages/executor/src/invocation/retry.ts)

@@ -11,7 +11,9 @@ import { Effect } from "effect";
 import { createRetainedCommitHistoryCompactionPort, compactRetainedCommitHistoryPageEffect } from "../../../src/storage/history/retainedCommitHistoryCompaction";
 import { createLocatedRetainedHistoryFloorTargetInternal, type LocatedRetainedHistoryFloorTarget } from "../../../src/storage/history/retainedHistoryFloorObservation";
 import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../src/scope/scopeAuthorityResolution";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../../../src/execution/transactionSessionActivation";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../../../src/database/locatedReadCommittedRunner";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { runEffect } from "../../support/effectTestRuntime";
 

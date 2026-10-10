@@ -8,7 +8,10 @@ import { capturePrivateJsonData } from "../../values/privateJsonData";
 import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
   TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError,
   type ExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../../database/relationalTransaction/session";
 import { lockScopeClockForShareInTransactionEffect } from "../../scope/scopeClock";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";

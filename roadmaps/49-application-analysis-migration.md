@@ -3801,6 +3801,18 @@ them. Current Application proofs use the installed current schema and genuine
 unversioned owners; do not create a hybrid historical schema to make those
 older runtime harnesses pass.
 
+The retained native Task fixtures have the same registered-parent ownership
+gap. `taskSystemRunRead.postgres.test.ts` caps its schema before 0064 but invokes
+the current registration runtime through `seedRegisteredTaskSystemParentV1`.
+`taskComputeDeliveryRepositoryV1.postgres.test.ts` installs the current schema
+but calls that historical seed, which writes the retired scope-clock
+`storage_generation` column before reaching Task or Session work. Their existing
+behavioral assertions remain with the matched-runtime or explicit
+consumer-migration disposition above. Import and construction organization does
+not establish native Task acceptance for these fixtures. Do not restore retired
+columns or combine historical registration rows with current authority to make
+them pass.
+
 Stop here. `AA-R9` routing, bindings, deployment, caller selection, auth and
 production cutover remain unauthorized.
 

@@ -55,12 +55,16 @@ import {
   fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalPoints,
 } from "../../database/schema";
-import { ExactRunningAttemptTransactionV1Error } from "../transactionSessionAttemptKernel";
-import type { ExactRunningAttemptKernelContextV1 } from "../transactionSessionAttemptKernel";
+import {
+  ExactRunningAttemptTransactionV1Error,
+} from "../session/errors";
+import type {
+  ExactRunningAttemptKernelContextV1,
+} from "../session/kernelContracts";
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
   isLocatedExactRunningAttemptReadSyscallKernelV1,
-} from "../transactionSessionReadSyscallKernel";
+} from "../session/kernelContracts";
 import {
   decodeCommitFinalSyscallSequenceResult,
   nextCommitSyscallSequence,

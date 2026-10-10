@@ -42,7 +42,7 @@ import {
 } from "../../../src/execution/readCommittedTransactionFailure";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import {
   createApplicationNativeMutationPGliteFixture,

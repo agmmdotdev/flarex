@@ -47,8 +47,9 @@ import {
   createLocatedIndexBuildReconciliationTargetV1,
   reconcilePublishedIndexBuildsV1Effect,
 } from "../../../src/storage/indexes/indexBuildReconciliation";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
-  "../../../src/execution/transactionSessionActivation";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../../../src/database/locatedReadCommittedRunner";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../src/execution/readCommittedTransactionFailure";

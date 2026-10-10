@@ -12,7 +12,7 @@ import {
 import { createPGliteLocatedPointMutationSessionActivationTargetV1 } from "../../../src/database/pglite";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
 import { createStoredOccExecutionEvidenceLoaderV1 } from "../../../src/execution/storedOccExecution";
 import { fxSystemApplicationActiveHeads } from "../../../src/application/applicationActivationSchema";
 import { runEffect } from "../../support/effectTestRuntime";

@@ -115,14 +115,13 @@ import {
   "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from
-  "@flarex/persistence-postgres/internal/system-test/transactionSessionActivation";
+} from "@flarex/persistence-postgres/internal/located-read-committed-runner";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
-import {
-  type RunLocatedReadCommittedTransactionV1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import {
   makeApplicationNativeMutationTestLayer,
 } from "./applicationNativeMutationHarness";

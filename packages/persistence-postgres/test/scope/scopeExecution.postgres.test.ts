@@ -50,12 +50,12 @@ import {
 } from "../../src/scope/execution/ScopedTransaction";
 import {
   createLocatedPointMutationSessionActivationTargetV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/execution/session/target";
 import {
   isLocatedReadCommittedAttemptTargetV1,
   LOCATED_READ_COMMITTED_RUNNER_V1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";

@@ -86,7 +86,7 @@ import {
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session-construction";
 import {
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";

@@ -21,13 +21,14 @@ import {
   insertOpenTransactionJournalFixture,
   insertLegacyOpenTransactionJournalFixture,
   insertSessionTestScope,
+  insertLegacySessionTestScope,
   insertSnapshotLeaseFixture,
   insertTransactionSessionFixture,
   SESSION_TEST_SCOPE_UUID,
   snapshotLeaseFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "../sessionAuthorityTestSupport";
+} from "../session/support/sessionStorage";
 import { insertExecutionClaimFixture } from
   "./transactionExecutionClaimSchemaTestSupport";
 
@@ -112,7 +113,7 @@ describe("B2b1 exact-attempt execution-claim schema", () => {
         migrationsFolder: fixture.migrationsFolder,
       });
       await previous.migrate();
-      await insertSessionTestScope(previous);
+      await insertLegacySessionTestScope(previous);
       await insertTransactionSessionFixture(
         previous,
         transactionSessionFixture(sessionId, { lifecycle: "running" }),

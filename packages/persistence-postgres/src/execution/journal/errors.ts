@@ -25,7 +25,9 @@ import type {
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
 } from "../../storage/documents/pinnedPointTableErrors";
-import type { PointMutationSessionAttemptLoadIssueV1 } from "../transactionSessionActivation";
+import type {
+  PointMutationSessionAttemptLoadIssueV1,
+} from "../session/errors";
 import type { SessionJournalPointOperationKindV1 } from "./contracts";
 
 export class InvalidSessionJournalCapabilityV1Error extends Data.TaggedError(

@@ -7,6 +7,7 @@ import {
   Option,
   Result,
   Schema,
+  type Scope,
 } from "effect";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 
@@ -49,6 +50,7 @@ const owners = new WeakMap<object, Owner>();
 export type PreparedHostPreparationCharge = (value: unknown) => Result.Result<void, PreparedHostRuntimeError>;
 export interface PreparedHostGeneration<Value> {
   readonly use: <A, E, R>(work: (value: Value) => Effect.Effect<A, E, R>) => Effect.Effect<A, E | PreparedHostRuntimeError, R>;
+  readonly acquire: Effect.Effect<Value, PreparedHostRuntimeError, Scope.Scope>;
   readonly retire: Effect.Effect<void>;
 }
 export interface PreparedHostPreparationLifetime {
@@ -265,16 +267,16 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
         Effect.tap(() => Effect.fromResult(generationCheck())),
         Effect.map(prepared => {
           generationValue = { value: prepared };
-          const use: PreparedHostGeneration<Effect.Success<typeof construction>>["use"] = work => Effect.acquireUseRelease(
-            Effect.suspend(() => {
-              if (retired || generationValue === undefined) return Effect.fail(error("closed"));
-              const current = generationValue.value;
-              return Effect.fromResult(generationCheck()).pipe(Effect.map(() => { borrowing++; active++; return current; }));
-            }),
-            work,
-            () => Effect.suspend(() => { borrowing--; active--; reclaim(); return finish; }),
-          );
-          return Object.freeze({ use, retire: Effect.sync(() => { retired = true; reclaim(); }) });
+          const acquireBorrow = Effect.suspend(() => {
+            if (retired || generationValue === undefined) return Effect.fail(error("closed"));
+            const current = generationValue.value;
+            return Effect.fromResult(generationCheck()).pipe(Effect.map(() => { borrowing++; active++; return current; }));
+          });
+          const releaseBorrow = () => Effect.suspend(() => { borrowing--; active--; reclaim(); return finish; });
+          const use: PreparedHostGeneration<Effect.Success<typeof construction>>["use"] = work =>
+            Effect.acquireUseRelease(acquireBorrow, work, releaseBorrow);
+          const acquire = Effect.acquireRelease(acquireBorrow, releaseBorrow);
+          return Object.freeze({ use, acquire, retire: Effect.sync(() => { retired = true; reclaim(); }) });
         }),
       );
     }),

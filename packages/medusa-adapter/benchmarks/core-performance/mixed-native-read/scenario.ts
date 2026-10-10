@@ -118,7 +118,10 @@ const sources = [
   "packages/persistence-postgres/src/storage/indexes/indexBuildStates.ts",
   "packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts",
   "packages/persistence-postgres/src/execution/finiteMetadataReservation.ts",
-  "packages/persistence-postgres/src/execution/transactionSessionAttemptKernel.ts",
+  "packages/persistence-postgres/src/execution/session/kernelContracts.ts",
+  "packages/persistence-postgres/src/database/locatedTransactionIdentity.ts",
+  "packages/persistence-postgres/src/execution/session/errors.ts",
+  "packages/persistence-postgres/src/execution/session/errorProjections.ts",
   "packages/persistence-postgres/src/installation/physicalDefinitionRetirementPins.ts",
   "packages/persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission.ts",
   "packages/persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission.ts",
@@ -292,8 +295,23 @@ const sources = [
   "packages/executor/src/mutation/claims/pointMutationExecutionClaimSupervision.ts",
   "packages/executor/src/mutation/session/pointMutationSessionAttemptState.ts",
   "packages/flarex-protocol/src/commit-protocol.ts",
-  "packages/persistence-postgres/src/execution/transactionSessionActivation.ts",
-  "packages/persistence-postgres/src/execution/transactionSessionReadSyscallKernel.ts",
+  "packages/persistence-postgres/src/execution/session/inputCapture.ts",
+  "packages/persistence-postgres/src/execution/session/attemptAuthority.ts",
+  "packages/persistence-postgres/src/execution/session/contracts.ts",
+  "packages/persistence-postgres/src/execution/session/constructionContracts.ts",
+  "packages/persistence-postgres/src/execution/session/activation.ts",
+  "packages/persistence-postgres/src/execution/session/attemptLoad.ts",
+  "packages/persistence-postgres/src/execution/claims/acquisition.ts",
+  "packages/persistence-postgres/src/execution/session/terminalization.ts",
+  "packages/persistence-postgres/src/execution/session/finiteActivation.ts",
+  "packages/persistence-postgres/src/execution/session/target.ts",
+  "packages/persistence-postgres/src/execution/claims/renewal.ts",
+  "packages/persistence-postgres/src/execution/session/recoveryCapture.ts",
+  "packages/persistence-postgres/src/database/locatedReadCommittedRunner.ts",
+  "packages/persistence-postgres/src/execution/session/attemptKernel.ts",
+  "packages/persistence-postgres/src/execution/session/durableActivation.ts",
+  "packages/persistence-postgres/src/execution/session/finiteSession.ts",
+  "packages/persistence-postgres/src/execution/claims/renewalProjection.ts",
   "packages/persistence-postgres/src/storage/documents/logicalReadMetadata.ts",
   "packages/persistence-postgres/src/execution/preparation/preparedMetadataEpoch.ts",
   "packages/persistence-postgres/src/installation/installationLifecycle.ts",
@@ -374,6 +392,7 @@ function decodedResults(dispatches: readonly TraceDispatchRecord[]): DecodedResu
 }
 
 function requireProtectedServerWork(statements: ReturnType<typeof retrievalServerDifference>) {
+  // A recorded call with unavailable query text cannot prove named SQL work.
   const qualifier = String.raw`(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*)\s*\.\s*`;
   for (const [owner, table] of [
     ["installation", "fx_system_installation"],
@@ -383,7 +402,7 @@ function requireProtectedServerWork(statements: ReturnType<typeof retrievalServe
     ["publication sequencer", "fx_system_scope_clock"],
   ] as const) {
     const pattern = new RegExp(String.raw`\bselect\b[\s\S]*?\b(?:from|join)\s+(?:${qualifier})?"?${table}"?\b`, "i");
-    if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && pattern.test(statement.query)))
+    if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && statement.query !== null && pattern.test(statement.query)))
       throw new Error(`Missing observed nested finite ${owner} server work`);
   }
   const placementCalls = /\bfx_accept_finite_placement_frontier\s*\(/i;
@@ -392,42 +411,42 @@ function requireProtectedServerWork(statements: ReturnType<typeof retrievalServe
   // Genuine installed acceptance and the named capture share one outer
   // statement. The capture locks the original session and selected builds,
   // then starts separate fresh time and sequencer commands after their waits.
-  if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) &&
     placementCalls.test(statement.query) &&
     finiteCaptureCalls.test(statement.query)))
     throw new Error("Missing observed top-level scalar placement and finite capture acceptance");
   const metadataEpoch = new RegExp(String.raw`\bjoin\s+(?:${qualifier})?"?fx_system_prepared_metadata_epoch"?\b`, "i");
-  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) && metadataEpoch.test(statement.query) &&
     /\bp\.login\s*=\s*session_user\b/i.test(statement.query)))
     throw new Error("Missing observed nested installation frontier metadata and actual login policy check");
   const authorityRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_scope_execution_authority"?\b`, "i");
   const authorityScope = /\bwhere\s+a\.scope_id\s*=\s*p_scope_id\b/i;
-  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) &&
     authorityRead.test(statement.query) && authorityScope.test(statement.query) && /\bfor\s+share\b/i.test(statement.query)))
     throw new Error("Missing observed nested finite installed execution authority FOR SHARE query");
   const anchorRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_tx_session"?\b`, "i");
-  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) && anchorRead.test(statement.query) && /\bfor\s+share\b/i.test(statement.query) &&
     /\ba\.scope_uuid\s*=\s*\(\s*substring\s*\(\s*p_scope_id\s+from\s+\$\d+\s*\)\s*\)::uuid/i.test(statement.query) &&
     /\ba\.session_id\s*=\s*\(p_expected\)\.session_id\b/i.test(statement.query)))
     throw new Error("Missing observed nested original finite session anchor FOR SHARE query");
   const sequenceRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_scope_clock"?\b`, "i");
-  if (!statements.some(statement => statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) && /\bfx_accept_finite_storage_capture\s*\(/i.test(statement.query)))
     throw new Error("Missing observed top-level named finite storage capture");
   const servingScope = /\bwhere\s+c\.scope_id\s*=\s*p_scope_id\b/i;
-  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) && sequenceRead.test(statement.query) && servingScope.test(statement.query) &&
     /\bc\.last_commit_seq\b/i.test(statement.query)))
     throw new Error("Missing observed nested finite post-wait serving sequence command");
-  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) && /\bfloor\s*\(\s*extract\s*\(\s*(?:epoch|\$\d+)\s+from\s+clock_timestamp\s*\(/i.test(statement.query)))
     throw new Error("Missing observed nested finite post-wait database time command");
   const buildRead = new RegExp(String.raw`\bfrom\s+(?:${qualifier})?"?fx_system_index_build_state"?\b`, "i");
-  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 &&
+  if (!statements.some(statement => !statement.toplevel && statement.calls > 0 && statement.query !== null &&
     selectStatement.test(statement.query) && buildRead.test(statement.query) &&
     /\bb\.index_definition_id\s*=\s*p_index_definition_id\b/i.test(statement.query) && /\bfor\s+key\s+share\b/i.test(statement.query)))
     throw new Error("Missing observed nested finite selected index build FOR KEY SHARE command");

@@ -118,12 +118,14 @@ import {
   lockExactTransactionExecutionClaimV1Result,
   requireLiveTransactionExecutionClaimV1Result,
 } from "../../execution/claims/transactionExecutionClaimPersistence";
-import { type PointMutationSessionAuthorityResolutionPortsV1 } from "../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../execution/session/constructionContracts";
 import {
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import { type TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import { type AppRowTransaction } from "../../storage/documents/appRows";
 import { decodePointCommitCreationTimeResult } from "../../storage/materialization/headEvidence";

@@ -64,8 +64,12 @@ import {
 } from "../../scope/scopeAuthorityControlRead";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../scope/scopeClock";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../database/locatedTransactionIdentity";
 import { makeCurrencyAnnouncementParticipants } from "./participants";
 import { compositeError, projectCompositeFailure, type CompositeFailure } from "./model";
 import { publishCurrencyAnnouncement } from "./publication";

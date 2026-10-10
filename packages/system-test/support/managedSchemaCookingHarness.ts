@@ -102,7 +102,7 @@ import {
   "@flarex/persistence-postgres/internal/app-schema-candidate-validation";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+} from "@flarex/persistence-postgres/internal/system-test/session-kernel";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "@flarex/persistence-postgres/internal/read-committed-transaction-failure";
@@ -132,7 +132,7 @@ import type { ScopePhysicalLocator } from
   "@flarex/persistence-postgres/internal/system-test/scopeMetadataTypes";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/located-read-committed-runner";
 import {
   ApplicationMutationSystem,
   invokeApplicationMutation,

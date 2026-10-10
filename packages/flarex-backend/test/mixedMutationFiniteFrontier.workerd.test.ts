@@ -32,8 +32,9 @@ import { lockScopeClockForOrdinaryWriteInTransactionEffect, closeExactAttemptSco
 import {
   closeInstallationAdmission,
 } from "../../persistence-postgres/src/installation/installationLifecycle";
-import { createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
-  "../../persistence-postgres/src/execution/transactionSessionActivation";
+import {
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
 
 type Fixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined

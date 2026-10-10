@@ -27,7 +27,9 @@ import {
   lockScopeClockForSnapshotReadInTransactionEffect,
 } from "../../scope/scopeClock";
 import { appUniqueConstraintEligibilityFrame } from "../../storage/unique/appUniqueConstraintSetBuildV1";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../database/locatedTransactionIdentity";
 import {
   acquireProtectedMetadataInstallationAdmission,
   captureProtectedMetadataEpoch,

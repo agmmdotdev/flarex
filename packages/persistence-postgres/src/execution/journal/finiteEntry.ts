@@ -16,7 +16,9 @@ import type {
   ApplicationActiveSelection,
 } from "../../application/activation/contracts";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
-import type { FiniteEntryAttemptKernelContext } from "../transactionSessionAttemptKernel";
+import type {
+  FiniteEntryAttemptKernelContext,
+} from "../session/kernelContracts";
 import type {
   PreparedFiniteTerminalControl,
   StoredCommitAuthorityEvidenceLoaderPortsV1,

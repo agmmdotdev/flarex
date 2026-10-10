@@ -45,11 +45,13 @@ import type {
 } from "../../storage/documents/logicalDocuments/journalEvidence";
 import type { LogicalDocumentChanges } from "../../storage/documents/logicalDocuments/workingSet";
 import type { LogicalDocumentBorrowView } from "../../storage/documents/logicalDocuments/model";
-import type { FiniteEntryAttemptKernelContext } from "../transactionSessionAttemptKernel";
+import type {
+  FiniteEntryAttemptKernelContext,
+} from "../session/kernelContracts";
 import type {
   PointMutationExecutionProfile,
   PointMutationSessionAttemptSelectorV1,
-} from "../transactionSessionActivation";
+} from "../session/contracts";
 import type { TransactionExecutionClaimPinV1 } from "../claims/transactionExecutionClaimModel";
 import type {
   InvalidSessionJournalCapabilityV1Error,

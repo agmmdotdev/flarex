@@ -6,8 +6,9 @@ import {
   type PointCommitPublicationCommandV1,
   type RunningRelationConflictAttemptReplacementCommandV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
-import type { PointMutationSessionAttemptSelectorV1 } from
-  "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/internal/session";
 import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
 
 import type {

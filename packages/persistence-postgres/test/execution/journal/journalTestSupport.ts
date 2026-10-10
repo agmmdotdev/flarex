@@ -26,7 +26,7 @@ import type {
 import type {
   PointMutationSessionAnchorV1,
   PointMutationSessionAttemptSelectorV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/contracts";
 
 export const sharedLocator = Object.freeze({
   kind: "shared_database",

@@ -20,13 +20,14 @@ import {
   insertOpenTransactionJournalFixture,
   insertLegacyOpenTransactionJournalFixture,
   insertSessionTestScope,
+  insertLegacySessionTestScope,
   insertSnapshotLeaseFixture,
   insertTransactionSessionFixture,
   SESSION_TEST_SCOPE_UUID,
   snapshotLeaseFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "../sessionAuthorityTestSupport";
+} from "../session/support/sessionStorage";
 import { insertExecutionClaimFixture } from
   "./transactionExecutionClaimSchemaTestSupport";
 
@@ -49,7 +50,7 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
           | undefined;
         try {
           await previous.migrate();
-          await insertSessionTestScope(previous);
+          await insertLegacySessionTestScope(previous);
           await insertTransactionSessionFixture(
             previous,
             transactionSessionFixture(sessionId, { lifecycle: "running" }),

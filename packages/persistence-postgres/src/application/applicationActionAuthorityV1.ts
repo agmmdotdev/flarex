@@ -64,12 +64,12 @@ import { captureScopePhysicalLocator } from "../scope/scopePhysicalLocator";
 import { scopePhysicalLocatorsEqual } from "../scope/scopePhysicalLocator";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../execution/transactionSessionActivation";
+} from "../database/locatedReadCommittedRunner";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 const ACTION_TARGET_DB: unique symbol = Symbol(
   "FlarexDB/applicationActionAuthorityTargetDbV1",

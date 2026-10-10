@@ -34,7 +34,7 @@ import {
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
   isLocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import { runEffect } from "../support/effectTestRuntime";
 import {
   postgresUrl,

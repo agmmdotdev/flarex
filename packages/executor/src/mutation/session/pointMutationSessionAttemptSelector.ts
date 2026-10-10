@@ -1,6 +1,6 @@
 import type {
   PointMutationSessionAttemptSelectorV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import { Result } from "effect";
 
 import {

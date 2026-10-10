@@ -9,7 +9,7 @@ import type {
 import {
   type LocatedReadCommittedAttemptTargetV1,
   hasLocatedReadCommittedTargetDatabaseV1,
-} from "../../execution/transactionSessionAttemptKernel";
+} from "../../database/locatedTransactionIdentity";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
 import type { ScopeClockRecord } from "../../scope/scopeClock";
 import { FlarexDbV1StorageGenerationSchema } from "flarex-protocol/storage-authority";

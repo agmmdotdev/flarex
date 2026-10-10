@@ -8,7 +8,9 @@ import type { CmsRequestBudget } from "../../execution/preparation/frameworkExec
 import type { PreparedHostRuntime } from "../../execution/preparation/preparedHostRuntime";
 import type { RelationalSession } from "../../database/relationalTransaction/session";
 import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../scope/scopeAuthorityResolution";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import type { CmsCommand } from "./commands";
 
 /** Trusted composition shared by direct readers and the genuine read/write host.

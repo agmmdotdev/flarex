@@ -15,8 +15,9 @@ import type {
 } from "@flarex/persistence-postgres/stored-occ-execution";
 import type { TransactionExecutionClaimPinV1 } from
   "@flarex/persistence-postgres/transaction-execution-claim";
-import type { PointMutationSessionAttemptSelectorV1 } from
-  "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/internal/session";
 import type { SnapshotToken } from "flarex-protocol/storage-authority";
 import type {
   TransactionAttemptFence,

@@ -79,7 +79,7 @@ import {
 } from "../execution/readCommittedTransactionFailure";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 const CAPABILITY_IDENTITY =
   "flarex.system/application-point-query-snapshot/v1" as const;

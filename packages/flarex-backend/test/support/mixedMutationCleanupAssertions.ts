@@ -2,12 +2,15 @@ import { Cause } from "effect";
 import { expect } from "vitest";
 import {
   PointMutationSessionAttemptTerminalizationV1Error,
-} from "../../../persistence-postgres/src/execution/transactionSessionActivation";
+} from "@flarex/persistence-postgres/internal/session";
 import {
   PointMutationExecutionClaimLivenessStaleV1Error,
-} from "../../../persistence-postgres/src/execution/claims/transactionExecutionClaimLiveness";
+} from "@flarex/persistence-postgres/internal/transaction-execution-claim-errors";
 
-export async function expectExpiredMixedOwnerCleanup(close: () => Promise<void>): Promise<void> {
+export async function expectExpiredMixedOwnerCleanup(
+  close: () => Promise<void>,
+  expectedTerminalizationReason: "executionClaimUnavailable" | "staleAttemptFence" = "executionClaimUnavailable",
+): Promise<void> {
   const failure: unknown = await close().then(() => undefined, (cause: unknown) => cause);
   expect(failure).toBeInstanceOf(AggregateError);
   if (!(failure instanceof AggregateError)) throw new Error("Expected outer mixed fixture cleanup aggregate", { cause: failure });
@@ -39,5 +42,5 @@ export async function expectExpiredMixedOwnerCleanup(close: () => Promise<void>)
   expect(terminalization.error).toBeInstanceOf(PointMutationSessionAttemptTerminalizationV1Error);
   if (!(terminalization.error instanceof PointMutationSessionAttemptTerminalizationV1Error))
     throw new Error("Expected the original terminalization error identity", { cause });
-  expect(terminalization.error.issue).toEqual({ reason: "executionClaimUnavailable" });
+  expect(terminalization.error.issue).toEqual({ reason: expectedTerminalizationReason });
 }

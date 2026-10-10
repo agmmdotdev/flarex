@@ -2,7 +2,7 @@ import type {
   PointMutationSessionAttemptSelectorV1,
   PointMutationSessionAttemptTerminalizationEffectErrorV1,
   PointMutationSessionAttemptTerminalizationPersistenceV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import { Effect, Result } from "effect";
 
 import {

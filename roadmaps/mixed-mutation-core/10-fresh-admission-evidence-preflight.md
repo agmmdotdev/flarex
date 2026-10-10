@@ -48,7 +48,7 @@ latency promise or permission to suppress a check.
 
 The [journal store](../../packages/persistence-postgres/src/execution/sessionJournalStore.ts)
 starts a checked operation through the
-[activation kernel](../../packages/persistence-postgres/src/execution/transactionSessionActivation.ts),
+[attempt kernel](../../packages/persistence-postgres/src/execution/session/attemptKernel.ts),
 which authenticates the exact running attempt, current scope clock, session,
 claim and journal position and flushes protected metadata guards at the
 successful transaction tail. The [participant admission
@@ -60,7 +60,7 @@ inside one transaction and discards it at the boundary; it never licenses a
 later call.
 
 The [Application binding projection](../../packages/persistence-postgres/src/application/applicationBindingProjection.ts)
-calls [active selection validation](../../packages/persistence-postgres/src/application/applicationActivation.ts)
+calls [active selection validation](../../packages/persistence-postgres/src/application/activation/bindingAcceptance.ts)
 to read a coherent head and activation under `FOR SHARE`. The
 [active-head reader](../../packages/persistence-postgres/src/application/applicationActiveHeadRead.ts)
 owns decoding, revision-schema correlation and lock semantics. The
@@ -70,7 +70,7 @@ checks selected index coverage, closed unique sets and search readiness.
 owned a second coherent head/schema read and its transaction-bound
 `IndexCoverageContext` at approval. [Unique coverage](../../packages/persistence-postgres/src/storage/unique/appUniqueConstraintSetBuildV1.ts)
 could read another such context and selected table frontiers. The
-[Application readiness owner](../../packages/persistence-postgres/src/application/applicationReadiness.ts)
+[Application physical readiness owner](../../packages/persistence-postgres/src/application/readiness/physicalCoverage.ts)
 also checks selected physical build coverage while restoring an active
 binding. The [search owner](../../packages/persistence-postgres/src/storage/search/logicalSearchBuild.ts)
 retains a physical `pg_index` probe. These are real owners with distinct

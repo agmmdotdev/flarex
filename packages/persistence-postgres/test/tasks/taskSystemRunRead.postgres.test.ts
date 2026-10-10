@@ -31,7 +31,7 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   postgresUrl,

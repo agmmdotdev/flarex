@@ -2,13 +2,13 @@ import { Effect, Result } from "effect";
 
 import {
   PointMutationExecutionClaimAcquisitionInputV1Error,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 
 import type {
   PointMutationExecutionClaimAcquisitionResultV1 as PersistenceAcquisitionResultV1,
   PointMutationExecutionClaimAcquisitionV1,
   PointMutationExecutionClaimAcquisitionV1Error,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 
 import type {
   PointMutationExecutionClaimV1,

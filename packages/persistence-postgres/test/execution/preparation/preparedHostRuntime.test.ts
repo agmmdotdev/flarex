@@ -22,6 +22,82 @@ const prepare = Effect.gen(function* () {
   return { metadata };
 });
 
+it("shares scoped and callback borrows through retirement and host close", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 256 });
+    const retained = yield* retainPreparedHost(runtime, Effect.succeed({}));
+    const payloads = new WeakMap<object, string>();
+    let disposals = 0;
+    const generation = yield* retained.reconstruct(() => Effect.gen(function* () {
+      const key = Object.freeze({});
+      payloads.set(key, "scoped payload");
+      yield* chargeHostPreparation("scoped payload");
+      yield* registerHostPreparationDisposal(() => { payloads.delete(key); disposals++; });
+      return { key };
+    }));
+    const borrowScope = yield* Scope.make();
+    yield* Effect.addFinalizer(exit => Scope.close(borrowScope, exit));
+    const acquired = yield* generation.acquire.pipe(Scope.provide(borrowScope));
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    const callback = yield* Effect.forkChild(generation.use(value => Effect.gen(function* () {
+      expect(value).toBe(acquired);
+      yield* Deferred.succeed(entered, undefined);
+      yield* Deferred.await(release);
+      expect(payloads.has(value.key)).toBe(true);
+    })));
+    yield* Deferred.await(entered);
+    const charged = Result.getOrThrow(retained.readUsage()).chargedBytes;
+    yield* generation.retire;
+    expect(yield* Effect.flip(Effect.scoped(generation.acquire))).toMatchObject({ reason: "closed" });
+    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(charged);
+    let closed = false;
+    const closing = yield* Effect.forkChild(retained.close.pipe(Effect.tap(() => Effect.sync(() => { closed = true; }))));
+    yield* Effect.yieldNow;
+    expect(closed).toBe(false);
+    yield* Scope.close(borrowScope, Exit.succeed(undefined));
+    expect(payloads.has(acquired.key)).toBe(true);
+    expect(disposals).toBe(0);
+    expect(closed).toBe(false);
+    yield* Deferred.succeed(release, undefined);
+    yield* Fiber.join(callback);
+    yield* Fiber.join(closing);
+    expect(closed).toBe(true);
+    expect(payloads.has(acquired.key)).toBe(false);
+    expect(disposals).toBe(1);
+  }))));
+
+it("releases scoped generation borrows on interruption and preserves combined Cause", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 128 });
+    const retained = yield* retainPreparedHost(runtime, Effect.succeed({}));
+    let disposals = 0;
+    const issue = chargeHostPreparation("generation").pipe(Effect.andThen(
+      registerHostPreparationDisposal(() => { disposals++; })));
+    const first = yield* retained.reconstruct(() => issue);
+    const entered = yield* Deferred.make<void>();
+    const borrower = yield* Effect.forkChild(Effect.scoped(first.acquire.pipe(
+      Effect.andThen(Deferred.succeed(entered, undefined)), Effect.andThen(Effect.never))));
+    yield* Deferred.await(entered);
+    yield* first.retire;
+    expect(disposals).toBe(0);
+    yield* Fiber.interrupt(borrower);
+    const interrupted = yield* Fiber.await(borrower);
+    expect(Exit.isFailure(interrupted) && Cause.hasInterruptsOnly(interrupted.cause)).toBe(true);
+    expect(disposals).toBe(1);
+    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(0);
+    const second = yield* retained.reconstruct(() => issue);
+    const defect = new Error("Original scoped borrow defect");
+    const original = Cause.combine(Cause.fail("Original scoped borrow refusal"), Cause.die(defect));
+    const failed = yield* Effect.exit(Effect.scoped(second.acquire.pipe(
+      Effect.andThen(second.retire), Effect.andThen(Effect.failCause(original)))));
+    if (Exit.isSuccess(failed)) return yield* Effect.die("Expected original combined Cause");
+    expect(failed.cause).toBe(original);
+    expect(disposals).toBe(2);
+    expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBe(0);
+    yield* retained.close;
+  }))));
+
 it("disposes actual issuer payloads exactly once after retired borrowers and root drain", () =>
   runEffect(Effect.scoped(Effect.gen(function* () {
     const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 256 });

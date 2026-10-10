@@ -1,4 +1,6 @@
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import type {
   ExactTrustedScopeAuthorityResolutionPorts,
   TrustedScopeAuthority,

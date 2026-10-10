@@ -7,11 +7,13 @@ import type {
 } from "../../application/relations/applicationRelationRead";
 import type { LocatedAppIndexDefinitionV1 } from "../../storage/indexes/appIndexDefinitions";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
-import type { LocatedExactRunningAttemptKernelV1 } from "../transactionSessionAttemptKernel";
+import type {
+  LocatedExactRunningAttemptKernelV1,
+} from "../session/kernelContracts";
 import type {
   PointMutationExecutionProfile,
   PointMutationSessionAttemptSelectorV1,
-} from "../transactionSessionActivation";
+} from "../session/contracts";
 import type { TransactionExecutionClaimPinV1 } from "../claims/transactionExecutionClaimModel";
 
 export interface SessionJournalAttemptStateV1 {

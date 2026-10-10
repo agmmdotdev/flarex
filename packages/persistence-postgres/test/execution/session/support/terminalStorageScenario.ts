@@ -1,24 +1,29 @@
 import { and, eq } from "drizzle-orm";
 import { expect } from "vitest";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import type { FlarexPersistence } from "../../src";
-import type { FlarexMetadataDatabase } from "../../src/application/deployments";
-import { fxSystemTransactionSessions } from "../../src/database/schema";
-import type { PointMutationSessionAnchorV1 } from "../../src/execution/transactionSessionActivation";
-import { insertSessionTestScope, insertTransactionSessionFixture,
-  insertLegacySessionTestScope, transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
-import { injectMigrationFailure, restoreMigrationFile, writeJournalThrough,
-  type DrizzleCopyFixture } from "../support/migrationFixtureSupport";
+import { type FlarexPersistence } from "../../../../src";
+import { type FlarexMetadataDatabase } from "../../../../src/application/deployments";
+import { fxSystemTransactionSessions } from "../../../../src/database/schema";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../../src/execution/session/contracts";
+import { insertSessionTestScope, insertTransactionSessionFixture, insertLegacySessionTestScope, transactionSessionFixture, transactionSessionIdAt } from "./sessionStorage";
+import { injectMigrationFailure, restoreMigrationFile, writeJournalThrough, type DrizzleCopyFixture } from "../../../support/migrationFixtureSupport";
 
 type Session = typeof fxSystemTransactionSessions.$inferSelect;
+
 type Sql = Pick<FlarexPersistence, "query" | "exec">;
+
 const BODY_COLUMNS = [
   "validated_args_json", "validated_args_canonical_bytes",
   "authorization_grant_json", "authorization_grant_canonical_bytes",
   "application_execution_authority_json", "application_execution_authority_canonical_bytes",
 ] as const;
+
 const CLEAR_BODIES = BODY_COLUMNS.map(column => `${column} = null`).join(", ");
+
 const RETAINED = BODY_COLUMNS.map(column => ` - '${column}'`).join("");
+
 const TERMINAL = ["committed", "aborted", "expired"] as const;
 
 export async function captureSessionStorage(
@@ -124,7 +129,17 @@ export async function verifyTerminalSessionMigration(
   const receipts = `"${migrationsSchema.replaceAll('"', '""')}".__drizzle_migrations`;
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 94);
   await injectMigrationFailure(fixture.migrationPath, "fx_terminal_payload_deliberate_missing_table");
-  await expect(persistence.migrate()).rejects.toThrow(/fx_terminal_payload_deliberate_missing_table/);
+  await expect(persistence.migrate()).rejects.toMatchObject({
+    _tag: "InstallationLifecycleError",
+    reason: "resourceFailure",
+    cause: {
+      query: expect.stringMatching(/^\s*select \* from fx_terminal_payload_deliberate_missing_table;\s*$/),
+      cause: {
+        code: "42P01",
+        message: expect.stringContaining("fx_terminal_payload_deliberate_missing_table"),
+      },
+    },
+  });
   expect((await persistence.query(whole)).rows).toEqual(before.rows);
   expect((await persistence.query(`select count(*)::int as count from ${receipts}`)).rows).toEqual([{ count: 94 }]);
   await restoreMigrationFile(fixture.migrationPath, fixture.currentMigrationsFolder);

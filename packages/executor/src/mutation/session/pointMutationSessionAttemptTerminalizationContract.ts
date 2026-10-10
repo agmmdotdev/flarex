@@ -2,7 +2,7 @@ import type {
   PointMutationSessionAttemptSelectorV1,
   PointMutationSessionAttemptTerminalizationResultV1,
   PointMutationSessionTerminalLifecycleV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session";
 import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
 import { Result } from "effect";
 

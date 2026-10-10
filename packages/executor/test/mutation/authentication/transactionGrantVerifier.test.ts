@@ -15,9 +15,11 @@ import {
 } from "@flarex/persistence-postgres/pglite";
 import {
   PointMutationSessionActivationPersistenceV1Error,
+} from "@flarex/persistence-postgres/internal/session";
+import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
-} from "@flarex/persistence-postgres/transaction-session-activation";
+} from "@flarex/persistence-postgres/internal/session-construction";
 import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
   createPostgresSharedScopeAuthorityProvisioner,

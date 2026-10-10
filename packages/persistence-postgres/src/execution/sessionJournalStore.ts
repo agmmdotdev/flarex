@@ -33,7 +33,9 @@ import {
   withSharedLogicalSourceBindingChecks,
 } from "../storage/documents/logicalDocuments/sourceAdmission";
 import { fxSystemTransactionSessions } from "../database/schema";
-import { ExactRunningAttemptTransactionV1Error } from "./transactionSessionAttemptKernel";
+import {
+  ExactRunningAttemptTransactionV1Error,
+} from "./session/errors";
 import { claimConfirmedFiniteEntryAttempt } from "./journal/finiteEntry";
 import { captureAttemptStateResult } from "./journal/inputCapture";
 import { createJournalAttemptOwner } from "./journal/attemptOwner";

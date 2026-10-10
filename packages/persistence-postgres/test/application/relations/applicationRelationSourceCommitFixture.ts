@@ -56,7 +56,7 @@ import type {
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
 import {
   issueSetupSeededSyscallValidatorProofV1,
 } from "../revision/applicationRevisionSyscallValidatorTestSupport";
@@ -73,7 +73,9 @@ import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
 } from "../../commit/point/support/commandEvidence";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../execution/transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../../execution/session/support/activationEvidence";
 
 /** Deterministic UUID-v4 identities accepted by the real journal insert owner. */
 export function exactRelationCommitRowId(ordinal: number): AppRowIdHexV1 {

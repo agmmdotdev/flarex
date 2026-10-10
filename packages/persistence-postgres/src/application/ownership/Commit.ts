@@ -3,7 +3,9 @@ import { Effect, Schema } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import { fxSystemApplicationActiveHeads } from "../applicationActivationSchema";
 import { fxSystemScopeClocks } from "../../database/schema";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";

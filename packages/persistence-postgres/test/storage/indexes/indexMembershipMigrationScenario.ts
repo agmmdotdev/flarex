@@ -4,7 +4,7 @@ import {
   insertLegacySessionTestScope,
   SESSION_TEST_SCOPE_UUID,
   SESSION_TEST_EPOCH_UUID,
-} from "../../execution/sessionAuthorityTestSupport";
+} from "../../execution/session/support/sessionStorage";
 import {
   injectMigrationFailure,
   restoreMigrationFile,

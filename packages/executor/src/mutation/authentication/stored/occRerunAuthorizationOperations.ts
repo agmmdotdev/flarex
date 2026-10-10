@@ -9,8 +9,9 @@ import {
   type PointCommitPublicationCommandV1,
   type PointCommitConflictV1Error,
 } from "@flarex/persistence-postgres/point-commit-transaction";
-import type { PointMutationSessionAttemptSelectorV1 } from
-  "@flarex/persistence-postgres/transaction-session-activation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/internal/session";
 import type { TransactionAttemptFence } from
   "flarex-protocol/transaction-session";
 

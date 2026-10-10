@@ -28,7 +28,7 @@ import {
 } from "../../../scope/scopeAuthorityResolution";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
-} from "../../../execution/transactionSessionAttemptKernel";
+} from "../../../database/locatedTransactionIdentity";
 import { getCommerceCommand, type CommerceCommand } from "../commands";
 import { makeCommerceCommandContext } from "../context";
 import { makeLogicalCommerceReadParticipant } from "../logicalParticipant";

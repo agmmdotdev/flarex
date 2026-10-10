@@ -13,7 +13,9 @@ import { InstallationLifecycleError, getCoLocatedReadInstallationReferencesResul
   type PreparedCoLocatedReadInstallation } from "../../src/installation/installationLifecycle";
 import { flarexSchema } from "../../src/database/schema";
 import type { ScopePhysicalLocator } from "../../src/scope/scopeMetadataTypes";
-import { createLocatedPointMutationSessionActivationTargetV1 } from "../../src/execution/transactionSessionActivation";
+import {
+  createLocatedPointMutationSessionActivationTargetV1,
+} from "../../src/execution/session/target";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../src/scope/scopeAuthorityResolution";
 import { createPGliteLocatedPointMutationSessionActivationTargetV1 } from "../../src/database/pglite";
 import { createPostgresLocatedPointMutationSessionActivationTargetV1 } from "../../src/database/postgres";

@@ -1,19 +1,44 @@
 import { eq } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { expect, it } from "vitest";
-import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema, SnapshotTokenSchema } from "flarex-protocol/storage-authority";
-import { TransactionSessionIdV1Schema, TransactionPackageIdV1Schema } from "flarex-protocol/transaction-session";
-import { TransactionExecutionClaimOwnerV1Schema, TransactionExecutionClaimFenceV1Schema } from "../../src/execution/claims/transactionExecutionClaimModel";
-import { captureFiniteAttemptAnchor, projectCapturedFiniteAttemptAnchor, projectExpectedFiniteAttemptAnchor,
+import {
+  CommitSeqSchema,
+  ScopeEpochSchema,
+  ScopeIdSchema,
+  SnapshotTokenSchema,
+} from "flarex-protocol/storage-authority";
+import {
+  TransactionSessionIdV1Schema,
+  TransactionPackageIdV1Schema,
+} from "flarex-protocol/transaction-session";
+import {
+  TransactionExecutionClaimOwnerV1Schema,
+  TransactionExecutionClaimFenceV1Schema,
+} from "../../../src/execution/claims/transactionExecutionClaimModel";
+import {
+  captureFiniteAttemptAnchor,
+  projectCapturedFiniteAttemptAnchor,
+  projectExpectedFiniteAttemptAnchor,
   prepareFiniteAttemptStorageCaptureBasis,
-  readFiniteAttemptAnchorRow, type CapturedFiniteAttemptAnchor } from "../../src/execution/finiteAttemptAnchor";
-import { createPGlitePersistence } from "../../src/database/pglite";
-import { captureFiniteMetadataReservation, FiniteMetadataReservationSchema,
-  readCapturedFiniteMetadataReservation } from "../../src/execution/finiteMetadataReservation";
-import { fxSystemTransactionSessions } from "../../src/database/schema";
-import { newTestPGlite } from "../support/pgliteSearchExtensions";
-import { insertSessionTestScope, insertTransactionSessionFixture, transactionSessionFixture, transactionSessionIdAt,
-  SESSION_TEST_SCOPE_UUID, SESSION_TEST_EPOCH_UUID } from "./sessionAuthorityTestSupport";
+  readFiniteAttemptAnchorRow,
+  type CapturedFiniteAttemptAnchor,
+} from "../../../src/execution/finiteAttemptAnchor";
+import { createPGlitePersistence } from "../../../src/database/pglite";
+import {
+  captureFiniteMetadataReservation,
+  FiniteMetadataReservationSchema,
+  readCapturedFiniteMetadataReservation,
+} from "../../../src/execution/finiteMetadataReservation";
+import { fxSystemTransactionSessions } from "../../../src/database/schema";
+import { newTestPGlite } from "../../support/pgliteSearchExtensions";
+import {
+  insertSessionTestScope,
+  insertTransactionSessionFixture,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+  SESSION_TEST_SCOPE_UUID,
+  SESSION_TEST_EPOCH_UUID,
+} from "./support/sessionStorage";
 
 it("projects exact expected pins only from a successfully validated persisted entry, with isolated byte buffers", async () => {
   const db = newTestPGlite();

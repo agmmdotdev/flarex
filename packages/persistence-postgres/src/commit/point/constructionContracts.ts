@@ -2,7 +2,7 @@ import type { PointCommitPublicationObservation } from "./observation";
 import type {
   LogicalParticipantCommitAuthority,
 } from "../../storage/documents/logicalDocuments/participantAdmission";
-import type { Effect } from "effect";
+import type { Effect, Scope } from "effect";
 import type {
   prepareAtomicCommerceEvents,
   ParticipantEventSelection,
@@ -134,18 +134,24 @@ export type PointMutationAttemptReplacementProofStepV1 =
   | "sessionRunning"
   | "beforeCommit";
 
+export interface PointMutationAttemptReplacementFiniteEntryComposition {
+  readonly application: PreparedFiniteActiveApplication;
+  readonly prepareEntry: () => Effect.Effect<
+    PreparedFiniteSessionJournalEntry,
+    PointMutationAttemptReplacementFiniteEntryError,
+    Scope.Scope
+  >;
+}
+
 export interface PointMutationAttemptReplacementOptionsV1 {
   readonly leaseDurationMilliseconds: number;
-  /** Trusted reserved-graph composition. Stored profile and reservation require
-   * it; its presence never chooses a weaker admission path. */
-  readonly finiteEntry?: Readonly<{
-    application: PreparedFiniteActiveApplication;
-    prepareEntry: () => Effect.Effect<
-      PreparedFiniteSessionJournalEntry,
-      PointMutationAttemptReplacementFiniteEntryError,
-      import("effect").Scope.Scope
-    >;
-  }>;
+  /** Acquire the coherent reserved graph in the caller Scope. Native entry
+   * preparation runs separately in the replacement's local Scope. */
+  readonly finiteEntry?: () => Effect.Effect<
+    PointMutationAttemptReplacementFiniteEntryComposition,
+    PointMutationAttemptReplacementFiniteEntryError,
+    Scope.Scope
+  >;
   /** Same trusted aggregate profile selection used by final publication. */
   readonly logicalOperationProfiles?: PointCommitTransactionProofOptionsV1["logicalOperationProfiles"];
   readonly executionClaimDurationMilliseconds?: number;

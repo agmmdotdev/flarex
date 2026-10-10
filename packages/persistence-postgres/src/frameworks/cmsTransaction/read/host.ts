@@ -31,7 +31,7 @@ import {
 } from "../../../scope/scopeAuthorityResolution";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
-} from "../../../execution/transactionSessionAttemptKernel";
+} from "../../../database/locatedTransactionIdentity";
 import { makeCmsCommandContext } from "../context";
 import { makeSourceCmsReadDocuments } from "../documents";
 import { getCmsCommand, type CmsCommand } from "../commands";

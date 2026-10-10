@@ -38,9 +38,10 @@ import {
 import type { AppRowTransaction } from "../../src/storage/documents/appRows";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../src/execution/transactionSessionActivation";
-import type { RunLocatedReadCommittedTransactionV1 } from
-  "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedReadCommittedRunner";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "../../src/database/locatedTransactionIdentity";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   seedTaskComputeDeliverySchemaV1,

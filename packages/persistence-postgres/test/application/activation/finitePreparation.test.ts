@@ -37,7 +37,7 @@ import {
 } from "../../../src/database/pglite";
 import {
   createApplicationMutationSessionActivationPersistenceV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
 import { runEffect } from "../../support/effectTestRuntime";
 import {
   makePreparedHostRuntime,
@@ -60,7 +60,9 @@ import {
   runPreparedFiniteEntryCaptureEffect,
   type FiniteEntryRun,
 } from "../../../src/execution/journal/finiteEntry";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../../execution/transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../../execution/session/support/activationEvidence";
 import * as hostPreparation from "../../../src/execution/preparation/preparedHostRuntime";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import { lockScopeClockForShareInTransactionEffect } from "../../../src/scope/scopeClock";

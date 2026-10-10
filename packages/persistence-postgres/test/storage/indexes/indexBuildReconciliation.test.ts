@@ -37,7 +37,7 @@ import {
 } from "../../../src/execution/readCommittedTransactionFailure";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/database/locatedReadCommittedRunner";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
 const LOCATOR = Object.freeze({

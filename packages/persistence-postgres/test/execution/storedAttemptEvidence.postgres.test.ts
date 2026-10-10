@@ -189,20 +189,34 @@ import {
 } from "../../src/execution/storedAttemptEvidence";
 import {
   createLocatedPointMutationSessionActivationTargetV1,
+} from "../../src/execution/session/target";
+import {
   createPointMutationExecutionClaimAcquisitionV1,
+} from "../../src/execution/claims/acquisition";
+import {
   PointMutationExecutionClaimAcquisitionStaleV1Error,
+} from "../../src/execution/claims/transactionExecutionClaimErrors";
+import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../src/execution/session/activation";
+import {
   createPointMutationSessionAttemptLoadPersistenceV1,
+} from "../../src/execution/session/attemptLoad";
+import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-  type LocatedPointMutationSessionActivationTargetOptionsV1,
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAttemptLoadLockStepV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/execution/session/terminalization";
+import type {
+  LocatedPointMutationSessionActivationTargetOptionsV1,
+  PointMutationSessionAttemptLoadLockStepV1,
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../src/execution/session/constructionContracts";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../src/execution/session/contracts";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
   isLocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";
@@ -229,10 +243,14 @@ import {
 } from "../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-  activatePointMutationSession,
   pointMutationSessionActivationFixture,
+} from "./session/support/activationEvidence";
+import {
+  activatePointMutationSession,
+} from "./session/support/attemptFixture";
+import {
   setFlarexActivationClock,
-} from "./transactionSessionActivationTestSupport";
+} from "./session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const withPostgresPersistence = useFileScopedPostgresPersistence();

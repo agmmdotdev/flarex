@@ -33,7 +33,10 @@ import type {
 } from "../applicationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
-import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import { snapshotSchemaManifestValue } from "../../storage/catalog/schemaManifestValueSnapshot";
 
 export interface ApplicationRelationSchemaAuthority {

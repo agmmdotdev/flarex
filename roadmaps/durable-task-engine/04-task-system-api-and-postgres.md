@@ -2,10 +2,14 @@
 
 ## Status
 
-**Status:** **Complete: admit.** DTE-IP01 and DTE04-A1 through DTE04-F are
-complete. The real-Postgres read, creation, and lifecycle parity lanes passed
-their connected admission command, and the final provenance, migration,
-package, bundle, boundedness, broad-validation, and review gates are closed.
+**Status:** Private storage and API implementation admitted. DTE-IP01 and
+DTE04-A1 through DTE04-F supply the implemented contracts below. Current native
+registered-parent fixture acceptance remains gated: the PostgreSQL Task-read
+fixture combines a pre-0064 schema with current registration/runtime authority.
+Its setup must receive the matched historical-runtime or explicit consumer
+migration disposition owned by [Application analysis
+retirement](../49-application-analysis-migration.md#aa-r8-durable-status).
+Current PGlite store proofs do not close that native fixture gate.
 The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
@@ -39,8 +43,8 @@ Its insert barrier requires both first writers to reach the real run insert
 before either can commit. The lifecycle lane adds deliberate PostgreSQL
 barriers for its admitted race matrix, atomic rollback, whole-transaction
 retry, and lost completion-response replay. The dedicated command fails closed
-when its authenticated Postgres URL is absent and passes the connected read,
-creation, and lifecycle gate when a PostgreSQL URL is supplied. Effect delivery,
+when its authenticated Postgres URL is absent. An available URL does not by
+itself close the current registered-parent fixture gate. Effect delivery,
 host, queue, and activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted

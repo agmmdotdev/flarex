@@ -13,8 +13,9 @@ import { createRetainedHistoryMaintenancePort, runRetainedHistoryMaintenanceEffe
   "../../../persistence-postgres/src/storage/history/retainedHistoryMaintenance";
 import { createLocatedRetainedHistoryFloorTargetInternal } from
   "../../../persistence-postgres/src/storage/history/retainedHistoryFloorObservation";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
-  "../../../persistence-postgres/src/execution/transactionSessionActivation";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "@flarex/persistence-postgres/internal/located-read-committed-runner";
 import { logicalCurrencyInventory } from "./logical-currency-inventory";
 import { registerLiveBoundaryChecks } from "./live-boundary-checks";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";

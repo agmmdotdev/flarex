@@ -2,14 +2,14 @@
 
 ## Status And Scope
 
-**Owner-authorized organization goal active.** Journal consumer contracts,
+**Owner-authorized organization goal paused after the Session cutover.** Journal consumer contracts,
 concrete journal owners and schema declarations are separated. The journal,
 schema and test cutover follows these concrete owners. Point publication source,
 API and test organization is complete with connected consumer verification.
 Activation/readiness source, consumer and test replacement is complete with
-connected consumer validation. Session organization, Invocation API/construction
-separation, relation readiness fold organization and the final reading-map audit
-remain open.
+connected consumer validation. Session source, consumer and test replacement is
+complete with connected validation. Invocation API/construction separation,
+relation readiness fold organization and the final reading-map audit remain open.
 The owner requested continued organization, readable end-to-end flows, sensible
 folder/file boundaries, file splitting, clean APIs and corresponding tests.
 The [source/test layout](04-source-and-test-ownership.md) and admitted local
@@ -27,9 +27,10 @@ Domain folders expose the outer owners. The journal now has distinct attempt,
 operation, evidence, persistence and seal owners; database declarations follow
 their actual dependency graph. Point publication has concrete settlement owners
 and a separate consumer/construction boundary. Application activation/readiness
-has concrete lifecycle and protocol owners. Session activation and the relation
-readiness fold retain substantial mixed responsibilities; their selected
-replacement follows actual ownership rather than an arbitrary line count.
+has concrete lifecycle and protocol owners. Session execution follows distinct
+activation, attempt, claim and terminalization owners. The relation readiness fold
+retains substantial mixed responsibilities; its selected replacement follows
+actual ownership rather than an arbitrary line count.
 
 | Existing owner | Responsibilities to separate or verify |
 | --- | --- |
@@ -647,16 +648,15 @@ witnesses. Include its fixture and callers in the final cutover reviews.
 
 ### Selected Session Organization
 
-**Preflight recorded; implementation remains open.** Finish the connected
-Activation/Readiness correction and commit before replacing Session owners.
-`execution/transactionSessionActivation.ts` still combines operation contracts,
-target construction, ordinary and finite activation, exact attempt loading,
-claim acquisition/renewal, terminalization, recovery identity and native bridges.
-Its imports serve Application, journal, publication, recovery, tasks, storage,
-installation and both drivers. Organize that complete connected graph rather
-than extracting only another contract file.
+**Source, consumer and test replacement complete for the admitted profiles.**
+The [Session reading map](../../packages/persistence-postgres/src/execution/session/README.md)
+follows its contracts, construction, ordinary and finite activation, exact attempt
+loading, claim ownership, terminalization and inert recovery. The displaced
+`execution/transactionSessionActivation.ts` and kernel forwarding files are removed.
+Application, journal, publication, recovery, task, storage, installation and driver
+consumers use the actual replacement owners.
 
-The current dependency has two concrete problems. Session activation and journal
+The replaced dependency graph had two concrete problems. Session activation and journal
 finite-entry activation depend on each other because lower finite state and
 correlation live beside upper Application orchestration. Error-only Executor
 imports also reach target construction and finite storage's Node crypto. The
@@ -703,20 +703,68 @@ final metadata guards, once-only journal cleanup and complete Cause. Do not
 replace these with a universal engine or a shared mutable state service.
 
 This cutover breaks package import/export and trusted construction locations,
-including the current `transaction-session-activation` route.
+including the removed `transaction-session-activation` route.
 Migrate all callers, test helpers, package routes, bridge guards and discovery
 lanes, then delete the displaced monolith and kernel forwarding surfaces.
+The actual consumer Worker graph requires nominal errors to remain below native
+operation construction. Session transaction and authority failure projections
+therefore belong in `session/errorProjections`, separate from `session/errors`.
+Claim-renewal nominal errors belong in the existing shared claim error owner;
+the liveness operation imports those identities. Consumer imports must not load
+scope resolution, native renewal or database failure bridges to obtain an error
+class. Preserve the original classes and projection bodies, migrate callers and
+remove the displaced definitions within this cutover.
+
+The shared lease/claim renewal verdict belongs in `claims/renewalProjection`.
+Finite continuation and native renewal consume the same pure numerical policy
+without loading the Application-aware liveness constructor. Validate the whole
+connected emitted graph; a cycle-free selected subgraph alone is insufficient.
+
 Original symbols, nominal errors, issuer registries, stored protocol versions,
 canonical encodings, physical tables and durable rows retain their exact
-identities. SQL-free recovery inspection remains inert. Remove unreachable
-private correlation/projection chains or unused construction arguments only
-after compiler-reference and connected behavioral proof; retain their genuinely
-used shared predicates and the singular finite expectation registry.
+identities. SQL-free recovery inspection remains inert. The unused fresh-session
+projection chain and optional capture argument are removed after compiler-symbol
+reference and paired lifecycle proof. Live row-correlation predicates and both
+private finite expectation registries remain with the finite Session owner.
+
+Expected acquisition and terminal-observation refusals stay in typed channels.
+The acquisition prelude places only its SQL statement behind the foreign adapter;
+stored evidence validation uses its existing schemas in the original order.
+Terminal observation captures the stored date through Result, then uses Effect
+for finite work and the existing exact rejection projection for native callbacks.
+PostgreSQL timestamps outside JavaScript Date's range must yield the established
+`sessionRecordInvalid` corruption failure, with rollback and the full Cause
+preserved. Keep the impossible terminalized/committed invariant distinct from
+that expected stored-data refusal. These corrections preserve existing error
+contracts and do not introduce a transaction profile or schema change.
+
+Finite recovery and reload validate owned copies of their stored dates before
+serializing the context, using the same total date owner and corruption channel.
+Abort input capture guards nested claim getters in the original eager
+owner-read/decode, fence-read/decode order. Generated claim-owner verdicts enter
+Effect directly from Result, retaining supplier and replay order. These are
+corrections at existing capture/projection boundaries, without another outcome
+protocol, registry or resource owner.
 
 Tests follow activation, exact loading/kernel, claims, finite lifecycle,
-terminalization and recovery, with authentic shared driver scenarios. Completion
+terminalization and recovery, with authentic shared driver scenarios. Connected
+mixed-consumer witnesses follow their actual owners.
+The private direct-freeze fault seam must call the existing persistence freeze
+with the authentic attempt and canonical result; queuing it through the same
+journal semaphore as the deliberately held callback cannot test in-flight
+refusal. Reopening an already issued exact handle preserves its identity, while
+subsequent admitted work and settlement retain the sticky refusal. Observe row
+validation at accepting/materialization boundaries and inject acknowledgement
+loss only after an independent connection confirms the real COMMIT. Deliberate
+expired-owner cleanup asserts the complete native failure aggregate through its
+existing strict helper; ordinary cleanup failures remain visible. Keep full
+Cause at the fixture bridge, fresh metadata capture for replacement, executable
+compatibility, signed pins and zero-callback refusal. Stale prepared state must
+not be accepted merely to make a retry witness pass.
+
+Completion
 requires exact declaration/nested-body and nominal-identity accounting, an actual
-consumer dependency graph without the introduced owner cycle, genuine Workerd
+consumer dependency graph without runtime cycles reaching these owners, genuine Workerd
 consumer loading, affected strict typechecks, source/discovery/bridge guards,
 lint, paired PGlite/ordinary-role PostgreSQL and connected Application, journal,
 publication, claim and recovery proofs. Run both reviews on the final checkpoint,
@@ -724,7 +772,82 @@ remove displaced paths and commit one coherent outcome. This organization adds
 no execution profile, developer API, hosted activation, schema reset or
 native-relative performance claim.
 
-1. Finish construction/API migration and its validation, review and commit.
+### Finite Replacement Preparation And Lifetime
+
+The replaced finite retry composition permanently captured the initial Application
+preparation and its journal participants. Restoring the same signed program under
+a newer head supplied the old head and protected metadata capture. Native
+acceptance correctly refused that stale graph before executable compatibility
+could be checked. The implemented correction retains those head/epoch guards and
+supplies a fresh preparation with its own scoped lifetime.
+
+The selected private cutover uses the existing preparation and journal owners:
+
+- The prepared generation acquires a borrow in an Effect Scope using the same
+  private acquire/release counters, charging, retirement and reclamation as its
+  existing callback use. No detached release token or second lifetime owner is
+  introduced.
+- Current Application preparation exposes fresh finite graph acquisition. It
+  observes and stages through the existing reader, slot and gate, acquires the
+  chosen generation in the caller Scope before releasing that gate, and keeps
+  ordinary healthy entry behavior unchanged. The original frozen generation may
+  remain borrowed while a fresh generation is staged.
+- Replace the fixed finite replacement options with a scoped factory returning
+  the coherent Application preparation and its native entry preparation closure.
+  Acquire the graph before the local native Scope; issue the entry inside that
+  local Scope. Native rollback, entry cleanup and exact single-refusal handling
+  retain their existing order.
+- Only finite replacement operations require the caller Scope. The executor's
+  warm retry and cold replacement own that Scope through authenticated activation,
+  execution, settlement and drain. Business errors remain outside native
+  replacement reconciliation and transaction error mapping.
+- The same journal registers each preparation with its captured participant set
+  in the existing registry, then associates that set with the authentic confirmed
+  attempt. Original and fresh attempts keep their own callbacks and admission
+  selections. Do not create another journal, mutate old selections or export maps.
+  Initial activation explicitly prepares the constructor-captured set; replacement
+  supplies the freshly captured set. Both use one entry issuer. Fresh selectors,
+  profiles and ordered operation/source topology must match the declared profile;
+  native binding still authenticates the fresh source capabilities.
+
+Fresh construction occurs before native clock/anchor locking. Construction
+failure may therefore precede a later native refusal; command, origin, proof,
+configuration and located-target validation remain before that factory. A head
+or epoch moving after fresh capture still causes native rollback with its full
+Cause. One fresh capture does not authorize stale acceptance or another automatic
+business retry. Restored immutable executable/schema pins reach the existing
+compatibility check; an incompatible executable retains its permanent refusal,
+zero callbacks and proof-bound durable abort. Original signed evidence is never
+reissued or rewritten.
+
+This breaks the private replacement options, finite Scope requirements and
+journal preparation inputs. Migrate the mixed fixture, finite-settlement supplier,
+warm/cold executor continuations, direct finite tests and construction/type
+consumers together. Durable replacement contracts, schemas, canonical bytes,
+framework business semantics and public activation remain unchanged. Remove the
+fixed pairing rather than retain a fallback. An extra Current preparation owner,
+a fixture-local cold factory and a continuation embedded in the native port are
+rejected: they duplicate lifetime policy or blur native and business failures.
+
+Completion requires paired restored-ABA and incompatible-program proofs; original
+signed bytes and unchanged data snapshot; a fresh reservation and claim fence;
+per-attempt participant identity; old/fresh generation coexistence and retirement;
+Scope cancellation and complete cleanup Cause; foreign/copied preparation refusal;
+and native head/epoch race refusal. Keep all existing transaction, entry-ordering,
+replay, capacity and zero-transaction-during-business witnesses. Include this
+connected correction in strict checks, both final reviews and the coherent
+Session commit. This grants no new host lifecycle or execution profile.
+
+Retained native Task fixtures that mix historical registration with current
+runtime authority remain under the [Application analysis retirement
+disposition](../49-application-analysis-migration.md#aa-r8-durable-status).
+Their exact registered-parent consumers and migration vintages are named there.
+Keep those fixture failures separate from current Session acceptance; neither
+passing pure Task store proofs nor reorganizing construction replaces their
+matched-runtime or explicit consumer-migration gate.
+
+1. Preserve the completed construction/API and Session separation while organizing
+   the remaining owners after the owner resumes this goal.
 2. Record the concrete module/dependency and caller inventory for each substantial
    connected owner change, then implement it within this standing authorization.
 3. Migrate consumer imports, package exports, guards, resource paths and tests;

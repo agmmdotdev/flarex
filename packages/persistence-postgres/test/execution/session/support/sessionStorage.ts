@@ -1,11 +1,14 @@
-import type { FlarexSqlClient } from "../../src";
+import { type FlarexSqlClient } from "../../../../src";
 
 export const SESSION_TEST_SCOPE_UUID =
   "61000000-0000-0000-0000-000000000001";
+
 export const SESSION_TEST_EPOCH_UUID =
   "61000000-0000-0000-0000-000000000002";
+
 export const SESSION_TEST_HISTORICAL_EPOCH_UUID =
   "61000000-0000-0000-0000-000000000003";
+
 export const POSTGRES_SIGNED_BIGINT_MAX_TEXT = "9223372036854775807";
 
 export interface TransactionSessionSqlFixture {

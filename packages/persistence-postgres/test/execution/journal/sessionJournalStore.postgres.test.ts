@@ -71,13 +71,21 @@ import {
 } from "../../../src/execution/journal/api";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
+} from "../../../src/execution/claims/acquisition";
+import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/session/activation";
+import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-  type LocatedPointMutationSessionActivationTargetOptionsV1,
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAttemptSelectorV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/terminalization";
+import type {
+  LocatedPointMutationSessionActivationTargetOptionsV1,
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../src/execution/session/constructionContracts";
+import type {
+  PointMutationSessionAnchorV1,
+  PointMutationSessionAttemptSelectorV1,
+} from "../../../src/execution/session/contracts";
 import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
@@ -100,19 +108,23 @@ import {
   "../../application/revision/applicationRevisionSyscallValidatorTestSupport";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
+  pointMutationSessionActivationFixture,
+} from "../session/support/activationEvidence";
+import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
   executionClaimForAnchor,
-  pointMutationSessionActivationFixture,
+} from "../session/support/attemptFixture";
+import {
   setFlarexActivationClock,
-} from "../transactionSessionActivationTestSupport";
+} from "../session/support/authorityClock";
 import {
   insertLegacyOpenTransactionJournalFixture,
   insertLegacySessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "../sessionAuthorityTestSupport";
+} from "../session/support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 

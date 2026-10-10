@@ -28,12 +28,12 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";
-import {
-  type RunLocatedReadCommittedTransactionV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "../../src/database/locatedTransactionIdentity";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../../src/execution/transactionSessionActivation";
+} from "../../src/database/locatedReadCommittedRunner";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   TASK_LOCATOR,

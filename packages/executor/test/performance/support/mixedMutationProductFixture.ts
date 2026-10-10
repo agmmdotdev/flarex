@@ -11,7 +11,7 @@ import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema, Scope } from "eff
 import type { makeNativeProductOperationDiagnostics } from "./nativeProductOperationDiagnostics";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from
   "@flarex/persistence-postgres/internal/commerce-values";
-import { CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
+import { canonicalizeSuccessfulResultV1Effect, CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
 import {
   inspectFiniteOperationCommitAuthority,
   inspectLogicalParticipantAdmissionBundle,
@@ -44,10 +44,11 @@ import { prepareLogicalRelationalAdmission } from
   "../../../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
 import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from
   "../../../../persistence-postgres/src/storage/catalog/logicalStorageReadiness";
-import { createApplicationMutationSessionActivationPersistenceV1,
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
   createPointMutationExecutionClaimAcquisitionV1,
-  createPointMutationSessionAttemptTerminalizationPersistenceV1 } from
-  "../../../../persistence-postgres/src/execution/transactionSessionActivation";
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
+} from "@flarex/persistence-postgres/internal/session-construction";
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../../../../persistence-postgres/src/execution/claims/transactionExecutionClaimLiveness";
 import { createSessionJournalStorePersistence } from "@flarex/persistence-postgres/session-journal-store";
@@ -97,7 +98,7 @@ import { createAppUniqueConstraintDefinitionPortV1 } from
   "../../../../persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1";
 import { createAppUniqueConstraintSetEligibilityPortV1 } from
   "../../../../persistence-postgres/src/storage/unique/appUniqueConstraintSetBuildV1";
-import { createPointMutationJournalV1 } from
+import { createPointMutationJournalV1, type PointMutationJournalAdmittedParticipantV1 } from
   "../../../src/mutation/journal/pointMutationJournal";
 import { createPointMutationExecutionClaimVaultV1 } from
   "../../../src/mutation/claims/pointMutationExecutionClaim";
@@ -126,8 +127,9 @@ import { applicationMutationActivationEvidenceFixture } from
   "../../../../persistence-postgres/test/application/applicationMutationActivationFixture";
 import type { MixedMutationPerformanceTrace } from
   "../../../../persistence-postgres/test/performance/mixedMutationPerformanceTrace";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from
-  "../../../../persistence-postgres/test/execution/transactionSessionActivationTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../../../../persistence-postgres/test/execution/session/support/activationEvidence";
 import { logicalCurrencyFixture } from
   "../../../../medusa-adapter/test/support/logical-currency-fixture";
 import { prepareLogicalProductHost } from
@@ -305,7 +307,11 @@ export interface MixedMutationProductFixture {
   readonly eventGroup: string;
   readonly journal: Journal;
   readonly store: ReturnType<typeof createSessionJournalStorePersistence>;
-  readonly freezeFiniteRootDirect: (result: unknown) => ReturnType<AuthenticatedFiniteInitialEntry["prepareFiniteCommit"]>;
+  readonly freezeFiniteRootDirect: (result: unknown) => Effect.Effect<
+    Effect.Success<ReturnType<MixedMutationProductFixture["store"]["freezeFiniteRootEffect"]>>,
+    Effect.Error<ReturnType<typeof canonicalizeSuccessfulResultV1Effect>> |
+      Effect.Error<ReturnType<MixedMutationProductFixture["store"]["freezeFiniteRootEffect"]>>
+  >;
   readonly executionClaims: ReturnType<typeof createPointMutationExecutionClaimVaultV1>;
   readonly attempt: Effect.Success<ReturnType<Journal["openAttempt"]>>;
   readonly persistenceAttempt: Effect.Success<ReturnType<ReturnType<typeof createSessionJournalStorePersistence>["openAttemptEffect"]>>;
@@ -351,6 +357,7 @@ export interface MixedMutationProductFixture {
   readonly pointCommitPorts: CurrencyFixture["application"]["sessionAuthority"];
   readonly makePublisher: () => ReturnType<typeof createPointCommitPublisherPortV1>;
   readonly preparedFiniteApplication: Result.Result.Success<ReturnType<typeof readPreparedFiniteApplicationMutationInputs>>["application"];
+  readonly acquireFiniteReplacementEntry: NonNullable<Parameters<typeof createPointMutationAttemptReplacementPortV1>[1]["finiteEntry"]>;
   readonly preparePublication: (returnedValue: unknown,
     publisherOverride?: ReturnType<typeof createPointCommitPublisherPortV1>) =>
     Promise<ReturnType<AuthenticatedFiniteInitialEntry["settleFiniteCommit"]>>;
@@ -535,6 +542,8 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   type ApplicationPreparation = Effect.Success<typeof readApplicationPreparation>;
   const withApplicationPreparation = <A, E, R>(work: (graph: ApplicationPreparation, entry: CurrentApplicationFiniteEntry) => Effect.Effect<A, E, R>) =>
     sourceGraph.use(current => current.withFiniteEntry((graph, entry) => work(graph.payload, entry)));
+  const acquireFreshApplicationPreparation = sourceGraph.use(current =>
+    current.acquireFreshFinitePreparation.pipe(Effect.map(graph => graph.payload)));
   const prepareAttempt = async (suffix: string, validatedArgsJson?: Readonly<{ body: string }>,
     diagnostics?: MixedMutationEffectDiagnostics, selected?: ApplicationPreparation) => {
     const read = (graph: ApplicationPreparation) =>
@@ -565,7 +574,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     : undefined;
   if (pgTarget !== undefined && !pgTarget.applicationName)
     throw new Error("Missing target PostgreSQL application_name");
-  return { cleanup, currency, product, pricing, link, application, admissionContext, prepareAttempt, withApplicationPreparation, readApplicationPreparation,
+  return { cleanup, currency, product, pricing, link, application, admissionContext, prepareAttempt, withApplicationPreparation, readApplicationPreparation, acquireFreshApplicationPreparation,
     initialSeed,
     schemaVersionId, logicalSchemaVersionId, sourceCatalog, prepared,
     selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared, retainedPayload,
@@ -1058,10 +1067,9 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     const syscallValidator = await runEffect(Scope.provide(syscallScope)(deriveApplicationSyscallValidator({
       scopeId: application.authority.scopeId, schemaVersionId, schemaManifest: applicationAdmission.schema.manifest,
     })));
-    const makeJournal = (currentGraph: typeof graph) => {
+    const makeJournalParticipants = (currentGraph: typeof graph): readonly PointMutationJournalAdmittedParticipantV1[] => {
       const { prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections } = currentGraph;
-      return createPointMutationJournalV1(journalStore, executionClaims.admission,
-      syscallValidator, [{
+      return [{
         participant: "medusa.product",
         admission: { participant: "medusa.product",
           operationMethods: ["update", "retrieve", "listByHandle"],
@@ -1186,8 +1194,10 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
               });
             }),
             Effect.mapError(mapProductInvocationFailure)),
-      }])], "finiteRoot");
+      }])];
     };
+    const makeJournal = (currentGraph: typeof graph) => createPointMutationJournalV1(
+      journalStore, executionClaims.admission, syscallValidator, makeJournalParticipants(currentGraph), "finiteRoot");
     const journal = makeJournal(graph);
     const finalEntryTestContext = Object.freeze({ currency, product, store, sourceCatalog,
       preparedFiniteApplication: applicationAdmission.application });
@@ -1798,14 +1808,22 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
     publish: (command: Parameters<typeof defaultPublisher.publish>[0]) => Effect.suspend(() => selectedPublisher.publish(command)) });
   const prepareFiniteEntry = journal.prepareFiniteEntry;
   if (typeof prepareFiniteEntry !== "function") throw new Error("Mixed finite retry requires the initial journal entry factory");
+  const acquireFiniteReplacementEntry = Effect.fn("MixedMutationProductFixture.acquireFiniteReplacementEntry")(function* () {
+    const freshGraph = yield* context.acquireFreshApplicationPreparation;
+    const freshAdmission = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(
+      freshGraph.preparedAdmission, context.admissionContext));
+    const participants = makeJournalParticipants(freshGraph);
+    return Object.freeze({ application: freshAdmission.application,
+      prepareEntry: () => prepareFiniteEntry.call(journal, participants).pipe(
+        Effect.mapError(cause => new PointMutationAttemptReplacementFiniteEntryError({ cause }))) });
+  }, Effect.mapError(cause => new PointMutationAttemptReplacementFiniteEntryError({ cause })));
   const finiteExecutionDependencies = {
     journal, executionClaims,
     publisher: configuredPublisher,
     replacement: createPointMutationAttemptReplacementPortV1(application.sessionAuthority, {
       ...publisherOptions, leaseDurationMilliseconds: 120_000, executionClaimDurationMilliseconds: 60_000,
       ...(input.hooks?.afterReplacementStep === undefined ? {} : { afterReplacementStep: input.hooks?.afterReplacementStep }),
-      finiteEntry: { application: applicationAdmission.application, prepareEntry: () => prepareFiniteEntry.call(journal).pipe(
-        Effect.mapError(cause => new PointMutationAttemptReplacementFiniteEntryError({ cause }))) },
+      finiteEntry: acquireFiniteReplacementEntry,
     }),
     activation: activationPort, contextFactory: finiteContextFactory,
     runner: retryRunner,
@@ -1833,7 +1851,7 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       preparedModuleMilliseconds: context.preparedModuleMilliseconds,
       initialSeedingMilliseconds: context.initialSeedingMilliseconds,
     }), application, active, activation, prepared, binding,
-    preparedFiniteApplication: applicationAdmission.application,
+    preparedFiniteApplication: applicationAdmission.application, acquireFiniteReplacementEntry,
     replayFiniteActivation: () => activationPort.withFiniteStart(finiteActivationInput, activated => Effect.succeed(inspectActivatedPointMutationSessionV1(activated))),
     activateCompetingFiniteRequest: suffix => context.withApplicationPreparation((graph, currentEntry) => Effect.gen(function* () {
       const competing = yield* Effect.promise(() => {
@@ -1904,7 +1922,8 @@ async function createMixedMutationAttemptFixtureForGeneration(input: MixedMutati
       });
     },
     persistenceAttempt: confirmed.attempt,
-    freezeFiniteRootDirect: result => authenticatedInitialEntry.prepareFiniteCommit(result),
+    freezeFiniteRootDirect: result => canonicalizeSuccessfulResultV1Effect(result === undefined ? null : result).pipe(
+      Effect.flatMap(successfulResult => store.freezeFiniteRootEffect(confirmed.attempt, successfulResult))),
     reopenJournalAttempt: () => authenticatedInitialEntry.reopenJournalAttempt,
     makeFiniteDispatcher: makeFiniteExecution,
     serviceTransactionDepth, pgTransactionObservations,

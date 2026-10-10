@@ -6,8 +6,14 @@ import { prepareProtectedMetadata } from "../../src/execution/preparation/prepar
 import { createProtectedFileScopedPostgresFixture, postgresUrl, withTemporaryPostgresPersistence } from "../support/postgresHelpers";
 import { runningAttemptTailScenario } from "./exactRunningAttemptTailScenario";
 import { insertExecutionClaimFixture } from "./claims/transactionExecutionClaimSchemaTestSupport";
-import { insertOpenTransactionJournalFixture, insertSessionTestScope, insertTransactionSessionFixture,
-  SESSION_TEST_SCOPE_UUID, transactionSessionFixture, transactionSessionIdAt } from "./sessionAuthorityTestSupport";
+import {
+  insertOpenTransactionJournalFixture,
+  insertSessionTestScope,
+  insertTransactionSessionFixture,
+  SESSION_TEST_SCOPE_UUID,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "./session/support/sessionStorage";
 import { rollbackAndReleasePostgresClient } from "../support/postgresHelpers";
 
 describe.skipIf(postgresUrl === null)("ordered running-attempt tail on PostgreSQL", () => {

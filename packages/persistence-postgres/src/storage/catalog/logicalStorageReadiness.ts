@@ -80,7 +80,9 @@ import type {
   ApplicationRelationReadinessProtection,
 } from "../../application/relations/applicationRelationReadinessFold";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../database/locatedTransactionIdentity";
 import { runEffectTransaction } from "../../database/effectTransaction";
 
 /** Selected metadata supplies exact definitions; the established index,

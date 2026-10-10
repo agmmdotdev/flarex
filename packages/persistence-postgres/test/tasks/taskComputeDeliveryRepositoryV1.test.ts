@@ -82,11 +82,12 @@ import type { AppRowTransaction } from "../../src/storage/documents/appRows";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";
+import type {
+  RunLocatedReadCommittedTransactionV1,
+} from "../../src/database/locatedTransactionIdentity";
 import {
-  type RunLocatedReadCommittedTransactionV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
-  "../../src/execution/transactionSessionActivation";
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../../src/database/locatedReadCommittedRunner";
 import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import {
   ACCEPTED_ATTEMPT_UUID,

@@ -54,7 +54,7 @@ Use these sources in order:
    - [`packages/persistence-postgres/src/database/schema.ts`](../packages/persistence-postgres/src/database/schema.ts)
    - [`packages/persistence-postgres/src/index.ts`](../packages/persistence-postgres/src/index.ts)
    - [`packages/persistence-postgres/src/database/postgresClient.ts`](../packages/persistence-postgres/src/database/postgresClient.ts)
-   - [`packages/persistence-postgres/src/execution/transactionSessionActivation.ts`](../packages/persistence-postgres/src/execution/transactionSessionActivation.ts)
+   - [Session execution reading map](../packages/persistence-postgres/src/execution/session/README.md)
    - [`apps/executor/src/worker.ts`](../apps/executor/src/worker.ts)
    - [`apps/executor/src/requestLifecycle.ts`](../apps/executor/src/requestLifecycle.ts)
    - [`packages/executor/test`](../packages/executor/test)

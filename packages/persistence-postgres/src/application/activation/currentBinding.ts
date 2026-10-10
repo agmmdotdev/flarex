@@ -13,8 +13,10 @@ import {
 } from "../../execution/preparation/preparedMetadataEpoch";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../execution/transactionSessionActivation";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
+} from "../../execution/session/constructionContracts";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../database/locatedTransactionIdentity";
 import {
   closeInstallationAdmission,
   type PreparedCoLocatedReadInstallation,
@@ -198,6 +200,24 @@ export const prepareCurrentApplicationBinding = Effect.fnUntraced(
         if (previous !== undefined) yield* previous.generation.retire;
         return generation;
       }))));
+    const acquireFreshFinitePreparation: CurrentApplicationPreparation<Payload, ConstructionFailure, ConstructionRequirements>["acquireFreshFinitePreparation"] = Effect.gen(function* () {
+      yield* requireOpen();
+      const liveLocation = placement === undefined ? yield* resolveLocatedTrustedScopeAuthorityByIdEffect(selection, owner.authority) : located;
+      if (!hasLocatedReadCommittedTargetDatabaseV1(liveLocation.target, database))
+        return yield* activationFailure("read", "invalidComposition");
+      const observation = yield* observe(liveLocation.authority);
+      return yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+        yield* restore(gate.take(1));
+        return yield* Effect.gen(function* () {
+          if (current?.key !== observation.key) yield* restore(replace(observation, liveLocation.authority));
+          const generation = current?.generation;
+          if (generation === undefined) return yield* activationFailure("read", "invalidComposition");
+          // Register the existing generation borrow in the caller's Scope before
+          // releasing the gate; a concurrent refresh may then retire it safely.
+          return yield* generation.acquire;
+        }).pipe(Effect.ensuring(gate.release(1)));
+      }));
+    });
     // This callback lifecycle boundary must preserve the exact original full Cause.
     const withEntry = Effect.fnUntraced(function* <Value, E, R>(work: (
       graph: Graph, enter: CurrentApplicationEntry, finite: CurrentApplicationFiniteEntry,
@@ -326,7 +346,7 @@ export const prepareCurrentApplicationBinding = Effect.fnUntraced(
     yield* replace(yield* observe(located.authority), located.authority);
     const withFiniteEntry: CurrentApplicationPreparation<Payload, ConstructionFailure, ConstructionRequirements>["withFiniteEntry"] = work =>
       withEntry((graph, _enter, finite) => work(graph, finite).pipe(Effect.map(Result.succeed)));
-    return Object.freeze({ withEntry, withFiniteEntry });
+    return Object.freeze({ withEntry, withFiniteEntry, acquireFreshFinitePreparation });
   },
   work => observeExecution("ApplicationActivation.prepareCurrentBinding", work),
 );

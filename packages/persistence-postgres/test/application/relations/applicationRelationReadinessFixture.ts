@@ -123,7 +123,7 @@ import {
 import {
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../../../src/execution/transactionSessionAttemptKernel";
+} from "../../../src/database/locatedTransactionIdentity";
 import type { SplitScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import {
   fxSystemApplicationActivations,
@@ -133,8 +133,10 @@ import { deployments, fxSystemScopeClocks } from "../../../src/database/schema";
 import { createSessionJournalStorePersistence } from "../../../src/execution/sessionJournalStore";
 import {
   createPointMutationSessionActivationPersistenceV1,
-  type LocatedPointMutationSessionActivationTargetOptionsV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/activation";
+import type {
+  LocatedPointMutationSessionActivationTargetOptionsV1,
+} from "../../../src/execution/session/constructionContracts";
 import { createStoredAttemptEvidenceLoaderV1 } from "../../../src/execution/storedAttemptEvidence";
 import type { StableTableCatalogTransaction } from "../../../src/storage/catalog/stableTableCatalog";
 import {
@@ -153,9 +155,11 @@ import {
 } from "../../commit/point/support/relations";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
-  activatePointMutationSession,
   pointMutationSessionActivationFixture,
-} from "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/activationEvidence";
+import {
+  activatePointMutationSession,
+} from "../../execution/session/support/attemptFixture";
 import type { PGliteFlarexPersistence } from "../../../src/database/pglite";
 import type { ApplicationNativeMutationPersistence } from "../applicationNativeMutationTestFixture";
 import {

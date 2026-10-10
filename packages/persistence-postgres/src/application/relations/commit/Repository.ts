@@ -27,8 +27,9 @@ import {
 } from "../binding";
 import type { AppRowTransaction } from "../../../storage/documents/appRows";
 import type { FlarexMetadataDatabase } from "../../deployments";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from
-  "../../../execution/transactionSessionActivation";
+import type {
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../execution/session/constructionContracts";
 import {
   type ApplicationRelationCommitPort,
   ApplicationRelationCommitCorruptionError,

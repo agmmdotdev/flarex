@@ -51,11 +51,17 @@ import {
 } from "../../../src/execution/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
+} from "../../../src/execution/session/activation";
+import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
-  type LocatedPointMutationSessionActivationTargetOptionsV1,
-  type PointMutationSessionAnchorV1,
-  type PointMutationSessionAuthorityResolutionPortsV1,
-} from "../../../src/execution/transactionSessionActivation";
+} from "../../../src/execution/session/terminalization";
+import type {
+  LocatedPointMutationSessionActivationTargetOptionsV1,
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "../../../src/execution/session/constructionContracts";
+import type {
+  PointMutationSessionAnchorV1,
+} from "../../../src/execution/session/contracts";
 import { pointCommitFinishingCommandFromStoredAttemptV1 } from
   "./support/commandEvidence";
 import {
@@ -66,13 +72,17 @@ import { runEffect, runEffectFailure as runFailure } from
   "../../support/effectTestRuntime";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
+  pointMutationSessionActivationFixture,
+} from "../../execution/session/support/activationEvidence";
+import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
   executionClaimForAnchor,
   expirePointMutationSessionAttempt,
-  pointMutationSessionActivationFixture,
+} from "../../execution/session/support/attemptFixture";
+import {
   setFlarexActivationClock,
-} from "../../execution/transactionSessionActivationTestSupport";
+} from "../../execution/session/support/authorityClock";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 

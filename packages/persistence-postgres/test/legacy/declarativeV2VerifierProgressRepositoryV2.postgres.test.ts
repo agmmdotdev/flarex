@@ -37,7 +37,7 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   isLocatedReadCommittedAttemptTargetV1,
-} from "../../src/execution/transactionSessionAttemptKernel";
+} from "../../src/database/locatedTransactionIdentity";
 import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../src/execution/readCommittedTransactionFailure";
@@ -50,7 +50,7 @@ import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
   insertSessionTestScope,
-} from "../execution/sessionAuthorityTestSupport";
+} from "../execution/session/support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const scopeId = `scope_${SESSION_TEST_SCOPE_UUID}`;

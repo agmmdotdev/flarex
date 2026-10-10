@@ -1,37 +1,43 @@
-
-import { Cause, Data, Effect } from "effect";
-import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
-import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
-
-import type { AppRowTransaction } from "../storage/documents/appRows";
-import type { FlarexMetadataDatabase } from "../application/deployments";
-import { reconcileEffectTransactionFailure } from
-  "../database/effectTransactionFailure";
+import type { CommittedPointOutcomeResolverV1 } from "../../commit/committedPointOutcome";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+  RUN_LOCATED_REPEATABLE_READ_V1,
+  isLocatedReadCommittedAttemptTargetV1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
+import type {
+  fxSystemTransactionJournals,
+  fxSystemTransactionSessions,
+} from "../../database/schema";
+import type {
+  LocatedScopeClockReader,
+  TrustedScopeAuthority,
+} from "../../scope/scopeAuthorityResolution";
+import type { FiniteExecutionAuthorityObservation, ScopeClockRecord } from "../../scope/scopeClock";
+import type { AppRowTransaction } from "../../storage/documents/appRows";
 import type {
   ResolvePinnedDeveloperIndexIdV1Error,
   ResolvePinnedDeveloperIndexIdV1Input,
   ResolvePinnedPointTableIdV1Error,
   ResolvePinnedPointTableIdV1Input,
-} from "../storage/documents/pinnedPointTableErrors";
+} from "../../storage/documents/pinnedPointTableErrors";
 import type {
-  LocatedScopeClockReader,
-  TrustedScopeAuthority,
-} from "../scope/scopeAuthorityResolution";
-import type { ScopeClockRecord, FiniteExecutionAuthorityObservation } from "../scope/scopeClock";
-import type { fxSystemTransactionJournals, fxSystemTransactionSessions } from "../database/schema";
-import type { FiniteAttemptAnchorContext, CapturedFiniteAttemptAnchor } from "./finiteAttemptAnchor";
+  TransactionExecutionClaimObservationV1,
+  TransactionExecutionClaimPinV1,
+} from "../claims/transactionExecutionClaimModel";
+import type {
+  CapturedFiniteAttemptAnchor,
+  FiniteAttemptAnchorContext,
+} from "../finiteAttemptAnchor";
 import type {
   PointMutationSessionAnchorV1,
   PointMutationSessionAttemptExecutionPinV1,
   PointMutationSessionAttemptSelectorV1,
-} from "./transactionSessionActivation";
-import type {
-  CommittedPointOutcomeResolverV1,
-} from "../commit/committedPointOutcome";
-import type {
-  TransactionExecutionClaimObservationV1,
-  TransactionExecutionClaimPinV1,
-} from "./claims/transactionExecutionClaimModel";
+} from "./contracts";
+import type { ExactRunningAttemptTransactionV1Error } from "./errors";
+import type { Effect } from "effect";
+import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
+import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
 
 type TransactionJournalRootRowV1 =
   typeof fxSystemTransactionJournals.$inferSelect;
@@ -41,14 +47,14 @@ export interface ExactRunningAttemptKernelInputV1 {
   readonly preliminaryAuthority: TrustedScopeAuthority;
   readonly executionClaim: TransactionExecutionClaimPinV1;
   readonly finiteAnchor?: CapturedFiniteAttemptAnchor;
-  readonly finiteReadDemand?: import("../storage/documents/logicalDocuments/participantAdmission").FiniteParticipantStorageDemand;
-  readonly finiteApplicationReadDemand?: import("../storage/documents/logicalDocuments/sourceAdmission").FiniteApplicationStorageDemand;
+  readonly finiteReadDemand?: import("../../storage/documents/logicalDocuments/participantAdmission").FiniteParticipantStorageDemand;
+  readonly finiteApplicationReadDemand?: import("../../storage/documents/logicalDocuments/sourceAdmission").FiniteApplicationStorageDemand;
 }
 
 export interface ExactRunningAttemptKernelContextV1 {
   readonly scopeUuid: ScopeUuidV1;
   readonly scopeClock: ScopeClockRecord;
-  readonly snapshotLease: Readonly<typeof import("../database/schema").fxSystemSnapshotLeases.$inferSelect>;
+  readonly snapshotLease: Readonly<typeof import("../../database/schema").fxSystemSnapshotLeases.$inferSelect>;
   readonly finiteAuthority?: FiniteExecutionAuthorityObservation;
   readonly anchor: PointMutationSessionAnchorV1;
   readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
@@ -89,44 +95,8 @@ export const RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1: unique symbol = Symbol(
 export const RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1: unique symbol =
   Symbol("FlarexDB/resolvePinnedDeveloperIndexIdEffectV1");
 
-export const RUN_LOCATED_REPEATABLE_READ_V1: unique symbol = Symbol(
-  "FlarexDB/runLocatedRepeatableReadV1",
-);
-
-export const RUN_LOCATED_READ_COMMITTED_V1: unique symbol = Symbol(
-  "FlarexDB/runLocatedReadCommittedV1",
-);
-
-/** Package-internal construction seam for the Postgres connected runner. */
-export const LOCATED_READ_COMMITTED_RUNNER_V1: unique symbol = Symbol(
-  "FlarexDB/locatedReadCommittedRunnerV1",
-);
-
 export const RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1: unique symbol =
   Symbol("FlarexDB/resolveLocatedCommittedPointOutcomeV1");
-
-export type RunLocatedReadCommittedTransactionV1 = <Result>(
-  work: (tx: AppRowTransaction) => Promise<Result>,
-) => Promise<Result>;
-
-export class ExactRunningAttemptTransactionV1Error extends Data.TaggedError(
-  "ExactRunningAttemptTransactionV1Error",
-)<{
-  readonly cause: unknown;
-  readonly callbackCause: Cause.Cause<unknown> | undefined;
-}> {}
-
-export function reconcileExactRunningAttemptTransactionFailureV1<Failure>(
-  failure: ExactRunningAttemptTransactionV1Error,
-  callbackCause: Cause.Cause<Failure> | undefined,
-  rollbackSignal: unknown,
-): Effect.Effect<never, Failure | ExactRunningAttemptTransactionV1Error> {
-  return reconcileEffectTransactionFailure(
-    failure,
-    callbackCause,
-    rollbackSignal,
-  );
-}
 
 export interface LocatedExactRunningAttemptKernelV1
   extends LocatedScopeClockReader {
@@ -152,46 +122,6 @@ export interface LocatedExactRunningAttemptKernelV1
 }
 
 /**
- * Package-internal read-only capability used by detached attempt evidence
- * loaders. It deliberately cannot run a caller callback under mutation locks.
- */
-export interface LocatedRepeatableReadAttemptTargetV1
-  extends LocatedScopeClockReader {
-  readonly [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
-    work: (tx: AppRowTransaction) => Promise<Result>,
-  ) => Promise<Result>;
-}
-
-/**
- * Package-internal writer-transaction capability. The caller remains inside
- * persistence-postgres and receives no authority to escape the transaction.
- */
-export interface LocatedReadCommittedAttemptTargetV1
-  extends LocatedScopeClockReader {
-  readonly [RUN_LOCATED_READ_COMMITTED_V1]: RunLocatedReadCommittedTransactionV1;
-}
-
-const locatedReadCommittedTargetDatabasesV1 = new WeakMap<
-  LocatedReadCommittedAttemptTargetV1,
-  FlarexMetadataDatabase
->();
-
-/** Package-local exact target/database composition evidence. */
-export function registerLocatedReadCommittedTargetDatabaseV1(
-  target: LocatedReadCommittedAttemptTargetV1,
-  database: FlarexMetadataDatabase,
-): void {
-  locatedReadCommittedTargetDatabasesV1.set(target, database);
-}
-
-export function hasLocatedReadCommittedTargetDatabaseV1(
-  target: LocatedReadCommittedAttemptTargetV1,
-  database: FlarexMetadataDatabase,
-): boolean {
-  return locatedReadCommittedTargetDatabasesV1.get(target) === database;
-}
-
-/**
  * Package-internal O07 target capability. It resolves only the bounded S09-A
  * receipt for the exact located database and cannot expose a database handle.
  */
@@ -199,13 +129,6 @@ export interface LocatedPointCommitPublicationTargetV1
   extends LocatedReadCommittedAttemptTargetV1 {
   readonly [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
     CommittedPointOutcomeResolverV1["resolve"];
-}
-
-export function isLocatedReadCommittedAttemptTargetV1(
-  target: LocatedScopeClockReader,
-): target is LocatedReadCommittedAttemptTargetV1 {
-  return typeof Reflect.get(target, RUN_LOCATED_READ_COMMITTED_V1) ===
-    "function";
 }
 
 export function isLocatedPointCommitPublicationTargetV1(
@@ -216,13 +139,6 @@ export function isLocatedPointCommitPublicationTargetV1(
       target,
       RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
     ) === "function";
-}
-
-export function isLocatedRepeatableReadAttemptTargetV1(
-  target: LocatedScopeClockReader,
-): target is LocatedRepeatableReadAttemptTargetV1 {
-  return typeof Reflect.get(target, RUN_LOCATED_REPEATABLE_READ_V1) ===
-    "function";
 }
 
 export function isLocatedExactRunningAttemptKernelV1(
@@ -244,4 +160,35 @@ export function isLocatedExactRunningAttemptKernelV1(
     && typeof Reflect.get(target, RUN_LOCATED_REPEATABLE_READ_V1) === "function"
     && typeof Reflect.get(target, RUN_LOCATED_READ_COMMITTED_V1) === "function"
   );
+}
+
+/**
+ * Genuinely package-local O10-P0 capability. Unlike the existing exact-attempt
+ * kernel module, this file has no package export, including no system-test
+ * subpath. Only persistence-postgres owners can receive the raw transaction
+ * callback used to capture a bounded indexed-read syscall atomically.
+ */
+export const RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1:
+  unique symbol = Symbol(
+    "FlarexDB/runExactRunningPointMutationReadSyscallEffectV1",
+  );
+
+export interface LocatedExactRunningAttemptReadSyscallKernelV1
+  extends LocatedScopeClockReader {
+  readonly [RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1]: <
+    Result,
+    Failure,
+  >(
+    input: ExactRunningAttemptKernelInputV1,
+    work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
+  ) => Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error>;
+}
+
+export function isLocatedExactRunningAttemptReadSyscallKernelV1(
+  target: LocatedScopeClockReader,
+): target is LocatedExactRunningAttemptReadSyscallKernelV1 {
+  return typeof Reflect.get(
+    target,
+    RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
+  ) === "function";
 }

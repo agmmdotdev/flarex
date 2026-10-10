@@ -54,7 +54,7 @@ import {
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
   type LocatedReadCommittedAttemptTargetV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 const applicationPortBrand: unique symbol = Symbol(
   "FlarexDB/ApplicationManagedSchemaApplicationPort",

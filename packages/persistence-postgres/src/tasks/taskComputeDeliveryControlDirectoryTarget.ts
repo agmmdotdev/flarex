@@ -7,7 +7,7 @@ import {
 } from "./taskRepairPostgresDeadlinePolicyV1";
 import type {
   RunLocatedReadCommittedTransactionV1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 
 const CONTROL_DIRECTORY_TARGET = Symbol(
   "flarex.task_compute_delivery_control_directory_target",

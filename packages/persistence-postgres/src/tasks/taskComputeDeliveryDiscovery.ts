@@ -30,7 +30,7 @@ import {
 } from "../execution/readCommittedTransactionFailure";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
-} from "../execution/transactionSessionAttemptKernel";
+} from "../database/locatedTransactionIdentity";
 import {
   configureTaskRepairPostgresTransactionDeadlinesV1,
   createTaskRepairPostgresDeadlinePolicyV1,

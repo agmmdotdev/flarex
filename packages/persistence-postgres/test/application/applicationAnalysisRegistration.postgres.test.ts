@@ -19,7 +19,7 @@ import {
   insertSessionTestScope,
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
-} from "../execution/sessionAuthorityTestSupport";
+} from "../execution/session/support/sessionStorage";
 import { relationManifestV2Text } from
   "./applicationAnalysisRegistrationTestSupport";
 

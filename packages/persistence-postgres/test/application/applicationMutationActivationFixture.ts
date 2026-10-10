@@ -41,8 +41,10 @@ import type {
 } from "../../src/application/activation/contracts";
 import type {
   PreparedApplicationMutationSessionActivationV1,
-} from "../../src/execution/transactionSessionActivation";
-import { TEST_GRANT_RETENTION_POLICY_V1 } from "../execution/transactionSessionActivationTestSupport";
+} from "../../src/execution/session/contracts";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "../execution/session/support/activationEvidence";
 import { runEffect } from "../support/effectTestRuntime";
 
 /** Test issuer only. Production codecs, signature verification and activation

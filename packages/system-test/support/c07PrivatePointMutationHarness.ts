@@ -115,7 +115,7 @@ import {
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
-} from "@flarex/persistence-postgres/internal/system-test/transactionSessionActivation";
+} from "@flarex/persistence-postgres/internal/session-construction";
 import {
   createIntrinsicCreationTimeIndexDefinitionPortV1,
 } from "@flarex/persistence-postgres/internal/system-test/intrinsicCreationTimeIndexBuildV1";

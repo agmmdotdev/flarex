@@ -48,7 +48,7 @@ import type {
   PointCommitRowIntentV1,
 } from "../../storage/materialization/model";
 import type { FrozenFiniteAttempt } from "../../execution/journal/frozenAttempt";
-import type { Effect } from "effect";
+import type { Effect, Scope } from "effect";
 import type {
   PointCommitPublicationV1Error,
   PointCommitDecisionUncertainV1Error,
@@ -320,14 +320,16 @@ export interface PointFiniteAttemptReplacementPort {
       Readonly<{ proof: FiniteAttemptNonacceptanceProof }>
   ) => Effect.Effect<
     PointMutationAttemptReplacementObservationV1,
-    PointMutationAttemptReplacementV1Error | PointCommitDecisionUncertainV1Error
+    PointMutationAttemptReplacementV1Error | PointCommitDecisionUncertainV1Error,
+    Scope.Scope
   >;
   readonly replaceRecoveredFinite: (
     command: PointRecoveredFiniteAttemptReplacementCommand &
       Readonly<{ proof: FiniteAttemptNonacceptanceProof }>
   ) => Effect.Effect<
     PointMutationAttemptReplacementObservationV1,
-    PointMutationAttemptReplacementV1Error | PointCommitDecisionUncertainV1Error
+    PointMutationAttemptReplacementV1Error | PointCommitDecisionUncertainV1Error,
+    Scope.Scope
   >;
 }
 

@@ -10,7 +10,9 @@ import {
   hasProtectedMetadataFinalGuardScope,
   registerProtectedMetadataFinalGuard,
 } from "../../execution/preparation/preparedMetadataEpoch";
-import { hasLocatedReadCommittedTargetDatabaseV1 } from "../../execution/transactionSessionAttemptKernel";
+import {
+  hasLocatedReadCommittedTargetDatabaseV1,
+} from "../../database/locatedTransactionIdentity";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,

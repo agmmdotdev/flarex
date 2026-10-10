@@ -120,6 +120,10 @@ external effects. Durable workflow/task progression remains a separate owner.
    [session activation](../../packages/executor/src/mutation/session/pointMutationSessionActivation.ts)
    and [claim supervision](../../packages/executor/src/mutation/claims/pointMutationExecutionClaimSupervision.ts)
    establish and retain the authentic outer execution owner.
+   The [Session reading map](../../packages/persistence-postgres/src/execution/session/README.md)
+   follows persistence activation, claims, exact loading, native callbacks and
+   terminalization. Its consumer API is separate from trusted construction;
+   recovery inspection supplies evidence without granting execution authority.
 3. [Finite execution](../../packages/executor/src/mutation/execution/finitePointMutationExecution.ts)
    invokes the admitted runtime through restricted
    [journal capabilities](../../packages/executor/src/mutation/journal/applicationPointMutationJournalCapability.ts).

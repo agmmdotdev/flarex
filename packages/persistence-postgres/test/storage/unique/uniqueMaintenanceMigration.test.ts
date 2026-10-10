@@ -5,7 +5,9 @@ import { createPGlitePersistence } from "../../../src/database/pglite";
 import { createPostgresPersistence } from "../../../src/database/postgres";
 import { injectMigrationFailure, makeDrizzleCopyFixture, restoreMigrationFile, writeJournalThrough, type DrizzleCopyFixture } from "../../support/migrationFixtureSupport";
 import { postgresUrl, withTemporaryPostgresSchema } from "../../support/postgresHelpers";
-import { insertLegacySessionTestScope } from "../../execution/sessionAuthorityTestSupport";
+import {
+  insertLegacySessionTestScope,
+} from "../../execution/session/support/sessionStorage";
 
 async function verify(persistence: Pick<FlarexPersistence, "query" | "migrate">, fixture: DrizzleCopyFixture,journalSchema = "drizzle") {
   await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 103);

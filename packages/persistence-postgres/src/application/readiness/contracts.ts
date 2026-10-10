@@ -10,7 +10,9 @@ import type {
   PreparedActivationServingInstallation,
   PreparedInstallation,
 } from "../../installation/installationLifecycle";
-import type { LocatedReadCommittedAttemptTargetV1 } from "../../execution/transactionSessionAttemptKernel";
+import type {
+  LocatedReadCommittedAttemptTargetV1,
+} from "../../database/locatedTransactionIdentity";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";

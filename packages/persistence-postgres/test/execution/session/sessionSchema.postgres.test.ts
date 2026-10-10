@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
-
-import type { FlarexSqlClient } from "../../src";
-import {
-  postgresUrl,
-  withTemporaryPostgresPersistence,
-} from "../support/postgresHelpers";
+import type { FlarexSqlClient } from "../../../src";
+import { postgresUrl, withTemporaryPostgresPersistence } from "../../support/postgresHelpers";
 import {
   POSTGRES_SIGNED_BIGINT_MAX_TEXT,
   SESSION_TEST_HISTORICAL_EPOCH_UUID,
@@ -17,7 +13,7 @@ import {
   snapshotLeaseFixture,
   transactionSessionFixture,
   transactionSessionIdAt,
-} from "./sessionAuthorityTestSupport";
+} from "./support/sessionStorage";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
