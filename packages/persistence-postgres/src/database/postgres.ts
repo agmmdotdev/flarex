@@ -63,6 +63,7 @@ import {
 import type { LocatedScopeClockReader } from "../scope/scopeAuthorityResolution";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
+  registerLocatedReadCommittedTargetDatabaseV1,
 } from "./locatedTransactionIdentity";
 import type {
   ScopePhysicalLocator,
@@ -84,9 +85,10 @@ import { flarexSchema } from "./schema";
 // checkout still constructs fresh database/transaction views for its own client.
 const physicalSessionAccess = makePhysicalSessionAccess(flarexSchema);
 
+const finiteCaptureResourceFailure = (cause: unknown) => new FiniteStorageCaptureError({ reason: "resourceFailure", cause });
 const finiteCapturePhysicalErrors: PhysicalSessionErrors<FiniteStorageCaptureError, FiniteStorageCaptureError> = {
-  resource: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
-  deadline: cause => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }),
+  resource: finiteCaptureResourceFailure,
+  deadline: finiteCaptureResourceFailure,
   invariant: physicalSessionErrors.invariant,
   cleanup: physicalSessionErrors.cleanup,
 };
@@ -102,7 +104,7 @@ function finiteCaptureDriver(pool: Pool, observation?: PhysicalObservationResolv
   let retained = finiteCaptureDrivers.get(pool);
   if (retained === undefined) {
     retained = Object.freeze({ quiet: makePostgresPhysicalSessionDriver(pool, {
-      access: physicalSessionAccess, errors: finiteCapturePhysicalErrors,
+      access: physicalSessionAccess, errors: finiteCapturePhysicalErrors, commandFailure: finiteCaptureResourceFailure,
     }), observed: new WeakMap<PhysicalObservationResolver, FiniteCaptureDriver>() });
     finiteCaptureDrivers.set(pool, retained);
   }
@@ -110,7 +112,7 @@ function finiteCaptureDriver(pool: Pool, observation?: PhysicalObservationResolv
   const existing = retained.observed.get(observation);
   if (existing !== undefined) return existing;
   const driver = makePostgresPhysicalSessionDriver(pool, {
-    access: physicalSessionAccess, errors: finiteCapturePhysicalErrors,
+    access: physicalSessionAccess, errors: finiteCapturePhysicalErrors, commandFailure: finiteCaptureResourceFailure,
   }, { observation });
   retained.observed.set(observation, driver);
   return driver;
@@ -272,22 +274,28 @@ export function createPostgresLocatedIndexBuildReconciliationTargetV1(
   persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
   physicalLocator: ScopePhysicalLocator,
 ): LocatedIndexBuildReconciliationTargetV1 {
-  return createLocatedIndexBuildReconciliationTargetV1(
+  const target = createLocatedIndexBuildReconciliationTargetV1(
     persistence.drizzle,
     physicalLocator,
     createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
   );
+  if ("$client" in persistence.drizzle && persistence.drizzle.$client === persistence.pool)
+    registerLocatedReadCommittedTargetDatabaseV1(target, persistence.drizzle);
+  return target;
 }
 
 export function createPostgresLocatedAppUniqueConstraintSetBuildTargetV1(
   persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
   physicalLocator: ScopePhysicalLocator,
 ): LocatedAppUniqueConstraintSetBuildTargetV1 {
-  return createLocatedAppUniqueConstraintSetBuildTargetV1(
+  const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
     persistence.drizzle,
     physicalLocator,
     createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
   );
+  if ("$client" in persistence.drizzle && persistence.drizzle.$client === persistence.pool)
+    registerLocatedReadCommittedTargetDatabaseV1(target, persistence.drizzle);
+  return target;
 }
 
 export {

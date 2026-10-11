@@ -212,9 +212,8 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                   return Object.freeze({ input: captured.value, result: output.value });
                 });
               const observed = yield* invoke(child, command, args);
-              const activity = yield* projectActivity(yield* working.readActivityContribution(yield* working.activityContribution, cursor));
-              const localActivity = { ...activity, observedRows: activity.observedRows.filter(row =>
-                state.writeMechanics.tableId(row.table) !== undefined) };
+              const localActivity = yield* projectActivity(yield* working.readActivityContribution(
+                yield* working.activityContribution, cursor, state.writeMechanics));
               if (definition.mode === "read" && (localActivity.mutations.length !== 0 || localActivity.lifecycle.length !== 0 ||
                 localActivity.setNull.length !== 0 || localActivity.referenceReplacements.length !== 0 || localEvents.length !== 0))
                 return yield* Effect.fail(commerceError("receiptMismatch"));

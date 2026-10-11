@@ -8,6 +8,7 @@ import { defineCommerceEventContract } from "../../../persistence-postgres/src/f
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/frameworks/atomicCommerce/host";
 import { makeCommerceHost } from "../../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import type { RelationalSession } from "../../../persistence-postgres/src/database/relationalTransaction/session";
+import type { CommerceResources } from "../../../persistence-postgres/src/frameworks/commerceTransaction/resources";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import type { logicalCurrencyFixture } from "./logical-currency-fixture";
@@ -22,7 +23,7 @@ type Entity = Readonly<{ createdEvent: string }>;
 
 async function prepareNativeProductCommand(currency: Currency, product: Product, suffix: string,
   command: CommerceCommand, entities: readonly Entity[], label: string,
-  session?: RelationalSession) {
+  session?: RelationalSession, resources?: CommerceResources) {
   const revision = createHash("sha256").update(`mixed-product-seed-${suffix}-${label}`).digest("hex");
   const named = entities.map(entity => ({ name: entity.createdEvent,
     contract: defineCommerceEventContract({ name: entity.createdEvent, revision, internal: true,
@@ -34,6 +35,7 @@ async function prepareNativeProductCommand(currency: Currency, product: Product,
     ...(session === undefined ? {} : { session }),
     identityAndAccessPolicy: { profile: "mixed-product-seed" },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+      ...(resources === undefined ? {} : { logicalResources: resources }),
       commands: [command], validateLogicalCall: product.runtime.logicalPolicy.validateLogicalCall,
       events: { contracts, select: event => {
         const matched = isJsonObject(event) && typeof event.name === "string"
@@ -49,8 +51,8 @@ async function prepareNativeProductCommand(currency: Currency, product: Product,
 
 async function runNativeProductCommand(currency: Currency, product: Product, suffix: string,
   command: CommerceCommand, input: Json, entities: readonly Entity[], label: string,
-  session?: RelationalSession) {
-  const { host, root } = await prepareNativeProductCommand(currency, product, suffix, command, entities, label, session);
+  session?: RelationalSession, resources?: CommerceResources) {
+  const { host, root } = await prepareNativeProductCommand(currency, product, suffix, command, entities, label, session, resources);
   try { return await Effect.runPromise(host.run(host.newRequestKey(), root, input)); }
   finally { await Effect.runPromise(host.close); }
 }
@@ -65,10 +67,11 @@ export async function runNativeStandaloneProductUpdate(currency: Currency, produ
 }
 
 /** Independently committed native Product writers used to race the launch
- * workflow's exact option, variant, tag, and membership dependencies. */
+ * workflow's exact option, variant, tag, and membership dependencies. Optional
+ * resources select trusted host registration, never native request input. */
 export async function runNativeStandaloneProductMutation(currency: Currency, product: Product,
   suffix: string, kind: "replaceOptionValues" | "createVariant" | "updateTag" | "createTag" | "removeProductTag",
-  input: Json, session?: RelationalSession) {
+  input: Json, session?: RelationalSession, resources?: CommerceResources) {
   const catalog = await Effect.runPromise(captureProductSchema("atomic-commerce")
     .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
   const selected = kind === "replaceOptionValues"
@@ -88,7 +91,7 @@ export async function runNativeStandaloneProductMutation(currency: Currency, pro
         : { command: product.runtime.commands.update, label: "RemoveProductTag",
           events: [catalog.product.updatedEvent] };
   return runNativeProductCommand(currency, product, suffix, selected.command, input,
-    selected.events.map(createdEvent => ({ createdEvent })), selected.label, session);
+    selected.events.map(createdEvent => ({ createdEvent })), selected.label, session, resources);
 }
 
 /** A separate native Link attachment, with its active pair claim and module

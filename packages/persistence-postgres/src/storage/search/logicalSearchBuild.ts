@@ -1,8 +1,8 @@
 import { Data, Effect, Result } from "effect";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
@@ -16,6 +16,10 @@ import { readAppTableWriteFrontiersInTransactionEffect, type AppRowTableFrontier
 import { readPreparedIndexCoverageTableFrontiers, type IndexCoverageContext } from "../indexes/indexBuildStates";
 import { runEffectTransaction } from "../../database/effectTransaction";
 import { chargeHostPreparation } from "../../execution/preparation/preparedHostRuntime";
+import { invalidateAcceptedApplicationBindingInTransaction } from "../../application/activation/acceptedBinding";
+import { invalidateSharedLogicalSourceBindingChecks } from "../documents/logicalDocuments/sourceAdmission";
+import { defineNativeMetadataRead } from "../../database/physicalSession/drizzle";
+import { Schema } from "effect";
 
 const physicalSearchIndexReady = (physical: Readonly<{
   index: string; table: string; column: string; operator: string;
@@ -58,7 +62,24 @@ const textPhysicalReady = physicalSearchIndexReady({
   column: "folded_text", operator: "gin_trgm_ops",
 });
 const SEARCH_STATE_BATCH_SIZE = 64;
-
+const parameter=(name:string)=>sql`${sql.placeholder(name)}`;
+const captureSearchBatch=defineNativeMetadataRead(db=>db.select({
+  capture:sql<string>`observed.capture`,
+}).from(sql`(select coalesce(jsonb_object_agg(state_row.table_id::text || '/' || state_row.logical_index_id::text,
+    jsonb_build_array(state_row.lifecycle,state_row.source_sha256,state_row.covered_through_commit_seq::text)),'{}'::jsonb)::text as capture
+    from ${fxSystemSearchBuildStates} state_row where state_row.scope_uuid=${parameter("scopeUuid")}::uuid
+      and (state_row.table_id,state_row.logical_index_id) in (
+        select requested.table_id,requested.logical_index_id
+        from unnest(${parameter("tableIds")}::integer[],${parameter("logicalIndexIds")}::integer[])
+          as requested(table_id,logical_index_id))) observed`));
+const decodeSearchCapture = Schema.decodeUnknownEffect(Schema.Struct({capture:Schema.String}));
+const OrdinarySearchProgressEnvelopeSchema = Schema.fromJsonString(Schema.Record(Schema.String,Schema.Unknown));
+const decodeOrdinarySearchProgressEnvelope = Schema.decodeUnknownResult(OrdinarySearchProgressEnvelopeSchema);
+const OrdinarySearchProgressSchema = Schema.Tuple([Schema.String,Schema.String,Schema.Unknown]);
+const decodeOrdinarySearchProgress = Schema.decodeUnknownResult(OrdinarySearchProgressSchema);
+const decodeOrdinarySearchCoverage = Schema.decodeUnknownResult(CommitSeqSchema);
+// The original physical binding visited text before JSON, including getters.
+const decodeSearchPhysical = Schema.decodeUnknownEffect(Schema.Struct({textReady:Schema.Boolean,jsonReady:Schema.Boolean}));
 export class LogicalSearchBuildError extends Data.TaggedError("LogicalSearchBuildError")<{
   readonly reason: "definitionMissing" | "scopeMismatch" | "statementFailure";
   readonly cause?: unknown;
@@ -99,6 +120,8 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
   ) {
     if (authority.deploymentId !== deploymentId) return yield* Effect.fail(failure("scopeMismatch"));
+    invalidateAcceptedApplicationBindingInTransaction(tx);
+    invalidateSharedLogicalSourceBindingChecks(tx);
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId)
       .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
     if (clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration ||
@@ -182,53 +205,68 @@ export function makeLogicalSearchReadinessInspector(deploymentId: string) {
         Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>> | undefined;
       for (let offset = 0; offset < inspected.length; offset += SEARCH_STATE_BATCH_SIZE) {
         const batch = inspected.slice(offset, offset + SEARCH_STATE_BATCH_SIZE);
-        const states = yield* runDrizzleStatementEffect(tx.select({
-          tableId: fxSystemSearchBuildStates.tableId,
-          logicalIndexId: fxSystemSearchBuildStates.logicalIndexId,
-          sourceSha256: fxSystemSearchBuildStates.sourceSha256,
-          lifecycle: fxSystemSearchBuildStates.lifecycle,
-          coveredThroughCommitSeq: fxSystemSearchBuildStates.coveredThroughCommitSeq,
-        }).from(fxSystemSearchBuildStates).where(and(
-          eq(fxSystemSearchBuildStates.scopeUuid, scope.scopeUuid),
-          or(...batch.map(definition => and(
-            eq(fxSystemSearchBuildStates.tableId, definition.tableId),
-            eq(fxSystemSearchBuildStates.logicalIndexId, definition.logicalIndexId),
-          ))),
-        )), cause => failure("statementFailure", cause));
-        const stateByKey = new Map<string, Pick<typeof fxSystemSearchBuildStates.$inferSelect,
-          "tableId" | "logicalIndexId" | "sourceSha256" | "lifecycle" | "coveredThroughCommitSeq">>();
-        for (const state of states) stateByKey.set(`${state.tableId}/${state.logicalIndexId}`, state);
-        for (const definition of batch) {
-          const state = stateByKey.get(`${definition.tableId}/${definition.logicalIndexId}`);
-          if (state === undefined || state.lifecycle !== "ready" || state.sourceSha256 !== definition.sourceSha256)
-            return Object.freeze({ status: "not_ready" as const, reason: "uncovered" as const });
-          if (physical === undefined) {
-            const [observed] = yield* runDrizzleStatementEffect(tx.select({
-              jsonReady: needsJsonPhysical ? jsonPhysicalReady : sql<boolean>`true`,
-              textReady: needsTextPhysical ? textPhysicalReady : sql<boolean>`true`,
-            }).from(sql`(select 1) as search_index_probe`), cause => failure("statementFailure", cause));
-            if (observed === undefined) return yield* Effect.fail(failure("statementFailure"));
-            physical = observed;
+        const [rawCapture] = yield* runDrizzleStatementEffect(captureSearchBatch(tx,{scopeUuid:scope.scopeUuid,
+          tableIds:batch.map(definition=>definition.tableId),logicalIndexIds:batch.map(definition=>definition.logicalIndexId)}),
+          cause=>failure("statementFailure",cause));
+        const captured = yield* decodeSearchCapture(rawCapture).pipe(Effect.mapError(cause=>failure("statementFailure",cause)));
+        const progress = yield* Effect.fromResult(decodeOrdinarySearchProgressEnvelope(captured.capture).pipe(
+          Result.mapError(cause=>failure("statementFailure",cause))));
+        const states=new Map<string,ReturnType<typeof decodeOrdinarySearchProgress>>();
+        const coverageSequences=new Map<string,ReturnType<typeof decodeOrdinarySearchCoverage>>();
+        const consume=(startAt:number)=>Result.gen(function* () {
+          for (let index=startAt;index<batch.length;index++) {
+            const definition=batch[index];
+            if (definition===undefined) return yield* Result.fail(failure("statementFailure"));
+            const key=`${definition.tableId}/${definition.logicalIndexId}`;
+            let decoded=states.get(key);
+            if (decoded===undefined) {
+              const rawState=progress[key];
+              if (rawState===undefined) return {status:"uncovered" as const};
+              decoded=decodeOrdinarySearchProgress(rawState);
+              states.set(key,decoded);
+            }
+            const state=yield* decoded.pipe(Result.mapError(cause=>failure("statementFailure",cause)));
+            if (state[0]!=="ready" || state[1]!==definition.sourceSha256) return {status:"uncovered" as const};
+            if (physical===undefined) return {status:"physicalRequired" as const,index};
+            if (!(definition.kind==="jsonContainment" ? physical.jsonReady:physical.textReady))
+              return {status:"uncovered" as const};
+            if (frontiers===undefined) return {status:"frontiersRequired" as const,index};
+            const capturedFrontier=frontiers.get(definition.tableId);
+            if (capturedFrontier===undefined) throw new Error("Search table frontier lost an inspected member");
+            const frontier=yield* capturedFrontier.pipe(Result.mapError(cause=>failure("statementFailure",cause)));
+            // This member's sequence is consumed only after its genuine physical
+            // acceptance and frontier Result. Repeated pairs retain one decode.
+            let coverageSequence=coverageSequences.get(key);
+            if (coverageSequence===undefined) {
+              coverageSequence=decodeOrdinarySearchCoverage(state[2]);
+              coverageSequences.set(key,coverageSequence);
+            }
+            const covered=yield* coverageSequence.pipe(Result.mapError(cause=>failure("statementFailure",cause)));
+            if (covered>observedClock.lastCommitSeq || (frontier!==null && covered<frontier))
+              return {status:"clockRefresh" as const};
           }
-          if (!(definition.kind === "jsonContainment" ? physical.jsonReady : physical.textReady))
-            return Object.freeze({ status: "not_ready" as const, reason: "uncovered" as const });
-          if (frontiers === undefined) {
-            // Borrow only after the original state and physical checks. An
-            // issuer failure is consumed at the same frontier observation cut.
-            const prepared = coverage === undefined ? null : yield* Effect.fromResult(
-              readPreparedIndexCoverageTableFrontiers(tx, observedClock, coverage, tableIds))
-              .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
-            frontiers = prepared ?? (yield* readAppTableWriteFrontiersInTransactionEffect(tx, authority.scopeId, tableIds)
-              .pipe(Effect.mapError(cause => failure("statementFailure", cause))));
-          }
-          const frontier = frontiers.get(definition.tableId);
-          if (frontier === undefined) return yield* Effect.die("Search table frontier lost a inspected member");
-          const tableFrontier = yield* Effect.fromResult(frontier)
-            .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
-          if (state.coveredThroughCommitSeq > observedClock.lastCommitSeq ||
-            state.coveredThroughCommitSeq < (tableFrontier ?? 0n)) {
-            uncovered = true;
-            break;
+          return {status:"accepted" as const};
+        });
+        let startAt=0;
+        for (;;) {
+          const accepted=yield* Effect.fromResult(consume(startAt));
+          if (accepted.status==="accepted") break;
+          if (accepted.status==="uncovered") return Object.freeze({status:"not_ready" as const,reason:"uncovered" as const});
+          if (accepted.status==="clockRefresh") { uncovered=true;break; }
+          startAt=accepted.index;
+          if (accepted.status==="physicalRequired") {
+            const [observed]=yield* runDrizzleStatementEffect(tx.select({
+              jsonReady:needsJsonPhysical ? jsonPhysicalReady:sql<boolean>`true`,
+              textReady:needsTextPhysical ? textPhysicalReady:sql<boolean>`true`,
+            }).from(sql`(select 1) as search_index_probe`),cause=>failure("statementFailure",cause));
+            if (observed===undefined) return yield* Effect.fail(failure("statementFailure"));
+            physical=yield* decodeSearchPhysical(observed).pipe(Effect.mapError(cause=>failure("statementFailure",cause)));
+          } else {
+            const prepared=coverage===undefined ? null:yield* Effect.fromResult(
+              readPreparedIndexCoverageTableFrontiers(tx,observedClock,coverage,tableIds))
+              .pipe(Effect.mapError(cause=>failure("statementFailure",cause)));
+            frontiers=prepared??(yield* readAppTableWriteFrontiersInTransactionEffect(tx,authority.scopeId,tableIds)
+              .pipe(Effect.mapError(cause=>failure("statementFailure",cause))));
           }
         }
         if (uncovered) break;

@@ -8,6 +8,7 @@ import { captureBindingValue, isDataBindingSetFrame } from "../../src/installati
 import { dataBindingActivationRequest } from "../../src/installation/frameworkSchema/binding/host";
 import type { DataBindingHeadToken, DataBindingSetFrame } from "../../src/installation/frameworkSchema/binding/model";
 import { prepareBindingSelectedStructure, readBindingSelectedEvidence, storeBindingCandidate, writeBindingActivation,
+  readBindingHead, readPreparedBindingCandidate,
   retainBindingSelectedStructure,
   type PreparedBindingSelectedStructure } from "../../src/installation/frameworkSchema/binding/repository";
 import { fxSystemDataBindingHeads } from "../../src/installation/frameworkSchema/binding/schema";
@@ -67,6 +68,30 @@ function required<A>(value: Option.Option<A>): A {
 }
 
 describe("full selected binding evidence and preparation", () => {
+  it("selects a replacement candidate after the earlier NONE head observation", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const selected = await seed(persistence, 1, 1, "replacement");
+    await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const early = required(yield* readBindingHead(tx, selected.location, "none"));
+      const content = selected.frame.payloadContent;
+      if (content === null) throw new Error("Missing replacement content grammar");
+      const nextFrame = { ...selected.frame, payloadContent: { ...content, tables: [
+        ...content.tables, { tableId: "policy_replacement", writePolicySha256: "d".repeat(64) },
+      ] } };
+      const candidate = yield* captureBindingValue(nextFrame, isDataBindingSetFrame);
+      yield* storeBindingCandidate(tx, candidate, []);
+      yield* writeBindingActivation(tx, dataBindingActivationRequest(selected.location.scopeId,
+        selected.location.storageGeneration, "replacement_after_none", candidate.sha256Hex,
+        { sequence: early.frame.sequence, sha256: early.sha256 }), [],
+        { projection: null, owners: [], withdrawsPermission: false });
+      const current = required(yield* readBindingSelectedEvidence(tx, selected.location));
+      expect(current.head.sha256).not.toBe(early.sha256);
+      expect(current.candidate.sha256).toBe(candidate.sha256Hex);
+      expect(current.candidate.sha256).not.toBe(early.frame.candidateSha256);
+      expect(current.candidate.frame).toEqual(nextFrame);
+    })));
+  }, 180_000);
+
   it("keeps the explicit no-role profile fully authenticated and detached", async () => {
     const persistence = await createMigratedPGlitePersistence();
       const selected = await seed(persistence, 1, 1, "control");
@@ -81,7 +106,10 @@ describe("full selected binding evidence and preparation", () => {
       })));
       const read = () => persistence.drizzle.transaction(tx => runEffect(readBindingSelectedEvidence(tx, selected.location)));
       const first = required(await read());
-      Reflect.set(first.candidate.frame.application.physicalLocator, "schemaName", "mutated");
+      expect(Object.isFrozen(first.candidate.frame.application.physicalLocator)).toBe(true);
+      expect(Object.isFrozen(first.activation.frame.strongReferences)).toBe(true);
+      expect(Object.isFrozen(first.activation.frame.strongReferences[0]?.targetIdentity)).toBe(true);
+      expect(Reflect.set(first.candidate.frame.application.physicalLocator, "schemaName", "mutated")).toBe(false);
       expect(required(await read()).candidate.frame.application).toEqual(selected.frame.application);
       const row = (await persistence.drizzle.select().from(fxSystemDataBindingHeads)
         .where(eq(fxSystemDataBindingHeads.scopeId, selected.location.scopeId)))[0];
@@ -120,7 +148,9 @@ describe("full selected binding evidence and preparation", () => {
           const unboundedRecipient = Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, undefined));
           const host = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
             const lifetime = yield* captureHostPreparationLifetime();
-            return { prepared: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
+            if (lifetime === undefined) throw new Error("Missing donor fixture preparation lifetime");
+            return { lifetime, prepared: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
+              prelude: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
               empty: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)),
               unopened: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)) };
           })));
@@ -140,13 +170,16 @@ describe("full selected binding evidence and preparation", () => {
             const scope = yield* Scope.make();
             const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 1 }).pipe(Scope.provide(scope));
             const access = yield* retainPreparedHost(runtime, Effect.gen(function* () {
-              return Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, yield* captureHostPreparationLifetime()));
+              const lifetime = yield* captureHostPreparationLifetime();
+              if (lifetime === undefined) throw new Error("Missing bounded fixture preparation lifetime");
+              return { lifetime, prepared: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)) };
             }));
             return { scope, access };
           }));
           const tokens = await runEffect(host.use(value => Effect.succeed(value)));
           const received = await runEffect(recipient.use(value => Effect.succeed(value)));
-          const tinyToken = await runEffect(tiny.access.use(value => Effect.succeed(value)));
+          const tinyPreparation = await runEffect(tiny.access.use(value => Effect.succeed(value)));
+          const tinyToken = tinyPreparation.prepared;
           let checkedHead: DataBindingHeadToken | undefined;
           try {
             try {
@@ -165,6 +198,34 @@ describe("full selected binding evidence and preparation", () => {
                   .toEqual(selected.frame);
                 const full = required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared));
                 expect(full.candidate.frame).toEqual(selected.frame);
+                const warm = vi.spyOn(tx, "select");
+                try {
+                  const earlyHead = required(yield* readBindingHead(tx, selected.location, "none", tokens.prepared));
+                  expect(required(yield* readPreparedBindingCandidate(tx, selected.location, earlyHead, tokens.prepared)))
+                    .toBe(full.candidate);
+                  // Immutable history is lent, but both original head cuts
+                  // still execute their actual NONE and SHARE statements.
+                  expect(warm).toHaveBeenCalledTimes(1);
+                  const locked = required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared));
+                  expect(warm).toHaveBeenCalledTimes(2);
+                  expect(locked.head).not.toBe(earlyHead);
+                  expect(locked.candidate).toBe(full.candidate);
+                  expect(locked.activation).toBe(full.activation);
+                  expect(Reflect.set(locked.activation.frame.strongReferences[0]?.targetIdentity ?? {}, "logicalTableName", "foreign"))
+                    .toBe(false);
+                } finally { warm.mockRestore(); }
+                // CMS-style separate head and candidate observations issue
+                // the same complete private structure without another full
+                // activation/candidate load at the later selected frontier.
+                const early = required(yield* readBindingHead(tx, selected.location, "none", tokens.prelude));
+                const earlyCandidate = required(yield* readPreparedBindingCandidate(tx, selected.location, early, tokens.prelude));
+                const partial = vi.spyOn(tx, "select");
+                try {
+                  const locked = required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prelude));
+                  expect(partial).toHaveBeenCalledTimes(1);
+                  expect(locked.candidate).toBe(earlyCandidate);
+                  expect(locked.activation.frame).toEqual(full.activation.frame);
+                } finally { partial.mockRestore(); }
                 const head = { sequence: full.head.frame.sequence, sha256: full.head.sha256 };
                 checkedHead = head;
                 required(yield* readBindingSelectedEvidence(tx, selected.location, unboundedDonor));
@@ -189,8 +250,11 @@ describe("full selected binding evidence and preparation", () => {
                   expect(retainBindingSelectedStructure(tx, tokens.prepared, tinyToken, head))
                     .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "capacityExceeded" } } });
                   yield* tiny.access.close;
+                  expect(tinyPreparation.lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+                  // Disposal revokes issuer membership before repository lease
+                  // classification; escaped tokens are refused without SQL.
                   expect(retainBindingSelectedStructure(tx, tokens.prepared, tinyToken, head))
-                    .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "closed" } } });
+                    .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
                   const before = Result.getOrThrow(recipient.readUsage()).chargedBytes;
                   expect(Result.isSuccess(retainBindingSelectedStructure(tx, tokens.prepared, received.prepared, head))).toBe(true);
                   const retained = Result.getOrThrow(recipient.readUsage()).chargedBytes;
@@ -199,7 +263,7 @@ describe("full selected binding evidence and preparation", () => {
                   expect(Result.getOrThrow(recipient.readUsage()).chargedBytes).toBe(retained);
                   expect(select).not.toHaveBeenCalled();
                 } finally { select.mockRestore(); }
-                Reflect.set(full.candidate.frame.application.physicalLocator, "schemaName", "mutated-entry-result");
+                expect(Reflect.set(full.candidate.frame.application.physicalLocator, "schemaName", "mutated-entry-result")).toBe(false);
               }));
               if (checkedHead === undefined) throw new Error("Missing fully checked donor head");
               const head = checkedHead;
@@ -212,13 +276,16 @@ describe("full selected binding evidence and preparation", () => {
               })));
               const receivedEvidence = required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, received.prepared)));
               expect(receivedEvidence.candidate.frame).toEqual(selected.frame);
-              Reflect.set(receivedEvidence.candidate.frame.application.physicalLocator, "schemaName", "mutated-recipient-result");
+              expect(Reflect.set(receivedEvidence.candidate.frame.application.physicalLocator, "schemaName", "mutated-recipient-result")).toBe(false);
               expect(required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, received.prepared)))
                 .candidate.frame).toEqual(selected.frame);
               const scopedRecipient = await runEffect(retainPreparedHost(preparedHostTestRuntime(persistence.drizzle), Effect.gen(function* () {
-                return Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, yield* captureHostPreparationLifetime()));
+                const lifetime = yield* captureHostPreparationLifetime();
+                if (lifetime === undefined) throw new Error("Missing scoped recipient fixture preparation lifetime");
+                return { lifetime, prepared: Result.getOrThrow(prepareBindingSelectedStructure(selected.location, protection, lifetime)) };
               })));
-              const scopedToken = await runEffect(scopedRecipient.use(value => Effect.succeed(value)));
+              const scopedPreparation = await runEffect(scopedRecipient.use(value => Effect.succeed(value)));
+              const scopedToken = scopedPreparation.prepared;
               try {
                 await guarded(tx => Effect.gen(function* () {
                   const donor = required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared));
@@ -226,14 +293,15 @@ describe("full selected binding evidence and preparation", () => {
                     { sequence: donor.head.frame.sequence, sha256: donor.head.sha256 }));
                   const borrowed = required(yield* readBindingSelectedEvidence(tx, selected.location, scopedToken));
                   expect(borrowed.candidate.frame).toEqual(selected.frame);
-                  Reflect.set(borrowed.candidate.frame.application.physicalLocator, "schemaName", "mutated-borrowed-result");
+                  expect(Reflect.set(borrowed.candidate.frame.application.physicalLocator, "schemaName", "mutated-borrowed-result")).toBe(false);
                   expect(required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared)).candidate.frame)
                     .toEqual(selected.frame);
                   yield* scopedRecipient.close;
+                  expect(scopedPreparation.lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
                   const select = vi.spyOn(tx, "select");
                   try {
                     expect(yield* readBindingSelectedEvidence(tx, selected.location, scopedToken).pipe(Effect.result))
-                      .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "closed" } } });
+                      .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
                     expect(select).not.toHaveBeenCalled();
                   } finally { select.mockRestore(); }
                   expect(required(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared)).candidate.frame)
@@ -242,9 +310,9 @@ describe("full selected binding evidence and preparation", () => {
               } finally { await runEffect(scopedRecipient.close); }
               const usage = Result.getOrThrow(host.readUsage()).chargedBytes;
               chargedSizes.push(usage);
-              const detached = required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, tokens.prepared)));
-              expect(detached.candidate.frame).toEqual(selected.frame);
-              Reflect.set(detached.candidate.frame.application.physicalLocator, "schemaName", "mutated-read-result");
+              const immutable = required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, tokens.prepared)));
+              expect(immutable.candidate.frame).toEqual(selected.frame);
+              expect(Reflect.set(immutable.candidate.frame.application.physicalLocator, "schemaName", "mutated-read-result")).toBe(false);
               expect(required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, tokens.prepared))).candidate.frame)
                 .toEqual(selected.frame);
               expect(Result.getOrThrow(host.readUsage()).chargedBytes).toBe(usage);
@@ -266,20 +334,21 @@ describe("full selected binding evidence and preparation", () => {
               await runEffect(Scope.close(tiny.scope, Exit.succeed(undefined)));
             }
             {
+              expect(tokens.lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
               expect(required(await guarded(tx => readBindingSelectedEvidence(tx, selected.location, received.prepared)))
                 .candidate.frame).toEqual(selected.frame);
               if (checkedHead === undefined) throw new Error("Missing checked head after donor close");
               const head = checkedHead;
               await guarded(tx => Effect.sync(() => {
                 expect(retainBindingSelectedStructure(tx, tokens.prepared, received.prepared, head))
-                  .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "closed" } } });
+                  .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
               }));
             }
             await guarded(tx => Effect.gen(function* () {
               const select = vi.spyOn(tx, "select");
               try {
                 expect(yield* readBindingSelectedEvidence(tx, selected.location, tokens.prepared).pipe(Effect.result))
-                  .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "closed" } } });
+                  .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
                 expect(select).not.toHaveBeenCalled();
               } finally { select.mockRestore(); }
             }));

@@ -101,6 +101,33 @@ export function readCheckedApplicationActiveHead(
   });
 }
 
+/** Lend only complete scalar coverage pins already accepted by this head owner.
+ * The caller still performs the original fresh context validation. A cold schema
+ * selects no compact profile; an authentic changed pairing is a refusal. */
+export interface ApplicationIndexCoveragePins {
+  readonly deploymentId: string;
+  readonly schemaVersionId: string;
+  readonly schemaManifestSha256: string;
+  readonly activationSequence: bigint;
+  readonly activationSha256: Uint8Array;
+  readonly headSha256: Uint8Array;
+}
+
+export function readCheckedApplicationCoveragePins(
+  checked: CheckedApplicationActiveHead, tx: AppRowTransaction, clock: ScopeClockRecord,
+): Result.Result<ApplicationIndexCoveragePins | null, ApplicationActiveHeadStateError> {
+  return Result.gen(function* () {
+    const state = yield* readCheckedActiveHeadState(checked, tx, clock);
+    if (state === "refresh" || state.active === undefined || state.clock.lastMetadataSequence !== clock.lastMetadataSequence)
+      return yield* Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }));
+    const schema = state.preparation?.schema ?? state.schema;
+    if (schema === undefined) return null;
+    return Object.freeze({ deploymentId: schema.deploymentId, schemaVersionId: schema.schemaVersionId,
+      schemaManifestSha256: schema.schemaManifestSha256, activationSequence: state.active.head.activationSequence,
+      activationSha256: copyBytes(state.active.head.activationSha256), headSha256: copyBytes(state.active.head.headSha256) });
+  });
+}
+
 export function readCheckedActiveHeadState(checked: CheckedApplicationActiveHead, tx: AppRowTransaction,
   clock: ScopeClockRecord): Result.Result<"refresh" | CheckedActiveHeadState, ApplicationActiveHeadStateError> {
   const state = checkedActiveHeads.get(checked);

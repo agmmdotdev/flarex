@@ -65,6 +65,7 @@ import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../../../src/execution/readCommittedTransactionFailure";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 
 const LOCATOR = Object.freeze({
   kind: "shared_database",
@@ -113,6 +114,8 @@ describe("M03-A app-schema candidate validation", () => {
       .toMatchObject({ reason: "compositionMismatch" });
     const prepared = await runEffect(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, capture));
     const finiteInput = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId };
+    expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, foreignScope, finiteInput)))
+      .toMatchObject({ reason: "concurrentStateChange" });
     expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(foreignGuard, capture, finiteInput)))
       .toMatchObject({ reason: "compositionMismatch" });
     expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, { ...capture }, finiteInput)))
@@ -131,7 +134,7 @@ describe("M03-A app-schema candidate validation", () => {
     })));
     await runEffect(retained.close);
     expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, capture, finiteInput)))
-      .toMatchObject({ reason: "compositionMismatch" });
+      .toMatchObject({ reason: "notIssued" });
   });
 
   it("advances the selected shop when another scope shares its deployment", async () => {
@@ -494,7 +497,7 @@ describe("M03-A app-schema candidate validation", () => {
     // Failed-candidate plans also require current authority at acceptance.
     const failedPlan = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(guard,
       { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId }));
-    const nextEpoch = ScopeEpochSchema.make("epoch_candidate_write_guard_replaced");
+    const nextEpoch = ScopeEpochSchema.make("epoch_83000000-0000-4000-8000-000000000001");
     await fixture.persistence.drizzle.update(fxSystemScopeExecutionAuthorities).set({ epoch: nextEpoch })
       .where(eq(fxSystemScopeExecutionAuthorities.scopeId, fixture.scopeId));
     await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
@@ -1361,7 +1364,9 @@ async function appendLive(
     fields,
   });
   await fixture.persistence.drizzle.transaction(async tx => {
-    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           tableId: fixture.tableId,
@@ -1375,6 +1380,7 @@ async function appendLive(
           creationTime,
           document,
         }]));
+    } finally { closeInstallationAdmission(tx); }
   });
 }
 
@@ -1393,8 +1399,10 @@ async function appendManyLive(fixture: Fixture, count: number) {
     });
   }));
   await fixture.persistence.drizzle.transaction(async tx => {
-    for (const { id, document } of documents) {
-      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      for (const { id, document } of documents) {
+        await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
             kind: "live",
             scopeId: fixture.scopeId,
             tableId: fixture.tableId,
@@ -1406,7 +1414,8 @@ async function appendManyLive(fixture: Fixture, count: number) {
             creationTime,
             document,
           }]));
-    }
+      }
+    } finally { closeInstallationAdmission(tx); }
   });
 }
 

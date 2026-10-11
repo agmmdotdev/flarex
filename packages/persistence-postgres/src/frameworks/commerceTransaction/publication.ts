@@ -17,7 +17,8 @@ import type { ScopePublicationContribution, ScopePublicationKernel, ScopePublica
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
 import { appendDerivedCommerceIdEvents, consumeCommerceEvents,
   type CommerceEventClosure } from "../atomicCommerce/events";
-import { consumeLogicalCommerceClosure, prepareLogicalCommerceContribution, type LogicalCommerceClosure } from "./logicalParticipant";
+import { consumeLogicalCommerceClosure, type LogicalCommerceClosure } from "./logicalParticipant";
+import { prepareLogicalCommercePublication } from "./logicalPublication";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../../scope/scopeClock";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
@@ -128,13 +129,11 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(publicationClock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   if (identity.scopeUuid !== scope.scopeUuid) return yield* Effect.fail(commerceError("invalidAuthority"));
   const logicalMembers = logical === undefined ? atomic?.logical ?? [] : [logical];
-  const deltas = yield* Effect.forEach(logicalMembers, member => prepareLogicalCommerceContribution(
-    member, publicationClock, input.kind === "atomic" && atomic?.deferredEvents !== undefined));
-  const replacements = deltas.filter(delta => delta.hasReferenceReplacement);
-  if (replacements.length > 1) return yield* Effect.fail(commerceError("invalidAuthority"));
-  if (replacements.length === 1) {
+  const delta = logicalMembers.length === 0 ? undefined : yield* prepareLogicalCommercePublication(
+    logicalMembers, publicationClock, input.kind === "atomic" && atomic?.deferredEvents !== undefined);
+  if (delta?.hasReferenceReplacement) {
     if (atomic?.deferredEvents === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
-    yield* appendDerivedCommerceIdEvents(atomic.deferredEvents, lifetime, replacements[0]?.derivedIds ?? []);
+    yield* appendDerivedCommerceIdEvents(atomic.deferredEvents, lifetime, delta.derivedIds);
   }
   const atomicEvents = atomic?.deferredEvents === undefined ? atomic?.events :
     yield* consumeCommerceEvents(atomic.deferredEvents, lifetime);
@@ -156,26 +155,23 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   const kernel: ScopePublicationKernel = { clock, ...allocation,
     relationAdjacencyChanges: adjacencyChanges };
   let prefix: ScopePublicationPrefixProof;
-  if (deltas.length === 0) {
+  if (delta === undefined) {
     prefix = yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, options, signal));
   } else {
     // Header and fact pages are uncommitted until this owner settles its one
     // transaction. The shared publisher validates ordered revision-bound facts.
     const writer = yield* publishCommerceAtoms(signal => beginScopePublicationPrefix(state.tx, contribution, kernel, options, signal));
     let logicalRows = 0;
-    for (const delta of deltas) {
-      const precedingRows = logicalRows;
-      const lowered = yield* delta.materialize(allocation.commitSeq, rows => Effect.gen(function* () {
-        if (logicalRows + rows.length + relationalFacts.length >
-          (input.kind === "atomic" ? input.factLimit : Infinity))
-          return yield* Effect.fail(commerceError("limitExceeded"));
-        yield* publishCommerceAtoms(signal => writer.appendRows(rows, signal));
-        logicalRows += rows.length;
-      }));
-      if (logicalRows - precedingRows !== lowered.rowCount)
-        return yield* Effect.fail(commerceError("invalidAuthority"));
-      adjacencyChanges.push(...lowered.adjacencyChanges);
-    }
+    const lowered = yield* delta.materialize(allocation.commitSeq, rows => Effect.gen(function* () {
+      if (logicalRows + rows.length + relationalFacts.length >
+        (input.kind === "atomic" ? input.factLimit : Infinity))
+        return yield* Effect.fail(commerceError("limitExceeded"));
+      yield* publishCommerceAtoms(signal => writer.appendRows(rows, signal));
+      logicalRows += rows.length;
+    }));
+    if (logicalRows !== lowered.rowCount)
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+    adjacencyChanges.push(...lowered.adjacencyChanges);
     prefix = yield* publishCommerceAtoms(signal => writer.finish(signal));
   }
   if (physical?.state.bootstrap) {
@@ -193,9 +189,8 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   }
   if (logical !== undefined && input.kind === "logical" && input.initialization !== undefined) {
     const initialization = input.initialization;
-    const seedDelta = deltas[0];
-    if (seedDelta === undefined || seedDelta.changes.length !== initialization.expectedRowCount ||
-      seedDelta.changes.some(change => change.kind !== "live")) return yield* Effect.fail(commerceError("seedMismatch"));
+    if (delta === undefined || delta.changes.length !== initialization.expectedRowCount ||
+      delta.changes.some(change => change.kind !== "live")) return yield* Effect.fail(commerceError("seedMismatch"));
     const recorded = yield* runDrizzleStatementEffect(state.tx.insert(fxSystemLogicalSourceInitializations).values({
       scopeUuid: scope.scopeUuid, sourceKey: logical.state.sourceKey, sourceSha256: logical.state.sourceSha256,
       stepId: initialization.stepId, contractSha256: initialization.contractSha256, datasetSha256: initialization.datasetSha256,

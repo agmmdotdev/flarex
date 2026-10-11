@@ -1,7 +1,8 @@
 import type { ScopeClockRecord } from "../../scope/scopeClock";
 import type { AppRowTransaction } from "../../storage/documents/appRows";
 import type { CheckedApplicationActiveHead } from "../activeHead/contracts";
-import { readCheckedApplicationActiveHead } from "../activeHead/identity";
+import { readCheckedActiveHeadState } from "../activeHead/identity";
+import { ApplicationActiveHeadStateError } from "../activeHead/errors";
 import type { PreparedApplicationRelationActiveRead } from "../relations/applicationRelationReadinessFold";
 import type {
   AcceptedApplicationBinding,
@@ -18,6 +19,7 @@ import {
   readRelationApplicationBindingPreparation,
 } from "./selectionIdentity";
 import { Effect, Result } from "effect";
+import type { ApplicationBindingEvidence } from "../applicationBindingProjection";
 
 const acceptedBindings = new WeakMap<object, {
   selection: ApplicationBindingInput; tx: AppRowTransaction; clock: ScopeClockRecord;
@@ -26,6 +28,9 @@ const acceptedBindings = new WeakMap<object, {
   readiness: PreparedApplicationRelationActiveRead | undefined;
   readonly fullOrdinaryBasis: boolean;
   lendingOpen: boolean;
+  /** String-only, deeply frozen projection issued by the projection owner.
+   * Raw basis digests remain private detached byte arrays. */
+  evidence?: ApplicationBindingEvidence;
 }>();
 
 // An index of this issuer's live callback tokens, not another acceptance cache.
@@ -77,10 +82,25 @@ export function requireAcceptedApplicationBindingObservation(binding: AcceptedAp
   const checked = state.checkedActive;
   return Result.gen(function* () {
     yield* readApplicationBindingTargetProtection(selection);
-    const active = yield* readCheckedApplicationActiveHead(checked, tx, clock).pipe(
+    // This frontier authenticates membership/completeness only. The active-head
+    // issuer retains mutable digest bytes privately; its public reader detaches
+    // the full body, which this refusal-only check never needs to construct.
+    const active = yield* readCheckedActiveHeadState(checked, tx, clock).pipe(
+      Result.flatMap(activeState => activeState === "refresh" || activeState.active !== undefined ? Result.succeed(activeState) :
+        Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }))),
       Result.mapError(cause => activationError("validateSelection", "invalidComposition", undefined, false, cause)));
     if (active === "refresh") return yield* Result.fail(activationError("validateSelection", "invalidComposition"));
   });
+}
+
+/** Only a live ordinary callback can lend acceptance to another source. The
+ * original callback's observation remains valid after its lending phase closes. */
+export function requireAcceptedApplicationBindingLending(binding: AcceptedApplicationBinding,
+  selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord) {
+  const state = acceptedBindings.get(binding);
+  if (state === undefined || !state.lendingOpen || !state.fullOrdinaryBasis)
+    return Result.fail(activationError("validateSelection", "invalidComposition"));
+  return requireAcceptedApplicationBindingObservation(binding, selection, tx, clock);
 }
 
 export function withApplicationBindingObservation<Value, Failure, Requirements>(selection: ApplicationBindingInput,

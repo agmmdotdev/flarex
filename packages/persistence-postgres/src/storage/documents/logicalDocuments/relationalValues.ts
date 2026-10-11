@@ -8,7 +8,7 @@ import type { FlarexMetadataDatabase } from "../../../application/deployments";
 import { readLogicalStorageRequirements, requirePreparedLogicalStorageRequirements, LogicalStorageDefinitionError,
   type PreparedLogicalStorageRequirements } from "../../catalog/logicalStorageDefinitions";
 import { prepareLogicalRelationalRowValues, hasPreparedLogicalRelationalTableMechanics,
-  type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
+  validateLogicalRelationalCanonicalRow, type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import { chargeHostPreparation } from "../../../execution/preparation/preparedHostRuntime";
 
 export class LogicalRelationalValueError extends Data.TaggedError("LogicalRelationalValueError")<{
@@ -29,6 +29,7 @@ export const prepareLogicalRelationalValueValidation = Effect.fn("LogicalRelatio
     requirePreparedLogicalStorageRequirements(db, deploymentId, schemaVersionId, construction.requirements));
   if (construction.kind === "fresh") yield* chargeHostPreparation(JSON.stringify(evidence));
   const tables = new Map<CatalogTableId, ReturnType<typeof prepareLogicalRelationalRowValues<LogicalRelationalValueError>>>();
+  const prepared = new Map<CatalogTableId, PreparedLogicalRelationalTableMechanics>();
   for (const source of evidence.candidate.sources) {
     if (source.definition.kind !== "relational") continue;
     for (const table of source.definition.schema.tables) {
@@ -40,17 +41,21 @@ export const prepareLogicalRelationalValueValidation = Effect.fn("LogicalRelatio
         (_, cause) => new LogicalRelationalValueError({ reason: "invalidDocument", cause })));
       else {
         const mechanics = construction.tableMechanics(bound.tableId);
-        if (mechanics === undefined || !hasPreparedLogicalRelationalTableMechanics(mechanics, table) ||
-          mechanics.capabilities !== source.definition.schema.capabilities)
+        if (mechanics === undefined || !hasPreparedLogicalRelationalTableMechanics(mechanics, table,
+          source.definition.schema.capabilities))
           return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
         tables.set(bound.tableId, (row, reason) => mechanics.validate(row, reason).pipe(Result.mapError(cause =>
           new LogicalRelationalValueError({ reason: "invalidDocument", cause: cause.cause }))));
+        prepared.set(bound.tableId, mechanics);
       }
     }
   }
   const validate = (tableId: CatalogTableId, document: CanonicalFlarexValueV1) => Result.gen(function* () {
     const table = tables.get(tableId);
     if (table === undefined) return yield* Result.fail(new LogicalRelationalValueError({ reason: "invalidTable" }));
+    const mechanics = prepared.get(tableId);
+    if (mechanics !== undefined) return yield* validateLogicalRelationalCanonicalRow(mechanics, document, "documentInvalid")
+      .pipe(Result.mapError(cause => new LogicalRelationalValueError({ reason: "invalidDocument", cause: cause.cause })));
     const value = yield* decodeDocument(document.value).pipe(Result.mapError(cause =>
       new LogicalRelationalValueError({ reason: "invalidDocument", cause })));
     const fields: Record<string, Json> = {};

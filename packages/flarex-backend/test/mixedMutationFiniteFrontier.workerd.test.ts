@@ -2,6 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Effect, Result, Schema } from "effect";
 import { and, desc, eq, lte, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import {
   CommitSeqSchema,
@@ -21,7 +22,6 @@ import {
 } from "../../persistence-postgres/src/storage/indexes/appIndexEntries";
 import {
   consumeCapturedAppRowsAtSnapshotEffect,
-  prepareAppRowsSnapshotReadEffect,
 } from "../../persistence-postgres/src/storage/documents/appRows";
 import { createMixedMutationProductFixture } from "./support/mixedMutationWorkerdFixture";
 import { fxAppIndexEntryRevisions, fxAppRowCurrent, fxAppRowRevisions,
@@ -71,7 +71,7 @@ async function nativeFrontier(fixture: Fixture) {
 }
 
 describe.each(drivers)("genuine finite native frontier on %s", driver => {
-  it("withholds all bodies for duplicate unique owners while preserving general hydration and lookahead", async () => {
+  it("captures body-free authenticated membership before explicit historical hydration and lookahead", async () => {
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const fixture = yield* Effect.acquireRelease(
         Effect.tryPromise({ try: () => createMixedMutationProductFixture({ driver, suffix: `finite-unique-hydration-${driver}` }),
@@ -89,9 +89,8 @@ describe.each(drivers)("genuine finite native frontier on %s", driver => {
         startInclusive: OrderedIndexBoundHexV1Schema.make(first.encodedKey),
         endExclusive: OrderedIndexBoundHexV1Schema.make(`${first.encodedKey}00`),
       } };
-      const capture = (unique: boolean) => captureFiniteStorageEffect(frontier.target, frontier.input, {
-        kind: "indexRows", tableId: frontier.operation.tableId, input: indexInput, excludeRowIds: [],
-        ...(unique ? { maximumHydratedOwners: 1 as const } : {}),
+      const capture = () => captureFiniteStorageEffect(frontier.target, frontier.input, {
+        kind: "indexPage", tableId: frontier.operation.tableId, input: indexInput,
       });
       yield* Effect.tryPromise({ try: async () => {
         const [membership] = await database.select().from(fxAppIndexEntryRevisions).where(and(
@@ -119,18 +118,20 @@ describe.each(drivers)("genuine finite native frontier on %s", driver => {
         });
         return { membership, original };
       }, catch: cause => new Error("Inject duplicate native membership", { cause }) }).pipe(Effect.flatMap(({ membership, original }) => Effect.gen(function* () {
-        const unique = yield* capture(true);
-        const page = yield* decodeCapturedAppIndexSnapshotPageEffect(unique.prepared, unique.rawIndexRows);
+        const capturedMembership = yield* capture();
+        const page = yield* decodeCapturedAppIndexSnapshotPageEffect(capturedMembership.prepared, capturedMembership.rawRows);
         expect(page.entries).toHaveLength(2);
         expect(page.isDone).toBe(true);
-        expect(unique.rawRows).toHaveLength(0);
-        const general = yield* capture(false);
-        expect(general.rawIndexRows).toHaveLength(2);
-        expect(general.rawRows).toHaveLength(2);
-        const preparedRows = yield* prepareAppRowsSnapshotReadEffect({ scopeId: indexInput.scopeId,
+        expect(capturedMembership.rawRows).toHaveLength(2);
+        expect(capturedMembership.rawRows.every(row => isNonArrayRecord(row) && !Object.hasOwn(row, "valueBytes"))).toBe(true);
+        const general = yield* captureFiniteStorageEffect(frontier.target, {
+          ...frontier.input, finiteReadDemand: { ...frontier.input.finiteReadDemand,
+            demand: { kind: "rows", tableId: frontier.operation.tableId } },
+        }, { kind: "rows", input: { scopeId: indexInput.scopeId,
           tableId: frontier.operation.tableId, rowIds: page.entries.map(entry => entry.rowId),
-          snapshotCommitSeq: indexInput.snapshotCommitSeq });
-        expect(yield* Effect.result(consumeCapturedAppRowsAtSnapshotEffect(preparedRows, general.rawRows,
+          snapshotCommitSeq: indexInput.snapshotCommitSeq } });
+        expect(general.rawRows).toHaveLength(2);
+        expect(yield* Effect.result(consumeCapturedAppRowsAtSnapshotEffect(general.prepared, general.rawRows,
           cause => cause, () => Effect.void))).toMatchObject({
           _tag: "Failure", failure: { _tag: "AppRowStorageCorruptionError" },
         });
@@ -140,12 +141,12 @@ describe.each(drivers)("genuine finite native frontier on %s", driver => {
             rowId: injected[1]!, commitSeq: original.commitSeq });
           await tx.insert(fxAppIndexEntryRevisions).values({ ...membership, rowId: injected[1]! });
         }), catch: cause => new Error("Inject native lookahead membership", { cause }) });
-        const lookahead = yield* capture(true);
-        const lookaheadPage = yield* decodeCapturedAppIndexSnapshotPageEffect(lookahead.prepared, lookahead.rawIndexRows);
-        expect(lookahead.rawIndexRows).toHaveLength(3);
+        const lookahead = yield* capture();
+        const lookaheadPage = yield* decodeCapturedAppIndexSnapshotPageEffect(lookahead.prepared, lookahead.rawRows);
+        expect(lookahead.rawRows).toHaveLength(3);
         expect(lookaheadPage.entries).toHaveLength(2);
         expect(lookaheadPage.isDone).toBe(false);
-        expect(lookahead.rawRows).toHaveLength(0);
+        expect(lookahead.rawRows.every(row => isNonArrayRecord(row) && !Object.hasOwn(row, "valueBytes"))).toBe(true);
       })));
     })));
   }, 180_000);

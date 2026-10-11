@@ -1,7 +1,7 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
 import { MedusaError } from "@medusajs/framework/utils/portable";
-import { isJsonObject } from "flarex-protocol/json";
+import { isJsonObject, type JsonObject } from "flarex-protocol/json";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { makeCommerceReadHost, type CommerceReadHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/read/host";
 import { postgresUrl } from "../../persistence-postgres/test/support/postgresHelpers";
@@ -118,6 +118,45 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
       } finally { await Effect.runPromise(host.close); }
     }, 120_000);
 
+    it("reuses a genuinely managed read program while consuming metadata per operation and revoking escaped work", async () => {
+      const { product } = getLogicalProductRunnerFixture();
+      const input = product.managedReadHostInput;
+      if (input === undefined) throw new Error("Missing managed Product input");
+      const created = await service.createProducts({ id: "managed_program_product", title: "Program Product", handle: "managed-program-product" });
+      let escaped: Effect.Effect<number, CommerceTransactionError> | undefined;
+      let uncaptured: Effect.Effect<readonly JsonObject[], CommerceTransactionError> | undefined;
+      let captures = 0;
+      const command = defineCommerceCommand("managedOwnedReadProgram", "read", (ctx, value) => Effect.gen(function* () {
+        if (!isJsonObject(value) || typeof value.id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
+        const store = yield* ctx.table("product");
+        const query = { fields: ["id"], order: { column: "id", direction: "asc" }, take: 1,
+          predicate: { kind: "in", column: "id", values: [value.id] } };
+        const program = store.prepareRead(query);
+        const rows = yield* program.find(ctx.manager);
+        query.predicate.values[0] = "changed-after-guarded-capture";
+        const total = yield* program.count(ctx.manager);
+        escaped = program.count(ctx.manager);
+        const foreign = new Proxy({}, { ownKeys(): never { captures++; throw new Error("revoked query capture"); } });
+        uncaptured = store.prepareRead(foreign).find(ctx.manager);
+        return { rows: [...rows], total };
+      }));
+      const host = await Effect.runPromise(makeCommerceReadHost({ ...input, commands: [...input.commands, command] }));
+      const spans: string[] = [];
+      const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+      try {
+        expect(await Effect.runPromise(host.read(command, { id: created.id }).pipe(Effect.withTracer(tracer))))
+          .toEqual({ rows: [{ id: created.id }], total: 1 });
+        expect(spans.filter(name => name === "LogicalReadMetadata.queryAccess")).toHaveLength(2);
+        if (escaped === undefined || uncaptured === undefined) throw new Error("Missing escaped genuine program work");
+        // Request disposal removes the original context identity before its
+        // phase check. Re-entry must refuse before metadata or foreign capture.
+        expect(await runEffectFailure(escaped.pipe(Effect.withTracer(tracer)))).toMatchObject({ reason: "invalidAuthority" });
+        expect(await runEffectFailure(uncaptured.pipe(Effect.withTracer(tracer)))).toMatchObject({ reason: "invalidAuthority" });
+        expect(captures).toBe(0);
+        expect(spans.filter(name => name === "LogicalReadMetadata.queryAccess")).toHaveLength(2);
+      } finally { await Effect.runPromise(host.close); }
+    }, 120_000);
+
     it("preserves native collection projection and missing-record behavior against fullProof", async () => {
       const { product, reader } = getLogicalProductRunnerFixture();
       const collection = await service.createProductCollections({ id: "managed_collection", title: "Managed Collection" });
@@ -217,7 +256,9 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
       const expected = { id: created.id, title: "Withheld Product" };
       const entered = await Effect.runPromise(Deferred.make<void>());
       const release = await Effect.runPromise(Deferred.make<void>());
+      let callbackEntries = 0;
       const command = defineCommerceCommand("managedNativeBarrier", "read", Effect.fn("ManagedNativeTest.barrier")(function* (ctx, value) {
+        callbackEntries++;
         const result = yield* ctx.nested(native, value);
         expect(result).toEqual(expected);
         yield* Deferred.succeed(entered, undefined);
@@ -239,8 +280,22 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
           expect(originalCommerceFailure(Result.getOrThrow(Cause.findError(outcome.cause))))
             .toMatchObject({ reason: "invalidAuthority", cause: { reason: "invalidAuthority",
               cause: { reason: "resourceFailure", cause: { cause: { code: "40001" } } } } });
-          expect(await readinessFailure(host.read(native, args), "original metadata snapshot"))
-            .toMatchObject({ reason: "invalidAuthority" });
+          const spans: string[] = [];
+          const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+          let observed: CommerceTransactionError | undefined;
+          const refused = await readinessFailure(host.read(command, args).pipe(Effect.withTracer(tracer),
+            Effect.tapError(failure => Effect.sync(() => { observed = failure; }))), "original metadata snapshot");
+          // Re-entry authenticates the original preparation epoch before the
+          // callback or query metadata. Commerce retains that owner's wrapper;
+          // the successful callback above still has its distinct final barrier.
+          expect(refused).toBe(observed);
+          expect(refused).toMatchObject({ reason: "resourceFailure", cause: {
+            _tag: "ApplicationActivationError", operation: "validateSelection", reason: "resourceFailure", retryable: false,
+            cause: { _tag: "PreparedMetadataEpochError", reason: "changed" },
+          } });
+          expect(callbackEntries).toBe(1);
+          expect(spans.filter(name => name === "CommerceReadHost.invoke" || name === "LogicalReadMetadata.queryAccess"))
+            .toEqual([]);
         } finally {
           await Effect.runPromise(Deferred.succeed(release, undefined));
           await Effect.runPromise(Fiber.interrupt(pending));
@@ -251,7 +306,10 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
           expect(await Effect.runPromise(refreshed.read(native, args))).toEqual(expected);
           await writer.touchActiveHead();
           expect(await readinessFailure(refreshed.read(native, args), "warmed head snapshot"))
-            .toMatchObject({ reason: "invalidAuthority" });
+            .toMatchObject({ reason: "resourceFailure", cause: {
+              _tag: "ApplicationActivationError", operation: "validateSelection", reason: "resourceFailure", retryable: false,
+              cause: { _tag: "PreparedMetadataEpochError", reason: "changed" },
+            } });
         } finally { await Effect.runPromise(refreshed.close); }
         const reconstructed = await Effect.runPromise(makeCommerceReadHost(input));
         try { expect(await Effect.runPromise(reconstructed.read(native, args))).toEqual(expected); }
@@ -337,8 +395,20 @@ describe.skipIf(process.env.FLAREX_TEST_DRIVER !== "postgres" || postgresUrl ===
       expect(await Effect.runPromise(reader.read(native, args))).toEqual({ id: created.id, title: "Moved Head Product" });
       const next = await currency.application.moveHead();
       expect(next.expectedActiveHead).not.toEqual(currency.application.active.expectedActiveHead);
-      expect(await readinessFailure(reader.read(native, args), "actual Application head transition"))
-        .toMatchObject({ reason: "invalidAuthority" });
+      const spans: string[] = [];
+      const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+      let observed: CommerceTransactionError | undefined;
+      const refused = await readinessFailure(reader.read(native, args).pipe(Effect.withTracer(tracer),
+        Effect.tapError(failure => Effect.sync(() => { observed = failure; }))), "actual Application head transition");
+      // The real publication changes the protected epoch. Original generation
+      // authentication therefore refuses before the later head comparison.
+      expect(refused).toBe(observed);
+      expect(refused).toMatchObject({ reason: "resourceFailure", cause: {
+        _tag: "ApplicationActivationError", operation: "validateSelection", reason: "resourceFailure", retryable: false,
+        cause: { _tag: "PreparedMetadataEpochError", reason: "changed" },
+      } });
+      expect(spans.filter(name => name === "CommerceReadHost.invoke" || name === "LogicalReadMetadata.queryAccess"))
+        .toEqual([]);
       } finally { await isolated.close(); }
     }, 120_000);
 

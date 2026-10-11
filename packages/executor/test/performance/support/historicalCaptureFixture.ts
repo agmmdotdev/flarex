@@ -32,8 +32,10 @@ import { findProducts } from "../../../../medusa-adapter/src/product-query";
 import type { ProductRuntimeMetadata } from "../../../../medusa-adapter/src/product-runtime-metadata";
 import { createMixedMutationProductFixture } from "./mixedMutationProductFixture";
 
-type IndexRowsOperation = Extract<FiniteStorageCaptureOperation, { kind: "indexRows" }>;
-type CapturedIndexRows = FiniteStorageCaptureEnvelopes["indexRows"];
+type HistoricalOperation = Extract<FiniteStorageCaptureOperation, { kind: "indexPage" | "rows" }>;
+type HistoricalEnvelope = FiniteStorageCaptureEnvelopes["indexPage" | "rows"];
+/** Each of the nine source demands accepts membership, then captures its rows. */
+export const HISTORICAL_CAPTURE_INPUTS_PER_PASS = 9 * 2;
 const SelectedProductSeedSchema = Schema.Struct({ id: Schema.String,
   options: Schema.Array(Schema.Struct({ id: Schema.String,
     values: Schema.Array(Schema.Struct({ id: Schema.String, value: Schema.String })) })),
@@ -47,11 +49,10 @@ export interface HistoricalCaptureCase {
   readonly owner: string;
   readonly ancestry: readonly string[];
   readonly tableName: string;
-  readonly operation: IndexRowsOperation;
+  readonly operation: HistoricalOperation;
   readonly demand: LogicalStorageReadDemand;
   readonly expectedRows: number;
   readonly expectedBound: number;
-  readonly expectedMaximumHydratedOwners: 1 | null;
 }
 
 /** The observer encloses exactly one original capture. The SDK retains its own
@@ -178,7 +179,7 @@ export async function createHistoricalCaptureFixture(input: Readonly<{
       if (used) throw new Error("Historical capture fixture permits one two-pass admitted invocation");
       used = true;
       const captured: Array<Readonly<{ captureCase: HistoricalCaptureCase;
-        runCapture: () => Effect.Effect<CapturedIndexRows, FiniteStorageCaptureError>; first: CapturedIndexRows }>> = [];
+        runCapture: () => Effect.Effect<HistoricalEnvelope, FiniteStorageCaptureError>; first: HistoricalEnvelope }>> = [];
       const counts: [number, number] = [0, 0];
       let completion: HistoricalCapturePasses | undefined;
       const work = Effect.gen(function* () {
@@ -217,27 +218,31 @@ export async function createHistoricalCaptureFixture(input: Readonly<{
             const captureStorage: LogicalFiniteStorageCapture<FiniteStorageCaptureError> = (operation, demand) => {
               const original = originalCapture(operation, demand);
               return Effect.suspend(() => {
-                const source = sources[captured.length];
+                const source = sources[Math.floor(captured.length / 2)];
                 const actualOperation: FiniteStorageCaptureOperation = operation;
-                if (source === undefined || actualOperation.kind !== "indexRows")
+                const membership = captured.length % 2 === 0;
+                if (source === undefined || (actualOperation.kind !== "indexPage" && actualOperation.kind !== "rows") ||
+                  actualOperation.kind !== (membership ? "indexPage" : "rows"))
                   return Effect.die("Selected source emitted an unexpected historical capture");
-                const expectedBound = source.unique ? 2 : 256;
-                const expectedMaximumHydratedOwners = source.unique ? 1 : null;
+                const expectedBound = membership ? (source.unique ? 2 : 256) : source.rows;
                 const sourceTable = sourceTables.find(table => table.localName === source.tableName);
                 if (sourceTable === undefined || !sourceAdmission.tableIds.has(sourceTable.tableId) ||
-                  actualOperation.tableId !== sourceTable.tableId ||
-                  actualOperation.input.definition.access.tableId !== sourceTable.tableId ||
-                  actualOperation.input.limit !== expectedBound ||
-                  (actualOperation.maximumHydratedOwners ?? null) !== expectedMaximumHydratedOwners ||
-                  demand.kind !== "index" || demand.tableId !== sourceTable.tableId ||
-                  demand.indexDefinitionId !== actualOperation.input.definition.indexDefinitionId)
+                  (actualOperation.kind === "indexPage"
+                    ? actualOperation.tableId !== sourceTable.tableId ||
+                      actualOperation.input.definition.access.tableId !== sourceTable.tableId ||
+                      actualOperation.input.limit !== expectedBound || demand.kind !== "index" ||
+                      demand.tableId !== sourceTable.tableId || demand.indexDefinitionId !== actualOperation.input.definition.indexDefinitionId
+                    : actualOperation.input.tableId !== sourceTable.tableId ||
+                      actualOperation.input.rowIds.length !== expectedBound || demand.kind !== "rows" ||
+                      demand.tableId !== sourceTable.tableId))
                   return Effect.die(`Historical source demand mismatch for ${source.id}`);
                 const captureCase: HistoricalCaptureCase = Object.freeze({ ordinal: captured.length + 1,
-                  id: source.id, owner: source.owner, ancestry: source.ancestry, tableName: source.tableName,
-                  operation: actualOperation, demand, expectedRows: source.rows, expectedBound, expectedMaximumHydratedOwners });
+                  id: `${source.id}-${actualOperation.kind}`, owner: source.owner, ancestry: source.ancestry, tableName: source.tableName,
+                  operation: actualOperation, demand, expectedRows: source.rows, expectedBound });
                 return observe(captureCase, 1, () => original).pipe(
                   Effect.tap(envelope => Effect.sync(() => {
-                    if (envelope.kind !== "indexRows") throw new Error("Selected historical capture returned another envelope");
+                    if (envelope.kind !== actualOperation.kind || (envelope.kind !== "indexPage" && envelope.kind !== "rows"))
+                      throw new Error("Selected historical capture returned another envelope");
                     assertCaptureRows(captureCase, envelope);
                     captured.push({ captureCase, runCapture: () => originalCapture(actualOperation, demand), first: envelope });
                   })));
@@ -261,7 +266,8 @@ export async function createHistoricalCaptureFixture(input: Readonly<{
                 const categoryTargets = yield* loaderRead(borrowed.context, catalog.category.table, categoryPrimaryColumn, categoryIds);
                 const selectedSeed = yield* decodeSelectedProductSeed(selected.rows[0]).pipe(Effect.orDie);
                 const nativeSeed = yield* decodeSelectedProductSeed(fixture.seedGraph.baseline).pipe(Effect.orDie);
-                if (captured.length !== 9 || selected.rows.length !== 1 || selected.rows[0]?.id !== seed.productId ||
+                if (captured.length !== sources.length * 2 || captured.length !== HISTORICAL_CAPTURE_INPUTS_PER_PASS ||
+                  selected.rows.length !== 1 || selected.rows[0]?.id !== seed.productId ||
                   !isDeepStrictEqual(selectedSeed, nativeSeed) ||
                   variant.length !== 1 || variant[0]?.id !== seed.variantId || images.length !== 1 || images[0]?.id !== seed.imageId ||
                   categories.length !== 1 || categoryTargets.length !== 1 || categoryTargets[0]?.id !== seed.categoryId)
@@ -270,8 +276,7 @@ export async function createHistoricalCaptureFixture(input: Readonly<{
                   const replay = yield* observe(capture.captureCase, 2, capture.runCapture).pipe(
                     Effect.mapError(projectFiniteStorageCaptureFailure), Effect.mapError(projectCommerceRequestFailure));
                   assertCaptureRows(capture.captureCase, replay);
-                  if (!isDeepStrictEqual(replay.rawIndexRows, capture.first.rawIndexRows) ||
-                    !isDeepStrictEqual(replay.rawRows, capture.first.rawRows))
+                  if (!isDeepStrictEqual(replay.rawRows, capture.first.rawRows))
                     return yield* Effect.die("Uncached historical capture changed row payloads within one open borrow");
                 }
                 return { products: selected.rows, variants: variant, images, categories: categoryTargets };
@@ -285,8 +290,10 @@ export async function createHistoricalCaptureFixture(input: Readonly<{
               }), Effect.mapError(invocationFailure)) };
           }));
         if (outcome.kind !== "completed" || outcome.delivery !== "executed" || completion === undefined ||
-          completion.captureCount !== 18 || counts[0] !== 9 || counts[1] !== 9 || completion.changes !== 0 || completion.events !== 0)
-          return yield* Effect.die("Historical capture did not complete exactly eighteen read-only submissions");
+          completion.captureCount !== HISTORICAL_CAPTURE_INPUTS_PER_PASS * 2 ||
+          counts[0] !== HISTORICAL_CAPTURE_INPUTS_PER_PASS || counts[1] !== HISTORICAL_CAPTURE_INPUTS_PER_PASS ||
+          completion.changes !== 0 || completion.events !== 0)
+          return yield* Effect.die("Historical capture did not complete its membership and row submissions in both passes");
         return completion;
       }).pipe(Effect.ensuring(fixture.store.discardFiniteRootEffect(fixture.persistenceAttempt).pipe(Effect.orDie)));
       return Effect.runPromise(work);
@@ -301,9 +308,9 @@ export async function createHistoricalCaptureFixture(input: Readonly<{
 
 const invocationFailure = (cause: CommerceTransactionError) => new LogicalParticipantInvocationError({ kind: "infrastructure", cause });
 
-function assertCaptureRows(captureCase: HistoricalCaptureCase, envelope: CapturedIndexRows): void {
-  if (envelope.rawIndexRows.length !== captureCase.expectedRows || envelope.rawRows.length !== captureCase.expectedRows)
-    throw new Error(`Historical capture ${captureCase.id} expected ${captureCase.expectedRows} index and owner rows`);
+function assertCaptureRows(captureCase: HistoricalCaptureCase, envelope: HistoricalEnvelope): void {
+  if (envelope.rawRows.length !== captureCase.expectedRows)
+    throw new Error(`Historical capture ${captureCase.id} expected ${captureCase.expectedRows} ${envelope.kind} rows`);
 }
 
 /** Match write/replace.ts's load query, including compiler-owned PK/FK ordering. */

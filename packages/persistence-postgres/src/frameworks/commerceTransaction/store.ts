@@ -8,7 +8,7 @@ import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { captureRelationalRowKey } from "../../commit/publication/relationalFacts";
 import { selectRelationalRowKey } from "../../commit/publication/relationalRowKey";
-import { capturePrivateJsonData } from "../../values/privateJsonData";
+import { capturePrivateJsonData, useCapturedPrivateJsonData } from "../../values/privateJsonData";
 import { decodeCommerceDriverRows as driverRows } from "./driverRows";
 import { runOwnedPromise } from "../../values/ownedPromise";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
@@ -55,6 +55,11 @@ const invalid = () => commerceError("invalidInput");
 const decodeTextNotEqual = Schema.decodeUnknownResult(Schema.Struct({
   kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String,
 }), { onExcessProperty: "error" });
+const CommerceReadOrder = Schema.Struct({
+  // Column membership and absence retain their later profile-owned refusal.
+  column: Schema.optionalKey(Schema.Unknown), direction: Schema.Literals(["asc", "desc"]),
+});
+const decodeCommerceReadOrder = Schema.decodeUnknownResult(CommerceReadOrder, { onExcessProperty: "error" });
 const countWithin = (value: unknown, maximum: number): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= maximum;
 
@@ -205,8 +210,18 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       case "timestamp with time zone": return Result.succeed(sql`${value}::timestamptz`);
     }
   };
-  const parseRead = (input: unknown) => Result.gen(function* () {
-    const captured = yield* capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError);
+  interface ReadPreparation {
+    retained?: Readonly<{ captured: Readonly<{ value: Json; bytes: number }>; query: ReadQuery }>;
+  }
+  interface ReadQuery { readonly filter: SQL; readonly selected: SQL; readonly order: SQL; readonly skip: number; readonly take: number }
+  const parseRead = (input: unknown, preparation?: ReadPreparation): Result.Result<ReadQuery, CommerceTransactionError> => Result.gen(function* () {
+    const prior = preparation?.retained;
+    const captured = yield* (prior === undefined ? capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError)
+      : useCapturedPrivateJsonData(prior.captured.value, lifetime.remainingBytes(), commerceError));
+    if (prior !== undefined) {
+      yield* lifetime.charge(captured.bytes);
+      return prior.query;
+    }
     if (!representable(captured.value)) return yield* Result.fail(invalid());
     yield* lifetime.charge(captured.bytes);
     if (!isNonArrayRecord(captured.value) || Object.keys(captured.value).some(name => !["predicate", "fields", "skip", "take", "order"].includes(name))) return yield* Result.fail(invalid());
@@ -218,8 +233,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     if (!Array.isArray(fields) || fields.length === 0 || fields.length > table.columns.length) return yield* Result.fail(invalid());
     const selected: SQL[] = [];
     for (const name of fields) { const field = yield* column(name); selected.push(sql`${sql.identifier(field.name)} as ${sql.identifier(field.identity.columnId)}`); }
-    const order = value.order;
-    if (!isNonArrayRecord(order) || Object.keys(order).some(name => !["column", "direction"].includes(name)) || !["asc", "desc"].includes(String(order.direction))) return yield* Result.fail(invalid());
+    const order = yield* decodeCommerceReadOrder(value.order).pipe(Result.mapError(cause => commerceError("invalidInput", cause)));
     const ordered = yield* column(order.column);
     let nodes = 0;
     let operands = 0;
@@ -266,9 +280,11 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       }
       return parts.length === 0 ? sql`false` : sql`${sql.identifier(field.name)} in (${sql.join(parts, sql`, `)})`;
     });
-    return { filter: yield* predicate(value.predicate ?? { kind: "and", children: [] }, 0), selected: sql.join(selected, sql`, `),
+    const query = Object.freeze({ filter: yield* predicate(value.predicate ?? { kind: "and", children: [] }, 0), selected: sql.join(selected, sql`, `),
       order: sql.join([sql`${sql.identifier(ordered.name)} ${order.direction === "asc" ? sql`asc` : sql`desc`}`,
-        ...primary.columns.filter(name => name !== "scope_uuid" && name !== ordered.name).map(name => sql`${sql.identifier(name)} asc`)], sql`, `), skip, take };
+        ...primary.columns.filter(name => name !== "scope_uuid" && name !== ordered.name).map(name => sql`${sql.identifier(name)} asc`)], sql`, `), skip, take });
+    if (preparation !== undefined) preparation.retained = Object.freeze({ captured, query });
+    return query;
   });
   const guard = <Value>(context: BoundedRequestContext, mode: "read" | "write", operation: Effect.Effect<Value, CommerceTransactionError>) =>
     lifetime.operation(context, id, mode, Effect.gen(function* () {
@@ -277,13 +293,13 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       if (mode === "write") yield* requireCommercePublication(admission);
       return yield* operation;
     }));
-  const find: CommerceStore["find"] = Effect.fn("CommerceStore.find")((context, input) => guard(context, "read", Effect.gen(function* () {
-    const query = yield* Effect.fromResult(parseRead(input));
+  const find = Effect.fn("CommerceStore.find")((context: BoundedRequestContext, input: unknown, preparation?: ReadPreparation) => guard(context, "read", Effect.gen(function* () {
+    const query = yield* Effect.fromResult(parseRead(input, preparation));
     yield* catalogBound();
     return yield* queryRows(sql`select ${query.selected} from ${target} where ${scoped} and (${query.filter}) order by ${query.order} offset ${query.skip} limit ${query.take}`);
   })));
-  const count: CommerceStore["count"] = Effect.fn("CommerceStore.count")((context, input) => guard(context, "read", Effect.gen(function* () {
-    const query = yield* Effect.fromResult(parseRead(input));
+  const count = Effect.fn("CommerceStore.count")((context: BoundedRequestContext, input: unknown, preparation?: ReadPreparation) => guard(context, "read", Effect.gen(function* () {
+    const query = yield* Effect.fromResult(parseRead(input, preparation));
     yield* catalogBound();
     const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total from ${target} where ${scoped} and (${query.filter})`));
     const rows = yield* driverRows(result);
@@ -291,8 +307,8 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     if (rows?.length !== 1 || !isNonArrayRecord(row) || !countWithin(row.total, resources.catalogRows)) return yield* Effect.fail(commerceError("storedCorruption"));
     return row.total;
   })));
-  const findPage: CommerceStore["findPage"] = Effect.fn("CommerceStore.findPage")((context, input) => guard(context, "read", Effect.gen(function* () {
-    const query = yield* Effect.fromResult(parseRead(input));
+  const findPage = Effect.fn("CommerceStore.findPage")((context: BoundedRequestContext, input: unknown, preparation?: ReadPreparation) => guard(context, "read", Effect.gen(function* () {
+    const query = yield* Effect.fromResult(parseRead(input, preparation));
     // The retained physical compatibility profile has an explicit catalog cap.
     // Its own SQL owner supplies page lookahead within that bounded catalog.
     yield* catalogBound();
@@ -659,6 +675,14 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return Object.freeze(result);
   })));
   return Object.freeze({ find, findPage, count,
+    prepareRead: (input): ReturnType<CommerceStore["prepareRead"]> => {
+      const preparation: ReadPreparation = {};
+      return Object.freeze({
+        find: context => find(context, input, preparation),
+        findPage: context => findPage(context, input, preparation),
+        count: context => count(context, input, preparation),
+      } satisfies ReturnType<CommerceStore["prepareRead"]>);
+    },
     aggregate: (context) => guard(context, "read", Effect.fail(commerceError("unsupportedProfile"))),
     write, delete: remove, lifecycle } satisfies CommerceStore);
 });

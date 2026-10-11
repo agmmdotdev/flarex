@@ -1,8 +1,8 @@
 import { observeExecution } from "../../execution/diagnostics/operation";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { copyFiniteDate } from "@flarex/utils/dates";
-import { bytesEqualFullScan, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { and, asc, eq, getTableColumns, gt, inArray, lte, type SQLWrapper } from "drizzle-orm";
+import { bytesEqualFullScan, encodeBytesToLowercaseHex, copyBytes } from "@flarex/utils/bytes";
+import { and, asc, eq, getTableColumns, gt, lte, sql, type SQLWrapper } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -37,16 +37,21 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import { readAppTableWriteFrontierInTransactionEffect, readAppTableWriteFrontiersInTransactionEffect,
+  decodeCapturedAppTableWriteFrontierResult,
   AppRowTableFrontierCorruptionError, type AppRowTransaction, type AppRowReadPersistenceError,
   type InvalidAppRowReadInputError } from "../documents/appRows";
-import type { AppIndexDefinitionRecord } from "./appIndexDefinitions";
+import type { AppIndexDefinitionRecord, LocatedAppIndexDefinitionV1 } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import { runDrizzleStatementEffect } from "../../database/drizzleStatementEffect";
+import { defineNativeMetadataRead } from "../../database/physicalSession/drizzle";
+import { prepareSelectedIndexBuildLockAcceptance, prepareRequiredIndexBuildReadinessAcceptance, prepareRequiredIndexBuildProgressCapture } from "./nativeIndexBuildAcceptance";
 import { hasExactOwnDataKeys } from "../../values/exactOwnDataKeys";
 import {
   decodeScopeClockRecordResult,
   scopeClockSelection,
+  scopeClockExecutionAuthorityJoin,
   exactScopeWriteClockObservationIdentity,
+  readExactScopeWriteClockObservation,
   type ScopeClockRecord,
 } from "../../scope/scopeClock";
 import {
@@ -56,6 +61,7 @@ import {
 } from "../../application/applicationActiveHeadRead";
 import {
   readCheckedApplicationActiveHead,
+  type ApplicationIndexCoveragePins,
 } from "../../application/activeHead/identity";
 import {
   type CheckedApplicationActiveHead,
@@ -256,18 +262,300 @@ export class IndexBuildStatePersistenceError extends Error {
 
 export const MAX_REQUIRED_INDEX_BUILDS = 512;
 
-/** Shared structural gate under the caller's locked clock. The caller supplies
- * its authenticated complete requirement set. Enabled state alone is not a
- * serving grant or proof of coverage at an arbitrary read snapshot. */
+const decodeSelectedBuildLockVerdict = Schema.decodeUnknownEffect(Schema.Struct({
+  reason: Schema.Literals(["accepted", "missing", "invalid", "unavailable", "frontier"]),
+  ordinal: Schema.NullOr(Schema.String),
+  indexDefinitionId: Schema.NullOr(CatalogIndexDefinitionIdSchema),
+}));
+
+/** The ordinary materialization owner retains full live SHARE validation and
+ * exclusion while discarding successful build records that no caller uses. */
+export const acceptSelectedIndexBuildLocksInTransactionEffect = Effect.fnUntraced(function* (
+  tx: AppRowTransaction, clock: ScopeClockRecord,
+  definitions: readonly Pick<LocatedAppIndexDefinitionV1, "indexDefinitionId" | "access">[],
+  order: "input" | "definition",
+) {
+  const definitionIds = definitions.map(definition => definition.indexDefinitionId);
+  if (definitionIds.length > MAX_REQUIRED_INDEX_BUILDS || new Set(definitionIds).size !== definitionIds.length)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  if (definitionIds.length === 0) return;
+  const rows = yield* Effect.uninterruptible(runDrizzleStatementEffect(
+    prepareSelectedIndexBuildLockAcceptance(tx, clock, definitions, order),
+    cause => new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", cause),
+  ));
+  if (rows.length !== 1 || rows[0] === undefined)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const row = rows[0];
+  const verdict = yield* decodeSelectedBuildLockVerdict(row).pipe(Effect.mapError(cause =>
+    new IndexMaintenanceError({ reason: "storedState", cause })));
+  if (verdict.reason === "accepted") {
+    if (verdict.ordinal !== null || verdict.indexDefinitionId !== null)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    return;
+  }
+  const ordinal = verdict.ordinal === null ? -1 : Number(verdict.ordinal) - 1;
+  const definitionId = definitionIds[ordinal];
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0 || String(ordinal + 1) !== verdict.ordinal ||
+    definitionId === undefined || verdict.indexDefinitionId !== definitionId)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  if (verdict.reason === "missing") return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const decoded = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row.build, clock.scopeId,
+    definitionId, row.maintenance.scopeId === null ? null : row.maintenance));
+  if (verdict.reason === "unavailable") return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  yield* Effect.fromResult(validateIndexBuildStateFrontierResult(decoded, clock.lastCommitSeq));
+  return yield* Effect.die(new Error("Native index build acceptance rejected valid evidence"));
+}, work => observeExecution("IndexBuildState.acceptSelectedBuildLocks", work, "caller"));
+
+const decodeRequiredIndexReadinessVerdict = Schema.decodeUnknownEffect(Schema.Struct({
+  phase: Schema.Literals(["availability", "coverage"]),
+  reason: Schema.Literals(["accepted", "missing", "stale", "notEnabled", "invalid", "frontier", "maintenance", "notCovered", "tableFrontier"]),
+  ordinal: Schema.NullOr(Schema.String),
+  indexDefinitionId: Schema.NullOr(CatalogIndexDefinitionIdSchema),
+}));
+
+/** The original writer observation brackets this complete native read. The
+ * returned accepting closure lends neither a checked head nor a writer grant. */
+export const captureRequiredIndexReadinessInTransactionEffect = Effect.fnUntraced(function* (
+  tx: AppRowTransaction, inputClock: ScopeClockRecord, inputDefinitions: readonly IndexCoverageDefinition[],
+  activePins: ApplicationIndexCoveragePins | null,
+) {
+  const clock = Object.freeze({ ...inputClock, updatedAt: new Date(inputClock.updatedAt.getTime()) });
+  const definitions = Object.freeze(inputDefinitions.map(definition => Object.freeze({
+    indexDefinitionId: definition.indexDefinitionId, tableId: definition.tableId,
+    physicalSpecSha256Hex: definition.physicalSpecSha256Hex,
+  })));
+  const identity = exactScopeWriteClockObservationIdentity(tx, clock.scopeId);
+  if (identity === undefined || definitions.length > MAX_REQUIRED_INDEX_BUILDS ||
+    new Set(definitions.map(definition => definition.indexDefinitionId)).size !== definitions.length)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(clock.scopeId)).pipe(
+    Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
+  const pins = activePins === null ? null : Object.freeze({ ...activePins,
+    activationSha256: copyBytes(activePins.activationSha256), headSha256: copyBytes(activePins.headSha256) });
+  const rows = definitions.length === 0 ? [] : yield* Effect.uninterruptible(runDrizzleStatementEffect(
+    prepareRequiredIndexBuildReadinessAcceptance(tx, clock, definitions, pins, scope.scopeUuid),
+    cause => new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", cause)));
+  const raw = rows[0];
+  if (definitions.length !== 0 && (rows.length !== 1 || raw === undefined))
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const verdict = raw === undefined ? { phase: "coverage" as const, reason: "accepted" as const,
+    ordinal: null, indexDefinitionId: null } : yield* decodeRequiredIndexReadinessVerdict(raw).pipe(
+    Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
+  const ordinal = verdict.ordinal === null ? -1 : Number(verdict.ordinal) - 1;
+  const definition = definitions[ordinal];
+  if (verdict.reason === "accepted" ? verdict.ordinal !== null || verdict.indexDefinitionId !== null || verdict.phase !== "coverage"
+    : !Number.isSafeInteger(ordinal) || ordinal < 0 || String(ordinal + 1) !== verdict.ordinal ||
+      definition === undefined || verdict.indexDefinitionId !== definition.indexDefinitionId)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const availability = yield* Effect.gen(function* () {
+    if (verdict.phase !== "availability") return null;
+    if (definition === undefined || raw === undefined)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    if (verdict.reason === "missing" || verdict.reason === "stale")
+      return Object.freeze({ status: "not_ready" as const, reason: verdict.reason, indexDefinitionId: definition.indexDefinitionId });
+    if (verdict.reason === "notEnabled") return Object.freeze({ status: "not_ready" as const, reason: "notEnabled" as const,
+      indexDefinitionId: definition.indexDefinitionId, lifecycle: raw.build.lifecycle });
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  });
+  const acceptCoverage = Effect.fnUntraced(function* (context: IndexCoverageContext) {
+    const writer = readExactScopeWriteClockObservation(tx, clock.scopeId);
+    if (identity !== exactScopeWriteClockObservationIdentity(tx, clock.scopeId) || writer === undefined ||
+      writer.lastCommitSeq !== clock.lastCommitSeq || writer.oldestAvailableCommitSeq !== clock.oldestAvailableCommitSeq ||
+      writer.lastMetadataSequence !== clock.lastMetadataSequence ||
+      writer.storageGeneration !== clock.storageGeneration || writer.storageGenerationFence !== clock.storageGenerationFence ||
+      writer.epoch !== clock.epoch || writer.updatedAt.getTime() !== clock.updatedAt.getTime() ||
+      context.clock.lastMetadataSequence !== clock.lastMetadataSequence ||
+      !(yield* Effect.fromResult(matchIndexCoverageContextInTransaction(tx, clock, context))))
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const issued = coverageContextTransactions.get(context);
+    const matchesPins = (active: IndexCoverageContext["active"]) => pins === null ? active === null : active !== null &&
+      pins.activationSequence === active.head.activationSequence &&
+      bytesEqualFullScan(pins.activationSha256, active.head.activationSha256) &&
+      bytesEqualFullScan(pins.headSha256, active.head.headSha256) &&
+      pins.deploymentId === active.schema.deploymentId && pins.schemaVersionId === active.schema.schemaVersionId &&
+      pins.schemaManifestSha256 === active.schema.schemaManifestSha256;
+    if (issued === undefined || issued.clock.lastMetadataSequence !== clock.lastMetadataSequence ||
+      !matchesPins(context.active) || !matchesPins(issued.active))
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    if (availability !== null) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    if (verdict.reason === "accepted") return Object.freeze({ status: "ready" as const });
+    if (raw === undefined || definition === undefined) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(raw.build, clock.scopeId,
+      definition.indexDefinitionId, raw.maintenance.scopeId === null ? null : raw.maintenance));
+    yield* Effect.fromResult(validateIndexBuildStateFrontierResult(state, clock.lastCommitSeq));
+    if (state.maintenance === null && state.coveredThroughCommitSeq !== null &&
+      state.coveredThroughCommitSeq < clock.lastCommitSeq && state.firstReadableCommitSeq !== null &&
+      state.firstReadableCommitSeq <= clock.lastCommitSeq) {
+      const frontier = decodeCapturedAppTableWriteFrontierResult(clock.scopeId, definition.tableId, 0,
+        { ordinal: 0, commitSeqText: raw.tableFrontier }, 1, 1);
+      coverageTableFrontiers.set(context, { tx, frontiers: new Map([[definition.tableId, frontier]]) });
+    }
+    if (yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition, clock.lastCommitSeq, context))
+      return yield* Effect.die(new Error("Native required index readiness rejected valid coverage"));
+    return Object.freeze({ status: "not_ready" as const, reason: "notCovered" as const,
+      indexDefinitionId: definition.indexDefinitionId });
+  });
+  return Object.freeze({ availability, acceptCoverage });
+}, work => observeExecution("IndexBuildState.captureRequiredReadiness", work, "caller"));
+
+/** The existing frontier/coverage owners consume this projection, not a
+ * fabricated full build record. Full native decoders remain full consumers. */
+export type IndexBuildCoverageState = Pick<IndexBuildStateRecord,
+  "scopeId" | "indexDefinitionId" | "storageGeneration" | "storageGenerationFence" | "epoch" |
+  "lifecycle" | "startCommitSeq" | "coveredThroughCommitSeq" | "firstReadableCommitSeq"> & {
+  readonly maintenance: Pick<IndexMaintenanceObligation, "tableId" | "physicalSpecSha256" | "deploymentId" |
+    "schemaVersionId" | "schemaManifestSha256" | "activationSequence" | "activationSha256" | "headSha256"> | null;
+};
+
+const decodeProgressHeader = Schema.decodeUnknownEffect(Schema.Struct({
+  reason: Schema.Literals(["captured","invalid","missing","stale","notEnabled"]),
+  ordinal: Schema.NullOr(Schema.String),lockedCount: Schema.String,
+  indexDefinitionId: Schema.NullOr(CatalogIndexDefinitionIdSchema),progress: Schema.NullOr(Schema.String),
+}));
+const OrdinaryIndexProgressSchema = Schema.Tuple([
+  CommitSeqSchema, Schema.NullOr(CommitSeqSchema), Schema.NullOr(CommitSeqSchema),
+  Schema.NullOr(Schema.Boolean), Schema.NullOr(Schema.String),
+]).check(Schema.makeFilter(state =>
+  (state[2] === null || (state[1] !== null && state[2] <= state[1])) &&
+  (state[3] === null) === (state[4] === null) ? undefined : "Invalid captured index progress"));
+const decodeOrdinaryIndexProgressEnvelope = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Array(Schema.Unknown)));
+const decodeOrdinaryIndexProgress = Schema.decodeUnknownResult(OrdinaryIndexProgressSchema);
+const OrdinaryIndexMaintenanceKeySchema = Schema.Tuple([
+  Schema.NonEmptyString, Schema.NonEmptyString, Schema.String,
+  CommitSeqSchema.check(Schema.makeFilter(value => value > 0n ? undefined : "Expected positive activation sequence")),
+  Schema.String, Schema.String,
+]);
+const decodeOrdinaryIndexMaintenanceKey = Schema.decodeUnknownResult(Schema.fromJsonString(OrdinaryIndexMaintenanceKeySchema));
+/** Capture once, retain typed invalid results, then consume compact intrinsic
+ * progress locally at its ordered canonical-context frontier. */
+export const readRequiredIndexBuildProgressInTransactionEffect = Effect.fnUntraced(function* (
+  tx: AppRowTransaction,inputClock: ScopeClockRecord,inputDefinitions: readonly IndexCoverageDefinition[],
+) {
+  const clock=Object.freeze({...inputClock,updatedAt:new Date(inputClock.updatedAt.getTime())});
+  const definitions=Object.freeze(inputDefinitions.map(definition=>Object.freeze({indexDefinitionId:definition.indexDefinitionId,
+    tableId:definition.tableId,physicalSpecSha256Hex:definition.physicalSpecSha256Hex})));
+  if (definitions.length>MAX_REQUIRED_INDEX_BUILDS || new Set(definitions.map(value => value.indexDefinitionId)).size!==definitions.length)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const rows = definitions.length===0 ? [] : yield* Effect.uninterruptible(runDrizzleStatementEffect(
+    prepareRequiredIndexBuildProgressCapture(tx,clock,definitions),cause => new IndexBuildStatePersistenceError("readRequiredIndexBuildStates",cause)));
+  let capture = "[]",previousOrdinal = 0;
+  const invalidRows: Readonly<{ ordinal: number; definition: IndexCoverageDefinition; raw: typeof rows[number] }>[] = [];
+  for (const [index,raw] of rows.entries()) {
+    const header = yield* decodeProgressHeader(raw).pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState",cause })));
+    const locked = Number(header.lockedCount),ordinal = header.ordinal===null ? 0 : Number(header.ordinal);
+    if (!Number.isSafeInteger(locked) || locked<0 || locked>definitions.length || String(locked)!==header.lockedCount ||
+      !Number.isSafeInteger(ordinal) || ordinal<0 || (ordinal!==0 && String(ordinal)!==header.ordinal))
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    if (header.reason==="captured") {
+      if (index!==0 || ordinal!==0 || header.indexDefinitionId!==null || locked!==definitions.length || header.progress===null)
+        return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+      capture=header.progress;
+      continue;
+    }
+    const definition=definitions[ordinal-1];
+    if (definition===undefined || header.indexDefinitionId!==definition.indexDefinitionId || header.progress!==null)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    if (header.reason!=="invalid") {
+      if (rows.length!==1 || (header.reason==="missing" ? locked>=definitions.length : locked===0))
+        return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+      return Object.freeze({ status: "not_ready" as const,reason: header.reason,indexDefinitionId: definition.indexDefinitionId,
+        ...(header.reason==="notEnabled" ? { lifecycle: raw.lifecycle } : {}) });
+    }
+    if (index===0 || ordinal<=previousOrdinal || locked!==definitions.length)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    previousOrdinal=ordinal;
+    invalidRows.push({ordinal,definition,raw});
+  }
+  if (definitions.length!==0 && rows.length===0) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const invalid = new Map<number,Result.Result<IndexBuildStateRecord,IndexBuildStateCorruptionError>>();
+  let intrinsicsDecoded=false;
+  const decodeIntrinsics = Effect.sync(() => {
+    // Header identity was validated above in the stored-state failure channel.
+    // Retain that identity rather than rereading a mutable foreign header.
+    for (const {ordinal,definition,raw} of invalidRows) {
+      invalid.set(ordinal,decodeIndexBuildStateRowResult(raw.rawBuild,clock.scopeId,definition.indexDefinitionId,
+        raw.rawMaintenance.scopeId===null ? null : raw.rawMaintenance));
+    }
+    intrinsicsDecoded=true;
+  });
+  const acceptCoverage = Effect.fnUntraced(function* (context: IndexCoverageContext,searchTableIds: readonly CatalogTableId[]=[]) {
+    if (!intrinsicsDecoded || context.clock.scopeId!==clock.scopeId || context.clock.storageGeneration!==clock.storageGeneration ||
+      context.clock.storageGenerationFence!==clock.storageGenerationFence || context.clock.epoch!==clock.epoch ||
+      context.clock.lastCommitSeq<clock.lastCommitSeq || !(yield* Effect.fromResult(matchIndexCoverageContextInTransaction(tx,context.clock,context))))
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const issued=coverageContextTransactions.get(context);
+    if (issued===undefined) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    // Interpretation begins only after the actual canonical context and eager
+    // native invalid getters. Compact progress never issues a capability.
+    const capturedProgress = yield* Effect.fromResult(decodeOrdinaryIndexProgressEnvelope(capture).pipe(
+      Result.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause }))));
+    if (capturedProgress.length !== definitions.length)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const progress = capturedProgress.map(state => state === null ? null : decodeOrdinaryIndexProgress(state).pipe(
+      Result.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause }))));
+    const consume = (startAt: number,frontiers: ReturnType<typeof coverageTableFrontiers.get>) => Result.gen(function* () {
+      for (let index=startAt;index<definitions.length;index++) {
+        const definition=definitions[index],capturedState=progress[index];
+        if (definition===undefined || capturedState===undefined)
+          return yield* Result.fail(new IndexMaintenanceError({reason:"storedState"}));
+        if (capturedState===null) {
+          const decoded=invalid.get(index+1);
+          if (decoded===undefined) return yield* Result.fail(new IndexMaintenanceError({reason:"storedState"}));
+          yield* decoded;
+          throw new Error("Native intrinsic refusal accepted by complete decoder");
+        }
+        if (invalid.has(index+1)) return yield* Result.fail(new IndexMaintenanceError({reason:"storedState"}));
+        const [start,covered,firstReadable,maintenanceMatches,maintenanceActive]=yield* capturedState;
+        const frontier=start>context.clock.lastCommitSeq ? {name:"start",value:start} :
+          covered!==null && covered>context.clock.lastCommitSeq ? {name:"coverage",value:covered}:null;
+        if (frontier!==null) return yield* Result.fail(new IndexBuildStateCorruptionError(clock.scopeId,
+          definition.indexDefinitionId,`${frontier.name} commit sequence ${frontier.value} is ahead of scope clock ${context.clock.lastCommitSeq}`));
+        if (covered===null || firstReadable===null || firstReadable>clock.lastCommitSeq)
+          return Object.freeze({status:"not_ready" as const,reason:"notCovered" as const,indexDefinitionId:definition.indexDefinitionId});
+        if (maintenanceActive!==null) {
+          const key=yield* decodeOrdinaryIndexMaintenanceKey(maintenanceActive).pipe(
+            Result.mapError(cause=>new IndexMaintenanceError({reason:"storedState",cause})));
+          if (maintenanceMatches!==true || issued.active===null || key[0]!==issued.active.schema.deploymentId ||
+            key[1]!==issued.active.schema.schemaVersionId || key[2]!==issued.active.schema.schemaManifestSha256 ||
+            key[3]!==issued.active.head.activationSequence || key[4]!==encodeBytesToLowercaseHex(issued.active.head.activationSha256) ||
+            key[5]!==encodeBytesToLowercaseHex(issued.active.head.headSha256))
+            return yield* Result.fail(new IndexMaintenanceError({reason:"storedState"}));
+        } else if (covered<clock.lastCommitSeq) {
+          if (frontiers===undefined) return Object.freeze({status:"frontiersRequired" as const,index});
+          const capturedFrontier=frontiers.frontiers.get(definition.tableId);
+          if (capturedFrontier===undefined) throw new Error("Index frontier batch missing a selected table");
+          const value=yield* capturedFrontier;
+          if (value!==null && value>covered)
+            return Object.freeze({status:"not_ready" as const,reason:"notCovered" as const,indexDefinitionId:definition.indexDefinitionId});
+        }
+      }
+      return Object.freeze({status:"ready" as const});
+    });
+    const first=yield* Effect.fromResult(consume(0,undefined));
+    if (first.status!=="frontiersRequired") return first;
+    const needed=definitions.filter((_value,ordinal)=> {
+      const candidate=progress[ordinal];
+      return candidate!==undefined && candidate!==null && Result.match(candidate, {
+        onFailure:()=>false,onSuccess:value=>value[4]===null && value[1]!==null &&
+          value[1]<clock.lastCommitSeq && value[2]!==null && value[2]<=clock.lastCommitSeq,
+      });
+    }).map(value=>value.tableId);
+    yield* readIndexCoverageTableFrontiersInTransactionEffect(tx,context,[...new Set([...needed,...searchTableIds])]);
+    const frontiers=coverageTableFrontiers.get(context);
+    if (frontiers===undefined) return yield* Effect.die("Index frontier batch missing");
+    const accepted=yield* Effect.fromResult(consume(first.index,frontiers));
+    if (accepted.status==="frontiersRequired") return yield* Effect.die("Index frontier consumption repeated its capture demand");
+    return accepted;
+  });
+  return Object.freeze({status:"ready" as const,decodeIntrinsics,acceptCoverage});
+},work => observeExecution("IndexBuildState.readRequiredProgress",work,"caller"));
+
 export const readRequiredEnabledIndexBuildsInTransactionEffect = Effect.fnUntraced(
   function* (tx: AppRowTransaction, clock: IndexBuildStorageAuthority, definitionIds: readonly CatalogIndexDefinitionId[], lock: "key share" | "share" | "update") {
     if (definitionIds.length > MAX_REQUIRED_INDEX_BUILDS || new Set(definitionIds).size !== definitionIds.length)
       return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
     const rows = definitionIds.length === 0 ? [] : yield* Effect.uninterruptible(runDrizzleStatementEffect(
-      tx.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
-        .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(and(
-        eq(fxSystemIndexBuildStates.scopeId, clock.scopeId), inArray(fxSystemIndexBuildStates.indexDefinitionId, [...definitionIds]),
-      )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for(lock, { of: fxSystemIndexBuildStates }),
+      requiredBuildReads[lock](tx, { scopeId: clock.scopeId, definitionIds: [...definitionIds] }),
       cause => new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", cause),
     ));
     const rowsByDefinitionId = new Map(rows.map(row => [row.indexDefinitionId, row]));
@@ -321,30 +609,7 @@ function selectFencedIndexBuildStateRows(
   db: FlarexMetadataDatabase,
   input: ReadFencedIndexBuildStateInput,
 ) {
-  return db
-    .select({
-      clock: scopeClockSelection(),
-      buildState: getTableColumns(fxSystemIndexBuildStates),
-      maintenanceObligation: getTableColumns(fxSystemIndexMaintenanceObligations),
-    })
-    .from(fxSystemScopeClocks)
-    .innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
-    .leftJoin(
-      fxSystemIndexBuildStates,
-      and(
-        eq(
-          fxSystemIndexBuildStates.scopeId,
-          fxSystemScopeClocks.scopeId,
-        ),
-        eq(
-          fxSystemIndexBuildStates.indexDefinitionId,
-          input.indexDefinitionId,
-        ),
-      ),
-    )
-    .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
-    .where(eq(fxSystemScopeClocks.scopeId, input.scopeId))
-    .limit(1);
+  return readFencedBuild(db, { scopeId: input.scopeId, indexDefinitionId: input.indexDefinitionId });
 }
 
 type FencedIndexBuildStateRows = Awaited<
@@ -418,10 +683,20 @@ export type IndexBuildStateRow = typeof fxSystemIndexBuildStates.$inferSelect & 
 };
 
 /** Read the immutable opening binding with its build in the existing statement. */
+const indexBuildColumns = Object.freeze({ ...getTableColumns(fxSystemIndexBuildStates) });
+const indexMaintenanceColumns = Object.freeze({ ...getTableColumns(fxSystemIndexMaintenanceObligations) });
+const indexBuildProjection = Object.freeze({ ...indexBuildColumns, maintenanceObligation: indexMaintenanceColumns });
 export function indexBuildStateSelection() {
-  return { ...getTableColumns(fxSystemIndexBuildStates),
-    maintenanceObligation: getTableColumns(fxSystemIndexMaintenanceObligations) };
+  return indexBuildProjection;
 }
+
+function composeIndexMaintenanceBindingPredicate(scopeId: SQLWrapper, definitionId: SQLWrapper, activationSequence: SQLWrapper) {
+  return and(eq(fxSystemIndexMaintenanceObligations.scopeId, scopeId),
+    eq(fxSystemIndexMaintenanceObligations.indexDefinitionId, definitionId),
+    eq(fxSystemIndexMaintenanceObligations.activationSequence, activationSequence));
+}
+const fixedIndexMaintenanceBindingPredicate = composeIndexMaintenanceBindingPredicate(fxSystemIndexBuildStates.scopeId,
+  fxSystemIndexBuildStates.indexDefinitionId, fxSystemIndexBuildStates.maintenanceActivationSequence);
 
 /** Also accepts a native observed build's real composite-column projections. */
 export function indexMaintenanceBindingPredicate(
@@ -429,17 +704,43 @@ export function indexMaintenanceBindingPredicate(
   definitionId: SQLWrapper = fxSystemIndexBuildStates.indexDefinitionId,
   activationSequence: SQLWrapper = fxSystemIndexBuildStates.maintenanceActivationSequence,
 ) {
-  return and(eq(fxSystemIndexMaintenanceObligations.scopeId, scopeId),
-    eq(fxSystemIndexMaintenanceObligations.indexDefinitionId, definitionId),
-    eq(fxSystemIndexMaintenanceObligations.activationSequence, activationSequence));
+  return scopeId === fxSystemIndexBuildStates.scopeId && definitionId === fxSystemIndexBuildStates.indexDefinitionId &&
+    activationSequence === fxSystemIndexBuildStates.maintenanceActivationSequence
+    ? fixedIndexMaintenanceBindingPredicate : composeIndexMaintenanceBindingPredicate(scopeId, definitionId, activationSequence);
 }
+
+function defineRequiredBuildRead(lock: "key share" | "share" | "update") {
+  return defineNativeMetadataRead(db => db.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
+    .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate()).where(and(
+      eq(fxSystemIndexBuildStates.scopeId, sql.placeholder("scopeId")),
+      sql`${fxSystemIndexBuildStates.indexDefinitionId} = any(${sql.placeholder("definitionIds")}::integer[])`,
+    )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for(lock, { of: fxSystemIndexBuildStates }));
+}
+const requiredBuildReads = {
+  "key share": defineRequiredBuildRead("key share"),
+  share: defineRequiredBuildRead("share"),
+  update: defineRequiredBuildRead("update"),
+};
+const readFencedBuild = defineNativeMetadataRead(db => db.select({
+  clock: scopeClockSelection(), buildState: indexBuildColumns, maintenanceObligation: indexMaintenanceColumns,
+}).from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, scopeClockExecutionAuthorityJoin)
+  .leftJoin(fxSystemIndexBuildStates, and(eq(fxSystemIndexBuildStates.scopeId, fxSystemScopeClocks.scopeId),
+    eq(fxSystemIndexBuildStates.indexDefinitionId, sql.placeholder("indexDefinitionId"))))
+  .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
+  .where(eq(fxSystemScopeClocks.scopeId, sql.placeholder("scopeId"))).limit(1));
+
+/** Native projections guarantee their keys, while every scalar remains evidence
+ * for the ordered field decoders, including a NULL composite's null scalars. */
+type RawIndexBuildStateRow = {
+  readonly [Field in keyof typeof fxSystemIndexBuildStates.$inferSelect]: unknown;
+};
 
 /** Package-internal decoder shared by the C4 read and S03-D3 transaction. */
 export function decodeIndexBuildStateRowResult(
-  row: typeof fxSystemIndexBuildStates.$inferSelect,
+  row: RawIndexBuildStateRow,
   expectedScopeId: ScopeId,
   expectedIndexDefinitionId: CatalogIndexDefinitionId,
-  maintenanceObligation: typeof fxSystemIndexMaintenanceObligations.$inferSelect | null,
+  maintenanceObligation: unknown,
 ): Result.Result<IndexBuildStateRecord, IndexBuildStateCorruptionError> {
   return Result.gen(function* () {
     const cursorCodecVersion = yield* decodeStoredBuildStateFieldResult(
@@ -608,7 +909,7 @@ export function decodeIndexBuildStateRowResult(
 
 /** Package-internal frontier invariant shared by fenced reads and readiness. */
 export function validateIndexBuildStateFrontierResult(
-  state: IndexBuildStateRecord,
+  state: Pick<IndexBuildCoverageState, "scopeId" | "indexDefinitionId" | "startCommitSeq" | "coveredThroughCommitSeq">,
   lastCommitSeq: CommitSeq,
 ): Result.Result<void, IndexBuildStateCorruptionError> {
   for (const [name, frontier] of [
@@ -824,7 +1125,7 @@ export const readIndexCoverageTableFrontiersInTransactionEffect = Effect.fn(
 /** Call under the caller's scope-clock/snapshot transaction before admitting a read. */
 export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
-  state: IndexBuildStateRecord,
+  state: IndexBuildCoverageState,
   definition: IndexCoverageDefinition,
   snapshotCommitSeq: CommitSeq,
   context: IndexCoverageContext,

@@ -31,6 +31,7 @@ async function verify(persistence: Pick<FlarexPersistence, "query" | "migrate">,
   expect((await persistence.query(`select hash,created_at::text from ${journalTable} order by created_at`)).rows).toEqual(receipt);
   expect((await persistence.query("select column_name from information_schema.columns where table_schema=current_schema() and table_name='fx_system_unique_constraint_build' and column_name like 'maintenance_%'")).rows).toEqual([]);
   await restoreMigrationFile(fixture.migrationPath, fixture.currentMigrationsFolder);
+  await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 141);
   await persistence.migrate();
   await persistence.migrate();
   expect((await persistence.query("select (to_jsonb(b)-'maintenance_activation_sequence')::text build from fx_system_unique_constraint_build b")).rows).toEqual(before);
@@ -39,7 +40,7 @@ async function verify(persistence: Pick<FlarexPersistence, "query" | "migrate">,
   expect((await persistence.query("select column_name from information_schema.columns where table_schema=current_schema() and table_name='fx_system_unique_constraint_build' and column_name in ('maintenance_bytes','maintenance_sha256')")).rows).toEqual([]);
   expect((await persistence.query("select count(*)::integer as count from fx_system_unique_maintenance_obligation")).rows).toEqual([{ count: 0 }]);
   expect((await persistence.query(`select created_at::text as "createdAt" from ${journalTable} order by created_at desc limit 1`)).rows)
-    .toEqual([{ createdAt: "1790947800000" }]);
+    .toEqual([{ createdAt: "1791590400000" }]);
   await expect(persistence.query("update fx_system_unique_constraint_build set maintenance_activation_sequence=1")).rejects.toBeDefined();
 }
 
@@ -58,7 +59,7 @@ async function verifyUnsupportedPopulatedSource(persistence: Pick<FlarexPersiste
   const before = (await persistence.query("select to_jsonb(b)::text build from fx_system_unique_constraint_build b")).rows;
   const journalTable = `"${journalSchema.replaceAll('"','""')}".__drizzle_migrations`;
   const receipt = (await persistence.query(`select hash,created_at::text from ${journalTable} order by created_at`)).rows;
-  await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 136);
+  await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 141);
   for (let retry = 0; retry < 2; retry += 1) {
     await expect(persistence.migrate()).rejects.toMatchObject({
       _tag: "InstallationLifecycleError",reason: "resourceFailure",

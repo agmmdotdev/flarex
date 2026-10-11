@@ -2,6 +2,7 @@ import { compileProjection, projectRows, retainReadProjection, type ReadProjecti
 import { findCollectionMembershipProducts } from "../src/product-collection-membership";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { beforeAll, describe, expect, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import { Effect, Result } from "effect";
 import { groupHasManyRows, groupManyToManyRows, projectRowFields, toPopulateTree, tupleKey } from "@medusajs/drizzle/relation-query";
 import { captureProductSchema } from "../src/product-schema";
@@ -104,7 +105,7 @@ describe("Medusa relation query extraction", () => {
       const queries: unknown[] = [];
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
-        table: () => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (_manager: unknown, query: unknown) => Effect.sync(() => { queries.push(query); return rows; }),
+        table: () => Effect.succeed({ prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (_manager: unknown, query: unknown) => Effect.sync(() => { queries.push(query); return rows; }),
           count: unused, write: unused, delete: unused, lifecycle: unused }) };
       yield* Effect.gen(function* () {
         expect(yield* findCollectionMembershipProducts(ctx, catalog, { where: { collection_id: "c", id: { $nin: ["p19"] } }, options: { populate: [] } }))
@@ -200,7 +201,7 @@ describe("Medusa relation query extraction", () => {
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* populateCommerceRelations({
         manager: lifetime.context, resources: defaultCommerceResources,
-        table: table => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")),
+        table: table => Effect.succeed({ prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")),
           find: Effect.fn("QueryTest.find")((manager) => Effect.sync(() => {
             expect(manager).toBe(lifetime.context);
             reads.push(table);
@@ -263,7 +264,7 @@ describe("Medusa relation query extraction", () => {
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "query-limit", "read");
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* Effect.result(readCommerceRelationRows({ manager: lifetime.context, resources: defaultCommerceResources,
-        table: () => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), count: unused,
+        table: () => Effect.succeed({ prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), count: unused,
           find: (_manager, query) => Effect.sync(() => { reads++; expect(query).toMatchObject({ take: 256 }); }).pipe(Effect.andThen(Effect.fail(commerceError("limitExceeded")))), write: unused, delete: unused, lifecycle: unused }),
       }, catalog.value.table.name, { kind: "and", children: [] }).pipe(Effect.ensuring(lifetime.close)));
       expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
@@ -277,7 +278,7 @@ describe("Medusa relation query extraction", () => {
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "related-projection", "read");
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* findProductRelated({ manager: lifetime.context, resources: defaultCommerceResources,
-        table: () => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: () => Effect.succeed([{ id: "value1", value: "red" }]),
+        table: () => Effect.succeed({ prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: () => Effect.succeed([{ id: "value1", value: "red" }]),
           count: () => Effect.succeed(1), write: unused, delete: unused, lifecycle: unused }),
       }, catalog, catalog.value, { options: { fields: ["value"], ...options } }, true).pipe(Effect.ensuring(lifetime.close));
       expect(result).toEqual({ rows: [{ value: "red" }], count: 1 });

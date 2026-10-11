@@ -1,6 +1,9 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
 import { AppUniqueKeyConflictError, CanonicalAppUniqueKeyHashCollisionError, AppUniqueKeyHashError, AppUniqueKeyPersistenceError } from "./appUniqueKeyErrors";
 import { fxSystemScopeExecutionAuthorities } from "../../database/schema";
 import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation } from "../../scope/scopeClock";
+import { defineNativeMetadataRead } from "../../database/physicalSession/drizzle";
+import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { PointCommitPublicationObservation } from "../../commit/point/observation";
 import { bytesEqualFullScan, isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { and, eq, or, isNull, sql } from "drizzle-orm";
@@ -47,9 +50,6 @@ import {
   type InvalidAppUniqueKeyContractV1Error,
 } from "./appUniqueKeyContract";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
-import { decodeCapturedPublishedCurrentAppRowEffect, projectBoundedCurrentAppRowPoint,
-  type AppRowRevisionV1, type CurrentAppRowReadLimits, type ReadAppRowError } from "../documents/appRows";
-import { observeDrizzleQuery } from "../../database/drizzleQueryObservation";
 import { requireAdmittedTargetInstallationSchema } from "../../installation/installationLifecycle";
 import { applicationDomainFailureDetail, buildAppUniqueBatchStatement, buildAppUniqueMutationStatement, applicationUniqueOwnerAcceptanceParameters,
   type AppUniqueAbsentOwner } from "../materialization/domainApplication";
@@ -64,6 +64,55 @@ import {
 } from "../../database/schema";
 
 export type AppUniqueKeyTransaction = FlarexMetadataTransaction;
+
+const readUniqueScopeAuthority = defineNativeMetadataRead(db => db.select({
+  scopeUuid: fxSystemScopeClocks.scopeUuid, epoch: fxSystemScopeExecutionAuthorities.epoch,
+}).from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities,
+  eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
+  .where(eq(fxSystemScopeClocks.scopeId, sql.placeholder("scopeId"))).limit(1));
+
+const readClaimOwnerForUpdate = defineNativeMetadataRead(db => db.select().from(fxAppUniqueKeys).where(and(
+  eq(fxAppUniqueKeys.scopeUuid, sql.placeholder("scopeUuid")), eq(fxAppUniqueKeys.constraintId, sql.placeholder("constraintId")),
+  eq(fxAppUniqueKeys.localeKey, sql.placeholder("localeKey")), eq(fxAppUniqueKeys.tableId, sql.placeholder("tableId")),
+  eq(fxAppUniqueKeys.rowId, sql.placeholder("rowId")),
+)).limit(2).for("update"));
+const readClaimSlotForUpdate = defineNativeMetadataRead(db => db.select().from(fxAppUniqueKeys).where(and(
+  eq(fxAppUniqueKeys.scopeUuid, sql.placeholder("scopeUuid")), eq(fxAppUniqueKeys.constraintId, sql.placeholder("constraintId")),
+  eq(fxAppUniqueKeys.localeKey, sql.placeholder("localeKey")), eq(fxAppUniqueKeys.canonicalKeySha256, sql.placeholder("canonicalKeySha256")),
+)).limit(2).for("update"));
+
+const uniqueOwnerBatchReads = Array.from({ length: 32 }, (_batchValue, offset) => defineNativeMetadataRead(db => db.select()
+  .from(fxAppUniqueKeys).where(and(eq(fxAppUniqueKeys.scopeUuid, sql.placeholder("scopeUuid")),
+    or(...Array.from({ length: offset + 1 }, (_positionValue, ordinal) => and(
+      eq(fxAppUniqueKeys.constraintId, sql.placeholder(`constraintId${ordinal}`)),
+      eq(fxAppUniqueKeys.tableId, sql.placeholder(`tableId${ordinal}`)),
+      eq(fxAppUniqueKeys.rowId, sql.placeholder(`rowId${ordinal}`)),
+    ))))).orderBy(fxAppUniqueKeys.constraintId, fxAppUniqueKeys.tableId, fxAppUniqueKeys.rowId, fxAppUniqueKeys.localeKey)
+  .limit(offset + 2)));
+
+function selectUniqueSlotRows(db: FlarexMetadataDatabase) {
+  return db.select({ claim: fxAppUniqueKeys,
+    ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
+    publishedThrough: fxSystemScopeClocks.lastCommitSeq,
+    pendingFact: sql<boolean>`exists (select 1 from ${fxSystemCommitAppRowChanges} as fact
+      where fact.scope_uuid = ${fxAppUniqueKeys.scopeUuid} and fact.commit_seq = ${fxAppRowCurrent.commitSeq}
+        and fact.table_id = ${fxAppUniqueKeys.tableId} and fact.row_id = ${fxAppUniqueKeys.rowId})`,
+  }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
+    eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
+    eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
+  )).leftJoin(fxAppRowRevisions, and(
+    eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+    eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+  )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid))
+    .leftJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId));
+}
+const uniqueSlotBatchReads = Array.from({ length: 32 }, (_batchValue, offset) => defineNativeMetadataRead(db =>
+  selectUniqueSlotRows(db).where(or(...Array.from({ length: offset + 1 }, (_slotValue, ordinal) => and(
+    eq(fxAppUniqueKeys.scopeUuid, sql.placeholder(`scopeUuid${ordinal}`)),
+    eq(fxAppUniqueKeys.constraintId, sql.placeholder(`constraintId${ordinal}`)),
+    eq(fxAppUniqueKeys.localeKey, sql.placeholder(`localeKey${ordinal}`)),
+    eq(fxAppUniqueKeys.canonicalKeySha256, sql.placeholder(`canonicalKeySha256${ordinal}`)),
+  ))))));
 
 export interface ApplyAppUniqueKeyMutationV1Input {
   readonly scopeId: ScopeId;
@@ -312,9 +361,11 @@ const StoredClaimSchema = Schema.Struct({
     Schema.makeFilter((value) => value.byteLength === 16),
   ),
 });
-const decodeStoredClaimRowResult =
-  Schema.decodeUnknownResult(StoredClaimSchema);
-const decodeSlotCorrelationEnvelope = Schema.decodeUnknownResult(Schema.Struct({ claim: Schema.Struct({
+const decodeStoredClaimRow = Schema.decodeUnknownEffect(StoredClaimSchema);
+const decodeStoredClaimRowEffect = (row: unknown) => decodeStoredClaimRow(row).pipe(
+  Effect.mapError(cause => corruption("stored claim column does not decode", cause)),
+);
+const decodeSlotCorrelationEnvelope = Schema.decodeUnknownEffect(Schema.Struct({ claim: Schema.Struct({
   scopeUuid: StoredClaimSchema.fields.scopeUuid,
   constraintId: StoredClaimSchema.fields.constraintId,
   localeKey: StoredClaimSchema.fields.localeKey,
@@ -817,20 +868,8 @@ export const ensureAppUniqueKeyBackfillClaimInTransactionEffect = Effect.fn(
   }
 
   const ownerRows = yield* persistenceEffect(
-    tx
-      .select()
-      .from(fxAppUniqueKeys)
-      .where(
-        and(
-          eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
-          eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-          eq(fxAppUniqueKeys.localeKey, claim.localeKey),
-          eq(fxAppUniqueKeys.tableId, mutation.tableId),
-          eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
-        ),
-      )
-      .limit(2)
-      .for("update"),
+    readClaimOwnerForUpdate(tx, { scopeUuid: mutation.scopeUuid, constraintId: mutation.constraintId,
+      localeKey: claim.localeKey, tableId: mutation.tableId, rowId: mutation.rowIdBytes }),
   );
   if (ownerRows.length > 1) {
     return yield* Effect.fail(
@@ -887,20 +926,8 @@ export const validateAppUniqueKeyClaimInTransactionEffect = Effect.fn(
     decoded.authorityEpoch,
   );
   const rows = yield* persistenceEffect(
-    tx
-      .select()
-      .from(fxAppUniqueKeys)
-      .where(
-        and(
-          eq(fxAppUniqueKeys.scopeUuid, scopeUuid),
-          eq(fxAppUniqueKeys.constraintId, decoded.constraintId),
-          eq(fxAppUniqueKeys.localeKey, ""),
-          eq(fxAppUniqueKeys.tableId, decoded.tableId),
-          eq(fxAppUniqueKeys.rowId, decoded.rowIdBytes),
-        ),
-      )
-      .limit(2)
-      .for("update"),
+    readClaimOwnerForUpdate(tx, { scopeUuid, constraintId: decoded.constraintId,
+      localeKey: "", tableId: decoded.tableId, rowId: decoded.rowIdBytes }),
   );
   if (rows.length > 1) {
     return yield* Effect.fail(
@@ -916,9 +943,8 @@ export const validateAppUniqueKeyClaimInTransactionEffect = Effect.fn(
           reason: "missingClaim" as const,
         });
   }
-  const actual = yield* Effect.fromResult(
-    decodeStoredValidationClaimResult(stored),
-  );
+  const row = yield* decodeStoredClaimRowEffect(stored);
+  const actual = yield* Effect.fromResult(projectStoredValidationClaimResult(row));
   const actualDigest = yield* hashBytesEffect(actual.encodedKeyBytes, sha256);
   if (!bytesEqualFullScan(actualDigest, actual.canonicalKeySha256)) {
     return yield* Effect.fail(
@@ -988,14 +1014,7 @@ const requireScopeAuthorityEffect = Effect.fn(
 ) {
   const observed = readExactScopeWriteClockObservation(tx, scopeId);
   const scope = observed === undefined ? yield* persistenceEffect(
-    tx
-      .select({
-        scopeUuid: fxSystemScopeClocks.scopeUuid,
-        epoch: fxSystemScopeExecutionAuthorities.epoch,
-      })
-      .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
-      .where(eq(fxSystemScopeClocks.scopeId, scopeId))
-      .limit(1),
+    readUniqueScopeAuthority(tx, { scopeId }),
   ) : [{ scopeUuid: expectedScopeUuid, epoch: observed.epoch }];
   const authority = scope[0];
   if (authority === undefined) {
@@ -1269,19 +1288,8 @@ const readClaimSlotForUpdateEffect = Effect.fn(
   claim: HashedClaimV1,
 ) {
   const rows = yield* persistenceEffect(
-    tx
-      .select()
-      .from(fxAppUniqueKeys)
-      .where(
-        and(
-          eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
-          eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-          eq(fxAppUniqueKeys.localeKey, claim.localeKey),
-          eq(fxAppUniqueKeys.canonicalKeySha256, claim.canonicalKeySha256),
-        ),
-      )
-      .limit(2)
-      .for("update"),
+    readClaimSlotForUpdate(tx, { scopeUuid: mutation.scopeUuid, constraintId: mutation.constraintId,
+      localeKey: claim.localeKey, canonicalKeySha256: claim.canonicalKeySha256 }),
   );
   if (rows.length > 1) {
     return yield* Effect.fail(
@@ -1291,11 +1299,11 @@ const readClaimSlotForUpdateEffect = Effect.fn(
   const row = rows[0];
   return row === undefined
     ? null
-    : yield* Effect.fromResult(storedField(decodeStoredClaimRowResult(row)));
+    : yield* decodeStoredClaimRowEffect(row);
 });
 
 function compareStoredKeyResult(
-  stored: StoredClaimRow,
+  stored: typeof StoredClaimSchema.Type,
   expected: HashedClaimV1,
   constraintId: AppUniqueConstraintIdV1,
 ): Result.Result<
@@ -1321,10 +1329,10 @@ function compareStoredKeyResult(
 
 function decodeStoredClaimResult(
   scopeId: ScopeId,
-  stored: StoredClaimRow,
+  stored: typeof StoredClaimSchema.Type,
   expected: HashedClaimV1,
 ): Result.Result<AppUniqueKeyClaimV1, AppUniqueKeyStorageCorruptionError> {
-  return decodeStoredValidationClaimResult(stored).pipe(
+  return projectStoredValidationClaimResult(stored).pipe(
     Result.map((row) =>
       Object.freeze({
         scopeId,
@@ -1340,9 +1348,8 @@ function decodeStoredClaimResult(
   );
 }
 
-function decodeStoredValidationClaimResult(stored: unknown) {
+function projectStoredValidationClaimResult(row: typeof StoredClaimSchema.Type) {
   return Result.gen(function* () {
-    const row = yield* storedField(decodeStoredClaimRowResult(stored));
     const rowId = yield* storedField(appRowIdHexV1FromBytesResult(row.rowId));
     return Object.freeze({
       ...row,
@@ -1369,103 +1376,76 @@ export const readAppUniqueKeySlotInTransactionEffect = Effect.fn("AppUniqueKeys.
 type SlotReadInput = Readonly<{ scopeId: ScopeId; constraintId: AppUniqueConstraintIdV1;
   key: AppUniqueKeyProjectionV1; pendingCommitSeq?: CommitSeq }>;
 
-const prepareSlotRead = Effect.fn("AppUniqueKeys.prepareSlotRead")(function* (input: SlotReadInput) {
-  const identity = yield* Effect.fromResult(decodeSlotIdentity(input)).pipe(Effect.mapError(cause => invalid("invalidTransition", cause)));
-  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(identity.scopeId)).pipe(Effect.mapError(cause => invalid("invalidScopeId", cause)));
-  const canonical = yield* Effect.fromResult(canonicalizeAppUniqueKeyV1Result(input.key)).pipe(Effect.mapError(cause => invalid("invalidNextKey", cause)));
+const prepareSlotRead = Effect.fnUntraced(function* (input: SlotReadInput) {
+  const { identity, scope, canonical } = yield* Effect.fromResult(Result.gen(function* () {
+    const decodedIdentity = yield* decodeSlotIdentity(input).pipe(Result.mapError(cause => invalid("invalidTransition", cause)));
+    const decodedScope = yield* projectScopeIdUuidV1Result(decodedIdentity.scopeId).pipe(Result.mapError(cause => invalid("invalidScopeId", cause)));
+    const decodedCanonical = yield* canonicalizeAppUniqueKeyV1Result(input.key).pipe(Result.mapError(cause => invalid("invalidNextKey", cause)));
+    return { identity: decodedIdentity, scope: decodedScope, canonical: decodedCanonical };
+  }));
   const expected = canonical.kind === "omitted" ? null : yield* hashClaimEffect(canonical, liveSha256);
   return { identity, scope, expected, pendingCommitSeq: input.pendingCommitSeq };
-});
+}, work => observeExecution("AppUniqueKeys.prepareSlotRead", work, "caller"));
 
 type PreparedSlotRead = Effect.Success<ReturnType<typeof prepareSlotRead>>;
 type StoredSlot = Readonly<{ claim: typeof fxAppUniqueKeys.$inferSelect; ownerCommitSeq: CommitSeq | null;
   tombstone: boolean | null; publishedThrough: CommitSeq | null; pendingFact: boolean }>;
 
-const authenticateSlotRead = Effect.fn("AppUniqueKeys.authenticateSlotRead")(function* (
-  prepared: PreparedSlotRead, stored: StoredSlot,
+// The captured ordinal operation owns this hot reader's observation span.
+const authenticateSlotReadEffect = Effect.fnUntraced(function* (
+  prepared: PreparedSlotRead, stored: StoredSlot, expected: NonNullable<PreparedSlotRead["expected"]>,
 ) {
-  const { identity, scope, expected, pendingCommitSeq } = prepared;
-  if (expected === null) return yield* Effect.die(new Error("Omitted unique slot has no stored claim"));
-    if (stored.ownerCommitSeq === null || stored.tombstone !== false || stored.publishedThrough === null)
-      return yield* Effect.fail(corruption("slot owner is not a live revision"));
-    const ownerCommitSeq = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(stored.ownerCommitSeq)));
-    if (ownerCommitSeq > stored.publishedThrough) {
-      if (pendingCommitSeq === undefined)
-        return yield* Effect.fail(corruption("slot owner is not a published live revision"));
-      const pending = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(pendingCommitSeq)));
-      if (pending !== stored.publishedThrough + 1n || ownerCommitSeq !== pending)
-        return yield* Effect.fail(corruption("slot owner is not the pending publication revision"));
-    }
-    const row = yield* Effect.fromResult(storedField(decodeStoredClaimRowResult(stored.claim)));
-    yield* Effect.fromResult(compareStoredKeyResult(row, expected, identity.constraintId));
-    const claim = yield* Effect.fromResult(decodeStoredClaimResult(identity.scopeId, row, expected));
-    if (claim.scopeUuid !== scope.scopeUuid || claim.constraintId !== identity.constraintId) {
-      return yield* Effect.fail(corruption("slot lookup returned a foreign identity"));
-    }
-
+  const { identity, scope, pendingCommitSeq } = prepared;
+  if (stored.ownerCommitSeq === null || stored.tombstone !== false || stored.publishedThrough === null)
+    return yield* Effect.fail(corruption("slot owner is not a live revision"));
+  const ownerCommitSeq = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(stored.ownerCommitSeq)));
+  if (ownerCommitSeq > stored.publishedThrough) {
+    if (pendingCommitSeq === undefined)
+      return yield* Effect.fail(corruption("slot owner is not a published live revision"));
+    const pending = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(pendingCommitSeq)));
+    if (pending !== stored.publishedThrough + 1n || ownerCommitSeq !== pending)
+      return yield* Effect.fail(corruption("slot owner is not the pending publication revision"));
+  }
+  const row = yield* decodeStoredClaimRowEffect(stored.claim);
+  yield* Effect.fromResult(compareStoredKeyResult(row, expected, identity.constraintId));
+  const claim = yield* Effect.fromResult(decodeStoredClaimResult(identity.scopeId, row, expected));
+  if (claim.scopeUuid !== scope.scopeUuid || claim.constraintId !== identity.constraintId)
+    return yield* Effect.fail(corruption("slot lookup returned a foreign identity"));
   if (ownerCommitSeq > stored.publishedThrough && stored.pendingFact !== true)
     return yield* Effect.fail(corruption("pending slot owner has no publication fact"));
   return Object.freeze({ ...claim, ownerCommitSeq });
 });
 
 type SlotReadError = Effect.Error<ReturnType<typeof prepareSlotRead>> |
-  Effect.Error<ReturnType<typeof authenticateSlotRead>> | AppUniqueKeyPersistenceError;
-type SlotOwner = Effect.Success<ReturnType<typeof authenticateSlotRead>>;
+  Effect.Error<ReturnType<typeof authenticateSlotReadEffect>> | AppUniqueKeyPersistenceError;
+type SlotOwner = Effect.Success<ReturnType<typeof authenticateSlotReadEffect>>;
 
-/** One committed slot and its exact current revision share a statement cut.
- * Slot authentication precedes consumer checks and lazy canonical body decoding.
- * Pending publication ownership remains with the separate slot-batch owner. */
-export const withCommittedAppUniqueKeyRowInTransactionEffect = Effect.fn("AppUniqueKeys.withCommittedOwnerRow")(
-  function* <Value, Failure, Requirements>(tx: AppUniqueKeyTransaction,
-    input: Omit<SlotReadInput, "pendingCommitSeq"> & CurrentAppRowReadLimits & { readonly minimumCommitSeq: CommitSeq },
-    slotError: (cause: SlotReadError) => Failure, rowError: (cause: ReadAppRowError) => Failure,
-    use: (capture: Readonly<{ owner: Option.Option<SlotOwner>;
-      readOwner: Effect.Effect<Readonly<{ row: AppRowRevisionV1; readAt: CommitSeq }>, Failure> }>) => Effect.Effect<Value, Failure, Requirements>,
-    observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2],
-  ): Effect.fn.Return<Value, Failure, Requirements> {
-    const prepared = yield* prepareSlotRead(input).pipe(Effect.mapError(slotError));
-    const expected = prepared.expected;
-    const query = expected === null ? undefined : tx.select({ claim: fxAppUniqueKeys,
-      ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
-      publishedThrough: fxSystemScopeClocks.lastCommitSeq, pendingFact: sql<boolean>`false`,
-      ...projectBoundedCurrentAppRowPoint(input, { commitSeq: sql`${fxSystemScopeClocks.lastCommitSeq}`,
-        epoch: sql`${fxSystemScopeExecutionAuthorities.epoch}` }),
-    }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
-      eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
-      eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
-    )).leftJoin(fxAppRowRevisions, and(
-      eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
-      eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
-    )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).leftJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(and(
-      eq(fxAppUniqueKeys.scopeUuid, prepared.scope.scopeUuid), eq(fxAppUniqueKeys.constraintId, prepared.identity.constraintId),
-      eq(fxAppUniqueKeys.localeKey, expected.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, expected.canonicalKeySha256),
-    )).limit(2);
-    if (query !== undefined) observeDrizzleQuery("currentCapture", query, observer);
-    const rows = query === undefined ? [] : yield* persistenceEffect(query).pipe(Effect.mapError(slotError));
-    if (rows.length > 1) return yield* Effect.fail(slotError(corruption("one unique-key slot has multiple owners")));
-    const stored = rows[0];
-    const owner = stored === undefined ? Option.none<SlotOwner>() :
-      Option.some(yield* authenticateSlotRead(prepared, stored).pipe(Effect.mapError(slotError)));
-    let active = true;
-    let decoded: Readonly<{ row: AppRowRevisionV1; readAt: CommitSeq }> | undefined;
-    const readOwner = Effect.gen(function* () {
-      if (!active || stored === undefined || Option.isNone(owner))
-        return yield* Effect.fail(slotError(corruption("committed owner row capture is closed or absent")));
-      if (decoded !== undefined) return decoded;
-      const captured = yield* decodeCapturedPublishedCurrentAppRowEffect(
-        { scopeId: input.scopeId, tableId: owner.value.tableId, rowId: owner.value.rowId }, input, stored,
-      ).pipe(Effect.mapError(rowError));
-      if (captured.row === null) return yield* Effect.fail(slotError(corruption("slot owner is not a live revision")));
-      decoded = Object.freeze({ row: captured.row, readAt: captured.readAt });
-      return decoded;
-    });
-    return yield* use(Object.freeze({ owner, readOwner })).pipe(
-      Effect.ensuring(Effect.sync(() => { active = false; })));
-  });
+type CapturedSlotRow = Readonly<{ stored: StoredSlot;
+  correlation: Effect.Success<ReturnType<typeof decodeSlotCorrelationEnvelope>>["claim"] }>;
+type CapturedSlots = { active: boolean; readonly batch: readonly PreparedSlotRead[]; readonly rows: readonly CapturedSlotRow[] };
+
+const readCapturedSlotOrdinal = Effect.fnUntraced(function* <Failure>(
+  capture: CapturedSlots, ordinal: number, error: (cause: SlotReadError) => Failure,
+): Effect.fn.Return<Option.Option<SlotOwner>, Failure> {
+  if (!capture.active || !Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= capture.batch.length)
+    return yield* Effect.fail(error(corruption("unique slot capture is closed or ordinal is invalid")));
+  const prepared = capture.batch[ordinal];
+  if (prepared === undefined) return yield* Effect.die(new Error("Unique slot batch lost a prepared demand"));
+  const expected = prepared.expected;
+  const stored = yield* Effect.fromResult(Result.gen(function* () {
+    const matches = expected === null ? [] : capture.rows.filter(row => row.correlation.scopeUuid === prepared.scope.scopeUuid &&
+      row.correlation.constraintId === prepared.identity.constraintId && row.correlation.localeKey === expected.localeKey &&
+      bytesEqualFullScan(row.correlation.canonicalKeySha256, expected.canonicalKeySha256));
+    if (matches.length > 1) return yield* Result.fail(corruption("one unique-key slot has multiple owners"));
+    return matches[0]?.stored;
+  }).pipe(Result.mapError(error)));
+  if (stored === undefined || expected === null) return Option.none<SlotOwner>();
+  return Option.some(yield* authenticateSlotReadEffect(prepared, stored, expected).pipe(Effect.mapError(error)));
+}, work => observeExecution("AppUniqueKeys.readCapturedSlotOrdinal", work, "caller"));
 
 /** Exact slots across bounded ordinal demands. Repeated observations retain
  * their consumer order; pending owners require this publication's finished fact. */
-export const withAppUniqueKeySlotsInTransactionEffect = Effect.fn("AppUniqueKeys.withSlots")(
+export const withAppUniqueKeySlotsInTransactionEffect = Effect.fnUntraced(
   function* <Value, Failure, Requirements>(tx: AppUniqueKeyTransaction, inputs: readonly SlotReadInput[],
     error: (cause: SlotReadError) => Failure,
     use: (capture: Readonly<{ baseOrdinal: number; identities: readonly Result.Result<Readonly<{ tableId: CatalogTableId; rowId: AppRowIdHexV1 }> | null, SlotReadError>[];
@@ -1483,65 +1463,50 @@ export const withAppUniqueKeySlotsInTransactionEffect = Effect.fn("AppUniqueKeys
         batch.push(result.success);
       }
       const selected = batch.filter(prepared => prepared.expected !== null);
-      const rows = selected.length === 0 ? [] : yield* persistenceEffect(tx.select({ claim: fxAppUniqueKeys,
-        ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
-        publishedThrough: fxSystemScopeClocks.lastCommitSeq,
-        pendingFact: sql<boolean>`exists (select 1 from ${fxSystemCommitAppRowChanges} as fact
-          where fact.scope_uuid = ${fxAppUniqueKeys.scopeUuid} and fact.commit_seq = ${fxAppRowCurrent.commitSeq}
-            and fact.table_id = ${fxAppUniqueKeys.tableId} and fact.row_id = ${fxAppUniqueKeys.rowId})`,
-      }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
-        eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
-        eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
-      )).leftJoin(fxAppRowRevisions, and(
-        eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
-        eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
-      )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).leftJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId)).where(or(
-        ...selected.map(prepared => and(eq(fxAppUniqueKeys.scopeUuid, prepared.scope.scopeUuid),
-          eq(fxAppUniqueKeys.constraintId, prepared.identity.constraintId),
-          eq(fxAppUniqueKeys.localeKey, prepared.expected!.localeKey),
-          eq(fxAppUniqueKeys.canonicalKeySha256, prepared.expected!.canonicalKeySha256))),
-      ))).pipe(Effect.mapError(error));
-      for (const row of rows) yield* Effect.fromResult(storedField(decodeSlotCorrelationEnvelope(row)))
-        .pipe(Effect.mapError(error));
+      const bindings: Record<string, unknown> = {};
+      for (const [ordinal, prepared] of selected.entries()) {
+        const expected = prepared.expected;
+        if (expected === null) return yield* Effect.die(new Error("Selected unique slot has no claim"));
+        bindings[`scopeUuid${ordinal}`] = prepared.scope.scopeUuid;
+        bindings[`constraintId${ordinal}`] = prepared.identity.constraintId;
+        bindings[`localeKey${ordinal}`] = expected.localeKey;
+        bindings[`canonicalKeySha256${ordinal}`] = expected.canonicalKeySha256;
+      }
+      const readRows = uniqueSlotBatchReads[selected.length - 1];
+      const rows = selected.length === 0 ? [] : readRows === undefined
+        ? yield* Effect.die(new Error("Unique slot batch shape is unavailable"))
+        : yield* persistenceEffect(readRows(tx, bindings)).pipe(Effect.mapError(error));
+      const capturedRows: CapturedSlotRow[] = [];
+      for (const stored of rows) {
+        const correlation = yield* decodeSlotCorrelationEnvelope(stored).pipe(
+          Effect.mapError(cause => error(corruption("stored claim column does not decode", cause))));
+        capturedRows.push({ stored, correlation: correlation.claim });
+      }
       const identities = batch.map(prepared => {
         const expected = prepared.expected;
         if (expected === null) return Result.succeed(null);
-        const matches = rows.filter(row => row.claim.scopeUuid === prepared.scope.scopeUuid &&
-          row.claim.constraintId === prepared.identity.constraintId && row.claim.localeKey === expected.localeKey &&
-          bytesEqualFullScan(row.claim.canonicalKeySha256, expected.canonicalKeySha256));
+        const matches = capturedRows.filter(row => row.correlation.scopeUuid === prepared.scope.scopeUuid &&
+          row.correlation.constraintId === prepared.identity.constraintId && row.correlation.localeKey === expected.localeKey &&
+          bytesEqualFullScan(row.correlation.canonicalKeySha256, expected.canonicalKeySha256));
         if (matches.length > 1) return Result.fail(corruption("one unique-key slot has multiple owners"));
-        const stored = matches[0];
+        const stored = matches[0]?.stored;
         return stored === undefined ? Result.succeed(null) : Result.gen(function* () {
           const tableId = yield* storedField(decodeTableIdResult(stored.claim.tableId));
           const rowId = yield* storedField(appRowIdHexV1FromBytesResult(stored.claim.rowId));
           return Object.freeze({ tableId, rowId });
         });
       });
-      let active = true;
-      const read = Effect.fn("AppUniqueKeys.readCapturedSlotOrdinal")(function* (ordinal: number) {
-        if (!active || !Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= batch.length)
-          return yield* Effect.fail(error(corruption("unique slot capture is closed or ordinal is invalid")));
-        const prepared = batch[ordinal];
-        if (prepared === undefined) return yield* Effect.die(new Error("Unique slot batch lost a prepared demand"));
-        const expected = prepared.expected;
-        const matches = expected === null ? [] : rows.filter(row => row.claim.scopeUuid === prepared.scope.scopeUuid &&
-          row.claim.constraintId === prepared.identity.constraintId && row.claim.localeKey === expected.localeKey &&
-          bytesEqualFullScan(row.claim.canonicalKeySha256, expected.canonicalKeySha256));
-        if (matches.length > 1) return yield* Effect.fail(error(corruption("one unique-key slot has multiple owners")));
-        const stored = matches[0];
-        const owner = stored === undefined ? Option.none<SlotOwner>() :
-          Option.some(yield* authenticateSlotRead(prepared, stored).pipe(Effect.mapError(error)));
-        return owner;
-      });
-      values.push(yield* use(Object.freeze({ baseOrdinal: offset, identities: Object.freeze(identities), read }))
-        .pipe(Effect.ensuring(Effect.sync(() => { active = false; }))));
+      const capture: CapturedSlots = { active: true, batch, rows: capturedRows };
+      const read = (ordinal: number) => readCapturedSlotOrdinal(capture, ordinal, error);
+      values.push(yield* Effect.suspend(() => use(Object.freeze({ baseOrdinal: offset, identities: Object.freeze(identities), read })))
+        .pipe(Effect.ensuring(Effect.sync(() => { capture.active = false; }))));
       offset += batch.length;
       if (failure !== undefined) return yield* Effect.fail(error(failure));
     }
     return Object.freeze(values);
-  });
+  }, work => observeExecution("AppUniqueKeys.withSlots", work, "caller"));
 
-export const consumeAppUniqueKeySlotsInTransactionEffect = Effect.fn("AppUniqueKeys.consumeSlots")(
+export const consumeAppUniqueKeySlotsInTransactionEffect = Effect.fnUntraced(
   function* <Failure, Requirements>(tx: AppUniqueKeyTransaction, inputs: readonly SlotReadInput[],
     error: (cause: SlotReadError) => Failure,
     consume: (ordinal: number, owner: Option.Option<SlotOwner>) => Effect.Effect<void, Failure, Requirements>,
@@ -1550,9 +1515,9 @@ export const consumeAppUniqueKeySlotsInTransactionEffect = Effect.fn("AppUniqueK
       for (let ordinal = 0; ordinal < capture.identities.length; ordinal++)
         yield* consume(capture.baseOrdinal + ordinal, yield* capture.read(ordinal));
     }));
-  });
+  }, work => observeExecution("AppUniqueKeys.consumeSlots", work, "caller"));
 
-const readSlot = Effect.fn("AppUniqueKeys.readSlotState")(function* (
+const readSlot = Effect.fnUntraced(function* (
   tx: AppUniqueKeyTransaction, input: Omit<SlotReadInput, "pendingCommitSeq">, pendingCommitSeq?: CommitSeq,
 ) {
   let selected = Option.none<SlotOwner>();
@@ -1560,7 +1525,7 @@ const readSlot = Effect.fn("AppUniqueKeys.readSlotState")(function* (
     ...(pendingCommitSeq === undefined ? {} : { pendingCommitSeq }) }], cause => cause,
     (_ordinal, owner) => { selected = owner; return Effect.void; });
   return selected;
-});
+}, work => observeExecution("AppUniqueKeys.readSlotState", work, "caller"));
 
 /** Authenticate current ownership before a writer may omit an unchanged-key operation. */
 export const readAppUniqueKeyOwnersInTransactionEffect = Effect.fn(
@@ -1589,32 +1554,18 @@ export const readAppUniqueKeyOwnersInTransactionEffect = Effect.fn(
   })[] = [];
   for (let offset = 0; offset < positions.length; offset += 32) {
     const batch = positions.slice(offset, offset + 32);
-    const rows = yield* persistenceEffect(
-      tx
-        .select()
-        .from(fxAppUniqueKeys)
-        .where(
-          and(
-            eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid),
-            or(
-              ...batch.map((position) =>
-                and(
-                  eq(fxAppUniqueKeys.constraintId, position.constraintId),
-                  eq(fxAppUniqueKeys.tableId, position.tableId),
-                  eq(fxAppUniqueKeys.rowId, appRowIdHexV1ToBytes(position.rowId)),
-                ),
-              ),
-            ),
-          ),
-        )
-        .orderBy(
-          fxAppUniqueKeys.constraintId,
-          fxAppUniqueKeys.tableId,
-          fxAppUniqueKeys.rowId,
-          fxAppUniqueKeys.localeKey,
-        )
-        .limit(batch.length + 1),
-    );
+    const read = uniqueOwnerBatchReads[batch.length - 1];
+    if (read === undefined) return yield* Effect.die(new Error("Unique owner batch shape is unavailable"));
+    const bindings: { scopeUuid: typeof scope.scopeUuid }
+      & Partial<Record<`constraintId${number}`, (typeof batch)[number]["constraintId"]>>
+      & Partial<Record<`tableId${number}`, (typeof batch)[number]["tableId"]>>
+      & Partial<Record<`rowId${number}`, ReturnType<typeof appRowIdHexV1ToBytes>>> = { scopeUuid: scope.scopeUuid };
+    for (const [ordinal, position] of batch.entries()) {
+      bindings[`constraintId${ordinal}`] = position.constraintId;
+      bindings[`tableId${ordinal}`] = position.tableId;
+      bindings[`rowId${ordinal}`] = appRowIdHexV1ToBytes(position.rowId);
+    }
+    const rows = yield* persistenceEffect(read(tx, bindings));
     if (rows.length > batch.length)
       return yield* Effect.fail(
         corruption("owner lookup exceeds its fixed claim bound"),
@@ -1648,9 +1599,8 @@ export const readAppUniqueKeyOwnersInTransactionEffect = Effect.fn(
 const authenticateStoredClaimEffect = Effect.fn(
   "AppUniqueKeys.authenticateStoredClaim",
 )(function* (scopeId: ScopeId, stored: StoredClaimRow, componentCount: number) {
-  const row = yield* Effect.fromResult(
-    decodeStoredValidationClaimResult(stored),
-  );
+  const decoded = yield* decodeStoredClaimRowEffect(stored);
+  const row = yield* Effect.fromResult(projectStoredValidationClaimResult(decoded));
   const projection = yield* Effect.fromResult(
     Result.try({
       try: () => {

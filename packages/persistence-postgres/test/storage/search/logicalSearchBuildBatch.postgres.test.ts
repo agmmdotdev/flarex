@@ -9,7 +9,7 @@ describePostgres("PostgreSQL search readiness batching", () => {
   it("checks fresh physical identity and coverage with one query per batched category", async () => {
     const { withTemporaryPostgresPersistence } = await import("../../support/postgresHelpers");
     await withTemporaryPostgresPersistence(async persistence => {
-      await verifyLogicalSearchBuildBatch(persistence, persistence.drizzle);
+      await verifyLogicalSearchBuildBatch(persistence, persistence.drizzle, persistence);
     });
   }, 180_000);
 
@@ -25,7 +25,7 @@ describePostgres("PostgreSQL search readiness batching", () => {
         expect(login.rows[0]?.current_user).toMatch(/^flarex_runtime_/);
         expect(login.rows[0]?.rolsuper).toBe(false);
         await verifyLogicalSearchBuildBatch({ query: <Row extends Record<string, unknown>>(statement: string,
-          parameters?: readonly unknown[]) => owner.query<Row>(statement, parameters === undefined ? undefined : [...parameters]) }, fixture.persistence.drizzle);
+          parameters?: readonly unknown[]) => owner.query<Row>(statement, parameters === undefined ? undefined : [...parameters]) }, fixture.persistence.drizzle, fixture.persistence);
       } finally {
         await owner.end();
         await fixture.dispose();

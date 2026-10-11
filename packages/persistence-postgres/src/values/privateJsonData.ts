@@ -1,4 +1,4 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { measureCanonicalJsonUtf8Bytes, type Json } from "flarex-protocol/json";
 
 /** Value ownership only. Exact detached immutable trees may cross trusted native
@@ -9,8 +9,20 @@ export interface CapturedPrivateJsonDataFacts {
   readonly nodes: number;
   readonly depth: number;
   readonly negativeZero: boolean;
+  readonly wellFormedUnicode: boolean;
 }
 const capturedValues = new WeakMap<object, CapturedPrivateJsonDataFacts>();
+const capturedUnicodeRefusals = new WeakMap<object, string>();
+const unicodePattern = /^[^\uD800-\uDFFF]*$/u;
+// Successful strings need only the pure predicate. Decode the selected malformed
+// string once on refusal, preserving the outcome owner's original Schema cause.
+const decodeUnicodeRefusal = Schema.decodeUnknownResult(Schema.String.check(Schema.isPattern(unicodePattern)));
+interface CapturePolicy {
+  readonly canonicalNumbers?: true;
+  /** Unicode refusal follows complete structural/byte capture, as required by
+   * JSON outcomes; generic JSON capture continues to allow escaped surrogates. */
+  readonly wellFormedUnicode?: true;
+}
 export const inspectCapturedPrivateJsonData = (input: unknown): CapturedPrivateJsonDataFacts | undefined =>
   typeof input === "object" && input !== null ? capturedValues.get(input) : undefined;
 
@@ -21,6 +33,8 @@ const detachIssuedJson = (value: Json): Json => {
   const detached = Array.isArray(value) ? Object.freeze(value.map(detachIssuedJson)) :
     Object.freeze(Object.fromEntries(Object.entries(value).map(([key, member]) => [key, detachIssuedJson(member)])));
   capturedValues.set(detached, Object.freeze({ ...issued, value: detached }));
+  const selectedUnicodeRefusal = capturedUnicodeRefusals.get(value);
+  if (selectedUnicodeRefusal !== undefined) capturedUnicodeRefusals.set(detached, selectedUnicodeRefusal);
   return detached;
 };
 
@@ -29,20 +43,21 @@ export function capturePrivateJsonData<Failure>(
   input: unknown,
   maximum: number,
   failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
-  policy?: Readonly<{ canonicalNumbers: true }>,
+  policy?: CapturePolicy,
 ): Result.Result<
   Readonly<{ value: Json; bytes: number }>,
   Failure
 > {
-  return capture(input, maximum, failure, false, policy?.canonicalNumbers === true);
+  return capture(input, maximum, failure, false, policy?.canonicalNumbers === true, policy?.wellFormedUnicode === true);
 }
 
 /** Internal trusted handoff. Foreign wrappers still undergo their complete own
  * descriptor checks. Only exact issued children avoid another value walk. */
 export function useCapturedPrivateJsonData<Failure>(input: unknown, maximum: number,
   failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
+  policy?: CapturePolicy,
 ): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
-  return capture(input, maximum, failure, true, false);
+  return capture(input, maximum, failure, true, policy?.canonicalNumbers === true, policy?.wellFormedUnicode === true);
 }
 
 /** Omit own undefined object members while capturing their descriptors once.
@@ -54,7 +69,7 @@ export function capturePrivateJsonDataOmittingUndefined<Failure>(
   failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
   onOmitted?: (path: readonly string[]) => void,
 ): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
-  return capture(input, bounds.bytes, failure, true, false, { bounds, onOmitted });
+  return capture(input, bounds.bytes, failure, true, false, false, { bounds, onOmitted });
 }
 
 interface CaptureRefusal {
@@ -75,6 +90,7 @@ function capture<Failure>(
   failure: (reason: "limitExceeded" | "invalidInput", cause?: unknown) => Failure,
   owned: boolean,
   canonicalNumbers: boolean,
+  requireWellFormedUnicode: boolean,
   omission?: OmissionCapture,
 ): Result.Result<Readonly<{ value: Json; bytes: number }>, Failure> {
   let remaining = maximum;
@@ -151,7 +167,7 @@ function capture<Failure>(
     if (omission === undefined && keys.length > remaining + 1) { refuseStrict("limitExceeded"); return null; }
     const array: Json[] = [];
     const entries: [string, Json][] = [];
-    let nodes = 1, relativeDepth = 0, negativeZero = false;
+    let nodes = 1, relativeDepth = 0, negativeZero = false, wellFormedUnicode = true;
     let index = 0;
     let arrayKeysDense = true;
     for (const key of keys) {
@@ -182,6 +198,7 @@ function capture<Failure>(
         const keySize = measureCanonicalJsonUtf8Bytes(key, remaining);
         if (keySize.kind !== "success") refuseStrict("limitExceeded");
         else spend(keySize.bytes + 1);
+        wellFormedUnicode = unicodePattern.test(key) && wellFormedUnicode;
       }
       const value = visit(descriptor.value, depth + 1, omission?.onOmitted === undefined ? [] : [...path, key]);
       if (nativeRefusal !== undefined || (omission === undefined && strictRefusal !== undefined)) return null;
@@ -189,6 +206,7 @@ function capture<Failure>(
       nodes += child?.nodes ?? 1;
       relativeDepth = Math.max(relativeDepth, 1 + (child?.depth ?? 0));
       negativeZero ||= child?.negativeZero ?? (typeof value === "number" && Object.is(value, -0));
+      wellFormedUnicode = (child?.wellFormedUnicode ?? (typeof value !== "string" || unicodePattern.test(value))) && wellFormedUnicode;
       if (isArray) array.push(value);
       else entries.push([key, value]);
       if (omission !== undefined && isArray && key !== String(index)) {
@@ -222,12 +240,38 @@ function capture<Failure>(
     if (strictRefusal !== undefined) return null;
     const value = isArray ? Object.freeze(array) : Object.freeze(Object.fromEntries(entries));
     capturedValues.set(value, Object.freeze({ value, bytes: remainingBefore - remaining,
-      nodes, depth: relativeDepth, negativeZero }));
+      nodes, depth: relativeDepth, negativeZero, wellFormedUnicode }));
+    if (!wellFormedUnicode) {
+      // Only malformed subtrees need a refusal selection. Enumerate the captured
+      // object: numeric keys regain native order even after foreign proxy keys.
+      if (isArray) {
+        for (const member of array) {
+          const issue = unicodeRefusal(member);
+          if (issue !== undefined) { capturedUnicodeRefusals.set(value, issue); break; }
+        }
+      } else {
+        for (const [key, member] of Object.entries(value)) {
+          const issue = !unicodePattern.test(key) ? key : unicodeRefusal(member);
+          if (issue !== undefined) { capturedUnicodeRefusals.set(value, issue); break; }
+        }
+      }
+    }
     return value;
   };
   const value = visit(input, 0, []);
   const refusal = nativeRefusal ?? strictRefusal;
-  return refusal === undefined
-    ? Result.succeed(Object.freeze({ value, bytes: maximum - remaining }))
-    : Result.fail(failure(refusal.reason, refusal.cause));
+  if (refusal !== undefined) return Result.fail(failure(refusal.reason, refusal.cause));
+  const captured = Object.freeze({ value, bytes: maximum - remaining });
+  // JSON's byte contract permits escaped lone surrogates. The outcome policy
+  // refuses them only after the complete descriptor and byte capture succeeds.
+  const malformedUnicode = requireWellFormedUnicode ? unicodeRefusal(value) : undefined;
+  return malformedUnicode === undefined
+    ? Result.succeed(captured)
+    : decodeUnicodeRefusal(malformedUnicode).pipe(
+      Result.mapError(cause => failure("invalidInput", cause)), Result.map(() => captured));
+}
+
+function unicodeRefusal(value: Json): string | undefined {
+  if (typeof value === "string") return unicodePattern.test(value) ? undefined : value;
+  return value !== null && typeof value === "object" ? capturedUnicodeRefusals.get(value) : undefined;
 }

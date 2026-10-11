@@ -1,3 +1,4 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
 import {
   chargeHostPreparation,
   captureHostPreparationLifetime,
@@ -42,6 +43,7 @@ import type {
 import {
   lendApplicationBindingPreparationInputs,
 } from "../../application/activation/bindingPreparation";
+import { readApplicationBindingTargetProtection } from "../../application/activation/selectionIdentity";
 import {
   withAcceptedApplicationBinding,
 } from "../../application/activation/bindingAcceptance";
@@ -52,6 +54,9 @@ import { readAcceptedApplicationBindingProjection } from "../../application/appl
 import {
   readBindingCandidate,
   readBindingHead,
+  prepareBindingSelectedStructure,
+  readPreparedBindingCandidate,
+  type PreparedBindingSelectedStructure,
 } from "../../installation/frameworkSchema/binding/repository";
 import { sameBindingValue } from "../../installation/frameworkSchema/binding/canonical";
 import { verifyAcceptedPayloadContentBinding } from "../../installation/frameworkSchema/binding/content";
@@ -103,6 +108,7 @@ export interface PreparedCmsApplicationState {
   readonly tableIds: ReadonlySet<CatalogTableId>;
   readonly validator: ApplicationRevisionSyscallValidatorV1;
   readonly writeMechanics: PreparedLogicalDocumentWriteMechanics;
+  readonly bindingStructure: PreparedBindingSelectedStructure | undefined;
 }
 export interface CmsAdmissionState {
   readonly binding: AcceptedApplicationBinding;
@@ -193,11 +199,21 @@ export const prepareCmsApplicationFromBinding = Effect.fn("CmsAdmission.prepare"
     selectedTableIds: [...selected], indexes: indexDefinitions.map(definition => definition.indexDefinitionId),
     intrinsic: intrinsicDefinitions.map(definition => definition.indexDefinitionId),
     unique: uniqueDefinitions.map(definition => definition.uniqueConstraintDefinitionId) }).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
+  const target = yield* Effect.fromResult(readApplicationBindingTargetProtection(selection)).pipe(
+    Effect.mapError(cause => cmsError("invalidAuthority", cause)));
+  const protection = target.protection ?? target.readinessProtection?.target;
+  // Only the original Application issuer and this same bounded generation can
+  // protect immutable binding structure. Unprotected admission rereads it fully.
+  if (protection !== undefined && (target.lifetime === undefined || target.lifetime.charge !== lifetime.charge ||
+    target.lifetime.onDispose !== lifetime.onDispose)) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const bindingStructure = protection === undefined ? undefined : yield* Effect.fromResult(
+    prepareBindingSelectedStructure(authority, protection, target.lifetime)).pipe(
+      Effect.mapError(cause => cmsError(cause.reason === "resourceFailure" ? "resourceFailure" : "invalidAuthority", cause)));
   const validator = yield* Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(validatorState));
   // SAFETY: this original preparation issuer authenticates the inert identity.
   const value = Object.freeze({}) as PreparedCmsApplication;
   prepared.set(value, Object.freeze({ selection, schema, configuration, uniqueDefinitions, indexDefinitions, intrinsicDefinitions,
-    controlDb, scopeId, lifetime, relations, tables, tableIds: selected, validator, writeMechanics }));
+    controlDb, scopeId, lifetime, relations, tables, tableIds: selected, validator, writeMechanics, bindingStructure }));
   const dispose = disposeCmsPreparation(value, validator);
   const registered = lifetime.onDispose(dispose);
   if (Result.isFailure(registered)) dispose();
@@ -206,15 +222,15 @@ export const prepareCmsApplicationFromBinding = Effect.fn("CmsAdmission.prepare"
 });
 
 /** The existing issuer lends payload only while its actual generation lives. */
-export const requirePreparedCmsApplication = Effect.fn("CmsAdmission.requirePreparation")(function* (token: PreparedCmsApplication) {
+export const requirePreparedCmsApplication = Effect.fnUntraced(function* (token: PreparedCmsApplication) {
   const state = prepared.get(token);
   if (state === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
   yield* Effect.fromResult(state.lifetime.checkOpen()).pipe(Effect.mapError(cause => cmsError("closed", cause)));
   return state;
-});
+}, work => observeExecution("CmsAdmission.requirePreparation", work, "caller"));
 
 /** Called by the private host only after locking and authenticating the scope clock. */
-export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(function* <Value, Failure, Requirements>(
+export const withCmsAdmission = Effect.fnUntraced(function* <Value, Failure, Requirements>(
   application: PreparedCmsApplication,
   tx: FlarexMetadataTransaction,
   authority: TrustedScopeAuthority,
@@ -228,9 +244,9 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     return yield* Effect.fail(cmsError("invalidAuthority"));
   return yield* withAcceptedApplicationBinding(preparation.selection, tx, clock, binding => Effect.gen(function* () {
     const projection = yield* readAcceptedApplicationBindingProjection(binding, tx, clock);
-    const head = yield* readBindingHead(tx, authority, "share");
+    const head = yield* readBindingHead(tx, authority, "share", preparation.bindingStructure);
     if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
-    const candidate = yield* readBindingCandidate(tx, authority, head.value.frame.candidateSha256);
+    const candidate = yield* readPreparedBindingCandidate(tx, authority, head.value, preparation.bindingStructure);
     if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
     const frame = candidate.value.frame;
     if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
@@ -265,14 +281,14 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
       head: Object.freeze({ sequence: head.value.frame.sequence, sha256: head.value.sha256 }) }));
     return yield* Effect.suspend(() => work(token)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(token))));
   }), observation);
-});
+}, work => observeExecution("CmsAdmission.withTransaction", work, "caller"));
 
-export const requireCmsAdmission = Effect.fn("CmsAdmission.require")(function* (
+export const requireCmsAdmission = Effect.fnUntraced(function* (
   token: CmsAdmission,
   tx?: FlarexMetadataTransaction,
 ) {
   const state = admissions.get(token);
   if (state === undefined || (tx !== undefined && state.tx !== tx)) return yield* Effect.fail(cmsError("invalidAuthority"));
   return state;
-});
+}, work => observeExecution("CmsAdmission.require", work, "caller"));
 import { commerceBindings } from "../../installation/frameworkSchema/binding/model";

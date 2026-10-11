@@ -258,14 +258,14 @@ function makeAtomicCommerceExecution(
     refuse: (error) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
     call: callParticipant,
   });
-  const openMissingContributions = Effect.fn("AtomicCommerce.openMissingContributions")(function* () {
+  const openMissingContributions = Effect.fnUntraced(function* () {
     // Opening a logical table is a bounded request operation, so admitted but
     // unused participants must be constructed while the lifetime is still open.
     for (const admission of admissions) {
       if (!contributions.some((member) => member.token === admission)) yield* makeWorking(admission, lifetime.context);
     }
-  });
-  const closeContributions = Effect.fn("AtomicCommerce.closeContributions")(function* () {
+  }, work => observeExecution("AtomicCommerce.openMissingContributions", work, "caller"));
+  const closeContributions = Effect.fnUntraced(function* () {
     if (admissions.some(admission => !contributions.some(member => member.token === admission)))
       return yield* Effect.fail(commerceError("invalidAuthority"));
     const closed: CommerceContribution[] = [];
@@ -304,13 +304,13 @@ function makeAtomicCommerceExecution(
       additional: closed.slice(1),
       events: eventClosure,
     };
-  });
+  }, work => observeExecution("AtomicCommerce.closeContributions", work, "caller"));
   return { context, openMissingContributions, closeContributions };
 }
 
 /** Execute only after replay misses. The existing lifetime and publisher retain
  * failure latching, timeout, closure authentication and settlement ordering. */
-export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeRequest")(function* (
+export const executeAtomicCommerceRequest = Effect.fnUntraced(function* (
   configuration: ExecutionConfiguration,
   request: CapturedAtomicCommerceRequest,
   evidence: AtomicCommerceRequestEvidence,
@@ -383,4 +383,4 @@ export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeReq
     }),
     Effect.ensuring(lifetime.close),
   );
-});
+}, work => observeExecution("AtomicCommerce.executeRequest", work, "caller"));

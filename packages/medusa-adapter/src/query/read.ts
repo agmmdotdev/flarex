@@ -72,9 +72,10 @@ const readWindow = Effect.fn("MedusaRead.window")(function* (
     const selected = window.select(rows);
     return { rows: selected.rows, count: Effect.succeed(selected.count) };
   }
-  const rows = window.kind === "page" ? (yield* window.store.findPage(ctx.manager, query)).rows
-    : yield* window.store.find(ctx.manager, query);
-  return { rows, count: Effect.suspend(() => window.store.count(ctx.manager, query)) };
+  const program = window.store.prepareRead(query);
+  const rows = window.kind === "page" ? (yield* program.findPage(ctx.manager)).rows
+    : yield* program.find(ctx.manager);
+  return { rows, count: Effect.suspend(() => program.count(ctx.manager)) };
 });
 
 export function orderedCatalog(direction: "asc" | "desc"): (rows: readonly JsonObject[]) => CatalogSelection {

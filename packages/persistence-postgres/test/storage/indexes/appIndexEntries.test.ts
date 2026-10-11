@@ -34,6 +34,8 @@ import {
 } from "flarex-protocol/storage-authority";
 import { Effect } from "effect";
 import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { flarexSchema } from "../../../src/database/schema";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -49,6 +51,7 @@ import {
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,
   scanCurrentPublicationIndexInTransactionEffect,
+  withCurrentPublicationIndexRowsInTransactionEffect,
   type AppendAppIndexEntryRevisionV1Input,
   type AppIndexEntryTransaction,
 } from "../../../src/storage/indexes/appIndexEntries";
@@ -127,6 +130,35 @@ return await runEffectFailure(
     }
   });
 
+  it("defers publication bodies until their ordinal and closes an escaped reader", async () => {
+    const persistence = await indexPersistence();
+    const publicationIndex = { indexDefinitionId: locatedDefinition.indexDefinitionId,
+      physicalSpec: locatedDefinition.physicalSpec, physicalSpecSha256Hex: locatedDefinition.physicalSpecSha256Hex };
+    await persistence.drizzle.transaction(async tx => {
+      await runEffect(lockInstallationForCurrentTransaction(tx));
+      const execute = tx.execute.bind(tx);
+      const spy = vi.spyOn(tx, "execute").mockImplementation(() => execute(sql`
+        select 0::integer as "ordinal", null::boolean as "present", null::text as "tableIdText"
+        union all select 1::integer, true::boolean, 'malformed'::text`));
+      try {
+        const input = { scopeId, publicationIndex, rowIds: [rowA, rowB] };
+        expect(await runEffectFailure(withCurrentPublicationIndexRowsInTransactionEffect(tx, input,
+          cause => cause.message, read => Effect.gen(function* () {
+            expect(yield* read(0)).toEqual([]);
+            return yield* Effect.fail("earlier consumer refusal");
+          })))).toBe("earlier consumer refusal");
+        const read = await runEffect(withCurrentPublicationIndexRowsInTransactionEffect(tx, input,
+          cause => cause, read => Effect.succeed(read)));
+        expect(await runEffectFailure(read(0))).toMatchObject({ reason: "reverse membership capture is closed" });
+        expect(await runEffectFailure(withCurrentPublicationIndexRowsInTransactionEffect(tx, input,
+          cause => cause, read => read(1)))).toBeInstanceOf(AppIndexEntryStorageCorruptionError);
+      } finally {
+        spy.mockRestore();
+        closeInstallationAdmission(tx);
+      }
+    });
+  });
+
   it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
     const persistence = await indexPersistence();
     await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
@@ -141,11 +173,18 @@ return await runEffectFailure(
         try {
 
         const execute = tx.execute.bind(tx);
-        const spy = vi.spyOn(tx, "execute").mockImplementation(() => {
+        const executeSpy = kind === "membership" ? vi.spyOn(tx, "execute").mockImplementation(() => {
           // The reader is the only execute caller in this transaction.
           if (mode === "construction") throw defect;
           return execute(sql`select 1 / 0`);
-        });
+        }) : undefined;
+        const prepare = tx._.session.prepareQuery.bind(tx._.session);
+        const prepareSpy = kind === "range" ? vi.spyOn(tx._.session, "prepareQuery").mockImplementation((...args) => {
+          if (args[1] === undefined && mode === "construction") throw defect;
+          const query = prepare(...args);
+          if (args[1] === undefined) vi.spyOn(query, "execute").mockRejectedValue(defect);
+          return query;
+        }) : undefined;
         try {
           const reading = kind === "membership"
             ? readAppIndexMembershipHeadsInTransactionEffect(tx, { scopeId, positions: [{ definition: locatedDefinition, encodedKey: keyA, rowId: rowA }] }).pipe(Effect.map(selection => selection.heads)).pipe(Effect.asVoid)
@@ -156,8 +195,9 @@ return await runEffectFailure(
           } else {
             expect(exit).toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Fail", error: expect.any(AppIndexEntryReadPersistenceError) }] } });
           }
-          expect(spy).toHaveBeenCalledOnce();
-        } finally { spy.mockRestore(); }
+          if (executeSpy !== undefined) expect(executeSpy).toHaveBeenCalledOnce();
+          if (prepareSpy !== undefined) expect(prepareSpy.mock.calls.filter(args => args[1] === undefined)).toHaveLength(1);
+        } finally { executeSpy?.mockRestore(); prepareSpy?.mockRestore(); }
       
         } finally { closeInstallationAdmission(tx); }
       });
@@ -177,12 +217,14 @@ return await runEffectFailure(
     for (const returned of cases) {
       // Only the actual membership read is present; no installation admission or
       // publication writer is forged to reach a displaced RETURNING decoder.
-      const tx = {
-        select() { return { from() { return { innerJoin() { return { where() { return {
-          limit() { return Promise.resolve([{ scopeUuid }]); },
-        }; } }; } }; } }; },
-        execute() { return Promise.resolve({ rows: returned }); },
-      } as unknown as AppIndexEntryTransaction;
+      const native = drizzle.mock({ schema: flarexSchema });
+      const prepare = native._.session.prepareQuery.bind(native._.session);
+      vi.spyOn(native._.session, "prepareQuery").mockImplementation((...args) => {
+        const query = prepare(...args);
+        vi.spyOn(query, "execute").mockImplementation(() => Promise.resolve([{ scopeUuid }]));
+        return query;
+      });
+      const tx = Object.assign(native, { execute() { return Promise.resolve({ rows: returned }); } }) as unknown as AppIndexEntryTransaction;
       expect(await runEffectFailure(readAppIndexMembershipHeadsInTransactionEffect(tx, {
         scopeId, positions: [{ definition: locatedDefinition, encodedKey: keyA, rowId: rowA }],
       }))).toBeInstanceOf(AppIndexEntryStorageCorruptionError);

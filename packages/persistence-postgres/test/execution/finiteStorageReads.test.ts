@@ -2,13 +2,15 @@ import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, it } from "vitest";
-import { ScopeIdSchema, CommitSeqSchema } from "flarex-protocol/storage-authority";
-import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import { ScopeIdSchema, ScopeUuidV1Schema, CommitSeqSchema } from "flarex-protocol/storage-authority";
+import { decodeCatalogTableId, decodeCatalogIndexDefinitionId } from "flarex-protocol/catalog";
+import { APP_BY_ID_PHYSICAL_SPEC_V1 } from "flarex-protocol/ordered-index";
 import { decodeAppRowIdHexV1, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import {
   consumeCapturedAppRowsAtSnapshotEffect,
-  prepareAppRowsSnapshotReadEffect,
+  prepareAppRowsSnapshotReadResult,
 } from "../../src/storage/documents/appRows";
+import { decodeCapturedAppIndexSnapshotPageEffect, type PreparedAppIndexSnapshotRead } from "../../src/storage/indexes/appIndexEntries";
 import {
   type AppRowStorageCorruptionError,
 } from "../../src/storage/documents/appRowErrors";
@@ -24,6 +26,15 @@ const scopeId = ScopeIdSchema.make(`scope_${scopeUuid}`);
 const ids = [1, 2, 3, 4].map(n => decodeAppRowIdHexV1(`6000000000000000000000000000000${n}`));
 
 describe("fixed historical storage primitives", () => {
+  it("refuses duplicate row preparation before reading the later snapshot field", () => {
+    let snapshotAccessed = false;
+    const verdict = prepareAppRowsSnapshotReadResult({ scopeId, tableId: decodeCatalogTableId(1), rowIds: [ids[0]!, ids[0]!],
+      get snapshotCommitSeq(): never { snapshotAccessed = true; throw new Error("later snapshot must remain deferred"); } });
+    expect(Result.isFailure(verdict)).toBe(true);
+    if (Result.isFailure(verdict)) expect(verdict.failure.issue.reason).toBe("invalidRowId");
+    expect(snapshotAccessed).toBe(false);
+  });
+
   it("retains missing/tombstone ordinals and the complete first crossing body", async () => {
     const db = new PGlite();
     try {
@@ -88,23 +99,28 @@ describe("fixed historical storage primitives", () => {
   });
 
   it("defers later row columns until earlier consumer acceptance and retains column failure order", async () => {
-    const prepared = await runEffect(prepareAppRowsSnapshotReadEffect({ scopeId, tableId: decodeCatalogTableId(1),
+    const prepared = Result.getOrThrow(prepareAppRowsSnapshotReadResult({ scopeId, tableId: decodeCatalogTableId(1),
       rowIds: ids.slice(0, 2), snapshotCommitSeq: CommitSeqSchema.make(1n) }));
     let observedLater = false;
     const rows = [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: false, bodyWithheld: false },
       { get ordinal() { observedLater = true; throw new Error("later row must remain deferred"); } }];
-    expect(await runEffect(Effect.result(consumeCapturedAppRowsAtSnapshotEffect<AppRowStorageCorruptionError | "firstRefusal", never>(prepared, rows,
-      cause => cause, () => Effect.fail("firstRefusal" as const))))).toEqual(Result.fail("firstRefusal"));
+    const refused = await runEffect(Effect.result(consumeCapturedAppRowsAtSnapshotEffect<AppRowStorageCorruptionError | "firstRefusal", never>(prepared, rows,
+      cause => cause, () => Effect.fail("firstRefusal" as const))));
+    expect(Result.isFailure(refused)).toBe(true);
+    if (Result.isFailure(refused)) expect(refused.failure).toBe("firstRefusal");
     expect(observedLater).toBe(false);
     const corruption = await runEffect(Effect.result(consumeCapturedAppRowsAtSnapshotEffect({ ...prepared, rowIds: [ids[0]!] },
       [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: true, bodyWithheld: false,
         rowId: new Uint8Array(0), get scopeUuid() { throw new Error("later column must remain deferred"); } }],
       cause => cause, () => Effect.void)));
-    expect(corruption).toMatchObject({ _tag: "Failure", failure: { _tag: "AppRowStorageCorruptionError" } });
+    expect(Result.isFailure(corruption)).toBe(true);
+    if (Result.isFailure(corruption)) expect(corruption.failure).toMatchObject({
+      _tag: "AppRowStorageCorruptionError", reason: "stored revision columns do not decode",
+    });
   });
 
   it("keeps row consumption lazy and stops after interruption before later row access", async () => {
-    const prepared = await runEffect(prepareAppRowsSnapshotReadEffect({ scopeId, tableId: decodeCatalogTableId(1),
+    const prepared = Result.getOrThrow(prepareAppRowsSnapshotReadResult({ scopeId, tableId: decodeCatalogTableId(1),
       rowIds: ids.slice(0, 2), snapshotCommitSeq: CommitSeqSchema.make(1n) }));
     let consumed = 0, finalized = 0, observedLater = false;
     const rows = [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: false, bodyWithheld: false },
@@ -122,6 +138,98 @@ describe("fixed historical storage primitives", () => {
     expect(observedLater).toBe(false);
   });
 
+  it.each(["missing", "tombstone"] as const)("interrupts before accessing the next array slot after a %s row", async kind => {
+    const prepared = Result.getOrThrow(prepareAppRowsSnapshotReadResult({ scopeId, tableId: decodeCatalogTableId(1),
+      rowIds: ids.slice(0, 2), snapshotCommitSeq: CommitSeqSchema.make(1n) }));
+    const first = { ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: kind === "tombstone", bodyWithheld: false,
+      rowId: appRowIdHexV1ToBytes(ids[0]!), scopeUuid, writeEpochUuid: scopeUuid, commitSeq: "1", prevCommitSeq: null,
+      schemaVersionId: "finite_schema", creationTime: 1, isTombstone: true, valueBytes: null, valueSha256: null };
+    let laterAccessed = false;
+    const rows: unknown[] = [first];
+    Object.defineProperty(rows, 1, { get() { laterAccessed = true; throw new Error("next array slot must remain deferred"); } });
+    const exit = await runEffect(Effect.exit(consumeCapturedAppRowsAtSnapshotEffect(prepared, rows, cause => cause, (_id, revision) => {
+      expect(revision.kind).toBe(kind);
+      return Effect.interrupt;
+    })));
+    if (!Exit.isFailure(exit)) throw new Error("Expected row-consumer interruption");
+    expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    expect(laterAccessed).toBe(false);
+  });
+
+  it.each(["ordinal", "requestedRowId", "rowPresent", "bodyWithheld"] as const)(
+    "preserves the original first-row %s getter defect without accessing a later row", async field => {
+    const prepared = Result.getOrThrow(prepareAppRowsSnapshotReadResult({ scopeId, tableId: decodeCatalogTableId(1),
+      rowIds: ids.slice(0, 2), snapshotCommitSeq: CommitSeqSchema.make(1n) }));
+    const defect = new Error("original driver getter defect");
+    let laterAccessed = false;
+    const first = { ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: false, bodyWithheld: false };
+    Object.defineProperty(first, field, { get() { throw defect; } });
+    const rows = [first,
+      { get ordinal() { laterAccessed = true; throw new Error("later row must remain deferred"); } }];
+    const exit = await runEffect(Effect.exit(consumeCapturedAppRowsAtSnapshotEffect(prepared, rows, cause => cause, () => Effect.void)));
+    if (!Exit.isFailure(exit)) throw new Error("Expected original getter defect");
+    expect(exit.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([defect]);
+    expect(laterAccessed).toBe(false);
+  });
+
+  it("stops settlement at a withheld body and preserves trusted hydration's defect", async () => {
+    const prepared = Result.getOrThrow(prepareAppRowsSnapshotReadResult({ scopeId, tableId: decodeCatalogTableId(1),
+      rowIds: ids.slice(0, 2), snapshotCommitSeq: CommitSeqSchema.make(1n) }));
+    let consumed = 0, bodyAccessed = false, laterAccessed = false;
+    const rows = [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(ids[0]!), rowPresent: true, bodyWithheld: true,
+      get rowId() { bodyAccessed = true; throw new Error("withheld body must remain deferred"); } },
+    { get ordinal() { laterAccessed = true; throw new Error("later row must remain deferred"); } }];
+    const consume = () => Effect.sync(() => { consumed++; });
+    expect(await runEffect(consumeCapturedAppRowsAtSnapshotEffect(prepared, rows, cause => cause, consume, true))).toBe(0);
+    const exit = await runEffect(Effect.exit(consumeCapturedAppRowsAtSnapshotEffect(prepared, rows, cause => cause, consume)));
+    if (!Exit.isFailure(exit)) throw new Error("Expected trusted hydration defect");
+    expect(Cause.hasDies(exit.cause)).toBe(true);
+    expect(consumed).toBe(0);
+    expect(bodyAccessed).toBe(false);
+    expect(laterAccessed).toBe(false);
+  });
+
+  it("checks an index ordinal before its body and refuses the first corrupt member before later array access", async () => {
+    const input: PreparedAppIndexSnapshotRead = { scopeId, scopeUuid: ScopeUuidV1Schema.make(scopeUuid),
+      indexDefinitionId: decodeCatalogIndexDefinitionId(1), physicalSpec: APP_BY_ID_PHYSICAL_SPEC_V1,
+      physicalSpecSha256: new Uint8Array(32), bounds: {}, limit: 2, snapshotCommitSeq: CommitSeqSchema.make(1n) };
+    let bodyAccessed = false, laterAccessed = false;
+    const wrongOrdinal = [{ ordinal: 1, get tableIdText() { bodyAccessed = true; throw new Error("body must remain deferred"); } }];
+    const ordinalFailure = await runEffect(Effect.result(decodeCapturedAppIndexSnapshotPageEffect(input, wrongOrdinal)));
+    expect(Result.isFailure(ordinalFailure)).toBe(true);
+    if (Result.isFailure(ordinalFailure)) expect(ordinalFailure.failure)
+      .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError", reason: "snapshot membership ordinal differs" });
+    expect(bodyAccessed).toBe(false);
+    const rows: unknown[] = [{ ordinal: 0, tableIdText: "0", keyCodecVersionText: "1", physicalSpecSha256: new Uint8Array(32),
+      encodedKeyBytes: new Uint8Array(), keySha256: new Uint8Array(32), rowIdBytes: appRowIdHexV1ToBytes(ids[0]!),
+      commitSeqText: "1", isTombstone: false }];
+    Object.defineProperty(rows, 1, { get() { laterAccessed = true; throw new Error("later membership must remain deferred"); } });
+    const corruption = await runEffect(Effect.result(decodeCapturedAppIndexSnapshotPageEffect(input, rows)));
+    expect(Result.isFailure(corruption)).toBe(true);
+    if (Result.isFailure(corruption)) expect(corruption.failure).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+    expect(laterAccessed).toBe(false);
+  });
+
+  it.each(["ordinal", "tableIdText", "rowIdBytes"] as const)(
+    "preserves the original index %s getter defect before later array access", async field => {
+    const input: PreparedAppIndexSnapshotRead = { scopeId, scopeUuid: ScopeUuidV1Schema.make(scopeUuid),
+      indexDefinitionId: decodeCatalogIndexDefinitionId(1), physicalSpec: APP_BY_ID_PHYSICAL_SPEC_V1,
+      physicalSpecSha256: new Uint8Array(32), bounds: {}, limit: 2, snapshotCommitSeq: CommitSeqSchema.make(1n) };
+    const defect = new Error(`original index ${field} getter defect`);
+    const first = { ordinal: 0, tableIdText: "1", keyCodecVersionText: "1", physicalSpecSha256: new Uint8Array(32),
+      encodedKeyBytes: new Uint8Array(), keySha256: new Uint8Array(32), rowIdBytes: appRowIdHexV1ToBytes(ids[0]!),
+      commitSeqText: "1", isTombstone: false };
+    Object.defineProperty(first, field, { get() { throw defect; } });
+    let laterAccessed = false;
+    const rows: unknown[] = [first];
+    Object.defineProperty(rows, 1, { get() { laterAccessed = true; throw new Error("later index must remain deferred"); } });
+    const exit = await runEffect(Effect.exit(decodeCapturedAppIndexSnapshotPageEffect(input, rows)));
+    if (!Exit.isFailure(exit)) throw new Error("Expected original index getter defect");
+    expect(exit.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect)).toEqual([defect]);
+    expect(Cause.hasFails(exit.cause)).toBe(false);
+    expect(laterAccessed).toBe(false);
+  });
+
   it("rejects oversized ownership groups before touching withheld metadata bodies", async () => {
     let touched = false;
     const rows = Array.from({ length: 65 }, (_, ordinal) => ({ kind: "ownership", ordinal, scopeId,
@@ -129,22 +237,29 @@ describe("fixed historical storage primitives", () => {
       evidenceLength: 1, bodyWithheld: true,
       get evidenceBytes() { touched = true; throw new Error("withheld body must remain deferred"); },
     }));
-    expect(await runEffect(Effect.result(decodeCapturedApplicationWriteOwnershipEffect(scopeId, rows,
-      new ApplicationWriteOwnershipHistoryBudget())))).toMatchObject({ _tag: "Failure", failure: { reason: "historyLimit" } });
+    const refusal = await runEffect(Effect.result(decodeCapturedApplicationWriteOwnershipEffect(scopeId, rows,
+      new ApplicationWriteOwnershipHistoryBudget())));
+    expect(Result.isFailure(refusal)).toBe(true);
+    if (Result.isFailure(refusal)) expect(refusal.failure.reason).toBe("historyLimit");
     expect(touched).toBe(false);
   });
 
   it("charges demanded successor manifests and catalog closure before any withheld body", async () => {
     let touched = false;
     const budget = new ApplicationWriteOwnershipHistoryBudget();
-    expect(budget.consume(64, 0)).toEqual(Result.succeed(undefined));
+    const charge = budget.consume(64, 0);
+    expect(Result.isSuccess(charge)).toBe(true);
+    if (Result.isSuccess(charge)) expect(charge.success).toBeUndefined();
     const manifest = [{ evidenceLength: 1, get bytes() { touched = true; throw new Error("manifest must remain deferred"); } }];
-    expect(await runEffect(Effect.result(decodeCapturedApplicationOwnershipPolicyManifest(manifest, budget))))
-      .toMatchObject({ _tag: "Failure", failure: { reason: "historyLimit" } });
+    const manifestRefusal = await runEffect(Effect.result(decodeCapturedApplicationOwnershipPolicyManifest(manifest, budget)));
+    expect(Result.isFailure(manifestRefusal)).toBe(true);
+    if (Result.isFailure(manifestRefusal)) expect(manifestRefusal.failure.reason).toBe("historyLimit");
     const definitions = [{ kind: "definition", ordinal: 0, evidenceLength: 1,
       get physicalSpecBytes() { touched = true; throw new Error("catalog must remain deferred"); } }];
-    expect(await runEffect(Effect.result(decodeCapturedOwnershipUniqueClosure("deployment_test", decodeCatalogSchemaVersionId("schema_test"),
-      definitions, budget)))).toMatchObject({ _tag: "Failure", failure: { reason: "historyLimit" } });
+    const closureRefusal = await runEffect(Effect.result(decodeCapturedOwnershipUniqueClosure("deployment_test", decodeCatalogSchemaVersionId("schema_test"),
+      definitions, budget)));
+    expect(Result.isFailure(closureRefusal)).toBe(true);
+    if (Result.isFailure(closureRefusal)) expect(closureRefusal.failure.reason).toBe("historyLimit");
     expect(touched).toBe(false);
   });
 });

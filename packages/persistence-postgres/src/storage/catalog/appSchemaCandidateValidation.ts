@@ -803,7 +803,8 @@ export const prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
     if (state === undefined || capture === undefined) {
       return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "notIssued" }));
     }
-    if (state.pointCommitAuthority !== capture.issuer) {
+    if (state.pointCommitAuthority !== capture.issuer ||
+      (state.finite !== undefined && !trustedAuthoritiesEqual(state.finite.authority, capture.authority))) {
       return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
     }
     // The original planning owner captured this exact authority under entry.
@@ -2646,7 +2647,9 @@ const readHeadEffect = Effect.fn(
     : yield* decodeHeadRowEffect(rows[0], "load");
 });
 
-type HeadRow = typeof fxSystemAppSchemaCandidateValidations.$inferSelect;
+type HeadRow = Readonly<{
+  [Key in keyof typeof fxSystemAppSchemaCandidateValidations.$inferSelect]: unknown;
+}>;
 
 const decodeHeadRowEffect = Effect.fn(
   "AppSchemaCandidateValidation.decodeHeadRow",

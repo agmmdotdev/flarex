@@ -16,6 +16,7 @@ import {
 } from "./json";
 import {
   canonicalFlarexRuntimeValueToJsonV1,
+  createOwnedCanonicalFlarexRuntimeValueProjectionV1,
   FLAREX_APP_DOCUMENT_LIMITS_V1,
   FLAREX_GENERAL_VALUE_LIMITS_V1,
   FlarexValueRuntimeCoreV1Error,
@@ -115,6 +116,36 @@ export interface CanonicalFlarexValueV1 extends NormalizedFlarexValueV1 {
   readonly canonicalText: string;
   readonly canonicalBytes: CanonicalFlarexValueBytesV1;
   readonly sha256: FlarexValueSha256V1;
+}
+
+interface CanonicalValueOwnership {
+  readonly runtime: CanonicalFlarexRuntimeValueV1;
+  readonly policy: Json;
+  readonly bytes: Uint8Array;
+  readonly digest: Uint8Array;
+  readonly read: () => CanonicalFlarexRuntimeValueV1;
+  readonly binaryMatches: () => boolean;
+}
+const canonicalValueOwnership = new WeakMap<CanonicalFlarexValueV1, CanonicalValueOwnership>();
+
+/** Only this codec's successful canonicalization issues ownership, before its
+ * normalized runtime escapes. No caller can register a supplied wrapper. */
+function retainCanonicalFlarexValueOwnershipV1(document: CanonicalFlarexValueV1): CanonicalFlarexValueV1 {
+  const projection = createOwnedCanonicalFlarexRuntimeValueProjectionV1(document.value);
+  canonicalValueOwnership.set(document, { runtime: document.value, policy: document.valueJson,
+    bytes: copyBytes(document.canonicalBytes), digest: copyBytes(document.sha256), ...projection });
+  return document;
+}
+
+/** Read-only codec ownership loan. Foreign wrappers gain no provenance;
+ * changed exact evidence is reported separately from the protected runtime. */
+export function inspectCanonicalFlarexValueOwnershipV1(document: CanonicalFlarexValueV1):
+  Readonly<{ intact: boolean; read: () => CanonicalFlarexRuntimeValueV1 }> | undefined {
+  const state = canonicalValueOwnership.get(document);
+  if (state === undefined) return undefined;
+  return { intact: state.runtime === document.value && state.policy === document.valueJson &&
+    bytesEqual(document.canonicalBytes, state.bytes) && bytesEqual(document.sha256, state.digest) &&
+    state.binaryMatches(), read: state.read };
 }
 
 export class FlarexValueCodecV1Error extends Data.TaggedError(
@@ -452,13 +483,13 @@ async function canonicalizeNormalizedValue(
   const sha256 = decodeFlarexValueSha256V1(
     new Uint8Array(await crypto.subtle.digest("SHA-256", digestInput)),
   );
-  return Object.freeze({
+  return retainCanonicalFlarexValueOwnershipV1(Object.freeze({
     ...normalized,
     codecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     canonicalText,
     canonicalBytes,
     sha256,
-  } satisfies CanonicalFlarexValueV1);
+  } satisfies CanonicalFlarexValueV1));
 }
 
 function normalizeJsonNode(

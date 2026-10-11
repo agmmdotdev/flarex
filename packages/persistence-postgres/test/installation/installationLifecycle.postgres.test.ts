@@ -53,6 +53,17 @@ async function writeMaintenanceMigration(folder: string, when: number, statement
 }
 
 native("managed installation PostgreSQL lifecycle", () => {
+  it("retires pure routines for ordinary runtime roles and retains managed installation integrity", async () => {
+    const owner = await createFileScopedPostgresFixture();
+    const fixture = await createProtectedFileScopedPostgresFixture("managed",owner);
+    try {
+      expect((await fixture.persistence.query(`select p.proname from pg_catalog.pg_proc p
+        where p.pronamespace=current_schema()::regnamespace and p.proname in
+          ('fx_accept_ordinary_index_readiness','fx_accept_ordinary_unique_readiness','fx_accept_ordinary_search_readiness')`)).rows).toEqual([]);
+      await Effect.runPromise(verifyInstallationWriterProtection(owner.persistence.drizzle,owner.schemaName));
+      expect((await owner.persistence.query("select state from fx_system_installation")).rows).toEqual([{state:"active"}]);
+    } finally { await fixture.dispose(); await owner.dispose(); }
+  }, 180_000);
   it("attests the journal CHECK through actual managed maintenance and cleans nested parser references", async () => {
     const owner = await createFileScopedPostgresFixture();
     const fixture = await createProtectedFileScopedPostgresFixture("managed", owner);

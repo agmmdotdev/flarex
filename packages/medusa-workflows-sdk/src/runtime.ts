@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { StepResponse } from "./responses";
-import { referenceOf } from "./references";
 import { definitionError, type StepExecutionContext } from "./model";
-import type { PreparedWorkflow } from "./definition";
+import { isPreparedWorkflow, type PreparedWorkflow } from "./definition";
+import { resolveWorkflowValue, type WorkflowResolution } from "./resolution";
 
 export interface WorkflowExecutionPort<Failure> {
   readonly checkpoint: Effect.Effect<void, Failure>;
@@ -17,6 +17,7 @@ export interface WorkflowExecutionPort<Failure> {
 export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Failure>(
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>,
 ) {
+  if (!isPreparedWorkflow(definition)) return Effect.fail(definitionError("invalidDefinition", "Workflow was not prepared by this SDK"));
   return executeFrame(definition, input, port, true);
 });
 /** Child frames borrow the root port; only their evaluation caches are local. */
@@ -25,52 +26,28 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
 ): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
   const outputs = new Map<object, unknown>();
   const transforms = new Map<object, unknown>();
-  const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (value: unknown, depth = 0): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
-    if (depth > 64) return yield* Effect.fail(definitionError("invalidReference", "Reference depth exceeded"));
-    const reference = referenceOf(value);
-    if (reference !== undefined) {
-      if (reference.owner !== definition.owner) return yield* Effect.fail(definitionError("invalidReference", "Foreign workflow reference"));
-      if (reference.kind === "input") return input;
-      if (reference.kind === "step") {
-        if (reference.step === undefined || !outputs.has(reference.step)) return yield* Effect.fail(definitionError("invalidReference", "Step has not completed"));
-        return outputs.get(reference.step);
-      }
-      if (reference.kind === "property") {
-        const resolved = yield* resolve(reference.input, depth + 1);
-        if (reference.property === undefined) return yield* Effect.fail(definitionError("invalidReference", "Missing property key"));
-        // Pure selection from an already captured value needs no foreign callback.
-        // The next step/transform/result boundary still captures its whole input.
-        return resolved == null ? undefined : Reflect.get(Object(resolved), reference.property);
-      }
-      if (transforms.has(reference)) return transforms.get(reference);
-      if (reference.guards?.some(guard => outputs.get(guard) !== true)) return undefined;
-      const resolved = yield* port.capture(yield* resolve(reference.input, depth + 1));
-      const transform = reference.transform;
+  const frame = { owner: definition.owner, input, outputs, transforms };
+  const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (resolution: WorkflowResolution): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
+    const evaluation = resolveWorkflowValue(resolution, frame);
+    let next = evaluation.next();
+    while (!next.done) {
+      const resolved = yield* port.capture(next.value.input);
+      const transform = next.value.reference.transform;
       if (transform === undefined) return yield* Effect.fail(definitionError("invalidReference", "Missing transformer"));
       const output = yield* port.invoke(() => transform(resolved, port.context));
       const captured = yield* port.capture(output);
-      transforms.set(reference, captured);
-      return captured;
+      next = evaluation.next(captured);
     }
-    if (Array.isArray(value)) {
-      const members = [];
-      for (const member of value) members.push(yield* resolve(member, depth + 1));
-      return members;
-    }
-    if (typeof value === "object" && value !== null) {
-      const entries: [string, unknown][] = [];
-      for (const [key, member] of Object.entries(value)) entries.push([key, yield* resolve(member, depth + 1)]);
-      return Object.fromEntries(entries);
-    }
-    return value;
+    return yield* Effect.fromResult(next.value);
   });
-  for (const node of definition.nodes) {
+  for (const [index, node] of definition.nodes.entries()) {
     if (node.guards.some(guard => outputs.get(guard) !== true)) {
       outputs.set(node.id, undefined);
       continue;
     }
-    if (node.kind === "branchResult") { outputs.set(node.id, yield* resolve(node.input)); continue; }
-    const input = yield* port.capture(yield* resolve(node.input));
+    const resolution = definition.resolution.inputs[index]!;
+    if (node.kind === "branchResult") { outputs.set(node.id, yield* resolve(resolution)); continue; }
+    const input = yield* port.capture(yield* resolve(resolution));
     if (node.kind === "workflow") {
       const output = yield* executeFrame(node.workflow, input, port);
       outputs.set(node.id, yield* port.capture(output));
@@ -96,5 +73,5 @@ const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
     } else outputs.set(node.id, yield* port.capture(returned));
   }
   if (root) yield* port.checkpoint;
-  return yield* resolve(definition.result);
+  return yield* resolve(definition.resolution.result);
 });

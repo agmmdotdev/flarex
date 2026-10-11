@@ -181,6 +181,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
     }, logicalSelection.source, { kind: "standalone", application: binding }).pipe(
       Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   }), {
+    selection: { deploymentId, scopeId },
     installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)).pipe(Effect.mapError(projectFailure)) })
     .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   const execute = Effect.fn("CommerceHost.execute")(function* (requestKey: string | null, token: CommerceCommand | null, args: Json) {

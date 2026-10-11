@@ -79,6 +79,12 @@ const preparedTargetMetadataTestImports = new Map([
 // and capture normalization to prove the real core gate runs first.
 // These edges grant no permission to adjacent tests or production consumers.
 const finiteContractTestImports = new Map([
+  ["packages/persistence-postgres/test/execution/finiteIndexedBodyPermission.test.ts", {
+    specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts",
+  }],
+  ["packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts", {
+    specifier: "../../../medusa-adapter/src/schemaComposition", target: "packages/medusa-adapter/src/schemaComposition.ts",
+  }],
   ["packages/persistence-postgres/test/frameworks/atomicCommerce/atomicCommerceSharedInstallation.test.ts", {
     specifier: "../../../../medusa-adapter/src/workflow-value", target: "packages/medusa-adapter/src/workflow-value.ts",
   }],

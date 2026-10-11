@@ -13,7 +13,7 @@ const construction = vi.hoisted(() => ({ admissions: [] as unknown[], state: und
 // Only admitted source construction is stubbed. The borrowed factory, bounded
 // lifetime, capture operation, finite root issuer/gate, and workflow decoder run
 // unchanged; these tests never execute source commands or storage operations.
-vi.mock("../src/logicalDocuments/participantAdmission", async importOriginal => {
+vi.mock("../../../src/storage/documents/logicalDocuments/participantAdmission", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/participantAdmission")>();
   return { ...original, withLogicalParticipantAdmissionBundleEffect: (
     _bundle: unknown, _attempt: unknown, _participant: unknown, _method: unknown, _revision: unknown,
@@ -21,18 +21,18 @@ vi.mock("../src/logicalDocuments/participantAdmission", async importOriginal => 
   ) => work({ admissions: construction.admissions,
     readTransaction: () => Effect.die(new Error("Unexpected finite capture storage read")) }) };
 });
-vi.mock("../src/logicalDocuments/relationalAdmission", async importOriginal => {
+vi.mock("../../../src/storage/documents/logicalDocuments/relationalAdmission", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/relationalAdmission")>();
   return { ...original, withLogicalRelationalAttemptAdmissionEffect: (
     _admission: unknown, _attempt: unknown, _method: unknown,
     _prepare: unknown, work: (state: unknown) => Effect.Effect<unknown, unknown>,
   ) => work(construction.state) };
 });
-vi.mock("../src/atomicCommerce/participants", async importOriginal => {
+vi.mock("../../../src/frameworks/atomicCommerce/participants", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/frameworks/atomicCommerce/participants")>();
   return { ...original, requirePreparedAtomicCommerceLogicalParticipant: (member: unknown) => Result.succeed(member) };
 });
-vi.mock("../src/logicalDocuments/workingSet", async importOriginal => {
+vi.mock("../../../src/storage/documents/logicalDocuments/workingSet", async importOriginal => {
   const original = await importOriginal<typeof import("../../../src/storage/documents/logicalDocuments/workingSet")>();
   return { ...original,
     combineLogicalWriteMechanics: () => Effect.succeed({ tables: [], unique: [], indexes: [], searchDefinitions: [], tableName: () => undefined }),

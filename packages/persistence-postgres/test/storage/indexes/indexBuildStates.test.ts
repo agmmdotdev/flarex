@@ -1,4 +1,5 @@
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
+import { drizzle } from "drizzle-orm/node-postgres";
 import {
   CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
@@ -25,7 +26,7 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   IndexBuildStateClockNotFoundError,
@@ -41,6 +42,7 @@ import { createPGlitePersistence } from "../../../src/database/pglite";
 import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
+  flarexSchema,
 } from "../../../src/database/schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 
@@ -612,16 +614,16 @@ describe("fenced index build-state reads", () => {
 function indexBuildReadDatabase<Row>(
   run: () => PromiseLike<ReadonlyArray<Row>>,
 ): FlarexMetadataDatabase {
-  const query = {
-    from: () => query,
-    innerJoin: () => query,
-    leftJoin: () => query,
-    where: () => query,
-    limit: () => run(),
-  };
-  return {
-    select: () => query,
-  } as unknown as FlarexMetadataDatabase;
+  const database = drizzle.mock({ schema: flarexSchema });
+  const prepare = database._.session.prepareQuery.bind(database._.session);
+  vi.spyOn(database._.session, "prepareQuery").mockImplementation((...args) => {
+    const query = prepare(...args);
+    // Retain the original foreign result objects so the domain decoder, not
+    // a test row mapper, owns accessor evaluation and first-failure order.
+    vi.spyOn(query, "execute").mockImplementation(() => Promise.resolve(run()));
+    return query;
+  });
+  return database;
 }
 
 function validFencedIndexBuildReadRow(

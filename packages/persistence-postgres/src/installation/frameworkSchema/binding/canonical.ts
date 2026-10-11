@@ -1,3 +1,4 @@
+import { observeExecution } from "../../../execution/diagnostics/operation";
 import { Effect, Result, Schema } from "effect";
 import {
   ScopeEpochSchema,
@@ -416,7 +417,7 @@ function matchesBindingVersion(frame: JsonObject, version: number | readonly num
     typeof version === "number" ? frame.version === version :
     typeof frame.version === "number" && version.includes(frame.version);
 }
-export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
+export const restoreBindingValue = Effect.fnUntraced(
   function* <Frame extends JsonObject>(
     bytes: unknown,
     digest: unknown,
@@ -443,5 +444,5 @@ export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
     return guard(frame)
       ? frame
       : yield* Effect.fail(bindingError("storedCorruption"));
-  },
+  }, effect => observeExecution("DataBinding.restoreValue", effect, "caller")
 );

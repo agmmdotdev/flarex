@@ -433,7 +433,7 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
     yield* driver(() => owner.client.query(`grant execute on function ${schema}.fx_lock_installation_admission(),
       ${schema}.fx_lock_prepared_metadata_epoch() to ${role}`));
     const frontierHelper = `${schema}.fx_lock_installation_frontier(${schema}.fx_installation_frontier_expected)`;
-    const placementFrontier = `${schema}.fx_accept_finite_placement_frontier(${schema}.fx_installation_frontier_expected,${schema}.fx_installation_frontier_expected,text,text)`;
+    const placementFrontier = `${schema}.fx_lock_control_scope_placement(${schema}.fx_installation_frontier_expected,text,text,text)`;
     yield* driver(() => owner.client.query(accessProfile !== "activationWriter"
       ? `grant execute on function ${frontierHelper} to ${role}`
       : `revoke all on function ${frontierHelper} from ${role}`));
@@ -445,11 +445,11 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
       ? `grant usage on type ${frontierTypes} to ${role}`
       : `revoke all on type ${frontierTypes} from ${role}`));
     yield* driver(() => owner.client.query(accessProfile === "controlRead"
-      ? `grant usage on type ${schema}.fx_finite_placement_frontier to ${role}`
-      : `revoke all on type ${schema}.fx_finite_placement_frontier from ${role}`));
+      ? `grant usage on type ${schema}.fx_control_scope_placement to ${role}`
+      : `revoke all on type ${schema}.fx_control_scope_placement from ${role}`));
     yield* driver(() => owner.client.query(accessProfile === "dataRuntime"
-      ? `grant usage on type ${schema}.fx_finite_capture_frontier to ${role}`
-      : `revoke all on type ${schema}.fx_finite_capture_frontier from ${role}`));
+      ? `grant usage on type ${schema}.fx_finite_capture_frontier,${schema}.fx_finite_read_expected to ${role}`
+      : `revoke all on type ${schema}.fx_finite_capture_frontier,${schema}.fx_finite_read_expected from ${role}`));
     yield* driver(() => owner.client.query(accessProfile !== "controlRead"
       ? `grant execute on function ${schema}.fx_publish_application_read_binding(bytea,bytea) to ${role}`
       : `revoke all on function ${schema}.fx_publish_application_read_binding(bytea,bytea) from ${role}`));
@@ -463,7 +463,7 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
       `grant execute on function ${schema}.fx_observe_finite_entry(text,uuid,text,text),
         ${schema}.fx_complete_finite_entry(${schema}.fx_finite_entry_expected,boolean),
         ${schema}.fx_compare_finite_metadata(text,bigint,jsonb),
-        ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer),
+        ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer,${schema}.fx_finite_read_expected),
         ${schema}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean),
         ${schema}.fx_read_historical_row_identity(uuid,integer,bytea),
         ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer),
@@ -471,7 +471,7 @@ const configureRuntimePermissions = Effect.fn("InstallationMaintenance.configure
       `revoke all on function ${schema}.fx_observe_finite_entry(text,uuid,text,text),
         ${schema}.fx_complete_finite_entry(${schema}.fx_finite_entry_expected,boolean),
         ${schema}.fx_compare_finite_metadata(text,bigint,jsonb),
-        ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer),
+        ${schema}.fx_accept_finite_storage_capture(text,${schema}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer,${schema}.fx_finite_read_expected),
         ${schema}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean),
         ${schema}.fx_read_historical_row_identity(uuid,integer,bytea),
         ${schema}.fx_read_snapshot_index_page(uuid,integer,bigint,bytea,bytea,bytea,bytea,integer) from ${role}`));

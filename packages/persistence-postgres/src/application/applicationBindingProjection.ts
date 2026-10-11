@@ -1,3 +1,4 @@
+import { observeExecution } from "../execution/diagnostics/operation";
 import type { JsonObject } from "flarex-protocol/json";
 import type { ScopePhysicalLocator } from "../scope/scopeMetadataTypes";
 import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
@@ -24,6 +25,8 @@ import type {
 } from "./activeHead/contracts";
 import type { ScopeClockRecord } from "../scope/scopeClock";
 import { requireScopeAuthorizationRevocationEpochInTransactionEffect } from "../scope/scopeClock";
+import { readAcceptedApplicationBindingState, requireAcceptedApplicationBindingLending } from "./activation/acceptedBinding";
+import { activationError } from "./activation/errors";
 
 export type ApplicationBindingReference = Readonly<{
   deploymentId: string;
@@ -88,7 +91,12 @@ export const readApplicationBindingEvidenceInTransaction = Effect.fn(
   "ApplicationBindingProjection.readEvidenceInTransaction",
 )(function* (selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord) {
   return yield* withApplicationBindingEvidenceInTransaction(selection, tx, clock, evidence =>
-    Effect.succeed(Object.freeze({ projection: evidence.projection, analysis: evidence.analysis })));
+    // Public escaping projections own their nested containers. Callback-local
+    // admission lending below retains only the issuer's immutable private view.
+    Effect.succeed(Object.freeze({ projection: Object.freeze({ ...evidence.projection,
+      physicalLocator: Object.freeze({ ...evidence.projection.physicalLocator }),
+      readiness: Object.freeze({ ...evidence.projection.readiness }) }),
+      analysis: Object.freeze({ ...evidence.analysis }) })));
 });
 
 export type ApplicationBindingEvidence = Readonly<{ projection: ApplicationBindingReference;
@@ -110,48 +118,67 @@ export const withStandaloneApplicationBindingEvidenceInTransaction = Effect.fn(
 });
 
 /** The checked active observation is valid only while this accepting callback runs. */
-export const withApplicationBindingEvidenceInTransaction = Effect.fn(
-  "ApplicationBindingProjection.withEvidenceInTransaction",
-)(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
+export const withApplicationBindingEvidenceInTransaction = Effect.fnUntraced(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
   clock: ScopeClockRecord,
   work: (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
   observation?: ApplicationBindingObservation) {
   return yield* withValidatedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive, accepted) =>
-    projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
+    projectApplicationBindingEvidence(validated, checkedActive, tx, clock, accepted).pipe(
       Effect.flatMap(evidence => Effect.suspend(() => work(evidence, accepted)))), observation);
-});
+}, effect => observeExecution("ApplicationBindingProjection.withEvidenceInTransaction", effect, "caller"));
 
 /** Only the standalone trusted owner completes business work in this callback. */
-export const withPreparedApplicationBindingEvidenceInTransaction = Effect.fn(
-  "ApplicationBindingProjection.withPreparedEvidenceInTransaction",
-)(function* <Value, Failure, Requirements>(selection: PreparedApplicationBinding, tx: AppRowTransaction,
+export const withPreparedApplicationBindingEvidenceInTransaction = Effect.fnUntraced(function* <Value, Failure, Requirements>(selection: PreparedApplicationBinding, tx: AppRowTransaction,
   clock: ScopeClockRecord, work: (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
   entryHead?: CheckedApplicationActiveHead) {
   return yield* withPreparedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive, accepted) =>
-    projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
+    projectApplicationBindingEvidence(validated, checkedActive, tx, clock, accepted).pipe(
       Effect.flatMap(evidence => Effect.suspend(() => work(evidence, accepted)))), entryHead);
-});
+}, effect => observeExecution("ApplicationBindingProjection.withPreparedEvidenceInTransaction", effect, "caller"));
 
-const projectApplicationBindingEvidence = Effect.fn("ApplicationBindingProjection.projectEvidence")(
+const projectApplicationBindingEvidence = Effect.fnUntraced(
   function* (validated: Effect.Success<ReturnType<typeof validateApplicationBindingBasisInTransaction>>,
-    checkedActive: CheckedApplicationActiveHead | undefined, tx: AppRowTransaction, clock: ScopeClockRecord) {
+    checkedActive: CheckedApplicationActiveHead | undefined, tx: AppRowTransaction, clock: ScopeClockRecord,
+    accepted: AcceptedApplicationBinding) {
     const projection = yield* projectApplicationBindingInTransaction(validated, tx, clock);
     const basis = validated.basis;
     const evidence = Object.freeze({ projection, analysis: Object.freeze({ candidateId: basis.candidateId,
       analysisId: basis.analysisId, manifestSha256: hex(basis.manifestSha256),
       sourceArtifactRootSha256: hex(basis.sourceArtifactRootSha256) }), checkedActive });
+    const issued = readAcceptedApplicationBindingState(accepted);
+    if (issued === undefined) return yield* Effect.fail(activationError("validateSelection", "invalidComposition"));
+    issued.evidence = evidence;
     return evidence;
-  },
+  }, effect => observeExecution("ApplicationBindingProjection.projectEvidence", effect, "caller")
 );
 
-export const readAcceptedApplicationBindingProjection = Effect.fn("ApplicationBindingProjection.readAccepted")(
+/** Only a genuine ordinary callback lends the projection's immutable strings.
+ * Every recipient still performs the original live revocation read here. No
+ * raw digest arrays, mutable basis or live authorization verdict is shared. */
+export const withAcceptedApplicationBindingEvidenceInTransaction = Effect.fnUntraced(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
+  clock: ScopeClockRecord, accepted: AcceptedApplicationBinding,
+  work: (evidence: ApplicationBindingEvidence, accepted: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>) {
+  yield* Effect.fromResult(requireAcceptedApplicationBindingLending(accepted, selection, tx, clock));
+  const retained = readAcceptedApplicationBindingState(accepted)?.evidence;
+  if (retained === undefined) return yield* Effect.fail(activationError("validateSelection", "invalidComposition"));
+  const epoch = yield* requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, clock.scopeId);
+  const currentEpoch = epoch.toString();
+  const evidence = retained.projection.authorizationRevocationEpoch === currentEpoch ? retained : Object.freeze({ ...retained,
+    projection: Object.freeze({ ...retained.projection,
+      physicalLocator: Object.freeze({ ...retained.projection.physicalLocator }),
+      readiness: Object.freeze({ ...retained.projection.readiness }),
+      authorizationRevocationEpoch: currentEpoch }) });
+  return yield* Effect.suspend(() => work(evidence, accepted));
+}, effect => observeExecution("ApplicationBindingProjection.withAcceptedEvidence", effect, "caller"));
+
+export const readAcceptedApplicationBindingProjection = Effect.fnUntraced(
   function* (binding: AcceptedApplicationBinding, tx: AppRowTransaction, clock: ScopeClockRecord) {
     const basis = yield* Effect.fromResult(readAcceptedApplicationBinding(binding, tx, clock));
     return yield* projectApplicationBindingInTransaction({ kind: "relation", basis }, tx, clock);
-  },
+  }, effect => observeExecution("ApplicationBindingProjection.readAccepted", effect, "caller")
 );
 
-const projectApplicationBindingInTransaction = Effect.fn("ApplicationBindingProjection.project")(
+const projectApplicationBindingInTransaction = Effect.fnUntraced(
   function* (validated: Effect.Success<ReturnType<typeof validateApplicationBindingBasisInTransaction>>,
     tx: AppRowTransaction, clock: ScopeClockRecord) {
   const basis = validated.basis;
@@ -205,4 +232,4 @@ const projectApplicationBindingInTransaction = Effect.fn("ApplicationBindingProj
     ...common,
     readiness,
   }) satisfies ApplicationBindingReference;
-});
+}, effect => observeExecution("ApplicationBindingProjection.project", effect, "caller"));

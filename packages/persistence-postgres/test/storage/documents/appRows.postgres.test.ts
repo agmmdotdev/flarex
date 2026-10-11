@@ -34,6 +34,8 @@ import {
   withTemporaryPostgresPersistence,
 } from "../../support/postgresHelpers";
 import { runEffect } from "../../support/effectTestRuntime";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
+import type { AppRowTransaction } from "../../../src/storage/documents/appRows";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const scopeId = ScopeIdSchema.make(
@@ -56,7 +58,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
   it("hydrates bounded historical batches in request order with exact failures", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       await insertCurrentScopeClockFixture(persistence.drizzle, { scopeId, epoch: firstEpoch });
-      await persistence.drizzle.transaction(tx => snapshotHydrationBatchScenario(tx,
+      await admittedTransaction(persistence, tx => snapshotHydrationBatchScenario(tx,
         { identity: { scopeId, tableId, rowId }, epoch: firstEpoch, schemaVersionId, creationTime }));
     });
   }, 60_000);
@@ -122,7 +124,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
         },
       });
       await expect(
-        persistence.drizzle.transaction((tx) =>
+        admittedTransaction(persistence, (tx) =>
           runEffect(readCurrentAppRowInTransactionEffect(
             tx,
             { scopeId, tableId, rowId },
@@ -131,7 +133,7 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
       ).resolves.toMatchObject({ kind: "live", commitSeq: secondCommitSeq });
 
       const staleCommitSeq = CommitSeqSchema.make(secondCommitSeq + 2n);
-      const conflict = await persistence.drizzle.transaction(async (tx) => {
+      const conflict = await admittedTransaction(persistence, async (tx) => {
         try {
           await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
             kind: "tombstone",
@@ -294,16 +296,25 @@ async function append(
     typeof appendAppRowRevisionAndAdvanceCurrentInTransaction
   >[1],
 ) {
-  return persistence.drizzle.transaction((tx) =>
+  return admittedTransaction(persistence, (tx) =>
     appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, input),
   );
+}
+
+function admittedTransaction<Value>(persistence: PostgresFlarexPersistence,
+  use: (tx: AppRowTransaction) => Promise<Value>): Promise<Value> {
+  return persistence.drizzle.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try { return await use(tx); }
+    finally { closeInstallationAdmission(tx); }
+  });
 }
 
 async function readAt(
   persistence: PostgresFlarexPersistence,
   commitSeq: bigint,
 ) {
-  return persistence.drizzle.transaction((tx) =>
+  return admittedTransaction(persistence, (tx) =>
     runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
       scopeId,
       tableId,
@@ -318,7 +329,7 @@ async function pointReadAt(
   commitSeq: bigint,
   epoch = firstEpoch,
 ) {
-  return persistence.drizzle.transaction((tx) =>
+  return admittedTransaction(persistence, (tx) =>
     runEffect(getAppRowAtSnapshotInTransactionEffect(tx, {
       snapshotToken: SnapshotTokenSchema.make({
         scopeId,
@@ -355,7 +366,7 @@ async function pointLookupPlans(
       tableId, rowId: unrelatedRowId, creationTime, fields: { title: "unrelated point" },
     }) });
   }
-  await persistence.drizzle.transaction(async tx => {
+  await admittedTransaction(persistence, async tx => {
     for (const fixture of fixtures) await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live", scopeId, tableId, rowId: fixture.rowId, writeEpoch: firstEpoch,
       schemaVersionId, creationTime, commitSeq: firstCommitSeq, prevCommitSeq: null, value: evidence(fixture.value),

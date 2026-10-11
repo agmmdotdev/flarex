@@ -43,7 +43,16 @@ export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" |
 export type LogicalDocumentFailure<Failure> = (reason: LogicalDocumentFailureReason, cause?: unknown) => Failure;
 
 /** Native row operations borrow one request lifetime; no settlement capability. */
+export interface LogicalRelationalReadProgram<Failure> {
+  readonly find: (context: BoundedRequestContext) => Effect.Effect<readonly JsonObject[], Failure>;
+  readonly findPage: (context: BoundedRequestContext) => Effect.Effect<Readonly<{ rows: readonly JsonObject[]; hasMore: boolean }>, Failure>;
+  readonly count: (context: BoundedRequestContext) => Effect.Effect<number, Failure>;
+}
+
 export interface LogicalRelationalStore<Failure> {
+  /** Inert source-bound construction. Capture and validation remain inside the
+   * first actual guarded operation; each execution charges the complete query. */
+  readonly prepareRead: (query: unknown) => LogicalRelationalReadProgram<Failure>;
   /** Complete bounded selection before projection/windowing; overflow refuses. */
   readonly find: (context: BoundedRequestContext, query: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   /** Ordered bounded work. No total or reusable physical cursor is implied. */

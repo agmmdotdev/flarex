@@ -46,7 +46,7 @@ import {
 import { makeDataBindingTestProfiles } from "../../../src/installation/frameworkSchema/binding/profiles";
 import { testBindingProfiles } from "./frameworkDataBindingPhysicalTestSupport";
 import { readAdmittedDataBinding } from "../../../src/installation/frameworkSchema/binding/selection";
-import { readBindingSelectedEvidence } from "../../../src/installation/frameworkSchema/binding/repository";
+import { readBindingHead, readBindingSelectedEvidence } from "../../../src/installation/frameworkSchema/binding/repository";
 import type { DataBindingSetFrame } from "../../../src/installation/frameworkSchema/binding/model";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
 import {
@@ -294,7 +294,12 @@ export async function exerciseBindingNativeRaces(
   }));
   await runEffect(Deferred.await(writerEntered));
   const selectedAfterWait = fixture.target.drizzle.transaction(tx =>
-    runEffect(readBindingSelectedEvidence(tx, frame.application)));
+    runEffect(Effect.gen(function* () {
+      const early = yield* readBindingHead(tx, frame.application, "none");
+      if (Option.isNone(early)) throw new Error("Missing earlier NONE binding head");
+      expect(early.value.frame.sequence).toBe(beforeHeldActivation.head.sequence);
+      return yield* readBindingSelectedEvidence(tx, frame.application);
+    })));
   try {
     await waitForBlockedStatement(fixture.target, "fx_system_data_binding_head");
   } finally {

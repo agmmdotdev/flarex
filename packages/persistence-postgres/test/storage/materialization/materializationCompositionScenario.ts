@@ -51,6 +51,7 @@ import { resolveLocatedTrustedScopeAuthorityEffect } from "../../../src/scope/sc
 import {
   readAppIndexMembershipHeadsInTransactionEffect,
   appendAppIndexEntryRevisionsInTransactionEffect,
+  prepareAppIndexRevisionApplicationEffect,
 } from "../../../src/storage/indexes/appIndexEntries";
 import {
   AppIndexEntryStorageCorruptionError,
@@ -77,6 +78,7 @@ import { lockInstallationForCurrentTransaction, closeInstallationAdmission,
 import { lockScopeClockForOrdinaryWriteInTransactionEffect, lockScopeClockForUpdateInTransactionEffect, type ScopeClockRecord } from "../../../src/scope/scopeClock";
 import {
   loadPointCommitHeads,
+  captureApplicationDocumentHeadsAndOriginals,
   lockPointCommitIntrinsicIndexBuilds,
   materializeAcceptedApplicationPublicationRows,
   loadApplicationDocumentPriorState,
@@ -150,9 +152,9 @@ const publishRows = Effect.fnUntraced(function* (tx: FlarexMetadataTransaction, 
   command: ApplicationDocumentMaterializationCommand;
   commitSeq: import("flarex-protocol/storage-authority").CommitSeq;
   clock: ScopeClockRecord;
-  loadedHeads: Awaited<ReturnType<typeof loadPointCommitHeads>>;
-  intrinsicBuilds: Awaited<ReturnType<typeof lockPointCommitIntrinsicIndexBuilds>>;
-  developerBuilds: Awaited<ReturnType<typeof lockPointCommitDeveloperIndexBuilds>>;
+  loadedHeads: Effect.Success<ReturnType<typeof loadPointCommitHeads>>;
+  intrinsicBuilds: Effect.Success<ReturnType<typeof lockPointCommitIntrinsicIndexBuilds>>;
+  developerBuilds: Effect.Success<ReturnType<typeof lockPointCommitDeveloperIndexBuilds>>;
   uniqueDefinitions: readonly import("../../../src/storage/unique/appUniqueConstraintDefinitions").LocatedAppUniqueConstraintDefinitionV1[];
   publicationProfile: import("../../../src/storage/indexes/indexBuildStates").IndexPublicationProfile;
   options: ApplicationDocumentMaterializationOptions;
@@ -363,8 +365,8 @@ async function applyFrozenIndexRows(fixture: Awaited<ReturnType<typeof compositi
   return admitted(fixture.database, async tx => {
     const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
     const context = { record: clock, scopeUuid: fixture.scopeUuid };
-    const heads = await loadPointCommitHeads(tx, context, command, {});
-    const builds = await lockPointCommitDeveloperIndexBuilds(tx, context, fixture.developers, command);
+    const heads = await runEffect(loadPointCommitHeads(tx, context, command, {}));
+    const builds = await runEffect(lockPointCommitDeveloperIndexBuilds(tx, context, fixture.developers, command));
     const inheritedSpans: string[] = [];
     const observedOperations: string[] = [];
     const submittedQueries:Array<Parameters<NonNullable<ApplicationDocumentMaterializationOptions["observeQuery"]>>[0]>=[];
@@ -460,8 +462,8 @@ async function verifyFrozenIntrinsicAllocationOrder(persistence: Materialization
   await admitted(fixture.database, async tx => {
     const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
     const context = { record: clock, scopeUuid: fixture.scopeUuid };
-    const heads = await loadPointCommitHeads(tx, context, command, {});
-    const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, definitions, command);
+    const heads = await runEffect(loadPointCommitHeads(tx, context, command, {}));
+    const builds = await runEffect(lockPointCommitIntrinsicIndexBuilds(tx, context, definitions, command));
     expect(builds.map(build => build.definition.access.tableId)).toEqual([higher.table.tableId, lower.table.tableId]);
     await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: CommitSeqSchema.make(1n), clock,
       loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
@@ -599,8 +601,8 @@ async function verifyFrozenIntrinsicInitialMembership(persistence: Materializati
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         expect(commitSeq).toBe(clock.lastCommitSeq + 1n);
         const context = { record: clock, scopeUuid: fixture.scopeUuid };
-        const heads = await loadPointCommitHeads(tx, context, command, {});
-        const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command);
+        const heads = await runEffect(loadPointCommitHeads(tx, context, command, {}));
+        const builds = await runEffect(lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command));
         return runEffect(publishRows(tx, { command, commitSeq, clock,
           loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
           uniqueDefinitions: [], publicationProfile: "sourceBound",
@@ -666,8 +668,8 @@ async function verifyFrozenIntrinsicMissingMembership(persistence: Materializati
       const apply = () => admitted(fixture.database, async tx => {
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         const context = { record: clock, scopeUuid: fixture.scopeUuid };
-        const heads = await loadPointCommitHeads(tx, context, command, {});
-        const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command);
+        const heads = await runEffect(loadPointCommitHeads(tx, context, command, {}));
+        const builds = await runEffect(lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command));
         return runEffect(publishRows(tx, { command, commitSeq: CommitSeqSchema.make(2n), clock,
           loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
           uniqueDefinitions: [], publicationProfile: "activeApplication",
@@ -847,8 +849,8 @@ async function verifyNativeOrderedIndexPairCapacity(persistence: Materialization
   await admitted(fixture.database, async tx => {
     const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
     const context = { record: clock, scopeUuid: fixture.scopeUuid };
-    const heads = await loadPointCommitHeads(tx, context, command, {});
-    const builds = await lockPointCommitDeveloperIndexBuilds(tx, context, developers, command);
+    const heads = await runEffect(loadPointCommitHeads(tx, context, command, {}));
+    const builds = await runEffect(lockPointCommitDeveloperIndexBuilds(tx, context, developers, command));
     expect(builds.map(build => build.definition.indexDefinitionId)).toEqual(developers.map(definition => definition.indexDefinitionId));
     const execute = vi.spyOn(tx, "execute");
     try {
@@ -943,7 +945,7 @@ async function verifyEarlierRowRefusal(persistence: MaterializationCompositionPe
         await expect(admitted(fixture.database, async tx => {
           const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
           const command = await commandForRows(tx, fixture, clock, [row]);
-          const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
+          const heads = await runEffect(loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {}));
           {
             const definition: LogicalSearchDefinition = { kind: "text", tableId: fixture.tableId,
               logicalIndexId: decodeCatalogIndexId(2), sourceSha256: "a".repeat(64), columns: ["missing_field"], nullPredicateField: null };
@@ -995,9 +997,9 @@ async function verifySamePageReturningOrder(persistence: MaterializationComposit
         await admitted(fixture.database, async tx => {
           const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
           const command = await commandForRows(tx, fixture, clock, [first, later]);
-          const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
-          const builds = family === "index" ? await lockPointCommitDeveloperIndexBuilds(tx,
-            { record: clock, scopeUuid: fixture.scopeUuid }, fixture.developers, command) : [];
+          const heads = await runEffect(loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {}));
+          const builds = family === "index" ? await runEffect(lockPointCommitDeveloperIndexBuilds(tx,
+            { record: clock, scopeUuid: fixture.scopeUuid }, fixture.developers, command)) : [];
           const result = await throughCompositor(tx, () => runEffect(publishRows(tx,
             { command, commitSeq: first.commitSeq, clock, loadedHeads: heads, intrinsicBuilds: [],
               developerBuilds: builds, uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })))
@@ -1047,7 +1049,7 @@ async function verifyCompositionEarlierPageProof(persistence: MaterializationCom
       await admitted(fixture.database, async tx => {
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         const command = await commandForRows(tx, fixture, clock, rows);
-        const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
+        const heads = await runEffect(loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {}));
         const result = await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: first.commitSeq, clock,
           loadedHeads: heads, intrinsicBuilds: [], developerBuilds: [],
           uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })))
@@ -1098,9 +1100,9 @@ async function verifyCompositionEarlierIndexPageProof(persistence: Materializati
       await admitted(fixture.database, async tx => {
         const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
         const command = await commandForRows(tx, fixture, clock, rows);
-        const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
-        const builds = await lockPointCommitDeveloperIndexBuilds(tx,
-          { record: clock, scopeUuid: fixture.scopeUuid }, fixture.developers, command);
+        const heads = await runEffect(loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {}));
+        const builds = await runEffect(lockPointCommitDeveloperIndexBuilds(tx,
+          { record: clock, scopeUuid: fixture.scopeUuid }, fixture.developers, command));
         const result = await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: first.commitSeq, clock,
           loadedHeads: heads, intrinsicBuilds: [], developerBuilds: builds,
           uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })))
@@ -1209,7 +1211,7 @@ async function verifyFrozenUniqueCallbackAbsence(persistence: MaterializationCom
   await persistence.query(`create trigger materialization_omitted_unique_owner after delete on ${table} for each row execute function ${trigger}()`);
   await expect(admitted(fixture.database, async tx => {
     const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
-    const heads = await loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {});
+    const heads = await runEffect(loadPointCommitHeads(tx, { record: clock, scopeUuid: fixture.scopeUuid }, command, {}));
     const actions = preparedUniqueKeyActions(pairs);
     expect(actions).toHaveLength(1);
     expect(actions[0]?.phase).toBe("release");
@@ -1269,7 +1271,7 @@ async function verifyCompositionFreshUniqueParent(persistence: MaterializationCo
       storageGenerationFence:clock.storageGenerationFence,epoch:clock.epoch,startCommitSeq:CommitSeqSchema.make(0n),
       coveredThroughCommitSeq:clock.lastCommitSeq,lifecycle:"enabled",attemptFence:AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(1n)});
     const command=await commandForRows(tx,fixture,clock,[row]);
-    const heads=await loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{});
+    const heads=await runEffect(loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{}));
     expect((await runEffect(readCurrentAppRowInTransactionEffect(tx, row))).kind).toBe("missing");
     await throughCompositor(tx, () => runEffect(publishRows(tx,{command,commitSeq:row.commitSeq,clock,loadedHeads:heads,
       intrinsicBuilds:[],developerBuilds:[],uniqueDefinitions:[definition],publicationProfile:"sourceBound",options:{}})));
@@ -1432,7 +1434,7 @@ async function verifyCompositionSearchPages(persistence: MaterializationComposit
   await admitted(fixture.database, async tx => {
     const clock=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
     const command=await commandForRows(tx,fixture,clock,rows);
-    const heads=await loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{});
+    const heads=await runEffect(loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{}));
     await throughCompositor(tx, () => runEffect(publishRows(tx,{command,clock,commitSeq:first.commitSeq,loadedHeads:heads,
       intrinsicBuilds:[],developerBuilds:[],uniqueDefinitions:[],publicationProfile:"sourceBound",options:{publicationObservation:observation},
       searchContribution:Result.succeed({definitions,changes:changes(rows)})})));
@@ -1492,7 +1494,7 @@ async function verifyCompositionSearchPages(persistence: MaterializationComposit
         await admitted(fixture.database, async tx => {
           const clock=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
           const command=await commandForRows(tx,fixture,clock,updated);
-          const heads=await loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{});
+          const heads=await runEffect(loadPointCommitHeads(tx,{record:clock,scopeUuid:fixture.scopeUuid},command,{}));
           const result = await throughCompositor(tx, () => runEffect(publishRows(tx,{command,clock,commitSeq:CommitSeqSchema.make(2n),loadedHeads:heads,
             intrinsicBuilds:[],developerBuilds:[],uniqueDefinitions:[],publicationProfile:"sourceBound",options:{},
             searchContribution:Result.succeed({definitions,changes:changes(updated)})})))
@@ -1544,8 +1546,8 @@ async function verifyAwaitedMaterializationCallback(persistence: Materialization
           dependency, creationTime: revision.creationTime, document: revision.document }],
       };
       const context = { record: clock, scopeUuid: fixture.scopeUuid };
-      const heads = await loadPointCommitHeads(tx, context, command, {});
-      const builds = await lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command);
+      const heads = await runEffect(loadPointCommitHeads(tx, context, command, {}));
+      const builds = await runEffect(lockPointCommitIntrinsicIndexBuilds(tx, context, [fixture.intrinsic], command));
       await throughCompositor(tx, () => runEffect(publishRows(tx, { command, commitSeq: revision.commitSeq, clock,
         loadedHeads: heads, intrinsicBuilds: builds, developerBuilds: [],
         uniqueDefinitions: [], publicationProfile: "sourceBound", options: {} })));
@@ -1716,7 +1718,7 @@ async function verifyPublicationIssuerLifetime(persistence: MaterializationCompo
     const record=await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx,fixture.scopeId));
     const clock={record,scopeUuid:fixture.scopeUuid};
     const command=await commandForRows(tx,fixture,record,[]);
-    await lockPointCommitDeveloperIndexBuilds(tx,clock,fixture.developers,command);
+    await runEffect(lockPointCommitDeveloperIndexBuilds(tx,clock,fixture.developers,command));
     const original=Result.getOrThrow(captureOriginalApplicationPublicationBuildLocks(tx,clock,[],fixture.developers));
     expect(Result.isSuccess(acceptOriginalApplicationPublicationBuildLocks(tx,clock,original,[],fixture.developers))).toBe(true);
     expect(Result.isFailure(acceptOriginalApplicationPublicationBuildLocks(tx,clock,{...original},[],fixture.developers))).toBe(true);
@@ -1749,6 +1751,31 @@ async function verifyPublicationIssuerLifetime(persistence: MaterializationCompo
     } finally {execute.mockRestore();}
   });
   expect((await fixture.state()).rows).toHaveLength(0);
+}
+
+async function verifyCapturedOriginalObservation(persistence: MaterializationCompositionPersistence) {
+  const fixture = await compositionFixture(persistence, 1194);
+  const original = await fixture.row(1);
+  await seedIndexOriginals(fixture, [original], "enabled");
+  const escaped = await admitted(fixture.database, async tx => {
+    const record = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+    const clock = { record, scopeUuid: fixture.scopeUuid };
+    const command = await commandForRows(tx, fixture, record, [original]);
+    const developers = await runEffect(lockPointCommitDeveloperIndexBuilds(tx, clock, fixture.developers, command));
+    const observed: string[] = [];
+    const capture = await runEffect(captureApplicationDocumentHeadsAndOriginals(tx, clock, command, developers, [], null,
+      { observeQuery: query => { observed.push(query.name); } }));
+    expect(capture.heads).toHaveLength(command.dependencies.length);
+    const prior = await runEffect(capture.readPriorState());
+    expect(prior.originalRows).toHaveLength(1);
+    expect(prior.originalRows?.[0]?.document.value).toEqual(original.document.value);
+    expect(observed).toEqual(["loadRowHeads"]);
+    await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId));
+    await expect(runEffect(capture.readPriorState())).rejects.toMatchObject({ reason: "priorDocumentInvalid" });
+    return capture;
+  });
+  // Closing installation/request protection revokes the captured observation.
+  await expect(runEffect(escaped.readPriorState())).rejects.toMatchObject({ reason: "priorDocumentInvalid" });
 }
 
 /** Installed scalar acceptance must reject its first build or point before
@@ -1841,9 +1868,102 @@ async function verifyLogicalPointConflictVerdict(persistence: MaterializationCom
     .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)) }).toEqual(before);
 }
 
+async function verifyLogicalPublicationPendingPackets(persistence: MaterializationCompositionPersistence) {
+  for (const conflict of [false, true]) {
+    const fixture = await compositionFixture(persistence, conflict ? 1193 : 1192);
+    const revisions = await Promise.all([1, 2, 3].map(ordinal => fixture.row(ordinal)));
+    const changes = await admitted(fixture.database, async tx => {
+      const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+      const command = await commandForRows(tx, fixture, clock, revisions);
+      return command.rowIntents.map(intent => ({ ...intent, readAt: clock.lastCommitSeq }));
+    });
+    if (conflict) {
+      const late = revisions[2];
+      if (late === undefined) throw new Error("Missing late original conflict revision");
+      await seedIndexOriginals(fixture, [late], "enabled");
+    } else await initializeDeveloperBuilds(fixture);
+    await admitted(fixture.database, async tx => {
+      const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId));
+      await tx.insert(fxSystemIndexBuildStates).values({ scopeId: fixture.scopeId,
+        indexDefinitionId: fixture.intrinsic.indexDefinitionId,
+        storageGeneration: Schema.decodeUnknownSync(FlarexDbV1StorageGenerationSchema)(clock.storageGeneration),
+        storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
+        startCommitSeq: clock.lastCommitSeq, coveredThroughCommitSeq: clock.lastCommitSeq,
+        firstReadableCommitSeq: clock.lastCommitSeq, lifecycle: "enabled",
+        cursorCodecVersion: IndexBuildCursorCodecVersionV1Schema.make(1), attemptFence: IndexBuildAttemptFenceSchema.make(1n) });
+    });
+    const target = createLocatedIndexBuildReconciliationTargetV1(fixture.database,
+      { kind: "shared_database", databaseKey: "materialization_composition", schemaName: fixture.schemaName });
+    const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(fixture.deploymentId, {
+      scopeMetadata: { getScopeMetadataByDeploymentId: id => getScopeMetadataByDeploymentId(fixture.database, id) },
+      provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
+      scopeClockTargets: { resolve: async () => target },
+    }));
+    const before = await fixture.state();
+    const operations: string[] = [];
+    const validated = vi.fn();
+    const result = await admitted(fixture.database, tx => runEffect(Effect.gen(function* () {
+      const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, fixture.scopeId);
+      const core = yield* enterLogicalDocumentMaterialization({ coverage: "sourceBound", batch: true,
+        command: { authorityPins: { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
+          schemaVersionId: fixture.schemaVersionId }, rowIntents: [{ tableId: fixture.tableId }] },
+        intrinsic: [fixture.intrinsic], developer: fixture.developers, unique: [], relations: null,
+        requireAdmission: Effect.fromResult(requireAdmittedTargetInstallationSchema(tx)).pipe(Effect.asVoid),
+        validateWrites: () => Effect.sync(() => { validated(); }),
+        options: { observeQuery: query => { operations.push(query.name); } },
+      }, tx, located.authority, clock);
+      const deltas = yield* Effect.forEach(changes, change => core.prepareDelta([change], [change]));
+      expect(operations.filter(name => name === "acceptPublication")).toHaveLength(3);
+      expect(operations).not.toContain("applyPublication");
+      expect(validated).not.toHaveBeenCalled();
+      expect(yield* Effect.result(core.completeBatch())).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+      const original = revisions[0];
+      if (original === undefined) throw new Error("Missing intrinsic proof fixture row");
+      const intrinsicPosition = { definition: fixture.intrinsic,
+        encodedKey: encodeAppOrderedIndexKeyV1({ spec: fixture.intrinsic.physicalSpec,
+          values: [orderedIndexCreationTimeV1(original.creationTime)] }),
+        rowId: decodeOrderedIndexRowIdHexV1(original.rowId) };
+      const intrinsicProof = yield* readAppIndexMembershipHeadsInTransactionEffect(tx,
+        { scopeId: fixture.scopeId, positions: [intrinsicPosition] });
+      expect(intrinsicProof.heads).toEqual([null]);
+      const sequence = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+      for (const delta of deltas) yield* delta.lower(sequence);
+      // Intrinsic tuples are written inside the fixed publication program;
+      // that writer must consume the earlier exact-position proof as well.
+      expect(yield* Effect.result(prepareAppIndexRevisionApplicationEffect(tx,
+        [{ ...intrinsicPosition, kind: "live", scopeId: fixture.scopeId, writeEpoch: clock.epoch,
+          commitSeq: CommitSeqSchema.make(sequence + 1n), membershipHeadEvidence: intrinsicProof.evidence }])))
+        .toMatchObject({ _tag: "Failure", failure: { _tag: "AppIndexEntryStorageCorruptionError" } });
+      const first = deltas[0];
+      if (first === undefined) throw new Error("Missing preaccepted packet");
+      expect(yield* Effect.result(first.lower(sequence))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+      yield* core.completeBatch();
+      yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: sequence })
+        .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId)), cause => new Error("Pending packet fixture clock", { cause }));
+    }))).then(() => undefined, cause => cause);
+    if (conflict) {
+      expect(result).toBeInstanceOf(LogicalDocumentMaterializationError);
+      expect(result).toMatchObject({ reason: "writeConflict" });
+      expect(operations.filter(name => name === "acceptPublication")).toHaveLength(2);
+      expect(operations).not.toContain("applyPublication");
+      expect(validated).not.toHaveBeenCalled();
+      expect(await fixture.state()).toEqual(before);
+    } else {
+      if (result !== undefined) throw result;
+      expect(validated).toHaveBeenCalledTimes(3);
+      expect(operations.filter(name => name === "applyPublication")).toHaveLength(3);
+      const state = await fixture.state();
+      expect(state.rows).toHaveLength(3);
+      expect(state.rows.every(row => row.commitSeq === 1n && row.prevCommitSeq === null)).toBe(true);
+    }
+  }
+}
+
 export const materializationCompositionCases = [
+  { name: "bounded logical packets accept every original before writes and retain one-use completion", run: verifyLogicalPublicationPendingPackets },
   { name: "logical original point conflicts retain their precise verdict before prior bodies and publication", run: verifyLogicalPointConflictVerdict },
   { name: "publication acceptance and original prelude evidence reject copied, foreign and refreshed lifetimes",run:verifyPublicationIssuerLifetime },
+  { name: "writer heads and originals share one observation and reject refreshed or closed protection", run: verifyCapturedOriginalObservation },
   { name: "installed publication refuses earliest build and point before retained canonical failure and writes",run:verifyPublicationPhaseStops },
   { name: "logical materializer preserves mixed Causes and rolls back awaited provisional row writes", run: verifyLogicalMaterializationCauseRollback },
   { name: "frozen intrinsic membership follows real table identity across inverted definition allocation", run: verifyFrozenIntrinsicAllocationOrder },

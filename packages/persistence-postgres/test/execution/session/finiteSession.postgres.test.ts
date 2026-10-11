@@ -243,10 +243,14 @@ describePostgres("finite running authority barrier", () => {
         expect(captures).toHaveLength(1);
         const capture = captures[0];
         if (capture === undefined) throw new Error("Missing actual named capture statement");
-        expect(capture).toContain("fx_accept_finite_placement_frontier");
-        expect(capture).toContain("accepted_placement as materialized");
+        expect(capture).toContain("fx_lock_control_scope_placement");
+        expect(capture).toContain("preflight as materialized");
+        expect(capture).toContain("first_frontier as materialized");
+        expect(capture).toContain("second_frontier as materialized");
+        expect(capture).toContain("locked_placement as materialized");
         expect(capture).toContain("accepted_capture as materialized");
-        expect(statements.filter(statement => statement.includes("fx_accept_finite_placement_frontier"))).toHaveLength(1);
+        expect(statements.filter(statement => statement.includes("fx_lock_control_scope_placement"))).toHaveLength(1);
+        expect(capture).not.toContain("fx_accept_finite_placement_frontier");
         expect(capture).not.toContain("fx_lock_read_scope_placement");
         expect(capture).not.toContain("sealed_journal_bytes");
         expect(capture).not.toContain("validated_args_json");
@@ -295,8 +299,18 @@ describePostgres("finite running authority barrier", () => {
         await maintaining;
         expect(maintenanceWasEntered).toBe(true);
         expect((await owner.persistence.query("select state from fx_system_installation")).rows).toEqual([{ state: "draining" }]);
+        // The next real runtime checkout must retain its startup budget. A
+        // scalar timeout refusal must not mask the drained installation's
+        // original native admission failure.
+        const nextCaptureClient = await persistence.pool.connect();
+        try {
+          expect((await nextCaptureClient.query("show statement_timeout")).rows).toEqual([{ statement_timeout: "30s" }]);
+          await expect(nextCaptureClient.query(`select * from ${owner.schemaName}.fx_lock_installation_admission()`))
+            .rejects.toMatchObject({ code: "55000" });
+        } finally { nextCaptureClient.release(); }
         const failure = await runFailure(captureFiniteStorageEffect(fixture.target,
           fixture.input, { kind: "transactionTime" }).pipe(Effect.tap(() => Effect.sync(() => { callbacks++; }))));
+        expect(failure.cause).toMatchObject({ cause: { code: "55000" } });
         expect(failure).toMatchObject({ _tag: "FiniteStorageCaptureError", reason: "resourceFailure",
           cause: { cause: { code: "55000" } } });
         expect(callbacks).toBe(0);

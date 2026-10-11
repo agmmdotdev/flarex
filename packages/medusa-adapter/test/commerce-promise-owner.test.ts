@@ -1,5 +1,6 @@
 import { Clock, Context, Deferred, Effect, Option, References, Scope, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
@@ -116,6 +117,7 @@ describe("commerce Promise operation context", () => {
           commerceLimits, {}, {}, name, "read"), lifetime => lifetime.close);
         const unused = () => Effect.fail(commerceError("unsupportedProfile"));
         const store: CommerceCommandContext["store"] = {
+          prepareRead(query: unknown) { return mockRelationalRead(this, query); },
           findPage: Effect.fn("DAL.findPage")(function* () {
             const tracer = yield* Effect.tracer;
             expect(tracer).toBe(trace.tracer);

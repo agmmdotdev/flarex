@@ -3,12 +3,13 @@ import type {
   FiniteStorageCaptureEnvelopes,
 } from "../../../src/execution/finiteStorageCapture";
 import { fxSystemScopeExecutionAuthorities } from "../../../src/database/schema";
-import { eq, sql } from "drizzle-orm";
-import { Effect, Result } from "effect";
-import { expect } from "vitest";
+import { and, eq, sql } from "drizzle-orm";
+import { Deferred, Effect, Fiber, Option, Result } from "effect";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { expect, vi } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { isJsonObject } from "flarex-protocol/json";
-import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import {
   decodeCatalogTableId,
   decodeCatalogIndexDefinitionId,
@@ -26,8 +27,9 @@ import {
   FlarexDbV1StorageGenerationSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
+  projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
-import { appendAppRowRevisionAndAdvanceCurrentInTransaction, prepareAppRowsSnapshotReadEffect,
+import { appendAppRowRevisionAndAdvanceCurrentInTransaction, appendPreparedAppRowRevisionsInTransactionEffect, prepareAppRowsSnapshotReadResult,
   captureAppRowsAtSnapshotInTransactionEffect, readAppRowAtSnapshotInTransactionEffect,
   type AppRowReadResultV1, type ReadAppRowError } from "../../../src/storage/documents/appRows";
 import { makeBoundedRequestLifetime } from "../../../src/execution/preparation/boundedRequestLifetime";
@@ -55,7 +57,12 @@ import type {
   SessionJournalAttempt,
 } from "../../../src/execution/journal/api";
 import type { FlarexMetadataTransaction } from "../../../src/database/metadataTransaction";
-import { getScopeClock } from "../../../src/scope/scopeClock";
+import { getScopeClock, lockScopeClockForOrdinaryWriteInTransactionEffect,
+  closeExactAttemptScopeClockObservation, openExactAttemptScopeClockObservation,
+  readProtectedScopeTransactionTimestamp, hasProtectedScopeTransactionTimestampIssuer } from "../../../src/scope/scopeClock";
+import { TransactionAuthorizationRevocationEpochSchema } from "flarex-protocol/transaction-session";
+import { databaseTimestampFromUnknown } from "../../../src/database/databaseTimestamp";
+import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../../src/scope/scopeClock";
 import {
   fxSystemScopeClocks,
@@ -64,14 +71,17 @@ import {
   fxControlScopes,
   fxControlIndexes,
   fxControlIndexDefinitions,
+  fxAppRowCurrent,
+  fxAppRowRevisions,
+  fxAppIndexEntryRevisions,
 } from "../../../src/database/schema";
 import {
   locateAppIndexDefinitionByIdEffect,
   type LocatedAppIndexDefinitionV1,
 } from "../../../src/storage/indexes/appIndexDefinitions";
 import { lowerAppDeveloperIndexKeyV1 } from "../../../src/storage/indexes/appDeveloperIndexCommitV1";
-import { appendAppIndexEntryRevisionsInTransactionEffect, prepareAppIndexSnapshotReadEffect,
-  buildAppIndexSnapshotReadStatement, decodeCapturedAppIndexSnapshotPageEffect } from "../../../src/storage/indexes/appIndexEntries";
+import { appendAppIndexEntryRevisionsInTransactionEffect, prepareAppIndexSnapshotReadResult,
+  buildAppIndexSnapshotReadStatement } from "../../../src/storage/indexes/appIndexEntries";
 import { runDrizzleStatementEffect } from "../../../src/database/drizzleStatementEffect";
 import { rowsFromDriverExecuteResult } from "../../../src/database/driverExecuteResult";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
@@ -80,6 +90,22 @@ import {
   closeInstallationAdmission,
 } from "../../../src/installation/installationLifecycle";
 import { runEffect } from "../../support/effectTestRuntime";
+import { capturePrivateJsonData } from "../../../src/values/privateJsonData";
+import { prepareLogicalCanonicalDocumentSemantics, lowerLogicalCanonicalIndexKey,
+  detachLogicalCanonicalDocument, forgetLogicalCanonicalDerivedKeys, logicalUniqueKeyRetentionBytes } from "../../../src/storage/documents/logicalDocuments/relationalRows";
+import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
+import { CatalogSchemaVersionSchema, SchemaManifestAppIndexDescriptorSchema } from "flarex-protocol/schema-manifest";
+import { canonicalizeFlarexValueV1Effect, decodeFlarexValueSha256V1 } from "flarex-protocol/value";
+import { prepareSchemaManifestAppSchemaBindingsV1Effect,
+  applySchemaManifestAppSchemaBindingsV1InTransactionEffect } from "../../../src/storage/catalog/schemaManifestAppSchemaBindings";
+import { prepareSchemaVersionArtifactEffect, ensureSchemaVersionArtifactInTransactionEffect } from "../../../src/storage/catalog/schemaVersionArtifacts";
+import { prepareAppUniqueConstraintDefinitionBindingV1Effect,
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+  locateAppUniqueConstraintDefinitionByIdEffect } from "../../../src/storage/unique/appUniqueConstraintDefinitions";
+import { lowerCanonicalAppUniqueConstraintV1Result } from "../../../src/storage/unique/appUniqueConstraintCommitV1";
+import { applyAppUniqueKeyMutationsInTransactionEffect,
+  readAppUniqueKeySlotInTransactionEffect } from "../../../src/storage/unique/appUniqueKeys";
 
 /** A neutral two-table working-set witness shared by PGlite and ordinary PG. */
 export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetadataDatabase): Promise<void> {
@@ -184,6 +210,47 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     const clock = await getScopeClock(db, scopeId);
     if (clock === null) throw new Error("Missing neutral working-set scope");
     const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
+    const keyDocument = await canonicalizeAppDocumentV1({ tableId: firstTable, rowId: firstRow,
+      creationTime: firstTime, fields: { label: "owned-key-cache" } });
+    const keySemantics = prepareLogicalCanonicalDocumentSemantics(() => Result.succeed(true), () => failure("storedCorruption"));
+    Result.getOrThrow(keySemantics.validate(keyDocument));
+    const retentionFailure = failure("limitExceeded");
+    let mayRetain = false;
+    const retainedKeyCharges: number[] = [];
+    const retainedKeyDocuments = new Set<typeof keyDocument>();
+    const keyOwner = { identity: retainedKeyDocuments, error: failure, retain: (document: typeof keyDocument, bytes: number) => {
+      retainedKeyCharges.push(bytes);
+      if (!mayRetain) return Result.fail(retentionFailure);
+      retainedKeyDocuments.add(document);
+      return Result.succeed(undefined);
+    } };
+    const refusedRetention = lowerLogicalCanonicalIndexKey(labelIndex, keyDocument, firstTime, keyOwner, "storedCorruption");
+    if (Result.isSuccess(refusedRetention)) throw new Error("Missing retained-key budget refusal");
+    expect(refusedRetention.failure).toBe(retentionFailure);
+    mayRetain = true;
+    const retainedKey = Result.getOrThrow(lowerLogicalCanonicalIndexKey(labelIndex, keyDocument, firstTime, keyOwner, "storedCorruption"));
+    expect(retainedKeyCharges).toHaveLength(2); // A refused retention never installs a cache entry.
+    expect(retainedKeyCharges[1]).toBe(128 + 2 * (retainedKey?.length ?? 0));
+    expect(Result.getOrThrow(lowerLogicalCanonicalIndexKey(labelIndex, keyDocument, firstTime, keyOwner, "storedCorruption"))).toBe(retainedKey);
+    expect(retainedKeyCharges).toHaveLength(2);
+    forgetLogicalCanonicalDerivedKeys(keyDocument, keyOwner.identity);
+    Result.getOrThrow(lowerLogicalCanonicalIndexKey(labelIndex, keyDocument, firstTime, keyOwner, "storedCorruption"));
+    expect(retainedKeyCharges).toHaveLength(3);
+    const detachedKeyDocument = detachLogicalCanonicalDocument(keyDocument);
+    expect(Result.getOrThrow(lowerLogicalCanonicalIndexKey(labelIndex, detachedKeyDocument, firstTime, keyOwner, "storedCorruption"))).toBe(retainedKey);
+    // Canonical interpretation transfers, but the new revision must establish
+    // its own bounded derived-key retention even with the same local owner.
+    expect(retainedKeyCharges).toHaveLength(4);
+    expect(Result.getOrThrow(lowerLogicalCanonicalIndexKey(labelIndex, detachedKeyDocument, firstTime, keyOwner, "storedCorruption"))).toBe(retainedKey);
+    expect(retainedKeyCharges).toHaveLength(4);
+    keyDocument.sha256.fill(0);
+    expect(lowerLogicalCanonicalIndexKey(labelIndex, keyDocument, firstTime, keyOwner, "storedCorruption"))
+      .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    expect(lowerLogicalCanonicalIndexKey(labelIndex, keyDocument, firstTime, keyOwner, "documentInvalid"))
+      .toMatchObject({ _tag: "Failure", failure: { message: "documentInvalid" } });
+    expect(retainedKeyCharges).toHaveLength(4);
+    forgetLogicalCanonicalDerivedKeys(keyDocument, keyOwner.identity);
+    forgetLogicalCanonicalDerivedKeys(detachedKeyDocument, keyOwner.identity);
     let checkedReads = 0;
     let admissionTransactions = 0;
     let allowed = true;
@@ -698,8 +765,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
           if (!demandAllowed) return Effect.fail(failure("notReady"));
           return readTransaction(tx => Effect.gen(function* () {
             if (named.kind === "rows") {
-              const prepared = yield* prepareAppRowsSnapshotReadEffect(named.input)
-                .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+              const prepared = yield* Effect.fromResult(prepareAppRowsSnapshotReadResult(named.input)
+                .pipe(Result.mapError(cause => failure("statementFailure", cause))));
               const rawRows = yield* captureAppRowsAtSnapshotInTransactionEffect(tx, prepared,
                 named.maximumTotalValueBytes, query => {
                   expect(active).toBe(true);
@@ -707,28 +774,13 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
                 }).pipe(Effect.mapError(cause => failure("statementFailure", cause)));
               return { kind: "rows" as const, prepared, rawRows };
             }
-            if (named.kind === "indexPage" || named.kind === "indexRows") {
-              const prepared = yield* prepareAppIndexSnapshotReadEffect(named.input)
-                .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+            if (named.kind === "indexPage") {
+              const prepared = yield* Effect.fromResult(prepareAppIndexSnapshotReadResult(named.input)
+                .pipe(Result.mapError(cause => failure("statementFailure", cause))));
               const captured = yield* runDrizzleStatementEffect(tx.execute(buildAppIndexSnapshotReadStatement(prepared)),
                 cause => failure("statementFailure", cause));
               const rawRows = rowsFromDriverExecuteResult(captured, () => { throw failure("storedCorruption"); });
-              if (named.kind === "indexPage") return { kind: "indexPage" as const, prepared, rawRows };
-              const page = yield* decodeCapturedAppIndexSnapshotPageEffect(prepared, rawRows)
-                .pipe(Effect.mapError(cause => failure("storedCorruption", cause)));
-              const excluded = new Set(named.excludeRowIds);
-              const rowIds = [...new Set(page.entries.map(entry => entry.rowId))].filter(rowId => !excluded.has(rowId));
-              const capturedRows = !page.isDone || rowIds.length === 0 || rowIds.length > 256 ? [] : yield* Effect.gen(function* () {
-                const rowsPrepared = yield* prepareAppRowsSnapshotReadEffect({ scopeId: named.input.scopeId,
-                  tableId: named.tableId, rowIds, snapshotCommitSeq: named.input.snapshotCommitSeq })
-                  .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
-                return yield* captureAppRowsAtSnapshotInTransactionEffect(tx, rowsPrepared,
-                  named.maximumTotalValueBytes, query => {
-                    expect(active).toBe(true);
-                    if (query.name === "snapshotRevision") rootSnapshotRevisions++;
-                  }).pipe(Effect.mapError(cause => failure("statementFailure", cause)));
-              });
-              return { kind: "indexRows" as const, prepared, rawIndexRows: rawRows, rawRows: capturedRows };
+              return { kind: "indexPage" as const, prepared, rawRows };
             }
             if (named.kind === "transactionTime") {
               const times = yield* runDrizzleStatementEffect(tx.select({ timestamp: sql<string>`current_timestamp::text` })
@@ -918,7 +970,34 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       const selectedRows = yield* paged.working.relationalFind(paged.lifetime.context, paged.id, "notes", pageQuery);
       expect(selectedRows.docs).toEqual([{ label: "original" }]);
       expect(Object.isFrozen(selectedRows.docs[0])).toBe(true);
+      const programStore = yield* paged.working.relationalTable(paged.lifetime.context, paged.id, "notes");
+      const suppliedQuery = { fields: ["label"], order: { column: "label", direction: "asc" },
+        predicate: { kind: "in", column: "label", values: ["original"] } };
+      let programInputReads = 0;
+      const programInput = new Proxy(suppliedQuery, { ownKeys(target) { programInputReads++; return Reflect.ownKeys(target); } });
+      const sourceProgram = programStore.prepareRead(programInput);
+      const programCalls = paged.lifetime.usedCalls();
+      expect(programInputReads).toBe(0); // Construction has no capture, call, or authority work.
+      expect(yield* sourceProgram.find(paged.lifetime.context)).toEqual([{ label: "original" }]);
+      expect(programInputReads).toBeGreaterThan(0);
+      const capturedInputReads = programInputReads;
+      suppliedQuery.predicate.values[0] = "changed-caller-input";
+      const bytesBeforeCount = paged.lifetime.remainingBytes();
+      expect(yield* sourceProgram.count(paged.lifetime.context)).toBe(1);
+      expect(programInputReads).toBe(capturedInputReads);
+      expect(bytesBeforeCount - paged.lifetime.remainingBytes()).toBeGreaterThanOrEqual(
+        Result.getOrThrow(capturePrivateJsonData({ ...suppliedQuery,
+          predicate: { ...suppliedQuery.predicate, values: ["original"] } }, 1_048_576, failure)).bytes);
+      expect(paged.lifetime.usedCalls() - programCalls).toBe(2);
+      // Preparation retains interpretation, not results or the pending overlay.
+      // This is an inserted overlay over original absence. The fixture seed
+      // helper treats missing+deleted as no work; use the genuine write owner.
+      yield* paged.working.documents.delete(paged.lifetime.context, paged.id, absentId, "notes");
+      expect(yield* sourceProgram.count(paged.lifetime.context)).toBe(0);
       pageRoot.close();
+      expect(yield* Effect.result(sourceProgram.find(paged.lifetime.context)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "closed" } });
+      expect(programInputReads).toBe(capturedInputReads);
       for (const cachedBase of [false, true]) {
         const ordered = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1024 });
         const bounded = yield* openPrepared(ordered, mechanics.small);
@@ -976,4 +1055,555 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       expect(deniedRoot.snapshot().dependencies).toHaveLength(0);
       deniedRoot.close();
     })));
+}
+
+/** Full Commerce/Application working sets share the original native writer
+ * transaction's time. Unissued ordinary and finite profiles remain distinct. */
+export async function logicalWorkingSetNativeWriteTimeScenario(db: FlarexMetadataDatabase): Promise<void> {
+  const scopeId = ScopeIdSchema.make("scope_53000000-0000-0000-0000-000000000009");
+  await insertCurrentScopeClockFixture(db, { scopeId, epoch: "epoch_53000000-0000-0000-0000-00000000000a" });
+  const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
+  const open = (tx: FlarexMetadataTransaction, clock: NonNullable<Awaited<ReturnType<typeof getScopeClock>>>) => Effect.gen(function* () {
+    const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+      { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, "native-full-write-time", "write"), resource => resource.close);
+    const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, tx,
+      tables: [], readReadiness: { kind: "full" }, requireAdmission: Effect.void,
+      validateDocument: () => Effect.void,
+      error: failure, uniqueConflict: () => failure("uniqueConflict"),
+      limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
+    }, AppCreationTimeV1Schema.make(1), [], []);
+    const id = yield* lifetime.begin(lifetime.context);
+    return { working, read: working.readTransactionTime(lifetime.context, id) };
+  });
+  await db.transaction(async tx => {
+    const clock = await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId));
+    const rawTime = Result.getOrThrow(readProtectedScopeTransactionTimestamp(tx, scopeId));
+    const expected = databaseTimestampFromUnknown(rawTime)?.toISOString();
+    expect(expected).toEqual(expect.any(String));
+    expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
+    const prepare = vi.spyOn(tx._.session, "prepareQuery");
+    try {
+      await runEffect(Effect.scoped(Effect.gen(function* () {
+        const cachedThenClosed = yield* open(tx, clock);
+        expect(yield* cachedThenClosed.read).toBe(expected);
+        const cachedThenReopened = yield* open(tx, clock);
+        expect(yield* cachedThenReopened.read).toBe(expected);
+        const third = yield* open(tx, clock);
+        expect(yield* third.read).toBe(expected);
+        expect(prepare).not.toHaveBeenCalled();
+        const expired = yield* open(tx, clock);
+        closeExactAttemptScopeClockObservation(tx);
+        expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(true);
+        expect(yield* Effect.result(cachedThenClosed.read)).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+        expect(yield* Effect.result(expired.read)).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+        expect(prepare).not.toHaveBeenCalled();
+        // Even the same transaction and timestamp cannot revive the old loan.
+        openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt", { timestamp: rawTime });
+        expect(yield* Effect.result(cachedThenReopened.read)).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+        expect(prepare).not.toHaveBeenCalled();
+        closeExactAttemptScopeClockObservation(tx);
+        // A malformed native driver field is refused only when time is used.
+        openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt", { timestamp: "invalid-native-time" });
+        const malformed = yield* open(tx, clock);
+        expect(yield* Effect.result(malformed.read)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+        expect(prepare).not.toHaveBeenCalled();
+      })));
+    } finally { prepare.mockRestore(); closeExactAttemptScopeClockObservation(tx); }
+  });
+  await db.transaction(async tx => {
+    const clock = await getScopeClock(tx, scopeId);
+    if (clock === null) throw new Error("Missing ordinary full scope");
+    expect(hasProtectedScopeTransactionTimestampIssuer(tx)).toBe(false);
+    const prepare = vi.spyOn(tx._.session, "prepareQuery");
+    try {
+      await runEffect(Effect.scoped(Effect.gen(function* () {
+        const ordinary = yield* open(tx, clock);
+        const timestamp = yield* ordinary.read;
+        expect(timestamp).toEqual(expect.any(String));
+        expect(prepare.mock.calls.filter(args => args[0].sql.includes("current_timestamp"))).toHaveLength(1);
+        expect(yield* ordinary.read).toBe(timestamp);
+        expect(prepare).toHaveBeenCalledOnce();
+      })));
+    } finally { prepare.mockRestore(); }
+  });
+}
+
+
+/** Real native membership and AppRows transport, including mutable trusted
+ * charges during a pending driver response and between accepted packets. */
+export async function logicalWorkingSetCurrentIndexBudgetScenario(db: FlarexMetadataDatabase): Promise<void> {
+  const scopeId = ScopeIdSchema.make("scope_53000000-0000-0000-0000-00000000000b");
+  const epoch = ScopeEpochSchema.make("epoch_53000000-0000-0000-0000-00000000000c");
+  const tableId = decodeCatalogTableId(43);
+  const schemaVersionId = decodeCatalogSchemaVersionId("schema_current_index_budget");
+  const deploymentId = "deployment_current_index_budget";
+  const creationTime = AppCreationTimeV1Schema.make(1);
+  const scopeUuid = projectScopeIdUuidV1(scopeId).scopeUuid;
+  const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
+  const withInstallation = <A, E, R>(tx: FlarexMetadataTransaction, work: Effect.Effect<A, E, R>) =>
+    lockInstallationForCurrentTransaction(tx).pipe(Effect.andThen(work),
+      Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))));
+  await insertCurrentScopeClockFixture(db, { scopeId, epoch });
+  await db.insert(deployments).values({ deploymentId, projectId: "project_current_index_budget" });
+  await db.insert(fxControlTables).values({ deploymentId, tableId, namespace: "app", logicalName: "notes" });
+  await db.insert(fxControlScopes).values({ scopeId, deploymentId, isolationKind: "shared_database",
+    physicalLocator: { kind: "shared_database", databaseKey: "current-index-budget", schemaName: "public" } });
+  const logicalIndexId = decodeCatalogIndexId(102), indexDefinitionId = decodeCatalogIndexDefinitionId(102);
+  const physicalSpec = lowerAppDeveloperOrderedIndexPhysicalSpecV1(decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({
+    kind: "developerOrdered", specVersion: 1, fields: ["label"],
+  }));
+  const canonical = await canonicalizeAppIndexPhysicalSpecV1(physicalSpec);
+  await db.insert(fxControlIndexes).values({ deploymentId, logicalIndexId, tableId, descriptor: "by_label" });
+  await db.insert(fxControlIndexDefinitions).values({ deploymentId, indexDefinitionId, accessKind: "developer",
+    accessIdentityId: logicalIndexId, logicalIndexId, tableId, physicalSpecCodecVersion: canonical.codecVersion,
+    physicalSpecJson: physicalSpec, physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(canonical.canonicalBytesHex),
+    physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(canonical.sha256Hex) });
+  const definition = await runEffect(locateAppIndexDefinitionByIdEffect(db, scopeId, indexDefinitionId));
+  if (definition === null) throw failure("Missing current budget index");
+  const fixtures = await Promise.all(Array.from({ length: 301 }, async (_, ordinal) => {
+    const rowId = decodeAppRowIdHexV1((4096 + ordinal).toString(16).padStart(32, "0"));
+    const document = await canonicalizeAppDocumentV1({ tableId, rowId, creationTime,
+      fields: { label: ordinal === 300 ? "single" : "packet", payload: "x".repeat(1024) } });
+    const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(definition, document, creationTime));
+    if (encodedKey === null) throw failure("Missing current budget membership");
+    return { rowId, document, encodedKey };
+  }));
+  await db.transaction(tx => runEffect(withInstallation(tx, Effect.gen(function* () {
+    yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    yield* appendPreparedAppRowRevisionsInTransactionEffect(tx, fixtures.map(row => ({ kind: "live" as const,
+      scopeId, tableId, rowId: row.rowId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(1n), prevCommitSeq: null,
+      schemaVersionId, creationTime, document: row.document })));
+    yield* appendAppIndexEntryRevisionsInTransactionEffect(tx, fixtures.map(row => ({ kind: "live" as const,
+      scopeId, definition, encodedKey: row.encodedKey, rowId: row.rowId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(1n) })));
+    yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("fixtureStatement", cause));
+  }))));
+  const absentRowId = decodeAppRowIdHexV1((4095).toString(16).padStart(32, "0"));
+  const absentDocument = await canonicalizeAppDocumentV1({ tableId, rowId: absentRowId, creationTime,
+    fields: { label: "packet", payload: "x".repeat(1024) } });
+  const absentKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(definition, absentDocument, creationTime));
+  if (absentKey === null) throw failure("Missing later negative-observation membership");
+  const cachedAbsent = { rowId: absentRowId, document: absentDocument, encodedKey: absentKey };
+  const single = fixtures[300], lastInFirstPacket = fixtures[255], cachedRemoved = fixtures[258];
+  if (single === undefined || lastInFirstPacket === undefined || cachedRemoved === undefined)
+    throw failure("Missing current budget rows");
+  const singleQuery = { where: { label: "single" }, offset: 0, limit: 1 };
+  const packetQuery = { where: { label: "packet" }, offset: 0, limit: 1 };
+  const packetRows = fixtures.slice(0, 300);
+  const membershipBytes = (selected: typeof fixtures) => 128 + selected.reduce((bytes, row) => bytes + 128 + row.encodedKey.length / 2, 0);
+  const queryBytes = (query: typeof singleQuery) => Result.getOrThrow(capturePrivateJsonData(query, 1_048_576, failure)).bytes;
+  const firstPacketBytes = packetRows.slice(0, 256).reduce((bytes, row) => bytes + row.document.canonicalBytes.byteLength, 0);
+  const firstPacketCharges = firstPacketBytes + 256 * 256;
+  const secondPacketBytes = packetRows.slice(256).reduce((bytes, row) => bytes + row.document.canonicalBytes.byteLength, 0);
+  await db.transaction(tx => runEffect(withInstallation(tx, Effect.scoped(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    const transported: string[] = [];
+    const capturedPackets: number[] = [];
+    let omitDemandedRow = false;
+    let omittedDemandedRow = false;
+    let pendingMembership: Readonly<{ entered: Deferred.Deferred<void>; release: Deferred.Deferred<void> }> | undefined;
+    const prepare = tx._.session.prepareQuery.bind(tx._.session);
+    const spy = vi.spyOn(tx._.session, "prepareQuery").mockImplementation((...args) => {
+      const prepared = prepare(...args);
+      const execute = prepared.execute.bind(prepared);
+      return new Proxy(prepared, { get(target, key, receiver) {
+        if (key !== "execute") return Reflect.get(target, key, receiver);
+        return async (...bindings: Parameters<typeof prepared.execute>) => {
+          const pending = args[0].sql.includes("fx_app_index_entry_current") ? pendingMembership : undefined;
+          if (pending !== undefined) {
+            pendingMembership = undefined;
+            await runEffect(Deferred.succeed(pending.entered, undefined));
+            await runEffect(Deferred.await(pending.release));
+          }
+          const result = await execute(...bindings);
+          const rows: readonly unknown[] = Array.isArray(result) ? result :
+            isNonArrayRecord(result) && Array.isArray(result.rows) ? result.rows : [];
+          let bodies = 0;
+          for (const row of rows) {
+            if (!isNonArrayRecord(row) || !isNonArrayRecord(row.revision) || !(row.revision.valueBytes instanceof Uint8Array)) continue;
+            const identity = isNonArrayRecord(row.pointer) ? row.pointer.rowId : row.revision.rowId;
+            if (!(identity instanceof Uint8Array)) throw failure("Missing native body identity");
+            const rowId = Result.getOrThrow(appRowIdHexV1FromBytesResult(identity));
+            transported.push(rowId);
+            bodies++;
+          }
+          if (args[0].sql.includes("fx_app_row_current")) {
+            capturedPackets.push(bodies);
+            if (omitDemandedRow) {
+              omitDemandedRow = false;
+              for (const row of rows) {
+                if (!isNonArrayRecord(row) || !isNonArrayRecord(row.pointer) || !(row.pointer.rowId instanceof Uint8Array)) continue;
+                if (Result.getOrThrow(appRowIdHexV1FromBytesResult(row.pointer.rowId)) !== single.rowId) continue;
+                // Deliberately corrupt the real native driver envelope. The FK
+                // prohibits this absent-pointer state in persisted index rows.
+                Object.defineProperties(row, { pointer: { value: null }, revision: { value: null } });
+                omittedDemandedRow = true;
+              }
+            }
+          }
+          return result;
+        };
+      } });
+    });
+    const open = (commandBytes: number, identities = 301, onBatch?: () => Effect.Effect<void, Error>) => Effect.gen(function* () {
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+        { calls: 32, commandBytes, commandMs: 60_000 }, {}, {}, "current-index-budget", "write"), owner => owner.close);
+      const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, tx,
+        tables: [{ tableId, logicalName: "notes" }], requireAdmission: Effect.void, readReadiness: { kind: "full" },
+        validateDocument: () => Effect.void, error: failure, uniqueConflict: () => failure("uniqueConflict"),
+        limits: { pageRows: 8, identities, documentBytes: 2048 },
+      }, creationTime, [], [definition], { beforeRead: selection => selection === "batch" && onBatch !== undefined ? onBatch() : Effect.void });
+      const id = yield* lifetime.begin(lifetime.context);
+      return { lifetime, working, id };
+    });
+    try {
+      // An actual trusted charge can run while the driver Promise is pending.
+      const pending = yield* open(8000);
+      const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>();
+      pendingMembership = { entered, release };
+      const reading = yield* Effect.forkChild(Effect.result(pending.working.documents.find(pending.lifetime.context, pending.id, "notes", singleQuery)));
+      yield* Deferred.await(entered);
+      const allowedAfterMembership = single.document.canonicalBytes.byteLength - 1;
+      yield* Effect.fromResult(pending.lifetime.charge(pending.lifetime.remainingBytes() - membershipBytes([single]) - allowedAfterMembership));
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(reading)).toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      expect(transported).toEqual([]);
+      expect(pending.lifetime.remainingBytes()).toBe(allowedAfterMembership);
+      transported.length = 0; capturedPackets.length = 0;
+
+      // The accepting owner may also charge after membership, before body demand.
+      let betweenCharge: () => Effect.Effect<void, Error> = () => Effect.void;
+      const between = yield* open(8000, 301, () => betweenCharge());
+      betweenCharge = () => Effect.fromResult(between.lifetime.charge(between.lifetime.remainingBytes() - allowedAfterMembership));
+      expect(yield* Effect.result(between.working.documents.find(between.lifetime.context, between.id, "notes", singleQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      expect(transported).toEqual([]);
+      transported.length = 0; capturedPackets.length = 0;
+
+      const bounded = yield* open(queryBytes(packetQuery) + membershipBytes(packetRows) + firstPacketCharges + secondPacketBytes - 1);
+      expect(yield* Effect.result(bounded.working.documents.find(bounded.lifetime.context, bounded.id, "notes", packetQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      expect(transported).toEqual(packetRows.slice(0, 256).map(row => row.rowId));
+      expect(capturedPackets).toEqual([256, 0]);
+      expect(bounded.lifetime.remainingBytes()).toBe(secondPacketBytes - 1);
+      transported.length = 0; capturedPackets.length = 0;
+
+      // A late corrupt row must win over a charge that would fail earlier in
+      // this packet. The complete native AppRows decoder runs before hydration.
+      const rowCondition = and(eq(fxAppRowRevisions.scopeUuid, scopeUuid), eq(fxAppRowRevisions.tableId, tableId),
+        eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(lastInFirstPacket.rowId)));
+      yield* runDrizzleStatementEffect(tx.update(fxAppRowRevisions).set({ valueSha256: sql`decode(repeat('00', 32), 'hex')` })
+        .where(rowCondition), cause => failure("fixtureStatement", cause));
+      const decoderBudget = queryBytes(packetQuery) + membershipBytes(packetRows) + firstPacketBytes + 128;
+      const corrupt = yield* open(decoderBudget);
+      expect(yield* Effect.result(corrupt.working.documents.find(corrupt.lifetime.context, corrupt.id, "notes", packetQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      expect(corrupt.lifetime.remainingBytes()).toBe(firstPacketBytes + 128);
+      expect(transported).toEqual(packetRows.slice(0, 256).map(row => row.rowId));
+      expect(capturedPackets).toEqual([256]);
+      yield* runDrizzleStatementEffect(tx.update(fxAppRowRevisions).set({ valueSha256: lastInFirstPacket.document.sha256 })
+        .where(rowCondition), cause => failure("fixtureStatement", cause));
+      transported.length = 0; capturedPackets.length = 0;
+      const charging = yield* open(decoderBudget);
+      expect(yield* Effect.result(charging.working.documents.find(charging.lifetime.context, charging.id, "notes", packetQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      expect(charging.lifetime.remainingBytes()).toBeLessThan(firstPacketBytes + 128);
+      expect(transported).toEqual(packetRows.slice(0, 256).map(row => row.rowId));
+      expect(capturedPackets).toEqual([256]);
+      transported.length = 0; capturedPackets.length = 0;
+
+      // Retain a negative observation while its stored pointer becomes visible,
+      // and a removed positive observation. Neither may re-enter packet bodies.
+      const cached = yield* open(2_097_152);
+      const absentId = appDocumentIdV1FromRowIdentity({ tableId, rowId: cachedAbsent.rowId });
+      const removedId = appDocumentIdV1FromRowIdentity({ tableId, rowId: cachedRemoved.rowId });
+      expect(yield* cached.working.documents.get(cached.lifetime.context, cached.id, absentId, "notes")).toBeNull();
+      // The identity genuinely did not exist at the negative read. Its row is
+      // now published before its index membership, respecting the native FK.
+      yield* appendPreparedAppRowRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId, tableId,
+        rowId: cachedAbsent.rowId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(2n), prevCommitSeq: null,
+        schemaVersionId, creationTime, document: cachedAbsent.document }]);
+      yield* appendAppIndexEntryRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId, definition,
+        encodedKey: cachedAbsent.encodedKey, rowId: cachedAbsent.rowId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(2n) }]);
+      yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(2n) })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("fixtureStatement", cause));
+      yield* cached.working.documents.delete(cached.lifetime.context, cached.id, removedId, "notes");
+      transported.length = 0; capturedPackets.length = 0;
+      expect(yield* Effect.result(cached.working.documents.find(cached.lifetime.context, cached.id, "notes", packetQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "writeConflict" } });
+      const unseen = packetRows.filter(row => row.rowId !== cachedRemoved.rowId);
+      expect(transported).toEqual(unseen.map(row => row.rowId));
+      expect(capturedPackets).toEqual([256, 43]);
+      transported.length = 0; capturedPackets.length = 0;
+
+      // Authenticate the hidden lookahead before overflow; neither verdict may
+      // demand a stored body or ignore corruption in the hidden membership.
+      const lookahead = packetRows.at(-1);
+      if (lookahead === undefined) return yield* Effect.die(failure("Missing lookahead membership"));
+      const hiddenCondition = and(eq(fxAppIndexEntryRevisions.scopeUuid, scopeUuid),
+        eq(fxAppIndexEntryRevisions.indexDefinitionId, indexDefinitionId),
+        eq(fxAppIndexEntryRevisions.rowId, appRowIdHexV1ToBytes(lookahead.rowId)));
+      const [hidden] = yield* runDrizzleStatementEffect(tx.select().from(fxAppIndexEntryRevisions).where(hiddenCondition),
+        cause => failure("fixtureStatement", cause));
+      if (hidden === undefined) return yield* Effect.die(failure("Missing stored lookahead membership"));
+      yield* runDrizzleStatementEffect(tx.update(fxAppIndexEntryRevisions).set({ keySha256: new Uint8Array(32) })
+        .where(hiddenCondition), cause => failure("fixtureStatement", cause));
+      const badLookahead = yield* open(2_097_152, 300);
+      expect(yield* Effect.result(badLookahead.working.documents.find(badLookahead.lifetime.context, badLookahead.id, "notes", packetQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption", cause: { _tag: "AppIndexEntryStorageCorruptionError" } } });
+      expect(transported).toEqual([]);
+      expect(capturedPackets).toEqual([]);
+      yield* runDrizzleStatementEffect(tx.update(fxAppIndexEntryRevisions).set({ keySha256: hidden.keySha256 })
+        .where(hiddenCondition), cause => failure("fixtureStatement", cause));
+      const overflow = yield* open(2_097_152, 300);
+      expect(yield* Effect.result(overflow.working.documents.find(overflow.lifetime.context, overflow.id, "notes", packetQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      expect(transported).toEqual([]);
+      expect(capturedPackets).toEqual([]);
+
+      // Missing-row refusal is a native driver-corruption witness, not a
+      // forbidden persisted state produced by deleting a referenced pointer.
+      transported.length = 0; capturedPackets.length = 0;
+      omitDemandedRow = true;
+      const missing = yield* open(8000);
+      expect(yield* Effect.result(missing.working.documents.find(missing.lifetime.context, missing.id, "notes", singleQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption", cause: {
+          _tag: "AppRowStorageCorruptionError", reason: "current index membership has no stored row",
+          identity: { scopeId, tableId, rowId: single.rowId },
+        } } });
+      expect(omittedDemandedRow).toBe(true);
+      expect(transported).toEqual([single.rowId]);
+      expect(capturedPackets).toEqual([1]);
+    } finally { spy.mockRestore(); }
+  })))));
+}
+
+/** Unique slot acceptance cannot lend a budget for a later point body. */
+export async function logicalWorkingSetCurrentUniqueBudgetScenario(db: FlarexMetadataDatabase): Promise<void> {
+  const scopeId = ScopeIdSchema.make("scope_53000000-0000-0000-0000-00000000000d");
+  const epoch = ScopeEpochSchema.make("epoch_53000000-0000-0000-0000-00000000000e");
+  const schemaVersionId = decodeCatalogSchemaVersionId("schema_current_unique_budget");
+  const deploymentId = "deployment_current_unique_budget";
+  const creationTime = AppCreationTimeV1Schema.make(1);
+  const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
+  const withInstallation = <A, E, R>(tx: FlarexMetadataTransaction, work: Effect.Effect<A, E, R>) =>
+    lockInstallationForCurrentTransaction(tx).pipe(Effect.andThen(work),
+      Effect.ensuring(Effect.sync(() => closeInstallationAdmission(tx))));
+  await insertCurrentScopeClockFixture(db, { scopeId, epoch });
+  await db.insert(deployments).values({ deploymentId, projectId: "project_current_unique_budget" });
+  const bindings = await runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(db, { deploymentId,
+    tables: [{ logicalName: "notes", definition: { kind: "appDocument", definitionVersion: 1,
+      documentType: { type: "object", value: { name: { fieldType: { type: "string" }, optional: false },
+        payload: { fieldType: { type: "string" }, optional: false } } } } }], indexes: [] }));
+  const manifest = await db.transaction(tx => runEffect(applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, bindings)));
+  const table = manifest.tableDefinitions.tables[0];
+  if (table === undefined) throw failure("Missing unique budget table");
+  const tableId = table.tableId;
+  const artifact = await runEffect(prepareSchemaVersionArtifactEffect({ deploymentId, schemaVersionId,
+    version: CatalogSchemaVersionSchema.make(1), manifest }));
+  await db.transaction(tx => runEffect(ensureSchemaVersionArtifactInTransactionEffect(tx, artifact)));
+  await db.insert(fxControlScopes).values({ scopeId, deploymentId, isolationKind: "shared_database",
+    physicalLocator: { kind: "shared_database", databaseKey: "current-unique-budget", schemaName: "public" } });
+  const preparedDefinition = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(db, {
+    deploymentId, schemaVersionId, tableId, descriptor: SchemaManifestAppIndexDescriptorSchema.make("by_name"),
+    physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
+      orderedFields: ["name"], sparse: true, localePolicy: { kind: "none" },
+      keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 }) }));
+  const ensured = await db.transaction(tx => runEffect(ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, preparedDefinition)));
+  const definition = await runEffect(locateAppUniqueConstraintDefinitionByIdEffect(db, deploymentId,
+    scopeId, schemaVersionId, ensured.definition.uniqueConstraintDefinitionId));
+  if (definition === null) throw failure("Missing unique budget definition");
+  const rowId = decodeAppRowIdHexV1("5300000000000000000000000000000f");
+  const laterRowId = decodeAppRowIdHexV1("53000000000000000000000000000010");
+  const document = await canonicalizeAppDocumentV1({ tableId, rowId, creationTime,
+    fields: { name: "owner", payload: "x".repeat(1024) } });
+  const laterDocument = await canonicalizeAppDocumentV1({ tableId, rowId: laterRowId, creationTime,
+    fields: { name: "later", payload: "x".repeat(1024) } });
+  const ownerKey = Result.getOrThrow(lowerCanonicalAppUniqueConstraintV1Result(definition, document));
+  const laterKey = Result.getOrThrow(lowerCanonicalAppUniqueConstraintV1Result(definition, laterDocument));
+  if (ownerKey.kind !== "claim" || laterKey.kind !== "claim") throw failure("Missing unique budget claims");
+  await db.transaction(tx => runEffect(withInstallation(tx, Effect.gen(function* () {
+    yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    yield* appendPreparedAppRowRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId, tableId, rowId,
+      writeEpoch: epoch, commitSeq: CommitSeqSchema.make(1n), prevCommitSeq: null, schemaVersionId, creationTime, document }]);
+    yield* applyAppUniqueKeyMutationsInTransactionEffect(tx, [{ scopeId, tableId, rowId,
+      constraintId: definition.uniqueConstraintDefinitionId, writeEpoch: epoch, previous: null, next: ownerKey.projection }]);
+    yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("fixtureStatement", cause));
+  }))));
+  const query = { where: { name: "owner" }, offset: 0, limit: 1 };
+  const absentQuery = { where: { name: "absent" }, offset: 0, limit: 1 };
+  const laterQuery = { where: { name: "later" }, offset: 0, limit: 1 };
+  const queryBytes = (input: typeof query) => Result.getOrThrow(capturePrivateJsonData(input, 1_048_576, failure)).bytes;
+  const outputBytes = Result.getOrThrow(capturePrivateJsonData(document.value, 1_048_576, failure)).bytes;
+  const absentKey = Result.getOrThrow(lowerCanonicalAppUniqueConstraintV1Result(definition,
+    await runEffect(canonicalizeFlarexValueV1Effect(absentQuery.where, "appDocument"))));
+  if (absentKey.kind !== "claim") throw failure("Missing absent unique key");
+  const allowedAtPoint = document.canonicalBytes.byteLength - 1;
+  await db.transaction(tx => runEffect(withInstallation(tx, Effect.scoped(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    const transported: string[] = [];
+    let uniqueQueries = 0;
+    let pendingUnique: Readonly<{ entered: Deferred.Deferred<void>; release: Deferred.Deferred<void> }> | undefined;
+    const prepare = tx._.session.prepareQuery.bind(tx._.session);
+    const spy = vi.spyOn(tx._.session, "prepareQuery").mockImplementation((...args) => {
+      const prepared = prepare(...args), execute = prepared.execute.bind(prepared);
+      return new Proxy(prepared, { get(target, key, receiver) {
+        if (key !== "execute") return Reflect.get(target, key, receiver);
+        return async (...parameters: Parameters<typeof prepared.execute>) => {
+          if (args[0].sql.includes("fx_app_unique_key")) {
+            uniqueQueries++;
+            const pending = pendingUnique;
+            if (pending !== undefined) {
+              pendingUnique = undefined;
+              await runEffect(Deferred.succeed(pending.entered, undefined));
+              await runEffect(Deferred.await(pending.release));
+            }
+          }
+          const result = await execute(...parameters);
+          const rows: readonly unknown[] = Array.isArray(result) ? result :
+            isNonArrayRecord(result) && Array.isArray(result.rows) ? result.rows : [];
+          for (const row of rows) {
+            if (!isNonArrayRecord(row) || !isNonArrayRecord(row.revision) || !(row.revision.valueBytes instanceof Uint8Array)) continue;
+            const identity = isNonArrayRecord(row.pointer) ? row.pointer.rowId : row.revision.rowId;
+            if (!(identity instanceof Uint8Array)) throw failure("Missing unique native body identity");
+            transported.push(Result.getOrThrow(appRowIdHexV1FromBytesResult(identity)));
+          }
+          return result;
+        };
+      } });
+    });
+    const open = (onPoint?: () => Effect.Effect<void, Error>) => Effect.gen(function* () {
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+        { calls: 32, commandBytes: 8000, commandMs: 60_000 }, {}, {}, "current-unique-budget", "write"), owner => owner.close);
+      const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, tx,
+        tables: [{ tableId, logicalName: "notes" }], requireAdmission: Effect.void, readReadiness: { kind: "full" },
+        validateDocument: () => Effect.void, error: failure, uniqueConflict: () => failure("uniqueConflict"),
+        limits: { pageRows: 8, identities: 8, documentBytes: 2048 } }, creationTime, [definition], [],
+      { beforeRead: selection => selection === "point" && onPoint !== undefined ? onPoint() : Effect.void });
+      const id = yield* lifetime.begin(lifetime.context);
+      return { lifetime, working, id };
+    });
+    const rowCondition = and(eq(fxAppRowRevisions.scopeUuid, projectScopeIdUuidV1(scopeId).scopeUuid),
+      eq(fxAppRowRevisions.tableId, tableId), eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(rowId)));
+    try {
+      // Charge the genuine lifetime while the unique owner's driver Promise is
+      // pending. The subsequent point permission must see this reduced budget.
+      const pending = yield* open();
+      const entered = yield* Deferred.make<void>(), release = yield* Deferred.make<void>();
+      pendingUnique = { entered, release };
+      const reading = yield* Effect.forkChild(Effect.result(pending.working.documents.find(pending.lifetime.context,
+        pending.id, "notes", query)));
+      yield* Deferred.await(entered);
+      yield* Effect.fromResult(pending.lifetime.charge(pending.lifetime.remainingBytes() - allowedAtPoint));
+      yield* Deferred.succeed(release, undefined);
+      const pendingOutcome = yield* Fiber.join(reading);
+      expect(pendingOutcome).toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      expect(transported).toEqual([]);
+      expect(pendingOutcome).toMatchObject({ _tag: "Failure", failure: { cause: {
+        _tag: "InvalidAppRowReadInputError", issue: { reason: "rowLimitExceeded" } } } });
+      expect(pending.lifetime.remainingBytes()).toBe(allowedAtPoint);
+      transported.length = 0;
+
+      // A real accepting callback charge has the same ordering, including when
+      // canonical row corruption would otherwise be discovered first.
+      yield* runDrizzleStatementEffect(tx.update(fxAppRowRevisions).set({ valueSha256: decodeFlarexValueSha256V1(new Uint8Array(32)) })
+        .where(rowCondition), cause => failure("fixtureStatement", cause));
+      let betweenCharge: () => Effect.Effect<void, Error> = () => Effect.void;
+      const between = yield* open(() => betweenCharge());
+      betweenCharge = () => Effect.fromResult(between.lifetime.charge(between.lifetime.remainingBytes() - allowedAtPoint));
+      expect(yield* Effect.result(between.working.documents.find(between.lifetime.context, between.id, "notes", query)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded", cause: {
+          _tag: "InvalidAppRowReadInputError", issue: { reason: "rowLimitExceeded" } } } });
+      expect(transported).toEqual([]);
+      expect(between.lifetime.remainingBytes()).toBe(allowedAtPoint);
+      const corrupt = yield* open();
+      const beforeCorrupt = corrupt.lifetime.remainingBytes();
+      expect(yield* Effect.result(corrupt.working.documents.find(corrupt.lifetime.context, corrupt.id, "notes", query)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption", cause: { _tag: "AppRowStorageCorruptionError" } } });
+      expect(corrupt.lifetime.remainingBytes()).toBe(beforeCorrupt - queryBytes(query));
+      expect(transported).toEqual([rowId]);
+      yield* runDrizzleStatementEffect(tx.update(fxAppRowRevisions).set({ valueSha256: document.sha256 })
+        .where(rowCondition), cause => failure("fixtureStatement", cause));
+      transported.length = 0;
+
+      const fresh = yield* open();
+      const beforeFresh = fresh.lifetime.remainingBytes();
+      uniqueQueries = 0;
+      expect(yield* fresh.working.documents.find(fresh.lifetime.context, fresh.id, "notes", query))
+        .toMatchObject({ docs: [document.value], total: 1 });
+      // Fresh agreement precedes the first output capture, so no reusable
+      // canonical-row verdict exists yet and no derived key is retained.
+      expect(fresh.lifetime.remainingBytes()).toBe(beforeFresh - queryBytes(query) - 256 - document.canonicalBytes.byteLength
+        - 128 - ownerKey.canonicalKeyBytes.byteLength - outputBytes);
+      expect(uniqueQueries).toBe(1);
+      expect(transported).toEqual([rowId]);
+      transported.length = 0;
+
+      // A successful slot retains the final unique observation charge even if
+      // its owner was already read, or locally removed, by this working set.
+      const cached = yield* open();
+      const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+      expect(yield* cached.working.documents.get(cached.lifetime.context, cached.id, documentId, "notes")).not.toBeNull();
+      transported.length = 0; uniqueQueries = 0;
+      const beforeCached = cached.lifetime.remainingBytes();
+      expect(yield* cached.working.documents.find(cached.lifetime.context, cached.id, "notes", query))
+        .toMatchObject({ docs: [document.value], total: 1 });
+      // The preceding get issued the canonical-row verdict. Agreement now
+      // retains its derived owner key once, after the original point frontier.
+      expect(cached.lifetime.remainingBytes()).toBe(beforeCached - queryBytes(query) - 128 - ownerKey.canonicalKeyBytes.byteLength
+        - logicalUniqueKeyRetentionBytes(ownerKey) - outputBytes);
+      expect(uniqueQueries).toBe(1);
+      expect(transported).toEqual([]);
+      yield* cached.working.documents.delete(cached.lifetime.context, cached.id, documentId, "notes");
+      uniqueQueries = 0;
+      expect(yield* cached.working.documents.find(cached.lifetime.context, cached.id, "notes", query)).toEqual({ docs: [], total: 0 });
+      expect(uniqueQueries).toBe(0);
+      expect(transported).toEqual([]);
+      const removed = yield* open();
+      yield* removed.working.documents.delete(removed.lifetime.context, removed.id, documentId, "notes");
+      transported.length = 0; uniqueQueries = 0;
+      const beforeRemoved = removed.lifetime.remainingBytes();
+      expect(yield* removed.working.documents.find(removed.lifetime.context, removed.id, "notes", query)).toEqual({ docs: [], total: 0 });
+      // Direct deletion does not capture a returned row or issue a reusable
+      // verdict; retain the original slot-observation charge exactly.
+      expect(removed.lifetime.remainingBytes()).toBe(beforeRemoved - queryBytes(query) - 128 - ownerKey.canonicalKeyBytes.byteLength);
+      expect(uniqueQueries).toBe(1);
+      expect(transported).toEqual([]);
+
+      const absent = yield* open();
+      const beforeAbsent = absent.lifetime.remainingBytes();
+      uniqueQueries = 0;
+      expect(yield* absent.working.documents.find(absent.lifetime.context, absent.id, "notes", absentQuery)).toEqual({ docs: [], total: 0 });
+      expect(absent.lifetime.remainingBytes()).toBe(beforeAbsent - queryBytes(absentQuery) - 128 - absentKey.canonicalKeyBytes.byteLength);
+      expect(uniqueQueries).toBe(1);
+      expect(transported).toEqual([]);
+      uniqueQueries = 0;
+      const omitted = yield* readAppUniqueKeySlotInTransactionEffect(tx, { scopeId,
+        constraintId: definition.uniqueConstraintDefinitionId,
+        key: { sparse: true, localeKey: null, values: [{ kind: "missing" }] } });
+      expect(Option.isNone(omitted)).toBe(true);
+      expect(uniqueQueries).toBe(0);
+      expect(transported).toEqual([]);
+
+      // An earlier genuine absence stays authoritative even after a row and
+      // claim become visible; authenticating its slot must not recapture it.
+      const negative = yield* open();
+      const laterId = appDocumentIdV1FromRowIdentity({ tableId, rowId: laterRowId });
+      expect(yield* negative.working.documents.get(negative.lifetime.context, negative.id, laterId, "notes")).toBeNull();
+      yield* appendPreparedAppRowRevisionsInTransactionEffect(tx, [{ kind: "live", scopeId, tableId, rowId: laterRowId,
+        writeEpoch: epoch, commitSeq: CommitSeqSchema.make(2n), prevCommitSeq: null, schemaVersionId, creationTime, document: laterDocument }]);
+      yield* applyAppUniqueKeyMutationsInTransactionEffect(tx, [{ scopeId, tableId, rowId: laterRowId,
+        constraintId: definition.uniqueConstraintDefinitionId, writeEpoch: epoch, previous: null, next: laterKey.projection }]);
+      yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(2n) })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("fixtureStatement", cause));
+      transported.length = 0; uniqueQueries = 0;
+      const beforeNegative = negative.lifetime.remainingBytes();
+      expect(yield* Effect.result(negative.working.documents.find(negative.lifetime.context, negative.id, "notes", laterQuery)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "writeConflict" } });
+      expect(negative.lifetime.remainingBytes()).toBe(beforeNegative - queryBytes(laterQuery));
+      expect(uniqueQueries).toBe(1);
+      expect(transported).toEqual([]);
+    } finally { spy.mockRestore(); }
+  })))));
 }

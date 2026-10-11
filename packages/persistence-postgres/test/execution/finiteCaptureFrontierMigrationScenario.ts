@@ -21,10 +21,11 @@ const MigrationJournal = Schema.Struct({ version: Schema.String, dialect: Schema
     tag: Schema.String, breakpoints: Schema.Boolean })) });
 const decodeJournal = Schema.decodeUnknownSync(MigrationJournal);
 
-/** The authentic populated predecessor is installed through 137. The caller
+/** The authentic populated predecessor is installed through the selected gate. The caller
  * owns bootstrap and maintenance; no current verifier blesses an old structure. */
 export async function withFiniteFrontierPredecessor(
   work: (folder: string, restoreCurrentJournal: () => Promise<void>) => Promise<void>,
+  through: 140 | 141 | 142 | 143 = 140,
 ): Promise<void> {
   const temporary = await mkdtemp(resolve(tmpdir(), "flarex-finite-frontier-"));
   const folder = resolve(temporary, "drizzle");
@@ -33,7 +34,7 @@ export async function withFiniteFrontierPredecessor(
     const journalPath = resolve(folder, "meta/_journal.json");
     const current = await readFile(journalPath, "utf8");
     const decoded = decodeJournal(JSON.parse(current));
-    await writeFile(journalPath, JSON.stringify({ ...decoded, entries: decoded.entries.filter(entry => entry.idx < 138) }));
+    await writeFile(journalPath, JSON.stringify({ ...decoded, entries: decoded.entries.filter(entry => entry.idx <= through) }));
     await work(folder, () => writeFile(journalPath, current));
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
@@ -41,6 +42,7 @@ export async function withFiniteFrontierPredecessor(
 export async function finiteFrontierPopulatedMigration(
   predecessor: Pick<FlarexSqlClient, "query" | "execute">,
   migrate: () => Promise<void>,
+  ordinaryPredecessor = false,
 ): Promise<void> {
   // Owner-only predecessor fixtures deliberately make stored data writable;
   // they do not issue a serving installation capability before the new proof.
@@ -70,12 +72,32 @@ export async function finiteFrontierPopulatedMigration(
     ${fxAppRowRevisions.schemaVersionId},${fxAppRowRevisions.isTombstone} from ${fxAppRowRevisions}`);
   const before = (await stored()).rows;
   const previousHistory = (await history()).rows;
+  if (ordinaryPredecessor) {
+    expect((await predecessor.query(`select count(*)::integer as folds from pg_catalog.pg_proc
+      where pronamespace=current_schema()::regnamespace and proname in
+        ('fx_accept_ordinary_index_readiness','fx_accept_ordinary_unique_readiness','fx_accept_ordinary_search_readiness')`)).rows)
+      .toEqual([{folds:3}]);
+    const retirement = await readFile(resolve(dirname(fileURLToPath(import.meta.url)),
+      "../../drizzle/0144_ordinary_readiness_dispatch_retirement.sql"),"utf8");
+    await expect(predecessor.query(retirement.split("--> statement-breakpoint")[0]!)).rejects.toMatchObject({code:"55000"});
+  }
   await migrate();
   expect((await stored()).rows).toEqual(before);
   expect((await history()).rows).toEqual(previousHistory);
+  expect((await predecessor.query(`select
+    to_regprocedure(current_schema() || '.fx_accept_finite_placement_frontier(' || current_schema() || '.fx_installation_frontier_expected,' ||
+      current_schema() || '.fx_installation_frontier_expected,text,text)') is null as retired_dispatcher,
+    to_regtype(current_schema() || '.fx_finite_placement_frontier') is null as retired_result,
+    to_regprocedure(current_schema() || '.fx_lock_control_scope_placement(' || current_schema() || '.fx_installation_frontier_expected,text,text,text)')
+      is not null as control_owner`)).rows)
+    .toEqual([{ retired_dispatcher: true, retired_result: true, control_owner: true }]);
   expect((await predecessor.query(`select i.state,not p.proretset as scalar,
     t.typname as result from fx_system_installation i,pg_catalog.pg_proc p,pg_catalog.pg_type t
     where p.pronamespace=current_schema()::pg_catalog.regnamespace and p.proname='fx_accept_finite_storage_capture'
       and t.oid=p.prorettype`)).rows)
     .toEqual([{ state: "active", scalar: true, result: "fx_finite_capture_frontier" }]);
+  expect((await predecessor.query(`select count(*)::integer as folds from pg_catalog.pg_proc p
+    where p.pronamespace=current_schema()::regnamespace
+      and p.proname in ('fx_accept_ordinary_index_readiness','fx_accept_ordinary_unique_readiness','fx_accept_ordinary_search_readiness')`)).rows)
+    .toEqual([{folds:0}]);
 }

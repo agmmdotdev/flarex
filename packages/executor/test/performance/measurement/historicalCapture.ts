@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { Data, Effect, Exit, Result, Schema } from "effect";
 import type { FiniteStorageCaptureError } from "../../../../persistence-postgres/src/execution/finiteStorageCapture";
-import { createHistoricalCaptureFixture, type HistoricalCaptureCase } from "../support/historicalCaptureFixture";
+import { createHistoricalCaptureFixture, HISTORICAL_CAPTURE_INPUTS_PER_PASS, type HistoricalCaptureCase } from "../support/historicalCaptureFixture";
 import { acquireServerMeasurementResource } from "./collectors/server";
 import { createServerPlanCapture, SERVER_PLAN_LOG_PREFIX } from "./collectors/plans";
 import { createHistoricalSubmissionObserver, HistoricalCaptureDiagnosticError,
@@ -20,9 +20,9 @@ const OptionsSchema = Schema.Struct({
     prefix: Schema.Literal(SERVER_PLAN_LOG_PREFIX) }),
 });
 const decodeOptions = Schema.decodeUnknownSync(OptionsSchema, { onExcessProperty: "error" });
-const CaseSchema = Schema.Struct({ ordinal: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 9 })),
+const CaseSchema = Schema.Struct({ ordinal: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: HISTORICAL_CAPTURE_INPUTS_PER_PASS })),
   id: Schema.String, owner: Schema.String, ancestry: Schema.Array(Schema.String), tableName: Schema.String,
-  expectedRows: Schema.Natural, expectedBound: Schema.Natural, expectedMaximumHydratedOwners: Schema.NullOr(Schema.Natural) });
+  kind: Schema.Literals(["indexPage", "rows"]), expectedRows: Schema.Natural, expectedBound: Schema.Natural });
 const decodeCase = Schema.decodeUnknownEffect(CaseSchema, { onExcessProperty: "error" });
 type Case = typeof CaseSchema.Type;
 type Resource = Awaited<ReturnType<typeof acquireServerMeasurementResource>>;
@@ -42,7 +42,7 @@ interface CaptureReport {
 interface HistoricalReport {
   readonly runId: string; readonly operation: "historical-capture-server";
   readonly status: "complete" | "incomplete";
-  readonly budget: Readonly<{ maximumCaptureExecutions: 18; passes: 2; inputsPerPass: 9; completeBusinessGraphs: 0;
+  readonly budget: Readonly<{ maximumCaptureExecutions: number; passes: 2; inputsPerPass: number; completeBusinessGraphs: 0;
     measuredNativeCalls: 0; automaticRetries: 0 }>;
   readonly captures: readonly CaptureReport[];
   readonly actualCaptureExecutions: number;
@@ -93,8 +93,7 @@ export const captureHistoricalRead: <A>(resource: Readonly<{
 
 const projectCase = Effect.fn("HistoricalCapture.projectCase")((value: HistoricalCaptureCase) => Effect.suspend(() =>
   decodeCase({ ordinal: value.ordinal, id: value.id, owner: value.owner, ancestry: value.ancestry,
-    tableName: value.tableName, expectedRows: value.expectedRows, expectedBound: value.expectedBound,
-    expectedMaximumHydratedOwners: value.expectedMaximumHydratedOwners }).pipe(
+    tableName: value.tableName, expectedRows: value.expectedRows, expectedBound: value.expectedBound, kind: value.operation.kind }).pipe(
       Effect.mapError(cause => new HistoricalCaptureDiagnosticError({ stage: "captureDescriptor", cause })))));
 
 function completeWindow(evidence: ServerMeasurementEvidence | undefined, submissions: readonly HistoricalSubmission[],
@@ -131,8 +130,8 @@ function completeWindow(evidence: ServerMeasurementEvidence | undefined, submiss
 }
 
 function humanReport(report: HistoricalReport) {
-  const rows = [`# Historical capture server diagnostic`, "", `Status: ${report.status}. Actual capture submissions: ${report.actualCaptureExecutions}/18; observation windows: ${report.captures.length}.`,
-    "", "Two serial passes of nine source-equivalent newly seeded inputs. This does not replay unavailable literal parameters from the previous resources artifact.",
+  const rows = [`# Historical capture server diagnostic`, "", `Status: ${report.status}. Actual capture submissions: ${report.actualCaptureExecutions}/${HISTORICAL_CAPTURE_INPUTS_PER_PASS * 2}; observation windows: ${report.captures.length}.`,
+    "", "Two serial passes of nine source-equivalent newly seeded demands, each capturing membership then rows. This does not replay unavailable literal parameters from the previous resources artifact.",
     "No complete business graph or native call is measured. Untimed fixture seeding is retained in setup.", "",
     "| Pass | Input | Use | Status | Submissions | Top execution ms | Nested execution ms |",
     "|---|---|---|---|---:|---:|---:|"];
@@ -160,7 +159,7 @@ async function persist(directory: string, report: HistoricalReport) {
   } catch (cause) { throw new MeasurementInfrastructureError({ stage: "persistence", cause, reports }); }
 }
 
-/** Fixed diagnostic only: two serial passes, eighteen actual captures maximum,
+/** Fixed diagnostic only: two serial passes, thirty-six actual captures maximum,
  * no retries, no full graph measurement and no native baseline execution. */
 export async function diagnoseHistoricalCaptures(input: typeof OptionsSchema.Type) {
   const options = decodeOptions(input);
@@ -206,8 +205,8 @@ export async function diagnoseHistoricalCaptures(input: typeof OptionsSchema.Typ
     let previousEvidence: ServerMeasurementEvidence | undefined;
     const observeDiagnostic = Effect.fn("HistoricalCapture.observe")(<A>(captureCase: HistoricalCaptureCase, pass: 1 | 2,
       runCapture: () => Effect.Effect<A, FiniteStorageCaptureError>) => Effect.uninterruptibleMask(restore => Effect.gen(function* () {
-      const ordinal = captures.length % 9 + 1, expectedPass = captures.length < 9 ? 1 : 2;
-      if (captures.length >= 18 || pass !== expectedPass || captureCase.ordinal !== ordinal)
+      const ordinal = captures.length % HISTORICAL_CAPTURE_INPUTS_PER_PASS + 1, expectedPass = captures.length < HISTORICAL_CAPTURE_INPUTS_PER_PASS ? 1 : 2;
+      if (captures.length >= HISTORICAL_CAPTURE_INPUTS_PER_PASS * 2 || pass !== expectedPass || captureCase.ordinal !== ordinal)
         return yield* Effect.fail(refuse("captureBudgetOrOrder"));
       if (pass === 2 && ordinal === 1) {
         const currentSource = yield* restore(infrastructure("sourceBetweenPasses", () => measurementSourceDigest(false)));
@@ -288,11 +287,11 @@ export async function diagnoseHistoricalCaptures(input: typeof OptionsSchema.Typ
     result = await fixture.runPasses(observe);
     after = await measurementSourceDigest(false);
     if (before.digest !== after.digest) throw refuse("sourceDrift");
-    if (captures.length !== 18 || captures.some(capture => capture.status !== "complete")) throw refuse("incompleteCaptureCampaign");
+    if (captures.length !== HISTORICAL_CAPTURE_INPUTS_PER_PASS * 2 || captures.some(capture => capture.status !== "complete")) throw refuse("incompleteCaptureCampaign");
     environments.after = await resource.verifyRuntimePools(fixture.pools.managedReadControl, fixture.pools.target);
     if (JSON.stringify({ control: environments.after.control.settings, target: environments.after.target.settings }) !==
       JSON.stringify({ control: environment.control.settings, target: environment.target.settings })) throw refuse("runtimeSettingsDrift");
-    if (result.captureCount !== 18 || result.passCaptureCounts[0] !== 9 || result.passCaptureCounts[1] !== 9 ||
+    if (result.captureCount !== HISTORICAL_CAPTURE_INPUTS_PER_PASS * 2 || result.passCaptureCounts[0] !== HISTORICAL_CAPTURE_INPUTS_PER_PASS || result.passCaptureCounts[1] !== HISTORICAL_CAPTURE_INPUTS_PER_PASS ||
       result.rootOutcome !== "aborted" || result.changes !== 0 || result.events !== 0) throw refuse("unexpectedReadRootOutcome");
   } catch (cause) { fail(cause instanceof HistoricalCaptureDiagnosticError ? cause.stage : "historicalCampaign", cause); }
   finally {
@@ -306,8 +305,8 @@ export async function diagnoseHistoricalCaptures(input: typeof OptionsSchema.Typ
       fail("sourceDrift", refuse("sourceDrift"));
   }
   const report: HistoricalReport = { runId, operation: "historical-capture-server",
-    status: failures.length === 0 && captures.length === 18 ? "complete" : "incomplete",
-    budget: { maximumCaptureExecutions: 18, passes: 2, inputsPerPass: 9, completeBusinessGraphs: 0, measuredNativeCalls: 0, automaticRetries: 0 },
+    status: failures.length === 0 && captures.length === HISTORICAL_CAPTURE_INPUTS_PER_PASS * 2 ? "complete" : "incomplete",
+    budget: { maximumCaptureExecutions: HISTORICAL_CAPTURE_INPUTS_PER_PASS * 2, passes: 2, inputsPerPass: HISTORICAL_CAPTURE_INPUTS_PER_PASS, completeBusinessGraphs: 0, measuredNativeCalls: 0, automaticRetries: 0 },
     captures, actualCaptureExecutions: captures.reduce((sum, capture) => sum + capture.submissions.filter(item =>
       item.name?.startsWith("fx_finite_") === true).length, 0), cleanup,
     sources: { before: before?.digest ?? null, after: after?.digest ?? null }, environment: environments,

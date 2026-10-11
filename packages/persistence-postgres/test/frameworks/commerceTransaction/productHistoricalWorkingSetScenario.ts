@@ -165,6 +165,42 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     return sequence;
   })));
   const snapshotCommitSeq = yield* commit("seed");
+  // A later supplied-input refusal must precede lookup/uniqueness of an earlier
+  // existing key, and must leave the complete pending mutation log empty.
+  yield* transact(tx => Effect.scoped(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(error,
+      { calls: 32, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, "batch-input-refusal", "write"),
+    resource => resource.close);
+    let reads = 0;
+    const working = yield* make(lifetime, clock, { tx }, { beforeRead: () => Effect.sync(() => { reads++; }) });
+    const id = yield* lifetime.begin(lifetime.context);
+    const product = yield* working.relationalTable(lifetime.context, id, "product");
+    expect(yield* Effect.result(product.write(lifetime.context, "insert", [
+      { id: productId, title: "Existing key must not win refusal order", status: "draft" },
+      { id: "prod_invalid_batch", title: 123 },
+    ]))).toMatchObject({ _tag: "Failure", failure: new Error("documentInvalid") });
+    expect(reads).toBe(0);
+    expect(working.attemptCount()).toBe(0);
+    expect(working.lifecycleCount()).toBe(0);
+  })));
+  // Immutable row preparation must not absorb the later working-set document
+  // bound. An admitted input fits the request allowance but its complete
+  // normalized update still refuses at the document owner before mutation.
+  yield* transact(tx => Effect.scoped(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(error,
+      { calls: 32, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, "normalized-document-bound", "write"),
+    resource => resource.close);
+    const working = yield* make(lifetime, clock, { tx });
+    const id = yield* lifetime.begin(lifetime.context);
+    const product = yield* working.relationalTable(lifetime.context, id, "product");
+    expect(yield* Effect.result(product.write(lifetime.context, "update", [
+      { id: productId, title: "x".repeat(65_537) },
+    ]))).toMatchObject({ _tag: "Failure", failure: new Error("limitExceeded") });
+    expect(working.attemptCount()).toBe(0);
+    expect(working.lifecycleCount()).toBe(0);
+  })));
   yield* commit("standalone");
   const currentClock = yield* transact(tx => lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
   // The current unique slot moved to committedHandle. The old owner must still
@@ -339,6 +375,22 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     expect(yield* images()).toMatchObject([{ id: imageId }]);
     expect(readTransactions - beforeImageRead).toBe(1);
     expect(activeRead).toBe(false);
+    const nextOverlay = yield* canonicalizeFlarexValueV1Effect({ ...originalPoint.value,
+      handle: "app-overlay-handle", title: "Second accepted App overlay" }, "appDocument");
+    expect(Result.isSuccess(root.writePoint("product", originalObservation,
+      { kind: "live", creationTime: AppCreationTimeV1Schema.make(Number(originalPoint.value._creationTime)), document: nextOverlay }, "replace"))).toBe(true);
+    const beforeIsolatedFrontiers = readTransactions;
+    // A successful boundary for another table cannot consume Product's duty.
+    expect(yield* image.find(lifetime.context, { take: 10, order: { column: "id", direction: "asc" },
+      predicate: { kind: "and", children: [{ kind: "in", column: "product_id", values: ["absent-isolation-product"] },
+        { kind: "isNull", column: "deleted_at" }] } })).toEqual([]);
+    expect(readTransactions - beforeIsolatedFrontiers).toBe(1);
+    expect(yield* images()).toMatchObject([{ id: imageId }]);
+    expect(readTransactions - beforeIsolatedFrontiers).toBe(1);
+    expect(yield* find("app-overlay-handle")).toMatchObject([{ id: productId, title: "Second accepted App overlay" }]);
+    expect(readTransactions - beforeIsolatedFrontiers).toBe(2);
+    expect(yield* find("app-overlay-handle")).toMatchObject([{ id: productId }]);
+    expect(readTransactions - beforeIsolatedFrontiers).toBe(2);
     const beforeWrite = readTransactions;
     yield* product.write(lifetime.context, "update", [{ id: productId, handle: pendingHandle,
       title: "Pending native title", status: "published" }, { id: residualProductId,
@@ -366,6 +418,52 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
       definition.physicalSpec.orderedFields.length === 2))).toBe(true);
     expect(frozen.dependencies.some(row => row.dependency.kind === "appRowPoint" && row.dependency.observed.kind === "present")).toBe(true);
     expect(closed.attempts.some(row => row.tableName === "product")).toBe(true);
+    for (const mode of ["body", "tail"] as const) yield* Effect.scoped(Effect.gen(function* () {
+      const refusedLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(error,
+        { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, `product-cached-membership-${mode}`, "write"),
+      resource => resource.close);
+      const refusal = new Error(`cached membership ${mode} refusal`);
+      let refuse = false;
+      let completedBodies = 0;
+      const guardedRead: typeof transact = work => checkedReadTransaction(tx => Effect.gen(function* () {
+        if (refuse && mode === "body") return yield* Effect.fail(refusal);
+        const value = yield* work(tx);
+        completedBodies++;
+        if (refuse && mode === "tail") return yield* Effect.fail(refusal);
+        return value;
+      }));
+      const guarded = yield* make(refusedLifetime, currentClock,
+        { readTransaction: guardedRead, snapshotCommitSeq },
+        { observeQuery: () => expect(activeRead).toBe(true) },
+        { rootEvaluator: root, rootAttempt: attempt, rootAttemptFence: "1" });
+      const guardedId = yield* refusedLifetime.begin(refusedLifetime.context);
+      const guardedProduct = yield* guarded.relationalTable(refusedLifetime.context, guardedId, "product");
+      const cachedPoint = root.snapshot().observedRows.find(row => row.value.id === productId);
+      if (cachedPoint === undefined || typeof cachedPoint.value.handle !== "string") throw new Error("Missing cached Product handle");
+      const cachedHandle = cachedPoint.value.handle;
+      const guardedFind = (handle: string) => guardedProduct.find(refusedLifetime.context, { take: 10,
+        order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
+          { kind: "in", column: "handle", values: [handle] }, { kind: "isNull", column: "deleted_at" }] } });
+      expect(yield* guardedFind(cachedHandle)).toMatchObject([{ id: productId }]);
+      const rejectedOverlay = yield* canonicalizeFlarexValueV1Effect({ ...cachedPoint.value, handle: `refused-root-${mode}` }, "appDocument");
+      expect(Result.isSuccess(root.writePoint("product", originalObservation,
+        { kind: "live", creationTime: AppCreationTimeV1Schema.make(Number(cachedPoint.value._creationTime)), document: rejectedOverlay }, "replace"))).toBe(true);
+      refuse = true;
+      const beforeRefusal = readTransactions, beforeBody = completedBodies;
+      const refused = yield* Effect.result(guardedFind(cachedHandle));
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) expect(refused.failure).toBe(refusal);
+      expect(completedBodies - beforeBody).toBe(mode === "body" ? 0 : 1);
+      expect(readTransactions - beforeRefusal).toBe(1);
+      expect(activeRead).toBe(false);
+      // Successful local selection is not successful transaction settlement.
+      // Neither a body nor tail refusal lets its cached result escape later.
+      refuse = false;
+      expect(yield* Effect.result(guardedFind(`refused-root-${mode}`)))
+        .toMatchObject({ _tag: "Failure", failure: { message: "rollbackOnly" } });
+      expect(readTransactions - beforeRefusal).toBe(1);
+      expect((yield* Effect.result(refusedLifetime.seal))._tag).toBe("Failure");
+    }));
     root.close();
   }));
 });

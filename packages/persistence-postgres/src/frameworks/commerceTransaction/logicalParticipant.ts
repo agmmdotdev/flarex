@@ -1,29 +1,17 @@
 import { observeExecution } from "../../execution/diagnostics/operation";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { Clock, Effect } from "effect";
-import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
-import {
-  MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
-  MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
-} from "../../storage/materialization/limits";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
-import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
+import { isJsonObject, type JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../../database/metadataTransaction";
-import type { ScopeClockRecord } from "../../scope/scopeClock";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../../execution/preparation/boundedRequestLifetime";
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { requireLogicalRelationalReadAdmission, type LogicalRelationalReadAdmission } from "../../storage/documents/logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges, type LogicalDocumentActivity } from "../../storage/documents/logicalDocuments/workingSet";
 import type { LogicalStorageReadReadiness } from "../../storage/documents/logicalDocuments/model";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
-import { bindPreparedLogicalRelationalRows } from "../../storage/documents/logicalDocuments/relationalRows";
-import { validateLogicalDocumentChanges } from "../../storage/documents/logicalDocuments/contribution";
-import { enterLogicalDocumentMaterialization, logicalMaterializationBatchBudget } from "../../storage/documents/logicalDocuments/materialization";
-import { forEachLogicalSetNullPage, forEachLogicalReferenceReplacementPage,
-  selectLogicalReferenceReplacement } from "../../storage/documents/logicalDocuments/referencePages";
+import { bindPreparedLogicalRelationalRows, detachLogicalRelationalActivityJson } from "../../storage/documents/logicalDocuments/relationalRows";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
@@ -251,43 +239,32 @@ export const projectLogicalCommerceActivity = Effect.fnUntraced(function* (
       targetTable, targetColumn: intent.targetColumn, targetKey: intent.targetKey,
       desiredKeys: intent.desiredKeys }));
   }
-  // Native policies see one detached JSON contribution. Canonical runtime
-  // values and their mutable bytes remain private to the original working set.
-  const detached = structuredClone({ mutations, lifecycle, observedRows, setNull, referenceReplacements });
-  for (const mutation of detached.mutations) {
-    freezeActivityJson(mutation.before); freezeActivityJson(mutation.after); Object.freeze(mutation);
-  }
-  for (const observation of detached.lifecycle) {
-    Object.freeze(observation.key); freezeActivityJson(observation.rowAtOperation); Object.freeze(observation);
-  }
-  for (const observation of detached.observedRows) { freezeActivityJson(observation.row); Object.freeze(observation); }
-  for (const intent of detached.setNull) Object.freeze(intent);
-  for (const intent of detached.referenceReplacements) { Object.freeze(intent.desiredKeys); Object.freeze(intent); }
-  return Object.freeze({ mutations: Object.freeze(detached.mutations), lifecycle: Object.freeze(detached.lifecycle),
-    observedRows: Object.freeze(detached.observedRows), setNull: Object.freeze(detached.setNull),
-    referenceReplacements: Object.freeze(detached.referenceReplacements) });
+  // Complete source/corruption refusal above precedes detachment. Exact owned
+  // canonical rows retain their immutable JSON projections; cursor calls do
+  // not clone and freeze every previously observed row again.
+  return Object.freeze({
+    mutations: Object.freeze(mutations.map(mutation => Object.freeze({ ...mutation,
+      before: detachLogicalRelationalActivityJson(mutation.before), after: detachLogicalRelationalActivityJson(mutation.after) }))),
+    lifecycle: Object.freeze(lifecycle.map(observation => Object.freeze({ ...observation,
+      key: Object.freeze({ ...observation.key }), rowAtOperation: detachLogicalRelationalActivityJson(observation.rowAtOperation) }))),
+    observedRows: Object.freeze(observedRows.map(observation => Object.freeze({ ...observation,
+      row: detachLogicalRelationalActivityJson(observation.row) }))),
+    setNull: Object.freeze(setNull.map(intent => Object.freeze({ ...intent }))),
+    referenceReplacements: Object.freeze(referenceReplacements.map(intent => Object.freeze({ ...intent,
+      desiredKeys: Object.freeze([...intent.desiredKeys]) }))),
+  });
 }, work => observeExecution("LogicalCommerce.projectActivity", work, "caller"));
-
-// Only the checked JSON fields assembled above enter this projection. This is
-// deliberate detachment of an owned contribution, not an unknown-input parser.
-const freezeActivityJson = (value: Json): void => {
-  if (value === null || typeof value !== "object") return;
-  for (const child of Array.isArray(value) ? value : Object.values(value)) freezeActivityJson(child);
-  Object.freeze(value);
-};
 
 /** One current value projection owned by the original admitted source. It
  * retains neither a live verdict nor an additional graph/settlement authority. */
 export type LogicalCommerceActivity = Effect.Success<ReturnType<typeof projectLogicalCommerceActivity>>;
 
 export function makeLogicalCommerceActivityProjection(names: Pick<ReadonlyMap<CatalogTableId, string>, "get">) {
-  let projected: Readonly<{ source: LogicalDocumentActivity; value: LogicalCommerceActivity }> | undefined;
-  return (activity: LogicalDocumentActivity): Effect.Effect<LogicalCommerceActivity, CommerceTransactionError> => {
-    if (projected?.source === activity) return Effect.succeed(projected.value);
-    return projectLogicalCommerceActivity(names, activity).pipe(Effect.tap(value => Effect.sync(() => {
-      projected = Object.freeze({ source: activity, value });
-    })));
-  };
+  // A foreign mutable view never inherits a prior complete verdict merely by
+  // retaining its wrapper identity. Row detachment owns the useful immutable
+  // projection retention, including genuinely new cursor views.
+  return (activity: LogicalDocumentActivity): Effect.Effect<LogicalCommerceActivity, CommerceTransactionError> =>
+    projectLogicalCommerceActivity(names, activity);
 }
 
 /** The root consumes exactly once while the source callback is still live. */
@@ -301,133 +278,3 @@ export const consumeLogicalCommerceClosure = Effect.fnUntraced(function* (
   const state = yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   return Object.freeze({ ...closed, state });
 }, work => observeExecution("LogicalCommerce.consume", work, "caller"));
-
-/** Called only after the outer owner has acquired publication exclusion. */
-export const prepareLogicalCommerceContribution = Effect.fnUntraced(function* (
-  closed: Effect.Success<ReturnType<typeof consumeLogicalCommerceClosure>>, clock: ScopeClockRecord,
-  allowReferenceReplacement = false,
-) {
-  const { state, tx, admission } = closed;
-  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId: state.authority.scopeId,
-    tables: new Set(state.tables.map(table => table.tableId)), maximumIndexEntries: closed.maximumIndexEntries,
-    error: logicalCommerceError,
-    ...(closed.changes.setNull.length === 0 ? {} : { allowSetNull: true as const }),
-    ...(allowReferenceReplacement ? { allowReferenceReplacement: true as const } : {}) }, closed.changes);
-  const admitted = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const replacements = yield* Effect.forEach(closed.changes.referenceReplacements, intent =>
-    selectLogicalReferenceReplacement({ tx, ...intent, pendingChanges: contribution.changes, requireAdmission: admitted,
-      error: logicalCommerceError }).pipe(Effect.map(selection => Object.freeze({ intent, selection }))));
-  const pending = new Map(replacements.flatMap(({ selection }) => selection.pendingChanges.map(change => [change.documentId, change] as const)));
-  const rootChanges = contribution.changes.map(change => pending.get(change.documentId) ?? change);
-  const rootDependencies = contribution.dependencies.map(row => pending.get(row.documentId) ?? row);
-  const rootPages: typeof rootChanges[] = [];
-  let page: typeof rootChanges = [];
-  let indexCost = 0;
-  let uniqueCost = 0;
-  for (const change of rootChanges) {
-    const nextIndexCost = state.indexes.filter(index => index.access.kind === "developer" &&
-      index.access.tableId === change.tableId).length;
-    const nextUniqueCost = state.unique.filter(definition => definition.tableId === change.tableId).length;
-    if (nextIndexCost > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 ||
-      nextUniqueCost > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1)
-      return yield* Effect.fail(commerceError("limitExceeded"));
-    if (page.length === MAX_POINT_COMMIT_MATERIAL_ROWS_V1 ||
-      indexCost + nextIndexCost > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 ||
-      uniqueCost + nextUniqueCost > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1) {
-      rootPages.push(page);
-      page = [];
-      indexCost = 0;
-      uniqueCost = 0;
-    }
-    page.push(change);
-    indexCost += nextIndexCost;
-    uniqueCost += nextUniqueCost;
-  }
-  rootPages.push(page);
-  const pagedRoot = rootPages.length > 1;
-  if (rootPages.length > logicalMaterializationBatchBudget.pages)
-    return yield* Effect.fail(commerceError("limitExceeded"));
-  // Homogeneous creates or deletes have no cross-page key transfer. Mixed
-  // transitions still need complete unique-key validation on one page.
-  const allCreated = rootChanges.every(change => change.kind === "live" &&
-    (change.dependency.kind === "generatedInsertion" || change.dependency.observed.kind === "missing" &&
-    change.dependency.observed.basis.kind === "noVisibleRevision"));
-  const allDeleted = rootChanges.every(change => change.kind === "deleted" &&
-    change.dependency.kind === "appRowPoint" && change.dependency.observed.kind === "present");
-  if (pagedRoot && (replacements.length !== 0 || !(allCreated || allDeleted)))
-    return yield* Effect.fail(commerceError("limitExceeded"));
-  const derivedIds = Object.freeze(replacements.flatMap(({ selection }) =>
-    [...selection.detach, ...selection.associate].map(row => row.key)));
-  const requireAdmission = admitted.pipe(Effect.asVoid);
-  const core = yield* enterLogicalDocumentMaterialization({
-    coverage: "sourceBound", ...(closed.changes.setNull.length === 0 && replacements.length === 0 && !pagedRoot
-      ? {} : { batch: true as const }),
-    command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(state.authority.deploymentId),
-      scopeId: scope.scopeId, schemaVersionId: state.schemaVersionId }, rowIntents: state.tables.map(table => ({ tableId: table.tableId })) },
-    intrinsic: state.indexes.filter(index => index.access.kind === "by_creation_time"),
-    developer: state.indexes.filter(index => index.access.kind === "developer"), unique: state.unique,
-    search: state.search,
-    relations: null, options: {}, requireAdmission,
-    validateWrites: (_, changes) => Effect.forEach(changes, change => change.kind === "deleted" ? Effect.void :
-      Effect.fromResult(state.values.validate(change.tableId, change.document)).pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), { discard: true }),
-  }, tx, state.authority, clock).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const materialize = Effect.fn("LogicalCommerce.materializeContribution")(function* (commitSeq: Parameters<
-    Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>[0],
-    appendRows: (rows: readonly { readonly tableId: typeof contribution.changes[number]["tableId"];
-      readonly rowId: typeof contribution.changes[number]["rowId"] }[]) => Effect.Effect<void, CommerceTransactionError>) {
-    let rowCount = 0;
-    const admitPage = Effect.fn("LogicalCommerce.admitFactPage")(function* (count: number) {
-      if (rowCount + count > closed.maximumFacts) return yield* Effect.fail(commerceError("limitExceeded"));
-      rowCount += count;
-    });
-    const adjacencyChanges: Array<Effect.Success<ReturnType<Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>>[number]> = [];
-    const lowerRoot = Effect.fn("LogicalCommerce.lowerRoot")(function* () {
-      for (const [index, rootPage] of rootPages.entries()) {
-        // Validate every original observation before lowering the first page.
-        // Later pages repeat their own point check against the same transaction.
-        const dependencies = index === 0 ? rootDependencies : rootPage;
-        const root = yield* core.prepareDelta(rootPage, dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
-        yield* admitPage(rootPage.length);
-        adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
-        yield* appendRows(rootPage.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
-      }
-    });
-    // Validate all original reads before any derived self-write; keep all native
-    // changes together for their unique-key and foreign-key transitions.
-    if (replacements.length !== 0) yield* lowerRoot();
-    for (const intent of closed.changes.setNull) {
-      yield* forEachLogicalSetNullPage({ tx, sourceTableId: intent.sourceTableId,
-        sourceColumn: intent.sourceColumn, targetTableId: intent.targetTableId,
-        targetColumn: intent.targetColumn, targetKey: intent.targetKey,
-        requireAdmission: admitted, error: logicalCommerceError }, changes => Effect.gen(function* () {
-          const delta = yield* core.prepareDelta(changes, changes).pipe(Effect.mapError(projectCommerceRequestFailure));
-          yield* admitPage(changes.length);
-          adjacencyChanges.push(...yield* delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
-          yield* appendRows(changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
-        }));
-    }
-    for (const { intent, selection } of replacements) {
-      const loweredIds: string[] = [];
-      yield* forEachLogicalReferenceReplacementPage({ tx, ...intent, selection,
-        requireAdmission: admitted, error: logicalCommerceError }, (changes, keys) => Effect.gen(function* () {
-          const delta = yield* core.prepareDelta(changes, changes).pipe(Effect.mapError(projectCommerceRequestFailure));
-          yield* admitPage(changes.length);
-          adjacencyChanges.push(...yield* delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
-          yield* appendRows(changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
-          loweredIds.push(...keys);
-        }));
-      const pendingRows = new Set(selection.pendingChanges.map(change => change.rowId));
-      const streamedIds = [...selection.detach, ...selection.associate].filter(row => !pendingRows.has(row.rowId)).map(row => row.key);
-      if (loweredIds.length !== streamedIds.length ||
-        loweredIds.some((key, index) => key !== streamedIds[index]))
-        return yield* Effect.fail(commerceError("invalidAuthority"));
-    }
-    if (replacements.length === 0) yield* lowerRoot();
-    if (closed.changes.setNull.length > 0 || replacements.length > 0 || pagedRoot)
-      yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
-    return Object.freeze({ rowCount, adjacencyChanges: Object.freeze(adjacencyChanges) });
-  });
-  return Object.freeze({ changes: Object.freeze(rootChanges), derivedIds, hasReferenceReplacement: replacements.length > 0,
-    materialize });
-}, work => observeExecution("LogicalCommerce.prepareContribution", work, "caller"));

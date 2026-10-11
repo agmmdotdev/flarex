@@ -5,12 +5,12 @@ import { fxSystemScopeClocks } from "../../../src/database/schema";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { sql } from "drizzle-orm";
 import type { Json } from "../../../src/frameworks/commerceTransaction/commerceValues";
-import { Effect } from "effect";
+import { Effect, Tracer } from "effect";
 import { makeLocalCommerceHost } from "../../../src/frameworks/commerceTransaction/host";
 import type { CommerceCommand } from "../../../src/frameworks/commerceTransaction/commands";
 import { defineCommerceCommand } from "../../../src/frameworks/commerceTransaction/commands";
 import { registerLocalCommerceProfile } from "../../../src/frameworks/commerceTransaction/profile";
-import { commerceError } from "../../../src/frameworks/commerceTransaction/model";
+import { commerceError, type CommerceTransactionError } from "../../../src/frameworks/commerceTransaction/model";
 import { captureRelationalSchemaArtifact } from "../../../src/storage/relationalSchema/artifact";
 import { captureRelationalPhysicalLayout } from "../../../src/storage/relationalSchema/physical/canonical";
 import { makePostgresRelationalSession } from "../../../src/database/relationalTransaction/session";
@@ -26,6 +26,12 @@ let fixture: CommerceHostTestFixture;
 const insert = defineCommerceCommand("plainInsert", "write", (context, rows) => context.store.write(context.manager, "insert", rows));
 const find = defineCommerceCommand("plainFind", "read", (context, input) => context.store.find(context.manager, input));
 const count = defineCommerceCommand("plainCount", "read", (context, input) => context.store.count(context.manager, input));
+const preparedRead = defineCommerceCommand("plainPreparedRead", "read", (context, input) => Effect.gen(function* () {
+  const program = context.store.prepareRead(input);
+  const rows = yield* program.find(context.manager);
+  const total = yield* program.count(context.manager);
+  return { rows: [...rows], total };
+}));
 const update = defineCommerceCommand("plainUpdate", "write", (context, rows) => context.store.write(context.manager, "update", rows));
 const upsert = defineCommerceCommand("plainUpsert", "write", (context, rows) => context.store.write(context.manager, "upsert", rows));
 const echoJson = defineCommerceCommand("echoJson", "write", (_context, value) => Effect.succeed(value));
@@ -51,7 +57,7 @@ beforeAll(async () => {
     const layout = yield* captureRelationalPhysicalLayout({ artifact: artifact.artifact, ...target });
     const profile = yield* registerLocalCommerceProfile(artifact.artifact, layout, "test.plain", [{ tableId: "plain", keyId: "plain.primary", update: "existingPrimaryKey" }]);
     return { profile, initialization: { rows: undefined } };
-  }), [insert, update, upsert, find, count, echoJson], control, () => ({
+  }), [insert, update, upsert, find, count, preparedRead, echoJson], control, () => ({
     capture: () => Effect.fail(commerceError("unsupportedProfile")),
     validate: events => events.length === 0 ? Effect.void : Effect.fail(commerceError("adapterFailure")),
     deliver: () => Effect.void,
@@ -101,6 +107,85 @@ it("rejects missing or duplicate keys and rolls back successful earlier column g
   }
   await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), insert, [{ id: "new", value: "must roll back" }, { id: "a", amount: "1" }]));
   expect(await commerceInventory(fixture)).toEqual(before);
+});
+
+it("validates physical read directions before SQL and retains direct and prepared ordering", async () => {
+  const ids = ["order-a", "order-b"];
+  await runEffect(fixture.host.run(fixture.host.newRequestKey(), insert, ids.map(id => ({ id, value: id }))));
+  const predicate = { kind: "in", column: "id", values: ids };
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  for (const direction of [["asc"], ["desc"], 1, null, { value: "asc" }, true]) {
+    for (const command of [find, count, preparedRead]) {
+      spans.length = 0;
+      expect(await runEffectFailure(fixture.host.read(command,
+        { fields: ["id"], order: { column: "id", direction }, predicate }).pipe(Effect.withTracer(tracer))))
+        .toMatchObject({ reason: "invalidInput", cause: { _tag: "SchemaError" } });
+      expect(spans.filter(name => name === "CommerceStore.catalogBound" || name === "CommerceStore.queryRows"))
+        .toEqual([]);
+      if (command === preparedRead) expect(spans.filter(name => name === "CommerceStore.count")).toEqual([]);
+    }
+  }
+  // Window and selected-field refusals still precede order decoding. Column
+  // authority remains the physical profile's later unsupported-profile owner.
+  for (const [query, reason] of [
+    [{ skip: -1, fields: ["unknown"], order: { column: "id", direction: ["asc"] } }, "limitExceeded"],
+    [{ fields: ["unknown"], order: { column: "id", direction: ["asc"] } }, "unsupportedProfile"],
+    [{ order: { direction: "asc" } }, "unsupportedProfile"],
+    [{ order: { column: null, direction: "asc" } }, "unsupportedProfile"],
+    [{ order: { column: "unknown", direction: ["asc"] }, predicate: { kind: "invalid" } }, "invalidInput"],
+  ] as const) for (const command of [find, count, preparedRead]) {
+    spans.length = 0;
+    expect(await runEffectFailure(fixture.host.read(command, query).pipe(Effect.withTracer(tracer))))
+      .toMatchObject({ reason });
+    expect(spans.filter(name => name === "CommerceStore.catalogBound" || name === "CommerceStore.queryRows"))
+      .toEqual([]);
+  }
+  for (const direction of ["asc", "desc"]) {
+    const query = { fields: ["id"], order: { column: "id", direction }, predicate };
+    const rows = (direction === "asc" ? ids : [...ids].reverse()).map(id => ({ id }));
+    expect(await runEffect(fixture.host.read(find, query))).toEqual(rows);
+    expect(await runEffect(fixture.host.read(count, query))).toBe(2);
+    spans.length = 0;
+    expect(await runEffect(fixture.host.read(preparedRead, query).pipe(Effect.withTracer(tracer))))
+      .toEqual({ rows, total: 2 });
+    expect(spans.filter(name => name === "CommerceStore.catalogBound")).toHaveLength(2);
+    expect(spans.filter(name => name === "CommerceStore.find")).toHaveLength(1);
+    expect(spans.filter(name => name === "CommerceStore.count")).toHaveLength(1);
+  }
+});
+
+it("keeps prepared physical reads behind the original disposed request guard", async () => {
+  const ids = ["guard-order-a", "guard-order-b"];
+  await runEffect(fixture.host.run(fixture.host.newRequestKey(), insert, ids.map(id => ({ id, value: id }))));
+  let escaped: Effect.Effect<unknown, CommerceTransactionError> | undefined;
+  let uncaptured: Effect.Effect<unknown, CommerceTransactionError> | undefined;
+  let captures = 0;
+  const command = defineCommerceCommand("plainPreparedGuard", "read", (context, input) => Effect.gen(function* () {
+    const program = context.store.prepareRead(input);
+    const rows = yield* program.find(context.manager);
+    const total = yield* program.count(context.manager);
+    escaped = program.count(context.manager);
+    const foreign = new Proxy({}, { ownKeys(): never { captures++; throw new Error("disposed physical query capture"); } });
+    uncaptured = context.store.prepareRead(foreign).find(context.manager);
+    return { rows: [...rows], total };
+  }));
+  const opened = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, commands: [command] }, {
+    capture: () => Effect.fail(commerceError("unsupportedProfile")), validate: () => Effect.void, deliver: () => Effect.void,
+  }));
+  try {
+    expect(await runEffect(opened.host.read(command, { fields: ["id"], order: { column: "id", direction: "asc" },
+      predicate: { kind: "in", column: "id", values: ids } })))
+      .toEqual({ rows: ids.map(id => ({ id })), total: 2 });
+    if (escaped === undefined || uncaptured === undefined) throw new Error("Missing prepared physical guard witnesses");
+    const spans: string[] = [];
+    const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+    expect(await runEffectFailure(escaped.pipe(Effect.withTracer(tracer)))).toMatchObject({ reason: "invalidAuthority" });
+    expect(await runEffectFailure(uncaptured.pipe(Effect.withTracer(tracer)))).toMatchObject({ reason: "invalidAuthority" });
+    expect(captures).toBe(0);
+    expect(spans.filter(name => name === "CommerceStore.catalogBound" || name === "CommerceStore.queryRows"))
+      .toEqual([]);
+  } finally { await runEffect(opened.host.close); }
 });
 
 it("matches the pinned SQLite text pattern contract before paging and counting", async () => {
@@ -256,12 +341,21 @@ it("bounds registered command definitions separately from request execution", as
     for (let index = 0; index < input; index++) yield* ctx.store.find(ctx.manager, { take: 0, order: { column: "id", direction: "asc" } });
     return null;
   }));
-  const bounded = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, commands: [...definitions.slice(0, 126), calls, statements] }, policy));
+  const preparedStatements = defineCommerceCommand("manyPreparedStatements", "read", Effect.fn("CommerceLimitTest.preparedStatements")(function* (ctx, input) {
+    if (typeof input !== "number") return yield* ctx.refuse(commerceError("invalidInput"));
+    const program = ctx.store.prepareRead({ take: 0, order: { column: "id", direction: "asc" } });
+    for (let index = 0; index < input; index++) yield* program.find(ctx.manager);
+    return yield* program.count(ctx.manager);
+  }));
+  const bounded = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, commands: [...definitions.slice(0, 125), calls, statements, preparedStatements] }, policy));
   // The outer request consumes the first of its 64 calls.
   expect(await runEffect(bounded.host.read(calls, 63))).toBe(null);
   expect(await runEffectFailure(bounded.host.read(calls, 64))).toMatchObject({ reason: "limitExceeded" });
   expect(await runEffect(bounded.host.read(statements, 32))).toBe(null);
   expect(await runEffectFailure(bounded.host.read(statements, 33))).toMatchObject({
+    reason: "limitExceeded", cause: { boundary: "statements", attempted: 65 },
+  });
+  expect(await runEffectFailure(bounded.host.read(preparedStatements, 32))).toMatchObject({
     reason: "limitExceeded", cause: { boundary: "statements", attempted: 65 },
   });
 });

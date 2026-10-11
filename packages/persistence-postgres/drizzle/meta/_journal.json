@@ -988,6 +988,34 @@
       "when": 1791547200000,
       "tag": "0140_readiness_metadata_protection",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1791590400000,
+      "tag": "0141_finite_accepting_readiness",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1791590500000,
+      "tag": "0142_static_placement_composition",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1791590600000,
+      "tag": "0143_ordinary_readiness_acceptance",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1791590700000,
+      "tag": "0144_ordinary_readiness_dispatch_retirement",
+      "breakpoints": true
     }
   ]
 }

@@ -158,7 +158,11 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
       yield* Effect.scoped(Effect.gen(function* () {
         const limited = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 1024 });
         expect(yield* Effect.result(makeCommerceHost({ ...hostInput, hostRuntime: limited })))
-          .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "capacityExceeded" } } });
+          .toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: {
+            _tag: "ApplicationReadinessError", reason: "resourceFailure", cause: {
+              _tag: "PreparedHostRuntimeError", reason: "capacityExceeded",
+            },
+          } } });
         const replacement = yield* retainPreparedHost(limited, Effect.succeed(Object.freeze({ ready: true })));
         expect(yield* replacement.use(value => Effect.succeed(value.ready))).toBe(true);
         yield* replacement.close;

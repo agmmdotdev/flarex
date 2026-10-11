@@ -41,7 +41,6 @@ import type {
 } from "flarex-protocol/transaction-session";
 import {
   canonicalizeFlarexValueV1,
-  normalizeFlarexValueJsonV1,
   isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -265,16 +264,13 @@ export const verifyFiniteCommitValuesEffect = Effect.fn("StoredAttemptAuthentica
       const table = tables.get(row.tableId);
       if (table === undefined || row.kind !== "live") continue;
       const fields = yield* projectDeveloperFieldsEffect({ documentId: row.documentId,
-        overlayValue: normalizeFlarexValueJsonV1(row.valueJson).value, overlayCreationTime: row.creationTime }, table.logicalName);
+        overlayValue: row.value, overlayCreationTime: row.creationTime }, table.logicalName);
       yield* Effect.fromResult(validateValidatorValueV1(table.definition.documentType, fields,
         { path: "$document", idPolicy })).pipe(Effect.mapError(error => new CommitDocumentValidationV1Error({
           documentId: row.documentId, tableName: table.logicalName, issue: { reason: "validator", issue: error.issue },
         })));
     }
-    const result = yield* Effect.try({
-      try: () => normalizeFlarexValueJsonV1(source.successfulResult.valueJson).value,
-      catch: () => authorityCorruption("successfulResultInvalid"),
-    });
+    const result = source.successfulResult.value;
     const validator = source.functionValidationAuthority.returnsValidator;
     if (validator !== null) yield* Effect.fromResult(validateValidatorValueV1(validator, result,
       { path: "$return", idPolicy })).pipe(Effect.mapError(error => new CommitSuccessfulResultValidationV1Error({

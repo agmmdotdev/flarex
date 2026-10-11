@@ -278,12 +278,12 @@ export function runPointMutationAttemptReplacement(
       ), mapPointMutationAttemptReplacementTransactionFailure);
       yield* Effect.fromResult(requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds).pipe(Result.mapError(mapPointMutationAttemptReplacementTransactionFailure)));
 
-      const heads = yield* runPointCommitPromiseEffect(() => loadPointCommitHeads(
+      const heads = yield* loadPointCommitHeads(
         tx,
         clock,
         command,
         sharedOptions,
-      ), mapPointMutationAttemptReplacementTransactionFailure);
+      ).pipe(Effect.mapError(mapPointMutationAttemptReplacementTransactionFailure));
       yield* runPointCommitPromiseEffect(() => requireReproduciblePointCommitConflict(
         tx,
         clock,

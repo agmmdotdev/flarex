@@ -67,10 +67,12 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(Effect.gen(function* () {
       if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
       const value = yield* bridge.checked(root, Effect.fromResult(categoryProjection ? captureCategoryProjection(input, root.resources) : captureCommerceInput(input, root.resources)));
-      const decoded = yield* bridge.checked(root, Effect.fromResult(decodeProductProjection(value)));
+      yield* bridge.checked(root, Effect.fromResult(decodeProductProjection(value)));
       // SAFETY: repository results are core-decoded scalar rows and the bounded
       // acyclic projection. Medusa also promises complete DTOs for partial selects.
-      return decoded as Output;
+      // This decoder checks JSON membership only: no stripping, defaults or
+      // coercion. Keep the captured representation and its immutable children.
+      return value as Output;
     })),
     find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, collectionMembership
       ? findCollectionMembershipProducts(ctx, metadata, input) : findProducts(ctx, metadata, input, false, internalProduct).pipe(Effect.map(value => value.rows)))),

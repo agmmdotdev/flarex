@@ -22,14 +22,33 @@ export const LogicalFindQuery = Schema.Struct({
 });
 export const decodeLogicalFindQuery = Schema.decodeUnknownResult(LogicalFindQuery, { onExcessProperty: "error" });
 export type LogicalWhere = typeof LogicalFindQuery.Type["where"];
+export interface LogicalSelectionValues {
+  readonly fields: readonly string[];
+  readonly value: (field: string) => LogicalWhere[string] | undefined;
+}
+export const logicalWhereValues = (where: LogicalWhere): LogicalSelectionValues => ({ fields: Object.keys(where), value: field => where[field] });
+/** Cold metadata selection consumes a query-shaped view of validated values. */
+export function logicalSelectionWhere(values: LogicalSelectionValues): LogicalWhere {
+  const where: Record<string, LogicalWhere[string]> = {};
+  for (const field of values.fields) {
+    const value = values.value(field);
+    // Undefined is accessor absence, never a validated query predicate.
+    if (value !== undefined) where[field] = value;
+  }
+  return where;
+}
 export const isLogicalRange = (value: LogicalWhere[string] | undefined): value is typeof Range.Type => value !== null && typeof value === "object";
 
 /** The working set's existing first eligible complete unique-key selection. */
 export function selectLogicalUniqueConstraint(definitions: readonly LocatedAppUniqueConstraintDefinitionV1[], tableId: CatalogTableId,
   where: LogicalWhere) {
+  return selectLogicalUniqueValues(definitions, tableId, logicalWhereValues(where));
+}
+export function selectLogicalUniqueValues(definitions: readonly LocatedAppUniqueConstraintDefinitionV1[], tableId: CatalogTableId,
+  values: LogicalSelectionValues) {
   return definitions.find(candidate => candidate.tableId === tableId && candidate.physicalSpec.predicate === undefined &&
-    !(candidate.physicalSpec.nullsDistinct === true && candidate.physicalSpec.orderedFields.some(field => where[field] === null)) &&
-    candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field) && !isLogicalRange(where[field])));
+    !(candidate.physicalSpec.nullsDistinct === true && candidate.physicalSpec.orderedFields.some(field => values.value(field) === null)) &&
+    candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && values.fields.includes(field) && !isLogicalRange(values.value(field))));
 }
 
 /** A page's physical order must be equality-prefix + requested column, with
@@ -73,6 +92,10 @@ export function selectLogicalPageIndex<Failure>(definitions: readonly LocatedApp
  * ordered codec owns bounds and value ordering; this does not grant authority. */
 export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppIndexDefinitionV1[], tableId: CatalogTableId, where: LogicalWhere,
   error: LogicalDocumentFailure<Failure>, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) {
+  return selectLogicalIndexValues(definitions, tableId, logicalWhereValues(where), error, exactPoint);
+}
+export function selectLogicalIndexValues<Failure>(definitions: readonly LocatedAppIndexDefinitionV1[], tableId: CatalogTableId, values: LogicalSelectionValues,
+  error: LogicalDocumentFailure<Failure>, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) {
   return Result.try({ try: () => {
     let selected = Option.none<{ definition: LocatedAppIndexDefinitionV1; expressions: OrderedIndexRangeExpressionV1[]; fields: number }>();
     for (const definition of definitions) {
@@ -85,14 +108,14 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
         }) || (exactPoint.nullColumn === undefined ? membership !== undefined :
           membership?.kind !== "fieldIsNull" || membership.field !== exactPoint.nullColumn))) continue;
       if (membership !== undefined && !(membership.kind === "fieldIsNull"
-        ? where[membership.field] === null
-        : where[membership.nullField] === null && where[membership.textField] === membership.value)) continue;
+        ? values.value(membership.field) === null
+        : values.value(membership.nullField) === null && values.value(membership.textField) === membership.value)) continue;
       const expressions: OrderedIndexRangeExpressionV1[] = [];
       let fields = 0;
       for (const field of definition.physicalSpec.orderedFields) {
         // A decimal suffix does not invalidate an earlier native scalar prefix.
         if (field.kind !== "documentPath" || field.path.includes(".") || field.valueFormat === "exactDecimal") break;
-        const predicate = where[field.path];
+        const predicate = values.value(field.path);
         if (predicate === undefined) break;
         if (field.valueFormat === "sha256TextV1" && isLogicalRange(predicate)) break;
         fields++;
@@ -110,8 +133,8 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
     if (Option.isNone(selected)) return Option.none();
     const chosen = selected.value;
     const compiled = compileAppOrderedIndexBoundsV1({ spec: chosen.definition.physicalSpec, expressions: chosen.expressions });
-    const bounds = compiled.startInclusive !== undefined && compiled.endExclusive !== undefined && compiled.startInclusive > compiled.endExclusive
-      ? { startInclusive: compiled.startInclusive, endExclusive: compiled.startInclusive } : compiled;
+    const bounds = Object.freeze(compiled.startInclusive !== undefined && compiled.endExclusive !== undefined && compiled.startInclusive > compiled.endExclusive
+      ? { startInclusive: compiled.startInclusive, endExclusive: compiled.startInclusive } : compiled);
     return Option.some(Object.freeze({ definition: chosen.definition, bounds,
       identity: JSON.stringify([chosen.definition.indexDefinitionId, bounds.startInclusive ?? null, bounds.endExclusive ?? null]) }));
   }, catch: cause => {
@@ -121,20 +144,43 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
   } });
 }
 
-export function logicalQueryMatches<Failure>(document: Record<string, unknown>, where: LogicalWhere, error: LogicalDocumentFailure<Failure>) {
-  return Result.try({ try: () => Object.entries(where).every(([field, predicate]) => {
-    if (!Object.hasOwn(document, field)) return false;
-    const actual = document[field];
-    if (!isLogicalRange(predicate)) return typeof actual === "number" && typeof predicate === "number" ? Object.is(actual, predicate) : actual === predicate;
+const logicalRangeComparators = ["gt", "gte", "lt", "lte"] as const;
+function prepareLogicalFieldPredicate(predicate: LogicalWhere[string]) {
+  if (!isLogicalRange(predicate)) return (actual: unknown) =>
+    typeof actual === "number" && typeof predicate === "number" ? Object.is(actual, predicate) : actual === predicate;
+  const bounds = new Map<typeof logicalRangeComparators[number], string | undefined>();
+  return (actual: unknown) => {
     if (actual !== null && typeof actual !== "string" && typeof actual !== "number" && typeof actual !== "boolean") return false;
     const key = encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(actual)]);
-    return (["gt", "gte", "lt", "lte"] as const).every(op => {
-      const value = predicate[op];
-      if (value === undefined) return true;
-      const bound = encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)]);
+    return logicalRangeComparators.every(op => {
+      if (!bounds.has(op)) {
+        const value = predicate[op];
+        // Actual encoding and every earlier comparison precede this bound's
+        // first lowering. Failed lowerings never become retained verdicts.
+        const bound = value === undefined ? undefined : encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)]);
+        bounds.set(op, bound);
+      }
+      const bound = bounds.get(op);
+      if (bound === undefined) return true;
       return op === "gt" ? key > bound : op === "gte" ? key >= bound : op === "lt" ? key < bound : key <= bound;
     });
-  }), catch: cause => {
+  };
+}
+
+/** One guarded find owns the captured, decoded predicate. Preparation is inert;
+ * fields and successful bounds are interpreted only when candidates reach their
+ * original comparison. No caller input identity or future operation is cached. */
+export function prepareLogicalQueryPredicate<Failure>(where: LogicalWhere, error: LogicalDocumentFailure<Failure>) {
+  let fields: { field: string; predicate: LogicalWhere[string]; matches?: (actual: unknown) => boolean }[] | undefined;
+  return (document: Record<string, unknown>) => Result.try({ try: () => {
+    fields ??= Object.entries(where).map(([field, predicate]) => ({ field, predicate }));
+    return fields.every(member => {
+      if (!Object.hasOwn(document, member.field)) return false;
+      const actual = document[member.field];
+      member.matches ??= prepareLogicalFieldPredicate(member.predicate);
+      return member.matches(actual);
+    });
+  }, catch: cause => {
     if (cause instanceof FlarexValueCodecV1Error) return error("invalidInput", cause);
     if (cause instanceof OrderedIndexKeyTooLargeError) return error("limitExceeded", cause);
     throw cause;

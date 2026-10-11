@@ -281,9 +281,11 @@ execute tentatively after persisted revocation or readiness changes; pending-onl
 results need no fresh database check and cannot establish durable success.
 The next actual storage frontier, aggregate seal or publication must detect those
 changes through fresh exact-running authority and required source-wide readiness.
-Every storage frontier retains full kernel locks and post-lock database time,
-source/head and physical evidence, and the mandatory protected-epoch tail; live
-evidence exists only within that exact transaction. Body or tail refusal latches
+Every storage frontier retains its required kernel locks and post-lock database
+time, source and physical evidence. Explicit accepting transactions retain their
+protected-epoch tail. The approved finite capture replacement below has a
+command-local implicit lifetime; live evidence never survives its statement.
+Body or tail refusal latches
 the existing first failure/root abort before any result or contribution escapes.
 Relevant Application point seeds still require original snapshot hydration and
 observation authentication before pending membership is used; construction may
@@ -316,7 +318,8 @@ read mechanics and their read-lifetime guard. Unused same-source readiness damag
 may allow a tentative scalar read after full entry; a demanded path still refuses
 before use, and full final proof refuses durability. Query selection never grants
 full admission. Fresh exact-running authority, post-lock time, revocation,
-placement, snapshot retention and protected metadata tails remain mandatory.
+placement, snapshot retention and the profile's protected metadata lifetime remain
+mandatory.
 Local capability/lifetime/budget refusal precedes foreign input capture outside
 SQL; body or tail failure latches the first root refusal even when native code
 catches it. No SQL spans native callbacks, hooks or untrusted execution.
@@ -332,6 +335,24 @@ coverage must include entry, storage, final and recovery users of the structures
 maintenance, reconnect, restore and predecessor-drain proofs remain completion
 gates. This reuses the installed maintenance owner and creates no joint control/
 target snapshot or cached live verdict.
+
+The [approved finite contract](../roadmaps/mixed-mutation-core/23-finite-execution-contract-preflight.md)
+and [whole-mutation capture replacement](../roadmaps/mixed-mutation-core/24-whole-mutation-redesign-preflight.md)
+supersede explicit-transaction choreography for installed named storage captures.
+Each capture authenticates both installed namespaces and the exact placement,
+then acquires kernel and selected build locks and checks fresh post-wait liveness
+inside one implicit SQL statement. Its installation admission and authority
+locks last through that statement; the physical callback view expires before
+release. A refused capture releases no business envelope. Metadata generation
+correlation is command-local, with exact agreement retained across the named
+ownership successor/fence captures. Unrelated immutable publication after a
+completed capture does not retroactively refuse it or impose an unchanged-since-
+entry epoch on ordinary rows, index rows or transaction time. Security and
+serving invalidation use their actual installation interlock or authority writer
+and must serialize with capture admission. Full root entry, aggregate seal,
+publication and recovery retain their distinct explicit protected tails and
+complete obligations. This refinement adds no permission cache, surviving
+transaction observation, public capability or durable format.
 
 Pending hydration uses exact captured point identities or, where exclusion cannot
 be proved, the actual queried table's bounded seed set. Original snapshot evidence

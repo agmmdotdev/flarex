@@ -51,6 +51,8 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
     () => Effect.scoped(Effect.gen(function* () {
       const runtime = yield* preparation.makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
       const construct = () => preparation.retainPreparedHost(runtime, Effect.gen(function* () {
+        const lifetime = yield* preparation.captureHostPreparationLifetime();
+        if (lifetime === undefined) return yield* Effect.die("Missing actual retained selection lifetime");
         const priorCharges = chargedFrontierRequirements.length;
         const catalog = yield* prepareLogicalStorageReadiness(ports, fixture.uniqueConstraintEligibility, input);
         if (catalog.status !== "prepared") return yield* Effect.die("Missing real prepared catalog");
@@ -58,13 +60,15 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
           catalog.requirements.search.map(requirement => requirement.tableId),
         )].toSorted((left, right) => left - right);
         expect(chargedFrontierRequirements.slice(priorCharges)).toEqual([expectedRequirements]);
-        return yield* prepareLogicalSourceEvidence(ports, fixture.uniqueConstraintEligibility, input,
+        const selectedSource = yield* prepareLogicalSourceEvidence(ports, fixture.uniqueConstraintEligibility, input,
           { sourceKey: source.sourceKey, writeProfile: source.writeProfile,
             definition: { kind: "relational", schema: source.schema }, evidence: source.evidence },
           "medusa", "relational", { kind: "prepared", catalog });
+        return { source: selectedSource, lifetime };
       }));
       const retained = yield* construct();
-      const selected = yield* retained.use(Effect.succeed);
+      const ownedSelection = yield* retained.use(Effect.succeed);
+      const selected = ownedSelection.source;
       // A request-owned catalog does not supply a retained allocation. The
       // demand closure must charge the actual source-construction lease.
       const requestCatalog = yield* prepareLogicalStorageReadiness(ports, fixture.uniqueConstraintEligibility, input);
@@ -122,13 +126,22 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       }), () => lifecycle("enabled"));
       yield* read();
       expect(entered).toBe(5);
+      const inspectionsBeforeClose = count("LogicalStorageReadiness.inspectSelected");
+      const indexesBeforeClose = count("LogicalStorageReadiness.inspectIndexes");
+      const frontiersBeforeClose = count("AppRows.readTableWriteFrontiers");
       yield* retained.close;
-      expect(yield* Effect.result(read())).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+      expect(ownedSelection.lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+      // Disposal revokes the prepared catalog before readiness or storage;
+      // the genuine construction lifetime separately proves closure.
+      expect(yield* Effect.result(read())).toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
       expect(entered).toBe(5);
       expect(retainedSelections).toBe(1);
+      expect(count("LogicalStorageReadiness.inspectSelected")).toBe(inspectionsBeforeClose);
+      expect(count("LogicalStorageReadiness.inspectIndexes")).toBe(indexesBeforeClose);
+      expect(count("AppRows.readTableWriteFrontiers")).toBe(frontiersBeforeClose);
 
       const failedLease = yield* construct();
-      const failedSource = yield* failedLease.use(Effect.succeed);
+      const failedSource = yield* failedLease.use(value => Effect.succeed(value.source));
       rejectSelection = true;
       const failRead = () => runEffectTransaction(work => target.drizzle.transaction(work), "Rejected selected charge",
         (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
@@ -144,7 +157,7 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       expect(retainedSelections).toBe(2);
       yield* failedLease.close;
       const freshLease = yield* construct();
-      const freshSource = yield* freshLease.use(Effect.succeed);
+      const freshSource = yield* freshLease.use(value => Effect.succeed(value.source));
       // Independent concurrent first transactions may compile once or twice,
       // but can charge and retain only one successful descriptor.
       yield* Effect.all([read(freshSource), read(freshSource)], { concurrency: 2 });

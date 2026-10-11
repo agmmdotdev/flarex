@@ -4,18 +4,37 @@ import { fxAppRowRevisions, fxAppIndexEntryRevisions, fxAppUniqueKeys,
   fxAppSearchEntryCurrent, fxAppJsonEntryCurrent, fxSystemIndexBuildStates,
   fxSystemUniqueConstraintBuilds } from "../../database/schema";
 import type { ApplicationMaterializationValues } from "./domainApplication";
+import { makePgArray } from "drizzle-orm/pg-core/utils/array";
+import { encodeBytesToLowercaseHex, isUint8Array } from "@flarex/utils/bytes";
 
 type PublicationParameter = (value: unknown, type: string, column?: PgColumn) => string;
+type MappedPublicationValue = Readonly<{ kind: "value"; value: unknown }> | Readonly<{ kind: "expression"; sql: string }>;
+type PublicationMapping = (value: unknown, type: string, column?: PgColumn) => MappedPublicationValue;
+type PublicationArray = (values: readonly MappedPublicationValue[], type: string) => string;
+
+function tupleArray(values: readonly (readonly MappedPublicationValue[] | null)[], types: readonly string[],
+  composite: string, array: PublicationArray): string {
+  if (values.length === 0) return `array[]::${composite}[]`;
+  const present = array(values.map(value => ({ kind: "value", value: value !== null })), "boolean");
+  const columns = types.map((type, index) => array(values.map(value => value?.[index] ?? { kind: "value", value: null }), type));
+  const names = types.map((_, index) => `c${index}`);
+  return `array(select case when tuples.present then row(${names.map(name => `tuples.${name}`).join(", ")})::${composite}
+    else null::${composite} end from unnest(${[present, ...columns].join(", ")}) with ordinality
+    as tuples(present, ${names.join(", ")}, ordinal) order by tuples.ordinal)`;
+}
 function compileTupleParameters<Table extends PgTable>(table: Table, typeName: string) {
   // SAFETY: Drizzle's table column keys describe this same inferred insert row.
   const columns = Object.entries(getTableColumns(table)).map(([key, column]) => ({
     key: key as keyof Table["$inferInsert"], column, type: column.getSQLType(),
   }));
   return (values: readonly (Table["$inferInsert"] | null)[], namespace: string,
-    config: BuildQueryConfig, parameter: PublicationParameter): string => {
+    config: BuildQueryConfig, mapping: PublicationMapping, array: PublicationArray): string => {
     const type = `${namespace}.${config.escapeName(typeName)}`;
-    return `array[${values.map(value => value === null ? `null::${type}` :
-      `row(${columns.map(({ key, column, type: columnType }) => parameter(value[key], columnType, column)).join(", ")})::${type}`).join(", ")}]::${type}[]`;
+    // Map in the original row/field order before transposing. A later encoder
+    // must never run before an earlier native expression or encoder fails.
+    const mapped = values.map(value => value === null ? null :
+      columns.map(({ key, column, type: columnType }) => mapping(value[key], columnType, column)));
+    return tupleArray(mapped, columns.map(column => column.type), type, array);
   };
 }
 const rowTuple = compileTupleParameters(fxAppRowRevisions, "fx_app_row_write");
@@ -40,7 +59,7 @@ class ApplicationPublicationStatement extends SQL {
     const params = [...prefix.params, ...intrinsic.params];
     const typings: QueryTypingsValue[] = [...prefix.typings ?? [], ...intrinsic.typings ?? []];
     const namespace = config.escapeName(this.schemaName);
-    const parameter = (value: unknown, type: string, column?: PgColumn): string => {
+    const mapping: PublicationMapping = (value, type, column) => {
       const mapped: unknown = value === null || column === undefined ? value : column.mapToDriverValue(value);
       // The installed columns encode scalars, bytes and JSON. Preserve Drizzle's
       // expression-returning encoder contract if a native codec ever uses it.
@@ -48,46 +67,63 @@ class ApplicationPublicationStatement extends SQL {
         const nested = mapped.toQuery(config);
         params.push(...nested.params);
         typings.push(...nested.typings ?? []);
-        return `${nested.sql}::${type}`;
+        return { kind: "expression", sql: `${nested.sql}::${type}` };
       }
-      params.push(mapped);
+      return { kind: "value", value: mapped };
+    };
+    const literalParameter = (value: unknown, type: string, column?: PgColumn): string => {
+      params.push(value);
       typings.push(column === undefined || config.prepareTyping === undefined ? "none" : config.prepareTyping(column));
-      return `${config.escapeParam(config.paramStartIndex.value++, mapped)}::${type}`;
+      return `${config.escapeParam(config.paramStartIndex.value++, value)}::${type}`;
+    };
+    const parameter: PublicationParameter = (value, type, column) => {
+      const mapped = mapping(value, type, column);
+      return mapped.kind === "expression" ? mapped.sql : literalParameter(mapped.value, type, column);
+    };
+    const array: PublicationArray = (values, type) => {
+      if (values.length === 0) return `array[]::${type}[]`;
+      // Native SQL-returning encoders retain expression semantics. Their own
+      // rendering already happened at the original row/field frontier.
+      if (!values.every(value => value.kind === "value")) return `array[${values.map(value =>
+        value.kind === "expression" ? value.sql : literalParameter(value.value, type)).join(", ")}]::${type}[]`;
+      const encoded = values.map(value => value.value === null || value.value === undefined ? null
+        : isUint8Array(value.value) ? `\\x${encodeBytesToLowercaseHex(value.value)}` : String(value.value));
+      return literalParameter(makePgArray(encoded), `${type}[]`);
     };
     const scalarArray = (values: readonly unknown[], type: string, column?: PgColumn) =>
-      `array[${values.map(value => parameter(value, type, column)).join(", ")}]::${type}[]`;
+      array(values.map(value => mapping(value, type, column)), type);
     const owners = (values: ApplicationMaterializationValues["unique"]["owners"]) => {
       const type = `${namespace}.fx_app_unique_owner`;
       const columns = fxAppUniqueKeys;
-      return `array[${values.map(value => `row(${[
-        parameter(value.scopeUuid, "uuid", columns.scopeUuid), parameter(value.constraintId, "integer", columns.constraintId),
-        parameter(value.localeKey, "text", columns.localeKey), parameter(value.tableId, "integer", columns.tableId),
-        parameter(value.rowId, "bytea", columns.rowId),
-      ].join(", ")})::${type}`).join(", ")}]::${type}[]`;
+      return tupleArray(values.map(value => [
+        mapping(value.scopeUuid, "uuid", columns.scopeUuid), mapping(value.constraintId, "integer", columns.constraintId),
+        mapping(value.localeKey, "text", columns.localeKey), mapping(value.tableId, "integer", columns.tableId),
+        mapping(value.rowId, "bytea", columns.rowId),
+      ]), ["uuid", "integer", "text", "integer", "bytea"], type, array);
     };
     const indexCoverage = (values: ApplicationMaterializationValues["indexCoverage"]) => {
       const type = `${namespace}.fx_app_index_coverage`; const columns = fxSystemIndexBuildStates;
-      return `array[${values.map(value => `row(${[
-        parameter(value.scopeId, "text", columns.scopeId), parameter(value.indexDefinitionId, "integer", columns.indexDefinitionId),
-        parameter(value.attemptFence, "bigint", columns.attemptFence), parameter(value.epoch, "text", columns.epoch),
-        parameter(value.storageGenerationFence, "bigint", columns.storageGenerationFence),
-      ].join(", ")})::${type}`).join(", ")}]::${type}[]`;
+      return tupleArray(values.map(value => [
+        mapping(value.scopeId, "text", columns.scopeId), mapping(value.indexDefinitionId, "integer", columns.indexDefinitionId),
+        mapping(value.attemptFence, "bigint", columns.attemptFence), mapping(value.epoch, "text", columns.epoch),
+        mapping(value.storageGenerationFence, "bigint", columns.storageGenerationFence),
+      ]), ["text", "integer", "bigint", "text", "bigint"], type, array);
     };
     const uniqueCoverage = (values: ApplicationMaterializationValues["uniqueCoverage"]) => {
       const type = `${namespace}.fx_app_unique_coverage`; const columns = fxSystemUniqueConstraintBuilds;
-      return `array[${values.map(value => `row(${[
-        parameter(value.scopeId, "text", columns.scopeId), parameter(value.uniqueConstraintDefinitionId, "integer", columns.uniqueConstraintDefinitionId),
-        parameter(value.attemptFence, "bigint", columns.attemptFence), parameter(value.epoch, "text", columns.epoch),
-        parameter(value.storageGenerationFence, "bigint", columns.storageGenerationFence),
-      ].join(", ")})::${type}`).join(", ")}]::${type}[]`;
+      return tupleArray(values.map(value => [
+        mapping(value.scopeId, "text", columns.scopeId), mapping(value.uniqueConstraintDefinitionId, "integer", columns.uniqueConstraintDefinitionId),
+        mapping(value.attemptFence, "bigint", columns.attemptFence), mapping(value.epoch, "text", columns.epoch),
+        mapping(value.storageGenerationFence, "bigint", columns.storageGenerationFence),
+      ]), ["text", "integer", "bigint", "text", "bigint"], type, array);
     };
     const stop = parameter(this.stop, "text");
     const value = this.value;
     const tail = [
-      rowTuple(value.rows, namespace, config, parameter), scalarArray(value.rowPages, "integer"),
-      indexTuple(value.indexes.map(entry => entry.row), namespace, config, parameter), scalarArray(value.indexes.map(entry => entry.prior), "bigint"),
+      rowTuple(value.rows, namespace, config, mapping, array), scalarArray(value.rowPages, "integer"),
+      indexTuple(value.indexes.map(entry => entry.row), namespace, config, mapping, array), scalarArray(value.indexes.map(entry => entry.prior), "bigint"),
       scalarArray(value.indexes.map(entry => entry.historical), "boolean"), owners(value.unique.owners),
-      uniqueTuple(value.unique.previous, namespace, config, parameter), uniqueTuple(value.unique.next, namespace, config, parameter),
+      uniqueTuple(value.unique.previous, namespace, config, mapping, array), uniqueTuple(value.unique.next, namespace, config, mapping, array),
       indexCoverage(value.validation), indexCoverage(value.indexCoverage), uniqueCoverage(value.uniqueCoverage),
       parameter(value.commitSeq, "bigint", fxAppRowRevisions.commitSeq), parameter(value.scopeUuid, "uuid", fxAppRowRevisions.scopeUuid),
       scalarArray(value.search.map(search => search.definition.tableId), "integer", fxAppSearchEntryCurrent.tableId),
@@ -97,9 +133,9 @@ class ApplicationPublicationStatement extends SQL {
       scalarArray(value.search.map(search => search.ids.length), "integer"),
       scalarArray(value.search.flatMap(search => search.ids), "bytea", fxAppSearchEntryCurrent.rowId),
       scalarArray(value.search.map(search => search.textPages.flat().length), "integer"),
-      searchTuple(value.search.flatMap(search => search.textPages.flat()), namespace, config, parameter),
+      searchTuple(value.search.flatMap(search => search.textPages.flat()), namespace, config, mapping, array),
       scalarArray(value.search.map(search => search.jsonPages.flat().length), "integer"),
-      jsonTuple(value.search.flatMap(search => search.jsonPages.flat()), namespace, config, parameter),
+      jsonTuple(value.search.flatMap(search => search.jsonPages.flat()), namespace, config, mapping, array),
     ].join(", ");
     return { sql: `select kind,coverage_ordinal,coverage_definition,
     coverage_attempt::text,coverage_epoch,coverage_fence::text,reason,row_count,index_count,unique_count,validation_count,coverage_count,search_count,search_build_count,intrinsic_count,

@@ -23,7 +23,7 @@ import {
   decodeLegacyUniqueMaintenanceEvidenceResult,
   verifyLegacyUniqueMaintenanceEvidence,
 } from "../unique/LegacyUniqueMaintenanceEvidence";
-import { decodeIndexMaintenanceObligationResult, decodeUniqueMaintenanceObligationResult,
+import { decodeIndexMaintenanceObligationResult, decodeUniqueMaintenanceObligationEffect,
   type IndexMaintenanceObligation, type UniqueMaintenanceObligation } from "./indexMaintenanceModel";
 import { TYPED_MAINTENANCE_STAGE_SQL } from "./indexMaintenanceInstallation";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds,
@@ -251,19 +251,19 @@ const convertUnique = Effect.fn("IndexMaintenanceMigration.convertUnique")(funct
     stored.epoch !== frame.epoch || stored.attemptFence.toString() !== frame.attemptFence ||
     stored.coveredThroughCommitSeq?.toString() !== frame.openedCommitSeq || stored.startCommitSeq.toString() !== frame.startCommitSeq)
     return yield* Effect.fail(failure("storedState"));
-  const expected = yield* Effect.fromResult(decodeUniqueMaintenanceObligationResult({
+  const expected = yield* decodeUniqueMaintenanceObligationEffect({
     scopeId: frame.scopeId,uniqueConstraintDefinitionId: frame.uniqueConstraintDefinitionId,activationSequence: BigInt(frame.activationSequence),
     storageGeneration: frame.storageGeneration,storageGenerationFence: BigInt(frame.storageGenerationFence),epoch: frame.epoch,
     attemptFence: BigInt(frame.attemptFence),openedCommitSeq: BigInt(frame.openedCommitSeq),startCommitSeq: BigInt(frame.startCommitSeq),
     tableId: frame.tableId,physicalSpecSha256: yield* digestBytes(frame.physicalSpecSha256Hex),deploymentId: frame.deploymentId,
     schemaVersionId: frame.schemaVersionId,activationSha256: active.activation.activationSha256,headSha256: yield* digestBytes(frame.headSha256),
-  })).pipe(Effect.mapError(cause => failure("storedState",cause)));
+  }).pipe(Effect.mapError(cause => failure("storedState",cause)));
   const existing = yield* driver(tx.select().from(fxSystemUniqueMaintenanceObligations).where(and(
     eq(fxSystemUniqueMaintenanceObligations.scopeId,expected.scopeId),eq(fxSystemUniqueMaintenanceObligations.uniqueConstraintDefinitionId,expected.uniqueConstraintDefinitionId),
     eq(fxSystemUniqueMaintenanceObligations.activationSequence,expected.activationSequence))));
   if (existing.length > 1) return yield* Effect.fail(failure("storedState"));
   if (existing[0] !== undefined) {
-    const actual = yield* Effect.fromResult(decodeUniqueMaintenanceObligationResult(existing[0])).pipe(Effect.mapError(cause => failure("storedState",cause)));
+    const actual = yield* decodeUniqueMaintenanceObligationEffect(existing[0]).pipe(Effect.mapError(cause => failure("storedState",cause)));
     if (!equalOpening(actual,expected) || actual.uniqueConstraintDefinitionId !== expected.uniqueConstraintDefinitionId || actual.startCommitSeq !== expected.startCommitSeq)
       return yield* Effect.fail(failure("storedState"));
     return;

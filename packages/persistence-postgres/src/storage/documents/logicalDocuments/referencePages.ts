@@ -44,7 +44,7 @@ import type { LogicalDocumentChange } from "./workingSet";
 import { logicalMaterializationBatchBudget } from "./materialization";
 import type { LogicalRelationalAdmissionState } from "./relationalAdmission";
 import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
-import { logicalManagedUpdatedColumns, bindPreparedLogicalRelationalRows } from "./relationalRows";
+import { logicalManagedUpdatedColumns, bindPreparedLogicalRelationalRows, hasPreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import { selectLogicalIndex, type LogicalWhere } from "./query";
 import { readLogicalIndexRange } from "./indexReads";
 
@@ -64,6 +64,14 @@ const compareReferenceKeys = (left: Readonly<{ key: string }>, right: Readonly<{
 
 type LogicalReferenceAdmission = Pick<LogicalRelationalAdmissionState,
   "tx" | "authority" | "schema" | "tables" | "indexes" | "unique">;
+
+/** Admission authenticates the captured source references; execution owns the
+ * issuer's detached table. Check issuance before inspecting foreign mechanics. */
+function hasSourceBoundTable(admission: LogicalReferenceAdmission, source: LogicalReferenceAdmission["tables"][number]) {
+  const original = admission.schema.tables.find(table => table.identity.tableId === source.localName);
+  return original !== undefined && hasPreparedLogicalRelationalTableMechanics(source.mechanics, original, admission.schema.capabilities) &&
+    source.definition === source.mechanics.table;
+}
 
 /** Count only indexes whose key or membership can change in a set-null update.
  * Unchanged keys produce no index revisions; the materializer checks the exact
@@ -138,7 +146,7 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
 ) {
   const { tx, error } = input;
   const admission = yield* input.requireAdmission;
-  if (admission.tx !== tx || admission.tables.some(table => !admission.schema.tables.includes(table.definition)))
+  if (admission.tx !== tx || admission.tables.some(table => !hasSourceBoundTable(admission, table)))
     return yield* Effect.fail(error("invalidAuthority"));
   const scopeId = admission.authority.scopeId;
   const foreignKeys = yield* Effect.fromResult(prepareLogicalRelationalForeignKeys(admission.tables.map(table =>
@@ -245,7 +253,7 @@ export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSet
   const stableInput = { ...input, requireAdmission: input.requireAdmission.pipe(Effect.flatMap(current =>
     current === admission ? Effect.succeed(current) : Effect.fail(input.error("invalidAuthority")))) };
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
-  if (source === undefined || !admission.schema.tables.includes(source.definition))
+  if (source === undefined || !hasSourceBoundTable(admission, source))
     return yield* Effect.fail(input.error("invalidAuthority"));
   const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const transactionTime = yield* Effect.cached(Effect.gen(function* () {
@@ -310,7 +318,7 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
   const admission = yield* input.requireAdmission;
   if (admission.tx !== input.tx) return yield* Effect.fail(input.error("invalidAuthority"));
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
-  if (source === undefined || !admission.schema.tables.includes(source.definition))
+  if (source === undefined || !hasSourceBoundTable(admission, source))
     return yield* Effect.fail(input.error("invalidAuthority"));
   const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
@@ -467,7 +475,7 @@ export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferenc
     return yield* Effect.fail(input.error("invalidAuthority"));
   replacementSelections.delete(input.selection);
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
-  if (source === undefined || !admission.schema.tables.includes(source.definition))
+  if (source === undefined || !hasSourceBoundTable(admission, source))
     return yield* Effect.fail(input.error("invalidAuthority"));
   const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;

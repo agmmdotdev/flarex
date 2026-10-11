@@ -167,7 +167,8 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
         Effect.catchTag("LogicalDocumentMaterializationError", error => Effect.fail(cmsError(error.reason, error.cause))));
       const participantState = yield* readPreparedApplicationDocumentParticipant(participant);
       return { prepared, participant, participantState };
-    }), { installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)),
+    }), { selection: { deploymentId, scopeId },
+      installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)),
       candidateIssuer: pointCommitAuthority });
     const run = Effect.fn("Ce0CmsReference.run")(function* (
       requestKey: string,

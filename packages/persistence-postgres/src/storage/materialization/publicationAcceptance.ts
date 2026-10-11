@@ -76,9 +76,9 @@ import {
 import {
   applicationIndexTransitionScalarArray,
   applicationIndexTransitionByteArray,
-  applicationCompositeSelection,
   applicationDomainFailureDetail,
 } from "./domainApplication";
+import { nativeCompositeSelection } from "../../database/nativeCompositeSelection";
 import {
   fxAppRowRevisions,
   fxSystemIndexBuildStates,
@@ -285,11 +285,11 @@ export const preparePublicationAcceptance = Effect.fnUntraced(function* (tx: App
     validationEpoch:sql`observed.validation_epoch`.mapWith(fxSystemIndexBuildStates.epoch),
     validationFence:sql`observed.validation_fence`.mapWith(fxSystemIndexBuildStates.storageGenerationFence),
     databaseNow: sql`${sql.raw(publicationTerminalColumn("database_now"))}`.mapWith(fxSystemScopeClocks.updatedAt),
-    candidateHead: applicationCompositeSelection(fxSystemAppSchemaCandidateValidations, publicationTerminalColumn("candidate_head")),
-    applicationHead: applicationCompositeSelection(fxSystemApplicationActiveHeads, publicationTerminalColumn("application_head")),
-    applicationActivation: applicationCompositeSelection(fxSystemApplicationActivations, publicationTerminalColumn("application_activation")),
-    legacySchema: applicationCompositeSelection(fxSystemApplicationRevisionSchemasV1, publicationTerminalColumn("legacy_schema")),
-    relationSchema: applicationCompositeSelection(fxSystemApplicationRevisionSchemas, publicationTerminalColumn("relation_schema")),
+    candidateHead: nativeCompositeSelection(fxSystemAppSchemaCandidateValidations, publicationTerminalColumn("candidate_head")),
+    applicationHead: nativeCompositeSelection(fxSystemApplicationActiveHeads, publicationTerminalColumn("application_head")),
+    applicationActivation: nativeCompositeSelection(fxSystemApplicationActivations, publicationTerminalColumn("application_activation")),
+    legacySchema: nativeCompositeSelection(fxSystemApplicationRevisionSchemasV1, publicationTerminalColumn("legacy_schema")),
+    relationSchema: nativeCompositeSelection(fxSystemApplicationRevisionSchemas, publicationTerminalColumn("relation_schema")),
   }).from(source);
   const mapFailure = (cause: unknown) => {
     if (applicationDomainFailureDetail(cause, "fx_accept_app_index_transitions") !== null) {
@@ -367,7 +367,7 @@ interface AcceptedPublicationState {
   readonly heads: readonly LoadedPointCommitHeadV1[];
   readonly developerActions: Effect.Success<ReturnType<Effect.Success<ReturnType<typeof prepareAppIndexKeyTransitionAcceptanceInTransactionEffect>>["accept"]>>;
   readonly developerValidations:readonly (IndexCoverageWrite & Readonly<{lifecycle:"validating"}>)[];
-  readonly candidateHead: typeof fxSystemAppSchemaCandidateValidations.$inferSelect | null;
+  readonly candidateHead: Parameters<typeof import("../catalog/appSchemaCandidateValidation").captureAppSchemaCandidateWriteGuardLockedHead>[3];
   readonly capturedCoverage?: import("../indexes/indexBuildStates").CapturedApplicationMaterializationCoverage;
   readonly databaseNowMilliseconds: number;
 }

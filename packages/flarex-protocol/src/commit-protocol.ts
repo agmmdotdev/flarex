@@ -74,10 +74,12 @@ import {
   canonicalizeFlarexValueJsonV1,
   canonicalizeFlarexValueV1,
   normalizeFlarexValueJsonV1,
+  type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1,
   type FlarexValueProfileV1,
   type NormalizedFlarexValueV1,
 } from "./value";
+import { createOwnedCanonicalFlarexRuntimeValueReaderV1 } from "./value-runtime-core";
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -1193,11 +1195,18 @@ export const decodeCanonicalSessionJournalEffect = Effect.fn(
   return canonical;
 });
 
-/** Only the original fully validating constructor can issue this handoff. The
- * object freezes its JSON and exposes byte copies; restored/lookalike values
- * remain foreign and must use complete evidence verification. */
-const issuedSuccessfulResults = new WeakMap<object, CanonicalSuccessfulResultV1>();
-export function readIssuedCanonicalSuccessfulResultV1(input: unknown): CanonicalSuccessfulResultV1 | undefined {
+/** Process-local value provenance, without storage or settlement authority.
+ * The runtime getter reuses immutable branches and detaches every binary leaf.
+ * Neither this projection nor the public result exposes the retained buffers. */
+export interface IssuedCanonicalSuccessfulResultV1 {
+  readonly result: CanonicalSuccessfulResultV1;
+  readonly value: CanonicalFlarexRuntimeValueV1;
+}
+
+/** Only the original fully validating constructor can issue this handoff.
+ * Restored/lookalike values remain foreign and require complete verification. */
+const issuedSuccessfulResults = new WeakMap<object, IssuedCanonicalSuccessfulResultV1>();
+export function readIssuedCanonicalSuccessfulResultV1(input: unknown): IssuedCanonicalSuccessfulResultV1 | undefined {
   return typeof input === "object" && input !== null ? issuedSuccessfulResults.get(input) : undefined;
 }
 
@@ -1210,7 +1219,8 @@ export const canonicalizeSuccessfulResultV1Effect = Effect.fn(
     value,
     "successfulResult",
   );
-  return yield* createCanonicalSuccessfulResultV1Effect(canonical);
+  const result = yield* createCanonicalSuccessfulResultV1Effect(canonical);
+  return issueCanonicalSuccessfulResultV1(result, canonical.value);
 });
 
 export const verifySuccessfulResultEvidenceV1Effect = Effect.fn(
@@ -1245,7 +1255,7 @@ export const verifySuccessfulResultEvidenceV1Effect = Effect.fn(
       component: "successfulResult",
     });
   }
-  return verified;
+  return issueCanonicalSuccessfulResultV1(verified, canonical.value);
 });
 
 export const makeCommitEnvelopeV1Effect = Effect.fn(
@@ -1932,9 +1942,24 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
     },
     evidence,
   } satisfies CanonicalSuccessfulResultV1);
-  issuedSuccessfulResults.set(result, result);
   return result;
 });
+
+/** Foreign evidence reaches this issuer only after exact bytes and digest have
+ * been verified. The canonical runtime tree has never escaped its constructor. */
+function issueCanonicalSuccessfulResultV1(
+  result: CanonicalSuccessfulResultV1,
+  runtimeValue: CanonicalFlarexRuntimeValueV1,
+): CanonicalSuccessfulResultV1 {
+  const readRuntimeValue = createOwnedCanonicalFlarexRuntimeValueReaderV1(runtimeValue);
+  issuedSuccessfulResults.set(result, Object.freeze({
+    result,
+    get value(): CanonicalFlarexRuntimeValueV1 {
+      return readRuntimeValue();
+    },
+  } satisfies IssuedCanonicalSuccessfulResultV1));
+  return result;
+}
 
 const decodeUnknownFlarexValueEnvelopeV1 = Schema.decodeUnknownEffect(
   FlarexValueEnvelopeV1Schema,

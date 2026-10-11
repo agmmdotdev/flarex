@@ -108,7 +108,8 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
       const preparation = yield* requirePreparedCmsApplication(prepared);
       if (preparation.schema.relations.length !== 0) return yield* Effect.fail(cmsError("unsupportedProfile"));
       return prepared;
-    }), { installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)) });
+    }), { selection: { deploymentId, scopeId },
+      installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)) });
     const read = Effect.fn("Ce0ReadReference.read")(function* (args: Json) {
       const captured = yield* Effect.fromResult(
         capturePrivateJsonData(args, cmsLimits.commandBytes, cmsError),

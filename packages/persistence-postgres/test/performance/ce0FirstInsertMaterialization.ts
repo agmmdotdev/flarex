@@ -41,6 +41,9 @@ import {
 import {
   readIndexCoverageContextInTransactionEffect,
   isIndexBuildSnapshotCoveredInTransactionEffect,
+  readRequiredEnabledIndexBuildsInTransactionEffect,
+  decodeIndexBuildStateRowResult,
+  IndexBuildStatePersistenceError,
 } from "../../src/storage/indexes/indexBuildStates";
 import {
   AppRowReadPersistenceError,
@@ -185,22 +188,18 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
     rowIntents: [],
     dependencies: [],
   };
-  const intrinsic = yield* ce0PersistenceStep(() =>
-    lockPointCommitIntrinsicIndexBuilds(
+  const intrinsic = yield* lockPointCommitIntrinsicIndexBuilds(
       tx,
       envelope,
       prepared.intrinsic,
       empty,
-    ),
-  );
-  const developer = yield* ce0PersistenceStep(() =>
-    lockPointCommitDeveloperIndexBuilds(
+    ).pipe(Effect.mapError(projectCe0KernelFailure));
+  const developer = yield* lockPointCommitDeveloperIndexBuilds(
       tx,
       envelope,
       prepared.developer,
       empty,
-    ),
-  );
+    ).pipe(Effect.mapError(projectCe0KernelFailure));
   const builds = [...intrinsic, ...developer];
   return Effect.fn("Ce0Insert.apply")(function* (
     changes: readonly LogicalDocumentChange[],
@@ -260,7 +259,20 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
     );
     if (unique.some((build) => build.maintenance === null))
       return yield* Effect.fail(cmsError("unsupportedProfile"));
-    for (const { build, definition } of builds) {
+    // This independent reference requires complete maintenance records at each
+    // original ordered first-insert gate. Production locks now lend definitions
+    // only; the reference reads its stronger demand through the native owner.
+    for (const { definition } of builds) {
+      const selected = yield* readRequiredEnabledIndexBuildsInTransactionEffect(
+        tx, clock, [definition.indexDefinitionId], "share",
+      ).pipe(Effect.mapError(cause => cmsError(
+        cause instanceof IndexBuildStatePersistenceError ? "statementFailure" : "storedCorruption", cause,
+      )));
+      const row = selected.status === "ready" ? selected.rows[0] : undefined;
+      if (row === undefined) return yield* Effect.fail(cmsError("storedCorruption"));
+      const build = yield* Effect.fromResult(decodeIndexBuildStateRowResult(
+        row, clock.scopeId, definition.indexDefinitionId, row.maintenanceObligation,
+      )).pipe(Effect.mapError(cause => cmsError("storedCorruption", cause)));
       if (
         build.lifecycle !== "enabled" ||
         build.maintenance === null ||

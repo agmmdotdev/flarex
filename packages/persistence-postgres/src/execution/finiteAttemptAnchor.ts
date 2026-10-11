@@ -1,8 +1,23 @@
+import { ScopeUuidV1Schema, ScopeEpochUuidV1Schema, StorageGenerationFenceSchema,
+  FlarexDbV1StorageGenerationSchema } from "flarex-protocol/storage-authority";
+import { MetadataSequenceSchema } from "flarex-protocol/commit-protocol";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import { FlarexValueCodecVersionSchema } from "flarex-protocol/value";
+import { TransactionSessionIdV1Schema,
+  TransactionSessionProtocolVersionV1Schema,
+  TransactionPolicyVersionV1Schema, TransactionFunctionPathV1Schema, TransactionFunctionKindV1Schema,
+  TransactionExecutionModuleV1Schema, TransactionPackageIdV1Schema, TransactionArtifactRuntimeV1Schema,
+  TransactionArtifactIdV1Schema, TransactionSourcePackageSha256HexV1Schema,
+  TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema,
+  TransactionArgumentsSha256V1Schema, TransactionAuthorizationGrantIdV1Schema,
+  TransactionAuthorizationGrantSha256V1Schema, TransactionAuthorizationRevocationEpochSchema,
+  TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
+
 import { and, eq } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import { bytesEqualFullScan, copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result,
-  type SnapshotToken } from "flarex-protocol/storage-authority";
+  CommitSeqSchema, type SnapshotToken } from "flarex-protocol/storage-authority";
 import { FiniteMetadataReservationSchema, readCapturedFiniteMetadataReservation,
   type CapturedFiniteMetadataReservation, type FiniteMetadataReservation } from "./finiteMetadataReservation";
 import {
@@ -204,6 +219,50 @@ export interface FiniteAttemptAnchorContext<Session extends FiniteAttemptFrontie
   readonly leaseExpiresAt: Date;
   readonly executionClaim: TransactionExecutionClaimObservationV1;
 }
+
+// Only the replacement refusal carries this native projection. Driver scalar
+// conversion precedes this foreign envelope boundary; canonical anchor
+// authentication and live ownership remain with the original anchor owner.
+const decodeCapturedFiniteAttemptFrontier = Schema.decodeUnknownEffect(Schema.Struct({
+  protocolVersion: TransactionSessionProtocolVersionV1Schema, executionProfile: Schema.Literal("finiteRoot"),
+  finiteAttemptBytes: Schema.Uint8Array, finiteAttemptSha256: Schema.Uint8Array,
+  finiteSnapshotEpochUuid: ScopeEpochUuidV1Schema,
+  finiteSnapshotCommitSeq: Schema.toType(CommitSeqSchema),
+  finiteLeaseExpiresAt: Schema.Date, finiteClaimOwner: TransactionExecutionClaimOwnerV1Schema,
+  finiteClaimFence: TransactionExecutionClaimFenceV1Schema,
+  finiteClaimedAt: Schema.Date, finiteClaimExpiresAt: Schema.Date,
+  scopeUuid: ScopeUuidV1Schema, sessionId: TransactionSessionIdV1Schema,
+  attemptFence: Schema.toType(TransactionAttemptFenceSchema),
+  policyVersion: TransactionPolicyVersionV1Schema,
+  executionAuthorityGeneration: Schema.Literals(["legacy_dynamic_worker_v1", "application_v1"]),
+  functionPath: TransactionFunctionPathV1Schema, functionKind: TransactionFunctionKindV1Schema,
+  executionModule: Schema.NullOr(TransactionExecutionModuleV1Schema),
+  schemaVersionId: CatalogSchemaVersionIdSchema, packageId: Schema.NullOr(TransactionPackageIdV1Schema),
+  artifactRuntime: Schema.NullOr(TransactionArtifactRuntimeV1Schema), artifactId: Schema.NullOr(TransactionArtifactIdV1Schema),
+  sourcePackageHash: Schema.NullOr(TransactionSourcePackageSha256HexV1Schema),
+  validatedArgsValueCodecVersion: FlarexValueCodecVersionSchema,
+  authorizationGrantValueCodecVersion: FlarexValueCodecVersionSchema,
+  storageGeneration: FlarexDbV1StorageGenerationSchema,
+  storageGenerationFence: Schema.toType(StorageGenerationFenceSchema),
+  identityAccessPolicySha256: TransactionIdentityAccessPolicySha256V1Schema,
+  requestSha256: TransactionRequestSha256V1Schema, validatedArgsSha256: TransactionArgumentsSha256V1Schema,
+  authorizationGrantId: TransactionAuthorizationGrantIdV1Schema,
+  authorizationGrantSha256: TransactionAuthorizationGrantSha256V1Schema,
+  applicationExecutionAuthoritySha256: Schema.NullOr(Schema.Uint8Array),
+  requestKey: TransactionRequestKeyV1Schema, lifecycle: TransactionSessionLifecycleV1Schema,
+  authorizationRevocationEpoch: Schema.toType(TransactionAuthorizationRevocationEpochSchema),
+  authorizationGrantExpiresAt: Schema.Date, hardExpiresAt: Schema.Date, createdAt: Schema.Date, updatedAt: Schema.Date,
+  finiteMetadataWatermark: Schema.NullOr(Schema.toType(MetadataSequenceSchema)),
+}));
+
+/** Foreign replacement envelopes enter the original anchor owner before
+ * canonical acceptance. Parse failures keep its stored-corruption Cause;
+ * getter defects and the original native scalar mapper remain untouched. */
+export const readCapturedFiniteAttemptAnchorRow = Effect.fn("FiniteAttemptAnchor.readCapturedRow")(function* (row: unknown) {
+  const frontier = yield* decodeCapturedFiniteAttemptFrontier(row).pipe(
+    Effect.mapError(cause => failure("storedCorruption", cause)));
+  return yield* readFiniteAttemptAnchorRow(frontier);
+});
 
 /** Durable resolution verifies stored bytes; healthy entry/frontier callers may
  * compare the exact issued capture instead, while every mutable column is fresh. */

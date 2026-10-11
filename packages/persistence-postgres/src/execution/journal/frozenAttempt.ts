@@ -25,6 +25,9 @@ import type {
 import type { Result } from "effect";
 import type { OriginalFiniteExecutionEntry } from "./finiteEntry";
 import type { LiveAppRowRevisionV1 } from "../../storage/documents/appRows";
+import { readIssuedCanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
+import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
+import { createOwnedCanonicalFlarexRuntimeValueReaderV1 } from "flarex-protocol/internal/value-runtime-core";
 
 const frozenFiniteAttemptBrand: unique symbol = Symbol("Flarex/FrozenFiniteAttempt");
 export interface FrozenFiniteAttempt { readonly [frozenFiniteAttemptBrand]: true }
@@ -72,13 +75,42 @@ export interface FrozenFiniteAttemptData {
 }
 
 export type OwnedFrozenFiniteAttemptData = Omit<FrozenFiniteAttemptData, "rowIntents"> &
-  Readonly<{ rowIntents: readonly PreparedPointCommitRowIntentV1[] }>;
+  Readonly<{ rowIntents: readonly PreparedPointCommitRowIntentV1[];
+    successfulResultValue: CanonicalFlarexRuntimeValueV1;
+    commitValidationValues: FrozenFiniteCommitValidationValues }>;
 const frozenAttempts = new WeakMap<FrozenFiniteAttempt, OwnedFrozenFiniteAttemptData>();
 
 /** Source-internal handoff from freezeClosedRoot only; omitted from the consumer API. */
-export function registerOwnedFrozenFiniteAttempt(data: OwnedFrozenFiniteAttemptData): FrozenFiniteAttempt {
+export function registerOwnedFrozenFiniteAttempt(
+  data: Omit<OwnedFrozenFiniteAttemptData, "successfulResultValue" | "commitValidationValues">,
+): FrozenFiniteAttempt {
+  const issuedResult = readIssuedCanonicalSuccessfulResultV1(data.successfulResult);
+  if (issuedResult === undefined) throw new Error("Frozen finite result must have canonical issuer provenance");
+  const commitValidationValues: FrozenFiniteCommitValidationValues = Object.freeze({
+    rowIntents: Object.freeze(data.rowIntents.map(row => {
+      if (row.kind === "deleted") return Object.freeze({ kind: "deleted" as const,
+        documentId: row.documentId, tableId: row.tableId });
+      let readRuntimeValue: (() => CanonicalFlarexRuntimeValueV1) | undefined;
+      return Object.freeze({ kind: "live" as const, documentId: row.documentId,
+        tableId: row.tableId, creationTime: row.creationTime,
+        get value(): CanonicalFlarexRuntimeValueV1 {
+          // Shape capture above never reads the body. The executor selects the
+          // Application table and kind before this first runtime loan.
+          readRuntimeValue ??= createOwnedCanonicalFlarexRuntimeValueReaderV1(row.document.value);
+          return readRuntimeValue();
+        },
+      });
+    })),
+    successfulResult: Object.freeze({
+      get value(): CanonicalFlarexRuntimeValueV1 { return issuedResult.value; },
+    }),
+  });
   const handle = Object.freeze({ [frozenFiniteAttemptBrand]: true as const });
-  frozenAttempts.set(handle, data);
+  frozenAttempts.set(handle, Object.freeze({ ...data, commitValidationValues,
+    // Publication reads this projection only after accepting the exact origin,
+    // authority/session/snapshot and claim. Inspection never evaluates it.
+    get successfulResultValue(): CanonicalFlarexRuntimeValueV1 { return issuedResult.value; },
+  }));
   return handle;
 }
 
@@ -105,19 +137,14 @@ export function readOwnedFrozenFiniteAttempt(handle: FrozenFiniteAttempt): Owned
 export interface FrozenFiniteCommitValidationValues {
   readonly rowIntents: readonly (Readonly<{ kind: "deleted"; documentId: PointCommitRowIntentV1["documentId"]; tableId: PointCommitRowIntentV1["tableId"] }> |
     Readonly<{ kind: "live"; documentId: PointCommitRowIntentV1["documentId"]; tableId: PointCommitRowIntentV1["tableId"];
-      creationTime: Extract<PointCommitRowIntentV1, { kind: "live" }>["creationTime"]; valueJson: Json }>)[];
-  readonly successfulResult: Pick<CanonicalSuccessfulResultV1, "valueJson">;
+      creationTime: Extract<PointCommitRowIntentV1, { kind: "live" }>["creationTime"];
+      value: CanonicalFlarexRuntimeValueV1 }>)[];
+  readonly successfulResult: Readonly<{ value: CanonicalFlarexRuntimeValueV1 }>;
 }
 
 export function borrowFrozenFiniteCommitValues(handle: FrozenFiniteAttempt): FrozenFiniteCommitValidationValues | undefined {
   const data = typeof handle === "object" && handle !== null ? frozenAttempts.get(handle) : undefined;
-  return data === undefined ? undefined : Object.freeze({
-    rowIntents: Object.freeze(data.rowIntents.map(row => Object.freeze(row.kind === "deleted"
-      ? { kind: "deleted" as const, documentId: row.documentId, tableId: row.tableId }
-      : { kind: "live" as const, documentId: row.documentId, tableId: row.tableId,
-        creationTime: row.creationTime, valueJson: row.document.valueJson }))),
-    successfulResult: Object.freeze({ valueJson: data.successfulResult.valueJson }),
-  });
+  return data?.commitValidationValues;
 }
 
 /** The pre-settlement value validator needs no graph, receipts or target
@@ -139,7 +166,13 @@ export function readFrozenFiniteAttempt(handle: FrozenFiniteAttempt): FrozenFini
 }
 
 function detachFrozenFiniteAttemptData(data: OwnedFrozenFiniteAttemptData): FrozenFiniteAttemptData {
-  const { attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions, candidatePlanningHead, anchorCapture, metadataReservation, operations, graph, rowIntents, ...values } = data;
+  const { attempt, originalEntry, resolvedTarget, applicationMetadataProjection, applicationPublicationDefinitions, candidatePlanningHead, anchorCapture, metadataReservation, operations, graph, rowIntents } = data;
+  // Project public fields explicitly: rest destructuring would evaluate the
+  // private runtime getter and copy a value that inspection does not need.
+  const values = { attemptState: data.attemptState, successfulResult: data.successfulResult,
+    dependencies: data.dependencies, originalRows: data.originalRows,
+    applicationIndexRanges: data.applicationIndexRanges,
+    applicationRelationDependencies: data.applicationRelationDependencies };
   return Object.freeze({ ...structuredClone({ ...values, rowIntents: projectRawRowIntents(rowIntents) }), graph: detachLogicalDocumentChanges(graph), attempt, originalEntry, resolvedTarget, applicationMetadataProjection,
     applicationPublicationDefinitions, candidatePlanningHead, anchorCapture,
     ...(metadataReservation === undefined ? {} : { metadataReservation }),

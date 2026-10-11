@@ -5,12 +5,14 @@ import { isRelationalColumnValue, relationalHasIndexedScalarPrefix,
 import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
   orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
 import type { Json, JsonObject } from "flarex-protocol/json";
+import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type { LogicalDocumentFailure } from "./model";
 import { prepareLogicalRelationalRowValues, relationalTextIdentity, hasPreparedLogicalRelationalTableMechanics,
-  type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
+  inspectLogicalRelationalCanonicalRow, type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import { hasMandatorySearchTrigram, type LogicalSearchPattern } from "./searchReads";
 import { jsonbContains } from "./jsonContains";
 import { relationalReadLimits } from "../../../execution/preparation/frameworkExecutionPolicy";
+import type { LogicalSelectionValues } from "./query";
 
 /** The admitted indexed text relational profile. Other predicate families require
  * their own indexed execution contract before they can be enabled here. */
@@ -49,6 +51,14 @@ interface PointSelection {
   readonly nullColumn?: string;
 }
 type Selection = ScalarSelection | PointSelection;
+/** The validated compiler lends its original selection values directly; no
+ * synthetic document-query envelope or second query decoder is involved. */
+export function logicalRelationalSelectionValues(selection: Selection): LogicalSelectionValues {
+  const fields = selection.kind === "point" ? selection.columns : [selection.column];
+  return Object.freeze({ fields: selection.nullColumn === undefined ? fields : [...fields, selection.nullColumn],
+    value: (field: string) => field === selection.nullColumn ? null : selection.kind === "point"
+      ? selection.values[selection.columns.indexOf(field)] : field === selection.column ? selection.value : undefined });
+}
 export interface LogicalRelationalReadAccess {
   readonly indexes: RelationalTableDefinition["indexes"];
   readonly keys: RelationalTableDefinition["keys"];
@@ -102,11 +112,12 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
 
 /** Validate with the same row/query owner before acquiring immutable facts.
  * Access eligibility is deferred; no second predicate validator is involved. */
-export function prepareLogicalRelationalRead<Failure>(table: RelationalTableDefinition, capabilities: readonly RelationalPersistenceCapability[], input: unknown,
+export function prepareLogicalRelationalRead<Failure>(sourceTable: RelationalTableDefinition, capabilities: readonly RelationalPersistenceCapability[], input: unknown,
   pageRows: number, error: LogicalDocumentFailure<Failure>, mechanics?: PreparedLogicalRelationalTableMechanics) {
   return Result.gen(function* () {
-    if (mechanics !== undefined && !hasPreparedLogicalRelationalTableMechanics(mechanics, table))
+    if (mechanics !== undefined && !hasPreparedLogicalRelationalTableMechanics(mechanics, sourceTable))
       return yield* Result.fail(error("invalidAuthority"));
+    const table = mechanics?.table ?? sourceTable;
     const identity = yield* (mechanics === undefined ? relationalTextIdentity(table, error) :
       mechanics.identity.pipe(Result.mapError(cause => error(cause.reason, cause.cause))));
     const key = identity[0];
@@ -316,11 +327,15 @@ export function prepareLogicalRelationalRead<Failure>(table: RelationalTableDefi
         requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
         requiredNulls: Object.freeze([...filter.requiredNulls]),
         offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: query.order.column, fields: Object.freeze([...fields]),
-        inspect: (row: JsonObject) => Result.gen(function* () {
+        inspect: (row: JsonObject, document?: CanonicalFlarexValueV1) => Result.gen(function* () {
           // Read the complete native row before projecting, including exact numeric
           // companions; projection cannot hide malformed persisted data.
-          const { _id: _internalId, _creationTime: _internalTime, ...native } = row;
-          yield* validate(native, "storedCorruption");
+          const retained = mechanics === undefined || document === undefined ? undefined : yield* inspectLogicalRelationalCanonicalRow(
+            mechanics, document, row, "storedCorruption").pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
+          if (retained === undefined) {
+            const { _id: _internalId, _creationTime: _internalTime, ...native } = row;
+            yield* validate(native, "storedCorruption");
+          }
           const value = row[query.order.column];
           if (!isRelationalColumnValue(orderColumn.type, false, value ?? null)) return yield* Result.fail(error("storedCorruption"));
           // Compare complete UTF-8 bytes for native text order. JS code-unit

@@ -1,6 +1,6 @@
 import { Option, Result } from "effect";
 import { projectRowFields, toPopulateTree } from "@medusajs/drizzle/relation-query";
-import { commerceError, isJsonObject, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, useCapturedPrivateJsonData, isJsonObject, type CommerceTransactionError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ReadCatalog } from "./catalog";
 
 /** Response policy is separate from the keys required to read a relationship. */
@@ -140,7 +140,11 @@ export function projectRows(rows: readonly JsonObject[], node: ProjectionNode): 
       for (const relation of node.nullRelations) {
         if (projected[relation.name] === undefined && relation.keys.length > 0 && relation.keys.every(key => node.fields.has(key) && projected[key] === null)) projected[relation.name] = null;
       }
-      output.push(projected);
+      // The projection is a new wrapper over complete core-owned rows. Retain
+      // genuine immutable children; foreign values still capture every field.
+      const captured = yield* useCapturedPrivateJsonData(projected, Number.MAX_SAFE_INTEGER, commerceError);
+      if (!isJsonObject(captured.value)) return yield* Result.fail(commerceError("storedCorruption"));
+      output.push(captured.value);
     }
     return output;
   });

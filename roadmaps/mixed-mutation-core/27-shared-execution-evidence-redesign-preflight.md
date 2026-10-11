@@ -446,6 +446,13 @@ existing client projection work until a focused decision uses complete evidence.
 
 ### Evidence, outcome and limits
 
+The projection-only contract below describes the earlier capture shape. The
+[connected native-acceptance handoff](#connected-canonical-value-and-read-acceptance-handoff)
+supersedes its retained broad header and combined `indexRows` operation. These
+are private executor contracts; they do not establish a public compatibility
+obligation. Retain the evidence below for attribution, not as authority to keep
+displaced shapes after their consumers migrate.
+
 The retained Product diagnostic identifies six candidate captures and three
 historical unique-owner captures beneath relational selection. A fourth unique
 capture belongs to write validation, outside that nine. These are distinct real
@@ -454,7 +461,7 @@ part of the successful graph; query awaits still combine server, lock, transport
 queue and client work. Resources mode retained no statement templates, statement
 counts, row counts or result-byte sizing. It cannot retrospectively supply them.
 
-The current owner already retains SQL, positional fields, native Drizzle decoders
+The measured starting owner already retained SQL, positional fields, native Drizzle decoders
 and statement names by genuine database/installation identity. Root-owned row,
 unique and index observations already avoid repeat storage requests. Historical
 `indexRows` already materializes membership and hydrates its uncached original
@@ -476,7 +483,7 @@ elapsed falls from approximately 0.259 ms to 0.056 ms and process CPU from 0.266
 to 0.062 ms. These component measurements exclude database execution, transport,
 canonical acceptance and setup; they cannot establish request latency savings.
 
-The recommended connected replacement delivers the same accepted public capture
+The original projection-only replacement delivered the same accepted private capture
 envelopes through one retained per-operation projection, removing the repeated
 assembly. It does not select a historical SQL, index, locking or authority
 redesign. A server-owner change requires the bounded evidence below first.
@@ -1942,21 +1949,1479 @@ The implemented mechanics do not finish this outcome. The
 owns the complete measurements and their limits; both workflow graphs and the
 other connected consumers still miss the fixed targets.
 
-The strongest next source-grounded correction is the JSON outcome pipeline.
-`captureJsonOutcomeValue` detaches captured data, then `normalizeJson` validates
-and reconstructs it again; command and borrowed workflow boundaries repeat that
-pipeline, and result canonicalization captures it again. Normalize canonical
-numbers during safe capture and retain genuine immutable value evidence across
-trusted consumers while preserving every ordered byte charge, first refusal,
-escaping/native mutable copy and full foreign stored-outcome verification.
-Canonical result bytes, hashes and persisted identity formats remain obligations.
-Record the concrete cutover and affected callers before that runtime change.
+The connected candidate implements the selected outcome-value, pure acceptance
+and native query-preparation replacements below. Complete final-source matched
+measurements for all five selected graphs confirm that each still misses the fixed
+CPU and latency gates. Repeated logical working-set/readiness reads and publication
+remain concrete execution paths to investigate; current overlapping span evidence
+does not establish exclusive owner CPU attribution. Correct the responsible core
+owner before complete acceptance; fewer exchanges or helper savings cannot replace
+the selected outcome.
 
-Ordinary readiness readers also reconstruct fixed scope-clock/index projections
-and joins. Investigate retaining native SQL/projection mechanics with their
-existing genuine preparation/session owners, binding fresh invocation parameters
-and preserving all auth, lifetime, locking, observed-clock and refresh-after-miss
-checks. Existing scope observations, static schema preparation and finite capture
-maps already have owners; do not introduce duplicate caches or acceptance reuse.
-These directions identify repeated source mechanics, not exclusive measured CPU
-savings or permission to relax complete acceptance.
+The displaced JSON pipeline detached captured data, then validated and rebuilt it
+again; command, borrowed workflow and canonicalization boundaries repeated that
+work. Canonical number/Unicode evidence now belongs to safe capture, and trusted
+consumers retain genuine immutable values. Independent ordered byte charges,
+first refusal, escaping/native mutable copies and full foreign stored-outcome
+verification remain. Canonical result bytes, hashes and persisted identities
+are unchanged obligations.
+
+Migrated readiness readers retain fixed native SQL/projection mechanics, bind
+fresh parameters and execute through the current session. Ordered pure state and
+coverage correlation belongs to the existing accepting operation; actual reads,
+locks, hashes, frontier acquisition and lifecycle cleanup remain Effect work.
+Existing scope observations, static preparation and finite capture maps retain
+their sole ownership. These replacements introduce no duplicate cache or
+acceptance reuse, and their source rationale is not an exclusive measured CPU
+allocation or permission to relax complete acceptance.
+
+### Selected outcome-value and readiness cutover
+
+The owner authorizes continuation of this connected correction. The value owner
+will normalize canonical numbers during descriptor-safe capture, issue its
+existing immutable value facts, and retain exact issued values through trusted
+command, borrowed workflow and result-accounting handoffs. Foreign objects still
+undergo descriptor capture; a caller-created frozen object is not issued evidence.
+The escaping capture operation continues to detach objects. Native workflow
+callbacks continue to receive their existing mutable copies. Every handoff checks
+its actual remaining byte/depth limit and retains the independently ordered charge;
+issuance carries no authentication, admission, request or storage authority.
+
+The protocol byte measurer intentionally accepts lone UTF-16 surrogates as JSON
+escapes; outcome validity is stricter. Capture therefore records Unicode validity
+alongside its existing issuer facts. Outcome policy refuses the first malformed
+string/key only after the complete structural/byte capture succeeds, matching the
+displaced normalizer's failure order. Its existing Schema decoder remains at that
+failure boundary to preserve the cause; successful members need no separate decode
+or reconstruction. Generic capture without outcome policy retains its contract.
+
+Replace the duplicate outcome normalization traversal and migrate commerce's
+trusted accounting entry point to the retaining operation. Canonical encoding may
+consume issued canonical values without another detachment/normalization traversal;
+foreign result and stored-outcome inputs still require complete capture. Preserve
+negative-zero normalization, Unicode validation, descriptor/getter refusal,
+alias isolation and first-failure order. The canonical text/bytes, domain-separated
+identity preimages, result hashes and durable outcome formats do not change. No
+persisted-data reset, migration or deletion is selected. Remove the displaced
+normalizer and its sole-use decoder in the same cutover, retaining regression
+coverage for foreign mutation, forged evidence, budget refusal and stored corruption.
+
+Retain fixed ordinary scope-clock and readiness projections/joins at their existing
+owner instead of rebuilding their invariant Drizzle structure per invocation.
+Bind fresh parameters and execute through the exact current session. Fresh required
+build reads/locks, clock observations, coverage eligibility and refresh after a miss
+remain mandatory; query result or acceptance caching is excluded. Existing held-lock
+observations and generation preparation remain their sole owners. This is ordinary
+query mechanics within the approved correction, not a new lifecycle or readiness
+authority.
+
+The connected proof remains all five complete matched native business graphs,
+affected standalone/mixed behavior and both storage drivers. Compare against the
+committed CPU-correction baseline with separate quiet, root-counter and database
+cohorts. Required strict checks, source guards, both final reviews and removal precede
+the scoped commit. Component savings do not establish the fixed complete latency
+or CPU gates, and any remaining excess stays an explicit unresolved delivery gate.
+
+### Continuing native query preparation and accepting execution
+
+The value cutover preserves correctness but does not resolve complete workflow
+CPU. Fresh complete counter/profile evidence keeps this correction open. Remaining
+samples include native Drizzle preparation/row mapping and repeated Effect
+invocation around unique readiness, finite capture and publication slot acceptance.
+These locations identify concrete mechanics to replace, not exclusive cost shares
+or permission to remove fresh checks. Continue within their existing core owners.
+
+Unique build-state decoding and successful coverage correlation are ordered pure
+verdicts. Replace their per-field/per-row Effect construction with the authoritative
+Result decoder and consume it at the existing accepting operation. Migrate finite
+storage capture and other actual consumers to that decoder; delete displaced Effect
+decoder exports. Keep lazy coverage/frontier acquisition, SQL, locks, genuine issuer
+checks, mutation and asynchronous hashes in Effect. The same rule applies to pure
+slot/envelope/ordinal correlation in the unique and ordered-index publication owners:
+refuse earlier corruption before decoding or consuming a later row/body, and retain
+the active publication clock, pending-fact provenance and final cleanup.
+
+Private decoder return channels and per-member diagnostic names may break in this
+cutover: pure validation moves under its named accepting operation rather than
+requiring a runtime/span per datum. Actual operation observations retain explicit
+caller tracing, annotations, links, parentage and the full outcome. No public
+diagnostic contract or durable format is selected for change. Hoist demonstrably
+repeated operation construction with explicit retained owner state, never a captured
+acceptance verdict or another service/lifetime owner.
+
+Complete native query preparation is also selected for source-grounded correction
+where the installed Drizzle API can retain code-defined SQL and ordered projection
+mechanics while binding the exact current session and fresh values. Retention must
+benefit ordinary transactions and independent finite captures, preserve native
+codecs and lazy execution, and retain every lock/check/refresh and refusal order.
+Do not introduce a new query engine, accepting cache, database schema or connection
+lifetime. Establish the exact preparation/binding contract and caller/removal
+inventory before its runtime cutover. A per-checkout cache that merely repeats the
+same compilation on the next checkout is insufficient evidence of this outcome.
+
+The concrete bridge belongs to the existing physical-session Drizzle owner. A
+compilation-only native session receives Drizzle's public `prepare` output once:
+rendered query, ordered native fields and join-nullability metadata. It performs
+no transport and retains no client. Each lazy execution binds that descriptor to
+the actual current native session, with fresh placeholder values, and uses that
+session's native prepared-query transport and codecs. Prepared statement names
+are absent at execution, so this creates no server statement identity or lifetime.
+The bridge must derive result types from the native select rather than accept an
+independent row type, and detached observers must see current bound SQL parameters.
+
+Migrate fixed authority/clock lock variants, required enabled-index builds and
+fenced build reads. Variable definition lists replace private `IN` query shapes
+with native `ANY(integer[])` placeholders; preserve empty-input short circuits,
+existing duplicate/count bounds, ordering, limits and lock targets. This changes
+private SQL text and observer parameter representation, not selected rows or
+authority. Prove one/many definitions, missing/stale/disabled refusal order,
+nullable joins and native timestamp/bigint decoding in both drivers. Migrate
+unique selected-build queries after their accepting owner is stable. General
+projection helpers remain only for actual unmigrated consumers, without a fallback
+for migrated calls. Remove displaced fresh builder chains in this cutover. Native
+row mapping still runs for each fresh response; query preparation retention does
+not claim to remove it.
+
+These are connected internal steps before complete final acceptance, not additional
+performance deliverables. Retain the original witnesses and fixed gates, rerun both
+reviews after substantive changes, and collect complete quiet/counter/database
+evidence only after the connected source cutover is stable.
+
+### Current workflow execution and row-evidence replacement
+
+Status: the connected workflow execution, row-evidence and native query cutover
+is implemented under the owner's explicit standalone/mixed core-correction
+approval. Its affected owner and consumer correctness proofs pass. All five
+complete final-source candidate graphs still miss the fixed CPU and latency
+targets. Fresh whole-graph profiles identify surviving value capture,
+normalization and Effect construction; actual standalone and finite read demands
+remain substantial. Sample counts are investigation evidence, not exclusive
+milliseconds or a prediction of success. Garbage collection is not established
+as the dominant cost. The continuing correction must trace the genuine evidence
+and its actual consumers before replacing another boundary.
+
+The current mixed workflow's 26 index-row captures serve distinct snapshot range
+or unique demands. Equal statement fingerprints do not imply equal arguments or
+permission to cache acceptance across transactions. Standalone repeated readiness
+clocks include post-build-wait observations and cannot reuse the older admission
+clock. Preserve those actual guarantees while replacing the mechanics below.
+
+#### Connected contract and challenged alternatives
+
+- The prepared workflow owner compiles immutable member/reference-resolution
+  mechanics once. Each execution keeps fresh input, step outputs and transform
+  caches. Resolve constants, captured property selection and container assembly
+  as ordered pure work until a real transform, callback, capture or checkpoint
+  requires Effect. Retain definition ownership, the depth limit, left-to-right
+  first failure, selected-branch laziness, once-per-frame transforms, child-frame
+  isolation and final checkpoint. Preparation must not make a skipped branch's
+  deferred error observable. Replace per-scalar named generators, without removing
+  actual callback Promise/runtime or cancellation/drain boundaries. This changes
+  private prepared execution mechanics and diagnostic span granularity, not the
+  admitted Medusa graph, callback mutability or native result/event contract.
+- The existing logical working-set and relational mechanics owners retain exact
+  immutable normalized-row validation evidence tied to the actual table mechanics
+  and canonical value provenance. Same-owner consumers may reuse that evidence;
+  foreign, forged, changed or derived rows retain complete validation. Preserve
+  batch-wide supplied-input validation before any mutation, normalized complete
+  row validation before uniqueness, numeric/default/managed-field semantics,
+  ordered independent byte charges, canonical bytes/digests and distinct input
+  versus stored-corruption failures. A Boolean or structural match grants no
+  reuse, and no validation evidence grants storage authority.
+- The activity issuer/projection owns source selection before row detachment and
+  retains immutable detached row projections by exact canonical value identity.
+  Call cursors retain all required mutation/lifecycle/reference evidence and
+  original relative ordinals. Validate source/table agreement and corruption in
+  its established order, including shared activity obligations; omit unselected
+  observed rows before cloning rather than cloning another source's rows only to
+  discard them. Replace accumulated-row projection churn without shrinking native
+  policy evidence, sharing mutable bytes or inventing adapter receipts.
+- The scope-clock issuer may lend its protected native read identity only within
+  the exact accepting transaction and its existing active scope/authority locks.
+  Index readers consume that identity after their normal admission/lifetime checks
+  instead of repeating the same scope-UUID lookup. It is neither a writer clock
+  nor cached live readiness; post-lock/post-build clocks remain fresh. The actual
+  native transaction owner may retain its transaction-stable timestamp for its
+  original lifetime, while separate finite frontiers retain their own fresh time.
+  Bind every observation to the original issuer and current transaction, and
+  refuse forged, foreign, mismatched or ended borrowers. Native query-required
+  admission selects the transaction timestamp with its existing accepting read;
+  decode it only at the first managed-time demand. The ordinary full working-set
+  profile remains a named consumer of its existing native transaction-time read.
+  A missing or expired query-required observation refuses without falling back.
+  The existing native writer-clock entry also owns its transaction-stable time
+  for full Commerce working sets: project it with that same accepting statement,
+  retain genuine ever-issued provenance after close solely to refuse ended
+  borrowers, and decode only at managed-time demand. Truly unissued ordinary
+  full working sets keep their original query. This lends a value, not the old
+  writer clock or a readiness verdict; finite time remains fresh per frontier.
+- Extend fixed native query preparation at the existing physical-session owner
+  to the demonstrated index/unique reads. Compile only code-defined SQL shapes
+  and projections; bind fresh current arguments through native prepared transport,
+  codecs, observation and failure handling. Existing bounds, ordering, nullable
+  joins, locking, lazy frontier/body consumption and readiness barriers remain.
+  Dynamic predicates select explicit owner-local shapes, not a result cache,
+  accepting cache, raw-driver fallback or a second execution engine. Native raw
+  SQL descriptions use this same compilation owner and preserve synchronous
+  native preparation defects, lazy transport and the driver's original envelope;
+  native selected reads preserve their actual selection codecs and mapper.
+
+An array/IN batching change alone cannot close the measured gap: most mixed range
+calls are separate native query boundaries, and current exact-key caches already
+serve genuinely repeated demands. Any later compiler-owned sibling-demand
+replacement must inventory real call groups and preserve first-refusal, snapshot,
+OCC and source-wide mutation closure at the accepting frontier. Holding a physical
+transaction across native callbacks or weakening a fresh frontier is rejected.
+New host/connection lifecycles, public capabilities, general evolution, installed
+routine changes and durable format/data disposition are not selected here.
+
+#### Owners, private breaks, cleanup and completion
+
+The promoted workflow SDK owns prepared graph resolution; persistence owns row
+mechanics, working-set evidence, source activity projection, protected read
+identity and native storage query preparation. Framework business/default/coercion
+and policy ownership remains with the actual adapter. Migrate the standalone and
+borrowed mixed execution consumers together. Remove displaced recursive Effect
+resolution, redundant same-row validators, repeat scope identity reads and full
+activity-detachment choreography once their callers move. Retain foreign capture,
+escaping mutable copies, post-wait readiness observations, authoritative stored
+decoders, snapshot dependencies and all settlement/recovery tails for their actual
+contracts; no compatibility wrapper or fallback is required. Canonical result,
+history, journal, seal and workflow identity formats remain unchanged.
+
+Prove skipped invalid branches and depth/order, transform caching and frame
+isolation, mutable native copies and omissions, batch failure before mutation,
+foreign/changed mechanics and canonical-byte refusal, source-local activity with
+shared mutation evidence, ended/foreign transaction identity, lock/revocation and
+post-build refresh, native SQL/parameter/codec equivalence, cancellation/drain,
+rollback/OCC and one atomic publication. Run owner and actual standalone/mixed
+consumer proofs on PGlite and ordinary-role PostgreSQL, affected strict checks,
+lint/source guards and both final project reviews. Collect complete matched
+quiet/counter/database cohorts only after the connected cutover is stable. Failed
+fixed gates require further responsible-owner correction, not a smaller substitute
+deliverable or an incomplete commit without an explicit checkpoint request.
+
+### Native root admission and source-union publication
+
+Status: selected as the connected correction for the demonstrated standalone
+orchestration multiplier, including the shared publication consumers in mixed
+execution. The measured graph performs three full logical-manifest inspections
+and three independently prepared source publication plans within one already
+atomic root. Each inspection loads all 121 index builds, 37 unique builds, 18
+table frontiers and 10 search states. Prepared Application acceptance currently
+does not lend logical readiness; wrapping existing checked-binding reuse alone
+is insufficient and does not establish safe readiness lifetime.
+
+The trusted root accepts the full declared logical source union once, then the
+existing source issuer proves each source's correlation, table ownership,
+permissions and initialization receipt. Keep the ordinary full-manifest refusal
+contract, including unrelated definitions. Bind lending to the exact physical
+transaction, accepting Application and heads, installation/protection and
+preparation identities, schema/manifest, authority, original clock fingerprint,
+unique owner and open admission phase. Foreign transactions, finite-only evidence,
+changed selections and ended or closed issuers refuse. Close lending before
+lowering and sanctioned lifecycle/readiness changes; no result survives a new
+transaction or permits acceptance by structural equality.
+
+This requires an explicit writer inventory in the existing readiness and
+installation owners. Authority and binding SHARE locks protect their identities;
+installation maintenance interlocks protect structural facts. Index/unique KEY
+SHARE locks protect lifecycle but do not freeze coverage. Search state presently
+has no row lock. Reuse only facts whose actual sanctioned writers preserve a
+positive verdict monotonically or join the existing exclusion mechanism. Retain
+each actual fresh post-lock clock, generation/epoch/fence and nondecreasing check;
+do not lend the admission snapshot as a current readiness clock. If the writer
+inventory cannot establish the contract, consolidate fresh ordered observation at
+the correct readiness owner instead of caching the unsafe positive result.
+
+At settlement, compile one bounded source-correlated publication plan from all
+closed logical contributions. Keep framework validation/event policies and
+source-first refusal order, exact source ordinal/schema maps, original point,
+range, page and absent-unique observations, unique transfers, coalesced-write
+dependencies, limits and final facts. Validate the original observations before
+derived writes and consume one root publication prefix and outcome. The existing
+source-bound materialization program accepts array row/build/unique inputs; use
+that owner once where the complete schema/clock and source union are compatible.
+Migrate its standalone and mixed consumers together rather than adding an adapter
+combination or second settlement path. This is existing outer atomicity, not a
+universal framework transaction profile.
+
+The root union's original points are accepted before derived set-null or
+replacement writes. A single native union lowering may precede those private
+derived writes, whose transient state remains inside the same transaction and
+whose final references remain checked by the prefix owner. Preserve the existing
+durable fact/source order independently with bounded row-identity projection:
+source-local set-null facts precede that source's native facts where they did
+before, and replacement facts retain their existing order. This is a private
+execution-order break, not permission to change revision/predecessor semantics,
+feed ordinals, event identities, replay or result formats. Keep the actual source,
+page, total buffer and publication budgets and their ordered refusal behavior.
+
+Several bounded packets may be accepted before any lowering. Developer-index
+membership evidence therefore belongs to its exact index/document position and
+transaction clock, rather than a transaction-wide preparation generation.
+Preparing an overlapping position consumes that position's evidence; preparing
+a disjoint position must preserve earlier genuine evidence. Retain broader
+generation fencing for range captures and SQL acceptance snapshots, exact issuer
+authenticity, expired-clock refusal and one-use packet completion. This corrects
+the shared index proof owner instead of serializing writes before all original
+dependencies have been accepted.
+
+Initially retain the full selected build union and all maintenance obligations.
+Touched-table pruning needs a separate exact frontier/coverage proof and is not
+an alternative deliverable. The mixed point profile already has its own accepted
+source-union/touched-table frontier contract; retain that behavior and migrate
+only consumers of the changed shared materialization contract. Preserve the fresh settlement writer clock and
+publication `clock_timestamp()`, final reference checks, installation generation
+guards, rollback, cancellation and uncertain-outcome recovery. No new installed
+routine signature, durable table, journal/outcome identity or data deletion is
+selected; any required change to those contracts must be explained in this
+preflight before runtime edits.
+
+The owning admission/readiness/accepted-binding and shared publication/
+materialization modules own the replacement. Remove displaced per-source full
+inspection and independent materialization preparation after every actual
+consumer migrates; retain source-specific admission, policy and receipt rules.
+Add both-driver witnesses for three-source correlation/initialization refusals,
+foreign/changed/closed lending, post-wait concurrent clocks, maintenance/revocation
+exclusion, late-source conflict before publication, unique transfers, tombstone
+and absent-read dependencies, source limits and fact/event ordinals. Prove actual
+Product/Pricing/Link standalone and mixed workflows with one publication/outcome,
+then strict checks, lint, source guards, both final reviews and all five matched
+native CPU/quiet/database graphs under the unchanged complete-request gates.
+
+### Consumer-discovered freshness and exact scope corrections
+
+The retained historical Product proof exposed a missing shared working-set
+frontier after an Application root overlay. Shared retained rows already contain
+the new value, but cached relational index/unique membership still requires a
+checked read before selecting from that overlay. Track the root's accepted
+external overlay generation per table and the nonfinite borrowed view's last
+successfully checked generation. Membership selection must discharge that duty
+even when no row hydration is needed. A failed read or settlement keeps the duty
+and the original sticky rollback-only refusal. Checking one table must not clear
+another table's duty. Cached point reuse and finite root-local proofs retain
+their existing local contract; this does not add SQL to every cached operation
+or a second lifetime. Preserve the historical read-frontier assertion and add a
+refusal witness at the shared owner.
+
+Shared current Application preparation also captured the repository's scope
+instead of the trusted host's explicit selection. Require the captured trusted
+deployment/scope selection at that existing preparation boundary, resolve its
+authority and provisioning receipt first, then require exact correlation with
+the repository before preparing its fixed graph. This restores the accepted
+same-deployment scope contract, including the selected peer's missing-receipt
+refusal. Migrate standalone Commerce, atomic Commerce, CMS, direct fixture and
+test callers together. The required private option breaks omitted-selection
+callers; it adds no authority resolver, adapter lookup, fallback, cache, host
+lifecycle, durable format or schema. Keep first-failure order, genuine repository
+identity and installed-placement protection. Validate both owners and actual
+standalone/mixed consumers on both drivers before final measurement and review.
+
+The complete PGlite consumer also exposes a build-target composition omission.
+Full readiness enters catalog validation inside the actual Currency partial-index
+transaction, but the native unique-build target has no exact target/database
+registration. Validation therefore opens a global transaction on the same
+PGlite client whose outer transaction already owns the exclusive lock. The
+index-build factory has the same missing composition evidence. The shared
+target constructors must issue the existing exact database evidence when they
+create their own default runner. Opaque injected runners remain uncorrelated;
+their function or declared database argument alone cannot establish where the
+callback executes. The existing native Postgres constructors may issue evidence
+only after exact native client/pool correlation. Reuse the existing identity
+owner, without a second transaction path, new runner registry or public claimed
+provenance option. Copied targets, foreign databases and mismatched native pairs
+must not obtain this proof. Preserve separated-store catalog validation and
+existing uncertain-settlement/custom fault seams. The complete readiness witness
+must use its actual existing transaction and finish on both drivers; retain its
+structural catalog, readiness and rollback assertions rather than bypassing the
+inspection or raising its time limit. This changes private construction evidence,
+without a host lifecycle, schema or durable-data change.
+
+### Consumer witness cutover at the actual capture boundary
+
+The approved finite contract and whole-mutation replacement select one implicit
+installed statement per named capture, with command-local metadata correlation.
+Tests of that profile must observe its fresh native session and actual capture
+envelopes. Remove the displaced global explicit-transaction projection spy and
+table-name dispatch predicates; compiled storage calls use the installed snapshot
+readers. SQL text containing a gated reader does not prove that its business
+branch ran. Preserve before-demand placement, policy, credential, namespace,
+incarnation and maintenance refusals, absent business envelopes, first failure,
+sticky root refusal and absence of durable receipts.
+
+A metadata counter increment after the native query completes cannot establish
+an in-flight protected-tail failure. Ordinary rows, index rows and time must not
+regain an unchanged-since-entry epoch check or post-result query. Preserve exact
+epoch correlation across the named multi-command ownership captures, and use the
+actual interlocked installation or authority writer to prove security/serving
+invalidation ordering. Completed captures may precede unrelated publication;
+the next actual demand must still refuse a changed live policy. The genuine
+physical callback view must reject escaped queries before transport after its
+statement settles. Deliberately corrupted fixture metadata must be restored to
+its exact original values before normal fixture cleanup, without suppressing
+cleanup failures. Keep workflow cancellation, draining, closed capability and
+the complete Effect Cause at the existing Promise bridge. This migrates witnesses
+to the accepted owner and lifetime; it does not change runtime authority, schema,
+durable data or acceptance gates.
+
+### Connected canonical-value and read-acceptance handoff
+
+Status: selected continuing correction under the standing standalone/mixed
+performance approval. The implemented workflow/row/query candidate passes its
+affected correctness proofs but fails complete native-relative acceptance for
+all five graphs. Its actual call paths still reconstruct issued row views,
+projections and normalized results; read acceptance also constructs separate
+runtime boundaries for contiguous pure checks. Fresh profiles identify those
+paths, without establishing exclusive CPU shares or predicting a passing gate.
+Replace their connected producer/consumer handoffs rather than optimize the
+descriptor walker alone. This advances the same complete standalone and mixed
+business graphs, without starting the paused independent read-tuning goal.
+
+#### Existing owners and concrete replacement
+
+The existing relational mechanics issuer retains the exact captured full runtime
+row and its native-field view with its canonical document verdict. Reuse requires
+the same genuine document, actual mechanics, and protected canonical byte/digest
+comparison. A structural copy or an arbitrary frozen object grants no verdict.
+Foreign/restored rows retain complete stored-evidence and table-row validation.
+The query owner consumes that genuine row view before predicates or projection;
+complete validation cannot be hidden by selected fields. Extend the existing
+canonical verdict and private JSON capture owner rather than introduce an adapter
+registry, parallel validator or second authority channel.
+
+Stored rows must enter this handoff too. AppRows' actual full canonical document
+decoder currently drops its verified-reference provenance, so a downstream
+structural canonical value cannot safely acquire the relational verdict. Add a
+private decoder leaf within that existing storage owner: invoke the current
+canonical AppDocument evidence verifier once, then retain only its exact returned
+document and original runtime/policy references with protected bytes/digest.
+There is no registration API, consumer Boolean or public package export. Copies,
+changed references and changed buffers receive no proof. This necessary private
+reference registry conveys no database, scope, admission or settlement authority.
+It replaces no codec, hash or stored-evidence check and introduces no durable
+format, schema or migration. AppRows and relational mechanics import this leaf;
+the generic row reader does not depend on relational table metadata.
+
+On the first existing output/capture boundary, relational mechanics may consume
+that genuine decoder proof and retain its detached JSON runtime/native views in
+the existing canonical verdict. The proof alone does not imply immutable JSON:
+Value Codec permits binary leaves, and the existing full JSON capture must still
+reject those at its original accepting boundary. Defer complete table semantics
+until the original query/write validation position; only its success issues the
+actual mechanics verdict. Hydration budgets, earlier consumer refusals, lazy
+per-row SHA/interruption, foreign full validation and distinct policy JSON remain
+in their original order. An owned detached copy carries the original protected
+byte verdict, so copying corrupt buffers cannot launder corruption. No stored row
+is trusted because its shape or frozen state resembles a decoder result.
+
+Runtime native output continues to derive from `document.value`; activity policy
+continues to use its defined `valueJson` representation. Finite negative zero and
+Value Codec tags make those representations distinct. Preserve `_id`, creation
+time, numeric companions, defaults and managed fields. Selected-field and trusted
+return wrappers use the existing retaining capture operation, so genuine immutable
+children survive enclosing captures and native serializers. Every document bound,
+node/depth/Unicode verdict, source check, independent byte charge and first refusal
+stays at its accepting owner. Native mutable callbacks and escaped mutable binary
+leaves still receive copies and deliberately lose immutable evidence. Derived
+numeric/serialization values receive new captured facts; unchanged values alone
+may retain genuine facts.
+
+The protocol's existing successful-result issuer retains the normalized runtime
+value it already established during canonicalization. Its private frozen-attempt
+handoff lends that value only after the existing exact frozen-origin, authority,
+session, snapshot and execution-claim checks. Finite commit preparation no longer
+re-normalizes the issued JSON merely to reconstruct the dropped runtime value.
+Foreign or restored results still undergo full canonical evidence verification
+before issuance. Public result projections, defensive byte copies, canonical
+bytes/hashes and durable outcome formats remain unchanged. This is owned value
+provenance, without admission, storage or settlement authority.
+
+Carry this same owned runtime contract through the trusted executor's existing
+frozen-value validation loan. That consumer currently normalizes row and result
+policy JSON again before the real Application document/return validators. Replace
+only that reconstruction with lazy canonical runtime values from the exact frozen
+owner. Application-table selection and each row's original validation position
+precede its value access; an earlier refusal must prevent later row/result access.
+Keep every actual document and returns validator, ID policy, schema/function pin
+and validation failure. Immutable branches can retain identity, while every
+escaped binary-bearing branch receives defensive copies. Reuse the existing
+successful-result projection and put any shared binary detachment mechanics with
+the actual Value Codec owner, rather than add a serializer or validator engine.
+The internal frozen validation projection changes; migrate its executor consumer
+and remove the dropped JSON reconstruction fields. Public frozen inspection and
+durable canonical/result formats remain unchanged.
+
+Read and finite-capture owners fold contiguous pure input, header, ordinal,
+identity, budget and metadata correlation into ordered Result stages consumed by
+their existing operation. Keep SQL, required per-row asynchronous SHA, lazy
+catalogue loading, callbacks, resource work and every interruption boundary in
+Effect. The working set folds known-table selection and its metadata obligation
+together, while preserving the actual lazy miss path. Its existing projection
+issuer may retain validated immutable metadata key/observation templates; combine
+them only with the genuine root's fixed watermark and retain exact issuer/key/
+watermark checks at consumption. Foreign keys and supplied dependencies still use
+the authoritative decoder. Root metadata consumption is already Result-based;
+do not replace it with a duplicate owner or cached readiness.
+
+Pure checks may collapse within one row's accepting boundary. Never decode a
+whole independent-row page synchronously: interruption or an earlier consumer
+failure must prevent access to the next row, including its getters. Missing and
+tombstone rows retain an interruptible boundary even when no hash suspends.
+Earlier header refusal precedes later layout/body corruption; `attemptReplaced`
+still validates its required anchor before refusal. Preserve body-withheld
+settlement stopping, trusted-hydration defects, original dependencies/history,
+supplied-batch validation before mutation, ordered uniqueness/lifecycle changes,
+live context/time checks around ID resolution, busy state, rollback-only and the
+complete Cause. A Result return channel is not permission to move evaluation or
+failure order.
+
+An unexpected getter in a supplied snapshot row demonstrates a real boundary
+constraint: Schema's Result adapter wraps a non-schema defect in its own Error
+with a nested Cause. The expected read outcome retains the original defect and
+never accesses the next row; receiving the adapter Error is insufficient even
+though the operation still fails. Schema decoding at a foreign row/header
+boundary must therefore remain in the existing lazy Effect operation when its
+full failure channel is required. Fold only the subsequent pure checks into
+Result. Preserve the authoritative Schema, exact typed parse issues and field
+order; do not duplicate validators, catch arbitrary errors to unwrap presumed
+adapter shapes, or weaken the original Cause witness. This is an in-scope read
+owner correction with no new authority, format or compatibility channel.
+The same boundary applies to reverse-publication membership envelopes: capture
+each foreign envelope through Schema's Effect decoder before pure ordinal/group
+correlation, retaining its eager envelope order and the later lazy body decoder.
+A throwing getter must retain its exact defect, stop later envelope/body access
+and prevent entry to the publication consumer; malformed fields still use the
+existing typed corruption channel. This completes the connected decoder cutover
+rather than creating a separate fallback or validator.
+
+#### Contract inventory, alternatives and removal
+
+| Owner and consumers | Disposition and private break |
+| --- | --- |
+| Relational canonical mechanics, working-set output/query/write/activity and Medusa projection/serialization | Extend the existing exact verdict with owned views; replace repeated genuine-row capture/validation and measurement-only projection wrappers. Migrate actual standalone and borrowed consumers together. |
+| Protocol successful-result issuer, finite freeze and point preparation | Extend the existing issuer's private handoff; replace JSON-to-runtime reconstruction after exact frozen acceptance. No persisted format or public result change. |
+| App rows, ordered indexes, finite storage capture and working-set selection/hydration | Replace pure Effect decoder/helper channels with ordered Result stages; migrate all callers and remove displaced exports. Keep lazy per-row hashes and consumers. |
+| Finite metadata projection issuer and root evaluator | Extend existing retained templates only for genuine immutable provenance; retain foreign Schema decoding and exact root dependency obligations. |
+| Scope observation owner, native AppRows/index identity reads and managed-field time | Extend the existing exact transaction observation with identity/time-only lending; migrate every actual immutable-identity borrower together while retaining fresh mutable clock, revocation and readiness checks. |
+| Foreign/restored row/result decoders, callback copies, native transport, admission and settlement | Retain their real obligations and owner lifetimes; they have no replacement or retirement permission in this correction. |
+
+Rejected alternatives are another JSON walker optimization without handoff
+changes, structurally trusted frozen rows, activity/runtime representation
+substitution, whole-page eager decoding, dropped budget charges, cached live
+acceptance, raw-driver fallback and a transaction held across native callbacks.
+New schema/routines, durable-data disposition, host lifecycle and developer APIs
+remain outside this correction. No durable reset, migration or deletion is needed.
+Remove replaced wrappers, exports, sole-use validators and stale tests in this
+same connected cutover; temporary retention needs an actual unmigrated consumer
+and removal gate.
+
+#### Complete proof and delivery gates
+
+The same connected cutover also closes the ordinary native transaction's
+identity/time lending gap. Snapshot lifecycle locks already protect the immutable
+scope key, and the captured database transaction timestamp is stable within that
+transaction. Extend the existing scope observation owner with an identity-only
+loan, rather than treating READ COMMITTED as a fixed clock snapshot. This loan
+must not grant sequence, epoch, revocation, retained-floor or serving/readiness
+acceptance: every existing mutable-state refresh still performs its actual SQL
+checks. Native membership and managed-field consumers borrow only the exact live
+transaction's protected scope identity and timestamp, retaining lazy timestamp
+validation and timestamp refusal instead of falling back after a revoked issuer.
+Closing the identity loan invalidates its exact borrowed evidence; an otherwise
+live trusted index operation retains its existing fresh identity SQL path.
+Keep lock order, strong-writer replacement and outer transaction cleanup. Prove
+ordinary-role READ COMMITTED publication advancing the clock between refreshes
+while the immutable identity remains reusable; prove mismatched transactions,
+scope identities, changed lifetimes and closed loans fail. This replaces the
+separate identity/time round trips without caching an earlier live verdict.
+
+Retained canonical wrappers and their runtime containers are immutable. Replace
+test-only post-freeze object assignment rather than reopening that displaced
+mutable contract. Source-order corruption witnesses alter the genuine mutable
+canonical byte buffer, so the existing protected verdict refuses at the original
+source acceptance position; current-source closure still precedes that refusal
+and later-source closure follows it. Keep the actual invalid native-write witness
+at its before-close boundary. Predecessor-versus-index refusal witnesses use a
+complete authentic Application write with an oversized developer-index value;
+repairing the predecessor must reach the real index planner using the same frozen
+command. Preserve exact failures, unchanged durable state and callback counts,
+and absence of publication. No test issuer, mutable wrapper or runtime fault API
+is added to recreate an impossible retained-object state.
+
+Prove genuine versus copied/foreign/changed mechanics, mutable canonical buffer
+refusal, runtime negative-zero versus tagged JSON, projected hidden corruption,
+native numeric/default semantics, mutable callback isolation, exact frozen-result
+origin and foreign result corruption. Preserve later-row getter laziness,
+interrupted consumers, withheld bodies, first crossing budget, metadata watermark
+and source provenance, cancellation/drain, rollback/OCC, event interleaving,
+source-wide publication closure and one outer durable outcome. Run affected owner
+and complete standalone/mixed consumer proofs on PGlite and ordinary-role
+PostgreSQL, affected regular strict checks, guards and lint. Both reviewers inspect
+the stable final connected diff. Then collect complete matched quiet, root-counter
+and database cohorts for all five graphs; the fixed 16 ms CPU and 5/10 ms latency
+gates remain unchanged. A failed gate requires the next responsible-owner
+correction and is not a completed performance deliverable or commit permission.
+
+### Connected prepared sources and guarded execution replacement
+
+Status: implemented; the owner has resumed responsible-core correction. Affected owner and complete
+standalone/mixed consumer proofs, source/compatibility guards, strict checks, lint
+and both final reviews pass. Complete matched native performance still misses all
+five graph gates; the connected candidate remains uncommitted. The
+[CPU measurement owner](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cpu-execution-results.md#measured-candidate-before-resumption)
+records the measured excess and its comparison limits. The connected command and
+admission continuation below now owns the next correction; the separate
+standalone-read pause remains in force.
+
+#### Selected outcome and evidence
+
+Replace the remaining preparation and accepting-query choreography across the
+actual Application, Payload and Medusa owners. This continues the authorized
+complete performance outcome; it does not finish the preceding canonical handoff
+as a separate performance deliverable. Complete matched native acceptance and
+the unchanged CPU and latency gates remain the delivery boundary.
+
+The canonical handoff leaves substantial complete excess. The fresh five-graph
+measurement retains added median thread CPU of 94/31/78/79/110 ms and paired quiet
+added median of 105.77/44.98/128.56/116.38/220.81 ms for mixed Product, standalone
+Payload, standalone Medusa, mixed Payload and mixed workflow respectively. Every
+graph still misses both gates. Standalone Medusa retains 90 driver exchanges;
+mixed workflow retains 50, with 33 checkouts. The local measurement owner is
+`work/validation/shared-execution-evidence/canonical-read-handoff/results.md`
+and its adjacent summary and original reports. Independent cohorts and Windows
+counter quantization do not establish exclusive causal milliseconds.
+
+Challenge the apparent hydration bottleneck before selecting work. At the measured
+starting point, finite selections used combined `indexRows`: 10 for mixed Product, 11 for
+mixed Payload and 26 for mixed workflow. They use no separate finite page/row
+captures. Already-hydrated bodies are excluded before transfer. The paginated
+split remains a real API issue but is unused here and cannot substitute for this
+outcome. Likewise, ordinary unique-owner reads already join the owner and exact
+row; their twelve workflow exchanges are business demands rather than twelve
+split lookups. Native query/capture mechanics already retain compiled statement
+shapes, result mappers and named backend statements. Recompiling another cache
+or treating template telemetry as wire bytes would address the wrong owner.
+
+The remaining finite pipeline projects a broad raw frontier and repeats client
+readiness acceptance for every demanded read. Ordinary admission and settlement
+also reload and decode binding/schema/source observations. Payload separately
+repeats complete field projection/table validation after successful writes and
+again during finite or ordinary settlement, and its detached canonical documents
+lose that semantic provenance. Warm finite entry composes complete metadata maps
+and canonical table comparisons even though current-generation construction
+already owns the immutable source contracts. These are connected replacement
+seams; none individually proves a gate-closing magnitude.
+
+#### Contract and authority
+
+1. Move finite mutable readiness acceptance into its existing installed SQL
+   capture owner. It must perform the complete checks in their original order:
+   placement and installation, authentication, exact session/anchor/claim pins,
+   authority/build exclusion, fresh post-wait time and clock, lifecycle, expiry,
+   revocation, generation/history floor, maintenance and coverage. Compile genuine
+   immutable expected definition/source inputs once with their current generation;
+   bind each operation's actual dynamic values to the existing fresh command.
+   Return a compact accepted frontier and demanded storage envelopes, or the
+   precise refusal-specific evidence required by the failure owner. Remove the
+   displaced finite client readiness algorithm after its consumers migrate.
+   Genuine full-artifact consumers retain complete fresh artifact authentication
+   in their explicit profile; an installed-profile refusal never switches to it.
+
+2. Preserve membership/key authentication, lazy stored-document decoding/SHA,
+   lookahead and EOF duties, point/index dependencies, withheld bodies, independent
+   hydration and root charges, and stopping before later bodies or demands.
+   Compact headers remain foreign data: their authoritative Schema decoder keeps
+   the original full Cause, expected typed refusals and field order. A SQL success
+   does not authenticate a fabricated client object. Do not prefetch future
+   workflow operations, cache earlier live acceptance, or keep a database
+   transaction across an untrusted callback. Batch only demands already owned by
+   one actual native retrieval operation.
+
+   A combined current-index capture must use the actual allowance after ordered
+   membership retention and after earlier packets' real dependency, envelope and
+   document charges. The per-packet transport ceiling remains independent. An
+   initial allowance reused separately for every packet is insufficient: later
+   refused bodies must remain in Postgres. Any single-command projection needs a
+   genuine protected budget basis, including the effect of other possible root
+   charges; predicting an opaque future limits callback cannot establish it.
+   Preserve dense packet order after excluding already observed identities,
+   including cached absences and removed rows. Decode the complete accepted
+   packet before hydration charges, as the original AppRows operation does;
+   per-row decode/charge interleaving would change corruption-versus-budget
+   precedence. Keep current-packet refusal at its original owner and position,
+   rather than reject the whole packet conservatively before its decoder.
+
+   The current lifetime does not issue a protected byte-budget loan: trusted
+   nested-command output and accepting callbacks may charge while a store query
+   is pending. Select ordered membership acceptance followed by the existing
+   sequential AppRows captures for dense unseen packets. Sample the real limits
+   immediately before each packet's query, after membership retention and all
+   preceding hydration charges. This is the selected current-read profile;
+   remove unconditional fused body projection rather than retry a refused fused
+   capture. A future single-command profile would require a coherent lifetime
+   and command-output budget contract, justified by complete measurements.
+
+   Extend that permission contract to retained finite indexed reads and historical
+   unique lookup. Their fixed snapshot protects revision history, but it does not
+   reserve the mutable request budget. The existing combined `indexRows` command
+   can transport an unseen body that fits the initial allowance before membership
+   retention or the actual point callback consumes it. The expected behavior is
+   refusal before that body's transfer. Migrate these genuine consumers to the
+   existing finite `indexPage` and `rows` captures: authenticate the complete page
+   and lookahead, retain membership in its original order, perform the real point
+   callback where applicable, then sample the actual allowance immediately before
+   each dense unseen-row packet. Cached absences and removals remain excluded.
+   Retain the historical AppRows decoder's ordinal decode-and-consume contract:
+   actual hydration refusal precedes access to later body evidence. The current
+   reader's complete-packet decoder is a distinct existing contract, not a reason
+   to change historical corruption-versus-budget precedence. A failed membership
+   charge or point callback issues no subsequent row query. A successful callback
+   passes its actual remaining allowance to the original historical row owner,
+   which retains its deliberate first-crossing evidence and independent transport
+   ceiling before refusing hydration and stopping later body access. Do not claim
+   that this profile withholds every first-crossing body. Remove the displaced combined
+   operation, statement shapes and mapper layout after those consumers migrate.
+   The extra accepting command is an explicit correctness cost to assess in the
+   complete graphs, rather than a reason to retain premature body transfer.
+
+   Apply the same permission rule to current unique ownership. Authenticate the
+   slot and its canonical key through the existing slot-only owner first. An
+   unseen positive owner then enters the existing point reader after its actual
+   point callback and rows readiness, sampling the fresh allowance there.
+   Cached positive or negative dependencies, completed scans, absent slots and
+   omitted keys do not transfer another body. Preserve exact owner revision,
+   live-row and canonical-key checks, and charge the unique observation at its
+   original final position. A body fetched before that accepting position cannot
+   become permitted by resampling after transport. Remove the unconditional
+   combined slot/body path and migrate its actual consumers; do not retain it
+   as a retry path or move the final unique charge earlier. Concurrent movement
+   between slot and point observations retains the existing conflict refusal.
+
+3. Extend the existing canonical document verdict and detachment owner for
+   Payload's successful table semantics. Retain the exact canonical document,
+   immutable table/validator/ID-policy owner and privately owned runtime projection
+   at the original successful validation position. Preserve that provenance across
+   genuine close/freeze detachment, with protected byte/digest comparisons and
+   defensive mutable leaves. A verdict grants only semantic reuse. Both finite
+   source acceptance and ordinary lowering retain their original live admission,
+   identity/confinement, source closure, failure and independent budget positions.
+   Foreign copies, changed table/policy/generation or altered evidence retain full
+   validation or exact corruption refusal; they gain no write/settlement authority.
+   Keep framework semantics with their adapter and reuse the existing validator.
+   Canonical ownership issuance stays private to the successful codec. Exported
+   runtime projection helpers cannot mint that provenance. Reusable validation
+   covers the immutable table contract; every actual source write still checks
+   its own document ID and creation time before borrowing the table verdict.
+
+4. Compose the exact source/Application metadata union during genuine current
+   generation construction. Entry authenticates that pairing and binds the actual
+   root, watermark and authority instead of rebuilding complete maps or encoding
+   both table catalogues again. Refresh and disposal revoke the pairing. Explicit
+   unprepared construction retains its actual full proof; a changed retained
+   generation never silently falls back. Every consumed/write-closure comparison
+   still performs its actual fresh SQL at its accepting position.
+
+   Native Application and logical-storage schema identities have distinct
+   owners. Their identifiers need not match. A differing pair requires the
+   genuine bound Application projection issued during that exact staged
+   generation and complete existing table/index catalog equivalence. Preserve
+   each catalog's own issuer and schema binding, exact lifetime, scope and
+   deployment checks before semantic reuse. Unbound construction retains its
+   actual same-schema contract; copied projections and mismatched native catalogs
+   refuse before graph installation.
+
+   Definition equivalence is exact in both directions after filtering to the
+   Application-owned table identities. Equal tables plus native-to-bound index
+   membership is insufficient: removing `users.by_name` from the native contract
+   leaves an additional definition in a retained logical catalog. That genuine
+   pair must refuse as `sourceMismatch` before attaching a graph. Compare both
+   definition cardinalities and reuse the existing physical-definition matcher;
+   framework-owned definitions on other tables remain independent.
+
+5. Replace ordinary root admission and settlement projection choreography at the
+   existing binding, source, publication and materialization owners. Capture the
+   selected source/initialization set through a bounded ordered root observation,
+   preserving installation/request protection, authority/clock, active binding,
+   source and publication/build/unique lock order. An ordinary native root obtains
+   its own full-live canonical proof and protection; it cannot borrow the finite
+   guard or standalone direct-tail profile. Payload and Medusa remain distinct
+   profiles over the same storage and publication mechanics.
+
+   Under existing writer exclusion, compile the complete closed contribution once
+   and capture current point heads/originals, unique and range observations and
+   readiness through bounded ordinal acceptance stages. Preserve source order and
+   every required intervening client verification before application. Feed the
+   accepted plan into the existing installed publication/materialization owner;
+   remove displaced per-source reload/application stages where the owning program
+   can perform them coherently. Keep original observations, reference and unique
+   obligations, coverage, one outer durable outcome and uncertain-result recovery.
+   A workflow-specific SQL engine or callback-spanning batch is rejected.
+
+   Owned head/original capture and its shared selection compose through typed
+   Effect operations. The existing native statement adapter surrounds the driver
+   call; Result acceptance, predecessor planning and lazy original state stay in
+   the owned Effect flow. Migrate internal Effect consumers directly and use the
+   existing transaction runtime boundary for its native Promise consumer. A new
+   compatibility wrapper or second Promise rejection classifier is unnecessary.
+
+   Native unique-build evidence uses its authoritative precompiled Effect Schema
+   decoder before pure intrinsic/frontier/maintenance acceptance. A raw getter
+   defect must retain its original Cause and identity; the synchronous Schema
+   Result adapter can replace it with an adapter Error. Migrate connected native
+   readiness, maintenance and publication callers at their existing acceptance
+   positions, retaining pure Result policy evaluation on decoded state.
+
+   The ordinary build owner has two genuine observation profiles. A retained
+   coherent head/schema observation can select compact full readiness only under
+   its exact current writer exclusion. Its native query locks selected builds in
+   ascending identity order, performs the complete availability pass first, then
+   accepts intrinsic state, maintenance pins, retained history and current source
+   table coverage in input order. Fresh clock and the existing canonical coverage
+   context owner remain mandatory. Changed authentic pairing refuses; it cannot
+   switch profiles. Actual concurrent readers keep their full-progress profile:
+   original ascending KEY SHARE locks and global availability, a separate fresh
+   clock after those locks, the original canonical coverage context, ordered
+   intrinsic/frontier/coverage acceptance, lazy table frontiers and at most three
+   publication-progress refreshes. Compact successful intrinsic observations at
+   the existing native build owner; retain only the fields that its later
+   frontier and coverage owner actually consumes. An intrinsic refusal retains
+   the original raw build and maintenance from that same capture for the full
+   decoder at its original position. Construct the ordered decoded Results after
+   the fresh clock and before the coverage context, preserving immediate foreign
+   getter defects there; consume typed refusals later in the original ordered
+   coverage loop. Keep all actually invalid captured rows required by that fold,
+   rather than suppress a later defect behind an earlier typed failure. Complete
+   the entire ascending lock set before returning global availability. Do not
+   reconstruct a full record,
+   requery refused evidence, cache a mutable observation or acquire the writer
+   exclusion earlier. Native Medusa business entry remains a snapshot reader;
+   its real refreshes cannot borrow the writer-only acceptance contract.
+   Cold observations without the required authentic preparation and ordinary
+   full build APIs retain their named full observation/decoder contract, alongside
+   fenced build reads, activation/backfill and refusal-specific native evidence.
+   The independent CE0 first-insert reference also retains its stronger full
+   maintenance-state proof through the existing native build reader; it does
+   not require successful production settlement to transport those records.
+
+   Settlement uses its original SHARE exclusion and input acceptance order but
+   returns one accepted record instead of all successfully validated build rows.
+   The original decoder interprets the first native refusal, including its full
+   corruption Cause. This is distinct from read readiness: it neither grants
+   serving coverage nor consumes the finite workflow acceptor.
+
+#### Breaks, migration and removal
+
+The finite raw capture header, projection/result mapper and client readiness
+contract break. Migrate all finite capture and participant consumers together.
+Installed function/type signatures, grants, verification and restoration change
+through the existing installation/maintenance owner. No application data table,
+document/revision, journal/result format or public developer API changes are
+selected. Dropping a displaced routine or unreferenced runtime composite type is
+structural retirement, with no stored application data to delete. Inventory every
+actual dependent before removal; retain only a named genuine consumer with its
+explicit profile and retirement gate.
+
+Payload's canonical table-verdict/close handoff, prepared source/Application
+metadata pairing, and ordinary root admission/settlement projections also break
+privately. Migrate ordinary and mixed consumers, source validation, detachment,
+finite acceptance and lowering together. Generalize the existing responsible
+canonical owner where necessary rather than introduce a Payload registry, adapter
+cache, validator or universal transaction API. Retain public detached inspections,
+native callback copies and supported explicit full-proof profiles. Remove unused
+wrappers, exports, duplicated accepting logic, tests of displaced private shapes
+and stale guidance in this connected cutover.
+
+The structural cutover replaces `fx_accept_finite_storage_capture` and
+`fx_finite_capture_frontier`, adds the immutable `fx_finite_read_expected` input,
+and migrates routine grants, installation verification and maintenance restoration
+through migration 0141. Ordinary compact acceptance remains invoker SQL over its
+existing native tables and lock contract; it introduces no installed routine or
+data migration. Successful settlement build records disappear from the private
+locked model because no consumer uses them. The native composite scalar projection
+is shared by the database owner rather than duplicated in index or publication
+code. Native composite captures carry nullable/raw scalar evidence; the existing
+lazy build, Application head/schema and candidate decoders own the validated
+contracts at their original acceptance positions. A TypeScript native-row
+annotation does not discharge that validation. Replacement-only raw frontier
+envelopes enter the existing finite anchor owner before canonical acceptance;
+parse failures retain its original stored-corruption error, while foreign getter
+defects and prior driver scalar failures retain their original Cause. Healthy
+captures do not transport that unused frontier. The test fixture must select an
+alternate source inside original preparation;
+swapping an unrelated loan after graph compilation is now an intentional refusal.
+
+Ordinary captured-head preparation, including an empty head, must match the
+finite guard's exact retained scope authority before decoding or issuing prepared
+semantics. Issuer equality alone cannot establish the selected storage fence.
+General guards without a retained selection preserve their actual
+authority-resolution contract. Closing the retained guard removes its issuance;
+subsequent preparation refuses as `notIssued` without retaining a tombstone or
+adding a second lifetime owner. Final candidate acceptance still checks the fresh
+clock and the exact current head.
+
+Borrowed unique-slot and reverse-membership readers close when their callback
+finishes, including a synchronous throw while constructing its Effect. The
+initialization receipt callback uses the same construction boundary. Install the
+existing cleanup before calling foreign callback code; preserve its original
+defect rather than mapping it to a domain refusal. Raw native unique-slot
+correlation and selected claim values enter the existing Schema Effect boundary
+at their original acceptance positions. Pure decoded policy retains its Result
+contract, while throwing getters retain their original Cause and ordinal order.
+
+This selected correction extends the preceding no-routine canonical handoff into
+the existing authoritative SQL routine/installation owners. The standing core
+performance approval covers this connected private replacement. It does not
+authorize new host lifecycle, hosted activation, framework expansion, advanced
+schema evolution, durable reset/deletion or public capabilities.
+
+#### Proof and completion
+
+Preserve failing witnesses and validate both drivers: each fresh auth/pin/fence/
+lifecycle/readiness refusal before body access; held builds followed by fresh
+clock/expiry; actual concurrent publication and history movement; negative owners,
+range gaps and EOF; lookahead/complete-selection limits before hydration; missing/
+tombstone/corrupt originals; first crossing and independent charges; exact issuer
+versus clone/spread/frozen wrappers, changed source/table/validator/bytes/digest and
+disposed generation; invalid native documents before close; current closure before
+document refusal and document refusal before later closure; predecessor corruption
+before index failure; original unexpected getter Cause; interruption/drain and
+escaped-reader closure; rollback-only, no publication prefix on refusal, event
+isolation and durable-outcome-first recovery. Routine grants, installation integrity
+and maintenance restoration require the ordinary-role PostgreSQL lane in addition
+to PGlite.
+
+Run affected strict checks, source/compatibility guards, core/diff lint and both
+final reviews against a stable complete checkpoint. Then measure all five complete
+matched native graphs with quiet, root-counter and database cohorts. Preserve the
+fixed 16 ms added median thread CPU and 5/10 ms paired added median/P95 latency
+gates. Component proofs, helper savings and lower SQL counts remain internal
+steps. Continue correction at the responsible owner if a complete gate fails;
+only the coherent verified outcome receives the scoped commit.
+
+### Connected command and admission continuation
+
+Status: the connected candidate is implemented but remains uncommitted because
+all five complete performance gates fail. Work is paused at the owner's request
+for discussion after validation and complete measurement. The corrections below
+belong to that same connected outcome; they are not separate completed
+performance deliverables.
+
+#### Connected logical operation and readiness execution
+
+##### Remaining operation ownership and readiness dispatch
+
+Status: implemented and correctness-reviewed within the same uncommitted
+connected outcome, now paused at the owner's request. Complete matched
+measurements still fail every native-relative CPU and latency gate. Local
+ordered readiness removes the preceding pure-RPC candidate's seven healthy
+Medusa exchanges and two Payload exchanges; mixed workflow still performs 38
+distinct implicit captures. Those captures are actual ordered observations,
+not evidence of a redundant pool or permission to prefetch later business calls.
+Current Medusa CPU is higher than in the preceding separate cohort; exchange
+removal does not establish a complete CPU or latency improvement. The CPU ledger
+owns the measured result and its attribution limits.
+
+The selected client correction extends existing operation ownership across
+generic document predicates, query-required relational interpretation and
+authentic finite-root revision transfer. Generic predicates retain static field
+and range-bound interpretation within one captured query, lowering each bound
+only at its original first eligible comparison. Actual candidate encoding still
+precedes bound encoding; empty or nonmatching selections gain no new failure.
+Every candidate retains its original document integrity, dynamic values,
+predicate order and charges. Query-required mechanics may retain immutable
+selection interpretation at their authentic original generation, while each
+execution still consumes metadata and establishes fresh storage acceptance.
+
+Finite-root ingestion transfers canonical interpretation only from an authentic
+existing canonical/decoder issuer into the root's owned detached revision. It
+does not recognize arbitrary clones, structural equality or frozen foreign
+rows. Root-private retained evidence and key derivation remain bounded and are
+released with displaced current revisions and root closure. Public point,
+activity and snapshot transfers remain detached. Preserve canonical bytes and
+digest checks, exact existing copy charges, observed dependencies and failed
+retention behavior. The canonical document and root owners define this private
+transfer contract; framework adapters do not establish it.
+
+For incoming stored revisions, the existing stored-document decoder also owns
+the immutable live frame it constructs. Its existing document evidence record
+retains weak membership of those exact frames. Root ingestion passes the
+document reference captured at its original inspection cut, authenticates exact
+frame membership without reflecting foreign properties, and performs the
+original whole-revision copy at the post-budget frontier. Transfer only the
+recorded decoder evidence to that owned copy. Foreign or synthetic frames get
+their original whole copy and no evidence transfer, including proxies and
+accessors that change or remove themselves during copying. This prevents a
+changed frame from lending another document's provenance and preserves original
+copy defects. No arbitrary-frame registration API or separate registry is added.
+
+The selected readiness replacement removes RPCs whose only work is pure
+calculation. Each existing index, unique and search owner decodes the minimal
+intrinsic-valid progress from its original native capture once, at the original
+pure-fold frontier, then consumes an ordered pure Result program locally.
+Use named owner-local schemas and established sequence/identity codecs; compact
+transport is data, never authority. Complete native capture remains the source
+of every actual member and retains native invalid records for original decoders.
+Keep all 121 index, 37 unique and ten search demands in the measured graph.
+
+Index invalid getters still run before canonical context, and typed intrinsic
+Results remain ordered data. Unique retains its own actual post-lock clock and
+intrinsic refusal before maintenance context. Search retains state acceptance,
+then conditional physical acceptance, then frontiers and conditional clock
+refresh. Every actual mutable SQL observation, independent READ COMMITTED cut,
+64-table batch decode boundary, exact clock/frontier lending identity, canonical
+acceptance and original consumed frontier Result stays in its existing owner.
+Each compact capture is interpreted once within that original transaction; no
+captured row, absence, clock or accepted verdict is reused across transactions.
+Foreign transport corruption fails through its owner before subsequent SQL;
+defects and original native refused evidence keep their existing behavior.
+
+The affected private contracts are the opaque progress continuations and their
+pure-fold response envelopes. Replace them with owner-defined captured progress
+and ordered Result consumption; remove pure-fold query factories, artificial
+response decoders and their runtime installation inventory. Add managed additive
+migration 0144 to drop only the three private 0143 pure routines after consumers
+migrate. Preserve every table, row, history, session, journal and outcome. Keep
+0143 as migration history, not a runtime fallback. Validate populated upgrade
+and routine retirement with the installation maintenance interlock. There are
+no supported external callers or durable outcomes owned by these routines.
+
+The challenged alternative combines pure folds with clock/frontier commands.
+Although bounded native stages could preserve many cuts, that route needs
+additional cross-owner command and frontier-consumption envelopes, and cannot
+combine multiple frontier batches across their original client decode boundary.
+Local ordered interpretation removes the pure exchanges directly while keeping
+the existing mutable-observation and authentication owners. Do not introduce
+an installed mutable program or duplicate frontier/clock authority here.
+
+These are connected core corrections, not separate completed performance
+deliverables. Keep the physical native-store profile, framework business
+lifecycle and finite admission/settlement owners. No adapter cache, universal
+binder, new host lifetime, allowance increase, durable-data deletion, writer
+exclusion or query-required substitute for full ordinary readiness is selected.
+Consumer changes migrate actual native callers and remove displaced private
+interpretation in the same correction. Validate predicate failure order,
+canonical tampering, detached transfers, overlay/close/charge behavior and
+affected standalone/mixed paths on PGlite and ordinary-role PostgreSQL. Both
+reviews and complete matched five-graph measurements remain completion gates.
+
+The connected mechanics cutover also replaces displaced original-table identity
+checks in relational reference paging, set-null, delete and update effects.
+The admission owner now issues each binding with its authentic detached mechanics
+table, while the captured schema retains the original table identity. Requiring
+the detached table to appear by identity in that schema rejects genuine native
+collection cleanup before any SQL. These owners must instead require the binding
+definition to be its exact mechanics table, and validate those mechanics through
+the existing preparation issuer against the exact original local table and
+capability identity. Keep these checks at their original pre-SQL frontiers; value
+equality, arbitrary immutable clones and adapter reconstruction are insufficient.
+Preserve the failing native managed Product scenario and strengthen foreign-key
+witnesses for copied mechanics, changed definitions and wrong capabilities on
+both drivers. This is consumer migration of the approved private mechanics
+contract, with no new authority, SQL observation, durable format or public API.
+
+The retained physical Commerce read profile must also validate its captured order
+envelope through a named owner Schema with literal `asc`/`desc` directions.
+String coercion currently accepts an array direction such as `["asc"]` and later
+lowers it as descending; prepared reads retain that invalid interpretation.
+Replace that coercion at its existing parsing frontier, preserving private
+capture, charges, window and selected-field failure order, column resolution,
+predicate validation, admission and request closure. Reject malformed direct and
+prepared find/count inputs before dispatch, and retain valid ascending/descending
+behavior on both drivers. The logical predicate compiler remains a separate
+profile; no universal query envelope, compatibility coercion or allowance change
+is required. This repairs an existing malformed-input contract consumed by the
+approved prepared-read replacement.
+
+##### Previous pure-RPC candidate and retained obligations
+
+Status: implemented candidate superseded by the selected correction above within
+the same uncommitted standalone/mixed mutation outcome. Its native capture,
+resource, semantic and failure obligations remain; its three pure-RPC
+continuations and runtime installation inventory are selected for replacement.
+Complete native comparisons after the command,
+admission and static-placement replacement still fail all five combined gates.
+Standalone Medusa uses 87 exchanges and has 94 ms median pairwise added CPU;
+mixed workflow retains 38 implicit captures within 58 exchanges and has 140 ms
+added CPU. Sampled client leaves are distributed across Effect, logical working
+sets, ordered keys, Schema, private JSON capture and native driver work. Samples
+do not establish exclusive CPU milliseconds or predicted savings.
+
+The next connected replacement crosses the existing logical query/mechanics,
+working-set and full ordinary readiness owners. Fixed index-range SQL and finite
+capture SQL are already compiled. Retain those native SQL and codec owners;
+another SQL cache, mapper, immutable-anchor decoder or lookup-map adjustment
+would duplicate existing mechanics and miss the repeated interpreter.
+
+Replace query capture/validation followed by selection reconstruction and
+reselection with source-bound logical operation programs. The existing query and
+mechanics owners select genuine definitions, lower bounds and retain ordered
+selection ordinals, metadata demands, predicates, ordering and projection.
+Execution consumes that program directly. Reuse is limited to the original
+mechanics generation and live request/preparation owner. Foreign, copied or
+changed inputs still cross their complete original validation frontier; retained
+structure never grants admission, readiness, clocks, body allowances or a
+negative storage result.
+
+`LogicalRelationalStore.prepareRead` issues an inert store-bound program whose
+first guarded method captures the query. Its find/page/count methods retain
+that immutable query interpretation while running their original independent
+operation guards and fresh observations. A later caller mutation of the input
+cannot redirect an already captured program; callers prepare a new program for
+a changed query. Native physical Commerce retains its own real find/count/page
+operations. Medusa's paired read/count consumer and typed fake stores migrate
+to this private program contract; one-shot store methods remain for their actual
+document and command consumers.
+
+Prepared table mechanics own detached immutable table and capability views. The
+existing issuer records their exact original source references and their owned
+views; admission and row-value consumers authenticate that issuance instead of
+requiring the detached view to equal the original reference. They then consume
+the owned definition. Copied definitions or capability arrays do not qualify,
+and mutable caller references cannot change the admitted immutable source.
+Catalog lifetime checks retain their original authority.
+Closing preparation revokes its catalog identity, so later catalog use fails
+composition authentication. Test the actual preparation's closed lifetime
+separately from this revoked-identity refusal, before any subsequent storage
+observation.
+
+Application readiness and generation preparation remain the owners of their
+typed failures. Commerce projects their resource failures as resource failures
+while preserving the exact owner wrapper and underlying preparation error as the cause
+chain. Capacity exhaustion must not fall through to authority refusal. Defects,
+interruption and full-Cause cleanup retain their original behavior; unrelated
+readiness and activation failure classes keep their existing mapping.
+
+The existing working set retains derived unique/index keys per canonical row
+revision and preserves preimage evidence separately. Replace repeated lowering
+of unchanged rows and per-row Effect execution in unique validation with an
+ordered pure Result fold over retained interpretation. Preserve definition order,
+the first conflicting pending row, canonical-byte integrity, each real storage
+observation and every logical charge. The fold still visits preceding rows:
+an unconditional constraint/key map shortcut would skip their required integrity
+checks or move a later defect ahead of an earlier conflict. Quadratic row
+visitation is therefore not claimed to be removed. Deriving a key must not move
+a later encoder/getter failure ahead of an earlier storage or conflict refusal.
+
+Retaining derived keys is an explicit private resource-contract break: charge
+successfully retained key/projection bytes once at their original lowering
+frontier, in addition to original per-call input, storage and logical charges.
+Configured limits remain unchanged. Install retained evidence only after its
+charge succeeds; a failed charge is never memoized. The existing retained-document
+set scopes key identity and cleanup: finite children share their actual root's
+set, while independent working sets retain their own. Keep only original preimage
+and current revision key evidence per pending row, evict displaced current keys
+on patch/replace/delete, and release the owner on close. Retained attempt history
+does not retain every historical key set. Genuine canonical-byte/digest integrity
+still precedes reuse. The replacement may exhaust the same bounded memory budget
+earlier because it now accounts for retained interpretation; it does not enlarge
+allowances or weaken body-transfer accounting.
+
+At ordinary readiness, replace repeated full-source raw transport and healthy
+client folds with an installed complete-source acceptance program where the
+current coverage owners can establish the same proof. Keep all index, unique
+and search members, ascending lock order, actual post-wait clocks, maintenance
+and coverage checks, original canonical context and corruption/refusal order.
+Retain ordered owner continuations for evidence that cannot be accepted in the
+installed program. In particular, eager index intrinsic failures precede their
+canonical-context acceptance; unique and search retain their own clocks and
+first-failure positions. A query-required or compact writer proof cannot replace
+this concurrent-reader contract. Record any required installed routine/type,
+grant, integrity inventory and non-destructive migration before that edit.
+
+Finite execution consumes the same prepared logical selections through its
+existing capture owner. Reject an installed membership batching API in this
+cutover: the retained complete mixed-workflow trace has 17 membership captures
+across 16 relational reads, with only one two-selection query; the other nine
+membership captures are separate selectors or ordered write/uniqueness checks.
+Batching can remove at most one of 38 commands before failure-order constraints,
+and upfront capture would access later selection SQL before an earlier body or
+charge failure. Actual ordinal acceptance, lookahead/EOF, callback charge and
+cache exclusion still finish before permission for unseen bodies. Native current
+execution retains its actual READ COMMITTED observation cuts. Neither profile
+prefetches future business calls or holds a transaction across untrusted
+execution. Native prepared queries remain checkout-local; there is no new client
+cache or host lifecycle.
+
+The ordinary installed replacement uses three source-private pure captured-input
+folds: index `(text,jsonb,bigint,bigint,text,jsonb)`, unique
+`(text,jsonb,bigint,text,jsonb,jsonb)` and search
+`(text,jsonb,bigint,jsonb,jsonb)`, each returning owner-defined JSON verdict data.
+They are IMMUTABLE SECURITY INVOKER functions with `pg_catalog,pg_temp` search
+path, no PUBLIC EXECUTE and exact restricted runtime grants. They read no mutable
+database state and grant no admission. Existing native capture holds only the
+minimal intrinsic-valid progress payload as opaque text in its owner-local
+closure; invalid full native rows retain their original decoders and eager
+Result/defect positions. Actual post-lock clock/context/frontier cuts remain
+outside that payload. There is no later mutable reread substituted for the
+original capture and no caller-issued payload authority.
+
+Search-state capture keeps exact numeric table/index pairs selective through the
+existing `(scope_uuid,table_id,logical_index_id)` primary key. A batch binds paired
+integer arrays from the same ordered definitions; concatenated JSON keys remain
+transport representation only. Retained states unrelated to the requested pairs
+must not turn each bounded capture into a scope-wide expression scan. Validate
+actual prepared statements and PostgreSQL plans with retained distractor states.
+
+Additive migration 0143 uses installation quiescence and its existing managed
+maintenance owner. The installation owner verifies exact routine signatures,
+body hashes, invoker/volatility/search-path properties and restricted grants and
+restores them through the existing maintenance path. Existing index/unique build,
+search advance, publication coverage and maintenance writers remain the mutable
+state owners. No type, table, application row, history, session, journal or outcome
+is removed, reset or silently migrated. The new private continuation contracts
+replace healthy full-state transport/folds while preserving detailed refused
+evidence and original concurrent-reader proof; they are not a compact writer or
+query-required compatibility route.
+
+Connected consumer validation retains an intermittent PostgreSQL publication
+timeout witness in the second-shop population fixture's 123-row Currency
+initialization. The existing publication owner shares one 1,000 ms statement
+budget across its installed stages. A complete successful row stage performs
+123 revision and 123 current-pointer INSERT statements, each invoking the real
+installation admission trigger; intrinsic transition acceptance also scans the
+row packet per emitted transition. Cancellation at a revision INSERT does not
+attribute the entire elapsed budget to that INSERT or prove that all later
+statements ran. Isolated success and checkpoint overlap do not establish the
+failure's cause. Preserve the scoped population witness and capture backend
+waits, blockers and CPU before selecting a responsible correction. Keep the
+existing limits, fresh guards and failure assertions; no adapter workaround or
+timeout increase is selected.
+
+Break and migrate the private logical preparation/execution contracts for
+find/page/count/change, document commands and their Commerce/CMS consumers
+together. Remove displaced where reconstruction, duplicate planning and obsolete
+interpreter branches in this cutover. No durable key codec, application history,
+journal or outcome format change is selected. Installed readiness changes, if
+required, use managed maintenance and preserve named durable data.
+
+Decisive proofs cover genuine reuse versus forged/foreign/disposed generations;
+capture and getter/encoder failure order; membership before bodies; exact first
+crossing budgets; cached absence/removal and overlays; unique conflicts,
+composite points, UTF-8 order, EOF/overflow and negative dependencies; actual
+concurrent readiness and corruption/refusal cases. Validate affected owners and
+standalone/mixed consumers on PGlite and ordinary-role PostgreSQL, strict checks,
+source guards and lint, followed by both final reviews. Complete matched native
+five-graph CPU and quiet latency gates remain unchanged and own completion.
+Neither a component gain nor reduced exchanges finishes this outcome. The
+separate standalone-read tuning pause remains in force.
+
+#### Evidence and challenged direction
+
+The complete paused measurement has 89 exchanges for standalone Medusa and 58
+for mixed workflow, including 38 implicit reads and 41 checkouts. Its diagnostic
+checkout wait is small; the checkout count is not evidence that the pool is the
+CPU bottleneck. Fresh current-source root-only inspector captures locate Effect,
+Drizzle and value-contract work in both graphs, and physical-session admission
+work in mixed workflow. Async ancestry, idle samples and inspector overhead keep
+exclusive CPU milliseconds unresolved. Required membership and real point
+permission before unseen bodies cannot be removed to improve these counts.
+
+Source tracing identifies concrete unnecessary mechanics. Installed finite
+commands already have fixed SQL, native fields and result mappers, but each read
+constructs a full-schema database view and starts another Effect runtime to run
+its fixed callback. Atomic Commerce acquires and decodes head, activation and
+candidate evidence for physical-installation inventory even in the all-logical
+workflow, before the selected source acquires its genuine binding evidence. CMS
+replays binding candidate/lane structure after Application admission and prepares
+preferences outside its actual current generation.
+
+Reject a blanket switch of ordinary mutations to query-required readiness.
+Standalone atomic workflow already shares one complete proof across its selected
+source union and one initialization receipt batch. Later sources still require
+their fresh revocation, correlation and actual index/unique clock observations.
+The existing compact writer profile cannot replace the concurrent-reader proof.
+Likewise, framework preferences have sixteen mutable evidence families outside
+Application epoch protection; cached preference acceptance is insufficient.
+
+#### Selected contract, owners and replacement
+
+1. At the existing physical-session owner, replace the installed finite callback
+   read API with a private fixed native command operation. Carry the existing
+   compiled statement, ordered fields, mapper and native name; bind fresh values
+   and prepare against the actual checkout's native NodePgSession. Acquire only
+   that session and execute its Promise inside the existing bounded operation,
+   without a full database view or nested Effect runtime. Keep the same fresh
+   transport/startup admission, command fence, timeout, drain, release, cancellation,
+   quarantine and complete Cause. Ordinary callback database/transaction consumers
+   retain their views and lifetimes. Do not retain a connection or transaction
+   across an untrusted callback, merge body permission stages or create a host
+   lifecycle. Native placeholder codecs, parsers, array mode and backend statement
+   preparation remain owned by the installed Drizzle driver.
+   Preserve the original domain translation at the command's foreign rejection
+   boundary: a native start throw or Promise rejection retains its native cause
+   directly. The trusted physical composition supplies that translation; physical
+   admission, deadline, drain, release and cleanup failures retain their existing
+   phase evidence and complete Cause. Replacing the callback bridge must not add
+   a physical phase wrapper to an already domain-owned native command failure.
+
+2. At Atomic Commerce, shared source and binding owners, replace duplicate
+   physical-inventory acquisition for logical roots with authentic selected
+   evidence lent within the same transaction. Preserve the original required
+   head/refusal frontier and physical-inventory validation for actual physical
+   members. Borrow immutable validated binding/projection evidence only through
+   its issuing owner and bounded scope; detach at escaping boundaries. Preserve
+   complete initial source readiness, all actual live checks, source correlation,
+   receipt order and outer settlement. Inventory callers before replacing clone
+   contracts; ordinary TypeScript readonly alone does not prove immutability.
+
+3. At CMS admission and current-generation construction, issue selected binding
+   structure from the genuine Application target protection and lifetime. Warm
+   admission retains the fresh head SHARE lock and uses that structure for
+   candidate/activation/lane acceptance; explicit unprotected callers retain the
+   complete canonical profile. Prepare preferences within the same genuine
+   generation as the CMS schema and commit template. Preserve active-reference
+   checks, refresh/disposal, content ownership and failure classification.
+   Preference admission retains head-lock then fresh evidence command. Ordinary
+   publication retains candidate:false acceptance, cleanup/hooks, authoritative
+   database time and only then candidate locking/validation during lowering.
+
+These corrections cross core command, admission and real standalone/mixed
+consumers. No adapter-local cache, second authority, wider limit, new universal
+query/transaction API or comparison engine is permitted. Their measurements
+must decide the next responsible-owner correction or assess the complete
+outcome, not end delivery after a few removed exchanges.
+
+The ordinary publication command is another connected transport owner. The
+standalone diagnostic expands one existing typed publication call to 659 scalar
+parameters and observes about 25 ms for that dispatch; this does not isolate
+parsing from execution. Replace row-by-row SQL expansion with native typed
+column arrays and ordered unnest reconstruction of the same installed composite
+arrays. Reuse Drizzle's native array encoder and the real column codecs; preserve
+row-major encoder evaluation, expression-returning codecs, exact bigint/bytea/
+JSON values, empty arrays, null composite positions and invocation-local values.
+The installed function, typed tuple layout, acceptance stages, write/lock order,
+refusal decoder and transaction remain unchanged. Remove the displaced scalar
+tuple expansion, prove actual PostgreSQL/PGlite tuple equivalence and retain
+real materialization/refusal proofs. Fewer parameters alone is not performance
+acceptance; final complete native pairs assess this replacement together with
+the command and admission cutover.
+
+Quiet execution also requires completion at its existing diagnostic owner.
+The current root-only profiles include Effect function construction, and the
+installed Effect implementation allocates a call Error, stack closures and a
+CurrentStackFrame update on every fn invocation even with tracing disabled.
+Request-local fn definitions allocate a further definition Error. Replace only
+the traced active Atomic Commerce/CMS and scope-clock wrappers with lazy
+fnUntraced generators and the existing observeExecution policy using their
+original names and caller tracing. Explicit SDK/caller spans, parents, annotations
+and links remain; quiet calls construct no synthetic function stack. Original
+typed errors, unexpected defects, interruption and complete cleanup Cause retain
+their identities and order. Synthetic Effect function call/definition stack
+frames are an intentional private diagnostic-contract break, not a claim of
+stack-identical output. Cold preparation and unrelated maintenance wrappers
+remain outside this correction. Do not invent a generic span for an existing
+unnamed SQL adapter. The same correction covers the active shared binding
+projection, selected-head/candidate/reference readers, canonical binding
+restoration and source admission wrappers called by these requests. Protected
+warm CMS admission still invokes at least nine of those named boundaries;
+their module definitions are stable, but each invocation constructs another
+synthetic call stack. Preserve their existing diagnostic names and all canonical
+decode, native codec, revocation, charging and issuer failure positions. Leave
+cold candidate/activation writers and backfill outside this request correction.
+Validate diagnostics and actual consumer failure/lifetime
+proofs as part of the connected cutover; sample counts do not establish exclusive
+CPU or a performance saving.
+
+#### Breaks, data disposition and cleanup
+
+Replace the private implicit-read callback contract and migrate installed capture
+and its lifecycle witnesses in the same cutover. Remove its displaced full-view
+and runtime-bridge route. Change private binding evidence borrowing only after
+actual caller and mutability inventory; do not preserve duplicate readers merely
+for old internals. Move CMS preference construction into generation ownership and
+remove the outer-host preparation. Retain explicit ordinary callback, unprotected,
+full-readiness and physical-installation profiles because they have named active
+consumers and different obligations. No application rows, revision/tombstone
+history, journal/outcome formats, source identities or named durable data are
+deleted or reset. Installed routine signatures, grants and migration integrity
+do not change merely for the native command transport replacement; any later
+necessary change must record its writer, post-wait snapshot and recovery contract
+here before implementation.
+
+#### Static installed placement composition
+
+Status: owner-authorized connected replacement in progress; uncommitted.
+The installed finite command is already prepared and named, but its placement
+owner still formats a target command, resolves its routine and privileges, and
+performs dynamic PL/pgSQL EXECUTE on every actual demand. Outer statement
+preparation does not retain that inner parse/plan. The mixed trace contains 38
+such implicit commands; its 1.574 ms checkout-await union does not establish a
+pool-wait bottleneck. Removing this repeated program construction is a concrete
+core correction. Its complete measured cohort still fails all five CPU and
+latency gates and establishes no exclusive causal saving; the logical operation
+and readiness correction above owns the next responsible-core work.
+
+Replace the shared installedPlacementSource with one statically qualified
+command compiled from the authentic existing paired installation issuer:
+
+1. Check the actual control scope/deployment and its target namespace before any
+   target invocation. Retain original login/role, endpoint/access profiles,
+   distinct namespaces and actual positive bounded statement-timeout checks.
+2. Invoke the target and control installation frontiers with their own local
+   expected composite types in the existing namespace lock order. Materialized
+   dependencies and conditional second invocation preserve each refusal and
+   prevent a later helper from executing after an earlier refusal.
+3. Only after both actual frontiers accept, invoke a narrow control-owned
+   locked-placement helper. It independently authenticates its original caller
+   and control runtime/installation policy, takes the scope and receipt SHARE
+   locks, and rechecks placement after those waits. Reentrant control admission
+   is allowed; no caller-supplied accepted boolean or serving verdict is trusted.
+4. Apply the existing complete placement predicate and then the unchanged finite
+   authority/session/readiness/body program. Separate VOLATILE database-time and
+   serving-clock observations remain after session/build waits. Refused or
+   missing stages must still produce the original refusal header and withhold
+   every business body.
+
+ControlRead intentionally lacks UPDATE; PostgreSQL SHARE locks require that
+privilege. Therefore the narrow SECURITY DEFINER control helper remains the
+lock owner. Do not grant raw control UPDATE, move privileged control locking into
+outer SQL, add a target-specific routine registry, or accept a client-reported
+installation gate. Reuse the existing paired static installation topology and
+actual target helper grants. A missing static target helper/EXECUTE grant may
+surface an earlier native backend failure; retain that failure and its full
+Cause rather than inventing a second dispatcher to recreate the displaced
+private dynamic-invocation frontier. Authentication, target selection and body
+authorization remain fail closed.
+
+The private dynamic placement routine is replaced and removed with RESTRICT.
+Migrate placement observation, attempt entry/share/locking, renewal, settlement
+and finite capture together through their existing shared source. Inventory the
+new helper/type signatures, restricted grants, exact body/hash/volatility/
+search-path verification and maintenance restoration in the installation owner.
+Use the existing managed maintenance interlock for the structural migration;
+retain all populated application rows, sessions, journals, revision/tombstone
+history and durable outcomes. No host lifecycle or application-data migration
+is introduced.
+
+Writers remain scope creation, provisioning reservation/ready CAS, runtime-policy
+and installation maintenance, and the existing guarded metadata-epoch writers.
+Validate both namespace orders, original-role/grant refusal, missing/corrupt or
+changed placement, provisioning CAS races, installation drain/replacement,
+post-wait expiry/revocation/readiness, and bounded capture/permission ordering on
+PGlite and ordinary-role PostgreSQL. The cancellation-probe Client constructor
+remains per demand: it does not connect, and its configuration/foreign-failure
+frontier has no approved host-lifetime replacement. Remove only the displaced
+dynamic dispatcher; do not silently treat fewer statements as complete native
+performance acceptance.
+
+#### Validation and complete delivery gate
+
+Prove fixed commands execute through one physical lifecycle without exposing a
+database view; preserve native results/codecs, synchronous preparation defects,
+driver failure, cancellation, startup refusal, drain/release/quarantine failure,
+escaped callback closure and original cleanup Cause. Prove binding/protection
+authenticity, closed/wrong-generation refusal, legitimate CMS refresh, unprotected
+corruption, physical inventory and complete source readiness. Run affected
+PGlite and ordinary-role PostgreSQL owners and actual standalone/mixed Product,
+Payload and workflow consumers. Keep budget first-crossing, packet decode order,
+membership/point-before-body, liveness/revocation/maintenance, rollback-only,
+concurrency, atomic publication and uncertain-outcome recovery witnesses.
+
+After connected migration and removal, run affected regular strict checks,
+source/compatibility guards, core/diff lint and both project reviews against the
+stable owned checkpoint. Final-source complete native pairs for all five graphs
+retain median added thread CPU <=16 ms and paired quiet median/P95 <=5/10 ms.
+If these fail, continue correction at the real core owners; do not lower the
+gates or commit an incomplete performance deliverable. Root owns final validation,
+Git and resource cleanup; assigned workers own disjoint edits.

@@ -8,6 +8,7 @@ import {
 import {
   prepareCurrentApplicationBinding,
 } from "../../src/application/activation/currentBinding";
+import { makeApplicationActivationRepository } from "../../src/application/activation/repository";
 import {
   type ApplicationBindingInput,
   type CurrentApplicationPreparationRefresh,
@@ -50,7 +51,8 @@ import {
   readExactScopeWriteClockObservation,
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
 } from "../../src/scope/scopeClock";
-import type { ScopeId } from "flarex-protocol/storage-authority";
+import { ScopeIdSchema, type ScopeId } from "flarex-protocol/storage-authority";
+import type { FlarexMetadataDatabase } from "../../src/application/deployments";
 import {
   isLocatedReadCommittedAttemptTargetV1,
 } from "../../src/database/locatedTransactionIdentity";
@@ -144,15 +146,50 @@ async function verifyScopedFreshFiniteGenerations(
   }
 }
 
+async function verifyRequestedScopeRefusal(
+  application: Awaited<ReturnType<typeof createApplicationNativeMutationPGliteFixtureWithPersistence>> |
+    Awaited<ReturnType<typeof createApplicationNativeMutationPostgresFixture>>,
+  database: FlarexMetadataDatabase,
+) {
+  const peerScopeId = ScopeIdSchema.make("scope_current_preparation_unprovisioned_peer");
+  await application.control.insertScopeMetadata({ deploymentId: application.deploymentId, scopeId: peerScopeId,
+    physicalLocator: application.active.basis.authority.physicalLocator });
+  let constructions = 0;
+  const construct = () => Effect.sync(() => { constructions++; });
+  const prepare = (selection: Readonly<{ deploymentId: string; scopeId: ScopeId }>) =>
+    runEffect(retainPreparedHost(preparedHostTestRuntime(database),
+      prepareCurrentApplicationBinding(application.activation, database, construct, { selection })));
+  // The selected peer's own receipt refusal precedes repository correlation.
+  await expect(prepare({ deploymentId: application.deploymentId, scopeId: peerScopeId }))
+    .rejects.toMatchObject({ _tag: "TrustedScopeAuthorityResolutionError",
+      failure: { reason: "splitProvisioningReceiptMissing", scopeId: peerScopeId } });
+  await expect(prepare({ deploymentId: `${application.deploymentId}_foreign`, scopeId: application.authority.scopeId }))
+    .rejects.toMatchObject({ _tag: "TrustedScopeAuthorityResolutionError",
+      failure: { reason: "scopeDeploymentMismatch", scopeId: application.authority.scopeId } });
+  const peerRepository = makeApplicationActivationRepository({ deploymentId: application.deploymentId, scopeId: peerScopeId,
+    readiness: application.readiness, authority: application.authorityPorts, activation: application.activationProfile });
+  await expect(runEffect(retainPreparedHost(preparedHostTestRuntime(database),
+    prepareCurrentApplicationBinding(peerRepository, database, construct,
+      { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId } }))))
+    .rejects.toMatchObject({ _tag: "ApplicationActivationError", reason: "invalidComposition" });
+  expect(constructions).toBe(0);
+}
+
 it("acquires fresh full-proof finite graphs while original attempts remain borrowed", async () => {
   const control = await createMigratedPGlitePersistence();
   const target = await createMigratedPGlitePersistence();
   const application = await createApplicationNativeMutationPGliteFixtureWithPersistence({
     runtimeHostIdentity: "flarex.test/current-scoped-full-proof", compatibilityDate: "2026-09-28",
   }, { control, target });
+  await verifyRequestedScopeRefusal(application, target.drizzle);
   let constructions = 0;
+  const selection = { deploymentId: application.deploymentId, scopeId: application.authority.scopeId };
   const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
-    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => { constructions++; }), {})));
+    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => {
+      constructions++;
+      // Later caller mutation cannot replace the captured preparation selector.
+      selection.scopeId = ScopeIdSchema.make("scope_current_preparation_unprovisioned_peer");
+    }), { selection })));
   try {
     await verifyScopedFreshFiniteGenerations(retained.use(slot => slot.acquireFreshFinitePreparation),
       () => application.moveHead(), () => constructions);
@@ -166,7 +203,8 @@ it("cancels fresh finite staging without losing the original borrow or gate", as
     runtimeHostIdentity: "flarex.test/current-scoped-cancellation", compatibilityDate: "2026-09-28",
   }, { control, target });
   const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
-    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.void, {})));
+    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.void,
+      { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId } })));
   const originalScope = await runEffect(Scope.make());
   try {
     const original = await runEffect(retained.use(slot => slot.acquireFreshFinitePreparation).pipe(Scope.provide(originalScope)));
@@ -227,10 +265,12 @@ it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATA
             managedInstallation: { installation: pair.installation, controlProtection },
             protectedMetadata: { database: target.persistence.drizzle, token: target.protectedMetadata },
           }, { control: control.persistence, target: target.persistence });
+          await verifyRequestedScopeRefusal(application, target.persistence.drizzle);
           let constructions = 0;
           const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.persistence.drizzle),
             prepareCurrentApplicationBinding(application.activation, target.persistence.drizzle,
-              () => Effect.sync(() => { constructions++; }), { installation: pair.installation })));
+              () => Effect.sync(() => { constructions++; }),
+              { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId }, installation: pair.installation })));
           try {
             await verifyScopedFreshFiniteGenerations(retained.use(slot => slot.acquireFreshFinitePreparation),
               () => application.moveHead(), () => constructions);
@@ -248,7 +288,8 @@ it("retains fullProof construction while proving every actual command afresh", a
   }, { control, target });
   let constructions = 0;
   const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
-    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => { constructions++; }), {})));
+    prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => { constructions++; }),
+      { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId } })));
   try {
     const accept = (binding: ApplicationBindingInput) => target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
       const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, application.authority.scopeId);
@@ -362,7 +403,7 @@ it("retains fullProof construction while proving every actual command afresh", a
     let planningConstructions = 0;
     const planning = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.drizzle),
       prepareCurrentApplicationBinding(application.activation, target.drizzle, () => Effect.sync(() => { planningConstructions++; }),
-        { candidateIssuer: application.sessionAuthority })));
+        { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId }, candidateIssuer: application.sessionAuthority })));
     try {
       let movedPlanning = false;
       let callbacks = 0;
@@ -471,7 +512,7 @@ it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATA
           const proof = await prepareActivatedCoverageProof(application);
           const retained = await runEffect(retainPreparedHost(preparedHostTestRuntime(target.persistence.drizzle),
             prepareCurrentApplicationBinding(application.activation, target.persistence.drizzle, () => Effect.void,
-              { installation: pair.installation })));
+              { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId }, installation: pair.installation })));
           try {
             const session = makePostgresRelationalSession(target.persistence, undefined,
               { kind: "managed", installation: target.installation, coLocated: pair.installation });
@@ -522,7 +563,8 @@ it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATA
           const run = <A, E>(work: Effect.Effect<A, E>) => runEffect(work.pipe(Effect.provideService(Tracer.Tracer, tracer),
             Effect.provideService(ExecutionDiagnostics, diagnostics)));
           const retained = await run(retainPreparedHost(preparedHostTestRuntime(target.persistence.drizzle),
-            prepareCurrentApplicationBinding(application.activation, target.persistence.drizzle, () => Effect.void, { installation: pair.installation })));
+            prepareCurrentApplicationBinding(application.activation, target.persistence.drizzle, () => Effect.void,
+              { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId }, installation: pair.installation })));
           let borrowerRelease: Deferred.Deferred<void> | undefined;
           try {
             const session = makePostgresRelationalSession(target.persistence, undefined,
@@ -662,7 +704,8 @@ it.skipIf(postgresUrl === null || !process.env.FLAREX_POSTGRES_PROVISIONING_DATA
             // The named compatibility profile still proves readiness afresh.
             // Immutable token-dependent plans retain the original host generation.
             const fullProof = await run(retainPreparedHost(preparedHostTestRuntime(target.persistence.drizzle),
-              prepareCurrentApplicationBinding(application.activation, target.persistence.drizzle, () => Effect.void, {})));
+              prepareCurrentApplicationBinding(application.activation, target.persistence.drizzle, () => Effect.void,
+                { selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId } })));
             try {
               const fullProofSession = makePostgresRelationalSession(target.persistence, undefined, { kind: "fullProof" });
               const fullCommand = <A, E, R>(after: (binding: ApplicationBindingInput) => Effect.Effect<A, E, R>,

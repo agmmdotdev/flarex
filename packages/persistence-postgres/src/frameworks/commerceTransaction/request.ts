@@ -7,6 +7,8 @@ import { RelationalSessionError } from "../../database/relationalTransaction/mod
 import { commerceError, CommerceTransactionError } from "./model";
 import { Effect, Result } from "effect";
 import { PreparedHostRuntimeError } from "../../execution/preparation/preparedHostRuntime";
+import { ApplicationActivationError } from "../../application/activation/errors";
+import { ApplicationReadinessError } from "../../application/readiness/errors";
 import {
   LogicalDocumentMaterializationError,
 } from "../../storage/documents/logicalDocuments/materialization";
@@ -21,7 +23,7 @@ import { DataBindingError } from "../../installation/frameworkSchema/binding/err
 import { TrustedScopeAuthorityPortError } from "../../scope/scopeAuthorityResolution";
 import {
   canonicalizeJsonOutcome,
-  captureJsonOutcomeValue,
+  useJsonOutcomeValue,
   JsonOutcomeError,
 } from "../../values/jsonOutcome";
 import { sql } from "drizzle-orm";
@@ -38,8 +40,10 @@ export const lockCommerceRequest = Effect.fn("CommerceRequest.lock")(function* (
     cause => commerceError("statementFailure", cause));
 });
 
+/** Trusted immutable accounting handoff. Foreign values still require full
+ * capture; every caller retains its own ordered budget check and charge. */
 export const captureCommerceJsonData = (input: unknown, maximum: number) =>
-  captureJsonOutcomeValue(input, maximum).pipe(Result.mapError(projectCommerceRequestFailure));
+  useJsonOutcomeValue(input, maximum).pipe(Result.mapError(projectCommerceRequestFailure));
 
 const encoder = new TextEncoder();
 /** Semantic domains cannot collide with the old arbitrary Application value preimage. */
@@ -64,6 +68,8 @@ export const commerceRequestHash = makeLivePrivateSha256V1({
 /** Expected errors only. Effect.mapError preserves interruption and defects. */
 export const projectCommerceRequestFailure = (cause: unknown): CommerceTransactionError => {
   if (cause instanceof CommerceTransactionError) return cause;
+  if ((cause instanceof ApplicationActivationError || cause instanceof ApplicationReadinessError) && cause.reason === "resourceFailure")
+    return commerceError("resourceFailure", cause);
   if (cause instanceof LogicalReadAdmissionError) return commerceError(
     cause.reason === "sourceMismatch" || cause.reason === "bindingMissing" || cause.reason === "notReady"
       ? "bindingChanged" : cause.reason, cause);

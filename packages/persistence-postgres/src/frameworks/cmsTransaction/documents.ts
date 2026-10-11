@@ -1,3 +1,4 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
 import { Effect, Result } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
@@ -18,7 +19,7 @@ const projectReadAdmission = (cause: LogicalReadAdmissionError) => cmsError(
     ? "bindingChanged" : cause.reason, cause);
 
 /** Managed reads borrow the selected metadata owner's mechanics and transaction. */
-export const makeSourceCmsReadDocuments = Effect.fn("CmsDocuments.makeSourceRead")(function* (
+export const makeSourceCmsReadDocuments = Effect.fnUntraced(function* (
   admission: LogicalDocumentReadAdmission, tx: FlarexMetadataTransaction,
   lifetime: CmsRequestLifetime, creationTime: AppCreationTimeV1,
   testHooks?: CmsDocumentReadTestHooks,
@@ -39,7 +40,7 @@ export const makeSourceCmsReadDocuments = Effect.fn("CmsDocuments.makeSourceRead
     error: cmsError, uniqueConflict: () => cmsError("invalidAuthority"), limits: cmsLimits,
   }, creationTime, [], [], testHooks);
   return working.documents;
-});
+}, work => observeExecution("CmsDocuments.makeSourceRead", work, "caller"));
 
 export type CmsDocuments = LogicalDocuments<CmsTransactionError>;
 export type CmsDocumentReadTestHooks = LogicalDocumentReadTestHooks<CmsTransactionError>;
@@ -61,7 +62,7 @@ const deletionSets = new WeakMap<object, Readonly<{
 }>>();
 
 /** Payload owns the collection view of a core-attested pending deletion. */
-export const requireCmsPendingDeletion = Effect.fn("CmsDocuments.requirePendingDeletion")(function* (
+export const requireCmsPendingDeletion = Effect.fnUntraced(function* (
   token: CmsPendingDeletions, admission: CmsAdmission, lifetime: CmsRequestLifetime, documentId: string,
 ) {
   const state = deletionSets.get(token);
@@ -71,10 +72,10 @@ export const requireCmsPendingDeletion = Effect.fn("CmsDocuments.requirePendingD
   const collection = admitted.configuration.tables.find(table => table.logicalTableName === row.tableName);
   if (collection === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
   return Object.freeze({ ...row, collectionSlug: collection.collectionSlug });
-});
+}, work => observeExecution("CmsDocuments.requirePendingDeletion", work, "caller"));
 
 /** Settlement borrows final absence from the exact consumed document closure. */
-export const requireCmsClosedPendingDeletion = Effect.fn("CmsDocuments.requireClosedPendingDeletion")(function* (
+export const requireCmsClosedPendingDeletion = Effect.fnUntraced(function* (
   token: CmsPendingDeletions, admission: CmsAdmission, lifetime: CmsRequestLifetime, documentId: AppDocumentIdV1,
 ) {
   const state = deletionSets.get(token);
@@ -94,10 +95,10 @@ export const requireCmsClosedPendingDeletion = Effect.fn("CmsDocuments.requireCl
   const collection = definition === undefined ? undefined : admitted.configuration.tables.find(table => table.logicalTableName === definition.logicalName);
   if (collection === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
   return Object.freeze({ documentId: row.documentId, collectionSlug: collection.collectionSlug });
-});
+}, work => observeExecution("CmsDocuments.requireClosedPendingDeletion", work, "caller"));
 
 /** Only a closed, internally derived set can enter Application materialization. */
-export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure")(function* (
+export const consumeCmsDocumentClosure = Effect.fnUntraced(function* (
   closure: CmsDocumentClosure, admission: CmsAdmission, lifetime: CmsRequestLifetime,
 ) {
   const state = closures.get(closure);
@@ -111,10 +112,10 @@ export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure"
   deletionSets.set(state.pendingDeletions, Object.freeze({ ...pending, settlementChanges: state }));
   closures.delete(closure);
   return state;
-});
+}, work => observeExecution("CmsDocuments.consumeClosure", work, "caller"));
 
 /** Framework admission and validation around the shared document owner. */
-export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
+export const makeCmsDocuments = Effect.fnUntraced(function* (
   admission: CmsAdmission, lifetime: CmsRequestLifetime, creationTime: AppCreationTimeV1,
   testHooks?: CmsDocumentReadTestHooks,
 ) {
@@ -135,15 +136,15 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   // SAFETY: the handle carries only this owner-registered admission and working set.
   const pendingDeletions = Object.freeze({}) as CmsPendingDeletions;
   deletionSets.set(pendingDeletions, Object.freeze({ admission, lifetime, requireDeletion: working.requirePendingDeletion }));
-  const close = Effect.fn("CmsDocuments.close")(function* (): Effect.fn.Return<CmsDocumentClosure, CmsTransactionError> {
+  const close = Effect.fnUntraced(function* (): Effect.fn.Return<CmsDocumentClosure, CmsTransactionError> {
     const closed = yield* working.close();
     // SAFETY: only this owner registers a closure from the exact shared working set.
     const closure = Object.freeze({}) as CmsDocumentClosure;
     closures.set(closure, Object.freeze({ ...closed, admission, lifetime, pendingDeletions }));
     return closure;
-  });
+  }, work => observeExecution("CmsDocuments.close", work, "caller"));
   return Object.freeze({ documents: working.documents, close, pendingDeletions });
-});
+}, work => observeExecution("CmsDocuments.make", work, "caller"));
 
 declare const sourceClosureBrand: unique symbol;
 export interface SourceCmsDocumentClosure { readonly [sourceClosureBrand]: true }
@@ -156,7 +157,7 @@ const sourceClosures = new WeakMap<object, Readonly<{
 
 /** Payload's selected source supplies tables and validation. The shared working
  * set still owns pending reads, keys, indexes and the request's write set. */
-export const makeSourceCmsDocuments = Effect.fn("CmsDocuments.makeSource")(function* (
+export const makeSourceCmsDocuments = Effect.fnUntraced(function* (
   admission: LogicalDocumentSourceAdmission, tx: FlarexMetadataTransaction,
   lifetime: CmsRequestLifetime, creationTime: AppCreationTimeV1,
   testHooks?: CmsDocumentReadTestHooks,
@@ -190,17 +191,17 @@ export const makeSourceCmsDocuments = Effect.fn("CmsDocuments.makeSource")(funct
       cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
   }, creationTime, readReadiness.kind === "queryRequired" ? state.unique : state.writeMechanics.unique,
     readReadiness.kind === "queryRequired" ? [] : state.writeMechanics.indexes, testHooks);
-  const close = Effect.fn("CmsDocuments.closeSource")(function* () {
+  const close = Effect.fnUntraced(function* () {
     const changes = yield* working.close();
     // SAFETY: this token is registered only after the admitted working set closes.
     const closure = Object.freeze({}) as SourceCmsDocumentClosure;
     sourceClosures.set(closure, Object.freeze({ admission, tx, lifetime, changes }));
     return closure;
-  });
+  }, work => observeExecution("CmsDocuments.closeSource", work, "caller"));
   return Object.freeze({ documents: working.documents, close });
-});
+}, work => observeExecution("CmsDocuments.makeSource", work, "caller"));
 
-export const consumeSourceCmsDocumentClosure = Effect.fn("CmsDocuments.consumeSourceClosure")(function* (
+export const consumeSourceCmsDocumentClosure = Effect.fnUntraced(function* (
   closure: SourceCmsDocumentClosure, admission: LogicalDocumentSourceAdmission,
   tx: FlarexMetadataTransaction, lifetime: CmsRequestLifetime,
 ) {
@@ -210,4 +211,4 @@ export const consumeSourceCmsDocumentClosure = Effect.fn("CmsDocuments.consumeSo
   yield* requireLogicalDocumentSourceAdmission(admission, tx).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
   sourceClosures.delete(closure);
   return closed.changes;
-});
+}, work => observeExecution("CmsDocuments.consumeSourceClosure", work, "caller"));

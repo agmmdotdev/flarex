@@ -6,6 +6,7 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import { logicalMetadataDependencyIdentity, MAX_COMMIT_METADATA_READ_DEPENDENCIES,
+  LogicalMetadataReadDependencySchema,
   type LogicalMetadataKey, type LogicalMetadataReadDependency, type MetadataSequence } from "flarex-protocol/commit-protocol";
 import { Effect, Result, Schema } from "effect";
 import type { ApplicationDocumentObservation } from "../../materialization/model";
@@ -18,6 +19,7 @@ import type { LogicalSearchRead } from "./searchReads";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
 import { isJsonObject } from "flarex-protocol/json";
 import { detachLogicalDocumentChanges, detachLogicalDocumentRootChanges } from "./detachChanges";
+import { detachLogicalCanonicalDocument, detachLogicalCanonicalRevision, forgetLogicalCanonicalDerivedKeys } from "./relationalRows";
 import { captureFiniteMetadataDependency, matchesFiniteMetadataDependencyObservation,
   type PreparedFiniteMetadataProjection, type FiniteMetadataError } from "../../../execution/finiteMetadataDependencies";
 import type { LogicalDocumentAttempt, LogicalDocumentChanges, LogicalDocumentObservedRow,
@@ -69,6 +71,7 @@ interface RootPendingDocument extends PendingDocument {
 }
 
 export interface LogicalDocumentRootState {
+  readonly derivedKeyDocuments: Set<CanonicalFlarexValueV1>;
   readonly pins: LogicalDocumentRootPins;
   readonly limits: LogicalDocumentRootLimits;
   readonly rows: Map<AppDocumentIdV1, RootPendingDocument>;
@@ -85,6 +88,8 @@ export interface LogicalDocumentRootState {
   readonly lifecycle: LogicalRelationalLifecycleObservation[];
   readonly setNull: LogicalSetNullIntent[];
   readonly referenceReplacements: LogicalReferenceReplacementIntent[];
+  /** Accepted Application overlays, independent of native hydration/activity. */
+  readonly overlayWriteGenerations: Map<CatalogTableId, number>;
   workingBytes: number;
   inserted: number;
   activityGeneration: number;
@@ -142,10 +147,10 @@ const originalRowsResult = (state: LogicalDocumentRootState):
 export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
   limits: LogicalDocumentRootLimits): LogicalDocumentRootEvaluator => {
   const state: LogicalDocumentRootState = {
-    pins: Object.freeze({ ...pins }), limits: Object.freeze({ ...limits }), rows: new Map(), scanned: new Map(),
+    pins: Object.freeze({ ...pins }), limits: Object.freeze({ ...limits }), rows: new Map(), scanned: new Map(), derivedKeyDocuments: new Set(),
     dependencies: new Map(), metadataDependencies: new Map(), metadataConsumptions: new Map(), scans: new Map(), uniqueReads: new Map(), indexReads: new Map(),
     pageReads: [], searchReads: [], attempts: [], lifecycle: [], setNull: [], referenceReplacements: [],
-    workingBytes: 0, inserted: 0, activityGeneration: 0, closed: false,
+    overlayWriteGenerations: new Map(), workingBytes: 0, inserted: 0, activityGeneration: 0, closed: false,
   };
   const snapshotOriginalRows: LogicalDocumentRootEvaluator["snapshotOriginalRows"] = () =>
     originalRowsResult(state).pipe(Result.map(rows => Object.freeze(structuredClone(rows))));
@@ -229,7 +234,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
       const bytes = 256 + (document?.canonicalBytes.byteLength ?? 0);
       if (state.dependencies.size >= state.limits.identities || bytes > state.limits.workingBytes - state.workingBytes)
         return yield* Result.fail<LogicalDocumentRootPointFailure>("limitExceeded");
-      const ownedObservation = structuredClone(observation), ownedRevision = structuredClone(revision);
+      const ownedObservation = structuredClone(observation), ownedRevision = detachLogicalCanonicalRevision(revision, document);
       state.dependencies.set(observation.documentId, ownedObservation);
       if (ownedRevision.kind === "live" && observed.kind === "present" && creationTime !== undefined) {
         state.rows.set(observation.documentId, { tableId: observation.tableId, tableName, rowId: observation.rowId,
@@ -255,20 +260,31 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     }
     const bytes = 128 + (overlay.kind === "live" ? overlay.document.canonicalBytes.byteLength : 0);
     if (bytes > state.limits.workingBytes - state.workingBytes) return Result.fail("limitExceeded");
-    const after = overlay.kind === "live" ? structuredClone(overlay.document) : null;
+    const after = overlay.kind === "live" ? detachLogicalCanonicalDocument(overlay.document) : null;
     const ordinal = state.attempts.length;
     state.attempts.push(Object.freeze({ ordinal, tableId: row.tableId, tableName, documentId: row.documentId,
       operation, before: row.current, after }));
     row.attempts.push(ordinal);
+    if (row.current !== null && (row.base?.kind !== "live" || row.current !== row.base.document)) {
+      forgetLogicalCanonicalDerivedKeys(row.current, state.derivedKeyDocuments);
+      state.derivedKeyDocuments.delete(row.current);
+    }
     row.current = after;
     state.rows.set(row.documentId, row);
     state.workingBytes += bytes;
+    state.overlayWriteGenerations.set(row.tableId, (state.overlayWriteGenerations.get(row.tableId) ?? 0) + 1);
     state.activityGeneration++;
     return Result.succeed(undefined);
   };
   const forgetUnwrittenPoint = (tableId: CatalogTableId, rowId: AppRowIdHexV1) => {
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
-    if (state.rows.get(documentId)?.attempts.length) return;
+    const pending = state.rows.get(documentId);
+    if (pending?.attempts.length) return;
+    for (const document of [pending?.current, pending?.base?.kind === "live" ? pending.base.document : undefined]) {
+      if (document == null) continue;
+      forgetLogicalCanonicalDerivedKeys(document, state.derivedKeyDocuments);
+      state.derivedKeyDocuments.delete(document);
+    }
     state.dependencies.delete(documentId);
     state.rows.delete(documentId);
     state.activityGeneration++;
@@ -276,6 +292,8 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
   const close = () => {
     if (state.closed) return;
     state.closed = true;
+    for (const document of state.derivedKeyDocuments) forgetLogicalCanonicalDerivedKeys(document, state.derivedKeyDocuments);
+    state.derivedKeyDocuments.clear();
     state.ownedSnapshot = undefined;
     state.rows.clear();
     state.scanned.clear();
@@ -291,6 +309,7 @@ export const makeLogicalDocumentRootEvaluator = (pins: LogicalDocumentRootPins,
     state.lifecycle.length = 0;
     state.setNull.length = 0;
     state.referenceReplacements.length = 0;
+    state.overlayWriteGenerations.clear();
     state.workingBytes = 0;
   };
   const evaluator = Object.freeze({ snapshot, snapshotOriginalRows, attemptCount: () => state.attempts.length,
@@ -337,7 +356,17 @@ export const consumeClosedLogicalDocumentRoot = (handle: ClosedLogicalDocumentRo
 
 /** The trusted entry owner fixes this watermark before any native selection.
  * Callers cannot replace it by sampling a newer activation's observation. */
+const decodeMetadataDependencyResult = Schema.decodeUnknownResult(Schema.toType(LogicalMetadataReadDependencySchema));
 export const recordLogicalDocumentRootMetadataDependency = (state: LogicalDocumentRootState,
+  dependency: LogicalMetadataReadDependency): boolean => {
+  if (state.closed || state.pins.metadataWatermark === undefined) return false;
+  const decoded = decodeMetadataDependencyResult(dependency);
+  return Result.isSuccess(decoded) && recordDecodedMetadataDependency(state, decoded.success);
+};
+
+/** Only the supplied-dependency decoder or the projection capture consumed
+ * inside this root operation reaches this already-decoded data channel. */
+const recordDecodedMetadataDependency = (state: LogicalDocumentRootState,
   dependency: LogicalMetadataReadDependency): boolean => {
   if (state.closed || state.pins.metadataWatermark === undefined || dependency.capturedWatermark !== state.pins.metadataWatermark)
     return false;
@@ -366,12 +395,12 @@ export const consumeLogicalDocumentRootMetadataDependency = (state: LogicalDocum
   const consumed = state.metadataConsumptions.get(projection);
   const previous = consumed?.get(identity);
   if (previous !== undefined && matchesFiniteMetadataDependencyObservation(projection, key,
-    state.pins.metadataWatermark, previous)) return recordLogicalDocumentRootMetadataDependency(state, previous)
+    state.pins.metadataWatermark, previous)) return recordDecodedMetadataDependency(state, previous)
       ? Result.succeed(undefined) : Result.fail("observationMismatch");
   return captureFiniteMetadataDependency(projection, key, state.pins.metadataWatermark).pipe(Result.flatMap(dependency => {
-    if (!recordLogicalDocumentRootMetadataDependency(state, dependency)) return Result.fail("observationMismatch" as const);
+    if (!recordDecodedMetadataDependency(state, dependency)) return Result.fail("observationMismatch" as const);
     const observations = consumed ?? new Map<string, LogicalMetadataReadDependency>();
-    observations.set(identity, dependency);
+    if (previous === undefined) observations.set(identity, dependency);
     if (consumed === undefined) state.metadataConsumptions.set(projection, observations);
     return Result.succeed(undefined);
   }));

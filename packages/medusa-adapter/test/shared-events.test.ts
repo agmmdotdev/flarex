@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import { Deferred, Effect, Result } from "effect";
 import type { Context, IMessageAggregator, ModulePersistenceMutationEventArgs, ModulePersistenceMutationService } from "@medusajs/types";
 import { dispatchPerformedActions, suppressMutationEventDispatch } from "@medusajs/drizzle/mutation-events";
@@ -162,7 +163,7 @@ describe("shared request-owned Medusa mutation dispatch", () => {
       const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(reason => commerceError(reason), commerceLimits, {}, {}, "event-admission", "write"), lifetime => lifetime.close);
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const root = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,
-        store: { findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
+        store: { prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
       }, "event-admission", lifetime.context, unused, unused);
       const metadata = yield* captureProductSchema("event-admission").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)));
       const { mutationPersistence: persistence } = productRepository(root, owner, metadata);

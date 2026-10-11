@@ -316,21 +316,21 @@ export async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
   );
-  const intrinsicBuilds = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitIntrinsicIndexBuilds(
+  const intrinsicBuilds = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(observePointCommitPublicationEffect(options.publicationObservation, "lockedAttemptAcceptance", lockPointCommitIntrinsicIndexBuilds(
     tx,
     clock,
     intrinsicDefinitions,
     command,
-  ));
+  )), diagnosticContext));
   if (intrinsicBuilds.length > 0) {
     await emitTransactionStep(options, command, "intrinsicIndexBuildLocked");
   }
-  const developerBuilds = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitDeveloperIndexBuilds(
+  const developerBuilds = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(observePointCommitPublicationEffect(options.publicationObservation, "lockedAttemptAcceptance", lockPointCommitDeveloperIndexBuilds(
     tx,
     clock,
     developerDefinitions,
     command,
-  ));
+  )), diagnosticContext));
   if (developerBuilds.length > 0) {
     await emitTransactionStep(options, command, "developerIndexBuildLocked");
   }
@@ -378,12 +378,12 @@ export async function runPointCommitTransactionKernel(
   let loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>;
   options.publicationObservation?.record({ kind: "phase", phase: "occProof", edge: "begin" });
   try {
-    loadedHeads = await loadPointCommitHeads(
+    loadedHeads = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(loadPointCommitHeads(
       tx,
       clock,
       command,
       options,
-    );
+    ), diagnosticContext));
     // A generated guard is insertion intent, never an observed missing read.
     // Genuine reads (including a prior same-ID read) keep their original OCC
     // validation before the separate insertion collision verdict.

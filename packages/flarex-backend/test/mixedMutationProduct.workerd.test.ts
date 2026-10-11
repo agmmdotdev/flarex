@@ -220,16 +220,21 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
       let readChecked = false;
       let checkingRead = false;
       let directPhysicalDataStatements = 0;
-      let snapshotCaptureStatements = 0;
+      const snapshotCaptures: ("indexPage" | "rows")[] = [];
       let readHeadStatements = 0;
       let freezeHeadStatements = 0;
       fixture = await createMixedMutationProductFixture({ driver, suffix: `selected-read-${changed.toLowerCase()}-${driver}`,
         hooks: {
           observeSql: (phase, sql) => {
             if (checkingRead && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) directPhysicalDataStatements += 1;
-            // This identifies a coupled query, not execution of its gated storage body.
-            if (checkingRead && /\bfx_accept_finite_storage_capture\b/.test(sql) &&
-              /\bfx_read_snapshot_index_page\b/.test(sql) && /\bfx_read_snapshot_rows\b/.test(sql)) snapshotCaptureStatements += 1;
+            // Membership acceptance precedes the separately permitted body command.
+            if (checkingRead && /\bfx_accept_finite_storage_capture\b/.test(sql)) {
+              const indexPage = /\bfx_read_snapshot_index_page\b/.test(sql);
+              const rows = /\bfx_read_snapshot_rows\b/.test(sql);
+              expect(indexPage && rows).toBe(false);
+              if (indexPage) snapshotCaptures.push("indexPage");
+              if (rows) snapshotCaptures.push("rows");
+            }
             if (/\bfrom\s+"fx_system_(?:data_binding_head|application_active_head)"/i.test(sql)) {
               if (checkingRead) readHeadStatements += 1;
               if (phase === "freeze") freezeHeadStatements += 1;
@@ -288,7 +293,8 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
             }));
             checkingRead = false;
             if (fixture.hasSqlObserver) expect(readHeadStatements).toBe(0);
-            if (fixture.hasSqlObserver) expect(snapshotCaptureStatements).toBeGreaterThan(0);
+            if (fixture.hasSqlObserver) expect(snapshotCaptures).toEqual(changed === "required"
+              ? ["indexPage"] : ["indexPage", "rows"]);
             if (changed === "required") {
               expect(read).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
               expect(directPhysicalDataStatements).toBe(0);

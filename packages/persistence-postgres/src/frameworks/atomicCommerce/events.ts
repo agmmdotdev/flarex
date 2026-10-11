@@ -1,3 +1,4 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
 import { Effect, Result, Schema } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isJsonObject, jsonEqual, type Json } from "flarex-protocol/json";
@@ -176,7 +177,7 @@ function admitSelectedEvents(selection: ParticipantEventSelection | undefined,
 /** Admit already policy-validated native messages into the existing committed
  * event envelope contract before the journal acknowledges an operation. The
  * journal charges root usage; this helper owns only event shape and identity. */
-export const prepareAdmittedCommerceEventIntents = Effect.fn("AtomicEvents.prepareAdmittedIntents")(
+export const prepareAdmittedCommerceEventIntents = Effect.fnUntraced(
   function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
     selection: ParticipantEventSelection, messages: readonly Json[], group: string) {
     yield* Effect.fromResult(admitParticipantEvents(selection, policy));
@@ -205,25 +206,25 @@ export const prepareAdmittedCommerceEventIntents = Effect.fn("AtomicEvents.prepa
         Effect.mapError(cause => commerceError("unadmittedEvent", cause))));
     }
     return Object.freeze(intents);
-  });
+  }, work => observeExecution("AtomicEvents.prepareAdmittedIntents", work, "caller"));
 
 /** Finishing checks only the pinned event identity. Native event callbacks have
  * already run before the operation was acknowledged and are never replayed. */
-export const validateAdmittedCommerceEventIntents = Effect.fn("AtomicEvents.validateAdmittedIntents")(
+export const validateAdmittedCommerceEventIntents = Effect.fnUntraced(
   function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
     selection: ParticipantEventSelection, events: readonly CommittedEvent[], group: string) {
     yield* validateSelectedEventIntents(policy, selection, events, group, true);
-  });
+  }, work => observeExecution("AtomicEvents.validateAdmittedIntents", work, "caller"));
 
 /** The outer operation owns its selected event family, including external
  * workflow events. Each persisted envelope must match its pinned contract. */
-export const validateAdmittedOperationEventIntents = Effect.fn("AtomicEvents.validateOperationIntents")(
+export const validateAdmittedOperationEventIntents = Effect.fnUntraced(
   function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
     selection: ParticipantEventSelection, events: readonly CommittedEvent[], group: string) {
     yield* validateSelectedEventIntents(policy, selection, events, group, undefined);
-  });
+  }, work => observeExecution("AtomicEvents.validateOperationIntents", work, "caller"));
 
-const validateSelectedEventIntents = Effect.fn("AtomicEvents.validateSelectedIntents")(
+const validateSelectedEventIntents = Effect.fnUntraced(
   function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
     selection: ParticipantEventSelection, events: readonly CommittedEvent[], group: string,
     requiredInternal: true | undefined) {
@@ -239,7 +240,7 @@ const validateSelectedEventIntents = Effect.fn("AtomicEvents.validateSelectedInt
           identity.revision === envelope.contractRevision && identity.internal === envelope.internal))
         return yield* Effect.fail(commerceError("unadmittedEvent"));
     }
-  });
+  }, work => observeExecution("AtomicEvents.validateSelectedIntents", work, "caller"));
 
 /** Stable across replay and finishing; all three root pins come from the
  * trusted journal attempt, never from an operation frame. */
@@ -270,7 +271,7 @@ export function makeAtomicEventCapture(
 ) {
   const events: CommittedEvent[] = [];
   let sealed = false;
-  const retain = Effect.fn("AtomicEvents.retain")(function* (token: CommerceEventContract, input: Json) {
+  const retain = Effect.fnUntraced(function* (token: CommerceEventContract, input: Json) {
     const definition = policy.allowed.get(token);
     if (sealed || definition === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
     if (events.length >= Math.min(maximum, commitEventLimits.messages)) return yield* Effect.fail(commerceError("limitExceeded"));
@@ -285,22 +286,22 @@ export function makeAtomicEventCapture(
     if (!isEnvelope(owned)) return yield* Effect.fail(commerceError("unadmittedEvent"));
     events.push(owned);
     return owned.message;
-  });
-  const capture = Effect.fn("AtomicEvents.capture")(function* (token: CommerceEventContract, input: unknown) {
+  }, work => observeExecution("AtomicEvents.retain", work, "caller"));
+  const capture = Effect.fnUntraced(function* (token: CommerceEventContract, input: unknown) {
     if (sealed || !policy.allowed.has(token)) return yield* Effect.fail(commerceError("unadmittedEvent"));
     if (events.length >= Math.min(maximum, commitEventLimits.messages)) return yield* Effect.fail(commerceError("limitExceeded"));
     const copied = yield* Effect.fromResult(capturePrivateJsonData(input, Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
     return yield* retain(token, copied.value);
-  });
-  const captureSelected = Effect.fn("AtomicEvents.captureSelected")(function* (selection: ParticipantEventSelection, input: unknown) {
+  }, work => observeExecution("AtomicEvents.capture", work, "caller"));
+  const captureSelected = Effect.fnUntraced(function* (selection: ParticipantEventSelection, input: unknown) {
     if (sealed || selection.contracts.length === 0) return yield* Effect.fail(commerceError("unadmittedEvent"));
     if (events.length >= Math.min(maximum, commitEventLimits.messages)) return yield* Effect.fail(commerceError("limitExceeded"));
     const copied = yield* Effect.fromResult(capturePrivateJsonData(input, Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
     const token = yield* selection.select(copied.value);
     if (!selection.contracts.includes(token) || policy.allowed.get(token)?.internal !== true) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return yield* retain(token, copied.value);
-  });
-  const close = Effect.fn("AtomicEvents.close")(function* (
+  }, work => observeExecution("AtomicEvents.captureSelected", work, "caller"));
+  const close = Effect.fnUntraced(function* (
     calls: readonly AtomicCommerceCallObservation[], derived?: CommerceDerivedIdEvent,
   ) {
     if (sealed || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -324,13 +325,13 @@ export function makeAtomicEventCapture(
     closures.set(token, { requireAdmission, lifetime, events: [...events], maximum,
       derived: prepared, derivedApplied: false });
     return token;
-  });
+  }, work => observeExecution("AtomicEvents.close", work, "caller"));
   return { capture, captureSelected, close };
 }
 /** Only trusted settlement supplies identities selected from committed rows.
  * Static metadata was checked before the publication lock; this path performs
  * no framework callback or contract decoder. */
-export const appendDerivedCommerceIdEvents = Effect.fn("AtomicEvents.appendDerivedIds")(function* (
+export const appendDerivedCommerceIdEvents = Effect.fnUntraced(function* (
   closure: CommerceEventClosure, lifetime: BoundedRequestLifetime<CommerceTransactionError>, ids: readonly string[],
 ) {
   const state = closures.get(closure);
@@ -354,8 +355,8 @@ export const appendDerivedCommerceIdEvents = Effect.fn("AtomicEvents.appendDeriv
     state.events.push(captured.value);
   }
   state.derivedApplied = true;
-});
-export const consumeCommerceEvents = Effect.fn("AtomicEvents.consume")(function* (
+}, work => observeExecution("AtomicEvents.appendDerivedIds", work, "caller"));
+export const consumeCommerceEvents = Effect.fnUntraced(function* (
   closure: CommerceEventClosure, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
 ) {
   const state = closures.get(closure);
@@ -366,4 +367,4 @@ export const consumeCommerceEvents = Effect.fn("AtomicEvents.consume")(function*
   const values = Object.freeze([...state.events]);
   return { values, sha256: values.length === 0 ? null : yield* commitEventsDigest(values).pipe(Effect.mapError(cause =>
     commerceError(cause instanceof CommitEventError && cause.reason === "invalidInput" ? "limitExceeded" : "resourceFailure", cause))) };
-});
+}, work => observeExecution("AtomicEvents.consume", work, "caller"));

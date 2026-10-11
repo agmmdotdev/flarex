@@ -2,8 +2,8 @@ import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha25
 import { bytesEqual, copyBytes } from "@flarex/utils/bytes";
 import { Data, Effect, Result, Schema } from "effect";
 import { MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1, MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 } from "flarex-protocol/commit-protocol";
-import { encodeCanonicalJson, isJsonArray, type Json } from "flarex-protocol/json";
-import { capturePrivateJsonData } from "./privateJsonData";
+import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
+import { capturePrivateJsonData, useCapturedPrivateJsonData } from "./privateJsonData";
 
 export const OutcomeResultEncodingSchema = Schema.Literals(["application-value", "json"]);
 export type OutcomeResultEncoding = typeof OutcomeResultEncodingSchema.Type;
@@ -15,33 +15,13 @@ export class JsonOutcomeError extends Data.TaggedError("JsonOutcomeError")<{
 const failure = (reason: JsonOutcomeError["reason"], cause?: unknown) => new JsonOutcomeError({ reason, cause });
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-const decodeText = Schema.decodeUnknownResult(Schema.String.check(Schema.isPattern(/^[^\uD800-\uDFFF]*$/u)));
+const outcomeValuePolicy = { canonicalNumbers: true, wellFormedUnicode: true } as const;
 const maximumResultBytes = Math.min(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1, MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1);
 const hash = makeLivePrivateSha256V1({
   invalidBudget: () => failure("limitExceeded"), invalidBytes: () => failure("invalidInput"),
   inputBytesExceeded: () => failure("limitExceeded"), unavailable: () => failure("resourceFailure"),
   nativeRejected: cause => failure("resourceFailure", cause), invalidDigestOutput: () => new Error("Invalid outcome digest"),
 });
-
-/** Only walks the bounded, detached tree captured by privateJsonData. */
-function normalizeJson(value: Json): Result.Result<Json, JsonOutcomeError> {
-  return Result.gen(function* () {
-    if (typeof value === "string") return yield* decodeText(value).pipe(Result.mapError(cause => failure("invalidInput", cause)));
-    if (typeof value === "number") return value === 0 ? 0 : value;
-    if (value === null || typeof value === "boolean") return value;
-    if (isJsonArray(value)) {
-      const values: Json[] = [];
-      for (const member of value) values.push(yield* normalizeJson(member));
-      return Object.freeze(values);
-    }
-    const entries: [string, Json][] = [];
-    for (const [key, member] of Object.entries(value)) {
-      yield* decodeText(key).pipe(Result.mapError(cause => failure("invalidInput", cause)));
-      entries.push([key, yield* normalizeJson(member)]);
-    }
-    return Object.freeze(Object.fromEntries(entries));
-  });
-}
 
 export interface CanonicalJsonOutcome {
   readonly encoding: "json";
@@ -53,15 +33,19 @@ export interface CanonicalJsonOutcome {
 
 /** Normalization precedes dispatch as well as hashing, so equal identities have equal inputs. */
 export function captureJsonOutcomeValue(input: unknown, maximum: number) {
-  return capturePrivateJsonData(input, maximum, failure).pipe(Result.flatMap(captured =>
-    normalizeJson(captured.value).pipe(Result.map(value => Object.freeze({ value, bytes: captured.bytes }))),
-  ));
+  return capturePrivateJsonData(input, maximum, failure, outcomeValuePolicy);
+}
+
+/** Trusted immutable handoff; the actual remaining budget is checked on every
+ * use. Foreign wrappers still capture, and issuance conveys only value facts. */
+export function useJsonOutcomeValue(input: unknown, maximum: number) {
+  return useCapturedPrivateJsonData(input, maximum, failure, outcomeValuePolicy);
 }
 
 /** Ordinary JSON evidence; no Application value markers or wrapper encoding. */
 export function canonicalizeJsonOutcome(input: unknown, maximum = maximumResultBytes): Result.Result<CanonicalJsonOutcome, JsonOutcomeError> {
   return Result.gen(function* () {
-    const captured = yield* captureJsonOutcomeValue(input, Math.min(maximum, maximumResultBytes));
+    const captured = yield* useJsonOutcomeValue(input, Math.min(maximum, maximumResultBytes));
     const valueJson = captured.value;
     const canonicalText = encodeCanonicalJson(valueJson, issue => { throw new Error("Captured JSON encoding invariant", { cause: issue }); });
     const bytes = encoder.encode(canonicalText);

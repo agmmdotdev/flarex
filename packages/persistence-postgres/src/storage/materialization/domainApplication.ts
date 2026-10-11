@@ -13,18 +13,6 @@ import type { PreparedLogicalSearchApplication } from "../documents/logicalDocum
 import type { IndexCoverageWrite, UniqueCoverageWrite } from "./domainCoverage";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../../database/schema";
 
-/** Each selected scalar retains the real column's decoder. Composite records
- * themselves never cross the driver transport boundary. */
-export function applicationCompositeSelection<T extends PgTable>(table: T, record: string): {
-  [K in keyof T["$inferSelect"]]: SQL<T["$inferSelect"][K]>
-} {
-  // SAFETY: Drizzle's column-key map is exactly the table's inferred row map.
-  return Object.fromEntries(Object.entries(getTableColumns(table)).map(([key, column]) =>
-    [key, sql`(${sql.raw(record)}).${sql.identifier(column.name)}`.mapWith(column)])) as {
-      [K in keyof T["$inferSelect"]]: SQL<T["$inferSelect"][K]>
-    };
-}
-
 const decodeDomainDriverError = Schema.decodeUnknownResult(Schema.Struct({
   code: Schema.Literal("FX001"), message: Schema.String, detail: Schema.String,
 }));

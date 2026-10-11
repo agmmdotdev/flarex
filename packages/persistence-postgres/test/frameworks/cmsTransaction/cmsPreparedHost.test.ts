@@ -6,7 +6,7 @@ import {
   fxSystemApplicationPublications,
 } from "../../../src/application/relations/applicationRelationSchema";
 import { makeCmsHost } from "../../../src/frameworks/cmsTransaction/host";
-import { fxSystemDataBindingHeads } from "../../../src/installation/frameworkSchema/binding/schema";
+import { fxSystemDataBindingCandidates, fxSystemDataBindingHeads } from "../../../src/installation/frameworkSchema/binding/schema";
 import {
   makePostgresRelationalSession,
   runRelationalSession,
@@ -31,9 +31,7 @@ import {
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../../src/scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../../../src/scope/scopeAuthorityResolution";
 
-import {
-  prepareApplicationBindingSelection,
-} from "../../../src/application/activation/repositoryIdentity";
+import { prepareCurrentApplicationBinding } from "../../../src/application/activation/currentBinding";
 import {
   lendApplicationBindingPreparationInputs,
 } from "../../../src/application/activation/bindingPreparation";
@@ -58,14 +56,16 @@ for (const driver of ["pglite", "postgres"] as const) {
           return { persistence: fixture.persistence, session: makePostgresRelationalSession(fixture.persistence) };
         })();
       const tested = await cmsExecutionMeasurementFixture(resource.persistence, resource.session);
-      const lease = await runEffect(retainPreparedHost(tested.input.hostRuntime, Effect.gen(function* () {
-        const binding = yield* prepareApplicationBindingSelection(tested.input.application);
-        const prepared = yield* prepareCmsApplicationFromBinding(binding, tested.input.controlDatabase, tested.input.deploymentId, tested.input.scopeId);
-        return { binding, prepared };
-      })));
+      const lease = await runEffect(retainPreparedHost(tested.input.hostRuntime, prepareCurrentApplicationBinding(
+        tested.input.application, tested.input.database, binding => Effect.gen(function* () {
+          const prepared = yield* prepareCmsApplicationFromBinding(binding, tested.input.controlDatabase, tested.input.deploymentId, tested.input.scopeId);
+          return { binding, prepared };
+        }), { selection: { deploymentId: tested.input.deploymentId, scopeId: tested.input.scopeId } })));
       cleanup.push(() => runEffect(lease.close));
-      const { binding, prepared } = await runEffect(lease.use(value => Effect.succeed(value)));
+      const { binding, prepared } = await runEffect(lease.use(current => Effect.scoped(
+        current.acquireFreshFinitePreparation.pipe(Effect.map(graph => graph.payload)))));
       const preparation = await runEffect(requirePreparedCmsApplication(prepared));
+      expect(preparation.bindingStructure).toBeUndefined();
       const inputs = await runEffect(lendApplicationBindingPreparationInputs(binding, tested.input.controlDatabase));
       const sameInputs = await runEffect(lendApplicationBindingPreparationInputs(binding, tested.input.controlDatabase));
       expect(sameInputs.indexes).toBe(inputs.indexes);
@@ -152,7 +152,7 @@ it("constructs fresh fullProof generations while revalidating warm reads, writes
   const observe = <A, E>(effect: Effect.Effect<A, E>) =>
     effect.pipe(Effect.provideService(Tracer.Tracer, tracer));
   const host = await runEffect(observe(makeCmsHost(tested.input)));
-  expect(spans.filter((name) => name === "CmsAdmission.prepare")).toHaveLength(0);
+  expect(spans.filter((name) => name === "CmsAdmission.prepare")).toHaveLength(1);
   spans.length = 0;
   const before = await tested.inventory();
   const key = host.newRequestKey();
@@ -164,7 +164,11 @@ it("constructs fresh fullProof generations while revalidating warm reads, writes
   );
   expect(await runEffect(observe(host.read(tested.read, [])))).toEqual([]);
   expect(tested.executionCount()).toBe(1);
-  expect(spans.filter(name => name === "CmsAdmission.prepare")).toHaveLength(3);
+  // The genuine generation retains its construction; fullProof still restores
+  // and accepts the actual catalog/readiness evidence on every entry.
+  expect(spans.filter(name => name === "CmsAdmission.prepare")).toHaveLength(0);
+  expect(spans.filter(name => name === "ApplicationRelationReadinessFold.acceptPreparedActiveRead")).toHaveLength(3);
+  expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(3);
   expect(await tested.inventory()).toEqual(after);
 
   const db = resource.persistence.drizzle;
@@ -253,6 +257,28 @@ it("constructs fresh fullProof generations while revalidating warm reads, writes
   expect(await runEffect(observe(host.read(tested.read, [])))).toEqual([]);
   expect(await tested.inventory()).toEqual(after);
 
+  // Full-proof generation reuse must still authenticate actual candidate bytes
+  // and its lane set for reads, new writes and durable replay before callbacks.
+  const candidateSlot = and(eq(fxSystemDataBindingCandidates.scopeId, tested.fixture.authority.scopeId),
+    eq(fxSystemDataBindingCandidates.sha256, head.candidateSha256));
+  const candidate = (await db.select().from(fxSystemDataBindingCandidates).where(candidateSlot))[0];
+  if (candidate === undefined) throw new Error("Missing binding candidate");
+  const candidateCounts = [tested.executionCount(), tested.readExecutionCount()];
+  await db.update(fxSystemDataBindingCandidates).set({ canonicalBytes: damage(candidate.canonicalBytes) }).where(candidateSlot);
+  try {
+    for (const effect of [host.read(tested.read, []), host.run(key, tested.insert, args),
+      host.run(host.newRequestKey(), tested.insert, { count: 1, prefix: "corrupt-candidate" })]) {
+      expect(await runEffectFailure(observe(effect))).toMatchObject({ reason: "invalidAuthority" });
+    }
+    expect([tested.executionCount(), tested.readExecutionCount()]).toEqual(candidateCounts);
+    expect(await tested.inventory()).toEqual(after);
+  } finally {
+    await db.update(fxSystemDataBindingCandidates).set({ canonicalBytes: candidate.canonicalBytes }).where(candidateSlot);
+  }
+  expect(await runEffect(observe(host.run(key, tested.insert, args)))).toEqual(value);
+  expect(await runEffect(observe(host.read(tested.read, [])))).toEqual([]);
+  expect(await tested.inventory()).toEqual(after);
+
   const active = await runEffect(tested.fixture.relationActivation.readActive());
   const next = await prepareAdditionalRelationRevision(tested.fixture);
   await runEffect(tested.fixture.relationActivation.activate({
@@ -268,7 +294,7 @@ it("constructs fresh fullProof generations while revalidating warm reads, writes
 
   const preparationsBeforeRebuild = spans.filter(name => name === "CmsAdmission.prepare").length;
   const rebuilt = await runEffect(observe(makeCmsHost(tested.input)));
-  expect(spans.filter(name => name === "CmsAdmission.prepare")).toHaveLength(preparationsBeforeRebuild);
+  expect(spans.filter(name => name === "CmsAdmission.prepare")).toHaveLength(preparationsBeforeRebuild + 1);
   // The new Application revision also needs an explicit data-binding cutover.
   // Reconstructing the host must not silently repair that independent authority.
   expect(await runEffectFailure(rebuilt.read(tested.read, []))).toMatchObject({ reason: "bindingChanged" });

@@ -1,5 +1,5 @@
 import { copyBytes } from "@flarex/utils/bytes";
-import { Data, Result, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import { CatalogIndexDefinitionIdSchema, CatalogTableIdSchema, CatalogUniqueConstraintDefinitionIdSchema } from "flarex-protocol/catalog";
 import { IndexBuildAttemptFenceSchema } from "flarex-protocol/index-build-state";
 import { AppUniqueConstraintSetBuildAttemptFenceV1Schema } from "flarex-protocol/internal/app-unique-constraint-set-v1";
@@ -57,7 +57,7 @@ export class UniqueMaintenanceError extends Data.TaggedError("UniqueMaintenanceE
 }> {}
 
 const decodeIndex = Schema.decodeUnknownResult(IndexMaintenanceObligationSchema, { onExcessProperty: "error" });
-const decodeUnique = Schema.decodeUnknownResult(UniqueMaintenanceObligationSchema, { onExcessProperty: "error" });
+const decodeUnique = Schema.decodeUnknownEffect(UniqueMaintenanceObligationSchema, { onExcessProperty: "error" });
 
 export function decodeIndexMaintenanceObligationResult(row: unknown): Result.Result<IndexMaintenanceObligation, IndexMaintenanceError> {
   return decodeIndex(row).pipe(
@@ -67,10 +67,10 @@ export function decodeIndexMaintenanceObligationResult(row: unknown): Result.Res
       headSha256: copyBytes(value.headSha256) })),
   );
 }
-export function decodeUniqueMaintenanceObligationResult(row: unknown): Result.Result<UniqueMaintenanceObligation, UniqueMaintenanceError> {
+export function decodeUniqueMaintenanceObligationEffect(row: unknown): Effect.Effect<UniqueMaintenanceObligation, UniqueMaintenanceError> {
   return decodeUnique(row).pipe(
-    Result.mapError(cause => new UniqueMaintenanceError({ reason: "storedState", cause })),
-    Result.map(value => Object.freeze({ ...value, physicalSpecSha256: copyBytes(value.physicalSpecSha256),
+    Effect.mapError(cause => new UniqueMaintenanceError({ reason: "storedState", cause })),
+    Effect.map(value => Object.freeze({ ...value, physicalSpecSha256: copyBytes(value.physicalSpecSha256),
       activationSha256: copyBytes(value.activationSha256), headSha256: copyBytes(value.headSha256) })),
   );
 }

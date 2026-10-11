@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Tracer } from "effect";
+import { ExecutionDiagnostics, type ExecutionDiagnosticPolicy } from "../../persistence-postgres/src/execution/diagnostics/operation";
 import { isJsonObject } from "flarex-protocol/json";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand } from
   "../../persistence-postgres/src/frameworks/atomicCommerce/commands";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/frameworks/atomicCommerce/host";
+import type { AtomicCommerceParticipantInput } from "../../persistence-postgres/src/frameworks/atomicCommerce/participants";
 import { makeCommerceHost } from "../../persistence-postgres/src/frameworks/commerceTransaction/host";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { defineCommerceCommand } from "../../persistence-postgres/src/frameworks/commerceTransaction/commands";
@@ -28,6 +30,8 @@ const required = <Value>(value: Value | undefined): Value => {
   return value;
 };
 const inventory = () => logicalCategoryCurrencyInventory(fixture);
+const isLogicalParticipant = (member: AtomicCommerceParticipantInput): member is
+  Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }> => member.logicalStorage !== undefined;
 
 describe("Category/Currency on two logical participants", () => {
   beforeAll(async () => { fixture = await logicalCategoryCurrencyFixture(driver, close => cleanup.push(close)); }, 150_000);
@@ -41,7 +45,16 @@ describe("Category/Currency on two logical participants", () => {
     const { proof, host } = fixture;
     const before = await inventory();
     const key = host.newRequestKey();
-    const value = await runEffect(host.run(key, proof.command, args("mixed")));
+    const admissions: string[] = [];
+    const tracer = Tracer.make({ span(options) { admissions.push(options.name); return new Tracer.NativeSpan(options); } });
+    const diagnostics: ExecutionDiagnosticPolicy = { observe: (name, work) => Effect.useSpan(name, {}, span =>
+      Effect.provideService(work, Tracer.ParentSpan, span)) };
+    const value = await runEffect(host.run(key, proof.command, args("mixed")).pipe(
+      Effect.provideService(Tracer.Tracer, tracer), Effect.provideService(ExecutionDiagnostics, diagnostics)));
+    expect(admissions.filter(name => name === "LogicalStorageReadiness.inspect")).toHaveLength(1);
+    expect(admissions.filter(name => name === "LogicalStorageReadiness.refreshFullObservation")).toHaveLength(1);
+    expect(admissions.filter(name => name === "LogicalCommerce.withInitializationReceipts")).toHaveLength(1);
+    expect(admissions.filter(name => name === "LogicalCommerce.requireRootInitialization")).toHaveLength(2);
     expect(value).toMatchObject({ currency: { code: "zzz", name: "mixed" },
       reread: { code: "zzz", name: "mixed" } });
     if (typeof value !== "object" || value === null || !("tree" in value))
@@ -64,6 +77,33 @@ describe("Category/Currency on two logical participants", () => {
     expect(after.logical.physicalFacts).toEqual(before.logical.physicalFacts);
     expect(await runEffect(host.run(key, proof.command, args("mixed")))).toEqual(value);
     expect(await inventory()).toEqual(after);
+  }, 120_000);
+
+  it.each(["missing", "changed"] as const)("refuses a %s participant initialization receipt before root work", async kind => {
+    const { input, proof } = fixture;
+    const before = await inventory();
+    let invoked = false;
+    const command = defineAtomicCommerceCommand(`rootAdmission${kind}`, () => Effect.sync(() => {
+      invoked = true;
+      return null;
+    }));
+    const selected = input.participants.find(member => member.participant === proof.currencyParticipant);
+    if (selected === undefined || !isLogicalParticipant(selected)) throw new Error("Missing logical Currency participant");
+    const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [command],
+      participants: input.participants.map(member => {
+        if (member.participant !== proof.currencyParticipant) return member;
+        if (!isLogicalParticipant(member)) throw new Error("Currency participant must use logical storage");
+        return { ...member, logicalStorage: { ...member.logicalStorage,
+          initialization: { ...member.logicalStorage.initialization,
+            ...(kind === "missing" ? { stepId: "uninitialized-root-source" } : { datasetSha256: "0".repeat(64) }) } },
+        };
+      }) }));
+    try {
+      expect(await runEffectFailure(host.run(host.newRequestKey(), command, null)))
+        .toMatchObject({ reason: kind === "missing" ? "seedRequired" : "seedMismatch" });
+      expect(invoked).toBe(false);
+      expect(await inventory()).toEqual(before);
+    } finally { await runEffect(host.close); }
   }, 120_000);
 
   it("refuses a Category receipt that changes a requested field and rolls back its row", async () => {

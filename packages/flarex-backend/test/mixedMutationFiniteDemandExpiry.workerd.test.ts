@@ -8,9 +8,6 @@ import {
   prepareLogicalSourceEvidence,
 } from "../../persistence-postgres/src/storage/documents/logicalDocuments/sourceAdmission";
 import {
-  prepareLogicalRelationalAdmission,
-} from "../../persistence-postgres/src/storage/documents/logicalDocuments/relationalAdmission";
-import {
   inspectLogicalParticipantAdmissionBundle,
 } from "../../persistence-postgres/src/storage/documents/logicalDocuments/participantAdmission";
 import { captureFiniteStorageEffect } from "../../persistence-postgres/src/execution/finiteStorageCapture";
@@ -20,9 +17,6 @@ import {
 import type {
   LogicalStorageReadDemand,
 } from "../../persistence-postgres/src/storage/documents/logicalDocuments/model";
-import {
-  prepareLogicalStorageReadiness,
-} from "../../persistence-postgres/src/storage/catalog/logicalStorageReadiness";
 import type {
   FiniteSessionJournalParticipantSelection,
 } from "../../persistence-postgres/src/execution/journal/api";
@@ -117,30 +111,25 @@ async function expireAndInspect(fixture: Fixture, before: Awaited<ReturnType<typ
 
 async function currencyDemandFixture(suffix: string) {
   let source: Effect.Success<ReturnType<typeof prepareLogicalSourceEvidence>> | undefined;
-  let prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>> | undefined;
   let participant: FiniteSessionJournalParticipantSelection | undefined;
   const fixture = await createMixedMutationProductFixture({ driver: "postgres", suffix, hooks: {
-    onPreparedContext: async currency => {
+    selectFiniteProductSource: currency => currency.hostInput.logicalStorage.source,
+    onPreparedFiniteProductSource: ({ currency, catalog }) => Effect.gen(function* () {
       const logical = currency.hostInput.logicalStorage;
       const location = { deploymentId: currency.deploymentId, scopeId: currency.application.authority.scopeId,
         schemaVersionId: currency.schemaVersionId };
-      const catalog = await Effect.runPromise(prepareLogicalStorageReadiness(logical.ports, logical.unique, location));
-      if (catalog.status !== "prepared") throw new Error("Missing genuine source catalog");
       const input = { sourceKey: "medusa.currency", writeProfile: "medusa.currency",
         schema: currency.currencyDefinition.schema, evidence: currency.currencyDefinition.provenance };
-      source = await Effect.runPromise(prepareLogicalSourceEvidence(logical.ports, logical.unique, location,
+      source = yield* prepareLogicalSourceEvidence(logical.ports, logical.unique, location,
         { sourceKey: input.sourceKey, writeProfile: input.writeProfile,
           definition: { kind: "relational", schema: input.schema }, evidence: input.evidence },
-        "medusa", "relational", { kind: "prepared", catalog }));
-      prepared = await Effect.runPromise(prepareLogicalRelationalAdmission(logical.ports, logical.unique,
-        location, input, { kind: "prepared", catalog }));
-      return undefined;
-    },
+        "medusa", "relational", { kind: "prepared", catalog });
+    }).pipe(Effect.orDie),
     transformFiniteEntrySources: participants => {
       const original = participants[0];
-      if (original === undefined || prepared === undefined) throw new Error("Missing genuine finite source preparation");
-      participant = { ...original, sources: [{ selection: prepared, methods: original.operationMethods }] };
-      return [participant];
+      if (original === undefined) throw new Error("Missing genuine finite source preparation");
+      participant = original;
+      return participants;
     },
   } });
   if (source === undefined || participant === undefined) throw new Error("Missing admitted actual Currency source");

@@ -14,6 +14,7 @@ import {
   CommitSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
+  StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { Effect } from "effect";
 import { and, eq } from "drizzle-orm";
@@ -36,6 +37,7 @@ import {
   type PreparedAppSchemaCandidateWriteGuard,
   prepareAppSchemaCandidateWriteGuardEffect,
   captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
+  prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
   prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
   prepareFiniteAppSchemaCandidateWriteGuardPortEffect,
   applyAppSchemaCandidateWriteGuardInTransactionEffect,
@@ -51,6 +53,7 @@ import type { PostgresFlarexPersistence } from "../../../src/database/postgres";
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
 import { insertCurrentScopeClockFixture } from "../../scope/scopeClockFixture";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -92,6 +95,16 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
         const accepted = yield* target[ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION](tx, selection);
         return yield* captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx, accepted.authority, application.sessionAuthority);
       })));
+      const foreignScope = await target[RUN_INSTALLED_ACCEPTING_READ_COMMITTED](selection, tx => runEffect(Effect.gen(function* () {
+        const accepted = yield* target[ACCEPT_INSTALLED_ATTEMPT_SCOPE_AUTHORITY_IN_TRANSACTION](tx, selection);
+        return yield* captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx,
+          { ...accepted.authority, storageGenerationFence: StorageGenerationFenceSchema.make(accepted.authority.storageGenerationFence + 1n) },
+          application.sessionAuthority);
+      })));
+      expect(await runEffectFailure(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(original, foreignScope)))
+        .toMatchObject({ reason: "compositionMismatch" });
+      expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(original, foreignScope, selection)))
+        .toMatchObject({ reason: "concurrentStateChange" });
       const prepared = await runEffect(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(original, capture, selection));
       const users = application.schemaAuthority.tables.find(table => table.logicalName === "users");
       if (users === undefined) throw new Error("Missing actual Application users table");
@@ -140,8 +153,8 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
         .toMatchObject({ _tag: "Success", success: { status: "candidateFailed" } });
       await runEffect(retained.close);
       expect(await runEffectFailure(prepareFiniteAppSchemaCandidateWriteGuardFromPlanningHeadEffect(reconstructed, capture, selection)))
-        .toMatchObject({ reason: "compositionMismatch" });
-      expect(await apply(reconstructed, freshPreparation)).toMatchObject({ _tag: "Failure", failure: { reason: "compositionMismatch" } });
+        .toMatchObject({ reason: "notIssued" });
+      expect(await apply(reconstructed, freshPreparation)).toMatchObject({ _tag: "Failure", failure: { reason: "notIssued" } });
     } finally { for (const close of cleanup.reverse()) await close(); }
   }, 240_000);
 
@@ -461,7 +474,9 @@ async function appendLive(
     fields,
   });
   await fixture.persistence.drizzle.transaction(async tx => {
-    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try {
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           tableId: fixture.tableId,
@@ -475,6 +490,7 @@ async function appendLive(
           creationTime,
           document,
         }]));
+    } finally { closeInstallationAdmission(tx); }
   });
 }
 

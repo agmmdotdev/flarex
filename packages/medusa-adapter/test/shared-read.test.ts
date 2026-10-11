@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import { Effect, Option, Result, Schema } from "effect";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/execution/preparation/boundedRequestLifetime";
@@ -43,6 +44,7 @@ describe("shared Medusa read compilation and execution", () => {
       reason => commerceError(reason), commerceLimits, {}, {}, "currency-budget", "read"));
     const unused = () => Effect.fail(commerceError("unsupportedProfile"));
     const store: CommerceCommandContext["store"] = {
+      prepareRead(query: unknown) { return mockRelationalRead(this, query); },
       findPage: manager => lifetime.operation(manager, "currency-budget", "read", Effect.succeed({ rows: [{ code: "usd" }], hasMore: false })),
       aggregate: unused,
       find: manager => lifetime.operation(manager, "currency-budget", "read", Effect.succeed([{ code: "usd" }])),
@@ -127,7 +129,7 @@ describe("shared Medusa read compilation and execution", () => {
       ]);
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
-        table: (table: string) => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")),
+        table: (table: string) => Effect.succeed({ prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")),
           find: (manager: unknown, query: unknown) => Effect.sync(() => {
             expect(manager).toBe(lifetime.context); operations.push({ table, kind: "find", query });
             const rows = responses.get(table)?.shift();
@@ -152,7 +154,7 @@ describe("shared Medusa read compilation and execution", () => {
       ]);
       expect(operations[0]?.query).toMatchObject({ take: defaultCommerceResources.queryRows, order: { column: "serial" } });
       expect(operations[1]?.query).toMatchObject({ skip: 2, take: 1, predicate: { kind: "and", children: [{ kind: "in", column: "isbn", values: ["v1"] }] } });
-      expect(operations[2]?.query).toEqual(operations[1]?.query);
+      expect(operations[2]?.query).toBe(operations[1]?.query);
       expect(operations[3]?.query).toMatchObject({ order: { column: "code" } });
       expect(operations[6]?.query).toMatchObject({ order: { column: "slug" } });
     }));

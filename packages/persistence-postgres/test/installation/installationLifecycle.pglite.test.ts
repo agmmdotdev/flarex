@@ -9,6 +9,17 @@ import { newTestPGlite } from "../support/pgliteSearchExtensions";
 import { fxSystemTransactionJournalPoints } from "../../src/database/schema";
 
 describe("installation full-proof compatibility", () => {
+  it("retires all ordinary pure routines while preserving the current installation proof", async () => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    try {
+      await persistence.migrate();
+      expect((await persistence.query(`select p.proname from pg_catalog.pg_proc p
+        where p.pronamespace=current_schema()::regnamespace and p.proname in
+          ('fx_accept_ordinary_index_readiness','fx_accept_ordinary_unique_readiness','fx_accept_ordinary_search_readiness')`)).rows).toEqual([]);
+      await Effect.runPromise(verifyInstallationWriterProtection(persistence.drizzle,"public"));
+    } finally { await db.close(); }
+  }, 180_000);
   it("attests the journal CHECK and cleans native parser references on nested success and rollback", async () => {
     const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });

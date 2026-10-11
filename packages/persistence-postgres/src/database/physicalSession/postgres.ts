@@ -9,6 +9,7 @@ import {
 } from "pg";
 import type { FlarexMetadataDatabase } from "../../application/deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { executeNativePhysicalCommand, type NativePhysicalCommand, type NativePhysicalCommandSession } from "./drizzle";
 import { observePhysicalSessionEffect, type PhysicalSessionObservation } from "./observation";
 import {
   makePhysicalDeadlineOperations,
@@ -73,6 +74,7 @@ interface CheckedOutConnection {
   readonly client: PoolClient;
   readonly database: FlarexMetadataDatabase;
   readonly transaction: FlarexMetadataTransaction;
+  readonly session: NativePhysicalCommandSession;
   readonly identity: PhysicalConnectionIdentity;
   readonly backendKeyData: PostgresBackendKeyData | undefined;
   readonly cancellationClientConfig: PoolConfig | undefined;
@@ -119,7 +121,8 @@ const connectionIdentities = new WeakMap<
  * supplies its single fixed statement; consumers receive only named captures.
  * Both reads retain the same checkout, deadline, work fence and quarantine. */
 export interface PostgresPhysicalSessionDriver<ResourceIssue> extends SessionDriver<ResourceIssue> {
-  readonly runImplicitReadEffect: SessionDriver<ResourceIssue>["runReadEffect"];
+  readonly runImplicitCommandEffect: <Value>(input: { readonly deadline: PhysicalDeadline },
+    command: NativePhysicalCommand<Value>, bindings: Record<string, unknown>) => Effect.Effect<Value, ResourceIssue>;
 }
 
 /** Multiple pool/schema instances coexist; the caller owns the pool, each operation owns its checkout. */
@@ -129,8 +132,12 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     readonly access: (client: PoolClient) => {
       readonly database: FlarexMetadataDatabase;
       readonly transaction: FlarexMetadataTransaction;
+      readonly session: NativePhysicalCommandSession;
     };
     readonly errors: PhysicalSessionErrors<ResourceIssue, DeadlineIssue>;
+    /** Fixed native commands retain their owner's foreign failure projection;
+     * physical acquisition, deadline and cleanup failures keep their own shape. */
+    readonly commandFailure?: (cause: unknown) => ResourceIssue;
   },
   optionInput: PostgresPhysicalSessionOptions = {},
 ): PostgresPhysicalSessionDriver<ResourceIssue> {
@@ -160,18 +167,18 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
   // quiet requests construct no Effect.fn definition/call stacks or spans.
   function buildDriver(): PhysicalSessionDriver {
     const options = normalizePostgresPhysicalSessionOptions(optionInput);
-    const makeReadOperation = (profile: "sessionBudget" | "implicitStatement"): PhysicalSessionDriver["runReadEffect"] => <Value, Failure>(
+    const runReadOperation = <Value, Failure>(
         input: {
           readonly deadline: PhysicalDeadline;
         },
-        work: (
-          database: FlarexMetadataDatabase,
-        ) => Effect.Effect<Value, Failure, never>,
-      ): Effect.Effect<Value, Failure | ResourceIssue, never> =>
-        observeExecution(profile === "sessionBudget" ? "PostgresPhysicalSession.read" : "PostgresPhysicalSession.implicitRead", Effect.uninterruptibleMask((restore) =>
+        execution: { readonly kind: "callback"; readonly work: (database: FlarexMetadataDatabase) => Effect.Effect<Value, Failure> } |
+          { readonly kind: "command"; readonly command: NativePhysicalCommand<Value>; readonly bindings: Record<string, unknown> },
+      ): Effect.Effect<Value, Failure | ResourceIssue, never> => {
+        const profile = execution.kind === "callback" ? "sessionBudget" : "implicitStatement";
+        return observeExecution(profile === "sessionBudget" ? "PostgresPhysicalSession.read" : "PostgresPhysicalSession.implicitCommand", Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             const acquisition = yield* Effect.exit(
-              restore(acquireConnection(ownedPool, input.deadline, options, "database")),
+              restore(acquireConnection(ownedPool, input.deadline, options, execution.kind === "callback" ? "database" : "session")),
             );
             if (Exit.isFailure(acquisition)) {
               return yield* Effect.failCause(acquisition.cause);
@@ -263,12 +270,15 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
             let callbackSettlement: Exit.Exit<Value, Failure> | undefined;
             const callback = yield* Effect.exit(
               restore(
-                runCallbackEffect(
+                execution.kind === "command" ? runBoundedPromiseEffect(input.deadline, "read",
+                  () => executeNativePhysicalCommand(connection.session, execution.command, execution.bindings), connection,
+                  composition.commandFailure)
+                  .pipe(Effect.map(value => Exit.succeed(value))) : runCallbackEffect(
                   connection,
                   input.deadline,
                   "read",
                   connection.database,
-                  work,
+                  execution.work,
                   (settlement) => {
                     callbackSettlement = settlement;
                   },
@@ -396,8 +406,11 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
               : callback.value.value;
           }),
         ));
-    const runReadEffect = makeReadOperation("sessionBudget");
-    const runImplicitReadEffect = makeReadOperation("implicitStatement");
+      };
+    const runReadEffect: PhysicalSessionDriver["runReadEffect"] = (input, work) => runReadOperation(input, { kind: "callback", work });
+    const runImplicitCommandEffect: PhysicalSessionDriver["runImplicitCommandEffect"] = <Value>(
+      input: { readonly deadline: PhysicalDeadline }, command: NativePhysicalCommand<Value>, bindings: Record<string, unknown>,
+    ) => runReadOperation<Value, never>(input, { kind: "command", command, bindings });
 
     const runInitialTransactionEffect: PhysicalSessionDriver["runInitialTransactionEffect"] =
       Effect.fnUntraced(function* <
@@ -935,7 +948,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
 
     return Object.freeze({
       runReadEffect,
-      runImplicitReadEffect,
+      runImplicitCommandEffect,
       runInitialTransactionEffect,
       runRecoveryTransactionEffect,
     } satisfies PhysicalSessionDriver);
@@ -947,7 +960,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     pool: PhysicalPostgresPool,
     deadline: PhysicalDeadline,
     options: NormalizedPostgresPhysicalSessionOptions,
-    requestedView: "database" | "transaction",
+    requestedView: "database" | "transaction" | "session",
   ): Effect.Effect<CheckedOutConnection, ResourceIssue, never> {
     return remainingResourceMilliseconds(deadline, "acquire").pipe(
       Effect.flatMap((remainingMilliseconds) =>
@@ -1036,7 +1049,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     client: PoolClient,
     cancellationClientConfig: PoolConfig | undefined,
     options: NormalizedPostgresPhysicalSessionOptions,
-    requestedView: "database" | "transaction",
+    requestedView: "database" | "transaction" | "session",
   ): CheckedOutConnection {
     const pending = new Set<Promise<void>>();
     let trackedWorkFailure: CheckedOutConnectionWorkFailure | undefined;
@@ -1099,6 +1112,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
       client,
       get database() { return access.database; },
       get transaction() { return access.transaction; },
+      get session() { return access.session; },
       identity: connectionIdentity(client),
       backendKeyData: readNodePostgresBackendKeyData(client),
       cancellationClientConfig,
@@ -1290,11 +1304,12 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     phase: PhysicalSessionPhase,
     start: (signal: AbortSignal) => Promise<Value>,
     connection?: CheckedOutConnection,
+    commandFailure?: (cause: unknown) => ResourceIssue,
   ): Effect.Effect<Value, ResourceIssue, never> {
     return remainingResourceMilliseconds(deadline, phase).pipe(
       Effect.flatMap((remainingMilliseconds) =>
         boundedPromiseRaceEffect(
-          deadline, phase, remainingMilliseconds, start, connection,
+          deadline, phase, remainingMilliseconds, start, connection, commandFailure,
         ),
       ),
     );
@@ -1308,6 +1323,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
     remainingMilliseconds: number,
     start: (signal: AbortSignal) => Promise<Value>,
     connection?: CheckedOutConnection,
+    commandFailure?: (cause: unknown) => ResourceIssue,
   ): Effect.Effect<Value, ResourceIssue, never> {
     return Effect.raceFirst(
       Effect.callback<Value, ResourceIssue>((resume) => {
@@ -1329,12 +1345,12 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
               ? started
               : connection.trackPromise(started);
         } catch (cause) {
-          finish(Effect.fail(resourceIssue(phase, cause)));
+          finish(Effect.fail(commandFailure === undefined ? resourceIssue(phase, cause) : commandFailure(cause)));
           return Effect.void;
         }
         void promise.then(
           (value) => finish(Effect.succeed(value)),
-          (cause) => finish(Effect.fail(resourceIssue(phase, cause))),
+          (cause) => finish(Effect.fail(commandFailure === undefined ? resourceIssue(phase, cause) : commandFailure(cause))),
         );
 
         return Effect.sync(() => {

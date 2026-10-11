@@ -333,6 +333,10 @@ describe("Medusa source-island boundary checker", () => {
 
   it("admits only the named connected proof edges and exact authored targets", () => {
     const edges = [
+      { importer: "packages/persistence-postgres/test/execution/finiteIndexedBodyPermission.test.ts",
+        specifier: "../../../medusa-adapter/test/support/native-product-attempt-seed", target: "packages/medusa-adapter/test/support/native-product-attempt-seed.ts" },
+      { importer: "packages/persistence-postgres/test/execution/finitePreparedSourceComposition.test.ts",
+        specifier: "../../../medusa-adapter/src/schemaComposition", target: "packages/medusa-adapter/src/schemaComposition.ts" },
       { importer: "packages/flarex-backend/test/mixedMutationProduct.workerd.test.ts",
         specifier: "../../medusa-adapter/src/product-attempt", target: "packages/medusa-adapter/src/product-attempt.ts" },
       { importer: "packages/flarex-backend/test/preparedTargetMetadata.postgres.test.ts",
@@ -340,7 +344,7 @@ describe("Medusa source-island boundary checker", () => {
       { importer: "packages/flarex-backend/test/mixedMutationFiniteRetirement.workerd.test.ts",
         specifier: "../../medusa-adapter/src/currency-service", target: "packages/medusa-adapter/src/currency-service.ts" },
       ...["application/applicationFiniteBindingCorrelation.test.ts", "application/bindingMetadataBackfillScenario.ts", "execution/finiteSourceCommitClosure.test.ts",
-        "storage/catalog/appSchemaCandidateValidation.postgres.test.ts", "execution/sessionJournalMultiSource.test.ts"]
+        "storage/catalog/appSchemaCandidateValidation.postgres.test.ts", "execution/journal/sessionJournalMultiSource.test.ts"]
         .map(file => ({ importer: `packages/persistence-postgres/test/${file}`,
           specifier: posix.relative(posix.dirname(`packages/persistence-postgres/test/${file}`),
             "packages/medusa-adapter/test/support/logical-currency-fixture.ts").replace(/\.ts$/u, ""),

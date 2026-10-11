@@ -26,6 +26,7 @@ import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
   resolveTrustedScopeAuthoritySnapshotResult,
   type TrustedScopeAuthority,
+  type TrustedScopeSelection,
 } from "../../scope/scopeAuthorityResolution";
 import {
   lockScopeClockForOrdinaryWriteInTransactionEffect,
@@ -87,10 +88,11 @@ export const prepareCurrentApplicationBinding = Effect.fnUntraced(
     repository: ApplicationBindingSelectionReader<ReaderFailure>, database: FlarexMetadataDatabase,
     construct: (binding: ApplicationBindingInput, context: CurrentApplicationGenerationContext) =>
       Effect.Effect<Payload, ConstructionFailure, ConstructionRequirements>,
-    options: Readonly<{ installation?: PreparedCoLocatedReadInstallation | undefined;
+    options: Readonly<{ selection: TrustedScopeSelection; installation?: PreparedCoLocatedReadInstallation | undefined;
       candidateIssuer?: PointMutationSessionAuthorityResolutionPortsV1 }>,
   ): Effect.fn.Return<CurrentApplicationPreparation<Payload, ConstructionFailure, ConstructionRequirements>,
     ConstructionFailure | CurrentApplicationPreparationFailure, ConstructionRequirements> {
+    const selection = Object.freeze({ ...options.selection });
     const owner = readApplicationActivationRepositoryState(repository);
     const prepare = readApplicationBindingPreparationReader(repository);
     const lifetime = yield* captureHostPreparationLifetime();
@@ -99,8 +101,11 @@ export const prepareCurrentApplicationBinding = Effect.fnUntraced(
     const controlDatabase = owner.controlDatabase;
     const requireOpen = () => Effect.fromResult(lifetime.checkOpen()).pipe(Effect.mapError(cause =>
       activationError("read", "resourceFailure", undefined, false, cause)));
-    const selection = Object.freeze({ deploymentId: owner.deploymentId, scopeId: owner.scopeId });
     const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(selection, owner.authority);
+    // Resolve the trusted requested scope first so its own provisioning and
+    // placement refusal wins. A valid peer cannot select this repository's graph.
+    if (selection.deploymentId !== owner.deploymentId || selection.scopeId !== owner.scopeId)
+      return yield* activationFailure("read", "invalidComposition");
     if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
       return yield* activationFailure("read", "invalidComposition");
     const placement = options.installation === undefined ? undefined : yield* Effect.fromResult(

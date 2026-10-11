@@ -67,6 +67,9 @@ export interface FiniteParticipantStorageDemand {
   readonly demand: LogicalStorageReadDemand;
 }
 export interface LogicalParticipantSelection {
+  /** Original source mechanics only; no live admission or transaction loan. */
+  readonly lendFiniteMetadataProjection?: () => Effect.Effect<PreparedFiniteMetadataProjection,
+    LogicalParticipantAdmissionError>;
   readonly bindAttemptEffect: (application: ApplicationBindingInput, attempt: SessionJournalAttempt,
     root: LogicalParticipantAttemptRoot, readTransaction: LogicalParticipantAttemptReadTransaction,
     methods: readonly string[],

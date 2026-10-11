@@ -900,7 +900,7 @@ export function makeFiniteRootLifecycle(owner: JournalAttemptOwner) {
           const issuedResult =
             readIssuedCanonicalSuccessfulResultV1(successfulResult);
           const verifiedResult =
-            issuedResult ??
+            issuedResult?.result ??
             (yield* verifySuccessfulResultEvidenceV1Effect(
               successfulResult.evidence,
             ).pipe(

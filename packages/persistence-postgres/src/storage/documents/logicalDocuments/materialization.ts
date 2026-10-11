@@ -19,9 +19,6 @@ import {
 import {
   invalidateAcceptedApplicationBindingInTransaction,
 } from "../../../application/activation/acceptedBinding";
-import {
-  runPointCommitPromiseEffect,
-} from "../../../commit/point/promiseBoundary";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import {
   SnapshotTokenSchema,
@@ -39,8 +36,7 @@ import {
   validateApplicationUniqueTransitionBudget,
   lockPointCommitIntrinsicIndexBuilds,
   lockPointCommitDeveloperIndexBuilds,
-  loadPointCommitHeads,
-  loadApplicationDocumentPriorState,
+  captureApplicationDocumentHeadsAndOriginals,
   validatePointCommitDependenciesResult,
   preparePointCommitApplicationRelationPlan,
   maintainPointCommitApplicationRelationsEffect,
@@ -89,6 +85,9 @@ export { logicalMaterializationBatchBudget } from "./policy";
 export interface LogicalDocumentMaterializationInput<Failure> {
   readonly coverage: IndexPublicationProfile;
   readonly command: ApplicationDocumentDefinitionCommand;
+  readonly sourceSchemaVersionByTable?: ApplicationDocumentMaterializationCommand["sourceSchemaVersionByTable"];
+  /** Serial source order scopes the original generated-insertion refusal rule. */
+  readonly sourceOrdinalByTable?: ReadonlyMap<LogicalDocumentChange["tableId"], number>;
   readonly intrinsic: readonly LocatedAppIndexDefinitionV1[];
   readonly developer: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
@@ -130,10 +129,6 @@ export function projectLogicalDocumentMaterializationFailure(cause: unknown): Lo
   );
 }
 
-/** Adapter for the remaining real Promise driver/locking boundaries. */
-const participantKernel = <Value,>(work: () => Promise<Value>) =>
-  runPointCommitPromiseEffect(work, projectLogicalDocumentMaterializationFailure);
-
 export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
   function* <Failure>(
     prepared: LogicalDocumentMaterializationInput<Failure>,
@@ -172,23 +167,22 @@ export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
       rowIntents: [],
       dependencies: [],
     };
-    const intrinsic = yield* participantKernel(() =>
+    const intrinsic = yield*
       lockPointCommitIntrinsicIndexBuilds(
         tx,
         clock,
         prepared.intrinsic,
         empty,
-      ),
-    );
-    const developer = yield* participantKernel(() =>
+      ).pipe(Effect.mapError(projectLogicalDocumentMaterializationFailure));
+    const developer = yield*
       lockPointCommitDeveloperIndexBuilds(
         tx,
         clock,
         prepared.developer,
         empty,
-      ),
-    );
-    let phase: "ready" | "prepared" | "failed" | "complete" = "ready";
+      ).pipe(Effect.mapError(projectLogicalDocumentMaterializationFailure));
+    let phase: "ready" | "failed" | "complete" = "ready";
+    let pendingDeltas = 0;
     let loweredCommitSeq: CommitSeq | null = null;
     let totalRows = 0;
     let totalPages = 0;
@@ -215,6 +209,7 @@ export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
         return yield* Effect.fail(logicalMaterializationError("limitExceeded"));
       const command = {
         authorityPins,
+        ...(prepared.sourceSchemaVersionByTable === undefined ? {} : { sourceSchemaVersionByTable: prepared.sourceSchemaVersionByTable }),
         rowIntents: changes.map(change => ({ ...change, ...projectLogicalPointExpectation(change) })),
         dependencies: dependencies.map(projectLogicalPointExpectation),
       } satisfies ApplicationDocumentMaterializationCommand;
@@ -224,11 +219,25 @@ export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
           prepared.unique,
         ),
       ).pipe(Effect.mapError((cause) => logicalMaterializationError("limitExceeded", cause)));
-      const heads = yield* participantKernel(() =>
-        loadPointCommitHeads(tx, clock, command, prepared.options),
-      );
+      const changed = new Set(changes.map(row => row.tableId));
+      const selectedDeveloper = developer.filter(index => changed.has(index.definition.access.tableId));
+      const selectedUnique = prepared.unique.filter(definition => changed.has(definition.tableId));
+      const relationDefinitions = prepared.relations?.definitions;
+      const relations = relationDefinitions === undefined || relationDefinitions === null || prepared.relations === null
+        ? null : { port: prepared.relations.port, definitions: relationDefinitions };
+      const capture = yield* captureApplicationDocumentHeadsAndOriginals(
+        tx, clock, command, selectedDeveloper, selectedUnique, relations, prepared.options,
+      ).pipe(Effect.mapError(projectLogicalDocumentMaterializationFailure));
+      const heads = capture.heads;
       let firstPointFailure: LogicalDocumentMaterializationError | undefined;
+      let pointSourceOrdinal: number | undefined;
       for (const [index, evidence] of dependencies.entries()) {
+        const sourceOrdinal = prepared.sourceOrdinalByTable?.get(evidence.tableId);
+        if (prepared.sourceOrdinalByTable !== undefined && sourceOrdinal === undefined)
+          return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
+        if (pointSourceOrdinal !== undefined && sourceOrdinal !== pointSourceOrdinal && firstPointFailure !== undefined)
+          return yield* Effect.fail(firstPointFailure);
+        pointSourceOrdinal = sourceOrdinal;
         const dependency = command.dependencies[index];
         const head = heads[index];
         if (head === undefined || dependency === undefined || evidence.readAt < 0n || evidence.readAt > scopeClock.lastCommitSeq)
@@ -255,41 +264,43 @@ export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
         return point === undefined ? Effect.fail(logicalMaterializationError("invalidAuthority"))
           : Effect.succeed({ ...change, ...point });
       });
-      const changed = new Set(changes.map(row => row.tableId));
-      const selectedDeveloper = developer.filter(index => changed.has(index.definition.access.tableId));
-      const selectedUnique = prepared.unique.filter(definition => changed.has(definition.tableId));
-      const relationDefinitions = prepared.relations?.definitions;
-      const relations = relationDefinitions === undefined || relationDefinitions === null || prepared.relations === null
-        ? null
-        : { port: prepared.relations.port, definitions: relationDefinitions };
-      const priorState = yield* loadApplicationDocumentPriorState(
-        tx, command, heads, selectedDeveloper, selectedUnique, relations, prepared.options,
-      ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectLogicalDocumentMaterializationFailure))));
+      const priorState = yield* capture.readPriorState().pipe(Effect.catchCause(cause =>
+        Effect.failCause(Cause.map(cause, projectLogicalDocumentMaterializationFailure))));
       const relationPlan = yield* preparePointCommitApplicationRelationPlan(
           tx, command, priorState, relations, scopeClock.lastCommitSeq, prepared.options,
         ).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectLogicalDocumentMaterializationFailure))));
+      // Acceptance consumes every original point and transition before the
+      // outer owner starts its prefix or any derived self-write. Lowering owns
+      // only the already accepted plan and the eventual allocated sequence.
+      const selectedIntrinsic = intrinsic.filter(index => changed.has(index.definition.access.tableId));
+      const originalBuildLocks = yield* Effect.fromResult(captureOriginalApplicationPublicationBuildLocks(tx, clock,
+        selectedIntrinsic.map(index => index.definition), selectedDeveloper.map(index => index.definition)))
+        .pipe(Effect.mapError(projectLogicalDocumentMaterializationFailure));
+      const settlement = yield* prepareApplicationDocumentSettlementFromOriginalsEffect(command, priorState.originalRows ?? [], Exit.succeed(priorState),
+        selectedDeveloper.map(index => index.definition), selectedUnique, relations, selectedIntrinsic.map(index => index.definition));
+      const acceptedPublication = yield* acceptApplicationPublication(tx, { clock, settlement, intrinsic: selectedIntrinsic.map(index => index.definition),
+        developer: selectedDeveloper.map(index => index.definition), unique: selectedUnique, relations, indexRanges: [], relationDependencies: [],
+        candidate: false, oldestAvailableCommitSeq: 0n, deadline: null, originalBuildLocks, observeQuery: prepared.options.observeQuery,
+        pointReadAt: new Map(command.dependencies.map(dependency => [dependency.documentId, dependency.readAt])),
+        generatedInsertions: new Set(dependencies.filter(point => point.dependency.kind === "generatedInsertion").map(point => point.documentId)),
+        generatedOnlyPoints: new Set(dependencies.filter(point => point.dependency.kind === "generatedInsertion").map(point => point.documentId)) })
+        .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectLogicalDocumentMaterializationFailure))));
       let lowered = false;
-      phase = "prepared";
+      // Reserve the whole packet while it is prepared. A batch owner may
+      // accept later source packets before lowering any earlier packet.
+      totalRows += changes.length;
+      totalPages++;
+      totalDocumentBytes += pageBytes;
+      for (const id of pageIdentities) changedIdentities.add(id);
+      pendingDeltas++;
+      phase = "ready";
       const lower = Effect.fnUntraced(function* (commitSeq: CommitSeq) {
-        if (lowered || phase !== "prepared" ||
+        if (lowered || phase !== "ready" ||
           (loweredCommitSeq !== null && commitSeq !== loweredCommitSeq))
           return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
         lowered = true;
         phase = "failed";
         yield* prepared.requireAdmission;
-        const selectedIntrinsic=intrinsic.filter(index=>changed.has(index.definition.access.tableId));
-        const originalBuildLocks=yield* Effect.fromResult(captureOriginalApplicationPublicationBuildLocks(tx,clock,
-          selectedIntrinsic.map(index=>index.definition),selectedDeveloper.map(index=>index.definition)))
-          .pipe(Effect.mapError(projectLogicalDocumentMaterializationFailure));
-        const settlement=yield* prepareApplicationDocumentSettlementFromOriginalsEffect(command,priorState.originalRows??[],Exit.succeed(priorState),
-          selectedDeveloper.map(index=>index.definition),selectedUnique,relations,selectedIntrinsic.map(index=>index.definition));
-        const acceptedPublication=yield* acceptApplicationPublication(tx,{clock,settlement,intrinsic:selectedIntrinsic.map(index=>index.definition),
-          developer:selectedDeveloper.map(index=>index.definition),unique:selectedUnique,relations,indexRanges:[],relationDependencies:[],
-          candidate:false,oldestAvailableCommitSeq:0n,deadline:null,originalBuildLocks,observeQuery:prepared.options.observeQuery,
-          pointReadAt:new Map(command.dependencies.map(dependency=>[dependency.documentId,dependency.readAt])),
-          generatedInsertions: new Set(dependencies.filter(point => point.dependency.kind === "generatedInsertion").map(point => point.documentId)),
-          generatedOnlyPoints: new Set(dependencies.filter(point => point.dependency.kind === "generatedInsertion").map(point => point.documentId))})
-          .pipe(Effect.catchCause(cause=>Effect.failCause(Cause.map(cause,projectLogicalDocumentMaterializationFailure))));
         yield* prepared.validateWrites(commitSeq, command.rowIntents);
         const completeCoverage = yield* materializeAcceptedApplicationPublicationRows(tx, {
             accepted:acceptedPublication,commitSeq,
@@ -321,10 +332,7 @@ export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
           .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectLogicalDocumentMaterializationFailure))));
 
         loweredCommitSeq = commitSeq;
-        totalRows += changes.length;
-        totalPages++;
-        totalDocumentBytes += pageBytes;
-        for (const id of pageIdentities) changedIdentities.add(id);
+        pendingDeltas--;
         phase = "ready";
 
         return relationPlan?.prepared.adjacencyChanges ?? [];
@@ -332,7 +340,7 @@ export const enterLogicalDocumentMaterialization = Effect.fnUntraced(
       return Object.freeze({ lower });
     }, work => observeExecution("LogicalDocumentMaterialization.prepareDelta", work));
     const completeBatch = Effect.fnUntraced(function* () {
-      if (prepared.batch !== true || phase !== "ready" || totalPages === 0)
+      if (prepared.batch !== true || phase !== "ready" || totalPages === 0 || pendingDeltas !== 0)
         return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
       phase = "failed";
       yield* prepared.requireAdmission;

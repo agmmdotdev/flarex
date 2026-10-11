@@ -1,5 +1,5 @@
-import { Effect, Encoding, Result, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { Cause, Effect, Encoding, Exit, Result, Schema } from "effect";
+import { describe, expect, it, vi } from "vitest";
 
 import * as protocolRoot from "../src/index";
 import * as commitProtocolLeaf from "flarex-protocol/commit-protocol";
@@ -79,7 +79,7 @@ import {
   TransactionAttemptFenceSchema,
   decodeTransactionSessionIdV1,
 } from "../src/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1 } from "../src/value";
+import { FLAREX_VALUE_CODEC_VERSION_V1, isCanonicalFlarexRuntimeObjectV1 } from "../src/value";
 
 const SESSION_ID = decodeTransactionSessionIdV1(
   "018f22e2-58cc-7b2a-91d8-f3f3401a0874",
@@ -1295,7 +1295,10 @@ describe("issued successful result handoff", () => {
     const result = await Effect.runPromise(canonicalizeSuccessfulResultV1Effect(input));
     const originalBytes = result.canonicalBytes;
     const originalEvidence = result.evidence;
-    expect(readIssuedCanonicalSuccessfulResultV1(result)).toBe(result);
+    const issued = readIssuedCanonicalSuccessfulResultV1(result);
+    expect(issued?.result).toBe(result);
+    expect(issued?.value).toEqual(input);
+    expect(issued?.value).toBe(issued?.value);
     input.nested.name = "changed";
     result.canonicalBytes.fill(0);
     expect(result.valueJson).toEqual({ nested: { name: "original" } });
@@ -1311,5 +1314,83 @@ describe("issued successful result handoff", () => {
     await expect(Effect.runPromise(verifySuccessfulResultEvidenceV1Effect(detached.evidence))).rejects.toMatchObject({
       issue: { reason: "digestMismatch", component: "successfulResult" },
     });
+  });
+
+  it("preserves the runtime value domain and never exposes retained binary leaves", async () => {
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const result = await runEffect(canonicalizeSuccessfulResultV1Effect({
+      bigint: 42n, bytes, nested: [{ bytes }], nan: NaN,
+      negativeZero: -0, negativeInfinity: -Infinity, positiveInfinity: Infinity,
+      immutable: { label: "retained" },
+    }));
+    const issued = readIssuedCanonicalSuccessfulResultV1(result);
+    if (issued === undefined) throw new Error("Expected exact successful-result issuance");
+    const first = issued.value;
+    if (!isCanonicalFlarexRuntimeObjectV1(first) || !(first.bytes instanceof ArrayBuffer) ||
+      !Array.isArray(first.nested) || !isCanonicalFlarexRuntimeObjectV1(first.nested[0]) ||
+      !(first.nested[0].bytes instanceof ArrayBuffer)) throw new Error("Expected the canonical binary-bearing runtime tree");
+    expect(first.bigint).toBe(42n);
+    expect(Number.isNaN(first.nan)).toBe(true);
+    expect(Object.is(first.negativeZero, -0)).toBe(true);
+    expect(first.negativeInfinity).toBe(-Infinity);
+    expect(first.positiveInfinity).toBe(Infinity);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.nested)).toBe(true);
+    expect(Reflect.set(first, "bigint", 0n)).toBe(false);
+    const originalBytes = result.canonicalBytes;
+    new Uint8Array(bytes).fill(4);
+    new Uint8Array(first.bytes).fill(5);
+    new Uint8Array(first.nested[0].bytes).fill(6);
+    result.canonicalBytes.fill(7);
+    const second = issued.value;
+    if (!isCanonicalFlarexRuntimeObjectV1(second) || !(second.bytes instanceof ArrayBuffer) ||
+      !Array.isArray(second.nested) || !isCanonicalFlarexRuntimeObjectV1(second.nested[0]) ||
+      !(second.nested[0].bytes instanceof ArrayBuffer)) throw new Error("Expected a second detached runtime tree");
+    expect(new Uint8Array(second.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(new Uint8Array(second.nested[0].bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(second.bytes).not.toBe(first.bytes);
+    expect(second.immutable).toBe(first.immutable);
+    expect(result.canonicalBytes).toEqual(originalBytes);
+    expect(result).not.toHaveProperty("value");
+    expect(readIssuedCanonicalSuccessfulResultV1(Object.freeze({ ...result }))).toBeUndefined();
+    expect(readIssuedCanonicalSuccessfulResultV1(structuredClone(issued))).toBeUndefined();
+
+    const foreign = structuredClone(result);
+    const restored = await runEffect(verifySuccessfulResultEvidenceV1Effect(foreign.evidence));
+    const restoredIssued = readIssuedCanonicalSuccessfulResultV1(restored);
+    const restoredValue = restoredIssued?.value;
+    if (restoredValue === undefined || !isCanonicalFlarexRuntimeObjectV1(restoredValue) || !(restoredValue.bytes instanceof ArrayBuffer))
+      throw new Error("Expected a fully verified foreign runtime tree");
+    new Uint8Array(restoredValue.bytes).fill(8);
+    const restoredAgain = restoredIssued?.value;
+    if (restoredAgain === undefined || !isCanonicalFlarexRuntimeObjectV1(restoredAgain) || !(restoredAgain.bytes instanceof ArrayBuffer))
+      throw new Error("Expected a second fully verified foreign runtime tree");
+    expect(new Uint8Array(restoredAgain.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(readIssuedCanonicalSuccessfulResultV1(foreign)).toBeUndefined();
+  });
+
+  it("refuses an unsupported foreign version before inspecting its value body", async () => {
+    let bodyReads = 0;
+    const foreign = {
+      valueCodecVersion: 2,
+      get canonicalValueBase64Url() { bodyReads++; throw new Error("Later body must remain untouched"); },
+      sha256Hex: "0".repeat(64),
+    };
+    const failure = await runFailure(verifySuccessfulResultEvidenceV1Effect(foreign));
+    expect(failure.issue).toMatchObject({ reason: "unsupportedVersion", component: "successfulResult", field: "valueCodecVersion" });
+    expect(bodyReads).toBe(0);
+    expect(readIssuedCanonicalSuccessfulResultV1(foreign)).toBeUndefined();
+  });
+
+  it("preserves unexpected hashing defects without issuing a successful runtime projection", async () => {
+    const defect = new Error("Unexpected successful-result hashing defect");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(defect);
+    try {
+      const exit = await Effect.runPromiseExit(canonicalizeSuccessfulResultV1Effect({ value: 42n }));
+      if (Exit.isSuccess(exit)) throw new Error("Expected the original hash defect");
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(Result.getOrThrow(Cause.findDefect(exit.cause))).toBe(defect);
+    } finally { digest.mockRestore(); }
   });
 });

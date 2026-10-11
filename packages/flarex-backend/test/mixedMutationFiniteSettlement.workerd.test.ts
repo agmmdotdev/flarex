@@ -13,6 +13,8 @@ import {
 import {
   type PointFiniteCommitCommand,
 } from "../../persistence-postgres/src/commit/point/contracts";
+import { prepareFiniteCommitCommand } from "../../persistence-postgres/src/commit/point/preparation";
+import { TransactionExecutionClaimFenceV1Schema } from "../../persistence-postgres/src/execution/claims/transactionExecutionClaimModel";
 import { fxControlScopes, fxControlSchemaVersions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
   fxSystemTransactionSessions, fxSystemSnapshotLeases } from "../../persistence-postgres/src/database/schema";
 import {
@@ -50,7 +52,9 @@ import {
   CanonicalFlarexValueBytesV1Schema,
   FlarexValueSha256V1Schema,
   canonicalizeFlarexValueV1Effect,
+  isCanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
+import { canonicalizeSuccessfulResultV1Effect, readIssuedCanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import {
   inspectLogicalParticipantAdmissionBundle,
   inspectFiniteOperationCommitAuthority,
@@ -121,6 +125,128 @@ function replacement(fixture: Fixture) {
 }
 
 describe.each(drivers)("compact finite settlement on %s", driver => {
+  it("uses the issued runtime result after exact finite acceptance and detaches escaped binary values", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-runtime-result-${driver}` });
+    try {
+      await execute(fixture);
+      const inputBytes = new Uint8Array([9, 8, 7]).buffer;
+      const captured = capturePublisher(fixture);
+      const published = await Effect.runPromise(await fixture.preparePublication(
+        { bytes: inputBytes, number: -0, integer: 42n }, captured.publisher));
+      expect(published).toMatchObject({ kind: "published" });
+      const command = captured.command();
+      const frozen = command.frozenAttempt;
+      const owned = readOwnedFrozenFiniteAttempt(frozen);
+      if (owned === undefined) throw new Error("Missing exact frozen result owner");
+      const escaped = owned.successfulResultValue;
+      if (!isCanonicalFlarexRuntimeObjectV1(escaped) || !(escaped.bytes instanceof ArrayBuffer))
+        throw new Error("Missing normalized frozen runtime result");
+      const originalCanonicalBytes = owned.successfulResult.canonicalBytes;
+      new Uint8Array(inputBytes).fill(1);
+      new Uint8Array(escaped.bytes).fill(2);
+      owned.successfulResult.canonicalBytes.fill(3);
+      const second = owned.successfulResultValue;
+      if (!isCanonicalFlarexRuntimeObjectV1(second) || !(second.bytes instanceof ArrayBuffer))
+        throw new Error("Missing detached second frozen runtime result");
+      expect(new Uint8Array(second.bytes)).toEqual(new Uint8Array([9, 8, 7]));
+      expect(Object.is(second.number, -0)).toBe(true);
+      expect(second.integer).toBe(42n);
+      expect(owned.successfulResult.canonicalBytes).toEqual(originalCanonicalBytes);
+      const validatorLoan = borrowFrozenFiniteCommitValues(frozen);
+      if (validatorLoan === undefined) throw new Error("Missing genuine frozen validator loan");
+      const escapedLoanResult = validatorLoan.successfulResult.value;
+      if (!isCanonicalFlarexRuntimeObjectV1(escapedLoanResult) || !(escapedLoanResult.bytes instanceof ArrayBuffer))
+        throw new Error("Missing detached validator result loan");
+      new Uint8Array(escapedLoanResult.bytes).fill(5);
+      expect(borrowFrozenFiniteCommitValues(frozen)).toBe(validatorLoan);
+      const repeatedLoanResult = validatorLoan.successfulResult.value;
+      if (!isCanonicalFlarexRuntimeObjectV1(repeatedLoanResult) || !(repeatedLoanResult.bytes instanceof ArrayBuffer))
+        throw new Error("Missing repeated detached validator result loan");
+      expect(new Uint8Array(repeatedLoanResult.bytes)).toEqual(new Uint8Array([9, 8, 7]));
+      expect(Object.is(repeatedLoanResult.number, -0)).toBe(true);
+      expect(repeatedLoanResult.integer).toBe(42n);
+      expect(borrowFrozenFiniteCommitValues({ ...frozen })).toBeUndefined();
+      expect(readFrozenFiniteAttempt(frozen)).not.toHaveProperty("successfulResultValue");
+      expect(readFrozenFiniteCommitValues(frozen)).not.toHaveProperty("successfulResultValue");
+      expect(readOwnedFrozenFiniteAttempt({ ...frozen })).toBeUndefined();
+      const options = fixture.publisherOptions;
+      if (options === undefined) throw new Error("Missing genuine finite publication options");
+      const reconstruct = vi.spyOn(valueCodec, "jsonToFlarexValueV1");
+      try {
+        const prepared = await Effect.runPromise(prepareFiniteCommitCommand(command, options));
+        expect(reconstruct).not.toHaveBeenCalled();
+        expect(prepared.successfulResult.value).toEqual(second);
+        const preparedValue = prepared.successfulResult.value;
+        if (!isCanonicalFlarexRuntimeObjectV1(preparedValue) || !(preparedValue.bytes instanceof ArrayBuffer))
+          throw new Error("Missing prepared normalized runtime result");
+        new Uint8Array(preparedValue.bytes).fill(4);
+        const reborrow = prepared.frozen.successfulResultValue;
+        if (!isCanonicalFlarexRuntimeObjectV1(reborrow) || !(reborrow.bytes instanceof ArrayBuffer))
+          throw new Error("Missing detached publication reborrow");
+        expect(new Uint8Array(reborrow.bytes)).toEqual(new Uint8Array([9, 8, 7]));
+
+        const copyBytes = vi.spyOn(ArrayBuffer.prototype, "slice");
+        try {
+          const refusals: PointFiniteCommitCommand[] = [
+            { ...command, frozenAttempt: { ...command.frozenAttempt } },
+            { ...command, session: { ...command.session, lifecycle: "finishing" } },
+            { ...command, executionClaim: { ...command.executionClaim,
+              claimFence: TransactionExecutionClaimFenceV1Schema.make(command.executionClaim.claimFence + 1n) } },
+          ];
+          for (const refusal of refusals) {
+            expect(await Effect.runPromise(prepareFiniteCommitCommand(refusal, options).pipe(Effect.result)))
+              .toMatchObject({ _tag: "Failure", failure: { _tag: "PointCommitCorruptionV1Error", reason: "commandInvalid" } });
+          }
+          expect(copyBytes).not.toHaveBeenCalled();
+          expect(reconstruct).not.toHaveBeenCalled();
+        } finally { copyBytes.mockRestore(); }
+      } finally { reconstruct.mockRestore(); }
+      expect(await Effect.runPromise(captured.actual.publishFinite(command))).toMatchObject({ kind: "replayed" });
+    } finally { await fixture.close(); }
+  }, 180_000);
+
+  it("fully verifies a foreign canonical result before retaining its normalized runtime value", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-foreign-result-${driver}` });
+    try {
+      await execute(fixture);
+      const original = await Effect.runPromise(canonicalizeSuccessfulResultV1Effect({ bytes: new Uint8Array([1, 2]).buffer, value: 42n }));
+      const foreign = structuredClone(original);
+      expect(readIssuedCanonicalSuccessfulResultV1(foreign)).toBeUndefined();
+      const frozen = await Effect.runPromise(fixture.store.freezeFiniteRootEffect(fixture.persistenceAttempt, foreign));
+      const owned = readOwnedFrozenFiniteAttempt(frozen);
+      if (owned === undefined) throw new Error("Missing verified foreign finite result");
+      expect(owned.successfulResult).not.toBe(foreign);
+      expect(readIssuedCanonicalSuccessfulResultV1(owned.successfulResult)?.result).toBe(owned.successfulResult);
+      const first = owned.successfulResultValue;
+      if (!isCanonicalFlarexRuntimeObjectV1(first) || !(first.bytes instanceof ArrayBuffer))
+        throw new Error("Missing verified foreign binary runtime value");
+      new Uint8Array(first.bytes).fill(3);
+      foreign.canonicalBytes.fill(4);
+      if (typeof foreign.valueJson !== "object" || foreign.valueJson === null)
+        throw new Error("Expected a foreign object value projection");
+      Reflect.set(foreign.valueJson, "value", null);
+      const second = owned.successfulResultValue;
+      if (!isCanonicalFlarexRuntimeObjectV1(second) || !(second.bytes instanceof ArrayBuffer))
+        throw new Error("Missing detached verified foreign binary runtime value");
+      expect(new Uint8Array(second.bytes)).toEqual(new Uint8Array([1, 2]));
+      expect(second.value).toBe(42n);
+    } finally { await fixture.close(); }
+  }, 180_000);
+
+  it("refuses changed foreign canonical bytes even when the copied result is frozen", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-foreign-result-corrupt-${driver}` });
+    try {
+      await execute(fixture);
+      const original = await Effect.runPromise(canonicalizeSuccessfulResultV1Effect({ value: 42n }));
+      const foreign = Object.freeze(structuredClone(original));
+      foreign.canonicalBytes.fill(0);
+      expect(readIssuedCanonicalSuccessfulResultV1(foreign)).toBeUndefined();
+      const refused = await Effect.runPromise(fixture.store.freezeFiniteRootEffect(fixture.persistenceAttempt, foreign).pipe(Effect.result));
+      expect(refused).toMatchObject({ _tag: "Failure", failure: { _tag: "SessionJournalSealV1Error", reason: "canonicalResultMismatch" } });
+      expect(readIssuedCanonicalSuccessfulResultV1(foreign)).toBeUndefined();
+    } finally { await fixture.close(); }
+  }, 180_000);
+
   it("retains the closed root's complete canonical documents through finite preparation", async () => {
     const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-retained-values-${driver}` });
     try {
@@ -135,21 +261,24 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
       expect(Object.isFrozen(borrowed.rowIntents)).toBe(true);
       expect(Reflect.set(borrowed.rowIntents, "0", undefined)).toBe(false);
       expect(borrowed.rowIntents).toHaveLength(projected.rowIntents.length);
-      expect(Object.keys(borrowed.successfulResult)).toEqual(["valueJson"]);
+      expect(Object.keys(borrowed.successfulResult)).toEqual(["value"]);
       expect(Object.isFrozen(borrowed.successfulResult)).toBe(true);
-      if (typeof borrowed.successfulResult.valueJson === "object" && borrowed.successfulResult.valueJson !== null) {
-        expect(Object.isFrozen(borrowed.successfulResult.valueJson)).toBe(true);
-        expect(Reflect.set(borrowed.successfulResult.valueJson, "borrowedMutation", true)).toBe(false);
+      const borrowedResult = borrowed.successfulResult.value;
+      if (typeof borrowedResult === "object" && borrowedResult !== null) {
+        expect(Object.isFrozen(borrowedResult)).toBe(true);
+        expect(Reflect.set(borrowedResult, "borrowedMutation", true)).toBe(false);
       }
       for (const row of borrowed.rowIntents) {
         expect(Object.isFrozen(row)).toBe(true);
         expect("canonicalBytes" in row).toBe(false);
         expect("dependency" in row).toBe(false);
+        expect("valueJson" in row).toBe(false);
         if (row.kind === "live") {
-          expect(Object.isFrozen(row.valueJson)).toBe(true);
-          if (typeof row.valueJson !== "object" || row.valueJson === null)
+          const borrowedValue = row.value;
+          expect(Object.isFrozen(borrowedValue)).toBe(true);
+          if (typeof borrowedValue !== "object" || borrowedValue === null)
             throw new Error("Expected a canonical live document object in the validator projection");
-          expect(Reflect.set(row.valueJson, "borrowedMutation", true)).toBe(false);
+          expect(Reflect.set(borrowedValue, "borrowedMutation", true)).toBe(false);
         }
       }
       expect(borrowFrozenFiniteCommitValues({ ...frozen })).toBeUndefined();
@@ -409,7 +538,7 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
   }, 180_000);
 
   it.each(["currentClosure", "laterClosure", "validClosures"] as const)(
-    "retains the original source document refusal at its acceptance boundary with %s", async damage => {
+    "retains the original source canonical evidence refusal at its acceptance boundary with %s", async damage => {
       const fixture = await createMixedMutationProductFixture({ driver,
         suffix: `finite-source-order-${damage.toLowerCase()}-${driver}`, payloadProfile: "ordinary" });
       try {
@@ -446,12 +575,18 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
             throw new Error("Missing genuine final Product document");
           const invalid = yield* canonicalizeFlarexValueV1Effect({ ...original.value, title: 123 }, "appDocument").pipe(Effect.orDie);
           expect(Result.isFailure(productSource.validateDocument(original.tableId, invalid))).toBe(true);
-          // Test-only fault in the private retained value; public projections
-          // cannot mint a replacement frozen issuer. Native settlement must
-          // still validate its schema independently of working-set close.
+          // Closed native containers cannot acquire an invalid title. The real
+          // write refusal is covered below; retained mutable evidence must
+          // still be checked at this source's original acceptance position.
           const owned = readOwnedFrozenFiniteAttempt(command.frozenAttempt)?.rowIntents.find(row => row.documentId === original.documentId);
           if (owned?.kind !== "live") throw new Error("Missing owned native value for fault injection");
-          Object.assign(owned.document, invalid);
+          expect(Object.isFrozen(owned.document)).toBe(true);
+          expect(Object.isFrozen(owned.document.value)).toBe(true);
+          const retainedValue = owned.document.value;
+          owned.document.canonicalBytes[0] = (owned.document.canonicalBytes[0] ?? 0) ^ 1;
+          expect(owned.document.value).toBe(retainedValue);
+          expect(owned.document.value).toEqual(original.value);
+          expect(Result.isFailure(productSource.validateDocument(original.tableId, owned.document))).toBe(true);
           const db = fixture.currency.persistence.drizzle;
           if (damage !== "validClosures") {
             const source = damage === "currentClosure" ? productSource : laterSource;
@@ -496,24 +631,30 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
 
   it.each(["storedSha", "body", "oversize"] as const)(
     "refuses a changed original predecessor %s before a retained key failure and leaves no publication", async damage => {
-      const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-prior-${damage.toLowerCase()}-${driver}` });
+      const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-prior-${damage.toLowerCase()}-${driver}`,
+        includeUserNameIndex: true });
       try {
-        const value = await execute(fixture);
-        const actual = fixture.makePublisher();
+        const oversizedName = "h".repeat(3000);
+        const source = `export default { users: { create: { isMutation: true, isPublic: true, _handler: async ctx => {
+          const id = await ctx.db.insert("users", { name: "before" });
+          const updated = await ctx.privateMixed.call("medusa.product", "update", ${JSON.stringify(fixture.seed.updateInput)});
+          const pending = await ctx.privateMixed.call("medusa.product", "retrieve", ${JSON.stringify(fixture.seed.retrieveInput)});
+          const listed = await ctx.privateMixed.call("medusa.product", "listByHandle", ${JSON.stringify(fixture.seed.listInput)});
+          await ctx.db.patch(id, { name: ${JSON.stringify(oversizedName)} });
+          return { id, updated, pending, listed };
+        } } } };`;
+        const value = await execute(fixture, source);
+        const submittedQueries: string[] = [];
+        const actual = createPointCommitPublisherPortV1(fixture.pointCommitPorts, { ...fixture.publisherOptions,
+          observeQuery: query => { submittedQueries.push(query.name); } });
         let checkedOriginal = false;
         const publisher = { ...actual, publishFinite: (command: PointFiniteCommitCommand) => Effect.gen(function* () {
           const frozen = readFrozenFiniteAttempt(command.frozenAttempt);
           const original = frozen?.originalRows[0];
           if (frozen === undefined || original === undefined) throw new Error("Missing genuine original predecessor");
-          const intent = frozen.rowIntents.find(row => row.kind === "live" && row.tableId === original.tableId && row.rowId === original.rowId);
-          if (intent?.kind !== "live" || typeof intent.value !== "object" || intent.value === null || Array.isArray(intent.value))
-            throw new Error("Missing genuine final native row");
-          const oversizedKeyDocument = yield* canonicalizeFlarexValueV1Effect({ ...intent.value,
-            handle: "h".repeat(3000) }, "appDocument").pipe(Effect.orDie);
-          const owned = readOwnedFrozenFiniteAttempt(command.frozenAttempt)?.rowIntents.find(row => row.documentId === intent.documentId);
-          if (owned?.kind !== "live") throw new Error("Missing owned native key value for fault injection");
-          Object.assign(owned.document, oversizedKeyDocument);
-          const keyFailureCommand = command;
+          const intent = frozen.rowIntents.find(row => row.kind === "live" && isCanonicalFlarexRuntimeObjectV1(row.value) &&
+            row.value.name === oversizedName);
+          if (intent?.kind !== "live") throw new Error("Missing genuine Application write with oversized index key");
           const db = fixture.currency.persistence.drizzle;
           const identity = and(eq(fxAppRowRevisions.scopeUuid, original.scopeUuid), eq(fxAppRowRevisions.tableId, original.tableId),
             eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(original.rowId)), eq(fxAppRowRevisions.commitSeq, original.commitSeq));
@@ -534,7 +675,8 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
             outcomes: await db.select().from(fxSystemIdempotency), events: await db.select().from(fxSystemCommitEvents),
           });
           const before = yield* Effect.promise(durable);
-          const verdict = yield* actual.publishFinite(keyFailureCommand).pipe(Effect.result);
+          const callbacks = [...fixture.nativeInvokeCount.entries()];
+          const verdict = yield* actual.publishFinite(command).pipe(Effect.result);
           expect(verdict).toMatchObject({ _tag: "Failure", failure: { _tag: "PointCommitCorruptionV1Error", reason: "priorDocumentInvalid" } });
           expect(yield* Effect.promise(durable)).toEqual(before);
           // With that exact predecessor repaired, the same canonical final
@@ -543,9 +685,11 @@ describe.each(drivers)("compact finite settlement on %s", driver => {
             valueBytes: original.document.canonicalBytes, valueSha256: original.document.sha256,
           }).where(identity));
           const repaired = yield* Effect.promise(durable);
-          expect(yield* actual.publishFinite(keyFailureCommand).pipe(Effect.result)).toMatchObject({ _tag: "Failure",
+          expect(yield* actual.publishFinite(command).pipe(Effect.result)).toMatchObject({ _tag: "Failure",
             failure: { _tag: "PointCommitDeveloperIndexMaintenanceUnavailableV1Error", reason: "entryKeyLimitExceeded" } });
           expect(yield* Effect.promise(durable)).toEqual(repaired);
+          expect([...fixture.nativeInvokeCount.entries()]).toEqual(callbacks);
+          expect(submittedQueries).not.toContain("applyPublication");
           checkedOriginal = true;
           return yield* Effect.fromResult(verdict);
         }) };

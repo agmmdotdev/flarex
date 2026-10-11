@@ -59,7 +59,6 @@ import {
   type PreparedAppSchemaCandidateWriteGuard,
 } from "../catalog/appSchemaCandidateValidation";
 import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from "../indexes/intrinsicCreationTimeIndexBuildV1";
-import { type IndexBuildStateRecord } from "../indexes/indexBuildStates";
 import { type AppRowPointHeadObservationV1 } from "../documents/appRowPointOcc";
 
 import { type ScopeClockRecord } from "../../scope/scopeClock";
@@ -215,7 +214,6 @@ export type PointCommitApplicationRelationMaintenanceError =
 
 export interface LockedPointCommitDeveloperIndexV1 {
   readonly definition: LocatedAppIndexDefinitionV1;
-  readonly build: IndexBuildStateRecord;
 }
 
 export interface PointCommitDeveloperIndexEntryActionV1 {
@@ -251,5 +249,4 @@ export interface PointCommitUniqueKeyActionV1 {
 
 export interface LockedPointCommitIntrinsicIndexV1 {
   readonly definition: LocatedAppIndexDefinitionV1;
-  readonly build: IndexBuildStateRecord;
 }

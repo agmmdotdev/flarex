@@ -227,17 +227,17 @@ function installationGateSource(state: PreparedState): SQL {
 }
 
 /** Immutable expected installation fields are issued only from authenticated preparations. */
-function installationFrontierExpected(state: PreparedState, inputSchema: string): SQL {
+function installationFrontierExpected(state: PreparedState): SQL {
   return sql`row(${state.identity.databaseName}::text,${state.identity.schemaName}::text,
     ${state.identity.namespaceOid}::bigint,${state.identity.incarnation}::uuid,
     ${state.identity.structuralGeneration}::bigint,${state.identity.login}::text,
     ${state.endpointPolicy}::text,${state.accessProfile}::text,${state.metadataIncarnation}::uuid)
-    ::${sql.identifier(inputSchema)}.fx_installation_frontier_expected`;
+    ::${sql.identifier(state.identity.schemaName)}.fx_installation_frontier_expected`;
 }
 
 type CoLocatedReadInstallationReferences = Readonly<{
-  target: Readonly<{ schemaName: string; gate: SQL; frontierExpected: SQL; localFrontierExpected: SQL }>;
-  control: Readonly<{ schemaName: string; gate: SQL; frontierExpected: SQL; localFrontierExpected: SQL }>;
+  target: Readonly<{ schemaName: string; gate: SQL; localFrontierExpected: SQL }>;
+  control: Readonly<{ schemaName: string; gate: SQL; localFrontierExpected: SQL }>;
   targetInstallation: PreparedInstallation;
   controlInstallation: PreparedInstallation;
 }>;
@@ -251,11 +251,9 @@ export function getCoLocatedReadInstallationReferencesResult(pair: PreparedCoLoc
     const retained = coLocatedReferencePlans.get(pair);
     if (retained !== undefined) return Result.succeed(retained);
     const references = Object.freeze({ target: Object.freeze({ schemaName: target.identity.schemaName, gate: installationGateSource(target),
-      frontierExpected: installationFrontierExpected(target, control.identity.schemaName),
-      localFrontierExpected: installationFrontierExpected(target, target.identity.schemaName) }),
+      localFrontierExpected: installationFrontierExpected(target) }),
       control: Object.freeze({ schemaName: control.identity.schemaName, gate: installationGateSource(control),
-        frontierExpected: installationFrontierExpected(control, control.identity.schemaName),
-        localFrontierExpected: installationFrontierExpected(control, control.identity.schemaName) }),
+        localFrontierExpected: installationFrontierExpected(control) }),
       targetInstallation: state.target, controlInstallation: state.control });
     coLocatedReferencePlans.set(pair, references);
     return Result.succeed(references);
@@ -294,7 +292,8 @@ export const getCoLocatedReadInstallationReferences = Effect.fn("InstallationLif
 /** Scope-less admission supplies no placement or clock verdict. Direct helpers
  * authenticate the actual caller and acquire the two installation latches in
  * lexical order before any later owner takes scope/head/data locks. */
-export function coLocatedInstallationFrontierSource(refs: Pick<CoLocatedReadInstallationReferences, "target" | "control">): SQL {
+export function coLocatedInstallationFrontierSource(refs: Pick<CoLocatedReadInstallationReferences, "target" | "control">,
+  prerequisite?: SQL): SQL {
   const targetFirst = Buffer.compare(Buffer.from(refs.target.schemaName, "utf8"),
     Buffer.from(refs.control.schemaName, "utf8")) < 0;
   const first = targetFirst ? refs.target : refs.control, second = targetFirst ? refs.control : refs.target;
@@ -303,7 +302,8 @@ export function coLocatedInstallationFrontierSource(refs: Pick<CoLocatedReadInst
   const targetAlias = sql.identifier(targetFirst ? "first_frontier" : "second_frontier");
   const controlAlias = sql.identifier(targetFirst ? "second_frontier" : "first_frontier");
   return sql`(with first_frontier as materialized (
-      select ${firstSchema}.fx_lock_installation_frontier(${first.localFrontierExpected}) as frontier),
+      select ${firstSchema}.fx_lock_installation_frontier(${first.localFrontierExpected}) as frontier
+      ${prerequisite === undefined ? sql`` : sql`from (${prerequisite}) prerequisite offset 0`}),
     second_frontier as materialized (select ${secondSchema}.fx_lock_installation_frontier(${second.localFrontierExpected}) as frontier
       from first_frontier where (first_frontier.frontier).accepted offset 0)
     select case when (first_frontier.frontier).accepted and (second_frontier.frontier).accepted
@@ -433,6 +433,12 @@ export function closeInstallationAdmission(tx: FlarexMetadataDatabase | FlarexMe
 /** The admitted target member owns schema-qualified calls in this transaction.
  * Logical locators and search-path fallbacks cannot choose an installed body. */
 export function requireAdmittedTargetInstallationSchema(tx: FlarexMetadataDatabase): Result.Result<string, InstallationLifecycleError> {
+  return requireAdmittedTargetInstallationIdentity(tx).pipe(Result.map(identity => identity.schemaName));
+}
+
+/** The actual admission record is stable under the transaction's maintenance
+ * latch. Equality of schema names cannot reconstruct this identity. */
+export function requireAdmittedTargetInstallationIdentity(tx: FlarexMetadataDatabase): Result.Result<InstallationIdentity, InstallationLifecycleError> {
   const entries = admissions.get(tx);
   const pair = coLocatedAdmissions.get(tx);
   if (pair !== undefined) {
@@ -440,10 +446,10 @@ export function requireAdmittedTargetInstallationSchema(tx: FlarexMetadataDataba
     const entry = target === undefined ? undefined : entries?.get(target.identity.schemaName);
     return target?.database === pair.database && entry?.database === pair.database &&
       sameIdentity(entry.identity, target.identity)
-      ? Result.succeed(entry.identity.schemaName) : Result.fail(issue("invalidCapability"));
+      ? Result.succeed(entry.identity) : Result.fail(issue("invalidCapability"));
   }
   const entry = entries?.size === 1 ? entries.values().next().value : undefined;
-  return entry === undefined ? Result.fail(issue("invalidCapability")) : Result.succeed(entry.identity.schemaName);
+  return entry === undefined ? Result.fail(issue("invalidCapability")) : Result.succeed(entry.identity);
 }
 
 const readGate = Effect.fn("InstallationLifecycle.readGate")(function* (
@@ -696,11 +702,11 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
                 ${`${schemaName}.fx_lock_prepared_metadata_epoch()`}::pg_catalog.regprocedure,
                 case when ${accessProfile} <> 'controlRead' then
                   ${`${schemaName}.fx_publish_application_read_binding(bytea,bytea)`}::pg_catalog.regprocedure
-                else ${`${schemaName}.fx_accept_finite_placement_frontier(${schemaName}.fx_installation_frontier_expected,${schemaName}.fx_installation_frontier_expected,text,text)`}::pg_catalog.regprocedure end)
+                else ${`${schemaName}.fx_lock_control_scope_placement(${schemaName}.fx_installation_frontier_expected,text,text,text)`}::pg_catalog.regprocedure end)
               and not (${accessProfile} <> 'activationWriter' and p.oid =
                 ${`${schemaName}.fx_lock_installation_frontier(${schemaName}.fx_installation_frontier_expected)`}::pg_catalog.regprocedure)
               and not (${accessProfile} = 'controlRead' and p.oid =
-                ${`${schemaName}.fx_accept_finite_placement_frontier(${schemaName}.fx_installation_frontier_expected,${schemaName}.fx_installation_frontier_expected,text,text)`}::pg_catalog.regprocedure)
+                ${`${schemaName}.fx_lock_control_scope_placement(${schemaName}.fx_installation_frontier_expected,text,text,text)`}::pg_catalog.regprocedure)
               and not (${accessProfile} = 'activationWriter' and p.oid in (
                 ${sql.join(INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS.map(operation =>
                   sql`${`${schemaName}.${operation.name}(${operation.signature})`}::pg_catalog.regprocedure`), sql`, `)}))))
@@ -753,10 +759,11 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
         and pg_catalog.has_function_privilege(session_user,
           ${`${schemaName}.fx_lock_installation_frontier(${schemaName}.fx_installation_frontier_expected)`},'EXECUTE') = (${accessProfile} <> 'activationWriter')
         and pg_catalog.has_function_privilege(session_user,
-          ${`${schemaName}.fx_accept_finite_placement_frontier(${schemaName}.fx_installation_frontier_expected,${schemaName}.fx_installation_frontier_expected,text,text)`},'EXECUTE') = (${accessProfile} = 'controlRead')
+          ${`${schemaName}.fx_lock_control_scope_placement(${schemaName}.fx_installation_frontier_expected,text,text,text)`},'EXECUTE') = (${accessProfile} = 'controlRead')
         and ${sql.join(["fx_installation_frontier_expected","fx_installation_frontier"].map(type => sql`
           pg_catalog.has_type_privilege(session_user,${`${schemaName}.${type}`},'USAGE') = (${accessProfile} <> 'activationWriter')`),sql` and `)}
-        and pg_catalog.has_type_privilege(session_user,${`${schemaName}.fx_finite_placement_frontier`},'USAGE') = (${accessProfile} = 'controlRead')
+        and pg_catalog.has_type_privilege(session_user,${`${schemaName}.fx_control_scope_placement`},'USAGE') = (${accessProfile} = 'controlRead')
+        and pg_catalog.has_type_privilege(session_user,${`${schemaName}.fx_finite_read_expected`},'USAGE') = (${accessProfile} = 'dataRuntime')
         and pg_catalog.has_type_privilege(session_user,${`${schemaName}.fx_finite_capture_frontier`},'USAGE') = (${accessProfile} = 'dataRuntime')
         and ${sql.join(INDEX_MAINTENANCE_PUBLISHER_FUNCTIONS.map(operation => sql`
           pg_catalog.has_function_privilege(session_user,
@@ -781,7 +788,7 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
           and pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_compare_finite_metadata(text,bigint,jsonb)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
-            ${`${schemaName}.fx_accept_finite_storage_capture(text,${schemaName}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer)`},'EXECUTE')
+            ${`${schemaName}.fx_accept_finite_storage_capture(text,${schemaName}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer,${schemaName}.fx_finite_read_expected)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean)`},'EXECUTE')
           and pg_catalog.has_function_privilege(session_user,
@@ -799,7 +806,7 @@ export const verifyManagedRuntimePrivileges = Effect.fn("InstallationLifecycle.v
           and not pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_compare_finite_metadata(text,bigint,jsonb)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
-            ${`${schemaName}.fx_accept_finite_storage_capture(text,${schemaName}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer)`},'EXECUTE')
+            ${`${schemaName}.fx_accept_finite_storage_capture(text,${schemaName}.fx_finite_capture_expected,bytea,bytea,uuid,bigint,bigint,uuid,bigint,text,bigint,text,integer,integer,integer,${schemaName}.fx_finite_read_expected)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,
             ${`${schemaName}.fx_read_snapshot_rows(uuid,integer,bytea[],bigint,bigint,boolean)`},'EXECUTE')
           and not pg_catalog.has_function_privilege(session_user,

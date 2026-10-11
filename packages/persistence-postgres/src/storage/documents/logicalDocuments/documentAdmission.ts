@@ -65,6 +65,7 @@ import type {
   PreparedLogicalDocumentWriteMechanics,
 } from "./model";
 import { prepareLogicalWriteMechanics } from "./workingSet";
+import { prepareLogicalCanonicalDocumentSemantics } from "./relationalRows";
 import {
   prepareLogicalSourceEvidence,
   LogicalSourceAdmissionError,
@@ -244,21 +245,41 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     return table === undefined ? "unavailable" : Result.isSuccess(requireAppDocumentIdentityV1ForTableResult(value, table.tableId))
       ? "valid" : "invalid";
   } });
+  const refusedDocument = () => new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid" });
+  const documentSemantics = new Map(selectedTables.map(table => [table, prepareLogicalCanonicalDocumentSemantics(
+    value => Result.gen(function* () {
+      const fields: Record<string, CanonicalFlarexRuntimeValueV1> = {};
+      for (const [field, item] of Object.entries(value)) {
+        if (field === "_id" || field === "_creationTime") continue;
+        if (field.startsWith("_")) return yield* Result.fail(refusedDocument());
+        Object.defineProperty(fields, field, { value: item, enumerable: true });
+      }
+      yield* validateValidatorValueV1(table.definition.definition.documentType, Object.freeze(fields),
+        { path: "$document", idPolicy }).pipe(Result.mapError(cause =>
+          new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid", cause })));
+      // Native writes already supply issued typed system fields. A foreign
+      // typed context must not skip commit's scalar Schema refusals. Withhold
+      // reuse when those decoders refuse, preserving validate's old verdict
+      // and the original commit fallback/error position.
+      return Result.isSuccess(decodeDocumentId(value._id)) && Result.isSuccess(decodeCreationTime(value._creationTime));
+    }), refusedDocument)]));
+  if (selected.preparationLifetime !== undefined) {
+    yield* Effect.fromResult(selected.preparationLifetime.charge({ documentSemanticTables: selectedTables.map(table => table.tableId) }))
+      .pipe(Effect.mapError(cause => new LogicalDocumentSourceAdmissionError({ reason: "resourceFailure", cause })));
+    yield* Effect.fromResult(selected.preparationLifetime.onDispose(() => documentSemantics.clear()))
+      .pipe(Effect.mapError(cause => new LogicalDocumentSourceAdmissionError({ reason: "resourceFailure", cause })));
+  }
   const validate = (write: LogicalDocumentWrite): Result.Result<void, LogicalDocumentSourceAdmissionError> => Result.gen(function* () {
     const table = selectedTables.find(member => member.localName === write.tableName && member.tableId === write.tableId);
     if (table === undefined) return yield* Result.fail(new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority" }));
+    if (selected.preparationLifetime !== undefined) yield* selected.preparationLifetime.checkOpen().pipe(Result.mapError(cause =>
+      new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority", cause })));
+    const semantics = documentSemantics.get(table);
+    if (semantics === undefined) return yield* Result.fail(new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority" }));
     const value = write.document.value;
     if (!isCanonicalFlarexRuntimeObjectV1(value) || value._id !== write.documentId || value._creationTime !== write.creationTime)
-      return yield* Result.fail(new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid" }));
-    const fields: Record<string, CanonicalFlarexRuntimeValueV1> = {};
-    for (const [field, item] of Object.entries(value)) {
-      if (field === "_id" || field === "_creationTime") continue;
-      if (field.startsWith("_")) return yield* Result.fail(new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid" }));
-      Object.defineProperty(fields, field, { value: item, enumerable: true });
-    }
-    yield* validateValidatorValueV1(table.definition.definition.documentType, Object.freeze(fields),
-      { path: "$document", idPolicy }).pipe(Result.mapError(cause =>
-        new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid", cause })));
+      return yield* Result.fail(refusedDocument());
+    yield* semantics.validate(write.document);
   });
   const withSelectedAdmission = Effect.fn("LogicalDocumentSourceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
     profile: "full" | "read",
@@ -369,6 +390,15 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     return token;
   });
   const validateCommitDocument = (tableId: CatalogTableId, document: CanonicalFlarexValueV1) => Result.gen(function* () {
+    const ownedTable = selectedTables.find(member => member.tableId === tableId);
+    if (ownedTable !== undefined) {
+      if (selected.preparationLifetime !== undefined) yield* selected.preparationLifetime.checkOpen().pipe(Result.mapError(cause =>
+        new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause })));
+      const semantics = documentSemantics.get(ownedTable);
+      if (semantics === undefined) return yield* Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      const retained = yield* semantics.inspect(document).pipe(Result.mapError(projectAttemptFailure));
+      if (retained !== undefined) return;
+    }
     const value = document.value;
     if (!isCanonicalFlarexRuntimeObjectV1(value))
       return yield* Result.fail(new LogicalParticipantAdmissionError({ reason: "documentInvalid" }));
@@ -417,7 +447,9 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
           }, borrowed).pipe(Effect.mapError(projectAttemptFailure)),
     }), selected.preparationLifetime);
   };
-  const prepared = Object.freeze({ withAdmission, withReadAdmission, bindAttemptEffect, createCommitAuthority, lendPreparation });
+  const prepared = Object.freeze({ withAdmission, withReadAdmission, bindAttemptEffect, createCommitAuthority, lendPreparation,
+    lendFiniteMetadataProjection: () => selected.lendFiniteMetadataProjection().pipe(Effect.mapError(projectAttemptFailure)) });
+  yield* Effect.fromResult(selected.registerFiniteMetadataSelection(prepared).pipe(Result.mapError(projectSourceFailure)));
   return prepared;
 });
 

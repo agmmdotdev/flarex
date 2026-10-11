@@ -2,15 +2,74 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalFlarexRuntimeValueToJsonV1,
+  createOwnedCanonicalFlarexRuntimeValueReaderV1,
+  createOwnedCanonicalFlarexRuntimeValueProjectionV1,
   FlarexValueRuntimeCoreV1Error,
+  isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexRuntimeValueV1,
 } from "../src/value-runtime-core";
 import {
   FlarexValueCodecV1Error,
   normalizeFlarexValueV1,
+  canonicalizeFlarexValueV1,
+  inspectCanonicalFlarexValueOwnershipV1,
 } from "../src/value";
 
 describe("Effect-free Flarex value runtime core", () => {
+  it("retains only exact codec issuance and protects every escaped binary loan without changing the public result", async () => {
+    const document = await canonicalizeFlarexValueV1({ bytes: new Uint8Array([1, 2, 3]).buffer,
+      immutable: { values: [42n, -0, NaN, Infinity, -Infinity] } }, "appDocument");
+    const evidence = inspectCanonicalFlarexValueOwnershipV1(document);
+    if (evidence === undefined) throw new Error("Missing actual codec issuance");
+    expect(evidence.intact).toBe(true);
+    expect(inspectCanonicalFlarexValueOwnershipV1(structuredClone(document))).toBeUndefined();
+    expect(inspectCanonicalFlarexValueOwnershipV1(Object.freeze({ ...document }))).toBeUndefined();
+    const foreign = structuredClone(document);
+    foreign.canonicalBytes.fill(9);
+    foreign.sha256.fill(7);
+    const foreignProjection = createOwnedCanonicalFlarexRuntimeValueProjectionV1(foreign.value);
+    expect(foreignProjection.binaryMatches()).toBe(true);
+    expect(inspectCanonicalFlarexValueOwnershipV1(foreign)).toBeUndefined();
+    const first = evidence.read();
+    if (!isCanonicalFlarexRuntimeObjectV1(first) || !(first.bytes instanceof ArrayBuffer)) throw new Error("Missing binary loan");
+    new Uint8Array(first.bytes).fill(9);
+    const second = evidence.read();
+    if (!isCanonicalFlarexRuntimeObjectV1(second) || !(second.bytes instanceof ArrayBuffer)) throw new Error("Missing second binary loan");
+    expect(new Uint8Array(second.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(second.immutable).toBe(first.immutable);
+    expect(second.immutable).toEqual({ values: [42n, -0, NaN, Infinity, -Infinity] });
+    expect(inspectCanonicalFlarexValueOwnershipV1(document)?.intact).toBe(true);
+    const original = document.value;
+    if (!isCanonicalFlarexRuntimeObjectV1(original) || !(original.bytes instanceof ArrayBuffer)) throw new Error("Missing public binary runtime");
+    new Uint8Array(original.bytes).fill(8);
+    expect(inspectCanonicalFlarexValueOwnershipV1(document)?.intact).toBe(false);
+    const retained = evidence.read();
+    if (!isCanonicalFlarexRuntimeObjectV1(retained) || !(retained.bytes instanceof ArrayBuffer)) throw new Error("Missing retained binary loan");
+    expect(new Uint8Array(retained.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+  });
+  it("refreezes privately detached canonical containers and detaches every escaped binary path", () => {
+    const businessInput = { bytes: new Uint8Array([1, 2, 3]).buffer,
+      unchanged: { name: "retained" }, values: [42n, -0, NaN, Infinity, -Infinity] };
+    const owned = structuredClone(normalizeFlarexRuntimeValueV1(businessInput).value);
+    const read = createOwnedCanonicalFlarexRuntimeValueReaderV1(owned);
+    const first = read();
+    if (!isCanonicalFlarexRuntimeObjectV1(first) || !(first.bytes instanceof ArrayBuffer))
+      throw new Error("Expected a binary-bearing canonical projection");
+    expect(Object.isFrozen(businessInput)).toBe(false);
+    expect(Object.isFrozen(businessInput.unchanged)).toBe(false);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.unchanged)).toBe(true);
+    expect(Object.isFrozen(first.values)).toBe(true);
+    new Uint8Array(first.bytes).fill(9);
+    const second = read();
+    if (!isCanonicalFlarexRuntimeObjectV1(second) || !(second.bytes instanceof ArrayBuffer))
+      throw new Error("Expected a second detached binary-bearing projection");
+    expect(new Uint8Array(second.bytes)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(second.unchanged).toBe(first.unchanged);
+    expect(second.values).toBe(first.values);
+    expect(second.values).toEqual([42n, -0, NaN, Infinity, -Infinity]);
+  });
+
   it("preserves the public codec value, JSON, size, depth, and ownership semantics", () => {
     const sourceBytes = new Uint8Array([0, 127, 255]).buffer;
     const source = {

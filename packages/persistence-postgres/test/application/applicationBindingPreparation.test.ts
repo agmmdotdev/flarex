@@ -40,6 +40,7 @@ import {
 import {
   readApplicationBindingProjectionInTransaction,
   withApplicationBindingEvidenceInTransaction,
+  withAcceptedApplicationBindingEvidenceInTransaction,
 } from "../../src/application/applicationBindingProjection";
 import {
   borrowIndexCoverageContextInTransaction,
@@ -64,7 +65,8 @@ import {
 import { fxSystemApplicationReadiness } from "../../src/application/relations/applicationRelationSchema";
 import { fxSystemApplicationActiveHeads } from "../../src/application/applicationActivationSchema";
 import { lockScopeClockForSnapshotReadInTransactionEffect,
-  lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
+  lockScopeClockForUpdateInTransactionEffect,
+  advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../src/scope/scopeClock";
 import type { PGliteFlarexPersistence } from "../../src/database/pglite";
 import type { PostgresFlarexPersistence } from "../../src/database/postgres";
 import { cmsHostFixture } from "../frameworks/cmsTransaction/cmsHostFixture";
@@ -287,6 +289,56 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   expect(() => Object.assign(cms.configuration, { profile: "changed" })).toThrow(TypeError);
   await runEffect(cmsLease.close);
   const otherPreparation = await prepare();
+  const rollbackProjectionWitness = new Error("Roll back live revocation projection witness");
+  await expect(persistence.drizzle.transaction(async tx => {
+    await runEffect(Effect.gen(function* () {
+      const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+      const before = spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction").length;
+      let lent: AcceptedApplicationBinding | undefined;
+      yield* withApplicationBindingEvidenceInTransaction(prepared, tx, clock, (evidence, binding) => Effect.gen(function* () {
+        lent = binding;
+        assertFrozen(evidence.projection);
+        assertFrozen(evidence.analysis);
+        expect(Reflect.set(evidence.projection.physicalLocator, "schemaName", "foreign")).toBe(false);
+        expect(Reflect.set(evidence.analysis, "manifestSha256", "f".repeat(64))).toBe(false);
+        const basis = Result.getOrThrow(readAcceptedApplicationBinding(binding, tx, clock));
+        const originalByte = basis.manifestSha256[0];
+        basis.manifestSha256[0] = (originalByte ?? 0) ^ 0xff;
+        const borrowed = yield* withAcceptedApplicationBindingEvidenceInTransaction(prepared, tx, clock, binding,
+          projection => Effect.succeed(projection));
+        expect(borrowed.projection).toEqual(evidence.projection);
+        expect(borrowed).toBe(evidence);
+        expect(borrowed.analysis).toBe(evidence.analysis);
+        expect(borrowed.projection.readiness).toBe(evidence.projection.readiness);
+        expect(borrowed.checkedActive).toBe(evidence.checkedActive);
+        const forged = new Proxy(binding, { get() { throw new Error("Forged accepted evidence inspected"); } });
+        expect(yield* Effect.flip(withAcceptedApplicationBindingEvidenceInTransaction(prepared, tx, clock,
+          forged, () => Effect.void))).toMatchObject({ reason: "invalidComposition" });
+        expect(yield* Effect.flip(withAcceptedApplicationBindingEvidenceInTransaction(otherPreparation, tx, clock,
+          binding, () => Effect.void))).toMatchObject({ reason: "invalidComposition" });
+        expect(yield* Effect.flip(withAcceptedApplicationBindingEvidenceInTransaction(prepared, { ...tx } as typeof tx, clock,
+          binding, () => Effect.void))).toMatchObject({ reason: "invalidComposition" });
+        expect(yield* Effect.flip(withAcceptedApplicationBindingEvidenceInTransaction(prepared, tx,
+          { ...clock, lastMetadataSequence: MetadataSequenceSchema.make(clock.lastMetadataSequence + 1n) },
+          binding, () => Effect.void))).toMatchObject({ reason: "invalidComposition" });
+        // The retained strings do not retain a live authorization verdict.
+        // Revocation closes the clock owner's entry observation before update.
+        const advanced = yield* advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId);
+        const fresh = yield* withAcceptedApplicationBindingEvidenceInTransaction(prepared, tx, clock, binding,
+          projection => Effect.succeed(projection));
+        expect(fresh.projection.authorizationRevocationEpoch).toBe(advanced.current.toString());
+        expect(evidence.projection.authorizationRevocationEpoch).toBe(advanced.previous.toString());
+        invalidateAcceptedApplicationBindingInTransaction(tx);
+        expect(yield* Effect.flip(withAcceptedApplicationBindingEvidenceInTransaction(prepared, tx, clock,
+          binding, () => Effect.void))).toMatchObject({ reason: "invalidComposition" });
+      }));
+      if (lent === undefined) throw new Error("Missing lent projection witness");
+      expect(yield* Effect.flip(withAcceptedApplicationBindingEvidenceInTransaction(prepared, tx, clock,
+        lent, () => Effect.void))).toMatchObject({ reason: "invalidComposition" });
+      expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction").length - before).toBe(1);
+    }).pipe(Effect.provideService(Tracer.Tracer, tracer)));
+    throw rollbackProjectionWitness;
+  })).rejects.toBe(rollbackProjectionWitness);
   let escaped: AcceptedApplicationBinding | undefined;
   await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);

@@ -70,7 +70,7 @@ export async function prepareActivatedCoverageProof(fixture: ApplicationNativeMu
           rowIntents: [{ kind: "live", documentId, tableId: table.tableId, rowId, dependency, creationTime, document }],
           dependencies: [{ documentId, tableId: table.tableId, rowId, dependency }] };
         const context = { record: clock, scopeUuid: projectScopeIdUuidV1(scopeId).scopeUuid };
-        await lockPointCommitIntrinsicIndexBuilds(tx, context, [intrinsic], command);
+        await runEffect(lockPointCommitIntrinsicIndexBuilds(tx, context, [intrinsic], command));
         const settlement = await runEffect(prepareApplicationDocumentSettlementEffect(command, [], [], [], null, [intrinsic]));
         const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
         await runEffect(Effect.gen(function* () {

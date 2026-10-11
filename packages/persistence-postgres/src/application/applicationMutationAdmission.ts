@@ -99,6 +99,8 @@ import {
   chargeHostPreparation,
   registerHostPreparationDisposal,
 } from "../execution/preparation/preparedHostRuntime";
+import { prepareFiniteApplicationSourceComposition } from "../storage/documents/logicalDocuments/sourceAdmission";
+import type { LogicalParticipantSelection } from "../storage/documents/logicalDocuments/participantAdmission";
 
 export interface ApplicationMutationAdmission {
   readonly selection: ApplicationActiveSelection;
@@ -191,6 +193,17 @@ export function readPreparedFiniteApplicationMutationInputs(prepared: PreparedFi
       Object.freeze({ basis: claimed.basis, schema, executionAuthority: structuredClone(state.inputs.executionAuthority),
         application: state.active })));
 }
+
+/** Original current-generation composition only. This lends no live binding,
+ * root, transaction, write allowance or settlement capability. */
+export const prepareFiniteApplicationMutationSourceComposition = Effect.fn("ApplicationMutationAdmission.prepareSourceComposition")(function* (
+  prepared: PreparedFiniteApplicationMutationAdmission, sources: readonly LogicalParticipantSelection[],
+) {
+  const state = finiteMutationPreparations.get(prepared);
+  if (state === undefined) return yield* failure("invalidComposition");
+  yield* Effect.fromResult(readPreparedFiniteApplicationAuthority(state.active, state.context.controlDb));
+  yield* prepareFiniteApplicationSourceComposition(state.active, sources);
+});
 
 export function readPreparedFiniteApplicationMutationActivationInputs(prepared: PreparedFiniteApplicationMutationAdmission,
   context: ApplicationMutationAdmissionContext): Result.Result<PreparedFiniteApplicationMutationActivationInputs,

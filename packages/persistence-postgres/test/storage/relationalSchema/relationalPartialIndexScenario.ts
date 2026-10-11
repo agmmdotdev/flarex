@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, appRowIdHexV1ToBytes, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CommitSeqSchema, StorageGenerationFenceSchema, projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
@@ -210,6 +210,7 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
   for (const invalid of [[], [""], ["medusa.currency", "medusa.currency"], ["medusa.currency", "unknown"]])
     expect(yield* Effect.result(readiness.selectSources(invalid)))
       .toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
+  const readinessTransactions = vi.spyOn(db, "transaction");
   yield* transact(tx => Effect.gen(function* () {
     const currentClock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
     expect(yield* emptyUnique.inspectSelected(tx, resolved.authority, currentClock)).toEqual({ status: "ready", definitionCount: 0 });
@@ -256,7 +257,10 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
       eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, requiredUnique.uniqueConstraintDefinitionId)), cause => new Error("Remove required unique fixture", { cause }));
     expect(yield* selectedReadiness.inspectSelected(tx, resolved.authority, currentClock)).toMatchObject({ status: "not_ready", kind: "unique" });
     yield* runDrizzleStatementEffect(tx.insert(fxSystemUniqueConstraintBuilds).values(requiredUnique), cause => new Error("Restore required unique fixture", { cause }));
-  }));
+  })).pipe(
+    Effect.tap(() => Effect.sync(() => expect(readinessTransactions).toHaveBeenCalledTimes(1))),
+    Effect.ensuring(Effect.sync(() => readinessTransactions.mockRestore())),
+  );
   // Even an empty selected build set can only derive from the canonical full
   // preparation. Missing/extra members and changed bytes with unchanged
   // closure count/digest refuse at that existing preparation boundary.

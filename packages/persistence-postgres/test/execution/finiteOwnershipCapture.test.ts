@@ -44,17 +44,20 @@ function observeCaptureProjectionParity() {
       if (args[2]?.startsWith("fx_finite_")) {
         const first = expected[0];
         if (first === null || typeof first !== "object") throw new Error("Missing reference finite header");
-        const header = Object.fromEntries(Object.entries(first).filter(([name]) => name !== "raw" && name !== "storagePresent"));
+        const consumesFrontier = Reflect.get(first, "reason") === "attemptReplaced";
+        const header = Object.fromEntries(Object.entries(first).filter(([name]) => name !== "raw" && name !== "storagePresent"
+          && (name !== "frontier" || consumesFrontier)));
+        if (!consumesFrontier) {
+          if (actual === null || typeof actual !== "object") throw new Error("Missing mapped finite capture");
+          const actualHeader: unknown = Reflect.get(actual, "header");
+          if (actualHeader === null || typeof actualHeader !== "object") throw new Error("Missing mapped finite header");
+          expect(Object.hasOwn(actualHeader, "frontier")).toBe(false);
+        }
         const bodies = expected.flatMap(row => {
           if (row === null || typeof row !== "object") throw new Error("Invalid reference finite row");
           return Reflect.get(row, "storagePresent") === true ? [Reflect.get(row, "raw")] : [];
         });
-        const combined = fields.some(({ path }) => path[0] === "raw" && path[1] === "captureGroup");
-        const project = (group: "index" | "row") => bodies.filter(row => Reflect.get(row, "captureGroup") === group)
-          .map(row => Object.fromEntries(Object.entries(row).filter(([name]) => name.startsWith(group + "_"))
-            .map(([name, value]) => [name.slice(group.length + 1), value])));
-        expect(actual).toEqual({ header, rawRows: combined ? project("row") : bodies,
-          rawIndexRows: combined ? project("index") : [], layoutFailure: undefined });
+        expect(actual).toEqual({ header, rawRows: bodies, layoutFailure: undefined });
       } else expect(actual).toEqual(expected);
       mappedCaptureRows += rows.length;
       return actual;
@@ -135,7 +138,7 @@ async function verifyCaptureLayoutFailureOrder(capture: ObservedOwnershipCapture
     { mutate: (rows, index) => {
       malformedMarker(rows, index);
       rows[0]![index(["reason"])] = "expired";
-      rows[0]![index(["build", "startCommitSeq"])] = "invalid native bigint";
+      rows[0]![index(["frontier", "attemptFence"])] = "invalid native bigint";
     }, reason: "resourceFailure", native: true },
   ];
   for (const witness of cases) {

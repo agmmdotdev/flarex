@@ -1,5 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import { commerceError, defaultCommerceResources, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceRelation } from "../src/commerce-relations";
 import { populateCommerceRelations } from "../src/commerce-relations";
@@ -53,7 +54,7 @@ describe("per-path population predicates", () => {
     ];
     const unused = () => Effect.fail(commerceError("unsupportedProfile"));
     const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
-      table: () => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (manager: unknown, query: unknown) => Effect.sync(() => {
+      table: () => Effect.succeed({ prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (manager: unknown, query: unknown) => Effect.sync(() => {
         expect(manager).toBe(lifetime.context); queries.push(query);
         const rows = returned.shift(); if (!rows) throw new Error("Unexpected population read"); return rows;
       }), count: unused, write: unused, delete: unused, lifecycle: unused }),

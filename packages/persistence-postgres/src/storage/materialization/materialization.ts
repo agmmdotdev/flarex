@@ -113,6 +113,7 @@ import {
   type PreparedAppIndexRevisionApplication,
   preparedAppIndexApplicationFailure,
   prepareAppIndexKeyTransitionAcceptanceInTransactionEffect,
+  invalidateAppIndexMembershipPositionsInTransaction,
   prepareAppIndexRevisionApplicationEffect,
   publicationAppIndexApplicationFailure,
 } from "../indexes/appIndexEntries";
@@ -163,17 +164,13 @@ import {
   readIndexCoverageContextInTransactionEffect,
   publicationModeForIndex,
   publicationModeForTable,
-  indexBuildStateSelection,
-  indexMaintenanceBindingPredicate,
-  type IndexBuildStateRow,
-  decodeIndexBuildStateRowResult,
-  validateIndexBuildStateFrontierResult,
+  acceptSelectedIndexBuildLocksInTransactionEffect,
+  IndexBuildStatePersistenceError,
   type IndexBuildStateRecord,
 } from "../indexes/indexBuildStates";
 import {
   PointCommitSqlFailureMarkerV1,
   pointCommitSqlCallFailure,
-  sqlCall,
 } from "../../commit/point/sqlFailures";
 import {
   appDocumentIdV1FromRowIdentity,
@@ -183,6 +180,7 @@ import {
 } from "flarex-protocol/app-document-id";
 import {
   requireAdmittedTargetInstallationSchema,
+  requireAdmittedTargetInstallationIdentity,
 } from "../../installation/installationLifecycle";
 import {
   fxSystemIndexBuildStates,
@@ -190,7 +188,6 @@ import {
   fxControlIndexDefinitions,
   fxControlUniqueConstraintDefinitions,
   fxControlSchemaVersionUniqueConstraintBindings,
-  fxSystemIndexMaintenanceObligations,
 } from "../../database/schema";
 import {
   sql,
@@ -229,6 +226,7 @@ import {
 } from "./uniqueKeyFailures";
 import {
   closeExactAttemptScopeClockObservation,
+  exactScopeWriteClockObservationIdentity,
   type ScopeClockRecord,
 } from "../../scope/scopeClock";
 import {
@@ -251,9 +249,6 @@ import {
   rowsFromDriverExecuteResult,
 } from "../../database/driverExecuteResult";
 import {
-  projectPointCommitTransactionResult,
-} from "../../commit/point/promiseBoundary";
-import {
   validateAppRowPointOccV1,
 } from "../documents/appRowPointOcc";
 import {
@@ -262,9 +257,7 @@ import {
 import type {
   CanonicalFlarexValueV1,
 } from "flarex-protocol/value";
-import {
-  decodeCanonicalAppDocumentEvidenceV1Effect,
-} from "flarex-protocol/app-document";
+import { decodeStoredAppDocumentEvidenceEffect } from "../documents/appRowCanonicalEvidence";
 import type {
   TrustedScopeAuthority,
 } from "../../scope/scopeAuthorityResolution";
@@ -836,6 +829,11 @@ export const materializeAcceptedApplicationPublicationRows = Effect.fnUntraced(f
       },
     });
   };
+  if (stop === null && Exit.isSuccess(intrinsicPreparation) && intrinsicPreparation.value.pairs.length > 0)
+    invalidateAppIndexMembershipPositionsInTransaction(tx, intrinsicPreparation.value.pairs.flatMap(pair =>
+      [pair.priorKey, pair.finalKey].flatMap(encodedKey => encodedKey === null ? [] : [{ scopeUuid: clock.scopeUuid,
+        identity: { scopeId: command.authorityPins.scopeId, indexDefinitionId: pair.definition.indexDefinitionId,
+          tableId: pair.definition.access.tableId, encodedKey, rowId: pair.rowId } }])));
   const statement=tx.execute(invocation(block));
   observeDrizzleRawQuery("applyPublication",statement,input.options.observeQuery);
   const result=yield* runDrizzleStatementEffect(statement,mapFailure);
@@ -1115,7 +1113,7 @@ export const maintainPointCommitApplicationRelationsEffect = Effect.fn(
   }
 });
 
-export async function loadPointCommitHeads(
+export const loadPointCommitHeads = Effect.fn("ApplicationDocument.loadPointCommitHeads")((
   tx: AppRowTransaction,
   clock: ApplicationDocumentMaterializationClock,
   command: Pick<
@@ -1123,32 +1121,63 @@ export async function loadPointCommitHeads(
     "authorityPins" | "dependencies"
   >,
   options: ApplicationDocumentMaterializationOptions,
-): Promise<ReadonlyArray<LoadedPointCommitHeadV1>> {
-  return selectPointCommitHeads(tx, clock, command, options);
-}
+) => selectPointCommitHeads(tx, clock, command, options).pipe(Effect.map(captured => captured.heads)));
 
+/** The actual writer capture retains predecessor envelopes behind the original
+ * head/OCC gate. This does not accept originals or publication in advance. */
+export const captureApplicationDocumentHeadsAndOriginals = Effect.fn("ApplicationDocument.captureHeadsAndOriginals")(function* (
+  tx: AppRowTransaction, clock: ApplicationDocumentMaterializationClock,
+  command: ApplicationDocumentMaterializationCommand,
+  developer: readonly LockedPointCommitDeveloperIndexV1[],
+  unique: readonly LocatedAppUniqueConstraintDefinitionV1[],
+  relations: LocatedPreparedPointCommitApplicationRelations | null,
+  options: ApplicationDocumentMaterializationOptions,
+) {
+  const identity = exactScopeWriteClockObservationIdentity(tx, command.authorityPins.scopeId);
+  const installation = Result.getOrElse(requireAdmittedTargetInstallationIdentity(tx), () => undefined);
+  const tables = predecessorDocumentTableIds(developer, unique, relations);
+  const captured = yield* selectPointCommitHeads(tx, clock, command, options, tables,
+    new Set(command.rowIntents.map(intent => intent.documentId)));
+  const readPriorState = Effect.fn("ApplicationDocument.acceptCapturedOriginals")(function* () {
+    if (identity === undefined || installation === undefined ||
+      identity !== exactScopeWriteClockObservationIdentity(tx, command.authorityPins.scopeId) ||
+      installation !== Result.getOrElse(requireAdmittedTargetInstallationIdentity(tx), () => undefined))
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
+    const headsByDocumentId = yield* Effect.fromResult(priorDocumentHeadsResult(command, captured.heads));
+    const requests = yield* Effect.fromResult(priorDocumentRequestsResult(command, headsByDocumentId, tables));
+    const ordinals = new Map(command.dependencies.map((point, ordinal) => [point.documentId, ordinal]));
+    const rows = requests.map(request => captured.rows[ordinals.get(request.documentId) ?? -1]);
+    const expectedOrdinals = requests.map(request => ordinals.get(request.documentId));
+    const originals = yield* decodePointCommitOriginalDocuments(command, requests, rows, expectedOrdinals);
+    return Object.freeze({ headsByDocumentId, ...originals, rowsByTable: indexApplicationDocumentRowIntents(command) });
+  });
+  return Object.freeze({ heads: captured.heads, readPriorState });
+});
 
-async function selectPointCommitHeads(
+const selectPointCommitHeads = Effect.fn("ApplicationDocument.selectPointCommitHeads")(function* (
   tx: AppRowTransaction,
   clock: ApplicationDocumentMaterializationClock,
   command: Pick<ApplicationDocumentMaterializationCommand, "authorityPins" | "dependencies">,
   options: ApplicationDocumentMaterializationOptions,
-): Promise<readonly LoadedPointCommitHeadV1[]> {
-  if (command.dependencies.length === 0) return Object.freeze([]);
+  originalTables?: ReadonlySet<CatalogTableId>,
+  originalDocumentIds?: ReadonlySet<AppDocumentIdV1>,
+) {
+  if (command.dependencies.length === 0) return { heads: Object.freeze([]), rows: Object.freeze([]) };
   const values = sql.join(
     command.dependencies.map(
       (dependency, ordinal) => sql`
       (
         ${ordinal}::integer,
         ${dependency.tableId}::integer,
-        ${appRowIdHexV1ToBytes(dependency.rowId)}::bytea
+        ${appRowIdHexV1ToBytes(dependency.rowId)}::bytea,
+        ${originalTables?.has(dependency.tableId) === true && originalDocumentIds?.has(dependency.documentId) === true}::boolean
       )
     `,
     ),
     sql`, `,
   );
   const statement = sql`
-    with requested(ordinal, table_id, row_id) as (
+    with requested(ordinal, table_id, row_id, original_demanded) as (
       values ${values}
     )
     select
@@ -1157,6 +1186,12 @@ async function selectPointCommitHeads(
       latest.commit_seq::text as "latestCommitSeqText",
       latest.is_tombstone as "latestIsTombstone",
       latest.creation_time::text as "latestCreationTimeText"
+      ${originalTables === undefined ? sql`` : sql`,
+      latest.is_tombstone as "isTombstone", latest.creation_time::text as "creationTimeText",
+      latest.value_codec_version as "valueCodecVersion", latest.value_bytes as "valueBytes",
+      latest.value_sha256 as "valueSha256", latest.scope_uuid as "scopeUuid",
+      latest.write_epoch_uuid as "writeEpochUuid", latest.prev_commit_seq::text as "prevCommitSeq",
+      latest.schema_version_id as "schemaVersionId"`}
     from requested
     left join fx_app_row_current as current_row
       on current_row.scope_uuid = ${clock.scopeUuid}
@@ -1164,6 +1199,11 @@ async function selectPointCommitHeads(
       and current_row.row_id = requested.row_id
     left join lateral (
       select revision.commit_seq, revision.is_tombstone, revision.creation_time
+      ${originalTables === undefined ? sql`` : sql`, revision.value_codec_version,
+        case when requested.original_demanded and not revision.is_tombstone
+          and octet_length(revision.value_bytes) <= 1048576 then revision.value_bytes else null end as value_bytes,
+        revision.value_sha256, revision.scope_uuid, revision.write_epoch_uuid,
+        revision.prev_commit_seq, revision.schema_version_id`}
       from fx_app_row_rev as revision
       where revision.scope_uuid = ${clock.scopeUuid}
         and revision.table_id = requested.table_id
@@ -1180,12 +1220,21 @@ async function selectPointCommitHeads(
       params: Object.freeze([]),
     }),
   );
-  const result = await sqlCall("loadRowHeads", () => tx.execute(statement));
-  const rows = rowsFromDriverExecuteResult(result, () => {
-    throw corruption("rowHeadInvalid");
+  const result = yield* runDrizzleStatementEffect(tx.execute(statement),
+    cause => pointCommitSqlCallFailure("loadRowHeads", cause));
+  // The existing driver extractor throws for invalid wrappers. Only that
+  // deliberate refusal enters E; unexpected accessor failures remain defects.
+  const invalidRows = corruption("rowHeadInvalid");
+  const rows = yield* Result.match(Result.try({
+    try: () => rowsFromDriverExecuteResult(result, () => { throw invalidRows; }),
+    catch: cause => cause,
+  }), {
+    onSuccess: extractedRows => Effect.succeed(extractedRows),
+    onFailure: cause => cause === invalidRows ? Effect.fail(invalidRows) : Effect.die(cause),
   });
-  return projectPointCommitTransactionResult(capturePointCommitHeadsResult(rows, command, clock.record.lastCommitSeq));
-}
+  const heads = yield* Effect.fromResult(capturePointCommitHeadsResult(rows, command, clock.record.lastCommitSeq));
+  return { heads, rows };
+});
 
 function capturePointCommitHeadsResult(
   rows: ReadonlyArray<unknown>,
@@ -1324,78 +1373,21 @@ function adaptPointDependency(
   }
 }
 
-export async function lockPointCommitDeveloperIndexBuilds(
+export const lockPointCommitDeveloperIndexBuilds = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   clock: ApplicationDocumentMaterializationClock,
-  definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  definitions: readonly LocatedAppIndexDefinitionV1[],
   command: ApplicationDocumentMaterializationCommand,
-): Promise<ReadonlyArray<LockedPointCommitDeveloperIndexV1>> {
-  if (definitions.length === 0) {
-    recordOriginalPublicationBuildLocks(tx,clock,"developer",definitions);
-    return Object.freeze([]);
-  }
-  const rows = await sqlCall("lockDeveloperIndexBuilds", () =>
-    tx
-      .select(indexBuildStateSelection())
-      .from(fxSystemIndexBuildStates)
-      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
-      .where(
-        and(
-          eq(fxSystemIndexBuildStates.scopeId, command.authorityPins.scopeId),
-          inArray(
-            fxSystemIndexBuildStates.indexDefinitionId,
-            definitions.map((definition) => definition.indexDefinitionId),
-          ),
-        ),
-      )
-      .orderBy(fxSystemIndexBuildStates.indexDefinitionId)
-      .for("share", { of: fxSystemIndexBuildStates }),
-  );
-  const locked = decodePointCommitDeveloperIndexBuilds(rows, clock, definitions, command);
-  recordOriginalPublicationBuildLocks(tx,clock,"developer",definitions);
-  return locked;
-}
-function decodePointCommitDeveloperIndexBuilds(rows: readonly IndexBuildStateRow[], clock: ApplicationDocumentMaterializationClock, definitions: readonly LocatedAppIndexDefinitionV1[], command: ApplicationDocumentMaterializationCommand): readonly LockedPointCommitDeveloperIndexV1[] {
-  if (rows.length !== definitions.length) {
-    throw corruption("developerIndexBuildInvalid");
-  }
-  const rowsByDefinitionId = new Map(rows.map((row) => [row.indexDefinitionId, row]));
-  if (rowsByDefinitionId.size !== definitions.length) {
-    throw corruption("developerIndexBuildInvalid");
-  }
-  const locked: LockedPointCommitDeveloperIndexV1[] = [];
-  for (const definition of definitions) {
-    const row = rowsByDefinitionId.get(definition.indexDefinitionId);
-    if (row === undefined) {
-      throw corruption("developerIndexBuildInvalid");
-    }
-    const state = projectPointCommitTransactionResult(
-      decodeIndexBuildStateRowResult(
-        row,
-        command.authorityPins.scopeId,
-        definition.indexDefinitionId, row.maintenanceObligation,
-      ).pipe(Result.mapError(() => corruption("developerIndexBuildInvalid"))),
-    );
-    if (
-      definition.access.kind !== "developer" ||
-      state.indexDefinitionId !== definition.indexDefinitionId ||
-      state.storageGeneration !== clock.record.storageGeneration ||
-      state.storageGenerationFence !== clock.record.storageGenerationFence ||
-      state.epoch !== clock.record.epoch ||
-      state.lifecycle === "retiring"
-    ) {
-      throw corruption("developerIndexBuildInvalid");
-    }
-    projectPointCommitTransactionResult(
-      validateIndexBuildStateFrontierResult(
-        state,
-        clock.record.lastCommitSeq,
-      ).pipe(Result.mapError(() => corruption("developerIndexBuildInvalid"))),
-    );
-    locked.push(Object.freeze({ definition, build: state }));
-  }
-  return Object.freeze(locked);
-}
+) {
+  if (clock.record.scopeId !== command.authorityPins.scopeId)
+    return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
+  yield* acceptSelectedIndexBuildLocksInTransactionEffect(tx, clock.record, definitions, "definition").pipe(
+    Effect.mapError(failure => failure instanceof IndexBuildStatePersistenceError
+      ? new PointCommitSqlFailureMarkerV1("lockDeveloperIndexBuilds", failure.cause)
+      : corruption("developerIndexBuildInvalid")));
+  recordOriginalPublicationBuildLocks(tx, clock, "developer", definitions);
+  return Object.freeze(definitions.map(definition => Object.freeze({ definition })));
+});
 
 function uniqueCanonicalTransitions(plans: readonly PointCommitUniqueKeyPlanV1[]) {
   return plans.map(plan => ({ constraintId: plan.definition.uniqueConstraintDefinitionId, tableId: plan.definition.tableId,
@@ -1458,6 +1450,26 @@ const decodeStoredPriorDocumentResult = Schema.decodeUnknownResult(Schema.Struct
   prevCommitSeq:Schema.NullOr(CommitSeqSchema),schemaVersionId:CatalogSchemaVersionIdSchema,
 }));
 
+function priorDocumentRequestsResult(
+  command: ApplicationDocumentMaterializationCommand,
+  loadedHeadsByDocumentId: ReadonlyMap<AppDocumentIdV1, LoadedPointCommitHeadV1>,
+  indexedTableIds: ReadonlySet<CatalogTableId>,
+): Result.Result<readonly PointCommitDeveloperIndexDocumentRequestV1[], PointCommitCorruptionV1Error> {
+  return Result.gen(function* () {
+    const requests: PointCommitDeveloperIndexDocumentRequestV1[] = [];
+    for (const intent of command.rowIntents) {
+      if (!indexedTableIds.has(intent.tableId)) continue;
+      const loaded = loadedHeadsByDocumentId.get(intent.documentId);
+      if (loaded === undefined) return yield* Result.fail(corruption("priorDocumentInvalid"));
+      if (loaded.head.kind !== "live") continue;
+      if (loaded.creationTime === null) return yield* Result.fail(corruption("priorDocumentInvalid"));
+      requests.push(Object.freeze({ documentId: intent.documentId, tableId: intent.tableId,
+        rowId: intent.rowId, commitSeq: loaded.head.revisionCommitSeq, creationTime: loaded.creationTime }));
+    }
+    return Object.freeze(requests);
+  });
+}
+
 const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPriorDocuments")(function* (
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
@@ -1468,28 +1480,7 @@ const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPri
   indexedTableIds: ReadonlySet<CatalogTableId>,
   options: ApplicationDocumentMaterializationOptions,
 ): Effect.fn.Return<Readonly<{documents:ReadonlyMap<AppDocumentIdV1,CanonicalFlarexValueV1>;originalRows:readonly LiveAppRowRevisionV1[]}>, PointCommitCorruptionV1Error | PointCommitSqlFailureMarkerV1> {
-  if (indexedTableIds.size === 0) return {documents:new Map(),originalRows:[]};
-  const requests: PointCommitDeveloperIndexDocumentRequestV1[] = [];
-  for (const intent of command.rowIntents) {
-    if (!indexedTableIds.has(intent.tableId)) continue;
-    const loaded = loadedHeadsByDocumentId.get(intent.documentId);
-    if (loaded === undefined) {
-      return yield* Effect.fail(corruption("priorDocumentInvalid"));
-    }
-    if (loaded.head.kind !== "live") continue;
-    if (loaded.creationTime === null) {
-      return yield* Effect.fail(corruption("priorDocumentInvalid"));
-    }
-    requests.push(
-      Object.freeze({
-        documentId: intent.documentId,
-        tableId: intent.tableId,
-        rowId: intent.rowId,
-        commitSeq: loaded.head.revisionCommitSeq,
-        creationTime: loaded.creationTime,
-      }),
-    );
-  }
+  const requests = yield* Effect.fromResult(priorDocumentRequestsResult(command, loadedHeadsByDocumentId, indexedTableIds));
   if (requests.length === 0) return {documents:new Map(),originalRows:[]};
   const { scopeUuid } = yield* Effect.fromResult(
     projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
@@ -1541,6 +1532,15 @@ const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPri
   const { rows } = yield* Effect.fromResult(decodePriorDocumentRowsResult(result).pipe(
     Result.mapError(() => corruption("priorDocumentInvalid")),
   ));
+  return yield* decodePointCommitOriginalDocuments(command, requests, rows);
+});
+
+/** Shared exact predecessor decoder for both actual capture shapes. */
+const decodePointCommitOriginalDocuments = Effect.fnUntraced(function* (
+  command: ApplicationDocumentMaterializationCommand,
+  requests: readonly PointCommitDeveloperIndexDocumentRequestV1[], rows: readonly unknown[],
+  expectedOrdinals?: readonly (number | undefined)[],
+) {
   if (rows.length !== requests.length) {
     return yield* Effect.fail(corruption("priorDocumentInvalid"));
   }
@@ -1553,12 +1553,12 @@ const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPri
     const request = requests[ordinal];
     if (
       request === undefined ||
-      raw.ordinalText !== String(ordinal) ||
+      raw.ordinalText !== String(expectedOrdinals === undefined ? ordinal : expectedOrdinals[ordinal]) ||
       raw.creationTimeText !== String(request.creationTime)
     ) {
       return yield* Effect.fail(corruption("priorDocumentInvalid"));
     }
-    const document = yield* decodeCanonicalAppDocumentEvidenceV1Effect({
+    const document = yield* decodeStoredAppDocumentEvidenceEffect({
       tableId: request.tableId,
       rowId: request.rowId,
       creationTime: request.creationTime,
@@ -1649,61 +1649,25 @@ export const resetPointCommitDeveloperIndexValidations = Effect.fn("ApplicationD
       publicationObservation.record({ kind: "batch", owner: "indexValidation", counts: { rows: Math.min(32, selected.length - offset) } });
 });
 
-export async function lockPointCommitIntrinsicIndexBuilds(
+export const lockPointCommitIntrinsicIndexBuilds = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   clock: ApplicationDocumentMaterializationClock,
-  definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  definitions: readonly LocatedAppIndexDefinitionV1[],
   command: ApplicationDocumentMaterializationCommand,
-): Promise<ReadonlyArray<LockedPointCommitIntrinsicIndexV1>> {
-  const locked: LockedPointCommitIntrinsicIndexV1[] = [];
-  if (definitions.length === 0) {
-    recordOriginalPublicationBuildLocks(tx,clock,"intrinsic",definitions);
-    return Object.freeze(locked);
-  }
-  if (new Set(definitions.map(definition => definition.indexDefinitionId)).size !== definitions.length)
-    throw corruption("intrinsicIndexBuildInvalid");
+) {
+  if (clock.record.scopeId !== command.authorityPins.scopeId ||
+      new Set(definitions.map(definition => definition.indexDefinitionId)).size !== definitions.length)
+    return yield* Effect.fail(corruption("intrinsicIndexBuildInvalid"));
   for (let offset = 0; offset < definitions.length; offset += 32) {
-    const batch = definitions.slice(offset, offset + 32);
-    // PostgreSQL locks after this explicit input-ordinal sort. It retains the
-    // former definition order rather than introducing a new build-ID order.
-    const order = sql<number>`case ${fxSystemIndexBuildStates.indexDefinitionId} ${sql.join(batch.map((definition, ordinal) =>
-      sql`when ${definition.indexDefinitionId} then ${ordinal}`), sql` `)} end`;
-    const rows = await sqlCall("lockIntrinsicIndexBuild", () => tx.select(indexBuildStateSelection()).from(fxSystemIndexBuildStates)
-      .leftJoin(fxSystemIndexMaintenanceObligations, indexMaintenanceBindingPredicate())
-      .where(and(eq(fxSystemIndexBuildStates.scopeId, command.authorityPins.scopeId),
-        inArray(fxSystemIndexBuildStates.indexDefinitionId, batch.map(definition => definition.indexDefinitionId))))
-      .orderBy(order).for("share", { of: fxSystemIndexBuildStates }));
-    for (const definition of batch) {
-      const row = rows.find(member => member.indexDefinitionId === definition.indexDefinitionId);
-
-    if (row === undefined) throw corruption("intrinsicIndexBuildInvalid");
-    const state = projectPointCommitTransactionResult(
-      decodeIndexBuildStateRowResult(
-        row,
-        command.authorityPins.scopeId,
-        definition.indexDefinitionId, row.maintenanceObligation,
-      ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
-    );
-    if (
-      state.storageGeneration !== clock.record.storageGeneration ||
-      state.storageGenerationFence !== clock.record.storageGenerationFence ||
-      state.epoch !== clock.record.epoch ||
-      state.lifecycle === "retiring"
-    ) {
-      throw corruption("intrinsicIndexBuildInvalid");
-    }
-    projectPointCommitTransactionResult(
-      validateIndexBuildStateFrontierResult(
-        state,
-        clock.record.lastCommitSeq,
-      ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
-    );
-    locked.push(Object.freeze({ definition, build: state }));
+    yield* acceptSelectedIndexBuildLocksInTransactionEffect(tx, clock.record,
+      definitions.slice(offset, offset + 32), "input").pipe(
+      Effect.mapError(failure => failure instanceof IndexBuildStatePersistenceError
+        ? new PointCommitSqlFailureMarkerV1("lockIntrinsicIndexBuild", failure.cause)
+        : corruption("intrinsicIndexBuildInvalid")));
   }
-  }
-  recordOriginalPublicationBuildLocks(tx,clock,"intrinsic",definitions);
-  return Object.freeze(locked);
-}
+  recordOriginalPublicationBuildLocks(tx, clock, "intrinsic", definitions);
+  return Object.freeze(definitions.map(definition => Object.freeze({ definition })));
+});
 
 
 function prepareTentativePointCommitRowResult(

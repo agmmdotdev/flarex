@@ -1,4 +1,9 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
+import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
+import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
+import { isJsonObject, type Json } from "flarex-protocol/json";
 import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import {
   afterEach,
@@ -27,10 +32,18 @@ import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
-import { prepareLogicalRelationalRows } from "../../../src/storage/documents/logicalDocuments/relationalRows";
+import { prepareLogicalRelationalRows, prepareLogicalRelationalTableMechanics, bindPreparedLogicalRelationalRows,
+  canonicalizeLogicalRelationalRow, validateLogicalRelationalCanonicalRow, detachLogicalCanonicalDocument,
+  captureLogicalRelationalCanonicalRow, inspectLogicalRelationalCanonicalRow,
+  nativeLogicalRelationalCanonicalRow, captureLogicalRelationalActivityJson,
+} from "../../../src/storage/documents/logicalDocuments/relationalRows";
+import { inspectCapturedPrivateJsonData, useCapturedPrivateJsonData } from "../../../src/values/privateJsonData";
+import { decodeStoredAppDocumentEvidenceEffect, inspectStoredAppDocumentEvidence } from "../../../src/storage/documents/appRowCanonicalEvidence";
+import { makeLogicalCommerceActivityProjection } from "../../../src/frameworks/commerceTransaction/logicalParticipant";
 import { compileLogicalRelationalRead } from "../../../src/storage/documents/logicalDocuments/relationalQuery";
 import { canonicalizeAppUniqueKeyV1Result } from "../../../src/storage/unique/appUniqueKeyContract";
 import { encodeOrderedIndexComponentsV1, orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
+const rowFailure = (reason: string) => new Error(reason);
 
 type PublicRelationalSchemaExport = Extract<
   keyof typeof import("../../../src"),
@@ -545,7 +558,202 @@ describe("private relational schema values", () => {
       upserted, nextTime));
     expect(updated).toMatchObject({ name: "Updated Dollar", created_at: firstTime,
       updated_at: nextTime });
+    // The pure row owner has no request/document allowance; a complete valid
+    // row may exceed an eventual caller's bound and remain a semantic success.
+    const largeName = "Dollar".repeat(16_384);
+    const large = Result.getOrThrow(policy.normalize({ name: largeName }, updated, nextTime));
+    expect(large.name).toBe(largeName);
+    expect(large).toMatchObject({ created_at: firstTime, updated_at: nextTime });
   });
+
+  it("retains only the issuing table's immutable normalized and canonical row evidence across owned byte copies", () =>
+    runEffect(Effect.gen(function* () {
+      const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
+      const table = schema.tables[0];
+      if (table === undefined) throw new Error("Missing row-evidence table");
+      const mechanics = prepareLogicalRelationalTableMechanics(table, schema.capabilities);
+      const foreign = prepareLogicalRelationalTableMechanics(table, schema.capabilities);
+      const policy = Result.getOrThrow(bindPreparedLogicalRelationalRows(mechanics, reason => new Error(reason)));
+      const input = { code: "USD", symbol: "$", symbol_native: "$", name: "Dollar", rounding: "1",
+        raw_rounding: { value: "1", precision: 20 } };
+      const fields = Result.getOrThrow(policy.normalize(input, null, "2026-10-10T00:00:00.000Z"));
+      input.raw_rounding.value = "2";
+      expect(fields.raw_rounding).toEqual({ value: "1", precision: 20 });
+      expect(Object.isFrozen(fields)).toBe(true);
+      expect(Object.isFrozen(fields.raw_rounding)).toBe(true);
+      const tableId = CatalogTableIdSchema.make(1);
+      const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId: decodeAppRowIdHexV1("00000000000000000000000000000001") });
+      const time = AppCreationTimeV1Schema.make(1);
+      expect(yield* Effect.result(canonicalizeLogicalRelationalRow(foreign, fields, documentId, time)))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+      expect(yield* Effect.result(canonicalizeLogicalRelationalRow(mechanics, { ...fields }, documentId, time)))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+      const document = yield* canonicalizeLogicalRelationalRow(mechanics, fields, documentId, time);
+      const native = yield* canonicalizeFlarexValueV1Effect({ ...fields, _id: documentId, _creationTime: time }, "appDocument");
+      expect(document.canonicalBytes).toEqual(native.canonicalBytes);
+      expect(document.sha256).toEqual(native.sha256);
+      const captured = Result.getOrThrow(captureLogicalRelationalCanonicalRow(document, 65_536, rowFailure));
+      const again = Result.getOrThrow(captureLogicalRelationalCanonicalRow(document, 65_536, rowFailure));
+      expect(again.value).toBe(captured.value);
+      if (!isJsonObject(captured.value)) throw new Error("Missing captured runtime row");
+      const nativeFields = Result.getOrThrow(nativeLogicalRelationalCanonicalRow(mechanics, document, 65_536, rowFailure));
+      expect(nativeFields.raw_rounding).toBe(captured.value.raw_rounding);
+      expect(Object.hasOwn(nativeFields, "_id")).toBe(false);
+      expect(captured.value._id).toBe(documentId);
+      expect(captured.value._creationTime).toBe(time);
+      expect(inspectCapturedPrivateJsonData(nativeFields)?.value).toBe(nativeFields);
+      expect(Result.getOrThrow(inspectLogicalRelationalCanonicalRow(mechanics, document, captured.value, "storedCorruption")))
+        .toBe(nativeFields);
+      expect(Result.getOrThrow(inspectLogicalRelationalCanonicalRow(foreign, document, captured.value, "storedCorruption")))
+        .toBeUndefined();
+      expect(Result.getOrThrow(inspectLogicalRelationalCanonicalRow(mechanics, document, { ...captured.value }, "storedCorruption")))
+        .toBeUndefined();
+      expect(captureLogicalRelationalCanonicalRow(document, captured.bytes - 1, rowFailure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      expect(Result.getOrThrow(captureLogicalRelationalCanonicalRow(document, captured.bytes, rowFailure)).bytes).toBe(captured.bytes);
+      const query = Result.getOrThrow(compileLogicalRelationalRead(table, schema.capabilities,
+        { fields: ["code"], order: { column: "code", direction: "asc" } }, 10, rowFailure, mechanics));
+      expect(Result.getOrThrow(query.inspect(captured.value, document)).matches).toBe(true);
+      expect(query.inspect(Object.freeze({ ...captured.value, decimal_digits: "hidden-bad-field" }), document))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      const changedTable = { ...table, columns: table.columns.map(column => column.identity.columnId === "decimal_digits"
+        ? { ...column, type: "text" as const } : column) };
+      const changedMechanics = prepareLogicalRelationalTableMechanics(changedTable, schema.capabilities);
+      const changedQuery = Result.getOrThrow(compileLogicalRelationalRead(changedTable, schema.capabilities,
+        { fields: ["code"], order: { column: "code", direction: "asc" } }, 10, rowFailure, changedMechanics));
+      expect(changedQuery.inspect(captured.value, document))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      const returned = Result.getOrThrow(useCapturedPrivateJsonData([nativeFields], 65_536, rowFailure)).value;
+      if (!Array.isArray(returned)) throw new Error("Missing returned row array");
+      expect(returned[0]).toBe(nativeFields);
+      const mutable: Record<string, Json> = { ...structuredClone(nativeFields) };
+      expect(inspectCapturedPrivateJsonData(mutable)).toBeUndefined();
+      mutable.name = "mutable native callback";
+      expect(nativeFields.name).toBe("Dollar");
+      const detached = detachLogicalCanonicalDocument(document);
+      expect(detached.canonicalBytes).not.toBe(document.canonicalBytes);
+      expect(detached.sha256).not.toBe(document.sha256);
+      expect(Result.isSuccess(validateLogicalRelationalCanonicalRow(mechanics, detached, "documentInvalid"))).toBe(true);
+      const forged = { ...document, value: { ...fields, decimal_digits: "forged", _id: documentId, _creationTime: time } };
+      expect(validateLogicalRelationalCanonicalRow(mechanics, forged, "documentInvalid"))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "documentInvalid" } });
+      expect(validateLogicalRelationalCanonicalRow(foreign, forged, "storedCorruption"))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+      if (!isJsonObject(document.valueJson)) throw new Error("Missing canonical activity JSON");
+      const observed = { documentId, tableId, tableName: "currency", value: document.valueJson };
+      const activity = { attempts: [], lifecycle: [], observedRows: [observed], setNull: [], referenceReplacements: [] };
+      const project = makeLogicalCommerceActivityProjection(new Map([[tableId, "currency"]]));
+      const first = yield* project(activity), next = yield* project({ ...activity });
+      expect(next.observedRows[0]?.row).toBe(first.observedRows[0]?.row);
+      expect(Reflect.set(next.observedRows[0]?.row ?? {}, "name", "escaped")).toBe(false);
+      detached.canonicalBytes.fill(0);
+      expect(captureLogicalRelationalCanonicalRow(detached, 65_536, rowFailure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      expect(inspectLogicalRelationalCanonicalRow(foreign, detached, captured.value, "storedCorruption"))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+      expect(validateLogicalRelationalCanonicalRow(mechanics, detached, "documentInvalid"))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "documentInvalid" } });
+      expect(validateLogicalRelationalCanonicalRow(mechanics, detachLogicalCanonicalDocument(detached), "storedCorruption"))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+      expect(Result.isSuccess(validateLogicalRelationalCanonicalRow(mechanics, document, "documentInvalid"))).toBe(true);
+      document.sha256.fill(0);
+      expect(validateLogicalRelationalCanonicalRow(mechanics, document, "storedCorruption"))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+    })));
+
+  it("keeps issued runtime negative zero separate from tagged activity JSON through native handoffs", () =>
+    runEffect(Effect.gen(function* () {
+      const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
+      const table = schema.tables[0];
+      if (table === undefined) throw new Error("Missing signed-zero row table");
+      const mechanics = prepareLogicalRelationalTableMechanics(table, schema.capabilities);
+      const policy = Result.getOrThrow(bindPreparedLogicalRelationalRows(mechanics, rowFailure));
+      const fields = Result.getOrThrow(policy.normalize({ code: "ZERO", symbol: "0", symbol_native: "0", name: "Signed zero",
+        rounding: "0", raw_rounding: { value: "0", precision: 20, signed: -0 } }, null, "2026-10-10T00:00:00.000Z"));
+      const documentId = appDocumentIdV1FromRowIdentity({ tableId: CatalogTableIdSchema.make(1),
+        rowId: decodeAppRowIdHexV1("00000000000000000000000000000002") });
+      const document = yield* canonicalizeLogicalRelationalRow(mechanics, fields, documentId, AppCreationTimeV1Schema.make(1));
+      const native = Result.getOrThrow(nativeLogicalRelationalCanonicalRow(mechanics, document, 65_536, rowFailure));
+      if (!isJsonObject(native.raw_rounding)) throw new Error("Missing native numeric companion");
+      expect(Object.is(native.raw_rounding.signed, -0)).toBe(true);
+      const policyJson = Result.getOrThrow(captureLogicalRelationalActivityJson(document, rowFailure)).value;
+      expect(policyJson).toEqual(document.valueJson);
+      expect(Result.getOrThrow(captureLogicalRelationalActivityJson(document, rowFailure)).value).toBe(policyJson);
+      if (!isJsonObject(policyJson) || !isJsonObject(policyJson.raw_rounding)) throw new Error("Missing policy numeric companion");
+      expect(policyJson.raw_rounding.signed).not.toBe(-0);
+      const projected = Result.getOrThrow(useCapturedPrivateJsonData({ raw_rounding: native.raw_rounding }, 65_536, rowFailure)).value;
+      if (!isJsonObject(projected)) throw new Error("Missing native projection");
+      expect(projected.raw_rounding).toBe(native.raw_rounding);
+      expect(inspectCapturedPrivateJsonData(projected)?.negativeZero).toBe(true);
+    })));
+
+  it("retains actual stored captures while deferring complete table semantics until query/write inspection", () =>
+    runEffect(Effect.gen(function* () {
+      const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
+      const table = schema.tables[0];
+      if (table === undefined) throw new Error("Missing stored row table");
+      const mechanics = prepareLogicalRelationalTableMechanics(table, schema.capabilities);
+      const policy = Result.getOrThrow(bindPreparedLogicalRelationalRows(mechanics, rowFailure));
+      const fields = Result.getOrThrow(policy.normalize({ code: "STORED", symbol: "S", symbol_native: "S", name: "Stored",
+        rounding: "0", raw_rounding: { value: "0", precision: 20, signed: -0 } }, null, "2026-10-10T00:00:00.000Z"));
+      const tableId = CatalogTableIdSchema.make(1), rowId = decodeAppRowIdHexV1("00000000000000000000000000000003");
+      const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId }), creationTime = AppCreationTimeV1Schema.make(1);
+      const read = (document: CanonicalFlarexValueV1) => decodeStoredAppDocumentEvidenceEffect({
+          tableId, rowId, creationTime, codecVersion: document.codecVersion, canonicalBytes: document.canonicalBytes, sha256: document.sha256,
+        });
+      const bytes = yield* canonicalizeFlarexValueV1Effect({ ...fields, _id: documentId, _creationTime: creationTime }, "appDocument");
+      const stored = yield* read(bytes);
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(stored))?.runtime).toBe(stored.value);
+      // Ingestion precedes the real JSON/table accepting frontier. The decoder
+      // transfers provenance into its own detached copy, never a caller clone.
+      const ingested = detachLogicalCanonicalDocument(stored);
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(ingested))?.runtime).toBe(ingested.value);
+      expect(captureLogicalRelationalCanonicalRow(ingested, 1, rowFailure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      const ingestedOutput = Result.getOrThrow(captureLogicalRelationalCanonicalRow(ingested, 65_536, rowFailure));
+      expect(Result.getOrThrow(captureLogicalRelationalCanonicalRow(ingested, 65_536, rowFailure)).value).toBe(ingestedOutput.value);
+      const copiedIngestion = detachLogicalCanonicalDocument(structuredClone(stored));
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(copiedIngestion))).toBeUndefined();
+      const output = Result.getOrThrow(captureLogicalRelationalCanonicalRow(stored, 65_536, rowFailure));
+      if (!isJsonObject(output.value)) throw new Error("Missing stored runtime capture");
+      const raw = output.value.raw_rounding;
+      if (raw === undefined || !isJsonObject(raw)) throw new Error("Missing stored raw numeric companion");
+      expect(Object.is(raw.signed, -0)).toBe(true);
+      expect(stored.valueJson).not.toEqual(output.value);
+      expect(Result.getOrThrow(captureLogicalRelationalCanonicalRow(stored, 65_536, rowFailure)).value).toBe(output.value);
+      const query = Result.getOrThrow(compileLogicalRelationalRead(table, schema.capabilities,
+        { fields: ["code"], order: { column: "code", direction: "asc" } }, 10, rowFailure, mechanics));
+      expect(Result.getOrThrow(query.inspect(output.value, stored)).matches).toBe(true);
+      const native = Result.getOrThrow(nativeLogicalRelationalCanonicalRow(mechanics, stored, 65_536, rowFailure));
+      expect(native.raw_rounding).toBe(output.value.raw_rounding);
+      const detached = detachLogicalCanonicalDocument(stored);
+      expect(Result.getOrThrow(captureLogicalRelationalCanonicalRow(detached, 65_536, rowFailure)).value).toBe(output.value);
+      expect(Result.getOrThrow(inspectLogicalRelationalCanonicalRow(mechanics, detached, output.value, "storedCorruption"))).toBe(native);
+      const foreign = Object.freeze({ ...stored });
+      const foreignOutput = Result.getOrThrow(captureLogicalRelationalCanonicalRow(foreign, 65_536, rowFailure));
+      expect(foreignOutput.value).not.toBe(output.value);
+      if (!isJsonObject(foreignOutput.value)) throw new Error("Missing foreign captured row");
+      expect(Result.getOrThrow(inspectLogicalRelationalCanonicalRow(mechanics, foreign, foreignOutput.value, "storedCorruption"))).toBeUndefined();
+      const policyValue = Result.getOrThrow(captureLogicalRelationalActivityJson(stored, rowFailure)).value;
+      expect(policyValue).toEqual(stored.valueJson);
+      expect(Result.getOrThrow(captureLogicalRelationalActivityJson(stored, rowFailure)).value).toBe(policyValue);
+      const badBytes = yield* canonicalizeFlarexValueV1Effect({ ...fields, decimal_digits: "hidden-bad-field",
+        _id: documentId, _creationTime: creationTime }, "appDocument");
+      const badStored = yield* read(badBytes);
+      // Capture/budget refusal still precedes the original semantic inspection.
+      expect(captureLogicalRelationalCanonicalRow(badStored, 1, rowFailure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "limitExceeded" } });
+      const badOutput = Result.getOrThrow(captureLogicalRelationalCanonicalRow(badStored, 65_536, rowFailure));
+      if (!isJsonObject(badOutput.value)) throw new Error("Missing bad stored runtime capture");
+      expect(query.inspect(badOutput.value, badStored)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      expect(query.inspect(badOutput.value, badStored)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      stored.sha256.fill(0);
+      expect(captureLogicalRelationalCanonicalRow(stored, 65_536, rowFailure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      expect(query.inspect(output.value, stored)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+      expect(captureLogicalRelationalActivityJson(stored, rowFailure))
+        .toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    })));
 
   it("enforces the aggregate decode budget at its exact boundary", () => {
     expect(MAX_RELATIONAL_SCHEMA_DECODE_UNITS).toBe(16_000);

@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { Cause, Effect, Exit, Result } from "effect";
 
 import type { PoolClient } from "pg";
 import {
@@ -15,7 +16,7 @@ import {
   CatalogSchemaVersionSchema,
   SchemaManifestAppIndexDescriptorSchema,
 } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema } from
+import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema, ReplacementScopeEpochV1Schema } from
   "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
@@ -58,6 +59,7 @@ import {
 import type { ScopePhysicalLocator } from "../../../src/scope/scopeMetadataTypes";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { observeUniqueBuildReturnedRows } from "./uniqueBuildStateAcceptanceScenario";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -71,6 +73,53 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 
 describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
+  it.each(["original","laterCompactFault","clockFailure"] as const)("preserves original post-lock clock and native getter order with %s", async fault => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const fixture = await fixtureFor(persistence);
+      const second = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
+        deploymentId: fixture.input.deploymentId,
+        schemaVersionId: fixture.schemaVersionId,
+        tableId: fixture.tableId,
+        descriptor: SchemaManifestAppIndexDescriptorSchema.make("by_deleted_at"),
+        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
+          orderedFields: ["deleted_at"], sparse: true, localePolicy: { kind: "none" },
+          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 }),
+      }));
+      await persistence.drizzle.transaction(tx => runEffect(ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, second)));
+      await closeFixtureSet(fixture);
+      await reconcile(fixture);
+      // Finite PostgreSQL dates outside the JavaScript Date range reach the
+      // native invalid-row route without violating the stored time constraint.
+      await persistence.query("update fx_system_unique_constraint_build set created_at='280000-01-01 00:00:00+00'::timestamptz,updated_at='280000-01-01 00:00:00+00'::timestamptz where scope_id=$1",[fixture.scopeId]);
+      const before = (await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1 order by unique_constraint_definition_id", [fixture.scopeId])).rows;
+      const marker = new Error("native returned unique build getter");
+      const observation = { selectedReads: 0, laterRowVisits: 0, statementsAfterRows: [] as string[] };
+      const runner = createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool);
+      const clockMarker = new Error("actual post-lock unique clock failure before compact syntax");
+      const target = createLocatedAppUniqueConstraintSetBuildTargetV1(persistence.drizzle, LOCATOR,
+        work => runner(tx => work(observeUniqueBuildReturnedRows(tx, marker, observation,{
+          laterCompactFault:fault==="laterCompactFault",captureSyntaxFault:fault==="clockFailure",
+          ...(fault==="clockFailure" ? {postLockClockFailure:clockMarker}:{}),
+        }))));
+      const port = createAppUniqueConstraintSetEligibilityPortV1({ ...fixture.ports, authority: {
+        ...fixture.ports.authority, scopeClockTargets: { resolve: async () => target },
+      } }, createAppUniqueConstraintDefinitionPortV1(persistence.drizzle));
+      const exit = await runEffect(Effect.exit(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(port, fixture.input)));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasFails(exit.cause)).toBe(fault==="clockFailure");
+        if (fault==="clockFailure") {
+          expect(Cause.hasDies(exit.cause)).toBe(false);
+          expect(Result.getOrThrow(Cause.findError(exit.cause))).toMatchObject({_tag:"AppUniqueConstraintSetBuildIntegrationV1Error"});
+        } else expect(exit.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === marker)).toBe(true);
+      }
+      expect(observation.selectedReads).toBe(1);
+      expect(observation.laterRowVisits).toBe(0);
+      expect(observation.statementsAfterRows.every(statement => statement.includes("fx_system_scope_clock"))).toBe(true);
+      expect((await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1 order by unique_constraint_definition_id", [fixture.scopeId])).rows).toEqual(before);
+    });
+  }, 120_000);
+
   it("reads an enabled unique set by exact scope after another shop joins its deployment", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       const fixture = await fixtureFor(persistence);
@@ -234,13 +283,14 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
         definitionBuilds: [{startCommitSeq: 0n,
         attemptFence: 1n}],
       });
+      const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000004");
       await persistence.query(
         `with authority as (
            update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
            where scope_id = $1 returning scope_id
          ) update fx_system_scope_clock set last_commit_seq = 19
            where scope_id in (select scope_id from authority)`,
-        [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_set_pg_2")],
+        [fixture.scopeId, nextEpoch],
       );
       await expect(reconcile(fixture)).resolves.toMatchObject({
         disposition: "redeclared",
@@ -446,13 +496,14 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       );
 
       await reconcile(fixture);
+      const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000005");
       await persistence.query(
         `with authority as (
            update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
            where scope_id = $1 returning scope_id
          ) update fx_system_scope_clock set last_commit_seq = 7
            where scope_id in (select scope_id from authority)`,
-        [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_set_pg_stale")],
+        [fixture.scopeId, nextEpoch],
       );
       const staleFailure = await runEffectFailure(
         reclaimSupersededAppUniqueConstraintSetBuildEffect(

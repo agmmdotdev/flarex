@@ -19,7 +19,7 @@ import {
   SchemaManifestAppIndexDescriptorSchema,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema } from
+import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema, ReplacementScopeEpochV1Schema } from
   "flarex-protocol/storage-authority";
 import { Cause, Effect, Exit, Result, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
@@ -71,6 +71,7 @@ import {
 import { lockScopeClockForUpdateInTransactionEffect } from "../../../src/scope/scopeClock";
 import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { observeUniqueBuildReturnedRows } from "./uniqueBuildStateAcceptanceScenario";
 
 const LOCATOR = Object.freeze({
   kind: "shared_database",
@@ -80,6 +81,41 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("C08-B1 closed unique-set build foundation", () => {
+  it.each(["original","laterCompactFault","clockFailure"] as const)("preserves original post-lock clock and native getter order with %s", async fault => {
+    const fixture = await fixtureFor("returned_build_getter");
+    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false));
+    await ensureBinding(fixture, await prepareBinding(fixture, "by_tenant", false));
+    await closeSet(fixture);
+    await reconcile(fixture);
+    // Finite PostgreSQL dates outside the JavaScript Date range reach the
+    // native invalid-row route without violating the stored time constraint.
+    await fixture.persistence.query("update fx_system_unique_constraint_build set created_at='280000-01-01 00:00:00+00'::timestamptz,updated_at='280000-01-01 00:00:00+00'::timestamptz where scope_id=$1",[fixture.scopeId]);
+    const before = await buildRows(fixture);
+    const marker = new Error("native returned unique build getter");
+    const clockMarker = new Error("actual post-lock unique clock failure before compact syntax");
+    const observation = { selectedReads: 0, laterRowVisits: 0, statementsAfterRows: [] as string[] };
+    const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(fixture.persistence.drizzle);
+    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(fixture.persistence.drizzle, LOCATOR,
+      work => runner(tx => work(observeUniqueBuildReturnedRows(tx, marker, observation,{
+        laterCompactFault:fault==="laterCompactFault",captureSyntaxFault:fault==="clockFailure",
+        ...(fault==="clockFailure" ? {postLockClockFailure:clockMarker}:{}),
+      }))));
+    const exit = await runEffect(Effect.exit(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+      eligibilityPort(fixture, target), eligibilityInput(fixture))));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasFails(exit.cause)).toBe(fault==="clockFailure");
+      if (fault==="clockFailure") {
+        expect(Cause.hasDies(exit.cause)).toBe(false);
+        expect(Result.getOrThrow(Cause.findError(exit.cause))).toMatchObject({_tag:"AppUniqueConstraintSetBuildIntegrationV1Error"});
+      } else expect(exit.cause.reasons.some(reason => Cause.isDieReason(reason) && reason.defect === marker)).toBe(true);
+    }
+    expect(observation.selectedReads).toBe(1);
+    expect(observation.laterRowVisits).toBe(0);
+    expect(observation.statementsAfterRows.every(statement => statement.includes("fx_system_scope_clock"))).toBe(true);
+    expect(await buildRows(fixture)).toEqual(before);
+  }, 30_000);
+
   it.each([false, true])("builds conditional nullable keys with active duplicate = %s", async duplicate => {
     const fixture = await fixtureFor(`conditional_${duplicate}`);
     const spec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
@@ -194,7 +230,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
 
   }, 120_000);
 
-  it("uses key-share locks for readiness while retaining the planner update lock", async () => {
+  it("observes executed key-share readiness SQL while retaining the planner update lock", async () => {
     const fixture = await closedFixture("eligibility_lock_modes");
     await reconcile(fixture);
     await advanceBackfill(fixture, 16);
@@ -450,11 +486,12 @@ describe("C08-B1 closed unique-set build foundation", () => {
       eligibilityInput(fixture),
     ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
 
+    const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000001");
     await fixture.persistence.query(
       `update fx_system_scope_execution_authority
           set storage_generation_fence = 2, epoch = $2
         where scope_id = $1`,
-      [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_eligibility_2")],
+      [fixture.scopeId, nextEpoch],
     );
     await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
       port,
@@ -672,13 +709,14 @@ describe("C08-B1 closed unique-set build foundation", () => {
       cursor_row_hex: "00112233445566778899aabbccddeeff",
     }]);
 
+    const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000002");
     await fixture.persistence.query(
       `with authority as (
          update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
          where scope_id = $1 returning scope_id
        ) update fx_system_scope_clock set last_commit_seq = 7
          where scope_id in (select scope_id from authority)`,
-      [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_build_2")],
+      [fixture.scopeId, nextEpoch],
     );
     await expect(reconcile(fixture)).resolves.toMatchObject({
       disposition: "redeclared",
@@ -687,7 +725,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     });
     expect(await buildRows(fixture)).toMatchObject([{
       storage_generation_fence: "2",
-      epoch: "epoch_unique_build_2",
+      epoch: nextEpoch,
       lifecycle: "declared",
       attempt_fence: "2",
 
@@ -885,13 +923,14 @@ describe("C08-B1 closed unique-set build foundation", () => {
   it("refuses a stale build authority without deleting its workspace", async () => {
     const fixture = await closedFixture("workspace_stale_authority");
     await reconcile(fixture);
+    const nextEpoch = ReplacementScopeEpochV1Schema.make("epoch_73000000-0000-4000-8000-000000000003");
     await fixture.persistence.query(
       `with authority as (
          update fx_system_scope_execution_authority set storage_generation_fence = 2, epoch = $2
          where scope_id = $1 returning scope_id
        ) update fx_system_scope_clock set last_commit_seq = 7
          where scope_id in (select scope_id from authority)`,
-      [fixture.scopeId, ScopeEpochSchema.make("epoch_workspace_stale_2")],
+      [fixture.scopeId, nextEpoch],
     );
     const failure = await runEffectFailure(
       reclaim(fixture, eligibilityPort(fixture)),
@@ -1366,6 +1405,13 @@ function observeForLockModes<T extends AppRowTransaction>(
         return (...args: ReadonlyArray<unknown>) => {
           if (property === "for" && typeof args[0] === "string") {
             lockModes.push(args[0]);
+          }
+          if (property === "prepareQuery") {
+            const query = args[0];
+            if (typeof query === "object" && query !== null && "sql" in query && typeof query.sql === "string") {
+              const lock = /\bfor (no key update|key share|share|update)\b/i.exec(query.sql)?.[1];
+              if (lock !== undefined) lockModes.push(lock);
+            }
           }
           return wrap(Reflect.apply(member, target, args));
         };

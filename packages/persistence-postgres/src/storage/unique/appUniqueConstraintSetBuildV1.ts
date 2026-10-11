@@ -1,3 +1,8 @@
+import { invalidateAcceptedApplicationBindingInTransaction } from "../../application/activation/acceptedBinding";
+import { invalidateSharedLogicalSourceBindingChecks } from "../documents/logicalDocuments/sourceAdmission";
+import { observeExecution } from "../../execution/diagnostics/operation";
+import { defineNativeMetadataRead } from "../../database/physicalSession/drizzle";
+import { prepareUniqueReadinessCapture } from "./nativeUniqueBuildAcceptance";
 import {
   chargeHostPreparation,
   registerHostPreparationDisposal,
@@ -30,7 +35,7 @@ import { publicationModeForTable, readIndexCoverageContextInTransactionEffect,
   readIndexCoverageTableFrontiersInTransactionEffect,
   type IndexCoverageContext } from "../indexes/indexBuildStates";
 import {
-  decodeUniqueMaintenanceObligationResult,
+  decodeUniqueMaintenanceObligationEffect,
   UniqueMaintenanceError,
   type UniqueMaintenanceObligation,
 } from "../indexes/indexMaintenanceModel";
@@ -176,6 +181,7 @@ import {
 } from "../../execution/readCommittedTransactionFailure";
 import {
   RUN_LOCATED_READ_COMMITTED_V1,
+  registerLocatedReadCommittedTargetDatabaseV1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../database/locatedTransactionIdentity";
@@ -212,15 +218,15 @@ export interface LocatedAppUniqueConstraintSetBuildTargetV1 extends LocatedReadC
 export function createLocatedAppUniqueConstraintSetBuildTargetV1(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
-  runReadCommitted: RunLocatedReadCommittedTransactionV1 = createDefaultLocatedReadCommittedTransactionRunnerV1(
-    db,
-  ),
+  runReadCommitted?: RunLocatedReadCommittedTransactionV1,
 ): LocatedAppUniqueConstraintSetBuildTargetV1 {
-  return Object.freeze({
+  const target = Object.freeze({
     physicalLocator: captureScopePhysicalLocator(physicalLocator),
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
-    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
+    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted ?? createDefaultLocatedReadCommittedTransactionRunnerV1(db),
   });
+  if (runReadCommitted === undefined) registerLocatedReadCommittedTargetDatabaseV1(target, db);
+  return target;
 }
 
 export const MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE = 8192;
@@ -397,17 +403,19 @@ const eligibilityPortStates = new WeakMap<
     readonly uniqueConstraints: AppUniqueConstraintDefinitionPortV1;
   }>
 >();
-const eligibilityEvidenceSnapshots = new WeakMap<object, BuildSnapshot>();
+const eligibilityEvidenceSnapshots = new WeakMap<object, Readonly<{ snapshot: BuildSnapshot;
+  tx: AppRowTransaction; clock: ScopeClockRecord }>>();
 const uniquePreparationBrand: unique symbol = Symbol("AppUniqueConstraintSetPreparation");
 export interface AppUniqueConstraintSetPreparation { readonly [uniquePreparationBrand]: true }
-const uniquePreparations = new WeakMap<object, Readonly<{
+type UniquePreparationState = Readonly<{
   port: AppUniqueConstraintSetEligibilityPortV1;
   scopeId: ScopeId;
   snapshot: BuildSnapshot;
   tableIds: ReadonlyArray<CatalogTableId>;
   membersById: ReadonlyMap<CatalogUniqueConstraintDefinitionId, BuildSnapshot["members"][number]>;
   definitions: readonly LocatedAppUniqueConstraintDefinitionV1[];
-}>>();
+}>;
+const uniquePreparations = new WeakMap<object, UniquePreparationState>();
 
 /** The host allocation meters hidden catalog state without borrowing its ports. */
 export const chargeUniqueConstraintPreparation = Effect.fn("AppUniqueConstraintSetBuild.chargePreparation")(
@@ -422,7 +430,7 @@ export const chargeUniqueConstraintPreparation = Effect.fn("AppUniqueConstraintS
 );
 
 /** Closed catalog inputs only. No target observation or eligibility is issued. */
-export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.prepareCatalog")(
+export const prepareAppUniqueConstraintSet = Effect.fnUntraced(
   function* (port: AppUniqueConstraintSetEligibilityPortV1, input: AppUniqueConstraintSetEligibilityInputV1,
     reader?: FlarexMetadataTransaction) {
     const state = eligibilityPortStates.get(port);
@@ -442,59 +450,60 @@ export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBu
       snapshot: buildSnapshot(captured, closure), tableIds, definitions,
       membersById: new Map(closure.members.map(member => [member.uniqueConstraintDefinitionId, member])) }));
     return Object.freeze({ status: "prepared" as const, preparation });
-  },
-);
+  }, work => observeExecution("AppUniqueConstraintSetBuild.prepareCatalog", work, "caller"));
+
+const validateUniqueCatalogSnapshot = Effect.fnUntraced(function* (
+  controlDb: FlarexMetadataDatabase, retained: UniquePreparationState, catalog: FlarexMetadataTransaction,
+) {
+  const { snapshot } = retained;
+  const closure = yield* readAppUniqueConstraintSetClosureV1Effect(controlDb,
+    snapshot.deploymentId, snapshot.schemaVersionId, undefined, catalog);
+  if (closure === null || closure.closure.definitionCount !== snapshot.definitionCount ||
+    closure.closure.definitionSetSha256Hex !== snapshot.definitionSetSha256Hex ||
+    !appUniqueConstraintDefinitionsMatchMembers(retained.definitions, closure.members))
+    return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+  const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(catalog,
+    snapshot.deploymentId, retained.scopeId, snapshot.schemaVersionId, retained.tableIds, snapshot.members.length);
+  const originals = new Map(retained.definitions.map(definition => [definition.uniqueConstraintDefinitionId, definition]));
+  if (definitions === null || !appUniqueConstraintDefinitionsMatchMembers(definitions, closure.members) ||
+    definitions.length !== retained.definitions.length || definitions.some(definition => {
+      const original = originals.get(definition.uniqueConstraintDefinitionId);
+      return original === undefined || original.logicalUniqueConstraintId !== definition.logicalUniqueConstraintId ||
+        original.tableId !== definition.tableId || original.physicalSpecCodecVersion !== definition.physicalSpecCodecVersion ||
+        original.physicalSpecBytesHex !== definition.physicalSpecBytesHex || original.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex;
+    }))
+    return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+}, work => observeExecution("AppUniqueConstraintSetBuild.validateCatalogSnapshot", work, "caller"));
 
 /** Restore the retained catalog's exact closed set and physical bodies. This
  * grants no eligibility; accepting owners retain all mutable build checks. */
-export const validatePreparedAppUniqueConstraintCatalog = Effect.fn("AppUniqueConstraintSetBuild.validatePreparedCatalog")(
+export const validatePreparedAppUniqueConstraintCatalog = Effect.fnUntraced(
   function* (preparation: AppUniqueConstraintSetPreparation, controlDb: FlarexMetadataDatabase,
     reader?: FlarexMetadataTransaction) {
     const retained = uniquePreparations.get(preparation);
     const owner = retained === undefined ? undefined : eligibilityPortStates.get(retained.port);
     if (retained === undefined || owner === undefined || owner.ports.controlDb !== controlDb)
       return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
-    const { snapshot } = retained;
-    const validate = Effect.fn("AppUniqueConstraintSetBuild.validateCatalogSnapshot")(function* (catalog: FlarexMetadataTransaction) {
-      const closure = yield* readAppUniqueConstraintSetClosureV1Effect(controlDb,
-        snapshot.deploymentId, snapshot.schemaVersionId, undefined, catalog);
-      if (closure === null || closure.closure.definitionCount !== snapshot.definitionCount ||
-        closure.closure.definitionSetSha256Hex !== snapshot.definitionSetSha256Hex ||
-        !appUniqueConstraintDefinitionsMatchMembers(retained.definitions, closure.members))
-        return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
-      const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(catalog,
-        snapshot.deploymentId, retained.scopeId, snapshot.schemaVersionId, retained.tableIds, snapshot.members.length);
-      const originals = new Map(retained.definitions.map(definition => [definition.uniqueConstraintDefinitionId, definition]));
-      if (definitions === null || !appUniqueConstraintDefinitionsMatchMembers(definitions, closure.members) ||
-        definitions.length !== retained.definitions.length || definitions.some(definition => {
-          const original = originals.get(definition.uniqueConstraintDefinitionId);
-          return original === undefined || original.logicalUniqueConstraintId !== definition.logicalUniqueConstraintId ||
-            original.tableId !== definition.tableId || original.physicalSpecCodecVersion !== definition.physicalSpecCodecVersion ||
-            original.physicalSpecBytesHex !== definition.physicalSpecBytesHex || original.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex;
-        }))
-        return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
-    });
+    const validate = (catalog: FlarexMetadataTransaction) => validateUniqueCatalogSnapshot(controlDb, retained, catalog);
     yield* (reader !== undefined ? validate(reader) :
       runEffectTransaction<Effect.Success<ReturnType<typeof validate>>, Effect.Error<ReturnType<typeof validate>>,
         AppUniqueConstraintSetClosurePersistenceV1Error, FlarexMetadataTransaction>(callback => controlDb.transaction(callback),
         "Prepared unique catalog validation rolled back", validate,
         cause => new AppUniqueConstraintSetClosurePersistenceV1Error({ operation: "readClosureTransaction", cause })));
-  },
-);
+  }, work => observeExecution("AppUniqueConstraintSetBuild.validatePreparedCatalog", work, "caller"));
 
 /** Lend the exact original located records; no eligibility or target verdict. */
-export const lendPreparedAppUniqueConstraintDefinitions = Effect.fn("AppUniqueConstraintSetBuild.lendPreparedDefinitions")(
+export const lendPreparedAppUniqueConstraintDefinitions = Effect.fnUntraced(
   function* (preparation: AppUniqueConstraintSetPreparation, controlDb: FlarexMetadataDatabase) {
     const state = uniquePreparations.get(preparation);
     const port = state === undefined ? undefined : eligibilityPortStates.get(state.port);
     if (state === undefined || port === undefined || port.ports.controlDb !== controlDb)
       return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
     return state.definitions;
-  },
-);
+  }, work => observeExecution("AppUniqueConstraintSetBuild.lendPreparedDefinitions", work, "caller"));
 
 /** The caller owns the exact locked clock and accepting target transaction. */
-export const acceptPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.acceptPreparedCatalog")(
+export const acceptPreparedAppUniqueConstraintSet = Effect.fnUntraced(
   function* (port: AppUniqueConstraintSetEligibilityPortV1, preparation: AppUniqueConstraintSetPreparation,
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     progressObservation: "fixed" | "concurrentProgress" = "fixed",
@@ -509,12 +518,27 @@ export const acceptPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstrai
     if (state.snapshot.members.length === 0) return Object.freeze({ status: "not_required" as const, tableIds: [] as const });
     return yield* inspectEligibilityWithLockedClock(tx, authority, state.snapshot, state.tableIds, clock, port,
       undefined, progressObservation, coverageHint);
-  },
-);
+  }, work => observeExecution("AppUniqueConstraintSetBuild.acceptPreparedCatalog", work, "caller"));
+
+const inspectSelectedPreparedUniqueCatalog = Effect.fnUntraced(function* (
+  state: UniquePreparationState, selection: Pick<BuildSnapshot, "schemaVersionId" | "members">,
+  selectedTableIds: readonly CatalogTableId[], tx: AppRowTransaction, authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord, coverageHint?: IndexCoverageContext,
+) {
+  if (state.scopeId !== authority.scopeId || state.scopeId !== clock.scopeId ||
+    state.snapshot.deploymentId !== authority.deploymentId)
+    return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "scopeMismatch", retryable: false }));
+  yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+  const checked = yield* inspectBuildReadinessWithLockedClock(tx, authority, selection, selectedTableIds,
+    clock, undefined, "concurrentProgress", coverageHint);
+  if (checked.status === "not_ready") return checked;
+  return Object.freeze({ status: "ready" as const, definitionCount: selection.members.length });
+}, work => observeExecution("AppUniqueConstraintSetBuild.inspectSelectedPreparedCatalog", work, "caller"));
+
 /** Select mutable build checks from the same authenticated complete catalog
  * preparation. Its full canonical closure remains detached under the existing
  * preparation lifetime. No whole-set eligibility evidence is issued. */
-export const selectPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.selectPreparedCatalog")(
+export const selectPreparedAppUniqueConstraintSet = Effect.fnUntraced(
   function* (port: AppUniqueConstraintSetEligibilityPortV1, preparation: AppUniqueConstraintSetPreparation,
     tableIds: readonly CatalogTableId[], definitionIds?: readonly CatalogUniqueConstraintDefinitionId[]) {
     const state = uniquePreparations.get(preparation);
@@ -536,26 +560,15 @@ export const selectPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstrai
     const selection = Object.freeze({ schemaVersionId: state.snapshot.schemaVersionId,
       members: Object.freeze(members) });
     const selectedTableIds = Object.freeze([...new Set(members.map(member => member.tableId))]);
-    const inspectSelected = Effect.fn("AppUniqueConstraintSetBuild.inspectSelectedPreparedCatalog")(function* (
-      tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-      coverageHint?: IndexCoverageContext,
-    ) {
-      if (state.scopeId !== authority.scopeId || state.scopeId !== clock.scopeId ||
-        state.snapshot.deploymentId !== authority.deploymentId)
-        return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "scopeMismatch", retryable: false }));
-      yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
-      const checked = yield* inspectBuildReadinessWithLockedClock(tx, authority, selection, selectedTableIds,
-        clock, undefined, "concurrentProgress", coverageHint);
-      if (checked.status === "not_ready") return checked;
-      return Object.freeze({ status: "ready" as const, definitionCount: selection.members.length });
-    });
+    const inspectSelected = (tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+      coverageHint?: IndexCoverageContext) =>
+      inspectSelectedPreparedUniqueCatalog(state, selection, selectedTableIds, tx, authority, clock, coverageHint);
     return Object.freeze({ inspectSelected });
-  },
-);
+  }, work => observeExecution("AppUniqueConstraintSetBuild.selectPreparedCatalog", work, "caller"));
 
 /** Exact query-selected definitions use the existing build/coverage owner.
  * Complete closure preparation remains with activation and write admission. */
-export const inspectSelectedAppUniqueConstraintDefinitions = Effect.fn("AppUniqueConstraintSetBuild.inspectReadDefinitions")(function* (
+export const inspectSelectedAppUniqueConstraintDefinitions = Effect.fnUntraced(function* (
   input: AppUniqueConstraintSetEligibilityInputV1,
   definitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
   tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
@@ -574,7 +587,7 @@ export const inspectSelectedAppUniqueConstraintDefinitions = Effect.fn("AppUniqu
     { schemaVersionId: input.schemaVersionId, members }, definitions.map(definition => definition.tableId), clock,
     undefined, "concurrentProgress");
   return readiness.status === "not_ready" ? readiness : Object.freeze({ status: "ready" as const, definitionCount: definitions.length });
-});
+}, work => observeExecution("AppUniqueConstraintSetBuild.inspectReadDefinitions", work, "caller"));
 
 const eligibilityEvidencePorts = new WeakMap<
   object,
@@ -912,7 +925,7 @@ const BuildStateSchema = Schema.Struct({
   updatedAt: Schema.Date,
 });
 type BuildState = Omit<typeof BuildStateSchema.Type, "maintenanceObligation"> & { readonly maintenance: UniqueMaintenanceObligation | null };
-const decodeBuildStateResult = Schema.decodeUnknownResult(
+const decodeBuildState = Schema.decodeUnknownEffect(
   Schema.toType(BuildStateSchema),
 );
 
@@ -991,19 +1004,19 @@ export const replaceActiveUniqueMaintenanceInTransactionEffect = Effect.fn("AppU
     if (rows.length !== ids.length) return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
     const states: BuildState[] = [];
     for (const row of rows) {
-      const state = yield* decodeBuildStateEffect(clock, snapshot, row, clock.lastCommitSeq);
+      const state = yield* decodeUniqueBuildStateEffect(clock, snapshot, row, clock.lastCommitSeq);
       if (state.lifecycle !== "enabled" || !buildAuthorityIsCurrent(state, clock)) {
         return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
       }
       if (state.maintenance !== null) {
         const member = outgoingMembers.get(state.uniqueConstraintDefinitionId);
         if (member === undefined || outgoing === null ||
-          !(yield* hasDefinitionCoverage(tx, clock, { schemaVersionId: outgoing.closure.schemaVersionId, members: outgoing.members }, state, member.tableId, clock, context))) {
+          !(yield* inspectDefinitionCoverageEffect(tx, clock, { schemaVersionId: outgoing.closure.schemaVersionId, members: outgoing.members }, state, member.tableId, clock, context))) {
           return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
         }
       }
       const member = incomingMembers.get(state.uniqueConstraintDefinitionId);
-      if (member !== undefined && !(yield* hasDefinitionCoverage(tx, clock, snapshot, state, member.tableId, clock, context))) {
+      if (member !== undefined && !(yield* inspectDefinitionCoverageEffect(tx, clock, snapshot, state, member.tableId, clock, context))) {
         return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
       }
       states.push(state);
@@ -1540,7 +1553,7 @@ export const validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Eff
     return yield* inspectEligibilityWithLockedClock(
       tx,
       authority,
-      eligibilityEvidenceSnapshots.get(evidence)!,
+      eligibilityEvidenceSnapshots.get(evidence)!.snapshot,
       evidence.tableIds,
       clock,
       port,
@@ -1548,9 +1561,7 @@ export const validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Eff
     );
   });
 
-const inspectEligibilityWithLockedClock = Effect.fn(
-  "AppUniqueConstraintSetBuild.inspectEligibilityWithLockedClock",
-)(function* (
+const inspectEligibilityWithLockedClock = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
   snapshot: BuildSnapshot,
@@ -1584,219 +1595,297 @@ const inspectEligibilityWithLockedClock = Effect.fn(
     [eligibilityEvidenceBrand]: true as const,
   });
   eligibilityEvidencePorts.set(evidence, port);
-  eligibilityEvidenceSnapshots.set(evidence, snapshot);
+  eligibilityEvidenceSnapshots.set(evidence, { snapshot, tx, clock: { ...observedClock, updatedAt: new Date(observedClock.updatedAt.getTime()) } });
   return Object.freeze({ status: "eligible" as const, evidence });
-});
+}, work => observeExecution("AppUniqueConstraintSetBuild.inspectEligibilityWithLockedClock", work, "caller"));
 
-const inspectBuildReadinessWithLockedClock = Effect.fn("AppUniqueConstraintSetBuild.inspectBuildReadiness")(
-  function* (tx: AppRowTransaction, authority: TrustedScopeAuthority, snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
-    tableIds: ReadonlyArray<CatalogTableId>, clock: ScopeClockRecord,
-    expectedEvidence?: AppUniqueConstraintSetEligibilityEvidenceV1,
-    progressObservation: "fixed" | "concurrentProgress" = "fixed", coverageHint?: IndexCoverageContext) {
-  const selected = yield* loadSelectedBuildStates(tx, authority, snapshot, clock, progressObservation);
-  const states = selected.states;
-  const observedClock = selected.clock;
-  const coverageContext = states.some(state => state.maintenance !== null)
-    ? yield* readUniqueCoverageContext(tx, observedClock, snapshot, coverageHint) : undefined;
-  const frontierTableIds = snapshot.members.flatMap(member => {
-      const state = states.find(value => value.uniqueConstraintDefinitionId === member.uniqueConstraintDefinitionId);
-      return state !== undefined && state.maintenance === null && state.coveredThroughCommitSeq !== null &&
-        state.coveredThroughCommitSeq < observedClock.lastCommitSeq && state.lifecycle === "enabled"
-        ? [member.tableId] : [];
-    });
-  let tableFrontiers: UniqueTableFrontiers | undefined;
-  const identities: AppUniqueConstraintBuildIdentity[] = [];
-  for (const member of snapshot.members) {
-    const state = states.find(
-      (value) =>
-        value.uniqueConstraintDefinitionId ===
-        member.uniqueConstraintDefinitionId,
-    );
-    let reason: "buildMissing" | "buildStale" | "buildNotEnabled" | null;
-    if (state === undefined) reason = "buildMissing";
-    else if (!buildAuthorityIsCurrent(state, observedClock)) reason = "buildStale";
-    else if (state.lifecycle !== "enabled") reason = "buildNotEnabled";
-    else {
-      if (tableFrontiers === undefined && state.maintenance === null &&
-        state.coveredThroughCommitSeq !== null && state.coveredThroughCommitSeq < observedClock.lastCommitSeq)
-        tableFrontiers = yield* readUniqueTableFrontiers(tx, authority, snapshot, observedClock,
-          frontierTableIds, coverageHint);
-      reason = (yield* hasDefinitionCoverage(tx, authority, snapshot, state, member.tableId,
-        observedClock, coverageContext, tableFrontiers)) ? null : "buildStale";
-    }
-    if (reason !== null)
-      return Object.freeze({
-        status: "not_ready" as const,
-        reason,
-        blocksAllTables: false,
-        tableIds,
-        ...(state === undefined ? {} : { lifecycle: state.lifecycle }),
-      });
-    if (state === undefined)
-      return yield* Effect.die(
-        "Selected build disappeared after readiness inspection",
-      );
-    const identity = buildIdentity(state, member.tableId);
-    const expected = expectedEvidence?.definitionBuilds.find(
-      (value) =>
-        value.uniqueConstraintDefinitionId ===
-        member.uniqueConstraintDefinitionId,
-    );
-    if (
-      expectedEvidence !== undefined &&
-      (expected === undefined ||
-        expected.tableId !== identity.tableId ||
-        expected.startCommitSeq !== identity.startCommitSeq ||
-        expected.attemptFence !== identity.attemptFence)
-    )
-      return Object.freeze({
-        status: "not_ready" as const,
-        reason: "buildStale" as const,
-        blocksAllTables: false,
-        tableIds,
-        lifecycle: state.lifecycle,
-      });
-    identities.push(identity);
+const decodeNativeUniqueCapture=Schema.decodeUnknownEffect(Schema.Struct({
+  reason:Schema.Literals(["captured","invalid"]),definitionId:Schema.NullOr(CatalogUniqueConstraintDefinitionIdSchema),
+  progress:Schema.NullOr(Schema.String),rowCount:Schema.NullOr(Schema.String),hasMaintenance:Schema.NullOr(Schema.Boolean),
+}));
+const OrdinaryUniqueProgressSchema = Schema.Tuple([
+  Schema.Boolean, AppUniqueConstraintSetBuildLifecycleV1Schema, CommitSeqSchema,
+  Schema.NullOr(CommitSeqSchema), AppUniqueConstraintSetBuildAttemptFenceV1Schema,
+  Schema.NullOr(Schema.Boolean), Schema.NullOr(Schema.String),
+]).check(Schema.makeFilter(state =>
+  (state[3] === null || state[3] >= state[2]) &&
+  ((state[1] !== "declared" && state[1] !== "building") || state[3] === null) &&
+  (state[1] !== "enabled" || state[3] !== null) &&
+  (state[5] === null) === (state[6] === null) ? undefined : "Invalid captured unique progress"));
+const decodeOrdinaryUniqueProgressEnvelope = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)));
+const decodeOrdinaryUniqueProgress = Schema.decodeUnknownResult(OrdinaryUniqueProgressSchema);
+const OrdinaryUniqueMaintenanceKeySchema = Schema.Tuple([
+  Schema.NonEmptyString, Schema.NonEmptyString,
+  CommitSeqSchema.check(Schema.makeFilter(value => value > 0n ? undefined : "Expected positive activation sequence")),
+  Schema.String, Schema.String,
+]);
+const decodeOrdinaryUniqueMaintenanceKey = Schema.decodeUnknownResult(Schema.fromJsonString(OrdinaryUniqueMaintenanceKeySchema));
+type UniqueBuildReadinessResult=Readonly<{status:"ready";identities:readonly AppUniqueConstraintBuildIdentity[];observedClock:ScopeClockRecord}>|
+  Readonly<{status:"not_ready";reason:"buildMissing"|"buildStale"|"buildNotEnabled";blocksAllTables:false;
+    tableIds:readonly CatalogTableId[];lifecycle?:BuildState["lifecycle"]}>;
+type UniqueBuildReadinessError=AppUniqueConstraintSetBuildIntegrationV1Error|AppUniqueConstraintSetBuildStateV1Error;
+
+const inspectBuildReadinessWithLockedClock=Effect.fnUntraced(function* (
+  tx:AppRowTransaction,authority:TrustedScopeAuthority,snapshot:Pick<BuildSnapshot,"schemaVersionId"|"members">,
+  tableIds:readonly CatalogTableId[],clock:ScopeClockRecord,expectedEvidence?:AppUniqueConstraintSetEligibilityEvidenceV1,
+  progressObservation:"fixed"|"concurrentProgress"="fixed",coverageHint?:IndexCoverageContext,
+):Effect.fn.Return<UniqueBuildReadinessResult,UniqueBuildReadinessError> {
+  const rows=yield* queryEffect(prepareUniqueReadinessCapture(tx,clock,snapshot.members,
+    progressObservation==="concurrentProgress" ? "key share":"share"));
+  const header=yield* decodeNativeUniqueCapture(rows[0]).pipe(Effect.mapError(cause=>stateError(authority,snapshot,"storedStateInvalid",cause)));
+  const rowCount=header.rowCount===null ? -1:Number(header.rowCount);
+  if (header.reason!=="captured" || header.definitionId!==null || header.progress===null || header.hasMaintenance===null ||
+    !Number.isSafeInteger(rowCount) || rowCount<0 || rowCount>snapshot.members.length || String(rowCount)!==header.rowCount)
+    return yield* Effect.fail(stateError(authority,snapshot,"storedStateInvalid"));
+  const capture=header.progress;
+  let previousDefinitionId=0;
+  const rawById=new Map<CatalogUniqueConstraintDefinitionId,typeof rows[number]>();
+  for (const raw of rows.slice(1)) {
+    const member=yield* decodeNativeUniqueCapture(raw).pipe(Effect.mapError(cause=>stateError(authority,snapshot,"storedStateInvalid",cause)));
+    if (member.reason!=="invalid" || member.definitionId===null || member.definitionId<=previousDefinitionId || member.progress!==null ||
+      member.rowCount!==null || member.hasMaintenance!==null || !snapshot.members.some(value=>value.uniqueConstraintDefinitionId===member.definitionId))
+      return yield* Effect.fail(stateError(authority,snapshot,"storedStateInvalid"));
+    rawById.set(member.definitionId,raw);previousDefinitionId=member.definitionId;
   }
-  return Object.freeze({ status: "ready" as const, identities: Object.freeze(identities), observedClock });
-});
+  // Keep unique's own actual post-lock clock, even when index acceptance lent a
+  // prior context. The first intrinsic rejection precedes context construction.
+  const observedClock=progressObservation==="concurrentProgress" ? yield* observeSelectedBuildClock(tx,clock,snapshot):clock;
+  const captured = yield* Effect.fromResult(decodeOrdinaryUniqueProgressEnvelope(capture).pipe(
+    Result.mapError(cause => stateError(authority,snapshot,"storedStateInvalid",cause))));
+  const ids = Object.keys(captured).map(id => Number(id)).toSorted((left,right) => left-right);
+  if (ids.length !== rowCount || Object.keys(captured).some(key => String(Number(key)) !== key) ||
+    ids.some(id => !Number.isSafeInteger(id) || id < 1 ||
+    !Object.hasOwn(captured,String(id)) || !snapshot.members.some(member => member.uniqueConstraintDefinitionId === id)))
+    return yield* Effect.fail(stateError(authority,snapshot,"storedStateInvalid"));
+  const intrinsic = yield* Effect.fromResult(Result.gen(function* () {
+    const progress=new Map<number,typeof OrdinaryUniqueProgressSchema.Type>();
+    for (const id of ids) {
+      const capturedState=captured[String(id)];
+      if (capturedState===null) {
+        const raw=rawById.get(CatalogUniqueConstraintDefinitionIdSchema.make(id));
+        if (raw===undefined) return yield* Result.fail(stateError(authority,snapshot,"storedStateInvalid"));
+        return {status:"nativeRefusal" as const,raw};
+      }
+      if (rawById.has(CatalogUniqueConstraintDefinitionIdSchema.make(id)))
+        return yield* Result.fail(stateError(authority,snapshot,"storedStateInvalid"));
+      const state=yield* decodeOrdinaryUniqueProgress(capturedState).pipe(
+        Result.mapError(cause=>stateError(authority,snapshot,"storedStateInvalid",cause)));
+      if (state[2]>observedClock.lastCommitSeq || (state[3]!==null && state[3]>observedClock.lastCommitSeq))
+        return yield* Result.fail(stateError(authority,snapshot,"frontierAheadOfClock"));
+      progress.set(id,state);
+    }
+    if ([...rawById.keys()].some(id=>!Object.hasOwn(captured,String(id))))
+      return yield* Result.fail(stateError(authority,snapshot,"storedStateInvalid"));
+    return {status:"ready" as const,progress};
+  }));
+  if (intrinsic.status==="nativeRefusal") {
+    const raw=intrinsic.raw;
+    // This original decoder owns native field order and foreign getter defects.
+    Object.defineProperty(raw.rawBuild,"maintenanceObligation",{enumerable:true,configurable:true,
+      get:()=>raw.rawMaintenance.scopeId===null ? null:raw.rawMaintenance});
+    yield* decodeUniqueBuildStateEffect(authority,snapshot,raw.rawBuild,observedClock.lastCommitSeq);
+    return yield* Effect.die("Native unique intrinsic refusal accepted by complete decoder");
+  }
+  const progress=intrinsic.progress;
+  const context=header.hasMaintenance ? yield* readUniqueCoverageContext(tx,observedClock,snapshot,coverageHint):undefined;
+  const identities:AppUniqueConstraintBuildIdentity[]=[];
+  const consume=(startAt:number,frontiers:UniqueTableFrontiers|undefined)=>Result.gen(function* () {
+    for (let index=startAt;index<snapshot.members.length;index++) {
+      const member=snapshot.members[index];
+      if (member===undefined) return yield* Result.fail(stateError(authority,snapshot,"storedStateInvalid"));
+      const state=progress.get(member.uniqueConstraintDefinitionId);
+      if (state===undefined)
+        return Object.freeze({status:"not_ready" as const,reason:"buildMissing" as const,blocksAllTables:false as const,tableIds});
+      const [current,lifecycle,start,covered,attemptFence,maintenanceMatches,maintenanceActive]=state;
+      const notReady=(reason:"buildStale"|"buildNotEnabled")=>Object.freeze({status:"not_ready" as const,
+        reason,blocksAllTables:false as const,tableIds,lifecycle});
+      if (!current) return notReady("buildStale");
+      if (lifecycle!=="enabled") return notReady("buildNotEnabled");
+      if (covered===null) return notReady("buildStale");
+      if (maintenanceActive!==null) {
+        const key=yield* decodeOrdinaryUniqueMaintenanceKey(maintenanceActive).pipe(
+          Result.mapError(cause=>stateError(authority,snapshot,"storedStateInvalid",cause)));
+        if (maintenanceMatches!==true || context?.active==null || key[0]!==context.active.schema.deploymentId ||
+          key[1]!==context.active.schema.schemaVersionId || key[2]!==context.active.head.activationSequence ||
+          key[3]!==encodeBytesToLowercaseHex(context.active.head.activationSha256) ||
+          key[4]!==encodeBytesToLowercaseHex(context.active.head.headSha256))
+          return yield* Result.fail(stateError(authority,snapshot,"storedStateInvalid"));
+      } else if (covered<observedClock.lastCommitSeq) {
+        if (frontiers===undefined) return {status:"frontiersRequired" as const,index};
+        const capturedFrontier=frontiers.get(member.tableId);
+        if (capturedFrontier===undefined) throw new Error("Unique frontier batch lost a selected table");
+        const frontier=yield* capturedFrontier.pipe(Result.mapError(cause=>stateError(authority,snapshot,"storedStateInvalid",cause)));
+        if (frontier!==null && frontier>covered) return notReady("buildStale");
+      }
+      const identity=Object.freeze({uniqueConstraintDefinitionId:member.uniqueConstraintDefinitionId,
+        tableId:member.tableId,startCommitSeq:start,attemptFence});
+      if (expectedEvidence!==undefined) {
+        const expected=expectedEvidence.definitionBuilds.find(value=>value.uniqueConstraintDefinitionId===member.uniqueConstraintDefinitionId);
+        if (expected===undefined || expected.tableId!==identity.tableId || expected.startCommitSeq!==start ||
+          expected.attemptFence!==attemptFence) return notReady("buildStale");
+      }
+      identities.push(identity);
+    }
+    return Object.freeze({status:"ready" as const,identities:Object.freeze(identities),observedClock});
+  });
+  const first=yield* Effect.fromResult(consume(0,undefined));
+  if (first.status!=="frontiersRequired") return first;
+  const needed=snapshot.members.filter(candidate=> {
+    const state=progress.get(candidate.uniqueConstraintDefinitionId);
+    return state!==undefined && state[6]===null && state[1]==="enabled" &&
+      state[3]!==null && state[3]<observedClock.lastCommitSeq;
+  }).map(candidate=>candidate.tableId);
+  const frontiers=yield* readUniqueTableFrontiers(tx,authority,snapshot,observedClock,[...new Set(needed)],coverageHint);
+  const accepted=yield* Effect.fromResult(consume(first.index,frontiers));
+  if (accepted.status==="frontiersRequired") return yield* Effect.die("Unique frontier consumption repeated its capture demand");
+  return accepted;
+},work=>observeExecution("AppUniqueConstraintSetBuild.inspectBuildReadiness",work,"caller"));
+// Code-defined native preparation is shared across checkouts; each invocation
+// binds the current transaction, selected members and the original row lock.
+const readSelectedBuildsWithShare = defineNativeMetadataRead(db =>
+  db.select(uniqueConstraintBuildStateSelection()).from(fxSystemUniqueConstraintBuilds)
+    .leftJoin(fxSystemUniqueMaintenanceObligations, uniqueMaintenanceBindingPredicate())
+    .where(and(eq(fxSystemUniqueConstraintBuilds.scopeId, sql.placeholder("scopeId")),
+      sql`${fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId} = any(${sql.placeholder("definitionIds")}::integer[])`))
+    .orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId).limit(sql.placeholder("limit"))
+    .for("share", { of: fxSystemUniqueConstraintBuilds }));
 
-const loadSelectedBuildStates = Effect.fn(
-  "AppUniqueConstraintBuild.loadSelected",
-)(function* (
+const loadSelectedBuildStates = Effect.fnUntraced(function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
   snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
   clock: ScopeClockRecord,
-  progressObservation: "fixed" | "concurrentProgress" = "fixed",
 ) {
   if (snapshot.members.length === 0) return Object.freeze({ states: [] as const, clock });
-  const rows = yield* queryEffect(
-    tx
-      .select(uniqueConstraintBuildStateSelection())
-      .from(fxSystemUniqueConstraintBuilds)
-      .leftJoin(fxSystemUniqueMaintenanceObligations, uniqueMaintenanceBindingPredicate())
-      .where(
-        and(
-          eq(fxSystemUniqueConstraintBuilds.scopeId, authority.scopeId),
-          inArray(
-            fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId,
-            snapshot.members.map((value) => value.uniqueConstraintDefinitionId),
-          ),
-        ),
-      )
-      .orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId)
-      .limit(snapshot.members.length + 1)
-      .for(progressObservation === "concurrentProgress" ? "key share" : "share", { of: fxSystemUniqueConstraintBuilds }),
-  );
+  const rows = yield* queryEffect(readSelectedBuildsWithShare(tx, { scopeId: authority.scopeId,
+    definitionIds: snapshot.members.map(value => value.uniqueConstraintDefinitionId), limit: snapshot.members.length + 1 }));
   if (rows.length > snapshot.members.length)
     return yield* Effect.fail(
       stateError(authority, snapshot, "storedStateInvalid"),
     );
-  // A concurrent ordinary publication may have advanced coverage after the
-  // accepting owner captured its snapshot clock. Validate the observed row
-  // against a clock read after the row, while keeping the original snapshot.
-  const observedClock = progressObservation === "concurrentProgress"
-    ? yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId).pipe(Effect.mapError(cause =>
-      cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
-        ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction",
-          retryable: isRetryableSqlTransactionCause(cause.cause instanceof DrizzleQueryError ? cause.cause.cause : cause.cause), cause })
-        : stateError(authority, snapshot, "storedStateInvalid", cause))) : clock;
-  if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
-    observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
-    return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid"));
   const states: BuildState[] = [];
   for (const row of rows)
-    states.push(
-      yield* decodeBuildStateEffect(
-        authority,
-        snapshot,
-        row,
-        observedClock.lastCommitSeq,
-      ),
-    );
-  return Object.freeze({ states: Object.freeze(states), clock: observedClock });
+    states.push(yield* decodeUniqueBuildStateEffect(authority, snapshot, row, clock.lastCommitSeq));
+  return Object.freeze({ states: Object.freeze(states), clock });
+}, work => observeExecution("AppUniqueConstraintBuild.loadSelected", work, "caller"));
+
+/** Keep the actual post-lock clock observation and its error contract when a
+ * root lends monotonic positive build evidence rather than loading it again. */
+const observeSelectedBuildClock = Effect.fnUntraced(function* (
+  tx: AppRowTransaction, clock: ScopeClockRecord, snapshot: Pick<BuildSnapshot, "schemaVersionId">,
+) {
+  const observed = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId).pipe(Effect.mapError(cause =>
+    cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
+      ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction",
+        retryable: isRetryableSqlTransactionCause(cause.cause instanceof DrizzleQueryError ? cause.cause.cause : cause.cause), cause })
+      : stateError(clock, snapshot, "storedStateInvalid", cause)));
+  if (observed.storageGeneration !== clock.storageGeneration || observed.storageGenerationFence !== clock.storageGenerationFence ||
+    observed.epoch !== clock.epoch || observed.lastCommitSeq < clock.lastCommitSeq)
+    return yield* Effect.fail(stateError(clock, snapshot, "storedStateInvalid"));
+  return observed;
 });
 
-const readUniqueCoverageContext = Effect.fn("AppUniqueConstraintBuild.readCoverageContext")(
-  (tx: AppRowTransaction, clock: ScopeClockRecord, snapshot: Pick<BuildSnapshot, "schemaVersionId">,
-    coverageHint?: IndexCoverageContext) =>
-    Effect.gen(function* () {
-      if (coverageHint !== undefined) {
-        const borrowed = yield* Effect.fromResult(borrowIndexCoverageContextInTransaction(tx, clock, coverageHint));
-        if (borrowed !== null) return borrowed;
-      }
-      return yield* readIndexCoverageContextInTransactionEffect(tx, clock);
-    }).pipe(Effect.mapError(cause =>
-      cause.reason === "resourceFailure" ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: cause.retryable ?? false, cause })
-        : stateError(clock, snapshot, "storedStateInvalid", cause))),
-);
+/** Existing evidence issuer authenticates the original transaction and port;
+ * lifecycle writers are excluded and publication only advances coverage. */
+export function readAcceptedAppUniqueConstraintSetObservedClock(port: AppUniqueConstraintSetEligibilityPortV1,
+  evidence: AppUniqueConstraintSetEligibilityEvidenceV1, tx: AppRowTransaction) {
+  const issued = eligibilityEvidenceSnapshots.get(evidence);
+  return issued === undefined || eligibilityEvidencePorts.get(evidence) !== port || issued.tx !== tx
+    ? Result.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }))
+    : Result.succeed({ ...issued.clock, updatedAt: new Date(issued.clock.updatedAt.getTime()) });
+}
+
+export const refreshAcceptedAppUniqueConstraintSetObservation = Effect.fnUntraced(function* (
+  port: AppUniqueConstraintSetEligibilityPortV1, evidence: AppUniqueConstraintSetEligibilityEvidenceV1,
+  tx: AppRowTransaction, clock: ScopeClockRecord,
+) {
+  const issued = eligibilityEvidenceSnapshots.get(evidence);
+  if (issued === undefined || eligibilityEvidencePorts.get(evidence) !== port || issued.tx !== tx ||
+    issued.clock.scopeId !== clock.scopeId || issued.clock.storageGeneration !== clock.storageGeneration ||
+    issued.clock.storageGenerationFence !== clock.storageGenerationFence || issued.clock.epoch !== clock.epoch ||
+    clock.lastCommitSeq < issued.clock.lastCommitSeq)
+    return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+  const observed = yield* observeSelectedBuildClock(tx, clock, issued.snapshot);
+  eligibilityEvidenceSnapshots.set(evidence, { ...issued, clock: { ...observed, updatedAt: new Date(observed.updatedAt.getTime()) } });
+  return observed;
+}, work => observeExecution("AppUniqueConstraintBuild.refreshAcceptedObservation", work, "caller"));
+
+const readUniqueCoverageContext = Effect.fnUntraced(function* (
+  tx: AppRowTransaction, clock: ScopeClockRecord, snapshot: Pick<BuildSnapshot, "schemaVersionId">,
+  coverageHint?: IndexCoverageContext,
+) {
+  return yield* Effect.gen(function* () {
+    if (coverageHint !== undefined) {
+      const borrowed = yield* Effect.fromResult(borrowIndexCoverageContextInTransaction(tx, clock, coverageHint));
+      if (borrowed !== null) return borrowed;
+    }
+    return yield* readIndexCoverageContextInTransactionEffect(tx, clock);
+  }).pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
+    ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: cause.retryable ?? false, cause })
+    : stateError(clock, snapshot, "storedStateInvalid", cause)));
+}, work => observeExecution("AppUniqueConstraintBuild.readCoverageContext", work, "caller"));
 
 type UniqueTableFrontiers = ReadonlyMap<CatalogTableId,
   Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>;
 
-const readUniqueTableFrontiers = Effect.fn("AppUniqueConstraintBuild.readTableFrontiers")(
-  (tx: AppRowTransaction, authority: Pick<TrustedScopeAuthority, "scopeId">,
-    snapshot: Pick<BuildSnapshot, "schemaVersionId">, clock: ScopeClockRecord,
-    tableIds: ReadonlyArray<CatalogTableId>, coverageHint?: IndexCoverageContext) =>
-    Effect.gen(function* () {
-      if (coverageHint !== undefined) {
-        const cached = yield* Effect.fromResult(readPreparedIndexCoverageTableFrontiers(
-          tx, clock, coverageHint, tableIds));
-        if (cached !== null) return cached;
-      }
-      return yield* readAppTableWriteFrontiersInTransactionEffect(tx, authority.scopeId, tableIds);
-    }).pipe(
-      Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
-        ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: true, cause })
-        : stateError(authority, snapshot, "storedStateInvalid", cause))),
-);
-
-const hasDefinitionCoverage = Effect.fn("AppUniqueConstraintBuild.hasCoverage")(
-  function* (
-    tx: AppRowTransaction,
-    authority: Pick<TrustedScopeAuthority, "scopeId">,
-    snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
-    state: BuildState,
-    tableId: CatalogTableId,
-    clock: ScopeClockRecord,
-    coverageContext?: IndexCoverageContext,
-    tableFrontiers?: UniqueTableFrontiers,
-  ) {
-    if (state.coveredThroughCommitSeq === null) return false;
-    if (state.maintenance !== null) {
-      const context = coverageContext ?? (yield* readUniqueCoverageContext(tx, clock, snapshot));
-      const obligation = state.maintenance;
-      const member = snapshot.members.find(value => value.uniqueConstraintDefinitionId === state.uniqueConstraintDefinitionId);
-      if (member === undefined || obligation.tableId !== tableId || encodeBytesToLowercaseHex(obligation.physicalSpecSha256) !== member.physicalSpecSha256Hex ||
-        context.active === null || obligation.deploymentId !== context.active.schema.deploymentId ||
-        obligation.schemaVersionId !== context.active.schema.schemaVersionId || obligation.activationSequence !== context.active.head.activationSequence ||
-        !bytesEqualFullScan(obligation.headSha256, context.active.head.headSha256) ||
-        !bytesEqualFullScan(obligation.activationSha256, context.active.head.activationSha256) || !buildAuthorityIsCurrent(state, clock)) {
-        return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid"));
-      }
-      return true;
+const readUniqueTableFrontiers = Effect.fnUntraced(function* (
+  tx: AppRowTransaction, authority: Pick<TrustedScopeAuthority, "scopeId">,
+  snapshot: Pick<BuildSnapshot, "schemaVersionId">, clock: ScopeClockRecord,
+  tableIds: ReadonlyArray<CatalogTableId>, coverageHint?: IndexCoverageContext,
+) {
+  return yield* Effect.gen(function* () {
+    if (coverageHint !== undefined) {
+      const cached = yield* Effect.fromResult(readPreparedIndexCoverageTableFrontiers(tx, clock, coverageHint, tableIds));
+      if (cached !== null) return cached;
     }
-    if (state.coveredThroughCommitSeq >= clock.lastCommitSeq) return true;
+    return yield* readAppTableWriteFrontiersInTransactionEffect(tx, authority.scopeId, tableIds);
+  }).pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+    ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: true, cause })
+    : stateError(authority, snapshot, "storedStateInvalid", cause)));
+}, work => observeExecution("AppUniqueConstraintBuild.readTableFrontiers", work, "caller"));
+
+function hasDefinitionCoverageResult(
+  authority: Pick<TrustedScopeAuthority, "scopeId">, snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
+  state: BuildState, tableId: CatalogTableId, clock: ScopeClockRecord,
+  context: IndexCoverageContext | undefined, frontier: CommitSeq | null,
+) {
+  if (state.coveredThroughCommitSeq === null) return Result.succeed(false);
+  if (state.maintenance !== null) {
+    const obligation = state.maintenance;
+    // First-member correlation is intentional, including repeated selected IDs.
+    const member = snapshot.members.find(value => value.uniqueConstraintDefinitionId === state.uniqueConstraintDefinitionId);
+    if (member === undefined || obligation.tableId !== tableId ||
+      encodeBytesToLowercaseHex(obligation.physicalSpecSha256) !== member.physicalSpecSha256Hex ||
+      context === undefined || context.active === null || obligation.deploymentId !== context.active.schema.deploymentId ||
+      obligation.schemaVersionId !== context.active.schema.schemaVersionId || obligation.activationSequence !== context.active.head.activationSequence ||
+      !bytesEqualFullScan(obligation.headSha256, context.active.head.headSha256) ||
+      !bytesEqualFullScan(obligation.activationSha256, context.active.head.activationSha256) || !buildAuthorityIsCurrent(state, clock))
+      return Result.fail(stateError(authority, snapshot, "storedStateInvalid"));
+    return Result.succeed(true);
+  }
+  return Result.succeed(state.coveredThroughCommitSeq >= clock.lastCommitSeq || frontier === null || frontier <= state.coveredThroughCommitSeq);
+}
+
+const inspectDefinitionCoverageEffect = Effect.fnUntraced(function* (
+  tx: AppRowTransaction, authority: Pick<TrustedScopeAuthority, "scopeId">,
+  snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">, state: BuildState, tableId: CatalogTableId,
+  clock: ScopeClockRecord, coverageContext?: IndexCoverageContext, tableFrontiers?: UniqueTableFrontiers,
+) {
+  if (state.coveredThroughCommitSeq === null) return false;
+  const context = state.maintenance === null ? coverageContext :
+    coverageContext ?? (yield* readUniqueCoverageContext(tx, clock, snapshot));
+  let frontier: CommitSeq | null = null;
+  if (state.maintenance === null && state.coveredThroughCommitSeq < clock.lastCommitSeq) {
     const batched = tableFrontiers?.get(tableId);
-    const frontier = yield* (tableFrontiers === undefined
+    frontier = yield* (tableFrontiers === undefined
       ? readAppTableWriteFrontierInTransactionEffect(tx, authority.scopeId, tableId)
-      : batched === undefined
-        ? Effect.die("Selected unique table frontier missing from transaction batch")
-        : Effect.fromResult(batched)).pipe(
-      Effect.mapError((cause) =>
-        cause instanceof AppRowReadPersistenceError
-          ? new AppUniqueConstraintSetBuildIntegrationV1Error({
-              phase: "targetTransaction",
-              retryable: true,
-              cause,
-            })
-          : stateError(authority, snapshot, "storedStateInvalid", cause),
-      ),
-    );
-    return frontier === null || frontier <= state.coveredThroughCommitSeq;
-  },
-);
+      : batched === undefined ? Effect.die("Selected unique table frontier missing from transaction batch")
+        : Effect.fromResult(batched)).pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+          ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: true, cause })
+          : stateError(authority, snapshot, "storedStateInvalid", cause)));
+  }
+  return yield* Effect.fromResult(hasDefinitionCoverageResult(authority, snapshot, state, tableId, clock, context, frontier));
+}, work => observeExecution("AppUniqueConstraintBuild.inspectCoverage", work, "caller"));
 
 function buildIdentity(
   state: BuildState,
@@ -2064,6 +2153,8 @@ const installCandidateAndReclaimWorkspaceInTransaction = Effect.fn(
   | AppUniqueConstraintSetBuildIntegrationV1Error
   | LockScopeClockForUpdateError
 > {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   if (displacedSnapshot !== null) {
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(
       tx,
@@ -2132,6 +2223,8 @@ const reclaimDisplacedWorkspaceInTransaction = Effect.fn(
       reason: "protectedMembershipUnknown",
       schemaVersionId,
     });
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
     authority.scopeId,
@@ -2168,6 +2261,8 @@ const reclaimWorkspaceInTransaction = Effect.fn(
   snapshot: ReclamationSnapshot,
   options: AppUniqueConstraintSetBuildOptionsV1,
 ) {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
     authority.scopeId,
@@ -2697,6 +2792,8 @@ const advanceBackfillInTransaction = Effect.fn(
   pageSize: number,
   options: AppUniqueConstraintSetBuildOptionsV1,
 ) {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
     authority.scopeId,
@@ -2750,7 +2847,7 @@ const advanceBackfillInTransaction = Effect.fn(
       );
     if (
       state.lifecycle !== "enabled" ||
-      !(yield* hasDefinitionCoverage(
+      !(yield* inspectDefinitionCoverageEffect(
         tx,
         authority,
         snapshot,
@@ -2848,7 +2945,7 @@ const advanceBackfillInTransaction = Effect.fn(
   }
   // Coverage is a processed-change baseline during population. Only enabled grants admission.
   if (
-    !(yield* hasDefinitionCoverage(
+    !(yield* inspectDefinitionCoverageEffect(
       tx,
       authority,
       snapshot,
@@ -3518,7 +3615,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
     const definition = definitions.find(value => value.uniqueConstraintDefinitionId === row.uniqueConstraintDefinitionId);
     if (definition === undefined) return yield* Effect.fail(stateError(clock, snapshot, "storedStateInvalid"));
     const selectedSnapshot = { schemaVersionId: definition.schemaVersionId, members: definitions };
-    const state = yield* decodeBuildStateEffect(
+    const state = yield* decodeUniqueBuildStateEffect(
       clock,
       selectedSnapshot,
       row,
@@ -3556,7 +3653,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
         tx, clock, context, [definition.tableId])).pipe(Effect.mapError(cause =>
           stateError(clock, selectedSnapshot, "storedStateInvalid", cause)))) ?? undefined;
     }
-    if (!(yield* hasDefinitionCoverage(tx, clock, selectedSnapshot, state, definition.tableId,
+    if (!(yield* inspectDefinitionCoverageEffect(tx, clock, selectedSnapshot, state, definition.tableId,
       clock, context, tableFrontiers))) {
       return yield* Effect.fail(stateError(clock, selectedSnapshot, "coverageMissing"));
     }
@@ -3637,6 +3734,8 @@ const reconcileInTransaction = Effect.fn(
   snapshot: BuildSnapshot,
   options: AppUniqueConstraintSetBuildOptionsV1,
 ) {
+  invalidateAcceptedApplicationBindingInTransaction(tx);
+  invalidateSharedLogicalSourceBindingChecks(tx);
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
     authority.scopeId,
@@ -3739,7 +3838,7 @@ const reconcileInTransaction = Effect.fn(
       return yield* Effect.fail(
         stateError(authority, snapshot, "concurrentStateChange"),
       );
-    const state = yield* decodeBuildStateEffect(
+    const state = yield* decodeUniqueBuildStateEffect(
       authority,
       snapshot,
       { ...written[0], maintenanceObligation: null },
@@ -3859,76 +3958,104 @@ const observeInTransaction = Effect.fn(
   return Object.freeze(identities);
 });
 
-const decodeBuildStateEffect = Effect.fn(
-  "AppUniqueConstraintBuild.decodeState",
-)(function* (
+// The accepting readiness/maintenance/publication operation owns diagnostics;
+// raw row decoding stays inside that caller's existing quiet observation span.
+export const decodeUniqueBuildStateEffect = Effect.fnUntraced(function* (
   authority: Pick<TrustedScopeAuthority, "scopeId">,
   snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
   row: unknown,
   currentLastCommitSeq: bigint,
 ) {
-  const state = yield* Effect.fromResult(decodeBuildStateResult(row)).pipe(
+  const state = yield* decodeBuildState(row).pipe(
     Effect.mapError((cause) =>
       stateError(authority, snapshot, "storedStateInvalid", cause),
     ),
   );
-  if (
-    state.scopeId !== authority.scopeId ||
-    !snapshot.members.some(
-      (member) =>
-        member.uniqueConstraintDefinitionId ===
-        state.uniqueConstraintDefinitionId,
-    ) ||
-    !Number.isFinite(state.createdAt.getTime()) ||
-    !Number.isFinite(state.updatedAt.getTime()) ||
-    state.updatedAt.getTime() < state.createdAt.getTime() ||
-    ((state.lifecycle === "declared" ||
-      state.lifecycle === "building" ||
-      state.lifecycle === "enabled") &&
-      state.cursorRowId !== null) ||
-    ((state.lifecycle === "declared" || state.lifecycle === "building") &&
-      state.coveredThroughCommitSeq !== null) ||
-    (state.lifecycle === "enabled" && state.coveredThroughCommitSeq === null) ||
-    (state.coveredThroughCommitSeq !== null &&
-      state.coveredThroughCommitSeq < state.startCommitSeq)
-  )
-    return yield* Effect.fail(
-      stateError(authority, snapshot, "storedStateInvalid"),
-    );
-  if (
-    state.startCommitSeq > currentLastCommitSeq ||
-    (state.coveredThroughCommitSeq !== null &&
-      state.coveredThroughCommitSeq > currentLastCommitSeq)
-  )
-    return yield* Effect.fail(
-      stateError(authority, snapshot, "frontierAheadOfClock"),
-    );
-  const { maintenanceObligation, ...buildState } = state;
-  const maintenance = maintenanceObligation === null ? null : yield* Effect.fromResult(
-    decodeUniqueMaintenanceObligationResult(maintenanceObligation)).pipe(
-      Effect.mapError(cause => stateError(authority, snapshot, "storedStateInvalid", cause)));
-  if ((state.maintenanceActivationSequence === null) !== (maintenance === null))
-    return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid", "Maintenance binding and obligation disagree"));
-  if (maintenance !== null) {
-    if (state.lifecycle !== "enabled" || maintenance.scopeId !== state.scopeId ||
-      maintenance.activationSequence !== state.maintenanceActivationSequence ||
-      maintenance.uniqueConstraintDefinitionId !== state.uniqueConstraintDefinitionId || maintenance.storageGeneration !== state.storageGeneration ||
-      maintenance.storageGenerationFence !== state.storageGenerationFence || maintenance.epoch !== state.epoch ||
-      maintenance.startCommitSeq !== state.startCommitSeq || maintenance.attemptFence !== state.attemptFence ||
-      maintenance.openedCommitSeq !== state.coveredThroughCommitSeq) {
-      return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid", "Maintenance obligation does not match build state"));
-    }
-  }
-  return Object.freeze({
-    ...buildState,
-    maintenance,
-    cursorRowId:
-      state.cursorRowId === null ? null : new Uint8Array(state.cursorRowId),
-  });
+  yield* Effect.fromResult(acceptUniqueBuildFrontierResult(authority, snapshot, state, currentLastCommitSeq));
+  const maintenance = state.maintenanceObligation === null ? null : yield* decodeUniqueMaintenanceObligationEffect(state.maintenanceObligation).pipe(
+    Effect.mapError(cause => stateError(authority, snapshot, "storedStateInvalid", cause)));
+  return yield* Effect.fromResult(acceptUniqueBuildMaintenanceResult(authority, snapshot, state, maintenance));
 });
 
-/** Named captures reuse the same authoritative build/obligation decoder. */
-export const decodeFiniteUniqueBuildStateEffect = decodeBuildStateEffect;
+function acceptUniqueBuildFrontierResult(
+  authority: Pick<TrustedScopeAuthority, "scopeId">,
+  snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
+  state: typeof BuildStateSchema.Type,
+  currentLastCommitSeq: bigint,
+) {
+  return Result.gen(function* () {
+    if (
+      state.scopeId !== authority.scopeId ||
+      !snapshot.members.some(
+        (member) =>
+          member.uniqueConstraintDefinitionId ===
+          state.uniqueConstraintDefinitionId,
+      ) ||
+      !Number.isFinite(state.createdAt.getTime()) ||
+      !Number.isFinite(state.updatedAt.getTime()) ||
+      state.updatedAt.getTime() < state.createdAt.getTime() ||
+      ((state.lifecycle === "declared" ||
+        state.lifecycle === "building" ||
+        state.lifecycle === "enabled") &&
+        state.cursorRowId !== null) ||
+      ((state.lifecycle === "declared" || state.lifecycle === "building") &&
+        state.coveredThroughCommitSeq !== null) ||
+      (state.lifecycle === "enabled" && state.coveredThroughCommitSeq === null) ||
+      (state.coveredThroughCommitSeq !== null &&
+        state.coveredThroughCommitSeq < state.startCommitSeq)
+    )
+      return yield* Result.fail(
+        stateError(authority, snapshot, "storedStateInvalid"),
+      );
+    if (
+      state.startCommitSeq > currentLastCommitSeq ||
+      (state.coveredThroughCommitSeq !== null &&
+        state.coveredThroughCommitSeq > currentLastCommitSeq)
+    )
+      return yield* Result.fail(
+        stateError(authority, snapshot, "frontierAheadOfClock"),
+      );
+  });
+}
+
+function acceptUniqueBuildMaintenanceResult(
+  authority: Pick<TrustedScopeAuthority, "scopeId">,
+  snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
+  state: typeof BuildStateSchema.Type,
+  maintenance: UniqueMaintenanceObligation | null,
+) {
+  return Result.gen(function* () {
+    if ((state.maintenanceActivationSequence === null) !== (maintenance === null))
+      return yield* Result.fail(stateError(authority, snapshot, "storedStateInvalid", "Maintenance binding and obligation disagree"));
+    if (maintenance !== null) {
+      if (state.lifecycle !== "enabled" || maintenance.scopeId !== state.scopeId ||
+        maintenance.activationSequence !== state.maintenanceActivationSequence ||
+        maintenance.uniqueConstraintDefinitionId !== state.uniqueConstraintDefinitionId || maintenance.storageGeneration !== state.storageGeneration ||
+        maintenance.storageGenerationFence !== state.storageGenerationFence || maintenance.epoch !== state.epoch ||
+        maintenance.startCommitSeq !== state.startCommitSeq || maintenance.attemptFence !== state.attemptFence ||
+        maintenance.openedCommitSeq !== state.coveredThroughCommitSeq) {
+        return yield* Result.fail(stateError(authority, snapshot, "storedStateInvalid", "Maintenance obligation does not match build state"));
+      }
+    }
+    return Object.freeze({
+      scopeId: state.scopeId,
+      uniqueConstraintDefinitionId: state.uniqueConstraintDefinitionId,
+      startCommitSeq: state.startCommitSeq,
+      coveredThroughCommitSeq: state.coveredThroughCommitSeq,
+      maintenanceActivationSequence: state.maintenanceActivationSequence,
+      attemptFence: state.attemptFence,
+      storageGeneration: state.storageGeneration,
+      storageGenerationFence: state.storageGenerationFence,
+      epoch: state.epoch,
+      lifecycle: state.lifecycle,
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+      maintenance,
+      cursorRowId:
+        state.cursorRowId === null ? null : new Uint8Array(state.cursorRowId),
+    });
+  });
+}
 
 function requireExactAuthorityResult(
   expected: TrustedScopeAuthority,

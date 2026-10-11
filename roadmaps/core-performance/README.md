@@ -1,8 +1,9 @@
 # Core Performance
 
-Status: **the connected mutation cutover is implemented and measured; the owner
-has resumed its connected CPU correction for standalone and mixed mutations.
-Complete native-relative acceptance remains unmet.** The local standalone-read
+Status: **the connected standalone/mixed mutation candidate remains uncommitted
+and is paused at the owner's request for discussion. The current responsible-core
+correction passes its affected correctness and review gates, but complete matched
+measurements still fail every fixed CPU and latency gate.** The local standalone-read
 implementation and consumer cutover are complete; its separate read-tuning pause
 remains in place. Standalone mutations are part of the active connected redesign.
 The installation interlock, query-required preparation and independent direct
@@ -29,9 +30,70 @@ at the current owners. That correctness/measurement/acquisition reconciliation
 did not establish native-relative acceptance. The approved
 [CPU execution correction](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#connected-cpu-execution-correction)
 has implemented value capture, query transport and quiet execution mechanics;
-complete CPU and latency acceptance still require its connected outcome-value
-and ordinary readiness continuation. It preserves the separate standalone-read
-pause. The [CPU correction ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cpu-execution-results.md)
+the connected candidate now also replaces outcome normalization, ordered pure
+readiness acceptance, fixed native query preparation, workflow plan execution,
+immutable row capture, source-union admission and publication. The actual shared
+owners retain fresh read duties after Application overlays and exact captured
+scope selection. The connected replacement passes its affected owner and consumer
+correctness proofs, but complete final-source matched measurements still miss
+complete performance acceptance for all five graphs. The latest complete command
+and placement cohort fails the CPU threshold for every graph as well. Standalone workflow exchange reduction does not
+close the complete outcome; repeated finite captures and client value/acceptance
+work remain under investigation at their actual owners. Neither lower SQL counts
+nor a passing owner proof establishes complete acceptance. Exclusive owner CPU
+attribution remains unresolved. The continuing
+[canonical-value and read-acceptance handoff](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#connected-canonical-value-and-read-acceptance-handoff)
+replaces evidence loss across genuine row projections, normalized results and
+ordered pure acceptance at their existing owners; complete acceptance remains its
+delivery gate. It preserves the separate standalone-read pause.
+The implemented native-acceptance replacement moves finite mutable readiness into
+the installed capture owner and compacts ordinary build progress and settlement
+evidence. Current and retained finite readers must accept membership and the real
+point callback before transferring unseen bodies. Source composition requires
+exact Application-owned table and index definitions in both catalogs; native raw
+unique-build decoders preserve original defects before pure policy acceptance.
+Affected owner and standalone/mixed consumer proofs, strict checks, source guards,
+lint and both final reviews pass for the connected replacement. Its complete
+matched measurements still fail all five native-relative performance gates.
+Membership and point permission precede unseen bodies, with bounded body packets;
+that required ordering adds finite exchanges and must not be removed to improve a
+count. Ordinary demand readiness and repeated finite physical reads remain
+responsible-owner correction candidates, not proved exclusive CPU allocations.
+The owner has resumed mutation work under the
+[command and admission continuation](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#connected-command-and-admission-continuation).
+That replacement reduces standalone Medusa exchanges to 87 but leaves 38 mixed
+workflow implicit captures. Its complete measurements still miss every fixed
+CPU and latency gate. The selected connected correction now replaces repeated
+logical operation interpretation, per-revision row-key processing and full
+ordinary readiness at their existing owners. Fixed native SQL and codecs remain
+reused; sampling does not establish exclusive owner CPU or predicted savings.
+Complete acceptance remains required before this
+candidate's commit; no smaller performance deliverable replaces it.
+The complete logical operation/readiness cutover also misses every fixed gate.
+Its standalone Medusa added CPU is 48 ms and quiet excess remains approximately
+135 ms, with 94 exchanges; mixed workflow added CPU is 110 ms, with 38 implicit
+captures across 41 checkouts. Added ordinary-readiness continuations and unchanged
+finite choreography remain responsible-owner problems alongside client work.
+These are separate measured cohorts, not exclusive causal CPU allocations.
+Preserve the full ordinary concurrent-reader proof and actual finite observation
+cuts while selecting the next connected replacement.
+The selected correction now removes ordinary readiness's three pure database
+dispatches and interprets complete captured progress locally at the original
+acceptance frontiers. It also retains lazy generic predicate bounds,
+query-required immutable selections and authentic finite-root canonical evidence.
+Reference operations authenticate the issuer's detached table against the exact
+original schema table and capabilities; displaced original-table membership
+checks are removed. Genuine generation changes retain their typed resource
+failure through the central request owner. Physical prepared reads reject
+malformed order directions at their original validation frontier. Affected
+correctness, strict, lint, source guards and both final reviews pass. The complete
+matched correction reduces standalone Medusa exchanges from 94 to 87 and Payload
+from 44 to 42, while mixed workflow retains 38 implicit captures across 41
+checkouts. Every fixed complete CPU and latency gate still fails. The separate
+cohorts do not establish a CPU improvement or exclusive attribution; the
+remaining request overhead and intermittent publication timeout remain open.
+The owner-requested pause applies before any further correction campaign.
+The [CPU correction ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cpu-execution-results.md)
 owns its measured partial result and limits.
 The connected generation owns Application and selected logical source preparation
 together. CMS materialization templates and Commerce source catalogues must refresh

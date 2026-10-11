@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import type { PerformedActions } from "@medusajs/types";
 import type { replaceProductRows } from "../src/product-mutation";
 import { Effect, Result, Schema, type Scope } from "effect";
@@ -87,7 +88,7 @@ const fixture = Effect.fn("GraphTest.fixture")(function* (
         if (receipt !== undefined) return receipt;
         return yield* Effect.fromResult(decodeRows(input));
       }));
-      return { findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (manager, query) => run(manager, "find", query), count: unused, lifecycle: unused,
+      return { prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (manager, query) => run(manager, "find", query), count: unused, lifecycle: unused,
         write: (manager, mode, input) => run(manager, mode, input), delete: (manager, input) => run(manager, "delete", input) };
     })),
   };

@@ -46,6 +46,12 @@ import {
   type PGliteFlarexPersistence,
 } from "../../../src/database/pglite";
 import { runEffect, runEffectFailure } from "../../support/effectTestRuntime";
+import { decodeStoredAppDocumentEvidenceEffect, inspectStoredAppDocumentEvidence } from "../../../src/storage/documents/appRowCanonicalEvidence";
+import { captureLogicalRelationalCanonicalRow } from "../../../src/storage/documents/logicalDocuments/relationalRows";
+import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
+import { lockInstallationForCurrentTransaction, closeInstallationAdmission } from "../../../src/installation/installationLifecycle";
+import { PgRaw } from "drizzle-orm/pg-core/query-builders/raw";
+import { sql } from "drizzle-orm";
 
 const scopeId = ScopeIdSchema.make(
   "scope_50000000-0000-0000-0000-000000000001",
@@ -67,13 +73,45 @@ const creationTime = decodeAppCreationTimeV1(1_725_000_000_000.25);
 const identity = Object.freeze({ scopeId, tableId, rowId }) satisfies AppRowIdentityV1;
 
 describe("FlarexDB app-row revision storage", () => {
+  it("issues stored decoder provenance only after full evidence verification and keeps runtime binary untrusted as JSON", async () => {
+    const canonical = await canonicalDocument({ bytes: new Uint8Array([1, 2, 3]).buffer });
+    const input = { tableId, rowId, creationTime, codecVersion: canonical.codecVersion,
+      canonicalBytes: canonical.canonicalBytes, sha256: canonical.sha256 };
+    const decoded = await runEffect(decodeStoredAppDocumentEvidenceEffect(input));
+    const proof = Result.getOrThrow(inspectStoredAppDocumentEvidence(decoded));
+    expect(proof?.runtime).toBe(decoded.value);
+    expect(proof?.policy).toBe(decoded.valueJson);
+    expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(Object.freeze({ ...decoded })))).toBeUndefined();
+    expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(structuredClone(decoded)))).toBeUndefined();
+    expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(Object.freeze({ ...decoded, value: structuredClone(decoded.value) }))))
+      .toBeUndefined();
+    const capture = () => captureLogicalRelationalCanonicalRow(decoded, 65_536, reason => new Error(reason));
+    expect(capture()).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+    if (!isCanonicalFlarexRuntimeObjectV1(decoded.value))
+      throw new Error("Missing stored binary document");
+    const binary = decoded.value.bytes;
+    if (!(binary instanceof ArrayBuffer)) throw new Error("Missing mutable binary leaf");
+    new Uint8Array(binary)[0] = 9;
+    expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(decoded))?.runtime).toBe(decoded.value);
+    expect(capture()).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+    // Binary mutation never changes the independent policy representation.
+    expect(decoded.valueJson).toEqual(canonical.valueJson);
+    decoded.canonicalBytes.fill(0);
+    expect(inspectStoredAppDocumentEvidence(decoded)).toMatchObject({ _tag: "Failure",
+      failure: { issue: { reason: "canonicalBytesMismatch" } } });
+    expect(capture()).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
+    const corrupt = { ...input, sha256: new Uint8Array(32) };
+    expect(await runEffectFailure(decodeStoredAppDocumentEvidenceEffect(corrupt)))
+      .toMatchObject({ issue: { reason: "sha256Mismatch" } });
+  });
+
   it("hydrates bounded historical batches in request order with exact failures", async () => {
     const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });
     await persistence.migrate();
     await insertClock(persistence, scopeId, firstEpoch);
     try {
-      await persistence.drizzle.transaction(tx => snapshotHydrationBatchScenario(tx,
+      await admittedTransaction(persistence, tx => snapshotHydrationBatchScenario(tx,
         { identity, epoch: firstEpoch, schemaVersionId, creationTime }));
     } finally { await db.close(); }
   });
@@ -134,6 +172,8 @@ describe("FlarexDB app-row revision storage", () => {
     }
 
     const inserted = await readAt(persistence, 1n);
+    if (inserted.kind !== "live") throw new Error("Missing stored live document");
+    expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(inserted.document))?.runtime).toBe(inserted.document.value);
     expect(inserted).toMatchObject({
       kind: "live",
       creationTime,
@@ -147,7 +187,7 @@ describe("FlarexDB app-row revision storage", () => {
       },
     });
     await expect(
-      persistence.drizzle.transaction((tx) =>
+      admittedTransaction(persistence, (tx) =>
         runEffect(readCurrentAppRowInTransactionEffect(tx, identity)),
       ),
     ).resolves.toMatchObject({ kind: "tombstone", commitSeq: 5n });
@@ -285,7 +325,7 @@ describe("FlarexDB app-row revision storage", () => {
     );
 
     await expect(
-      persistence.drizzle.transaction((tx) =>
+      admittedTransaction(persistence, (tx) =>
         runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
           scopeId: otherScopeId,
           tableId,
@@ -322,7 +362,7 @@ describe("FlarexDB app-row revision storage", () => {
       },
     });
     await expect(
-      persistence.drizzle.transaction((tx) =>
+      admittedTransaction(persistence, (tx) =>
         runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
           scopeId,
           tableId: otherTableId,
@@ -359,7 +399,7 @@ describe("FlarexDB app-row revision storage", () => {
       value: evidence(second),
     });
 
-    const conflict = await persistence.drizzle.transaction(async (tx) => {
+    const conflict = await admittedTransaction(persistence, async (tx) => {
       try {
         await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
           kind: "live",
@@ -406,21 +446,31 @@ describe("FlarexDB app-row revision storage", () => {
       document,
     } as const;
 
-    const inserted = await persistence.drizzle.transaction(tx =>
+    const inserted = await admittedTransaction(persistence, tx =>
       runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input])));
     expect(inserted).toHaveLength(1);
-    await expect(persistence.drizzle.transaction(tx =>
+    await expect(admittedTransaction(persistence, tx =>
       runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]))))
       .rejects.toBeInstanceOf(AppRowRevisionAlreadyExistsError);
 
-    const driverCause = new Error("scope query rejected");
-    const rejectingTx = {
-      select(): never { throw driverCause; },
-    } as unknown as AppRowTransaction;
-    const defect = await Effect.runPromiseExit(
-      appendPreparedAppRowRevisionsInTransactionEffect(rejectingTx, [input]));
-    expect(Exit.isFailure(defect) && Cause.hasDies(defect.cause)).toBe(true);
-
+    const foreignCause = new Error("prepared document accessor defect");
+    const foreignInput = { ...input, get document(): never { throw foreignCause; } };
+    const defect = await admittedTransaction(persistence, async tx => {
+      const execute = vi.spyOn(tx, "execute");
+      try {
+        const exit = await Effect.runPromiseExit(appendPreparedAppRowRevisionsInTransactionEffect(tx, [foreignInput]));
+        // Preparation observes this foreign accessor before constructing or
+        // executing the server batch. Driver rejections have a typed channel.
+        expect(execute).not.toHaveBeenCalled();
+        return exit;
+      } finally { execute.mockRestore(); }
+    });
+    expect(Exit.isFailure(defect)).toBe(true);
+    if (Exit.isFailure(defect)) {
+      expect(Cause.hasDies(defect.cause)).toBe(true);
+      expect(Cause.hasFails(defect.cause)).toBe(false);
+      expect(Result.getOrThrow(Cause.findDefect(defect.cause))).toBe(foreignCause);
+    }
   });
 
   it("rejects creation-time changes on live and tombstone revisions", async () => {
@@ -469,7 +519,7 @@ describe("FlarexDB app-row revision storage", () => {
     ).rejects.toBeInstanceOf(AppRowCreationTimeConflictError);
 
     await expect(
-      persistence.drizzle.transaction((tx) =>
+      admittedTransaction(persistence, (tx) =>
         runEffect(readCurrentAppRowInTransactionEffect(tx, identity)),
       ),
     ).resolves.toMatchObject({
@@ -491,7 +541,7 @@ describe("FlarexDB app-row revision storage", () => {
       legacyScope,
       ScopeEpochSchema.make("epoch-legacy-row-path"),
     );
-    const legacyExit = await persistence.drizzle.transaction((tx) =>
+    const legacyExit = await admittedTransaction(persistence, (tx) =>
       runEffect(Effect.exit(
         readAppRowAtSnapshotInTransactionEffect(tx, {
           scopeId: legacyScope,
@@ -554,7 +604,7 @@ describe("FlarexDB app-row revision storage", () => {
       ],
     );
     await expect(
-      persistence.drizzle.transaction((tx) =>
+      admittedTransaction(persistence, (tx) =>
         runEffect(readCurrentAppRowInTransactionEffect(tx, {
           scopeId,
           tableId,
@@ -581,6 +631,10 @@ describe("FlarexDB app-row revision storage", () => {
         queryConstructed = true;
         throw new Error("the lazy read was executed");
       },
+      execute(): never {
+        queryConstructed = true;
+        throw new Error("the lazy snapshot read was executed");
+      },
     } as unknown as AppRowTransaction;
     const effect: Effect.Effect<AppRowReadResultV1, ReadAppRowError> =
       readAppRowAtSnapshotInTransactionEffect(tx, {
@@ -599,6 +653,10 @@ describe("FlarexDB app-row revision storage", () => {
         queryConstructed = true;
         throw new Error("invalid input reached SQL construction");
       },
+      execute(): never {
+        queryConstructed = true;
+        throw new Error("invalid input reached snapshot SQL construction");
+      },
     } as unknown as AppRowTransaction;
 
     const failure = await runEffectFailure(
@@ -616,218 +674,99 @@ describe("FlarexDB app-row revision storage", () => {
 
   it("maps a rejected revision query into the typed persistence channel", async () => {
     const rejection = new Error("revision query rejected");
-    let readCount = 0;
-    const tx = appRowSelectTransaction(() => {
-      readCount += 1;
-      return readCount === 1
-        ? Promise.resolve([{
-            scopeId,
-            scopeUuid: "50000000-0000-0000-0000-000000000001",
-          }])
-        : Promise.reject(rejection);
-    });
-
-    const failure = await runEffectFailure(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
+    const failure = await withSnapshotReadFixture(() => Promise.reject(rejection), tx =>
+      runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      })));
     expect(failure).toBeInstanceOf(AppRowReadPersistenceError);
-    expect(failure).toMatchObject({
-      operation: "readSnapshotRevision",
-      cause: rejection,
-    });
+    expect(failure).toMatchObject({ operation: "readSnapshotRevision", cause: rejection });
   });
 
   it("maps malformed stored revision columns into typed corruption", async () => {
-    let readCount = 0;
-    const tx = appRowSelectTransaction(() => {
-      readCount += 1;
-      return Promise.resolve(readCount === 1
-        ? [{
-            scopeId,
-            scopeUuid: "50000000-0000-0000-0000-000000000001",
-          }]
-        : [{
-            ...storedTombstoneDriverRow(),
-            scopeUuid: "not-a-canonical-uuid",
-          }]);
-    });
-
-    const failure = await runEffectFailure(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
+    const row = { ...storedTombstoneDriverRow(), scopeUuid: "not-a-canonical-uuid" };
+    const failure = await withSnapshotReadFixture(() => Promise.resolve([row]), tx =>
+      runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      })));
     expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
-    expect(failure).toMatchObject({
-      reason: "stored revision columns do not decode",
-    });
+    expect(failure).toMatchObject({ reason: "stored revision columns do not decode" });
   });
 
   it("maps malformed live canonical bytes into typed corruption", async () => {
     const document = await canonicalDocument({ title: "malformed codec" });
     const storedRow = storedLiveDriverRow(document);
     storedRow.valueBytes = undefined;
-    let readCount = 0;
-    const tx = appRowSelectTransaction(() => {
-      readCount += 1;
-      return Promise.resolve(readCount === 1
-        ? [{
-            scopeId,
-            scopeUuid: "50000000-0000-0000-0000-000000000001",
-          }]
-        : [storedRow]);
-    });
-
-    const exit = await Effect.runPromiseExit(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
+    const exit = await withSnapshotReadFixture(() => Promise.resolve([storedRow]), tx =>
+      Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      })));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(Cause.hasFails(exit.cause)).toBe(true);
       expect(Cause.hasDies(exit.cause)).toBe(false);
       const failure = Cause.findErrorOption(exit.cause);
       expect(Option.isSome(failure)).toBe(true);
-      if (Option.isSome(failure)) {
-        expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
-      }
+      if (Option.isSome(failure)) expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
     }
   });
 
   it("maps mismatched trusted document fields into typed corruption", async () => {
-    const document = await canonicalizeAppDocumentV1({
-      tableId,
-      rowId: corruptionRowId,
-      creationTime,
-      fields: { title: "mismatched identity" },
-    });
-    let readCount = 0;
-    const tx = appRowSelectTransaction(() => {
-      readCount += 1;
-      return Promise.resolve(readCount === 1
-        ? [{
-            scopeId,
-            scopeUuid: "50000000-0000-0000-0000-000000000001",
-          }]
-        : [storedLiveDriverRow(document)]);
-    });
-
-    const exit = await Effect.runPromiseExit(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
+    const document = await canonicalizeAppDocumentV1({ tableId, rowId: corruptionRowId, creationTime,
+      fields: { title: "mismatched identity" } });
+    const exit = await withSnapshotReadFixture(() => Promise.resolve([storedLiveDriverRow(document)]), tx =>
+      Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      })));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(Cause.hasFails(exit.cause)).toBe(true);
       expect(Cause.hasDies(exit.cause)).toBe(false);
       const failure = Cause.findErrorOption(exit.cause);
       expect(Option.isSome(failure)).toBe(true);
-      if (Option.isSome(failure)) {
-        expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
-      }
+      if (Option.isSome(failure)) expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
     }
   });
 
   it("preserves unexpected live evidence verification rejections as defects", async () => {
     const document = await canonicalDocument({ title: "crypto defect" });
     const rejection = new Error("app-row digest rejected");
-    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(rejection);
-    let readCount = 0;
-    const tx = appRowSelectTransaction(() => {
-      readCount += 1;
-      return Promise.resolve(readCount === 1
-        ? [{
-            scopeId,
-            scopeUuid: "50000000-0000-0000-0000-000000000001",
-          }]
-        : [storedLiveDriverRow(document)]);
+    await withSnapshotReadFixture(() => Promise.resolve([storedLiveDriverRow(document)]), async tx => {
+      // Installation construction uses hashing too; inject only after admission.
+      const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(rejection);
+      try {
+        const exit = await Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
+          ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+        }));
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(true);
+          expect(Cause.hasFails(exit.cause)).toBe(false);
+          expect(exit.cause.toString()).toContain(rejection.message);
+        }
+      } finally { digest.mockRestore(); }
     });
-
-    try {
-      const exit = await Effect.runPromiseExit(
-        readAppRowAtSnapshotInTransactionEffect(tx, {
-          ...identity,
-          snapshotCommitSeq: CommitSeqSchema.make(1n),
-        }),
-      );
-
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.hasDies(exit.cause)).toBe(true);
-        expect(Cause.hasFails(exit.cause)).toBe(false);
-        expect(exit.cause.toString()).toContain(rejection.message);
-      }
-    } finally {
-      digest.mockRestore();
-    }
   });
 
   it("rejects truthy and falsy non-boolean tombstone discriminators", async () => {
     for (const isTombstone of ["false", 0]) {
-      let readCount = 0;
-      const tx = appRowSelectTransaction(() => {
-        readCount += 1;
-        return Promise.resolve(readCount === 1
-          ? [{
-              scopeId,
-              scopeUuid: "50000000-0000-0000-0000-000000000001",
-            }]
-          : [{ ...storedTombstoneDriverRow(), isTombstone }]);
-      });
-
-      const failure = await runEffectFailure(
-        readAppRowAtSnapshotInTransactionEffect(tx, {
-          ...identity,
-          snapshotCommitSeq: CommitSeqSchema.make(1n),
-        }),
-      );
-
+      const row = { ...storedTombstoneDriverRow(), isTombstone };
+      const failure = await withSnapshotReadFixture(() => Promise.resolve([row]), tx =>
+        runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
+          ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+        })));
       expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
-      expect(failure).toMatchObject({
-        reason: "stored revision columns do not decode",
-      });
+      expect(failure).toMatchObject({ reason: "stored revision columns do not decode" });
     }
   });
 
   it("preserves unexpected stored-row accessor throws as defects", async () => {
     const defect = new Error("stored revision accessor defect");
     const storedRow = storedTombstoneDriverRow();
-    Object.defineProperty(storedRow, "scopeUuid", {
-      enumerable: true,
-      get(): never {
-        throw defect;
-      },
-    });
-    let readCount = 0;
-    const tx = appRowSelectTransaction(() => {
-      readCount += 1;
-      return Promise.resolve(readCount === 1
-        ? [{
-            scopeId,
-            scopeUuid: "50000000-0000-0000-0000-000000000001",
-          }]
-        : [storedRow]);
-    });
-
-    const exit = await Effect.runPromiseExit(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
+    Object.defineProperty(storedRow, "scopeUuid", { enumerable: true, get(): never { throw defect; } });
+    const exit = await withSnapshotReadFixture(() => Promise.resolve([storedRow]), tx =>
+      Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      })));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(Cause.hasDies(exit.cause)).toBe(true);
@@ -840,53 +779,25 @@ describe("FlarexDB app-row revision storage", () => {
     const storedRow = storedTombstoneDriverRow();
     storedRow.rowId = new Uint8Array(15);
     let scopeUuidObserved = false;
-    Object.defineProperty(storedRow, "scopeUuid", {
-      enumerable: true,
-      get(): never {
-        scopeUuidObserved = true;
-        throw new Error("later scope UUID accessor must not run");
-      },
-    });
-    let readCount = 0;
-    const tx = appRowSelectTransaction(() => {
-      readCount += 1;
-      return Promise.resolve(readCount === 1
-        ? [{
-            scopeId,
-            scopeUuid: "50000000-0000-0000-0000-000000000001",
-          }]
-        : [storedRow]);
-    });
-
-    const failure = await runEffectFailure(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
+    Object.defineProperty(storedRow, "scopeUuid", { enumerable: true, get(): never {
+      scopeUuidObserved = true;
+      throw new Error("later scope UUID accessor must not run");
+    } });
+    const failure = await withSnapshotReadFixture(() => Promise.resolve([storedRow]), tx =>
+      runEffectFailure(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      })));
     expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
-    expect(failure).toMatchObject({
-      reason: "stored revision columns do not decode",
-    });
+    expect(failure).toMatchObject({ reason: "stored revision columns do not decode" });
     expect(scopeUuidObserved).toBe(false);
   });
 
   it("preserves query construction exceptions as defects", async () => {
     const defect = new Error("app-row query construction defect");
-    const tx = {
-      select(): never {
-        throw defect;
-      },
-    } as unknown as AppRowTransaction;
-
-    const exit = await Effect.runPromiseExit(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
+    const exit = await withSnapshotReadFixture(() => Promise.resolve([]), tx =>
+      Effect.runPromiseExit(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      })), () => { throw defect; });
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(Cause.hasDies(exit.cause)).toBe(true);
@@ -898,38 +809,24 @@ describe("FlarexDB app-row revision storage", () => {
   it("waits for a pending database read before interruption completes", async () => {
     const entered = deferredValue<void>();
     const query = deferredValue<ReadonlyArray<unknown>>();
-    const tx = appRowSelectTransaction(() => {
-      entered.resolve(undefined);
-      return query.promise;
+    await withSnapshotReadFixture(() => { entered.resolve(undefined); return query.promise; }, async tx => {
+      const fiber = Effect.runFork(readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity, snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }));
+      await entered.promise;
+      const completion = runEffect(Fiber.await(fiber));
+      let interruptionSettled = false;
+      const interruption = runEffect(Fiber.interrupt(fiber)).then(() => { interruptionSettled = true; });
+      try {
+        await delay(25);
+        expect(interruptionSettled).toBe(false);
+      } finally { query.resolve([]); }
+      await interruption;
+      const exit = await completion;
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
     });
-    const fiber = Effect.runFork(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        ...identity,
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-      }),
-    );
-
-    await entered.promise;
-    const completion = runEffect(Fiber.await(fiber));
-    let interruptionSettled = false;
-    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
-      interruptionSettled = true;
-    });
-    try {
-      await delay(25);
-      expect(interruptionSettled).toBe(false);
-    } finally {
-      query.resolve([]);
-    }
-
-    await interruption;
-    const exit = await completion;
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
-    }
   });
-
   it("enforces physical row constraints and keeps mutation off the root API", async () => {
     const persistence = await appRowPersistence();
     for (const statement of [
@@ -977,6 +874,15 @@ async function appRowPersistence(): Promise<PGliteFlarexPersistence> {
   return persistence;
 }
 
+function admittedTransaction<Value>(persistence: PGliteFlarexPersistence,
+  use: (tx: AppRowTransaction) => Promise<Value>): Promise<Value> {
+  return persistence.drizzle.transaction(async tx => {
+    await runEffect(lockInstallationForCurrentTransaction(tx));
+    try { return await use(tx); }
+    finally { closeInstallationAdmission(tx); }
+  });
+}
+
 async function insertClock(
   persistence: PGliteFlarexPersistence,
   insertedScopeId: ReturnType<typeof ScopeIdSchema.make>,
@@ -1009,7 +915,7 @@ async function append(
   persistence: PGliteFlarexPersistence,
   input: AppendAppRowRevisionV1Input,
 ) {
-  return persistence.drizzle.transaction((tx) =>
+  return admittedTransaction(persistence, (tx) =>
     appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, input),
   );
 }
@@ -1018,7 +924,7 @@ async function readAt(
   persistence: PGliteFlarexPersistence,
   commitSeq: bigint,
 ) {
-  return persistence.drizzle.transaction((tx) =>
+  return admittedTransaction(persistence, (tx) =>
     runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
       ...identity,
       snapshotCommitSeq: CommitSeqSchema.make(commitSeq),
@@ -1034,7 +940,7 @@ async function pointReadAt(
   selectedTableId = tableId,
   selectedRowId = rowId,
 ) {
-  return persistence.drizzle.transaction((tx) =>
+  return admittedTransaction(persistence, (tx) =>
     runEffect(getAppRowAtSnapshotInTransactionEffect(tx, {
       snapshotToken: SnapshotTokenSchema.make({
         scopeId: selectedScopeId,
@@ -1047,28 +953,36 @@ async function pointReadAt(
   );
 }
 
-function appRowSelectTransaction(
+async function withSnapshotReadFixture<Value>(
   read: () => PromiseLike<ReadonlyArray<unknown>>,
-): AppRowTransaction {
-  const query = {
-    from() {
-      return query;
-    },
-    where() {
-      return query;
-    },
-    orderBy() {
-      return query;
-    },
-    limit() {
-      return read();
-    },
-  };
-  return {
-    select() {
-      return query;
-    },
-  } as unknown as AppRowTransaction;
+  use: (tx: AppRowTransaction) => Promise<Value>,
+  construct?: () => void,
+): Promise<Value> {
+  const db = newTestPGlite();
+  try {
+    const persistence = await createPGlitePersistence({ db });
+    await persistence.migrate();
+    await insertClock(persistence, scopeId, firstEpoch);
+    return await admittedTransaction(persistence, async tx => {
+      // Admission and scope authority remain real reads on this transaction.
+      // Only the bounded snapshot driver's result is replaced by the witness.
+      const execute = vi.spyOn(tx, "execute").mockImplementation(() => {
+        construct?.();
+        return new PgRaw(async () => {
+          const rows = await read();
+          return { rows: rows.length === 0 ? [{ ordinal: 0, requestedRowId: appRowIdHexV1ToBytes(rowId),
+            rowPresent: false, bodyWithheld: false }] : rows.map((row, ordinal) => {
+            if (typeof row !== "object" || row === null) return row;
+            // Copy descriptors without observing later corrupt stored getters.
+            return Object.defineProperties({ ordinal, requestedRowId: appRowIdHexV1ToBytes(rowId),
+              rowPresent: true, bodyWithheld: false }, Object.getOwnPropertyDescriptors(row));
+          }) };
+        }, sql`select fixture_snapshot_envelope`, { sql: "select fixture_snapshot_envelope", params: [] }, result => result);
+      });
+      try { return await use(tx); }
+      finally { execute.mockRestore(); }
+    });
+  } finally { await db.close(); }
 }
 
 function storedTombstoneDriverRow(): Record<string, unknown> {
@@ -1076,7 +990,7 @@ function storedTombstoneDriverRow(): Record<string, unknown> {
     scopeUuid: "50000000-0000-0000-0000-000000000001",
     tableId,
     rowId: appRowIdHexV1ToBytes(rowId),
-    commitSeq: 1n,
+    commitSeq: "1",
     prevCommitSeq: null,
     writeEpochUuid: "50000000-0000-0000-0000-000000000002",
     schemaVersionId,

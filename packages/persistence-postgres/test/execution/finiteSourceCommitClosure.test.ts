@@ -390,8 +390,15 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
           expect(Result.getOrThrow(retained.readUsage()).chargedBytes).toBeGreaterThan(0);
           const completeDto = JSON.stringify({ manifest: selected.manifest, definitions: selected.definitions },
             (_, value: unknown) => typeof value === "bigint" ? value.toString() : value);
-          const actualDto = payloads[0];
-          expect(actualDto).toBe(completeDto);
+          const identityCharge = payloads[0];
+          expect(identityCharge).toEqual({ databaseName: expect.any(String), namespaceOid: expect.any(BigInt) });
+          const completeCharges = payloads.filter((value): value is string => typeof value === "string" && value === completeDto);
+          expect(completeCharges).toHaveLength(1);
+          const actualDto = completeCharges[0];
+          if (actualDto === undefined) return yield* Effect.die("Missing genuine complete catalog DTO charge");
+          // Scope provenance is charged first; the complete DTO remains the
+          // next actual charge, with no digest-only substitution or omission.
+          expect(payloads.indexOf(actualDto)).toBe(1);
           const decodeDto = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({
             manifest: Schema.Unknown, definitions: Schema.Array(Schema.Unknown),
           })));
@@ -399,12 +406,14 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
           expect(chargedDto).toEqual(decodeDto(completeDto));
           expect(chargedDto.definitions).toHaveLength(512);
           yield* retained.close;
+          // Disposal revokes catalog issuance; the actual lease below still
+          // proves closed lifetime without retaining a closed issuer registry.
           expect(yield* requirePreparedLogicalStorageCatalog(prepared, logical.ports, logical.unique, boundaryLocation)
-            .pipe(Effect.result)).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+            .pipe(Effect.result)).toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
           expect(yield* retained.use(() => Effect.void).pipe(Effect.result))
             .toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
 
-          // Read the existing meter's charge for the authentic first payload.
+          // Read the existing meter's charge for the authentic complete DTO.
           // No test implementation of its byte accounting participates.
           observing = false;
           const calibration = yield* hostPreparation.retainPreparedHost(runtime,
@@ -431,7 +440,7 @@ async function verifyCurrentBindingClosure(driver: "pglite" | "postgres") {
             _tag: "PreparedHostRuntimeError", reason: "capacityExceeded",
           } });
           expect(usable).toBe(false);
-          expect(payloads).toEqual([completeDto]);
+          expect(payloads).toEqual([identityCharge, completeDto]);
           // Failed construction returns both the sole reservation and bytes.
           const replacement = yield* hostPreparation.retainPreparedHost(undersized, Effect.succeed(Object.freeze({})));
           expect(Result.getOrThrow(replacement.readUsage()).chargedBytes).toBe(0);

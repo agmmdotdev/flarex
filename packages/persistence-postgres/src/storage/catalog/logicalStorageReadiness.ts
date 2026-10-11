@@ -20,10 +20,8 @@ import {
 } from "flarex-protocol/app-unique-constraint-definition";
 import type { AppUniqueConstraintSetMemberV1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import type { JsonObject } from "flarex-protocol/json";
-import { readRequiredEnabledIndexBuildsInTransactionEffect, decodeIndexBuildStateRowResult,
-  readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
-  isIndexBuildSnapshotCoveredInTransactionEffect,
-  validateIndexBuildStateFrontierResult } from "../indexes/indexBuildStates";
+import { captureRequiredIndexReadinessInTransactionEffect, readRequiredIndexBuildProgressInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect } from "../indexes/indexBuildStates";
 import {
   hasAppUniqueConstraintSetEligibilityCompositionV1,
   prepareAppUniqueConstraintSet,
@@ -32,12 +30,16 @@ import {
   inspectSelectedAppUniqueConstraintDefinitions,
   chargeUniqueConstraintPreparation,
   validatePreparedAppUniqueConstraintCatalog,
+  readAcceptedAppUniqueConstraintSetObservedClock,
+  refreshAcceptedAppUniqueConstraintSetObservation,
+  type AppUniqueConstraintSetEligibilityEvidenceV1,
   type AppUniqueConstraintSetEligibilityPortV1,
   type AppUniqueConstraintSetBuildPortsV1,
 } from "../unique/appUniqueConstraintSetBuildV1";
 import type { TrustedScopeAuthority } from "../../scope/scopeAuthorityResolution";
 import {
   lockScopeClockForSnapshotReadInTransactionEffect,
+  readExactScopeWriteClockObservation,
   type ScopeClockRecord,
 } from "../../scope/scopeClock";
 import type { AppRowTransaction } from "../documents/appRows";
@@ -77,6 +79,7 @@ import {
 import {
   type ApplicationBindingInput,
 } from "../../application/activation/contracts";
+import { sameBindingClock } from "../../application/activation/acceptedBinding";
 import type {
   ApplicationRelationReadinessProtection,
 } from "../../application/relations/applicationRelationReadinessFold";
@@ -85,6 +88,9 @@ import {
   hasLocatedReadCommittedTargetDatabaseV1,
 } from "../../database/locatedTransactionIdentity";
 import { runEffectTransaction } from "../../database/effectTransaction";
+import { requireAdmittedTargetInstallationIdentity, type InstallationIdentity } from "../../installation/installationLifecycle";
+import { readCheckedApplicationCoveragePins } from "../../application/activeHead/identity";
+import { IndexMaintenanceError } from "../indexes/indexMaintenanceModel";
 
 /** Selected metadata supplies exact definitions; the established index,
  * unique and search owners retain their physical/coverage proof semantics. */
@@ -395,6 +401,13 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     }
     return Object.freeze({ status: "ready" as const });
   }, work => observeExecution("LogicalStorageReadiness.inspectFiniteDemand", work, "caller"));
+  const fullObservations = new WeakMap<object, {
+    readonly tx: AppRowTransaction; readonly authority: TrustedScopeAuthority; readonly originalClock: ScopeClockRecord;
+    readonly clock: ScopeClockRecord; readonly protection: ApplicationRelationReadinessProtection | undefined;
+    readonly uniqueEvidence: AppUniqueConstraintSetEligibilityEvidenceV1 | undefined;
+    readonly installation: InstallationIdentity | undefined;
+    observedClock: ScopeClockRecord;
+  }>();
   const inspect = Effect.fnUntraced(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     checkedActive?: CheckedApplicationActiveHead,
@@ -415,9 +428,42 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     const searchReadiness = yield* search.inspect(tx, authority, coverageClock, latestCoverage);
     if (searchReadiness.status === "not_ready")
       return Object.freeze({ ...searchReadiness, kind: "search" as const });
-    return Object.freeze({ status: "ready" as const, readiness: "full" as const, schemaVersionId: captured.schemaVersionId, manifestSha256Hex,
+    const ready = Object.freeze({ status: "ready" as const, readiness: "full" as const, schemaVersionId: captured.schemaVersionId, manifestSha256Hex,
       snapshotCommitSeq: clock.lastCommitSeq, indexDefinitionIds: definitionIds, unique: eligibility });
+    const uniqueEvidence = eligibility.status === "eligible" ? eligibility.evidence : undefined;
+    const observedClock = uniqueEvidence === undefined ? coverageClock :
+      yield* Effect.fromResult(readAcceptedAppUniqueConstraintSetObservedClock(unique, uniqueEvidence, tx));
+    fullObservations.set(ready, { tx, authority, originalClock: clock,
+      clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) }, protection, uniqueEvidence,
+      installation: Result.getOrElse(requireAdmittedTargetInstallationIdentity(tx), () => undefined),
+      observedClock: { ...observedClock, updatedAt: new Date(observedClock.updatedAt.getTime()) } });
+    return ready;
   }, work => observeExecution("LogicalStorageReadiness.inspect", work, "caller"));
+  /** The native source owner lends only this issuer's successful full verdict.
+   * Keep both actual post-lock clocks. Stable build evidence does not turn the
+   * admitted snapshot into a current clock or waive generation/order guards. */
+  const refreshFullObservation = Effect.fnUntraced(function* (
+    observation: Extract<Effect.Success<ReturnType<typeof inspect>>, { status: "ready" }>,
+    tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    protection?: ApplicationRelationReadinessProtection,
+  ) {
+    const issued = fullObservations.get(observation);
+    if (issued === undefined || issued.tx !== tx || issued.authority !== authority || issued.originalClock !== clock ||
+      !sameBindingClock(issued.clock, clock) || issued.protection !== protection)
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    const installation = yield* Effect.fromResult(requireAdmittedTargetInstallationIdentity(tx));
+    if (issued.installation !== installation)
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    if (lifetime !== undefined) yield* Effect.fromResult(lifetime.checkOpen());
+    if (protection !== undefined) yield* Effect.fromResult(authenticateProtectedReadinessMetadataPair(tx, protection.target, protection.control));
+    const current = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
+    if (current.storageGeneration !== clock.storageGeneration || current.storageGenerationFence !== clock.storageGenerationFence ||
+      current.epoch !== clock.epoch || current.lastCommitSeq < issued.observedClock.lastCommitSeq)
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+    const observed = issued.uniqueEvidence === undefined ? current :
+      yield* refreshAcceptedAppUniqueConstraintSetObservation(unique, issued.uniqueEvidence, tx, current);
+    issued.observedClock = { ...observed, updatedAt: new Date(observed.updatedAt.getTime()) };
+  }, work => observeExecution("LogicalStorageReadiness.refreshFullObservation", work, "caller"));
   /** Source-complete closure is derived here, never supplied by adapters or
    * method allowlists. Incoming edges include reverse/delete obligations and
    * outgoing edges include target identities. Repeat for each added source. */
@@ -488,7 +534,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
       applicationAnalysis });
   });
-  const prepared = Object.freeze({ status: "prepared" as const, inspect, selectSources, validateCatalog: validateStaticCatalog,
+  const prepared = Object.freeze({ status: "prepared" as const, inspect, refreshFullObservation, selectSources, validateCatalog: validateStaticCatalog,
     advanceEmptySearch: search.advanceEmpty,
     requirements: sourceRequirements, snapshot: requirements,
     relationalTableMechanics: (tableId: CatalogTableId) => relationalMechanics.get(tableId),
@@ -559,10 +605,32 @@ export function makeLogicalIndexReadinessInspector(
     checkedActive?: CheckedApplicationActiveHead,
   ) {
     if (lifetime !== undefined) yield* Effect.fromResult(lifetime.checkOpen());
-    const inspectedDefinitionIds = Object.freeze(definitions.map(definition => definition.indexDefinitionId));
     if (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId || clock.scopeId !== authority.scopeId ||
       clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence)
       return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+    // Only the actual writer excludes progress across this one statement cut.
+    // Every concurrent full-source observation uses the same native captured
+    // progress program below. An authentic changed pairing is never a fallback grant.
+    const writer = readExactScopeWriteClockObservation(tx, clock.scopeId);
+    const coveragePins = writer === undefined || checkedActive === undefined ? undefined
+      : readCheckedApplicationCoveragePins(checkedActive, tx, clock);
+    if (coveragePins !== undefined && (Result.isFailure(coveragePins) || coveragePins.success !== null)) {
+      const selected = yield* captureRequiredIndexReadinessInTransactionEffect(tx, clock, definitions,
+        Result.getOrElse(coveragePins, () => null));
+      if (selected.availability !== null) return Object.freeze({ ...selected.availability, kind: "index" as const });
+      const observedClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
+      if (!sameBindingClock(observedClock, clock) || writer === undefined || !sameBindingClock(writer, clock))
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+      yield* Effect.fromResult(coveragePins).pipe(Effect.mapError(cause => new IndexMaintenanceError({
+        reason: cause.reason, retryable: cause.retryable, cause: cause.cause })));
+      const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock, checkedActive);
+      const verdict = yield* selected.acceptCoverage(coverage);
+      if (verdict.status === "ready") return Object.freeze({ status: "ready" as const, coverage });
+      const afterMissClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
+      if (!sameBindingClock(afterMissClock, observedClock))
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+      return Object.freeze({ ...verdict, kind: "index" as const });
+    }
     // KEY SHARE protects lifecycle identity while publication may advance
     // coverage. A commit between the clock read and a later table-frontier
     // read can make an old build look uncovered at the admitted snapshot.
@@ -571,51 +639,20 @@ export function makeLogicalIndexReadinessInspector(
     let previousCommitSeq = clock.lastCommitSeq;
     let latestCoverage: IndexCoverageContext | undefined;
     for (let refresh = 0; refresh < 3; refresh++) {
-      const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, inspectedDefinitionIds, "key share");
-      if (builds.status === "not_ready") return Object.freeze({ ...builds, kind: "index" as const });
-      const observedClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
-      if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
-        observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
-        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
-      const buildByDefinitionId = new Map(builds.rows.map(build => [build.indexDefinitionId, build]));
-      const selected = definitions.map(definition => {
-        const row = buildByDefinitionId.get(definition.indexDefinitionId);
-        if (row === undefined) return { definition, state: null } as const;
-        const decoded = decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId, row.maintenanceObligation);
-        return { definition, state: decoded } as const;
-      });
-      const tableIds = selected.flatMap(({ definition, state }) => {
-        if (state === null || Result.isFailure(state)) return [];
-        const build = state.success;
-        return build.lifecycle === "enabled" && build.maintenance === null &&
-          build.coveredThroughCommitSeq !== null && build.coveredThroughCommitSeq < clock.lastCommitSeq &&
-          build.firstReadableCommitSeq !== null && build.firstReadableCommitSeq <= clock.lastCommitSeq
-          ? [definition.tableId] : [];
-      });
-      const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock, checkedActive);
-      latestCoverage = coverage;
-      let frontierBatchReady = false;
-      let uncoveredIndexDefinitionId: (typeof definitions)[number]["indexDefinitionId"] | undefined;
-      for (const { definition, state: decoded } of selected) {
-        if (decoded === null) return yield* Effect.die("Complete required build set lost a member");
-        const state = yield* Effect.fromResult(decoded);
-        yield* Effect.fromResult(validateIndexBuildStateFrontierResult(state, observedClock.lastCommitSeq));
-        if (!frontierBatchReady && state.lifecycle === "enabled" && state.maintenance === null &&
-          state.coveredThroughCommitSeq !== null && state.coveredThroughCommitSeq < clock.lastCommitSeq &&
-          state.firstReadableCommitSeq !== null && state.firstReadableCommitSeq <= clock.lastCommitSeq) {
-          // Retain search Results without consuming them here. Later owners
-          // borrow only complete maps at their original frontier verdict.
-          // No ordered frontier need means no early query.
-          yield* readIndexCoverageTableFrontiersInTransactionEffect(tx, coverage,
-            [...new Set([...tableIds, ...selectedAdditionalSearchFrontierTableIds])]);
-          frontierBatchReady = true;
-        }
-        if (!(yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition, clock.lastCommitSeq, coverage))) {
-          uncoveredIndexDefinitionId = definition.indexDefinitionId;
-          break;
-        }
-      }
-      if (uncoveredIndexDefinitionId === undefined) break;
+      const builds = yield* readRequiredIndexBuildProgressInTransactionEffect(tx,clock,definitions);
+      if (builds.status === "not_ready") return Object.freeze({ ...builds,kind:"index" as const });
+      const observedClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx,clock.scopeId);
+      if (observedClock.storageGeneration!==clock.storageGeneration || observedClock.storageGenerationFence!==clock.storageGenerationFence ||
+        observedClock.epoch!==clock.epoch || observedClock.lastCommitSeq<clock.lastCommitSeq)
+        return yield* Effect.fail(new LogicalStorageReadinessError({reason:"scopeMismatch"}));
+      // All invalid native rows construct their intrinsic Results eagerly before
+      // context. Typed failures stay ordered; foreign getter defects escape now.
+      yield* builds.decodeIntrinsics;
+      const coverage=yield* readIndexCoverageContextInTransactionEffect(tx,observedClock,checkedActive);
+      latestCoverage=coverage;
+      const verdict=yield* builds.acceptCoverage(coverage,selectedAdditionalSearchFrontierTableIds);
+      if (verdict.status==="ready") break;
+      const uncoveredIndexDefinitionId=verdict.indexDefinitionId;
       const afterMissClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
       if (afterMissClock.storageGeneration !== clock.storageGeneration || afterMissClock.storageGenerationFence !== clock.storageGenerationFence ||
         afterMissClock.epoch !== clock.epoch || afterMissClock.lastCommitSeq < observedClock.lastCommitSeq)

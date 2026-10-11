@@ -99,6 +99,7 @@ import { snapshotSchemaManifestValue } from "../catalog/schemaManifestValueSnaps
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
   RUN_LOCATED_READ_COMMITTED_V1,
+  registerLocatedReadCommittedTargetDatabaseV1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../../database/locatedTransactionIdentity";
@@ -131,14 +132,15 @@ export interface LocatedIndexBuildReconciliationTargetV1
 export function createLocatedIndexBuildReconciliationTargetV1(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
-  runReadCommitted: RunLocatedReadCommittedTransactionV1 =
-    createDefaultLocatedReadCommittedTransactionRunnerV1(db),
+  runReadCommitted?: RunLocatedReadCommittedTransactionV1,
 ): LocatedIndexBuildReconciliationTargetV1 {
-  return Object.freeze({
+  const target = Object.freeze({
     physicalLocator: captureScopePhysicalLocator(physicalLocator),
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
-    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
+    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted ?? createDefaultLocatedReadCommittedTransactionRunnerV1(db),
   });
+  if (runReadCommitted === undefined) registerLocatedReadCommittedTargetDatabaseV1(target, db);
+  return target;
 }
 
 export interface IndexBuildReconciliationPortsV1 {

@@ -22,7 +22,7 @@ import { makeCommerceCommandContext } from "../../src/frameworks/commerceTransac
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "../../src/frameworks/commerceTransaction/model";
 import type { CommerceCommandContext } from "../../src/frameworks/commerceTransaction/commands";
 import { defaultCommerceResources } from "../../src/frameworks/commerceTransaction/resources";
-import { makePreparedHostRuntime, retainPreparedHost } from "../../src/execution/preparation/preparedHostRuntime";
+import { makePreparedHostRuntime, retainPreparedHost, captureHostPreparationLifetime } from "../../src/execution/preparation/preparedHostRuntime";
 import { prepareLogicalStorageReadiness, requirePreparedLogicalStorageCatalog } from "../../src/storage/catalog/logicalStorageReadiness";
 import { requirePreparedLogicalStorageRequirements, prepareLogicalStorageRequirementsFromArtifact } from "../../src/storage/catalog/logicalStorageDefinitions";
 import { readSchemaVersionArtifactByIdEffect } from "../../src/storage/catalog/schemaVersionArtifacts";
@@ -62,9 +62,11 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
   const closedPrepared = yield* Effect.scoped(Effect.gen(function* () {
     const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
     const retained = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+      const lifetime = yield* captureHostPreparationLifetime();
+      if (lifetime === undefined) return yield* Effect.die("Missing actual retained source lifetime");
       const catalog = yield* prepareLogicalStorageReadiness(ports, fixture.uniqueConstraintEligibility, input);
       if (catalog.status !== "prepared") return yield* Effect.die("Missing prepared source catalog");
-      return { catalog, source: yield* prepareLogicalRelationalAdmission(ports, fixture.uniqueConstraintEligibility,
+      return { catalog, lifetime, source: yield* prepareLogicalRelationalAdmission(ports, fixture.uniqueConstraintEligibility,
         input, source, { kind: "prepared", catalog }) };
     }));
     const host = yield* retained.use(Effect.succeed);
@@ -111,7 +113,21 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
       mechanics: host.catalog.relationalTableMechanics(bound.tableId) })).find(bound => bound.mechanics !== undefined);
     const mechanics = table?.mechanics;
     if (table === undefined || mechanics === undefined) return yield* Effect.die("Missing relational source table");
+    const sourceDefinition = candidate.sources.find(member => member.key === source.sourceKey)?.definition;
+    if (sourceDefinition?.kind !== "relational") return yield* Effect.die("Missing authenticated relational source");
+    const sourceTable = sourceDefinition.schema.tables.find(member => member.identity.tableId === mechanics.table.identity.tableId);
+    if (sourceTable === undefined) return yield* Effect.die("Missing original relational source table");
     expect(host.catalog.relationalTableMechanics(table.tableId)).toBe(mechanics);
+    expect(mechanics.table).not.toBe(sourceTable);
+    expect(mechanics.capabilities).not.toBe(sourceDefinition.schema.capabilities);
+    expect(hasPreparedLogicalRelationalTableMechanics(mechanics, sourceTable, sourceDefinition.schema.capabilities)).toBe(true);
+    expect(hasPreparedLogicalRelationalTableMechanics(mechanics, mechanics.table, mechanics.capabilities)).toBe(true);
+    expect(hasPreparedLogicalRelationalTableMechanics(mechanics, { ...sourceTable }, sourceDefinition.schema.capabilities)).toBe(false);
+    expect(hasPreparedLogicalRelationalTableMechanics(mechanics, sourceTable, [...sourceDefinition.schema.capabilities])).toBe(false);
+    expect(Reflect.set(sourceTable.identity, "tableId", "forged")).toBe(false);
+    expect(Reflect.set(mechanics.table.identity, "tableId", "forged")).toBe(false);
+    expect(Reflect.set(sourceDefinition.schema.capabilities, "length", 0)).toBe(false);
+    expect(Reflect.set(mechanics.capabilities, "length", 0)).toBe(false);
     expect(hasPreparedLogicalRelationalTableMechanics({ ...mechanics }, mechanics.table)).toBe(false);
     expect(hasPreparedLogicalRelationalTableMechanics(mechanics, { ...mechanics.table })).toBe(false);
     expect(bindPreparedLogicalRelationalRows({ ...mechanics }, logicalCommerceError))
@@ -126,8 +142,11 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
     expect(policy.validateInput({ foreign: "value" })).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
     expect(policy.validateInput({})).toMatchObject({ _tag: "Success" });
     yield* retained.close;
+    expect(host.lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    // Disposal revokes issuer membership before a catalog can reach storage.
+    // The original captured lifetime separately proves this generation ended.
     expect(yield* Effect.result(requirePreparedLogicalStorageCatalog(host.catalog, ports, fixture.uniqueConstraintEligibility, input)))
-      .toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
     return host.source;
   }));
   const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authorityPorts);
@@ -140,9 +159,15 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
   yield* runEffectTransaction(work => target.drizzle.transaction(work), "Logical source admission fixture",
     (tx: FlarexMetadataTransaction) => Effect.scoped(Effect.gen(function* () {
       const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId);
-      expect(yield* Effect.result(closedPrepared.withAdmission(active.selection, tx, resolved.authority, clock,
-        () => Effect.die("Closed descriptor must not enter"))))
-        .toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+      yield* Effect.acquireUseRelease(Effect.sync(() => ({
+        select: vi.spyOn(tx, "select"), execute: vi.spyOn(tx, "execute"),
+      })), spies => Effect.gen(function* () {
+        expect(yield* Effect.result(closedPrepared.withAdmission(active.selection, tx, resolved.authority, clock,
+          () => Effect.die("Closed descriptor must not enter"))))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
+        expect(spies.select).not.toHaveBeenCalled();
+        expect(spies.execute).not.toHaveBeenCalled();
+      }), spies => Effect.sync(() => { spies.select.mockRestore(); spies.execute.mockRestore(); }));
       let entered = false;
       expect(yield* Effect.result(prepared.withAdmission(active.selection, tx, { ...resolved.authority, deploymentId: "foreign" }, clock,
         () => Effect.sync(() => { entered = true; })))).toMatchObject({ _tag: "Failure", failure: { reason: "scopeMismatch" } });

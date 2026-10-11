@@ -12,7 +12,7 @@ import { serverPlanLimits, SERVER_PLAN_LOG_PREFIX } from "./collectors/plans";
 const boundary = vi.hoisted(() => ({ acquire: vi.fn(), fixture: vi.fn(), validation: vi.fn(),
   digest: vi.fn(), writes: [] as string[], events: [] as string[] }));
 vi.mock("./collectors/server", () => ({ acquireServerMeasurementResource: boundary.acquire }));
-vi.mock("../support/historicalCaptureFixture", () => ({ createHistoricalCaptureFixture: boundary.fixture }));
+vi.mock("../support/historicalCaptureFixture", () => ({ createHistoricalCaptureFixture: boundary.fixture, HISTORICAL_CAPTURE_INPUTS_PER_PASS: 18 }));
 vi.mock("./source", () => ({ measurementSourceDigest: boundary.digest }));
 vi.mock("./collectors/plans", async importOriginal => ({
   ...await importOriginal<typeof import("./collectors/plans")>(), createServerPlanCapture: boundary.validation,
@@ -106,9 +106,9 @@ beforeEach(() => {
   const fixture = { pools,
     setup: { fixtureMilliseconds: 1, provisioningMilliseconds: 1, preparedModuleMilliseconds: 1, initialSeedingMilliseconds: 1 },
     runPasses: async (observe: HistoricalCaptureObserver) => {
-      for (const pass of [1, 2] as const) for (let ordinal = 1; ordinal <= 9; ordinal++) {
+      for (const pass of [1, 2] as const) for (let ordinal = 1; ordinal <= 18; ordinal++) {
         const captureCase = { ordinal, id: `input-${ordinal}`, owner: "FiniteStorageCapture.run", ancestry: ["Product.find"],
-          tableName: "product", expectedRows: 1, expectedBound: 2, expectedMaximumHydratedOwners: 1 };
+          tableName: "product", expectedRows: 1, expectedBound: ordinal % 2 === 1 ? 2 : 1, operation: { kind: ordinal % 2 === 1 ? "indexPage" : "rows" } };
         const run = () => Effect.tryPromise({ try: async () => {
           actualReads++; pools.target.emit("acquire", client);
           await client.query({ name: `fx_finite_${"a".repeat(40)}`, text: "select $1", values: ["private-value"] });
@@ -130,7 +130,7 @@ beforeEach(() => {
         const exit = await Effect.runPromiseExit(observed);
         if (Exit.isFailure(exit)) { state.lastCause = exit.cause; throw exit.cause; }
       }
-      return { captureCount: 18, passCaptureCounts: [9, 9], rootOutcome: "aborted", workBytes: 0, workCalls: 0, changes: 0, events: 0 };
+      return { captureCount: 36, passCaptureCounts: [18, 18], rootOutcome: "aborted", workBytes: 0, workCalls: 0, changes: 0, events: 0 };
     },
     close: async () => {
       boundary.events.push("fixtureClose");
@@ -197,14 +197,14 @@ describe("fixed historical orchestration", () => {
     expect(boundary.writes[0]).toContain('"cleanup": "unverified"');
   });
 
-  it("runs two serial passes of nine and exports only observed safe evidence", async () => {
+  it("runs two serial passes of eighteen native captures and exports only observed safe evidence", async () => {
     const result = await diagnoseHistoricalCaptures(options);
     expect(result.status).toBe("complete");
-    expect(calls).toBe(18); expect(actualReads).toBe(18);
+    expect(calls).toBe(36); expect(actualReads).toBe(36);
     const raw = boundary.writes[0];
     expect(raw).toBeDefined();
     const report = Schema.decodeUnknownSync(Schema.Struct({ captures: Schema.Array(Schema.Struct({ pass: Schema.Int })) }))(JSON.parse(raw ?? "{}"));
-    expect(report.captures.map(capture => capture.pass)).toEqual([...Array(9).fill(1), ...Array(9).fill(2)]);
+    expect(report.captures.map(capture => capture.pass)).toEqual([...Array(18).fill(1), ...Array(18).fill(2)]);
     expect(raw).not.toContain("private-value"); expect(raw).not.toContain("select $1");
     expect(boundary.events.indexOf("logEnd")).toBeLessThan(boundary.events.indexOf("arm"));
     expect(boundary.events.slice(0, 7)).toEqual([
@@ -230,10 +230,10 @@ describe("fixed historical orchestration", () => {
     expect(calls).toBe(1); expect(actualReads).toBe(1);
     expect(boundary.writes[0]).toContain('"stage": "missingExpectedDirectRootPlan"');
   });
-  it("refuses a nineteenth capture before invoking the original closure", async () => {
+  it("refuses a thirty-seventh capture before invoking the original closure", async () => {
     state.extraWindow = true;
     await expect(diagnoseHistoricalCaptures(options)).rejects.toMatchObject({ _tag: "HistoricalCaptureRunFailure" });
-    expect(calls).toBe(18); expect(actualReads).toBe(18);
+    expect(calls).toBe(36); expect(actualReads).toBe(36);
     expect(boundary.writes[0]).toContain('"stage": "captureBudgetOrOrder"');
   });
   it.each(["reset", "deallocation"] as const)("stops on statistics %s between input windows", async kind => {
@@ -259,7 +259,7 @@ describe("fixed historical orchestration", () => {
   it("stops on source drift before the second pass", async () => {
     boundary.digest.mockReset().mockResolvedValueOnce({ digest: "same", files: 1 }).mockResolvedValue({ digest: "changed", files: 1 });
     await expect(diagnoseHistoricalCaptures(options)).rejects.toMatchObject({ _tag: "HistoricalCaptureRunFailure" });
-    expect(calls).toBe(9); expect(actualReads).toBe(9);
+    expect(calls).toBe(18); expect(actualReads).toBe(18);
     expect(boundary.writes[0]).toContain('"stage": "sourceDrift"');
   });
   it("refuses a contaminating unnamed target command rather than allowing its PID and plans", async () => {

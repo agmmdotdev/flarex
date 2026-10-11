@@ -9,9 +9,6 @@ import { describe, expect, it, vi } from "vitest";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { prepareLogicalSourceEvidence } from "../../src/storage/documents/logicalDocuments/sourceAdmission";
 import {
-  prepareLogicalRelationalAdmission,
-} from "../../src/storage/documents/logicalDocuments/relationalAdmission";
-import {
   LogicalParticipantInvocationError,
 } from "../../src/storage/documents/logicalDocuments/participantErrors";
 import type { FiniteStorageCaptureError } from "../../src/execution/finiteStorageCapture";
@@ -19,9 +16,12 @@ import type {
   LogicalStorageReadDemand,
   LogicalFiniteStorageCapture,
 } from "../../src/storage/documents/logicalDocuments/model";
-import { prepareLogicalStorageReadiness } from "../../src/storage/catalog/logicalStorageReadiness";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../src/scope/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../../src/scope/scopeAuthorityResolution";
+import { prepareCurrentApplicationBinding } from "../../src/application/activation/currentBinding";
+import { retainPreparedHost } from "../../src/execution/preparation/preparedHostRuntime";
+import { runRelationalSession } from "../../src/database/relationalTransaction/session";
+import { preparedHostTestRuntime } from "./preparation/preparedHostRuntimeTestSupport";
 import type {
   FiniteSessionJournalParticipantSelection,
 } from "../../src/execution/journal/api";
@@ -39,34 +39,27 @@ describe.each(drivers)("finite source capability acceptance on %s", driver => {
   for (const kind of ["index", "unique", "search"] as const) {
     it(`accepts an unused unready ${kind}, refuses its demand and poisons the actual root`, async () => {
       let source: Effect.Success<ReturnType<typeof prepareLogicalSourceEvidence>> | undefined;
-      let prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>> | undefined;
       let participant: FiniteSessionJournalParticipantSelection | undefined;
       let demand: LogicalStorageReadDemand | undefined;
       const restore: Array<() => Promise<unknown>> = [];
       const fixture = await createMixedMutationProductFixture({ driver, suffix: `finite-source-${kind}-${driver}`, hooks: {
-        onPreparedContext: async currency => {
+        selectFiniteProductSource: currency => currency.hostInput.logicalStorage.source,
+        onPreparedFiniteProductSource: ({ currency, catalog }) => Effect.gen(function* () {
           const logical = currency.hostInput.logicalStorage;
           const location = { deploymentId: currency.deploymentId, scopeId: currency.application.authority.scopeId,
             schemaVersionId: currency.schemaVersionId };
-          const catalog = await Effect.runPromise(prepareLogicalStorageReadiness(logical.ports, logical.unique, location));
-          if (catalog.status !== "prepared") throw new Error("Missing genuine source catalog");
           const input = { sourceKey: "medusa.currency", writeProfile: "medusa.currency",
             schema: currency.currencyDefinition.schema, evidence: currency.currencyDefinition.provenance };
-          source = await Effect.runPromise(prepareLogicalSourceEvidence(logical.ports, logical.unique, location,
+          source = yield* prepareLogicalSourceEvidence(logical.ports, logical.unique, location,
             { sourceKey: input.sourceKey, writeProfile: input.writeProfile,
               definition: { kind: "relational", schema: input.schema }, evidence: input.evidence },
-            "medusa", "relational", { kind: "prepared", catalog }));
-          prepared = await Effect.runPromise(prepareLogicalRelationalAdmission(logical.ports, logical.unique,
-            location, input, { kind: "prepared", catalog }));
-          return undefined;
-        },
+            "medusa", "relational", { kind: "prepared", catalog });
+        }).pipe(Effect.orDie),
         transformFiniteEntrySources: participants => {
           const original = participants[0];
-          if (original === undefined || prepared === undefined) throw new Error("Missing genuine finite source construction");
-          // The trusted fixture selects an actual source for this acceptance
-          // witness. Its profile/method pins still come from the real journal.
-          participant = { ...original, sources: [{ selection: prepared, methods: original.operationMethods }] };
-          return [participant];
+          if (original === undefined) throw new Error("Missing genuine finite source construction");
+          participant = original;
+          return participants;
         },
         beforeFinalEntry: async ({ currency }) => {
           if (source === undefined) throw new Error("Missing selected source evidence");
@@ -131,12 +124,40 @@ describe.each(drivers)("finite source capability acceptance on %s", driver => {
         const before = await inspect();
         const resolved = await Effect.runPromise(resolveLocatedTrustedScopeAuthorityEffect(fixture.activation.anchor.deploymentId,
           fixture.application.authorityPorts));
-        const full = await db.transaction(tx => Effect.runPromise(Effect.gen(function* () {
-          const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
-          return yield* admittedSource.withBinding(fixture.active.selection, tx, resolved.authority, clock,
-            () => Effect.die("Unready full admission must not enter")).pipe(Effect.result);
-        })));
-        expect(full).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaNotReady" } });
+        if (fixture.currency.managedRead !== undefined) {
+          // A clock lock alone does not admit the prepared protected pair.
+          // Preserve its refusal separately from actual ordinary readiness.
+          const unadmitted = await db.transaction(tx => Effect.runPromise(Effect.gen(function* () {
+            const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+            return yield* admittedSource.withBinding(fixture.active.selection, tx, resolved.authority, clock,
+              () => Effect.die("Unadmitted protected source must not enter")).pipe(Effect.result);
+          })));
+          expect(Result.isFailure(unadmitted)).toBe(true);
+          if (Result.isFailure(unadmitted)) expect(unadmitted.failure).toMatchObject({
+            _tag: "LogicalSourceAdmissionError", reason: "sourceMismatch",
+            cause: { _tag: "PreparedMetadataEpochError", reason: "unprotectedRuntime" },
+          });
+        }
+        // The actual ordinary entry owns fresh installed placement, paired
+        // snapshots and final guards. Its session also flushes and closes them.
+        // Keep the original source/selection; no test-authored epoch is lent.
+        const full = await Effect.runPromise(Effect.acquireUseRelease(
+          retainPreparedHost(preparedHostTestRuntime(db), prepareCurrentApplicationBinding(
+            fixture.application.activation, db, () => Effect.succeed(undefined), {
+              selection: { deploymentId: fixture.activation.anchor.deploymentId, scopeId },
+              ...(fixture.currency.managedRead === undefined ? {} : { installation: fixture.currency.managedRead.readInstallation }),
+              candidateIssuer: fixture.application.sessionAuthority,
+            })),
+          retained => retained.use(current => current.withEntry((_graph, enter) =>
+            runRelationalSession(fixture.currency.session, "command", { enter: (tx, requireInstallation) =>
+              enter(tx, requireInstallation, Effect.void, ({ authority, clock }) =>
+                admittedSource.withBinding(fixture.active.selection, tx, authority, clock,
+                  () => Effect.die("Unready full admission must not enter")).pipe(Effect.result), "update"),
+            }))),
+          retained => retained.close,
+        ));
+        expect(Result.isFailure(full)).toBe(true);
+        if (Result.isFailure(full)) expect(full.failure).toMatchObject({ reason: "logicalSchemaNotReady" });
         const bundle = await Effect.runPromise(fixture.store.admitLogicalParticipantsEffect(fixture.persistenceAttempt,
           { ...admittedParticipant, sources: admittedParticipant.sources.map(member => ({ ...member, application: fixture.active.selection })) }));
         let closedCaptures = 0;
@@ -188,29 +209,24 @@ describe.skipIf(postgresUrl === null)("finite capture effective PostgreSQL timeo
     it(`refuses effective ${changedTimeout} before real installation and authority locks`, async () => {
       let participant: FiniteSessionJournalParticipantSelection | undefined;
       let source: Effect.Success<ReturnType<typeof prepareLogicalSourceEvidence>> | undefined;
-      let prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>> | undefined;
       const fixture = await createMixedMutationProductFixture({ driver: "postgres", suffix: `finite-timeout-${changedTimeout}`, hooks: {
-        onPreparedContext: async currency => {
+        selectFiniteProductSource: currency => currency.hostInput.logicalStorage.source,
+        onPreparedFiniteProductSource: ({ currency, catalog }) => Effect.gen(function* () {
           const logical = currency.hostInput.logicalStorage;
           const location = { deploymentId: currency.deploymentId, scopeId: currency.application.authority.scopeId,
             schemaVersionId: currency.schemaVersionId };
-          const catalog = await Effect.runPromise(prepareLogicalStorageReadiness(logical.ports, logical.unique, location));
-          if (catalog.status !== "prepared") throw new Error("Missing genuine timeout witness catalog");
           const input = { sourceKey: "medusa.currency", writeProfile: "medusa.currency",
             schema: currency.currencyDefinition.schema, evidence: currency.currencyDefinition.provenance };
-          source = await Effect.runPromise(prepareLogicalSourceEvidence(logical.ports, logical.unique, location,
+          source = yield* prepareLogicalSourceEvidence(logical.ports, logical.unique, location,
             { sourceKey: input.sourceKey, writeProfile: input.writeProfile,
               definition: { kind: "relational", schema: input.schema }, evidence: input.evidence },
-            "medusa", "relational", { kind: "prepared", catalog }));
-          prepared = await Effect.runPromise(prepareLogicalRelationalAdmission(logical.ports, logical.unique,
-            location, input, { kind: "prepared", catalog }));
-          return undefined;
-        },
+            "medusa", "relational", { kind: "prepared", catalog });
+        }).pipe(Effect.orDie),
         transformFiniteEntrySources: participants => {
           const original = participants[0];
-          if (original === undefined || prepared === undefined) throw new Error("Missing genuine timeout source");
-          participant = { ...original, sources: [{ selection: prepared, methods: original.operationMethods }] };
-          return [participant];
+          if (original === undefined) throw new Error("Missing genuine timeout source");
+          participant = original;
+          return participants;
         },
       } });
       try {

@@ -45,6 +45,7 @@ export interface LegacySelectionState {
   readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
   readonly currentPreparation?: RetainedBindingMetadata;
   readonly finitePreparation?: Readonly<{
+    sourceComposition?: PreparedFiniteMetadataProjection;
     execution: PreparedFiniteMetadataProjection;
     nativeApplication: PreparedFiniteMetadataProjection;
     schema: Effect.Success<ReturnType<typeof prepareFiniteApplicationExecutionSchema>>;
@@ -209,6 +210,26 @@ export function attachFiniteApplicationSelectionPreparation(selection: Applicati
   selectionStates.set(selection, Object.freeze({ ...selected, finitePreparation: projections,
     ...(currentPreparation === undefined ? {} : { currentPreparation }) }));
   return Result.succeed(undefined);
+}
+
+/** Attach only during the original bounded construction. A changed retained
+ * graph never replaces its source pairing or restores a disposed generation. */
+export function attachFiniteApplicationSourceComposition(selection: ApplicationActiveSelection,
+  sourceComposition: PreparedFiniteMetadataProjection) {
+  const selected = selectionStates.get(selection);
+  if (selected?.kind !== "legacy" || selected.finitePreparation === undefined ||
+    selected.finitePreparation.sourceComposition !== undefined)
+    return Result.fail(activationError("read", "invalidComposition"));
+  selectionStates.set(selection, Object.freeze({ ...selected,
+    finitePreparation: Object.freeze({ ...selected.finitePreparation, sourceComposition }) }));
+  return Result.succeed(undefined);
+}
+
+export function readFiniteApplicationSourceComposition(selection: ApplicationBindingInput) {
+  // SAFETY: the issuer lookup authenticates the opaque Application selection.
+  const selected = selectionStates.get(selection as ApplicationActiveSelection);
+  return readApplicationBindingTargetProtection(selection).pipe(Result.map(() =>
+    selected?.kind === "legacy" ? selected.finitePreparation?.sourceComposition : undefined));
 }
 
 export interface RetainedBindingMetadata {

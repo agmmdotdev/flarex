@@ -9,7 +9,7 @@ import { RelationalSessionError } from "../../persistence-postgres/src/database/
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commit/events/schema";
 import { makeCommitEventPump } from "../../persistence-postgres/src/commit/events/pump";
 import { CommitEventSubscriberFailure } from "../../persistence-postgres/src/commit/events/model";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/database/schema";
+import { fxAppRowCurrent, fxSystemCommitAppRowChanges, fxSystemCommits, fxSystemIdempotency } from "../../persistence-postgres/src/database/schema";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
@@ -141,7 +141,18 @@ describe("native Product Variant Pricing workflow on shared logical storage", ()
 
   it("creates the maximum native graph through three logical participants and one publication", async () => {
     await seedProduct(selected, "maximum-product");
-    const host = await prepareConnectedHost(selected);
+    const statements: string[] = [];
+    const session = issueRelationalSession(selected.fixture.persistence.drizzle, (profile, work) =>
+      runRelationalSession(selected.fixture.session, profile, tx => Effect.gen(function* () {
+        const observed = vi.spyOn(tx._.session, "prepareQuery");
+        try { return yield* work(tx); }
+        finally {
+          statements.push(...observed.mock.calls.map(([query]) => query.sql));
+          observed.mockRestore();
+        }
+      })).pipe(Effect.catchTag("RelationalTransactionError", cause =>
+        Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause })))));
+    const host = await prepareConnectedHost(selected, execution(selected, session));
     try {
       const beforeRows = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
       const beforeEvents = await commitEvents();
@@ -163,6 +174,20 @@ describe("native Product Variant Pricing workflow on shared logical storage", ()
         .toEqual(selected.fixture.physicalTablesBeforeCandidate);
       const emitted = afterEvents.slice(beforeEvents.length);
       expect(new Set(emitted.map(event => event.commitSeq)).size).toBe(1);
+      expect(statements.filter(statement => statement.includes(".fx_accept_app_publication("))).toHaveLength(1);
+      expect(statements.filter(statement => statement.includes(".fx_apply_app_publication("))).toHaveLength(1);
+      const published = emitted[0];
+      if (published === undefined) throw new Error("Missing source-union publication");
+      const scope = projectScopeIdUuidV1(selected.fixture.application.authority.scopeId).scopeUuid;
+      const facts = (await selected.fixture.persistence.drizzle.select().from(fxSystemCommitAppRowChanges)
+        .orderBy(fxSystemCommitAppRowChanges.changeOrdinal)).filter(fact => fact.scopeUuid === scope && fact.commitSeq === published.commitSeq);
+      expect(facts).toHaveLength(32);
+      expect(facts.map(fact => fact.changeOrdinal)).toEqual(Array.from({ length: 32 }, (_, ordinal) => ordinal));
+      const headers = await selected.fixture.persistence.drizzle.select().from(fxSystemCommits);
+      expect(headers.filter(header => header.scopeUuid === scope && header.commitSeq === published.commitSeq)).toHaveLength(1);
+      const outcomes = await selected.fixture.persistence.drizzle.select().from(fxSystemIdempotency);
+      expect(outcomes.filter(outcome => outcome.scopeUuid === scope && outcome.commitSeq === published.commitSeq)).toHaveLength(1);
+      expect(emitted.map(event => event.eventOrdinal)).toEqual(Array.from({ length: emitted.length }, (_, ordinal) => ordinal));
       expect(emitted.map(event => event.envelope.contract).sort()).toEqual([
         "LinkProductVariantPriceSet.attached", ...Array.from({ length: 4 }, () => "product.product-variant.created"),
         ...Array.from({ length: 4 }, () => "pricing.price-set.created"),

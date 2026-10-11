@@ -156,7 +156,6 @@ import {
 import {
   canonicalizeFlarexValueV1,
   FlarexValueCodecV1Error,
-  jsonToFlarexValueV1,
   FLAREX_VALUE_CODEC_VERSION_V1,
 } from "flarex-protocol/value";
 import {
@@ -601,9 +600,7 @@ export const prepareFiniteCommitCommand = Effect.fnUntraced(function* (
   }
   if (frozen.graph.attempts.some((attempt, ordinal) => !attributedAttempts.has(ordinal) && !applicationTables.has(attempt.tableId)))
     return yield* Effect.fail(corruption("commandInvalid"));
-  const resultValue = yield* Effect.fromResult(Result.try({ try: () => jsonToFlarexValueV1(frozen.successfulResult.valueJson),
-    catch: () => corruption("successfulResultInvalid") }));
-  const successfulResult = Object.freeze({ valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1, value: resultValue,
+  const successfulResult = Object.freeze({ valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1, value: frozen.successfulResultValue,
     semanticSizeBytes: frozen.successfulResult.semanticSizeBytes, sha256Hex: frozen.successfulResult.evidence.sha256Hex,
     canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(frozen.successfulResult.canonicalBytes) });
   return Object.freeze({ authorityPins, session, executionClaim, scopeUuid: scope.scopeUuid, frozen,

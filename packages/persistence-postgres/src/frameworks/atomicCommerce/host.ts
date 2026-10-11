@@ -1,4 +1,4 @@
-import { withExecutionDiagnosticDefaults } from "../../execution/diagnostics/operation";
+import { observeExecution, withExecutionDiagnosticDefaults } from "../../execution/diagnostics/operation";
 import { Cause, Effect } from "effect";
 import { retainPreparedHost, chargeHostPreparation } from "../../execution/preparation/preparedHostRuntime";
 import { sql } from "drizzle-orm";
@@ -54,6 +54,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
     prepareAtomicCommerceConfiguration(captured, binding, context.authority).pipe(Effect.tap(configuration => Effect.sync(() => {
       if (constructingInitial) initialLimits = configuration.limits;
     }))), {
+    selection: { deploymentId: captured.deploymentId, scopeId: captured.scopeId },
     installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)).pipe(Effect.mapError(projectCommerceRequestFailure)) })
     .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
   constructingInitial = false;
@@ -63,7 +64,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
   const limits = Object.freeze({ ...initialLimits });
   initialLimits = undefined;
   yield* chargeHostPreparation(limits).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const run: AtomicCommerceHost["run"] = Effect.fn("AtomicCommerce.run")(function* (requestKey, token, args) {
+  const run: AtomicCommerceHost["run"] = Effect.fnUntraced(function* (requestKey, token, args) {
     const request = yield* captureAtomicCommerceRequest(
       captured.allowed,
       limits.commandBytes,
@@ -72,7 +73,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
       args,
     );
     const deadline = yield* startRelationalRequestDeadline(limits.commandMs).pipe(Effect.mapError(projectCommerceRequestFailure));
-    const attempt = Effect.fn("AtomicCommerce.attempt")(function* (recoverOnly: boolean) {
+    const attempt = Effect.fnUntraced(function* (recoverOnly: boolean) {
       return yield* preparation.withEntry(({ binding: active, payload: configuration }, enter) => runRelationalSession(session, "command", {
         enter: (tx, requireInstallation) => enter(tx, requireInstallation, Effect.gen(function* () {
             yield* runDrizzleStatementEffect(
@@ -117,12 +118,12 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
           }),
         )),
       }, deadline));
-    });
+    }, work => observeExecution("AtomicCommerce.attempt", work, "caller"));
     return yield* boundRelationalRequestDeadline(deadline, runWithRequestRecovery(attempt, {
       hasRequestKey: true,
       projectFailure: projectCommerceRequestFailure,
       isDecisionUncertain: (error) => error.reason === "decisionUncertain",
     })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
-  });
+  }, work => observeExecution("AtomicCommerce.run", work, "caller"));
   return Object.freeze({ newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`, run });
 });

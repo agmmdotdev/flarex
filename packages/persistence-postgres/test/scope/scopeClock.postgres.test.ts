@@ -28,12 +28,14 @@ import {
   TransactionGrantDeploymentIdV1Schema,
 } from "flarex-protocol/transaction-grant";
 import { describe, expect, it } from "vitest";
+import { Result } from "effect";
+import { TransactionAuthorizationRevocationEpochSchema } from "flarex-protocol/transaction-session";
 
 import {
   resolveCurrentScopeAuthorizationEpochEffect,
   type FlarexPersistence,
 } from "../../src";
-import { runEffect } from "../support/effectTestRuntime";
+import { runEffect, runEffectFailure } from "../support/effectTestRuntime";
 import { writeJournalThrough } from "../support/migrationFixtureSupport";
 import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
@@ -45,6 +47,12 @@ import {
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
   type AdvanceScopeAuthorizationRevocationEpochResult,
   ScopeAuthorizationRevocationEpochExhaustedError,
+  openExactAttemptScopeClockObservation, closeExactAttemptScopeClockObservation,
+  lockScopeClockForSnapshotReadInTransactionEffect,
+  lockScopeClockForOrdinaryWriteInTransactionEffect,
+  readProtectedScopeReadIdentity, requireProtectedScopeReadIdentity, readProtectedScopeTransactionTimestamp,
+  protectedScopeTransactionTimestampObservationIdentity, readExactScopeWriteClockObservation,
+  hasProtectedScopeTransactionTimestampIssuer,
 } from "../../src/scope/scopeClock";
 import type {
   SharedDatabaseScopePhysicalLocator,
@@ -65,6 +73,96 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres scope clock locking", () => {
+  it("lends protected native identity and transaction time while revocation waits for the original snapshot", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000004");
+      await insertScopeClock(persistence, scopeId, "epoch-native-read");
+      await persistence.drizzle.transaction(async reader => {
+        const clock = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(reader, scopeId));
+        const rows = await reader.select({ timestamp: sql<unknown>`current_timestamp::text` }).from(fxSystemScopeClocks)
+          .where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(1);
+        const timestamp = rows[0]?.timestamp;
+        closeExactAttemptScopeClockObservation(reader);
+        openExactAttemptScopeClockObservation(reader, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "snapshot", { timestamp });
+        try {
+          const identity = readProtectedScopeReadIdentity(reader, scopeId);
+          if (identity === undefined) throw new Error("Protected native identity was not issued");
+          expect(Result.getOrThrow(requireProtectedScopeReadIdentity(reader, identity))).toBe(identity);
+          expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(reader, scopeId))).toBe(timestamp);
+          await expect(persistence.drizzle.transaction(async writer => {
+            expect(Result.isFailure(requireProtectedScopeReadIdentity(writer, identity))).toBe(true);
+            expect(Result.isFailure(readProtectedScopeTransactionTimestamp(writer, scopeId))).toBe(true);
+            await writer.execute(sql`set local lock_timeout = '250ms'`);
+            return runEffect(advanceScopeAuthorizationRevocationEpochInTransactionEffect(writer, scopeId));
+          })).rejects.toMatchObject({ _tag: "ScopeAuthorizationRevocationEpochPersistenceError",
+            operation: "lockForUpdate", cause: { cause: { code: "55P03" } } });
+          const current = await reader.select({ timestamp: sql<unknown>`current_timestamp::text` }).from(fxSystemScopeClocks)
+            .where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(1);
+          expect(current[0]?.timestamp).toBe(timestamp);
+          closeExactAttemptScopeClockObservation(reader);
+          expect(Result.isFailure(requireProtectedScopeReadIdentity(reader, identity))).toBe(true);
+          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(reader, scopeId))).toBe(true);
+        } finally { closeExactAttemptScopeClockObservation(reader); }
+      }, { isolationLevel: "repeatable read" });
+      expect(await persistence.drizzle.transaction(writer => runEffect(advanceScopeAuthorizationRevocationEpochInTransactionEffect(writer, scopeId))))
+        .toEqual({ previous: 0n, current: 1n });
+    });
+  });
+
+  it("refreshes the READ COMMITTED clock after ordinary publication while retaining only its identity and time loan", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      expect((await persistence.query("select rolsuper as superuser from pg_roles where rolname=current_user")).rows)
+        .toEqual([{ superuser: false }]);
+      const scopeId = ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000008");
+      await insertScopeClock(persistence, scopeId, "epoch_5b000000-0000-0000-0000-000000000008");
+      await persistence.drizzle.transaction(async reader => {
+        try {
+          const first = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(reader, scopeId));
+          const identity = readProtectedScopeReadIdentity(reader, scopeId);
+          if (identity === undefined) throw new Error("Protected native identity was not issued");
+          const lifetime = Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(reader, scopeId));
+          const timestamp = Result.getOrThrow(readProtectedScopeTransactionTimestamp(reader, scopeId, lifetime));
+          expect(first.lastCommitSeq).toBe(0n);
+          expect(typeof timestamp).toBe("string");
+          expect(readExactScopeWriteClockObservation(reader, scopeId)).toBeUndefined();
+          expect(Result.isFailure(requireProtectedScopeReadIdentity(reader, { ...identity }))).toBe(true);
+          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(reader, ScopeIdSchema.make("scope_other"), lifetime))).toBe(true);
+          // The real publication owner locks authority before the sequencer.
+          // Its NO KEY UPDATE can commit while this reader holds KEY SHARE.
+          await persistence.drizzle.transaction(async writer => {
+            await writer.execute(sql`set local lock_timeout = '500ms'`);
+            expect(Result.isFailure(requireProtectedScopeReadIdentity(writer, identity))).toBe(true);
+            expect(Result.isFailure(readProtectedScopeTransactionTimestamp(writer, scopeId, lifetime))).toBe(true);
+            try {
+              await runEffect(lockScopeClockForOrdinaryWriteInTransactionEffect(writer, scopeId));
+              await writer.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+                .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+            } finally { closeExactAttemptScopeClockObservation(writer); }
+          }, { isolationLevel: "read committed" });
+          const refreshed = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(reader, scopeId));
+          expect(refreshed.lastCommitSeq).toBe(1n);
+          expect(readProtectedScopeReadIdentity(reader, scopeId)).toBe(identity);
+          expect(Result.getOrThrow(requireProtectedScopeReadIdentity(reader, identity))).toBe(identity);
+          expect(Result.getOrThrow(protectedScopeTransactionTimestampObservationIdentity(reader, scopeId))).toBe(lifetime);
+          expect(Result.getOrThrow(readProtectedScopeTransactionTimestamp(reader, scopeId, lifetime))).toBe(timestamp);
+          expect(readExactScopeWriteClockObservation(reader, scopeId)).toBeUndefined();
+          expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(reader, scopeId))).toBe(0n);
+          expect(await runEffectFailure(lockScopeClockForSnapshotReadInTransactionEffect(reader,
+            ScopeIdSchema.make("scope_5b000000-0000-0000-0000-000000000009")))).toMatchObject({ _tag: "ScopeClockNotFoundError" });
+          expect(Result.isFailure(requireProtectedScopeReadIdentity(reader, identity))).toBe(true);
+          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(reader, scopeId, lifetime))).toBe(true);
+          await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(reader, scopeId));
+          expect(readProtectedScopeReadIdentity(reader, scopeId)).not.toBe(identity);
+          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(reader, scopeId, lifetime))).toBe(true);
+          closeExactAttemptScopeClockObservation(reader);
+          expect(Result.isFailure(requireProtectedScopeReadIdentity(reader, identity))).toBe(true);
+          expect(Result.isFailure(readProtectedScopeTransactionTimestamp(reader, scopeId, lifetime))).toBe(true);
+          expect(hasProtectedScopeTransactionTimestampIssuer(reader)).toBe(true);
+        } finally { closeExactAttemptScopeClockObservation(reader); }
+      }, { isolationLevel: "read committed" });
+    });
+  });
+
   it.each(["readerFirst", "writerFirst", "publicationBeforeAdmission"] as const)(
     "keeps a repeatable clock snapshot while candidate publication progresses: %s",
     async order => withTemporaryPostgresPersistence(async persistence => {
@@ -150,15 +248,15 @@ describePostgres("real Postgres scope clock locking", () => {
 
   it("blocks the same scope, permits another scope, and rolls back the probe", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const lockedScopeId = ScopeIdSchema.make("scope_clock_pg_locked");
+      const lockedScopeId = ScopeIdSchema.make("scope_00000000-0000-5000-8000-000000000081");
       const independentScopeId = ScopeIdSchema.make(
-        "scope_clock_pg_independent",
+        "scope_00000000-0000-5000-8000-000000000082",
       );
-      await insertScopeClock(persistence, lockedScopeId, "epoch-locked");
+      await insertScopeClock(persistence, lockedScopeId, "epoch_00000000-0000-5000-8000-000000000083");
       await insertScopeClock(
         persistence,
         independentScopeId,
-        "epoch-independent",
+        "epoch_00000000-0000-5000-8000-000000000084",
       );
       const before = await persistence.getScopeClock(lockedScopeId);
       if (before === null) {
@@ -181,7 +279,7 @@ describePostgres("real Postgres scope clock locking", () => {
                 FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
               storageGenerationFence:
                 StorageGenerationFenceSchema.make(2n),
-              epoch: ScopeEpochSchema.make("epoch-tentative"),
+              epoch: ScopeEpochSchema.make("epoch_00000000-0000-5000-8000-000000000085"),
               updatedAt: new Date("2026-07-11T00:00:00.000Z"),
             })
             .where(sql`${fxSystemScopeExecutionAuthorities.scopeId} = ${lockedScopeId}`);
@@ -245,7 +343,7 @@ describePostgres("real Postgres scope clock locking", () => {
           storageGeneration: "legacy_v1",
           storageGenerationFence: 1n,
           lastCommitSeq: 0n,
-          epoch: "epoch-locked",
+          epoch: "epoch_00000000-0000-5000-8000-000000000083",
         });
       } finally {
         releaseLocker.resolve(undefined);

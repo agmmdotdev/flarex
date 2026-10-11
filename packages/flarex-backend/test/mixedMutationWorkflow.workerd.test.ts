@@ -29,7 +29,7 @@ import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candida
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commit/events/schema";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { admittedCommerceEventGroup } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import {
@@ -56,7 +56,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       hooks: {
         observeSql: (phase) => { if (phase === "freeze") freezeStatements++; },
         observeWorkflowSql: sql => {
-          if (changed && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) dataStatements++;
+          if (changed && /\bfx_read_snapshot_(?:rows|index_page)\s*\(/i.test(sql)) dataStatements++;
         },
         beforeWorkflowBorrow: () => Effect.gen(function* () {
           const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
@@ -144,7 +144,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
         }), observeWorkflowSql: async statement => {
           if (observedWorkflowSql.length < 20) observedWorkflowSql.push(statement.slice(0, 180));
           if (!nativeStarted || held ||
-            !/\bfrom\s+"?fx_app_(?:row_rev|index_entry_rev)\b/i.test(statement)) return;
+            !/\bfx_read_snapshot_(?:rows|index_page)\s*\(/i.test(statement)) return;
           held = true;
           await Effect.runPromise(Deferred.succeed(entered, undefined));
           await Effect.runPromise(Deferred.await(release));
@@ -205,9 +205,18 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
           tags: [expect.objectContaining({ id: fixture.seed.tagId, value: "preview" })],
           variants: [],
         });
-        await expect(fixture.retryClosedWorkflow({ product_id: fixture.seed.productId,
-          tag_id: fixture.seed.tagId, variant_title: "forbidden", usd_amount: 50 }))
-          .rejects.toMatchObject({ _tag: "CommerceTransactionError", reason: "closed" });
+        const closedRetryCause: unknown = await fixture.retryClosedWorkflow({ product_id: fixture.seed.productId,
+          tag_id: fixture.seed.tagId, variant_title: "forbidden", usd_amount: 50 }).then(
+          () => { throw new Error("Closed workflow retry unexpectedly succeeded"); },
+          (cause: unknown) => cause,
+        );
+        if (!Cause.isCause(closedRetryCause)) throw new Error("Closed workflow retry lost its full Cause");
+        expect(closedRetryCause.reasons).toHaveLength(1);
+        const closedRetryReason = closedRetryCause.reasons[0];
+        if (closedRetryReason === undefined || !Cause.isFailReason(closedRetryReason))
+          throw new Error("Closed workflow retry changed its typed failure channel");
+        expect(closedRetryReason.error).toBeInstanceOf(CommerceTransactionError);
+        expect(closedRetryReason.error).toMatchObject({ _tag: "CommerceTransactionError", reason: "closed" });
         expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
         await expect(Effect.runPromise(fixture.freeze(null)))
           .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });

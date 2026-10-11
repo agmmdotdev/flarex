@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -360,19 +360,81 @@ export const productForeignKeyScenario: (
     sourceTableId: productTableId, sourceColumn: "type_id",
     targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type",
     error: failure } as const;
-  const boundTables = nativeTables.map(table => ({ tableId: table.tableId,
-    localName: table.logicalName, definition: table.relational,
-    mechanics: prepareLogicalRelationalTableMechanics(table.relational, schema.capabilities) }));
+  const boundTables = nativeTables.map(table => {
+    const mechanics = prepareLogicalRelationalTableMechanics(table.relational, schema.capabilities);
+    return { tableId: table.tableId, localName: table.logicalName, definition: mechanics.table, mechanics };
+  });
   const referenceInput = (tx: FlarexMetadataTransaction) => ({ tx, ...references,
     requireAdmission: Effect.succeed(Object.freeze({ tx, authority: resolved.authority,
       schema, tables: boundTables, indexes: selectedIndexes.filter(index => index.access.kind === "developer"),
       unique: constraints })) });
+  const sourceTable = boundTables.find(table => table.tableId === productTableId);
+  const originalSource = schema.tables.find(table => table.identity.tableId === sourceTable?.localName);
+  if (sourceTable === undefined || originalSource === undefined) throw new Error("Missing authentic reference source");
+  expect(sourceTable.definition).toBe(sourceTable.mechanics.table);
+  expect(sourceTable.definition).not.toBe(originalSource);
+  let foreignTableReads = 0;
+  const copiedMechanics = Object.defineProperty({ ...sourceTable.mechanics }, "table", { get(): never {
+    foreignTableReads++;
+    throw new Error("Unissued mechanics table must not be inspected");
+  } });
+  const forgedMechanics = prepareLogicalRelationalTableMechanics({ ...originalSource }, schema.capabilities);
+  const copiedAdmission = { schema,
+    tables: boundTables.map(table => table === sourceTable ? { ...table, mechanics: copiedMechanics } : table) };
+  const rejectedAdmissions = [
+    copiedAdmission,
+    { schema, tables: boundTables.map(table => table === sourceTable
+      ? { ...table, definition: forgedMechanics.table, mechanics: forgedMechanics } : table) },
+    { schema, tables: boundTables.map(table => table === sourceTable ? { ...table, definition: { ...table.definition } } : table) },
+    { schema: { ...schema, capabilities: [...schema.capabilities] }, tables: boundTables },
+  ];
+  yield* transact(tx => Effect.gen(function* () {
+    let storageEntered = 0;
+    let callbacksEntered = 0;
+    const untouchedTx = new Proxy(tx, { get(): never {
+      storageEntered++;
+      throw new Error("Reference ownership refusal must precede storage");
+    } });
+    for (const rejected of rejectedAdmissions) {
+      const input = { ...referenceInput(untouchedTx), requireAdmission: Effect.succeed(Object.freeze({
+        tx: untouchedTx, authority: resolved.authority, ...rejected, indexes: selectedIndexes, unique: constraints,
+      })) };
+      const callback = () => Effect.sync(() => { callbacksEntered++; });
+      const refusals = [
+        yield* Effect.result(forEachLogicalReferencePage(input, callback)),
+        yield* Effect.result(forEachLogicalSetNullPage(input, callback)),
+        yield* Effect.result(selectLogicalReferenceReplacement({ ...input, pendingChanges: [], desiredKeys: ["batch_product_0"] })),
+      ];
+      for (const refusal of refusals)
+        expect(refusal).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+    }
+    expect(storageEntered).toBe(0);
+    expect(callbacksEntered).toBe(0);
+    expect(foreignTableReads).toBe(0);
+  }));
   const count = yield* transact(tx => forEachLogicalReferencePage(referenceInput(tx),
     rows => Effect.sync(() => { for (const row of rows) referenced.add(row.rowId); })));
   expect(count).toBe(144);
   expect(referenced.size).toBe(144);
   const replacementPages: Array<{ readonly count: number; readonly reference: unknown }> = [];
   const replacement = yield* transact(tx => Effect.gen(function* () {
+    // This entry point consumes its authentic selection before its original
+    // source guard. Keep that sequencing, and refuse before any fresh SQL.
+    const foreignSelection = yield* selectLogicalReferenceReplacement({ ...referenceInput(tx),
+      pendingChanges: [], desiredKeys: ["batch_product_0", "batch_missing"] });
+    const executes = vi.spyOn(tx, "execute"), selects = vi.spyOn(tx, "select");
+    let foreignCallbacks = 0;
+    try {
+      const refused = yield* Effect.result(forEachLogicalReferenceReplacementPage({ ...referenceInput(tx),
+        selection: foreignSelection, requireAdmission: Effect.succeed(Object.freeze({ tx, authority: resolved.authority,
+          ...copiedAdmission, indexes: selectedIndexes, unique: constraints })) },
+      () => Effect.sync(() => { foreignCallbacks++; })));
+      expect(refused).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+      expect(executes).not.toHaveBeenCalled();
+      expect(selects).not.toHaveBeenCalled();
+      expect(foreignCallbacks).toBe(0);
+      expect(foreignTableReads).toBe(0);
+    } finally { executes.mockRestore(); selects.mockRestore(); }
     const selected = yield* selectLogicalReferenceReplacement({ ...referenceInput(tx),
       pendingChanges: [], desiredKeys: ["batch_product_0", "batch_missing"] });
     const forged = yield* Effect.result(forEachLogicalReferenceReplacementPage({ ...referenceInput(tx),

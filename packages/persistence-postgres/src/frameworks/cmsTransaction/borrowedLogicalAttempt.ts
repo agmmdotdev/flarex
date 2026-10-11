@@ -1,3 +1,4 @@
+import { observeExecution } from "../../execution/diagnostics/operation";
 import { Clock, Effect, Result } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
@@ -48,7 +49,7 @@ export type BorrowedCmsAttemptInput = Readonly<{
 /** One Payload Local API invocation borrows the root's historical view. All
  * checked reads use short transactions; Payload callbacks see no open SQL
  * transaction and cannot settle or publish the root. */
-const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(function* (
+const makeBorrowedCmsAttempt = Effect.fnUntraced(function* (
   input: BorrowedCmsAttemptInput,
 ) {
   let closePreparedLifetime: Effect.Effect<void> = Effect.void;
@@ -125,7 +126,7 @@ const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(function* (
     })
   ).pipe(Effect.mapError(cause => projectCheckedReadFailure(cause)),
     Effect.onError(() => closePreparedLifetime));
-});
+}, work => observeExecution("LogicalCms.borrowAttempt", work, "caller"));
 
 export interface BorrowedCmsInvocation {
   readonly abort: Effect.Effect<void>;
@@ -135,7 +136,7 @@ export interface BorrowedCmsInvocation {
 
 /** The root admission selects the source and method. A native adapter selects
  * only its authentic command token; CMS owns execution and the single closure. */
-export const makeBorrowedCmsInvocation = Effect.fn("LogicalCms.makeInvocation")(function* (
+export const makeBorrowedCmsInvocation = Effect.fnUntraced(function* (
   input: BorrowedCmsAttemptInput,
 ): Effect.fn.Return<BorrowedCmsInvocation, CmsTransactionError> {
   const method = input.method;
@@ -143,7 +144,7 @@ export const makeBorrowedCmsInvocation = Effect.fn("LogicalCms.makeInvocation")(
   let open = true;
   const borrowed = yield* makeBorrowedCmsAttempt(capturedInput);
   const abort = Effect.sync(() => { open = false; }).pipe(Effect.andThen(borrowed.abort));
-  const invoke = Effect.fn("LogicalCms.invoke")(function* (command: CmsCommand, args: Json) {
+  const invoke = Effect.fnUntraced(function* (command: CmsCommand, args: Json) {
     if (!open) return yield* Effect.fail(cmsError("closed"));
     const definition = getCmsCommand(command);
     if (definition === undefined || definition.name !== method)
@@ -156,6 +157,6 @@ export const makeBorrowedCmsInvocation = Effect.fn("LogicalCms.makeInvocation")(
     return Object.freeze({ result, changes: closed.changes,
       eventIntents: Object.freeze(closed.events.map(intent => Object.freeze({ sourceKey: borrowed.sourceKey, intent }))),
       workBytes: closed.workBytes, workCalls: closed.workCalls });
-  });
+  }, work => observeExecution("LogicalCms.invoke", work, "caller"));
   return Object.freeze({ abort, currentUsage: borrowed.currentUsage, invoke });
-});
+}, work => observeExecution("LogicalCms.makeInvocation", work, "caller"));

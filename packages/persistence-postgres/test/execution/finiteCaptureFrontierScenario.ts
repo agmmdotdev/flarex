@@ -15,14 +15,17 @@ export async function finiteCaptureFrontierScenario(
   }>(sql`select p.proname as name,p.oid::pg_catalog.regprocedure::text as signature,
     pg_catalog.pg_get_functiondef(p.oid) as definition,not p.proretset as scalar
     from pg_catalog.pg_proc p where p.pronamespace=${schemaName}::pg_catalog.regnamespace
-      and p.proname in ('fx_lock_installation_frontier','fx_accept_finite_placement_frontier','fx_accept_finite_storage_capture')`)).rows;
+      and p.proname in ('fx_lock_installation_frontier','fx_lock_control_scope_placement','fx_accept_finite_storage_capture')`)).rows;
   expect(functions).toHaveLength(3);
   expect(functions.every(fn => fn.scalar)).toBe(true);
   expect((await persistence.execute(sql`select count(*)::int as count from pg_catalog.pg_proc p
     where p.pronamespace=${schemaName}::pg_catalog.regnamespace
-      and p.proname in ('fx_lock_finite_scope_observation','fx_lock_read_scope_placement')`)).rows)
+      and p.proname in ('fx_lock_finite_scope_observation','fx_lock_read_scope_placement','fx_accept_finite_placement_frontier')`)).rows)
     .toEqual([{ count: 0 }]);
-  const placement = functions.find(fn => fn.name === "fx_accept_finite_placement_frontier");
+  expect((await persistence.execute(sql`select count(*)::int as count from pg_catalog.pg_type t
+    where t.typnamespace=${schemaName}::pg_catalog.regnamespace and t.typname='fx_finite_placement_frontier'`)).rows)
+    .toEqual([{ count: 0 }]);
+  const placement = functions.find(fn => fn.name === "fx_lock_control_scope_placement");
   const installation = functions.find(fn => fn.name === "fx_lock_installation_frontier");
   const capture = functions.find(fn => fn.name === "fx_accept_finite_storage_capture");
   if (placement === undefined || installation === undefined || capture === undefined)
@@ -30,8 +33,27 @@ export async function finiteCaptureFrontierScenario(
   const changedPlacement = placement.definition.replace("BEGIN", "BEGIN\n  PERFORM 1;");
   expect(changedPlacement).not.toBe(placement.definition);
   const expected = sql`${sql.identifier(schemaName)}.fx_installation_frontier_expected`;
-  const result = sql`${sql.identifier(schemaName)}.fx_finite_placement_frontier`;
+  const result = sql`${sql.identifier(schemaName)}.fx_control_scope_placement`;
+  const readExpected = sql`${sql.identifier(schemaName)}.fx_finite_read_expected`;
+  const captureResult = sql`${sql.identifier(schemaName)}.fx_finite_capture_frontier`;
+  expect((await persistence.execute(sql`select a.attname as name from pg_catalog.pg_attribute a
+    where a.attrelid = (select t.typrelid from pg_catalog.pg_type t where t.oid =
+      ${`${schemaName}.fx_finite_capture_frontier`}::pg_catalog.regtype) and a.attnum > 0 and not a.attisdropped
+    order by a.attnum`)).rows).toEqual(["reason","database_now_epoch_milliseconds","serving_commit_seq",
+      "retained_floor","session_row","body_eligible"].map(name => ({ name })));
   const faults = [
+    { name: "recreated displaced dynamic dispatcher", apply: () => persistence.execute(sql`create function
+      ${sql.identifier(schemaName)}.fx_accept_finite_placement_frontier(text) returns text language sql as 'select $1'`),
+      restore: () => persistence.execute(sql`drop function ${sql.identifier(schemaName)}.fx_accept_finite_placement_frontier(text)`) },
+    { name: "recreated displaced placement type", apply: () => persistence.execute(sql`create type
+      ${sql.identifier(schemaName)}.fx_finite_placement_frontier as (reason text)`),
+      restore: () => persistence.execute(sql`drop type ${sql.identifier(schemaName)}.fx_finite_placement_frontier`) },
+    { name: "read expected PUBLIC usage", apply: () => persistence.execute(sql`grant usage on type ${readExpected} to public`),
+      restore: () => persistence.execute(sql`revoke usage on type ${readExpected} from public`) },
+    { name: "read digest expected attribute", apply: () => persistence.execute(sql`alter type ${readExpected} alter attribute manifest_sha256 type text cascade`),
+      restore: () => persistence.execute(sql`alter type ${readExpected} alter attribute manifest_sha256 type bytea cascade`) },
+    { name: "compact retained floor attribute", apply: () => persistence.execute(sql`alter type ${captureResult} alter attribute retained_floor type integer cascade`),
+      restore: () => persistence.execute(sql`alter type ${captureResult} alter attribute retained_floor type bigint cascade`) },
     { name: "recreated displaced scoped placement owner", apply: () => persistence.execute(sql`create function
       ${sql.identifier(schemaName)}.fx_lock_read_scope_placement(text,text) returns text language sql as 'select $1'`),
       restore: () => persistence.execute(sql`drop function ${sql.identifier(schemaName)}.fx_lock_read_scope_placement(text,text)`) },

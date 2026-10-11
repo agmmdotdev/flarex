@@ -2,6 +2,7 @@ import { observeExecution } from "../execution/diagnostics/operation";
 // Quiet calls retain lazy operation bodies; actual caller/SDK policy owns diagnostic spans.
 import { ScopeClockCorruptionError, ScopeClockNotFoundError } from "./scopeClockErrors";
 import { observeDrizzleQuery } from "../database/drizzleQueryObservation";
+import { defineNativeMetadataRead } from "../database/physicalSession/drizzle";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq, getTableColumns, sql } from "drizzle-orm";
@@ -62,8 +63,10 @@ export interface ScopeClockRecord {
   readonly updatedAt: Date;
 }
 
-/** Flat compatibility projection of the two actual owners; no duplicated writable fields. */
-export const scopeClockSelection = () => ({ ...getTableColumns(fxSystemScopeClocks),
+/** Code-defined projection mechanics contain no scope, clock or transaction.
+ * Drizzle copies the outer selection into each fresh builder; native columns
+ * and this fixed decoded SQL expression remain with their original owners. */
+const scopeClockProjection = Object.freeze({ ...getTableColumns(fxSystemScopeClocks),
   updatedAt: sql`greatest(${fxSystemScopeClocks.updatedAt}, ${fxSystemScopeExecutionAuthorities.updatedAt})`.mapWith(fxSystemScopeClocks.updatedAt),
   storageGeneration: fxSystemScopeExecutionAuthorities.storageGeneration,
   storageGenerationFence: fxSystemScopeExecutionAuthorities.storageGenerationFence,
@@ -72,9 +75,50 @@ export const scopeClockSelection = () => ({ ...getTableColumns(fxSystemScopeCloc
   epochUuid: fxSystemScopeExecutionAuthorities.epochUuid,
   authorizationRevocationEpoch: fxSystemScopeExecutionAuthorities.authorizationRevocationEpoch,
 });
+/** Flat compatibility projection of the two actual owners; no duplicated writable fields. */
+export const scopeClockSelection = () => scopeClockProjection;
+export const scopeClockExecutionAuthorityJoin = eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId);
+const executionAuthorityClockJoin = eq(fxSystemScopeClocks.scopeId, fxSystemScopeExecutionAuthorities.scopeId);
+const executionAuthorityProjection = Object.freeze({
+  ...getTableColumns(fxSystemScopeExecutionAuthorities), scopeUuid: fxSystemScopeClocks.scopeUuid,
+});
 export const selectScopeClockRows = (db: FlarexMetadataDatabase) => db.select(scopeClockSelection())
-  .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities,
-    eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId));
+  .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, scopeClockExecutionAuthorityJoin);
+
+function defineClockRead(mode: "share", limit: number) {
+  return defineNativeMetadataRead(db => selectScopeClockRows(db)
+    .where(eq(fxSystemScopeClocks.scopeId, sql.placeholder("scopeId"))).limit(limit).for(mode, { of: fxSystemScopeClocks }));
+}
+// Transaction time belongs only to actual native read/writer admission. Common
+// clock projections also enter finite/canonical evidence and keep that contract.
+const nativeWriteClockProjection = Object.freeze({ ...scopeClockProjection,
+  transactionTimestamp: sql<unknown>`current_timestamp::text`,
+});
+function defineNativeWriteClockRead(mode: "update" | "no key update" | "key share", limit: number) {
+  return defineNativeMetadataRead(db => db.select(nativeWriteClockProjection)
+    .from(fxSystemScopeClocks).innerJoin(fxSystemScopeExecutionAuthorities, scopeClockExecutionAuthorityJoin)
+    .where(eq(fxSystemScopeClocks.scopeId, sql.placeholder("scopeId"))).limit(limit).for(mode, { of: fxSystemScopeClocks }));
+}
+const clockReads = {
+  share: defineClockRead("share", 1),
+  "key share": defineNativeWriteClockRead("key share", 1),
+  update: defineNativeWriteClockRead("update", 1),
+  "no key update": defineNativeWriteClockRead("no key update", 2),
+};
+function defineExecutionAuthorityRead(mode: "share" | "key share" | "update") {
+  return defineNativeMetadataRead(db => db.select(executionAuthorityProjection)
+    .from(fxSystemScopeExecutionAuthorities).innerJoin(fxSystemScopeClocks, executionAuthorityClockJoin)
+    .where(eq(fxSystemScopeExecutionAuthorities.scopeId, sql.placeholder("scopeId"))).limit(1)
+    .for(mode, { of: fxSystemScopeExecutionAuthorities }));
+}
+const executionAuthorityReads = {
+  share: defineExecutionAuthorityRead("share"),
+  "key share": defineExecutionAuthorityRead("key share"),
+  update: defineExecutionAuthorityRead("update"),
+};
+const readScopeClock = defineNativeMetadataRead(db => db.select(scopeClockSelection())
+  .from(fxSystemScopeClocks).leftJoin(fxSystemScopeExecutionAuthorities, scopeClockExecutionAuthorityJoin)
+  .where(eq(fxSystemScopeClocks.scopeId, sql.placeholder("scopeId"))).limit(1));
 
 export const ScopeExecutionAuthoritySchema = Schema.Struct({
   scopeId: ScopeIdSchema, scopeUuid: Schema.NullOr(ScopeUuidV1Schema), epoch: ScopeEpochSchema, epochUuid: Schema.NullOr(ScopeEpochUuidV1Schema),
@@ -125,35 +169,98 @@ export function requireFiniteExecutionAuthorityObservation(tx: FlarexMetadataTra
 export function closeFiniteExecutionAuthorityObservation(tx: FlarexMetadataTransaction): void { finiteAuthorities.delete(tx); }
 
 /** Lifecycle writer/reader gate. The immutable identity root is read, not locked, for finite reads. */
-export const lockScopeExecutionAuthorityInTransactionEffect = Effect.fn("ScopeClock.lockExecutionAuthority")(
+export const lockScopeExecutionAuthorityInTransactionEffect = Effect.fnUntraced(
   function* (db: FlarexMetadataTransaction, scopeId: ScopeId, mode: "share" | "update" | "key share" = "share") {
     const operation = mode === "update" ? "lockForUpdate" : mode === "key share" ? "lockForSnapshotRead" : "readForShare";
-    const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(operation, db.select({
-      ...getTableColumns(fxSystemScopeExecutionAuthorities), scopeUuid: fxSystemScopeClocks.scopeUuid,
-    }).from(fxSystemScopeExecutionAuthorities).innerJoin(fxSystemScopeClocks,
-      eq(fxSystemScopeClocks.scopeId, fxSystemScopeExecutionAuthorities.scopeId))
-      .where(eq(fxSystemScopeExecutionAuthorities.scopeId, scopeId)).limit(1).for(mode, { of: fxSystemScopeExecutionAuthorities }));
+    const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(operation, executionAuthorityReads[mode](db, { scopeId }));
     const row = rows[0];
     if (row === undefined) return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
     return yield* Effect.fromResult(decodeAuthority(row).pipe(Result.mapError(cause =>
       new ScopeClockCorruptionError(scopeId, "execution authority is invalid", { cause }))));
-  });
+  }, work => observeExecution("ScopeClock.lockExecutionAuthority", work, "caller"));
 
-/** Issued by the exact-running kernel or native writer clock owner after live
- * row checks, while its stronger lock is held. It never crosses transactions. */
+/** One transaction-owned registry. Ordinary native reads lend immutable
+ * identity/time only; accepted snapshot and writer owners retain their actual
+ * fixed clock observations. No observation crosses transactions. */
 const exactAttemptClockObservations = new WeakMap<FlarexMetadataTransaction, Readonly<{
-  clock: ScopeClockRecord;
-  revocation: TransactionAuthorizationRevocationEpoch;
-  lock: "snapshot" | "share" | "attempt";
+  scopeId: ScopeId;
   lifetime: symbol;
-}>>();
+  readIdentity: ProtectedScopeReadIdentity | undefined;
+  nativeTransactionTime: Readonly<{ timestamp: unknown }> | undefined;
+} & ({ readonly lock: "snapshot" | "share" | "attempt"; readonly clock: ScopeClockRecord;
+  readonly revocation: TransactionAuthorizationRevocationEpoch } | { readonly lock: "identity" })>>();
+// Revoked native issuers remain recognizable on their original transaction so
+// a borrower cannot fall back to another SQL observation after closure.
+const nativeTransactionTimestampIssuers = new WeakSet<FlarexMetadataTransaction>();
+
+const protectedScopeReadIdentityBrand: unique symbol = Symbol("ProtectedScopeReadIdentity");
+/** Native identity only: no sequence, epoch, revocation or readiness verdict. */
+export interface ProtectedScopeReadIdentity {
+  readonly scopeId: ScopeId;
+  readonly scopeUuid: typeof ScopeUuidV1Schema.Type;
+  readonly [protectedScopeReadIdentityBrand]: true;
+}
 
 export function openExactAttemptScopeClockObservation(
   tx: FlarexMetadataTransaction, clock: ScopeClockRecord,
   revocation: TransactionAuthorizationRevocationEpoch, lock: "snapshot" | "share" | "attempt",
+  nativeTransactionTime?: Readonly<{ timestamp: unknown }>,
 ): void {
-  if (exactAttemptClockObservations.has(tx)) throw new Error("Exact attempt clock scope already opened");
-  exactAttemptClockObservations.set(tx, Object.freeze({ clock: copyScopeClockObservation(clock), revocation, lock, lifetime: Symbol("ExactScopeClockLifetime") }));
+  const previous = exactAttemptClockObservations.get(tx);
+  // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - trusted admission issuers may replace only an identity loan; reopening an active full-clock observation violates the transaction-owned observation lifetime.
+  if (previous !== undefined && previous.lock !== "identity") throw new Error("Exact attempt clock scope already opened");
+  if (nativeTransactionTime !== undefined && lock !== "snapshot" && lock !== "attempt")
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - native transaction time is issued only by snapshot or writer admission; a SHARE issuer indicates a trusted caller defect.
+    throw new Error("Native transaction time requires protected native admission");
+  const scope = projectScopeIdUuidV1Result(clock.scopeId);
+  const readIdentity = Result.isFailure(scope) ? undefined : Object.freeze({
+    scopeId: clock.scopeId, scopeUuid: scope.success.scopeUuid, [protectedScopeReadIdentityBrand]: true as const,
+  });
+  // The accepting full-clock issuer has completed its own checks and lock.
+  // Replace only an ordinary identity loan, revoking its identity and lifetime;
+  // a prior full clock cannot silently be replaced or lend its timestamp.
+  exactAttemptClockObservations.set(tx, Object.freeze({ scopeId: clock.scopeId, clock: copyScopeClockObservation(clock), revocation, lock,
+    lifetime: Symbol("ExactScopeClockLifetime"), readIdentity,
+    nativeTransactionTime: nativeTransactionTime === undefined ? undefined : Object.freeze({ timestamp: nativeTransactionTime.timestamp }) }));
+  if (nativeTransactionTime !== undefined) nativeTransactionTimestampIssuers.add(tx);
+}
+
+/** Issuer provenance only, including a revoked issuer; grants no observation. */
+export function hasProtectedScopeTransactionTimestampIssuer(tx: FlarexMetadataTransaction): boolean {
+  return nativeTransactionTimestampIssuers.has(tx);
+}
+
+/** Projects the existing exact observation lifetime, without issuing authority. */
+export function protectedScopeTransactionTimestampObservationIdentity(tx: FlarexMetadataTransaction, scopeId: ScopeId):
+  Result.Result<symbol, ScopeClockCorruptionError> {
+  const observed = exactAttemptClockObservations.get(tx);
+  return observed?.scopeId === scopeId && (observed.lock === "identity" || observed.lock === "snapshot" || observed.lock === "attempt") && observed.nativeTransactionTime !== undefined
+    ? Result.succeed(observed.lifetime)
+    : Result.fail(new ScopeClockCorruptionError(scopeId, "native read transaction timestamp is foreign or closed"));
+}
+
+/** Raw database timestamp remains lazily decoded by the actual managed-field
+ * consumer. Finite captures keep their own time; native snapshot/write entries
+ * issue only their actual transaction-stable timestamp. */
+export function readProtectedScopeTransactionTimestamp(tx: FlarexMetadataTransaction, scopeId: ScopeId, expectedObservation?: symbol):
+  Result.Result<unknown, ScopeClockCorruptionError> {
+  const observed = exactAttemptClockObservations.get(tx);
+  return observed?.scopeId === scopeId && (observed.lock === "identity" || observed.lock === "snapshot" || observed.lock === "attempt") && observed.nativeTransactionTime !== undefined &&
+    (expectedObservation === undefined || observed.lifetime === expectedObservation)
+    ? Result.succeed(observed.nativeTransactionTime.timestamp)
+    : Result.fail(new ScopeClockCorruptionError(scopeId, "native read transaction timestamp is foreign or closed"));
+}
+
+/** Only the live exact admission issuer lends identity; its snapshot KEY SHARE,
+ * SHARE or writer lock protects the native immutable scope key. */
+export function readProtectedScopeReadIdentity(tx: FlarexMetadataTransaction, scopeId: ScopeId): ProtectedScopeReadIdentity | undefined {
+  const observed = exactAttemptClockObservations.get(tx);
+  return observed?.scopeId === scopeId ? observed.readIdentity : undefined;
+}
+export function requireProtectedScopeReadIdentity(tx: FlarexMetadataTransaction, identity: ProtectedScopeReadIdentity):
+  Result.Result<ProtectedScopeReadIdentity, ScopeClockCorruptionError> {
+  return readProtectedScopeReadIdentity(tx, identity.scopeId) === identity ? Result.succeed(identity)
+    : Result.fail(new ScopeClockCorruptionError(identity.scopeId, "protected scope read identity is foreign or closed"));
 }
 
 const copyScopeClockObservation = (clock: ScopeClockRecord): ScopeClockRecord =>
@@ -162,25 +269,25 @@ const copyScopeClockObservation = (clock: ScopeClockRecord): ScopeClockRecord =>
 /** Writer owners can reuse only this owner-issued, still-open strong lock observation. */
 export function readExactScopeWriteClockObservation(tx: FlarexMetadataTransaction, scopeId: ScopeId): ScopeClockRecord | undefined {
   const observed = exactAttemptClockObservations.get(tx);
-  return observed?.clock.scopeId === scopeId && observed.lock === "attempt" ? copyScopeClockObservation(observed.clock) : undefined;
+  return observed?.scopeId === scopeId && observed.lock === "attempt" ? copyScopeClockObservation(observed.clock) : undefined;
 }
 
 /** Process-local identity of the currently open writer observation. Closing or
  * reopening the clock makes previously prepared writer evidence unusable. */
 export function exactScopeWriteClockObservationIdentity(tx: FlarexMetadataTransaction, scopeId: ScopeId): symbol | undefined {
   const observed = exactAttemptClockObservations.get(tx);
-  return observed?.clock.scopeId === scopeId && observed.lock === "attempt" ? observed.lifetime : undefined;
+  return observed?.scopeId === scopeId && observed.lock === "attempt" ? observed.lifetime : undefined;
 }
 
 /** SQL-row capture for publication's existing clock owner. The same protected
  * row issues the exact transaction observation; detached caller clocks cannot. */
-export const lockScopeClockRowsForOrdinaryWriteInTransactionEffect = Effect.fn("ScopeClock.captureOrdinaryWriteRows")(
+export const lockScopeClockRowsForOrdinaryWriteInTransactionEffect = Effect.fnUntraced(
   function* (db: ScopeClockTransaction, scopeId: ScopeId,
     observer?: Parameters<typeof observeDrizzleQuery<"lockScopeClock">>[2],
   ) {
     closeExactAttemptScopeClockObservation(db);
     yield* lockScopeExecutionAuthorityInTransactionEffect(db, scopeId, "share");
-    const query = selectScopeClockRows(db).where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(2).for("no key update", { of: fxSystemScopeClocks });
+    const query = clockReads["no key update"](db, { scopeId });
     observeDrizzleQuery("lockScopeClock", query, observer);
     const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect("lockForOrdinaryWrite", query);
     if (rows.length === 1) {
@@ -193,10 +300,10 @@ export const lockScopeClockRowsForOrdinaryWriteInTransactionEffect = Effect.fn("
         return yield* Effect.fail(new ScopeClockCorruptionError(scopeId, "clock row identities disagree"));
       const revocation = yield* Effect.fromResult(decodeScopeAuthorizationRevocationEpochResult(scopeId, row.authorizationRevocationEpoch));
       closeExactAttemptScopeClockObservation(db);
-      openExactAttemptScopeClockObservation(db, clock, revocation, "attempt");
+      openExactAttemptScopeClockObservation(db, clock, revocation, "attempt", { timestamp: row.transactionTimestamp });
     }
     return rows;
-  });
+  }, work => observeExecution("ScopeClock.captureOrdinaryWriteRows", work, "caller"));
 
 export function closeExactAttemptScopeClockObservation(tx: FlarexMetadataTransaction): void {
   exactAttemptClockObservations.delete(tx);
@@ -252,12 +359,7 @@ export async function getScopeClockResult(
   db: FlarexMetadataDatabase,
   scopeId: ScopeId,
 ): Promise<Result.Result<ScopeClockRecord | null, ScopeClockCorruptionError>> {
-  const rows = await db
-    .select(scopeClockSelection())
-    .from(fxSystemScopeClocks)
-    .leftJoin(fxSystemScopeExecutionAuthorities, eq(fxSystemScopeExecutionAuthorities.scopeId, fxSystemScopeClocks.scopeId))
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
-    .limit(1);
+  const rows = await readScopeClock(db, { scopeId });
   const clock = rows[0];
   return clock === undefined
     ? Result.succeed(null)
@@ -280,7 +382,7 @@ export const requireScopeAuthorizationRevocationEpochInTransactionEffect =
       const finite = readFiniteExecutionAuthorityObservation(db, scopeId);
       if (finite !== undefined) return finite.authorizationRevocationEpoch;
       const observed = exactAttemptClockObservations.get(db);
-      if (observed?.clock.scopeId === scopeId) return observed.revocation;
+      if (observed?.scopeId === scopeId && observed.lock !== "identity") return observed.revocation;
       const query = selectScopeAuthorizationRevocationEpochForKeyShare(
         db,
         scopeId,
@@ -401,9 +503,7 @@ export type LockScopeClockForUpdateError =
 
 export type LockScopeClockForShareError = LockScopeClockForUpdateError;
 
-export const lockScopeClockForShareInTransactionEffect = Effect.fn(
-  "ScopeClock.lockForShareInTransaction",
-)(function* (
+export const lockScopeClockForShareInTransactionEffect = Effect.fnUntraced(function* (
   db: ScopeClockTransaction,
   scopeId: ScopeId,
 ): Effect.fn.Return<
@@ -411,9 +511,9 @@ export const lockScopeClockForShareInTransactionEffect = Effect.fn(
   LockScopeClockForShareError
 > {
   const observed = exactAttemptClockObservations.get(db);
-  if (observed?.clock.scopeId === scopeId && observed.lock === "share") return copyScopeClockObservation(observed.clock);
+  if (observed?.scopeId === scopeId && observed.lock === "share") return copyScopeClockObservation(observed.clock);
   yield* lockScopeExecutionAuthorityInTransactionEffect(db, scopeId, "share");
-  const query = selectScopeClockRows(db).where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(1).for("share", { of: fxSystemScopeClocks });
+  const query = clockReads.share(db, { scopeId });
   const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
     "readForShare",
     query,
@@ -423,7 +523,7 @@ export const lockScopeClockForShareInTransactionEffect = Effect.fn(
     return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
   }
   return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
-});
+}, work => observeExecution("ScopeClock.lockForShareInTransaction", work, "caller"));
 
 /** KEY SHARE lifecycle protection; callers own snapshot isolation, validated
  * command reads, or provisional selection revalidated in the accepting transaction.
@@ -439,17 +539,37 @@ const lockScopeClockForDataAccess = Effect.fnUntraced(function* (
   db: ScopeClockTransaction, scopeId: ScopeId, access: "snapshotRead" | "ordinaryWrite",
 ) {
   const observed = exactAttemptClockObservations.get(db);
-  if (observed?.clock.scopeId === scopeId &&
+  if (observed?.scopeId === scopeId && observed.lock !== "identity" &&
     (access === "snapshotRead" || observed.lock === "attempt")) return copyScopeClockObservation(observed.clock);
   if (access === "snapshotRead") yield* lockScopeExecutionAuthorityInTransactionEffect(db, scopeId, "key share");
   const rows = access === "ordinaryWrite"
     ? yield* lockScopeClockRowsForOrdinaryWriteInTransactionEffect(db, scopeId)
     : yield* runScopeAuthorizationRevocationEpochQueryEffect("lockForSnapshotRead",
-      selectScopeClockRows(db).where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(1).for("key share", { of: fxSystemScopeClocks }));
+      clockReads["key share"](db, { scopeId }));
   const row = rows[0];
   if (row === undefined) return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
-  return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
-}, work => observeExecution("ScopeClock.lockForDataAccess", work, "caller"));
+  const clock = yield* Effect.fromResult(decodeScopeClockRecordResult(row));
+  if (access === "snapshotRead" && (observed === undefined || observed.lock === "identity")) {
+    const scope = projectScopeIdUuidV1Result(clock.scopeId);
+    if (clock.scopeId !== scopeId || Result.isSuccess(scope) && row.scopeUuid !== scope.success.scopeUuid)
+      return yield* Effect.fail(new ScopeClockCorruptionError(scopeId, "clock row identities disagree"));
+    // READ COMMITTED keeps the actual mutable clock read above. Only this
+    // transaction's locked immutable identity and raw transaction time survive.
+    // A repeated successful same-scope read preserves the existing loan.
+    if (observed?.scopeId !== scopeId) {
+      const readIdentity = Result.isFailure(scope) ? undefined : Object.freeze({
+        scopeId, scopeUuid: scope.success.scopeUuid, [protectedScopeReadIdentityBrand]: true as const,
+      });
+      exactAttemptClockObservations.set(db, Object.freeze({ scopeId, lock: "identity" as const,
+        lifetime: Symbol("ExactScopeClockLifetime"), readIdentity,
+        nativeTransactionTime: Object.freeze({ timestamp: row.transactionTimestamp }) }));
+      nativeTransactionTimestampIssuers.add(db);
+    }
+  }
+  return clock;
+}, (work, db) => observeExecution("ScopeClock.lockForDataAccess", work.pipe(Effect.onError(() => Effect.sync(() => {
+  if (exactAttemptClockObservations.get(db)?.lock === "identity") closeExactAttemptScopeClockObservation(db);
+}))), "caller"));
 
 export const lockScopeClockForUpdateInTransactionEffect = Effect.fn(
   "ScopeClock.lockForUpdateInTransaction",
@@ -471,7 +591,7 @@ export const lockScopeClockForUpdateInTransactionEffect = Effect.fn(
   const revocation = yield* Effect.fromResult(decodeScopeAuthorizationRevocationEpochResult(scopeId, row.authorizationRevocationEpoch));
   // Only this public data-clock owner issues writer evidence. The private row
   // lock also serves revocation mutations and must keep prior evidence closed.
-  openExactAttemptScopeClockObservation(db, clock, revocation, "attempt");
+  openExactAttemptScopeClockObservation(db, clock, revocation, "attempt", { timestamp: row.transactionTimestamp });
   return clock;
 });
 
@@ -481,7 +601,7 @@ const lockScopeClockRowForUpdateInTransactionEffect = Effect.fn(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
 ): Effect.fn.Return<
-  ScopeClockRow,
+  ScopeClockRow & Readonly<{ transactionTimestamp: unknown }>,
   | ScopeClockNotFoundError
   | ScopeClockCorruptionError
   | ScopeAuthorizationRevocationEpochPersistenceError
@@ -504,22 +624,24 @@ function selectScopeClockRowForUpdate(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
 ) {
-  return selectScopeClockRows(db).where(eq(fxSystemScopeClocks.scopeId, scopeId)).limit(1).for("update", { of: fxSystemScopeClocks });
+  return clockReads.update(db, { scopeId });
 }
 
-const runScopeAuthorizationRevocationEpochQueryEffect = Effect.fn(<Row>(
+const runScopeAuthorizationRevocationEpochQueryEffect = Effect.fnUntraced(function* <Row>(
   operation: ScopeAuthorizationRevocationEpochPersistenceError["operation"],
   query: PromiseLike<ReadonlyArray<Row>>,
-): Effect.Effect<
+): Effect.fn.Return<
   ReadonlyArray<Row>,
   ScopeAuthorizationRevocationEpochPersistenceError
-> => Effect.uninterruptible(Effect.tryPromise({
+> {
+  return yield* Effect.uninterruptible(Effect.tryPromise({
   try: () => query,
   catch: (cause) => new ScopeAuthorizationRevocationEpochPersistenceError({
     operation,
     cause,
   }),
-})));
+  }));
+});
 
 type ScopeClockTransaction = FlarexMetadataTransaction;
 

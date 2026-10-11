@@ -1,10 +1,10 @@
 import { is, sql } from "drizzle-orm";
-import { integer, PgTable, pgTable, text } from "drizzle-orm/pg-core";
+import { integer, PgDialect, PgTable, pgTable, text } from "drizzle-orm/pg-core";
 import * as NodePgDriver from "drizzle-orm/node-postgres";
 import * as NodePgSessions from "drizzle-orm/node-postgres/session";
 import { Client, Pool } from "pg";
 import { expect, it, vi } from "vitest";
-import { makePhysicalSessionAccess } from "../../src/database/physicalSession/drizzle";
+import { executeNativePhysicalCommand, makePhysicalSessionAccess, type NativePhysicalCommand } from "../../src/database/physicalSession/drizzle";
 import { flarexSchema } from "../../src/database/schema";
 import { postgresUrl } from "../support/postgresHelpers";
 
@@ -44,10 +44,11 @@ it("constructs only requested full-schema views within each fresh checkout sessi
     const access = makePhysicalSessionAccess(flarexSchema);
     const client = new Client();
     const first = access(client);
-    expect(session).toHaveBeenCalledTimes(1);
+    expect(session).not.toHaveBeenCalled();
     expect(database).not.toHaveBeenCalled();
     expect(transaction).not.toHaveBeenCalled();
     const tx = first.transaction;
+    expect(session).toHaveBeenCalledTimes(1);
     expect(first.transaction).toBe(tx);
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(database).not.toHaveBeenCalled();
@@ -62,18 +63,50 @@ it("constructs only requested full-schema views within each fresh checkout sessi
     expect(tx.query.fxAppRowCurrent.findMany().toSQL()).toEqual(db.query.fxAppRowCurrent.findMany().toSQL());
     const repeated = access(client);
     const different = access(new Client());
-    expect(session).toHaveBeenCalledTimes(3);
+    expect(session).toHaveBeenCalledTimes(1);
     expect(repeated.transaction).not.toBe(tx);
     expect(repeated.transaction._.session).not.toBe(tx._.session);
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(database).toHaveBeenCalledTimes(1);
     expect(different.database).not.toBe(db);
     expect(different.database._.session).not.toBe(db._.session);
+    expect(session).toHaveBeenCalledTimes(3);
     expect(database).toHaveBeenCalledTimes(2);
     expect(transaction).toHaveBeenCalledTimes(2);
   } finally {
     session.mockClear(); transaction.mockClear(); database.mockClear();
   }
+});
+
+it("binds fixed native commands to fresh sessions without constructing full-schema query views", async () => {
+  const database = vi.mocked(NodePgDriver.NodePgDatabase);
+  const transaction = vi.mocked(NodePgSessions.NodePgTransaction);
+  const session = vi.mocked(NodePgSessions.NodePgSession);
+  database.mockClear(); transaction.mockClear(); session.mockClear();
+  try {
+    const access = makePhysicalSessionAccess(flarexSchema);
+    const client = new Client();
+    const transport = vi.fn(async (_config: unknown, bindings: unknown[]) => ({ rows: [[bindings[0], "2026-10-11 12:34:56+00"]] }));
+    Object.assign(client, { query: transport });
+    const command: NativePhysicalCommand<unknown[][]> = {
+      statement: new PgDialect().sqlToQuery(sql`select ${sql.placeholder("value")}::integer, now()`),
+      orderedFields: undefined, statementName: "fixed_session_command", mapResult: rows => rows,
+    };
+    const first = access(client);
+    const next = access(client);
+    expect(session).not.toHaveBeenCalled();
+    const firstSession = first.session;
+    expect(first.session).toBe(firstSession);
+    expect(next.session).not.toBe(firstSession);
+    expect(await executeNativePhysicalCommand(firstSession, command, { value: 41 })).toEqual([[41, "2026-10-11 12:34:56+00"]]);
+    expect(await executeNativePhysicalCommand(next.session, command, { value: 42 })).toEqual([[42, "2026-10-11 12:34:56+00"]]);
+    expect(transport).toHaveBeenNthCalledWith(1, expect.objectContaining({ name: "fixed_session_command", rowMode: "array",
+      text: command.statement.sql, types: expect.objectContaining({ getTypeParser: expect.any(Function) }) }), [41]);
+    expect(transport).toHaveBeenNthCalledWith(2, expect.objectContaining({ name: "fixed_session_command", rowMode: "array" }), [42]);
+    expect(database).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(session).toHaveBeenCalledTimes(2);
+  } finally { session.mockClear(); transaction.mockClear(); database.mockClear(); }
 });
 
 it.skipIf(postgresUrl === null)("routes shared metadata through exact pooled and connected clients without sharing rows or settlement", async () => {

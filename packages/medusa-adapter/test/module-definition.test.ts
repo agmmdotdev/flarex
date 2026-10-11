@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { mockRelationalRead } from "./mock-relational-read";
 import { Effect, Result } from "effect";
 import type { DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
 import { model } from "@medusajs/utils/dml/model";
@@ -20,7 +21,7 @@ const fixture = Effect.gen(function* () {
   const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(reason => commerceError(reason), commerceLimits, {}, {}, "module-use", "read"), lifetime => lifetime.close);
   const unused = () => Effect.fail(commerceError("unsupportedProfile"));
   const root = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,
-    store: { findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
+    store: { prepareRead(query: unknown) { return mockRelationalRead(this, query); }, findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
   }, "module-use", lifetime.context, unused, unused);
   return root;
 });

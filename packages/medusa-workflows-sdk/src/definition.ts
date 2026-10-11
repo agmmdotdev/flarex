@@ -5,6 +5,7 @@ import { proxify, transformer, referenceOf } from "./references";
 import type { StepFunction, StepOutput } from "./model";
 import { OrchestratorBuilder } from "./orchestrator-builder";
 import { workflowIdentity, type WorkflowIdentity } from "./identity";
+import { prepareWorkflowResolution } from "./resolution";
 
 interface Composer {
   readonly owner: object;
@@ -130,6 +131,7 @@ export interface PreparedWorkflow {
   readonly result: unknown;
   readonly nodeCount: number;
   readonly identity: WorkflowIdentity;
+  readonly resolution: ReturnType<typeof prepareWorkflowResolution>;
 }
 const preparedWorkflows = new WeakSet<object>();
 /** Only SDK preparation establishes the frozen graph and reference ownership. */
@@ -181,6 +183,7 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
   }
   const nodes = Object.freeze(ordered);
   const result = captureDefinition(response.$result, context.owner, available);
+  const resolution = prepareWorkflowResolution(nodes.map(node => node.input), result);
   const exposed = new Set((response.options?.hooks ?? []).map(hook => {
     if (typeof hook !== "object" || hook === null || !("name" in hook) || typeof hook.name !== "string" || !context.hooks.has(hook.name)) throw definitionError("invalidDefinition", "Unknown exposed hook");
     return hook.name;
@@ -205,7 +208,7 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
         return Object.freeze({ ...node, invoke: handler as Invoke<unknown, unknown>, boundHook: true });
       });
       const prepared = Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result, nodeCount,
-        identity: workflowIdentity(name, bound, result) });
+        identity: workflowIdentity(name, bound, result), resolution });
       preparedWorkflows.add(prepared);
       return prepared;
     },

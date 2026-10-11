@@ -63,10 +63,45 @@ export const installedClockFields = () => ({ scopeUuid: sql`fx_system_scope_cloc
 
 function installedPlacementSource(refs: Result.Result.Success<ReturnType<typeof getCoLocatedReadInstallationReferencesResult>>) {
   const control = sql.identifier(refs.control.schemaName);
-  return sql`(with accepted_placement as materialized (
-    select ${control}.fx_accept_finite_placement_frontier(${refs.target.frontierExpected},
-      ${refs.control.frontierExpected},${sql.placeholder("deploymentId")},${sql.placeholder("scopeId")}) as frontier)
-    select (frontier).* from accepted_placement) placement`;
+  const targetExpected = refs.target.localFrontierExpected, controlExpected = refs.control.localFrontierExpected;
+  const targetExpectedField = sql`(select target_expected from expected_installations)`;
+  const controlExpectedField = sql`(select control_expected from expected_installations)`;
+  const installations = coLocatedInstallationFrontierSource({
+    target: { ...refs.target, localFrontierExpected: targetExpectedField },
+    control: { ...refs.control, localFrontierExpected: controlExpectedField },
+  },
+    sql`select 1 from preflight where reason = 'accepted'`);
+  const placementFields = ["scope_id", "deployment_id", "active_schema_version_id", "isolation_kind",
+    "physical_locator_json", "created_at", "receipt_scope_id", "receipt_protocol_version", "receipt_state",
+    "receipt_physical_locator_json", "receipt_initial_epoch", "receipt_reserved_at", "receipt_ready_at"];
+  // Genuine installation issuers bind both namespaces at compilation. Actual
+  // preauthorization precedes either gate; each materialized dependency prevents
+  // an unselected target or later lock from being invoked speculatively.
+  return sql`(with expected_installations as materialized (select ${targetExpected} as target_expected,
+      ${controlExpected} as control_expected), preflight as materialized (select case
+      when current_setting('statement_timeout')::interval <= interval '0 milliseconds'
+        or current_setting('statement_timeout')::interval > interval '30000 milliseconds' then 'resourceFailure'
+      when current_setting('role') in ('none',session_user)
+        and (expected_installations.target_expected).login = session_user and (expected_installations.control_expected).login = session_user
+        and (expected_installations.target_expected).access_profile = 'dataRuntime' and (expected_installations.control_expected).access_profile = 'controlRead'
+        and (expected_installations.target_expected).schema_name = ${refs.target.schemaName}
+        and (expected_installations.control_expected).schema_name = ${refs.control.schemaName}
+        and ${refs.target.schemaName}::text <> ${refs.control.schemaName}::text
+        and exists(select 1 from ${control}.fx_control_scope s
+          where s.id = ${sql.placeholder("scopeId")} and s.deployment_id = ${sql.placeholder("deploymentId")}
+            and s.physical_locator_json ->> 'schemaName' = ${refs.target.schemaName}) then 'accepted'
+      else 'invalidAuthority' end as reason from expected_installations),
+    installed as materialized (select * from ${installations} installed),
+    locked_placement as materialized (select ${control}.fx_lock_control_scope_placement(
+      ${controlExpectedField},${sql.placeholder("deploymentId")},${sql.placeholder("scopeId")},${refs.target.schemaName}) as frontier
+      from installed where installed.reason = 'accepted' offset 0)
+    select case when preflight.reason <> 'accepted' then preflight.reason
+      when installed.reason is distinct from 'accepted' then 'invalidAuthority'
+      else coalesce((locked_placement.frontier).reason,'invalidAuthority') end as reason,
+      ${sql.join(placementFields.map(name => sql`(locked_placement.frontier).${sql.identifier(name)} as ${sql.identifier(name)}`),sql`, `)},
+      installed.target_metadata_generation::bigint as target_metadata_generation,
+      installed.control_metadata_generation::bigint as control_metadata_generation
+    from preflight left join installed on true left join locked_placement on true) placement`;
 }
 
 const installedPlacementFields = () => ({ reason: sql<string>`placement.reason`,

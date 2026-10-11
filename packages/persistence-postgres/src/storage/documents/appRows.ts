@@ -2,7 +2,8 @@ import { AppRowScopeAuthorityUnavailableError, AppRowStorageCorruptionError, App
 import type { AppendAppRowRevisionV1Error } from "./appRowErrors";
 import { fxSystemScopeExecutionAuthorities } from "../../database/schema";
 import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservationIdentity, readExactScopeWriteClockObservation,
-  readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation } from "../../scope/scopeClock";
+  readFiniteExecutionAuthorityObservation, requireFiniteExecutionAuthorityObservation,
+  readProtectedScopeReadIdentity, requireProtectedScopeReadIdentity } from "../../scope/scopeClock";
 import type { PointCommitPublicationObservation } from "../../commit/point/observation";
 import { and, desc, eq, getTableColumns, inArray, sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
@@ -18,9 +19,9 @@ import {
   AppCreationTimeV1Schema,
   decodeAppCreationTimeV1,
   verifyAppDocumentEvidenceV1,
-  decodeCanonicalAppDocumentEvidenceV1Effect,
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
+import { decodeStoredAppRowRevisionEvidenceEffect } from "./appRowCanonicalEvidence";
 import {
   appRowIdHexV1FromBytesResult,
   appRowIdHexV1ToBytes,
@@ -445,20 +446,30 @@ export const readAppTableWriteFrontiersInTransactionEffect = Effect.fn(
     for (let ordinal = 0; ordinal < batch.length; ordinal += 1) {
       const tableId = batch[ordinal]!;
       const row = rows[ordinal];
-      frontiers.set(tableId, Result.gen(function* () {
-        const envelope = yield* decodeTableFrontierBatchRowResult(row);
-        if (rows.length !== batch.length || envelope.ordinal !== ordinal)
-          return yield* Result.fail(undefined);
-        if (envelope.commitSeqText === null) return null;
-        const decoded = yield* decodeBigIntTextResult(envelope.commitSeqText).pipe(
-          Result.flatMap(decodeCommitSeqResult));
-        if (decoded < 1n) return yield* Result.fail(undefined);
-        return decoded;
-      }).pipe(Result.mapError(cause => new AppRowTableFrontierCorruptionError(scopeId, tableId, cause))));
+      frontiers.set(tableId, decodeCapturedAppTableWriteFrontierResult(scopeId, tableId,
+        ordinal, row, rows.length, batch.length));
     }
   }
   return frontiers;
 });
+
+/** The native batch owner also accepts a frontier retained by a connected
+ * writer observation. Canonical text and envelope refusal remain this owner. */
+export function decodeCapturedAppTableWriteFrontierResult(
+  scopeId: ScopeId, tableId: CatalogTableId, ordinal: number, row: unknown,
+  rowCount: number, expectedRowCount: number,
+): Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError> {
+  return Result.gen(function* () {
+    const envelope = yield* decodeTableFrontierBatchRowResult(row);
+    if (rowCount !== expectedRowCount || envelope.ordinal !== ordinal)
+      return yield* Result.fail(undefined);
+    if (envelope.commitSeqText === null) return null;
+    const decoded = yield* decodeBigIntTextResult(envelope.commitSeqText).pipe(
+      Result.flatMap(decodeCommitSeqResult));
+    if (decoded < 1n) return yield* Result.fail(undefined);
+    return decoded;
+  }).pipe(Result.mapError(cause => new AppRowTableFrontierCorruptionError(scopeId, tableId, cause)));
+}
 
 /** Consume frontier demands in caller order. A later input or stored verdict
  * cannot replace an earlier consumer refusal; SQL reuses the existing batch. */
@@ -519,21 +530,21 @@ export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(
 
 /** Decoded demand only; scope and execution authority remain with the caller. */
 export interface PreparedAppRowsSnapshotRead extends ReadAppRowsAtSnapshotV1Input { readonly scopeUuid: ScopeUuidV1; }
-export const prepareAppRowsSnapshotReadEffect = Effect.fn("AppRows.prepareSnapshotRead")(function* (
+export const prepareAppRowsSnapshotReadResult = (
   input: ReadAppRowsAtSnapshotV1Input,
-): Effect.fn.Return<PreparedAppRowsSnapshotRead, InvalidAppRowReadInputError> {
+): Result.Result<PreparedAppRowsSnapshotRead, InvalidAppRowReadInputError> => Result.gen(function* () {
   if (input.rowIds.length > MAX_BOUNDED_APP_ROW_READ_IDENTITIES)
-    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.rowIds.length }));
-  const scopeId = yield* Effect.fromResult(decodeReadFieldResult(decodeScopeIdResult(input.scopeId), "invalidScopeId"));
-  const projection = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId)).pipe(Effect.mapError(cause =>
+    return yield* Result.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.rowIds.length }));
+  const scopeId = yield* decodeReadFieldResult(decodeScopeIdResult(input.scopeId), "invalidScopeId");
+  const projection = yield* projectScopeIdUuidV1Result(scopeId).pipe(Result.mapError(cause =>
     new InvalidAppRowReadInputError({ reason: "invalidScopeId", cause })));
-  const tableId = yield* Effect.fromResult(decodeReadFieldResult(decodeCatalogTableIdResult(input.tableId), "invalidTableId"));
+  const tableId = yield* decodeReadFieldResult(decodeCatalogTableIdResult(input.tableId), "invalidTableId");
   const rowIds: AppRowIdHexV1[] = [];
   for (const rowId of input.rowIds)
-    rowIds.push(yield* Effect.fromResult(decodeReadFieldResult(decodeAppRowIdHexV1Result(rowId), "invalidRowId")));
+    rowIds.push(yield* decodeReadFieldResult(decodeAppRowIdHexV1Result(rowId), "invalidRowId"));
   if (new Set(rowIds).size !== rowIds.length)
-    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "invalidRowId", cause: new Error("Expected distinct row identities.") }));
-  const snapshotCommitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(input.snapshotCommitSeq), "invalidSnapshotCommitSeq"));
+    return yield* Result.fail(new InvalidAppRowReadInputError({ reason: "invalidRowId", cause: new Error("Expected distinct row identities.") }));
+  const snapshotCommitSeq = yield* decodeReadFieldResult(decodeCommitSeqResult(input.snapshotCommitSeq), "invalidSnapshotCommitSeq");
   return Object.freeze({ scopeId, scopeUuid: projection.scopeUuid, tableId, rowIds: Object.freeze(rowIds), snapshotCommitSeq });
 });
 
@@ -579,7 +590,28 @@ export const captureAppRowsAtSnapshotInTransactionEffect = Effect.fn("AppRows.ca
 
 const SnapshotRowEnvelopeSchema = Schema.Struct({ ordinal: Schema.Number, requestedRowId: Schema.Uint8Array,
   rowPresent: Schema.Boolean, bodyWithheld: Schema.Boolean });
-const decodeSnapshotRowEnvelopeResult = Schema.decodeUnknownResult(SnapshotRowEnvelopeSchema);
+const decodeSnapshotRowEnvelopeEffect = Schema.decodeUnknownEffect(SnapshotRowEnvelopeSchema);
+
+function captureSnapshotRowResult(identity: AppRowIdentityV1, ordinal: number, raw: unknown,
+  envelope: typeof SnapshotRowEnvelopeSchema.Type) {
+  return Result.gen(function* () {
+    const requested = yield* appRowIdHexV1FromBytesResult(envelope.requestedRowId).pipe(Result.mapError(cause =>
+      new AppRowStorageCorruptionError(identity, "snapshot requested identity does not decode", { cause })));
+    if (envelope.ordinal !== ordinal || requested !== identity.rowId || !isNonArrayRecord(raw))
+      return yield* Result.fail(new AppRowStorageCorruptionError(identity, "snapshot requested ordinal or identity differs"));
+    if (envelope.bodyWithheld) return { kind: "withheld" as const };
+    if (!envelope.rowPresent) return { kind: "missing" as const };
+    // Preserve column access order without eagerly projecting the driver row.
+    return yield* decodeRevisionRowEvidenceResult(identity, {
+      get rowId() { return raw.rowId; }, get scopeUuid() { return raw.scopeUuid; },
+      get writeEpochUuid() { return raw.writeEpochUuid; }, get commitSeq() { return raw.commitSeq; },
+      get prevCommitSeq() { return raw.prevCommitSeq; }, get schemaVersionId() { return raw.schemaVersionId; },
+      get creationTime() { return raw.creationTime; }, get isTombstone() { return raw.isTombstone; },
+      get valueBytes() { return raw.valueBytes; }, get valueSha256() { return raw.valueSha256; },
+      get valueCodecVersion() { return raw.valueCodecVersion; }, get tableId() { return raw.tableId; },
+    }, true);
+  });
+}
 
 /** Each ordinal is decoded and consumed before later body evidence is accessed. */
 export const consumeCapturedAppRowsAtSnapshotEffect = Effect.fn("AppRows.consumeCapturedSnapshotRead")(
@@ -591,24 +623,22 @@ export const consumeCapturedAppRowsAtSnapshotEffect = Effect.fn("AppRows.consume
     let consumed = 0;
     for (const [ordinal, rowId] of input.rowIds.entries()) {
       const identity = { scopeId: input.scopeId, tableId: input.tableId, rowId };
-      const raw = rows[ordinal];
-      const envelope = yield* Effect.fromResult(decodeSnapshotRowEnvelopeResult(raw)).pipe(Effect.mapError(cause =>
-        error(new AppRowStorageCorruptionError(identity, "snapshot row envelope does not decode", { cause }))));
-      const requested = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(envelope.requestedRowId)).pipe(Effect.mapError(cause =>
-        error(new AppRowStorageCorruptionError(identity, "snapshot requested identity does not decode", { cause }))));
-      if (envelope.ordinal !== ordinal || requested !== rowId || !isNonArrayRecord(raw))
-        return yield* Effect.fail(error(new AppRowStorageCorruptionError(identity, "snapshot requested ordinal or identity differs")));
-      if (envelope.bodyWithheld && settlementWindow) return consumed;
-      if (envelope.bodyWithheld) return yield* Effect.die(new Error("Trusted snapshot hydration reached a withheld body after its transfer budget"));
-      // Lazy forwarding retains the existing decoder's field and first-failure order.
-      const revision = !envelope.rowPresent ? MISSING_APP_ROW_REVISION_V1 : yield* decodeRevisionRowEffect(identity, {
-        get rowId() { return raw.rowId; }, get scopeUuid() { return raw.scopeUuid; },
-        get writeEpochUuid() { return raw.writeEpochUuid; }, get commitSeq() { return raw.commitSeq; },
-        get prevCommitSeq() { return raw.prevCommitSeq; }, get schemaVersionId() { return raw.schemaVersionId; },
-        get creationTime() { return raw.creationTime; }, get isTombstone() { return raw.isTombstone; },
-        get valueBytes() { return raw.valueBytes; }, get valueSha256() { return raw.valueSha256; },
-        get valueCodecVersion() { return raw.valueCodecVersion; }, get tableId() { return raw.tableId; },
-      }, true).pipe(Effect.mapError(error));
+      // This boundary precedes every next row access, including missing and
+      // tombstone rows whose acceptance does not otherwise suspend for SHA.
+      const captured = yield* Effect.suspend(() => {
+        const raw = rows[ordinal];
+        // Foreign Schema access owns a full Cause. Pure checks start only after
+        // that envelope is captured; an accessor defect is never a parse issue.
+        return decodeSnapshotRowEnvelopeEffect(raw).pipe(
+          Effect.mapError(cause =>
+            new AppRowStorageCorruptionError(identity, "snapshot row envelope does not decode", { cause })),
+          Effect.flatMap(envelope => Effect.fromResult(captureSnapshotRowResult(identity, ordinal, raw, envelope))));
+      }).pipe(Effect.mapError(error));
+      if (captured.kind === "withheld" && settlementWindow) return consumed;
+      if (captured.kind === "withheld") return yield* Effect.die(new Error("Trusted snapshot hydration reached a withheld body after its transfer budget"));
+      const revision = captured.kind === "missing" ? MISSING_APP_ROW_REVISION_V1 : captured.kind === "tombstone"
+        ? Object.freeze({ kind: "tombstone" as const, ...captured.base })
+        : yield* decodeLiveRevisionEvidenceEffect(identity, captured).pipe(Effect.mapError(error));
       yield* consume(rowId, revision);
       consumed++;
     }
@@ -626,7 +656,7 @@ const consumeSnapshotRows = Effect.fn("AppRows.consumeSetAtSnapshotInTransaction
   observer?: Parameters<typeof observeDrizzleQuery<"snapshotRevision">>[2], settlementWindow = false,
 ): Effect.fn.Return<number, Failure, Requirements> {
   if (input.rowIds.length === 0) return 0;
-  const prepared = yield* prepareAppRowsSnapshotReadEffect(input).pipe(Effect.mapError(error));
+  const prepared = yield* Effect.fromResult(prepareAppRowsSnapshotReadResult(input)).pipe(Effect.mapError(error));
   const identity = yield* Effect.fromResult(decodeReadIdentityResult({ scopeId: prepared.scopeId, tableId: prepared.tableId,
     rowId: prepared.rowIds[0]! })).pipe(Effect.mapError(error));
   yield* requireScopeUuidInTransactionEffect(tx, identity).pipe(Effect.mapError(error));
@@ -855,7 +885,9 @@ const requireCurrentReadLimits = Effect.fn("AppRows.requireCurrentReadLimits")(f
 
 /** The exact current-pointer join bounds this projection to one identity.
  * Rejected bodies remain inside Postgres, including a unique-owner capture. */
-export function projectBoundedCurrentAppRowPoint(input: CurrentAppRowReadLimits,
+function projectBoundedCurrentAppRowPoint(input: Readonly<{
+  maximumIdentities: number | SQL; maximumDocumentBytes: number | SQL; maximumTotalValueBytes: number | SQL;
+}>,
   clock: Readonly<{ commitSeq: SQL; epoch: SQL }>) {
   const bytes = sql`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`;
   const withinBudget = sql<boolean>`${fxAppRowCurrent.rowId} is null or (${input.maximumIdentities} >= 1
@@ -874,7 +906,7 @@ type CapturedCurrentAppRowPoint = Readonly<{ observedCommitSeq: CommitSeq; withi
 
 /** Source-private joined-capture decoder. Its caller has authenticated the
  * selected identity and owns the accepting transaction and capture lifetime. */
-export const decodeCapturedPublishedCurrentAppRowEffect = Effect.fn("AppRows.decodeCapturedPublishedPoint")(function* (
+const decodeCapturedPublishedCurrentAppRowEffect = Effect.fn("AppRows.decodeCapturedPublishedPoint")(function* (
   identity: AppRowIdentityV1, input: CurrentAppRowReadLimits & { readonly minimumCommitSeq: CommitSeq },
   captured: CapturedCurrentAppRowPoint,
 ) {
@@ -1424,7 +1456,16 @@ const decodeRevisionRowEffect = Effect.fn(
       ...decoded.base,
     } satisfies TombstoneAppRowRevisionV1);
   }
-  const document = yield* decodeCanonicalAppDocumentEvidenceV1Effect({
+  return yield* decodeLiveRevisionEvidenceEffect(identity, decoded);
+});
+
+// The accepting read operation owns tracing and the per-row interruption
+// boundary. This linear mapping retains the canonical decoder's actual SHA.
+const decodeLiveRevisionEvidenceEffect = (
+  identity: AppRowIdentityV1,
+  decoded: Extract<DecodedAppRowRevisionEvidenceV1, { kind: "live" }>,
+): Effect.Effect<LiveAppRowRevisionV1, AppRowStorageCorruptionError> =>
+  decodeStoredAppRowRevisionEvidenceEffect(decoded.base, {
     tableId: identity.tableId,
     rowId: identity.rowId,
     creationTime: decoded.base.creationTime,
@@ -1436,12 +1477,6 @@ const decodeRevisionRowEffect = Effect.fn(
     "live revision value evidence or trusted system fields do not verify",
     { cause },
   )));
-  return Object.freeze({
-    kind: "live",
-    ...decoded.base,
-    document,
-  } satisfies LiveAppRowRevisionV1);
-});
 
 function decodeRevisionRowEvidenceResult(
   identity: AppRowIdentityV1,
@@ -1614,6 +1649,14 @@ const requireScopeUuidInTransactionEffect = Effect.fn(
     const live = yield* Effect.fromResult(requireFiniteExecutionAuthorityObservation(tx, finite).pipe(
       Result.mapError(() => new AppRowScopeAuthorityUnavailableError(identity.scopeId))));
     if (live.scopeId !== identity.scopeId || live.scopeUuid !== projection.scopeUuid)
+      return yield* Effect.fail(new AppRowScopeAuthorityUnavailableError(identity.scopeId));
+    return live.scopeUuid;
+  }
+  const protectedIdentity = readProtectedScopeReadIdentity(tx, identity.scopeId);
+  if (protectedIdentity !== undefined) {
+    const live = yield* Effect.fromResult(requireProtectedScopeReadIdentity(tx, protectedIdentity).pipe(
+      Result.mapError(() => new AppRowScopeAuthorityUnavailableError(identity.scopeId))));
+    if (live.scopeUuid !== projection.scopeUuid)
       return yield* Effect.fail(new AppRowScopeAuthorityUnavailableError(identity.scopeId));
     return live.scopeUuid;
   }

@@ -67,6 +67,7 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
     const fields = {
         ...placement.fields,
         safePath: sql<string>`pg_catalog.set_config('search_path', pg_catalog.format('%I, pg_temp', ${refs.target.schemaName}::text), true)`,
+        transactionTimestamp: sql<unknown>`current_timestamp::text`,
         clock: installedClockFields(),
         applicationHead: { sequence: sql`fx_system_application_active_head.${sql.identifier(applicationHeads.activationSequence.name)}`.mapWith(applicationHeads.activationSequence),
           readinessContractVersion: sql`fx_system_application_active_head.${sql.identifier(applicationHeads.readinessContractVersion.name)}`.mapWith(applicationHeads.readinessContractVersion),
@@ -99,6 +100,7 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
       { path: ["targetMetadataGeneration"], field: fields.targetMetadataGeneration },
       { path: ["controlMetadataGeneration"], field: fields.controlMetadataGeneration },
       { path: ["safePath"], field: fields.safePath },
+      { path: ["transactionTimestamp"], field: fields.transactionTimestamp },
       ...Object.entries(fields.clock).map(([name, field]) => ({ path: ["clock", name], field })),
       ...Object.entries(fields.applicationHead).map(([name, field]) => ({ path: ["applicationHead", name], field })),
       ...Object.entries(fields.bindingHead).map(([name, field]) => ({ path: ["bindingHead", name], field })),
@@ -124,7 +126,7 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
       const authority = yield* Effect.fromResult(resolveTrustedScopeAuthoritySnapshotResult(
         { deploymentId, scopeId }, scope, receipt, physicalLocator, clock));
       const revocation = yield* Effect.fromResult(decodeScopeAuthorizationRevocationEpochResult(scopeId, row.clock.authorizationRevocationEpoch));
-      return Object.freeze({ clock, authority, revocation,
+      return Object.freeze({ clock, authority, revocation, transactionTimestamp: row.transactionTimestamp,
         snapshot: { applicationHead: row.applicationHead.sequence === null ? null : row.applicationHead,
           bindingHead: row.bindingHead.scopeId === null ? null : row.bindingHead,
           ...(sourceInitialization === undefined ? {} : { sourceInitialization: { ...sourceInitialization,
@@ -134,7 +136,8 @@ export const prepareStandaloneReadTransaction = Effect.fn("StandaloneReadTransac
     const withSnapshot = Effect.fn("StandaloneReadTransaction.withSnapshot")(function* <Value, Failure, Requirements>(
       tx: FlarexMetadataTransaction, entry: Effect.Success<ReturnType<typeof enter>>,
       work: () => Effect.Effect<Value, Failure, Requirements>) {
-      return yield* Effect.sync(() => openExactAttemptScopeClockObservation(tx, entry.clock, entry.revocation, "snapshot")).pipe(
+      return yield* Effect.sync(() => openExactAttemptScopeClockObservation(tx, entry.clock, entry.revocation, "snapshot",
+        { timestamp: entry.transactionTimestamp })).pipe(
         Effect.andThen(() => withStandaloneReadSnapshot(installation, database, tx, scopeId, entry.snapshot, work)),
         Effect.ensuring(Effect.sync(() => closeExactAttemptScopeClockObservation(tx))),
       );

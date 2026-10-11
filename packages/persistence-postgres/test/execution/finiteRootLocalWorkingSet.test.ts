@@ -1,7 +1,7 @@
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import type { LiveAppRowRevisionV1 } from "../../src/storage/documents/appRows";
 import { Effect, Exit, Result } from "effect";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { AppCreationTimeV1Schema, canonicalizeAppDocumentV1 } from "flarex-protocol/app-document";
 import {
   MetadataSequenceSchema,
@@ -24,7 +24,8 @@ import type {
 import { makeLogicalDocumentRootEvaluator, attachLogicalDocumentRootEvaluator,
   recordLogicalDocumentRootMetadataDependency, consumeLogicalDocumentRootMetadataDependency, takeLogicalDocumentRootSnapshot,
   borrowClosedLogicalDocumentRoot, consumeClosedLogicalDocumentRoot } from "../../src/storage/documents/logicalDocuments/rootEvaluator";
-import { makeLogicalDocumentWorkingSet } from "../../src/storage/documents/logicalDocuments/workingSet";
+import { makeLogicalDocumentWorkingSet, prepareLogicalWriteMechanics, combineLogicalWriteMechanics } from "../../src/storage/documents/logicalDocuments/workingSet";
+import type { PreparedLogicalDocumentWriteMechanics } from "../../src/storage/documents/logicalDocuments/model";
 import { runEffect } from "../support/effectTestRuntime";
 import {
   captureFiniteMetadataDependency,
@@ -36,6 +37,8 @@ import {
   makeLogicalCommerceActivityProjection,
 } from "../../src/frameworks/commerceTransaction/logicalParticipant";
 import { ExecutionDiagnostics } from "../../src/execution/diagnostics/operation";
+import { prepareLogicalCanonicalDocumentSemantics } from "../../src/storage/documents/logicalDocuments/relationalRows";
+import { decodeStoredAppRowRevisionEvidenceEffect, inspectStoredAppDocumentEvidence } from "../../src/storage/documents/appRowCanonicalEvidence";
 
 const tableId = CatalogTableIdSchema.make(1);
 const scopeId = ScopeIdSchema.make("scope_91000000-0000-4000-8000-000000000001");
@@ -73,7 +76,7 @@ it("preserves canonical metadata ordering across punctuation and non-ASCII names
   })));
 
 const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Error("unexpected database read")),
-  calls = 32) =>
+  calls = 32, mechanics?: PreparedLogicalDocumentWriteMechanics) =>
   Effect.gen(function* () {
     let readCalls = 0;
     const lifetime = yield* makeBoundedRequestLifetime(
@@ -92,11 +95,13 @@ const make = (read: () => Effect.Effect<never, Error> = () => Effect.fail(new Er
         oldestAvailableCommitSeq: CommitSeqSchema.make(0n), epoch: ScopeEpochSchema.make("test_epoch"),
         updatedAt: new Date(0) },
       snapshotCommitSeq, rootEvaluator: root, rootAttempt: attempt, rootAttemptFence: attemptFence,
-      lifetime, tables: [{ tableId, logicalName: "items" }], limits: {
+      lifetime, tables: mechanics?.tables ?? [{ tableId, logicalName: "items" }],
+      ...(mechanics === undefined ? {} : { writeMechanics: mechanics, searchDefinitions: mechanics.searchDefinitions,
+        ...(mechanics.relationalCapabilities === undefined ? {} : { relationalCapabilities: mechanics.relationalCapabilities }) }), limits: {
         pageRows: 32, identities: 64, documentBytes: 16_000,
       }, validateDocument: () => Effect.void,
       error: reason => new Error(reason), uniqueConflict: () => new Error("uniqueConflict"),
-    }, AppCreationTimeV1Schema.make(1), [], [], undefined, {} as FlarexMetadataTransaction);
+    }, AppCreationTimeV1Schema.make(1), mechanics?.unique ?? [], mechanics?.indexes ?? [], undefined, {} as FlarexMetadataTransaction);
     return { root, lifetime, id, working, readCalls: () => readCalls };
   });
 
@@ -180,7 +185,9 @@ it("binds one activity contribution to its original source, cursor, generation a
         .toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
       const project = makeLogicalCommerceActivityProjection(new Map([[tableId, "items"]]));
       const policy = yield* project(activity);
-      expect(yield* project(activity)).toBe(policy);
+      const repeated = yield* project(activity);
+      expect(repeated).toEqual(policy);
+      expect(repeated.observedRows[0]?.row).toBe(policy.observedRows[0]?.row);
       const observed = policy.observedRows[0];
       if (observed === undefined) throw new Error("Missing projected row");
       expect(Reflect.set(observed.row, "name", "tampered")).toBe(false);
@@ -221,6 +228,90 @@ it("binds one activity contribution to its original source, cursor, generation a
       expect(yield* Effect.result(working.readActivityContribution(closedContribution)))
         .toMatchObject({ _tag: "Failure", failure: new Error("closed") });
     } finally { yield* lifetime.close; yield* foreign.lifetime.close; root.close(); foreign.root.close(); }
+  })));
+
+it("retains a stored row's immutable policy projection across fresh activity generations and refuses foreign mutable-view reuse", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime, id, working } = yield* make();
+    try {
+      const rowId = decodeAppRowIdHexV1("00000000000000000000000000000001");
+      const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+      const creationTime = AppCreationTimeV1Schema.make(1);
+      const document = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime,
+        fields: { name: "stored", nested: { label: "original" } } }));
+      const revision: LiveAppRowRevisionV1 = { kind: "live", scopeId, tableId, rowId,
+        scopeUuid: ScopeUuidV1Schema.make("91000000-0000-4000-8000-000000000001"),
+        writeEpochUuid: ScopeEpochUuidV1Schema.make("91000000-0000-4000-8000-000000000002"),
+        commitSeq: snapshotCommitSeq, prevCommitSeq: null,
+        schemaVersionId: CatalogSchemaVersionIdSchema.make("stored_activity"), creationTime, document };
+      yield* Effect.fromResult(root.observePoint("items", { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+        dependency: { kind: "appRowPoint", documentId, observed: { kind: "present", revisionCommitSeq: snapshotCommitSeq } } }, revision));
+      const project = makeLogicalCommerceActivityProjection(new Map([[tableId, "items"]]));
+      const initialContribution = yield* working.activityContribution;
+      const firstActivity = yield* working.readActivityContribution(initialContribution);
+      const initialBytes = lifetime.remainingBytes();
+      const firstPolicy = yield* project(firstActivity);
+      expect(lifetime.remainingBytes()).toBe(initialBytes);
+      const escaped = structuredClone(firstPolicy.observedRows[0]?.row);
+      if (escaped === undefined) throw new Error("Missing stored policy row");
+      Reflect.set(escaped, "name", "escaped");
+      yield* working.documents.get(lifetime.context, id, documentId, "items");
+      const nextContribution = yield* working.activityContribution;
+      expect(nextContribution).not.toBe(initialContribution);
+      const nextActivity = yield* working.readActivityContribution(nextContribution);
+      const nextPolicy = yield* project(nextActivity);
+      expect(nextActivity.observedRows[0]).toBe(firstActivity.observedRows[0]);
+      expect(nextPolicy.observedRows[0]?.row).toBe(firstPolicy.observedRows[0]?.row);
+      expect(nextPolicy.observedRows[0]?.row).toMatchObject({ name: "stored", nested: { label: "original" } });
+      expect(Reflect.set(nextPolicy.observedRows[0]?.row ?? {}, "name", "escaped")).toBe(false);
+      const observed = firstActivity.observedRows[0];
+      if (observed === undefined) throw new Error("Missing stored observation");
+      const foreignValue = { name: "foreign-before", nested: { label: "foreign-before" } };
+      const foreignObservation = { ...observed, value: foreignValue };
+      const foreignActivity = { ...firstActivity, observedRows: [foreignObservation] };
+      const foreignFirst = yield* project(foreignActivity);
+      foreignValue.name = "foreign-after"; foreignValue.nested.label = "foreign-after";
+      const foreignNext = yield* project(foreignActivity);
+      expect(foreignNext.observedRows[0]?.row).not.toBe(foreignFirst.observedRows[0]?.row);
+      expect(foreignFirst.observedRows[0]?.row).toMatchObject({ name: "foreign-before", nested: { label: "foreign-before" } });
+      expect(foreignNext.observedRows[0]?.row).toMatchObject({ name: "foreign-after", nested: { label: "foreign-after" } });
+      foreignObservation.tableName = "forged";
+      expect(yield* Effect.result(project(foreignActivity)))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+    } finally { yield* lifetime.close; root.close(); }
+  })));
+
+it("selects observed rows by the original admitted source while retaining shared call mutation evidence", () =>
+  runEffect(Effect.gen(function* () {
+    const otherId = CatalogTableIdSchema.make(2);
+    const failure = (reason: string) => new Error(reason);
+    const first = yield* prepareLogicalWriteMechanics({ tables: [{ tableId, logicalName: "items" }], indexes: [], unique: [] }, failure);
+    const second = yield* prepareLogicalWriteMechanics({ tables: [{ tableId: otherId, logicalName: "others" }], indexes: [], unique: [] }, failure);
+    const foreign = yield* prepareLogicalWriteMechanics({ tables: [{ tableId, logicalName: "items" }], indexes: [], unique: [] }, failure);
+    const combined = yield* combineLogicalWriteMechanics([first, second], failure);
+    const { root, lifetime, id, working } = yield* make(undefined, 32, combined);
+    try {
+      const firstRow = yield* working.documents.insert(lifetime.context, id, "items", { name: "selected", nested: { label: "original" } });
+      yield* working.documents.insert(lifetime.context, id, "others", { name: "other-source" });
+      const cursor = working.activityCursor();
+      if (typeof firstRow._id !== "string") throw new Error("Missing source row identity");
+      yield* working.documents.patch(lifetime.context, id, firstRow._id, { name: "changed" }, "items");
+      yield* working.documents.insert(lifetime.context, id, "others", { name: "shared-mutation" });
+      const issued = yield* working.activityContribution;
+      const selected = yield* working.readActivityContribution(issued, cursor, first);
+      expect(selected.observedRows.map(row => row.value.name)).toEqual(["changed"]);
+      expect(selected.attempts.map(row => [row.ordinal, row.tableName])).toEqual([[0, "items"], [1, "others"]]);
+      expect(yield* Effect.result(working.readActivityContribution(issued, cursor, foreign)))
+        .toMatchObject({ _tag: "Failure", failure: new Error("invalidAuthority") });
+      const project = makeLogicalCommerceActivityProjection(new Map([[tableId, "items"], [otherId, "others"]]));
+      const projected = yield* project(selected);
+      expect(projected.observedRows).toHaveLength(1);
+      expect(projected.mutations.map(row => row.table)).toEqual(["items", "others"]);
+      const complete = yield* working.readActivityContribution(issued, cursor);
+      expect(complete.observedRows).toHaveLength(3);
+      expect(projected.observedRows[0]?.row).toMatchObject({ nested: { label: "original" } });
+      expect(Reflect.set(projected.observedRows[0]?.row ?? {}, "name", "escaped")).toBe(false);
+    } finally { yield* lifetime.close; root.close(); }
   })));
 
 it("observes actual lazy WorkingSet operations only through the explicitly provided SDK policy", () => {
@@ -428,6 +519,151 @@ it("refuses wrong-context and exhausted-call writes before Proxy capture", () =>
     expect(limited.readCalls()).toBe(0);
     yield* limited.lifetime.close;
     limited.root.close();
+  })));
+
+it("transfers authentic source semantics into private root revisions while public point copies remain foreign", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime } = yield* make();
+    const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence };
+    const state = attachLogicalDocumentRootEvaluator(root, pins);
+    if (state === null) throw new Error("Missing authentic root state");
+    const rowId = decodeAppRowIdHexV1("00000000000000000000000000000001");
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    const creationTime = AppCreationTimeV1Schema.make(1);
+    const canonical = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime,
+      fields: { name: "original", nested: { label: "owned" } } }));
+    const revision = yield* decodeStoredAppRowRevisionEvidenceEffect({ scopeId, tableId, rowId,
+      scopeUuid: ScopeUuidV1Schema.make("91000000-0000-4000-8000-000000000001"),
+      writeEpochUuid: ScopeEpochUuidV1Schema.make("91000000-0000-4000-8000-000000000002"),
+      commitSeq: snapshotCommitSeq, prevCommitSeq: null,
+      schemaVersionId: CatalogSchemaVersionIdSchema.make("root_interpretation"), creationTime },
+      { tableId, rowId, creationTime, codecVersion: canonical.codecVersion, canonicalBytes: canonical.canonicalBytes, sha256: canonical.sha256 });
+    const document = revision.document;
+    const validator = vi.fn(() => Result.succeed(true));
+    const semantics = prepareLogicalCanonicalDocumentSemantics(validator, () => new Error("storedCorruption"));
+    yield* Effect.fromResult(semantics.validate(document));
+    const observation = { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+      dependency: { kind: "appRowPoint" as const, documentId,
+        observed: { kind: "present" as const, revisionCommitSeq: snapshotCommitSeq } } };
+    const refused = makeLogicalDocumentRootEvaluator(pins, { identities: 4, workingBytes: 1 });
+    const foreignRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 4, workingBytes: 16_000 });
+    try {
+      expect(refused.observePoint("items", observation, revision)).toMatchObject({ _tag: "Failure", failure: "limitExceeded" });
+      expect(refused.point(tableId, rowId)).toBeUndefined();
+      yield* Effect.fromResult(foreignRoot.observePoint("items", observation, { ...revision }));
+      const foreignState = attachLogicalDocumentRootEvaluator(foreignRoot, pins);
+      const foreign = foreignState?.rows.get(documentId)?.current;
+      if (foreign == null) throw new Error("Missing synthetic frame document");
+      expect(Result.getOrThrow(semantics.inspect(foreign))).toBeUndefined();
+      yield* Effect.fromResult(root.observePoint("items", observation, revision));
+      const original = state.rows.get(documentId)?.current;
+      if (original == null) throw new Error("Missing owned original revision");
+      expect(state.workingBytes).toBe(256 + document.canonicalBytes.byteLength);
+      expect(original).not.toBe(document);
+      expect(original.canonicalBytes).not.toBe(document.canonicalBytes);
+      yield* Effect.fromResult(semantics.validate(original));
+      expect(validator).toHaveBeenCalledTimes(1);
+      const escaped = root.point(tableId, rowId)?.document;
+      if (escaped == null) throw new Error("Missing detached public point");
+      expect(Result.getOrThrow(semantics.inspect(escaped))).toBeUndefined();
+      escaped.sha256.fill(0);
+      document.sha256.fill(0);
+      expect(Result.getOrThrow(semantics.inspect(original))).toMatchObject({ name: "original" });
+      const replacement = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime,
+        fields: { name: "replacement" } }));
+      yield* Effect.fromResult(semantics.validate(replacement));
+      const originalBytes = state.workingBytes;
+      yield* Effect.fromResult(root.writePoint("items", observation, { kind: "live", creationTime, document: replacement }, "replace"));
+      const current = state.rows.get(documentId)?.current;
+      if (current == null) throw new Error("Missing owned current revision");
+      expect(state.workingBytes).toBe(originalBytes + 128 + replacement.canonicalBytes.byteLength);
+      yield* Effect.fromResult(semantics.validate(current));
+      expect(validator).toHaveBeenCalledTimes(2);
+      current.canonicalBytes.fill(0);
+      expect(semantics.inspect(current)).toMatchObject({ _tag: "Failure", failure: new Error("storedCorruption") });
+      expect(Result.getOrThrow(semantics.inspect(original))).toMatchObject({ name: "original" });
+    } finally { foreignRoot.close(); refused.close(); yield* lifetime.close; root.close(); }
+  })));
+
+it("transfers only actual stored decoder evidence at root ingestion and preserves later corruption and copy defect cuts", () =>
+  runEffect(Effect.gen(function* () {
+    const { root, lifetime } = yield* make();
+    const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence };
+    const state = attachLogicalDocumentRootEvaluator(root, pins);
+    if (state === null) throw new Error("Missing authentic root state");
+    const rowId = decodeAppRowIdHexV1("00000000000000000000000000000001");
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    const creationTime = AppCreationTimeV1Schema.make(1);
+    const canonical = yield* Effect.promise(() => canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { name: "stored" } }));
+    const revision = yield* decodeStoredAppRowRevisionEvidenceEffect({ scopeId, tableId, rowId,
+      scopeUuid: ScopeUuidV1Schema.make("91000000-0000-4000-8000-000000000001"),
+      writeEpochUuid: ScopeEpochUuidV1Schema.make("91000000-0000-4000-8000-000000000002"),
+      commitSeq: snapshotCommitSeq, prevCommitSeq: null,
+      schemaVersionId: CatalogSchemaVersionIdSchema.make("root_stored"), creationTime },
+      { tableId, rowId, creationTime, codecVersion: canonical.codecVersion, canonicalBytes: canonical.canonicalBytes, sha256: canonical.sha256 });
+    const document = revision.document;
+    const observation = { documentId, tableId, rowId, readAt: snapshotCommitSeq,
+      dependency: { kind: "appRowPoint" as const, documentId,
+        observed: { kind: "present" as const, revisionCommitSeq: snapshotCommitSeq } } };
+    const foreignRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 4, workingBytes: 16_000 });
+    try {
+      yield* Effect.fromResult(root.observePoint("items", observation, revision));
+      const owned = state.rows.get(documentId)?.current;
+      if (owned == null) throw new Error("Missing owned decoder revision");
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(owned))?.runtime).toBe(owned.value);
+      const escaped = root.point(tableId, rowId)?.document;
+      if (escaped == null) throw new Error("Missing public decoder point");
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(escaped))).toBeUndefined();
+      yield* Effect.fromResult(foreignRoot.observePoint("items", observation, structuredClone(revision)));
+      const foreignState = attachLogicalDocumentRootEvaluator(foreignRoot, pins);
+      const foreign = foreignState?.rows.get(documentId)?.current;
+      if (foreign == null) throw new Error("Missing foreign root revision");
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(foreign))).toBeUndefined();
+      foreignRoot.forgetUnwrittenPoint(tableId, rowId);
+      // A self-removing foreign accessor can return the genuine document at
+      // the original guard, then swap the body copied by native structuredClone.
+      // Its resulting all-data shape must never acquire frame provenance.
+      const swapping = { ...revision };
+      let documentReads = 0;
+      Object.defineProperty(swapping, "document", { enumerable: true, configurable: true, get() {
+        documentReads++;
+        Object.defineProperty(swapping, "document", { value: structuredClone(document), enumerable: true, configurable: true });
+        return document;
+      } });
+      yield* Effect.fromResult(foreignRoot.observePoint("items", observation, swapping));
+      const swapped = foreignState?.rows.get(documentId)?.current;
+      if (swapped == null) throw new Error("Missing foreign swapped revision");
+      expect(documentReads).toBe(1);
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(swapped))).toBeUndefined();
+      foreignRoot.forgetUnwrittenPoint(tableId, rowId);
+      const reflection = vi.fn((): never => { throw new Error("foreign descriptor trap"); });
+      const proxy = new Proxy(revision, { getOwnPropertyDescriptor: reflection });
+      let proxyRefusal: unknown;
+      try { foreignRoot.observePoint("items", observation, proxy); } catch (cause) { proxyRefusal = cause; }
+      expect(proxyRefusal).toBeInstanceOf(DOMException);
+      if (!(proxyRefusal instanceof DOMException)) throw new Error("Missing native clone refusal");
+      expect(proxyRefusal.name).toBe("DataCloneError");
+      expect(reflection).not.toHaveBeenCalled();
+      expect(foreignRoot.point(tableId, rowId)).toBeUndefined();
+      document.canonicalBytes.fill(0);
+      expect(Result.getOrThrow(inspectStoredAppDocumentEvidence(owned))?.runtime).toBe(owned.value);
+      owned.sha256.fill(0);
+      expect(inspectStoredAppDocumentEvidence(owned)).toMatchObject({ _tag: "Failure", failure: { issue: { reason: "sha256Mismatch" } } });
+      foreignRoot.forgetUnwrittenPoint(tableId, rowId);
+      yield* Effect.fromResult(foreignRoot.observePoint("items", observation, revision));
+      const changed = foreignState?.rows.get(documentId)?.current;
+      if (changed == null) throw new Error("Missing changed stored revision");
+      expect(inspectStoredAppDocumentEvidence(changed)).toMatchObject({ _tag: "Failure", failure: { issue: { reason: "canonicalBytesMismatch" } } });
+      foreignRoot.forgetUnwrittenPoint(tableId, rowId);
+      const defect = new Error("canonical clone getter");
+      const late = vi.fn((): never => { throw new Error("later frame getter"); });
+      const bad = { ...revision, document: { ...canonical, get value(): never { throw defect; } }, get later(): never { return late(); } };
+      let copyRefusal: unknown;
+      try { foreignRoot.observePoint("items", observation, bad); } catch (cause) { copyRefusal = cause; }
+      expect(copyRefusal).toBe(defect);
+      expect(late).not.toHaveBeenCalled();
+      expect(foreignRoot.point(tableId, rowId)).toBeUndefined();
+    } finally { foreignRoot.close(); yield* lifetime.close; root.close(); }
   })));
 
 it("transfers one detached original and graph while preserving their canonical identity", () =>

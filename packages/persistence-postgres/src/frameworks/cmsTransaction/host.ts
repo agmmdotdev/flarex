@@ -1,4 +1,4 @@
-import { withExecutionDiagnosticDefaults } from "../../execution/diagnostics/operation";
+import { observeExecution, withExecutionDiagnosticDefaults } from "../../execution/diagnostics/operation";
 import { getCmsCommand, type CmsCommand } from "./commands";
 import { projectCmsRequestFailure } from "./failure";
 import type { CmsHostConfiguration } from "./hostConfiguration";
@@ -126,7 +126,9 @@ const digestBytes = makeLivePrivateSha256V1({
   inputBytesExceeded: () => cmsError("limitExceeded"), unavailable: () => cmsError("resourceFailure"),
   nativeRejected: cause => cmsError("resourceFailure", cause), invalidDigestOutput: () => new Error("Invalid CMS SHA-256 output"),
 });
-const sha256 = Effect.fn("CmsHost.sha256")((bytes: Uint8Array) => digestBytes(bytes, { maximumInputBytes: cmsLimits.commandBytes }));
+const sha256 = Effect.fnUntraced(function* (bytes: Uint8Array) {
+  return yield* digestBytes(bytes, { maximumInputBytes: cmsLimits.commandBytes });
+}, work => observeExecution("CmsHost.sha256", work, "caller"));
 
 const projectFailure = (cause: unknown) => cause instanceof PhysicalSessionDeadlineIssue ? cmsError("deadlineExceeded", cause) :
   projectCmsRequestFailure(cause);
@@ -201,12 +203,14 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha256(identityBytes));
   yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, requestBudget, expectedContentIdentity: expectedContentIdentity ?? null })
     .pipe(Effect.mapError(projectFailure));
-  const preparedPreferences = preferenceTarget === undefined ? undefined : yield* prepareCmsPreferences(database, session, authority,
-    deploymentId, scopeId, preferenceTarget).pipe(Effect.mapError(projectFailure));
   if (!hasApplicationBindingComposition(application, compositionAuthority)) return yield* Effect.fail(cmsError("invalidAuthority"));
   const owner = Object.freeze({ hostId: Symbol("cms.host") });
   const materialization = Object.freeze({ ...input.materialization });
   const currentPreparation = yield* prepareCurrentApplicationBinding(application, database, (binding, context) => Effect.gen(function* () {
+    // Preference restoration belongs to this same replaceable generation. Its
+    // availability head and complete evidence remain fresh at each admission.
+    const preferences = preferenceTarget === undefined ? undefined : yield* prepareCmsPreferences(database, session, authority,
+      deploymentId, scopeId, preferenceTarget).pipe(Effect.mapError(projectFailure));
     if (logicalSelection !== undefined) {
       const source = yield* prepareLogicalDocumentSourceAdmission(logicalSelection.ports, logicalSelection.unique,
         { deploymentId, scopeId: context.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId },
@@ -221,12 +225,13 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     const prepared = yield* prepareCmsApplicationFromBinding(binding, controlDatabase, deploymentId, scopeId);
     const commit = yield* prepareCmsApplicationCommit(prepared, controlDatabase, context.authority, pointCommitAuthority,
       materialization, context.planningHead);
-    return Object.freeze({ kind: "application" as const, application: prepared, commit });
-  }), { installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)).pipe(Effect.mapError(projectFailure)),
+    return Object.freeze({ kind: "application" as const, application: prepared, commit, preferences });
+  }), { selection: { deploymentId, scopeId },
+    installation: yield* Effect.fromResult(readRelationalSessionCoLocatedInstallation(session, database)).pipe(Effect.mapError(projectFailure)),
     ...(pointCommitAuthority === undefined ? {} : { candidateIssuer: pointCommitAuthority }) })
     .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });
-  const execute = Effect.fn("CmsHost.execute")(function* (requestKey: string | null, token: CmsCommand, args: Json) {
+  const execute = Effect.fnUntraced(function* (requestKey: string | null, token: CmsCommand, args: Json) {
     const root = getCmsCommand(token);
     if (root === undefined || !allowed.has(token) || (requestKey === null && root.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
     const captured = yield* Effect.fromResult(capturePrivateJsonData(args, requestBudget.commandBytes, cmsError));
@@ -236,7 +241,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     const transactionId = crypto.randomUUID();
     const requestIdentity = Object.freeze({ requestId: Symbol("cms.request") });
     const deadline = yield* startRelationalRequestDeadline(cmsLimits.commandMs).pipe(Effect.mapError(projectFailure));
-    const attempt = Effect.fn("CmsHost.attempt")(function* (recoverOnly: boolean) {
+    const attempt = Effect.fnUntraced(function* (recoverOnly: boolean) {
       return yield* currentPreparation.withEntry(({ binding: active, payload }, enter) => runRelationalSession(session,
         requestKey === null ? "snapshotRead" : "command", { enter: (tx, requireInstallation) =>
           enter(tx, requireInstallation, Effect.gen(function* () {
@@ -248,7 +253,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
           hashtextextended(${JSON.stringify(["flarex.cms.request", scopeId, key])}, 0))`),
           cause => cmsError("statementFailure", cause));
         }), ({ clock, authority: entryAuthority, checked }) => Effect.scoped(Effect.gen(function* () {
-        const runAdmitted = Effect.fn("CmsHost.runAdmitted")(function* (member:
+        const runAdmitted = Effect.fnUntraced(function* (member:
           Readonly<{ kind: "application"; admission: CmsAdmission }> |
           Readonly<{ kind: "source"; admission: LogicalDocumentSourceAdmission }>) {
           const state = member.kind === "source"
@@ -309,7 +314,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
                     participant.finalize(closure, preferenceClosure, actualLookup, value, digest, testHooks)))), Effect.asVoid);
               return Object.freeze({ documents: working.documents, incoming, preferences: preferences.cleanup, finalize });
             });
-            const invoke = Effect.fn("CmsHost.invoke")(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {
+            const invoke = Effect.fnUntraced(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {
               const definition = getCmsCommand(child);
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
@@ -321,7 +326,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
               const output = yield* Effect.fromResult(capturePrivateJsonData(value, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(output.bytes));
               return output.value;
-            });
+            }, work => observeExecution("CmsHost.invoke", work, "caller"));
             const value = yield* invoke(lifetime.context, token, captured.value);
             const result = yield* canonicalizeSuccessfulResultV1Effect(value);
             yield* Effect.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
@@ -333,22 +338,22 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
             }
             return result.valueJson;
           }).pipe(Effect.ensuring(lifetime.close));
-        });
+        }, work => observeExecution("CmsHost.runAdmitted", work, "caller"));
         if (payload.kind === "application") return yield* withCmsAdmission(payload.application, tx, entryAuthority, clock,
-          admission => runAdmitted({ kind: "application", admission }), preparedPreferences, checked);
+          admission => runAdmitted({ kind: "application", admission }), payload.preferences, checked);
         return yield* (key === null
           ? payload.source.withReadAdmission(active, tx, entryAuthority, clock,
             admission => runAdmitted({ kind: "source", admission }), checked)
           : payload.source.withAdmission(active, tx, entryAuthority, clock,
             admission => runAdmitted({ kind: "source", admission }), checked));
       }))) }, deadline));
-    });
+    }, work => observeExecution("CmsHost.attempt", work, "caller"));
     return yield* boundRelationalRequestDeadline(deadline, runWithRequestRecovery(attempt, {
       hasRequestKey: key !== null,
       projectFailure,
       isDecisionUncertain: error => error.reason === "decisionUncertain",
     })).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
-  });
+  }, work => observeExecution("CmsHost.execute", work, "caller"));
   return Object.freeze({ newRequestKey: () => `cms/${crypto.randomUUID()}`,
     run: (key, command, args) => execute(key, command, args), read: (command, args) => execute(null, command, args) } satisfies Omit<CmsHost, "close" | "requestBudget">);
 });

@@ -2,7 +2,7 @@ import { Effect, Result, Schema } from "effect";
 import type { DAL } from "@medusajs/framework/types";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, useCapturedPrivateJsonData, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import type { CommerceModuleEvents } from "./commerce-module";
 import { commerceRepositoryContext } from "./commerce-repository-context";
@@ -203,16 +203,22 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         for (const row of result.rows) {
           const children = row.prices;
           if (children === undefined) { output.push(row); continue; }
-          const decoded = yield* Effect.fromResult(decodeStoredRows(children));
+          yield* Effect.fromResult(decodeStoredRows(children));
+          if (!Array.isArray(children)) return yield* Effect.fail(commerceError("storedCorruption"));
           const prices: JsonObject[] = [];
-          for (const stored of decoded) {
+          for (const stored of children) {
+            if (!isJsonObject(stored)) return yield* Effect.fail(commerceError("storedCorruption"));
             const child = { ...stored };
             for (const column of price.table.columns) if (column.type === "bigNumber" && Object.hasOwn(child, column.name)) {
               child[column.name] = yield* decodeExactNumeric(child[column.name], child["raw_" + column.name], column.nullable);
             }
-            prices.push(child);
+            const captured = yield* Effect.fromResult(useCapturedPrivateJsonData(child, Number.MAX_SAFE_INTEGER, commerceError));
+            if (!isJsonObject(captured.value)) return yield* Effect.fail(commerceError("storedCorruption"));
+            prices.push(captured.value);
           }
-          output.push({ ...row, prices });
+          const captured = yield* Effect.fromResult(useCapturedPrivateJsonData({ ...row, prices }, Number.MAX_SAFE_INTEGER, commerceError));
+          if (!isJsonObject(captured.value)) return yield* Effect.fail(commerceError("storedCorruption"));
+          output.push(captured.value);
         }
         return { ...result, rows: output };
       });
@@ -245,10 +251,12 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(bridge.checked(root, Effect.gen(function* () {
           if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
           const value = yield* Effect.fromResult(captureCommerceInput(input, root.resources));
-          const decoded = yield* Effect.fromResult(decodeSerialized(value));
+          yield* Effect.fromResult(decodeSerialized(value));
           // SAFETY: the native DAL generic also covers partial projections;
           // graph rows and selected scalar values were validated above.
-          return decoded as Output;
+          // JSON membership has no normalization or field transform. Preserve
+          // the capture owner's exact native serialization value.
+          return value as Output;
         }))),
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, find(ctx, input, false)).pipe(Effect.map(value => value.rows))),
         findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {

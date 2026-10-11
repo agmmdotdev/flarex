@@ -58,6 +58,25 @@ const UTF8 = new TextEncoder();
 
 const MAX_FRAME_BYTES = 1_048_576;
 
+/** Native scalar mapping preserves column types; a NULL composite can make
+ * every scalar null. These envelopes carry evidence, never decoded authority. */
+type RawApplicationActiveHeadRow = {
+  readonly [Field in keyof typeof fxSystemApplicationActiveHeads.$inferSelect]:
+    (typeof fxSystemApplicationActiveHeads.$inferSelect)[Field] | null;
+};
+type RawApplicationActivationRow = {
+  readonly [Field in keyof typeof fxSystemApplicationActivations.$inferSelect]:
+    (typeof fxSystemApplicationActivations.$inferSelect)[Field] | null;
+};
+type RawLegacyApplicationSchemaRow = {
+  readonly [Field in keyof typeof fxSystemApplicationRevisionSchemasV1.$inferSelect]:
+    (typeof fxSystemApplicationRevisionSchemasV1.$inferSelect)[Field] | null;
+};
+type RawRelationApplicationSchemaRow = {
+  readonly [Field in keyof typeof fxSystemApplicationRevisionSchemas.$inferSelect]:
+    (typeof fxSystemApplicationRevisionSchemas.$inferSelect)[Field] | null;
+};
+
 const CapturedActiveHeadColumnsSchema = Schema.Struct({
   scopeId: Schema.toType(ScopeIdSchema), sequenceText: Schema.BigIntFromString, revisionId: Schema.String,
   readinessContractVersion: Schema.Literals([1, 2, 3]), relationCount: Schema.NullOr(Schema.Number),
@@ -192,19 +211,22 @@ export const readCheckedApplicationSchemaForHeadForShareInTransactionEffect = Ef
 export const decodeApplicationActiveHeadRowEffect = Effect.fn(
   "ApplicationActiveHead.decodeRow",
 )(function* (
-  row: typeof fxSystemApplicationActiveHeads.$inferSelect,
+  row: RawApplicationActiveHeadRow,
 ) {
   const readiness = yield* decodeHeadReadiness(row);
+  if (row.scopeId === null || row.activationSequence === null || row.revisionId === null)
+    return yield* storedState(row.revisionId);
   const expected = applicationActiveHeadFrame({
     scopeId: row.scopeId,
     activationSequence: row.activationSequence.toString(),
     revisionId: row.revisionId,
     readiness: readiness.commitment,
-    activationSha256: encodeBytesToLowercaseHex(row.activationSha256),
+    activationSha256: encodeBytesToLowercaseHex(readiness.activationSha256),
   });
+  if (row.headBytes === null) return yield* storedState(row.revisionId);
   yield* validateFrame(
     row.headBytes,
-    row.headSha256,
+    readiness.headSha256,
     expected,
     row.revisionId,
   );
@@ -213,11 +235,11 @@ export const decodeApplicationActiveHeadRowEffect = Effect.fn(
     scopeId: row.scopeId,
     activationSequence: row.activationSequence,
     revisionId: row.revisionId,
-    readinessSha256: copyBytes(row.readinessSha256),
+    readinessSha256: copyBytes(readiness.readinessSha256),
     writePolicySetSha256: row.writePolicySetSha256 === null ? null : encodeBytesToLowercaseHex(row.writePolicySetSha256),
     writeOwnershipSha256: row.writeOwnershipSha256 === null ? null : encodeBytesToLowercaseHex(row.writeOwnershipSha256),
-    activationSha256: copyBytes(row.activationSha256),
-    headSha256: copyBytes(row.headSha256),
+    activationSha256: copyBytes(readiness.activationSha256),
+    headSha256: copyBytes(readiness.headSha256),
   } as const;
   return readiness.kind === "legacy"
     ? Object.freeze({
@@ -240,11 +262,13 @@ export const decodeApplicationActiveHeadRowEffect = Effect.fn(
 export const decodeApplicationActivationRowEffect = Effect.fn(
   "ApplicationActivation.decodeRow",
 )(function* (
-  row: typeof fxSystemApplicationActivations.$inferSelect,
+  row: RawApplicationActivationRow,
 ) {
   const readiness = yield* decodeActivationReadiness(row);
   const activatedAt = databaseTimestampFromUnknown(row.activatedAt);
   if (activatedAt === null) return yield* storedState(row.revisionId);
+  if (row.scopeId === null || row.activationSequence === null || row.revisionId === null)
+    return yield* storedState(row.revisionId);
   const expected = applicationActivationFrame({
     scopeId: row.scopeId,
     activationSequence: row.activationSequence.toString(),
@@ -253,12 +277,13 @@ export const decodeApplicationActivationRowEffect = Effect.fn(
     revisionId: row.revisionId,
     readiness: readiness.commitment,
     activationRequestSha256:
-      encodeBytesToLowercaseHex(row.activationRequestSha256),
+      encodeBytesToLowercaseHex(readiness.activationRequestSha256),
     activatedAt: activatedAt.toISOString(),
   });
+  if (row.activationBytes === null) return yield* storedState(row.revisionId);
   yield* validateFrame(
     row.activationBytes,
-    row.activationSha256,
+    readiness.activationSha256,
     expected,
     row.revisionId,
   );
@@ -268,11 +293,11 @@ export const decodeApplicationActivationRowEffect = Effect.fn(
     activationSequence: row.activationSequence,
     previousActivationSequence: row.previousActivationSequence,
     revisionId: row.revisionId,
-    readinessSha256: copyBytes(row.readinessSha256),
+    readinessSha256: copyBytes(readiness.readinessSha256),
     writePolicySetSha256: row.writePolicySetSha256 === null ? null : encodeBytesToLowercaseHex(row.writePolicySetSha256),
     writeOwnershipSha256: row.writeOwnershipSha256 === null ? null : encodeBytesToLowercaseHex(row.writeOwnershipSha256),
-    activationRequestSha256: copyBytes(row.activationRequestSha256),
-    activationSha256: copyBytes(row.activationSha256),
+    activationRequestSha256: copyBytes(readiness.activationRequestSha256),
+    activationSha256: copyBytes(readiness.activationSha256),
     activatedAt: new Date(activatedAt.getTime()),
   } as const;
   return readiness.kind === "legacy"
@@ -337,7 +362,7 @@ export const readApplicationSchemaForHeadForShareInTransactionEffect = Effect.fn
 
 const decodeApplicationSchemaBinding = Effect.fn("ApplicationActiveHead.decodeSchemaBinding")(
   function* (head: DecodedApplicationActiveHead,
-    bindings: readonly (typeof fxSystemApplicationRevisionSchemasV1.$inferSelect | typeof fxSystemApplicationRevisionSchemas.$inferSelect)[]) {
+    bindings: readonly (RawLegacyApplicationSchemaRow | RawRelationApplicationSchemaRow)[]) {
     const scopeId = head.scopeId;
 
       const binding = bindings[0];
@@ -345,7 +370,7 @@ const decodeApplicationSchemaBinding = Effect.fn("ApplicationActiveHead.decodeSc
         binding.scopeId !== scopeId || binding.revisionId !== head.revisionId ||
         !isNonBlankString(binding.deploymentId) ||
         !isNonBlankString(binding.schemaVersionId) ||
-        !Number.isSafeInteger(binding.schemaVersion) || binding.schemaVersion < 1 ||
+        !Number.isSafeInteger(binding.schemaVersion) || typeof binding.schemaVersion !== "number" || binding.schemaVersion < 1 ||
         !isUint8ArrayWithByteLength(binding.applicationSchemaSha256, 32) ||
         !isUint8ArrayWithByteLength(binding.schemaManifestSha256, 32) ||
         databaseTimestampFromUnknown(binding.boundAt) === null) {
@@ -438,7 +463,7 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fnUntraced(functio
   scopeId: TrustedScopeAuthority["scopeId"],
   lockForShare: boolean,
   preparation?: ApplicationActiveHeadPreparationState,
-  capturedHead?: Readonly<{ row: typeof fxSystemApplicationActiveHeads.$inferSelect | null }>,
+  capturedHead?: Readonly<{ row: RawApplicationActiveHeadRow | null }>,
   decodedHead?: DecodedApplicationActiveHead,
 ): Effect.fn.Return<
   CoherentApplicationActiveHead | null,
@@ -478,10 +503,10 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fnUntraced(functio
 
 export const decodeApplicationMaterializationObservation = Effect.fn("ApplicationActiveHead.decodeMaterializationObservation")(
   function* (tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"], captured: Readonly<{
-    applicationHead: typeof fxSystemApplicationActiveHeads.$inferSelect | null;
-    applicationActivation: typeof fxSystemApplicationActivations.$inferSelect | null;
-    legacySchema: typeof fxSystemApplicationRevisionSchemasV1.$inferSelect | null;
-    relationSchema: typeof fxSystemApplicationRevisionSchemas.$inferSelect | null;
+    applicationHead: RawApplicationActiveHeadRow | null;
+    applicationActivation: RawApplicationActivationRow | null;
+    legacySchema: RawLegacyApplicationSchemaRow | null;
+    relationSchema: RawRelationApplicationSchemaRow | null;
     snapshot: boolean;
   }>) {
     if (!captured.snapshot) {
@@ -499,7 +524,8 @@ export const decodeApplicationMaterializationObservation = Effect.fn("Applicatio
 
 const decodeObservedCoherentApplicationActiveHead = Effect.fn("ApplicationActiveHead.decodeFiniteEntryObservation")(
   function* (tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"],
-    captured: Result.Result.Success<ReturnType<typeof readFiniteEntryApplicationObservation>>,
+    captured: Readonly<{ applicationHead: RawApplicationActiveHeadRow | null;
+      applicationActivation: RawApplicationActivationRow | null }>,
     preparation: ApplicationActiveHeadPreparationState | undefined) {
     const row = captured.applicationHead;
     if (row === null) {
@@ -580,23 +606,35 @@ type DecodedReadiness =
       readonly relationCount: number;
     }>;
 
+type DecodedHeadReadiness = DecodedReadiness & Readonly<{
+  readinessSha256: Uint8Array; activationSha256: Uint8Array; headSha256: Uint8Array;
+}>;
+type DecodedActivationReadiness = DecodedReadiness & Readonly<{
+  readinessSha256: Uint8Array; activationRequestSha256: Uint8Array; activationSha256: Uint8Array;
+}>;
+
 function decodeHeadReadiness(
-  row: typeof fxSystemApplicationActiveHeads.$inferSelect,
-): Effect.Effect<DecodedReadiness, ApplicationActiveHeadStateError> {
-  if (!commonDigestsAreValid(
-    row.readinessSha256,
-    row.activationSha256,
-    row.headSha256,
-  )) return storedState(row.revisionId);
+  row: RawApplicationActiveHeadRow,
+): Effect.Effect<DecodedHeadReadiness, ApplicationActiveHeadStateError> {
+  // Preserve the original common-digest argument observation order. These
+  // accepted facts feed frame assembly without rechecking the same bytes.
+  const readinessSha256 = row.readinessSha256;
+  const activationSha256 = row.activationSha256;
+  const headSha256 = row.headSha256;
+  if (!isUint8ArrayWithByteLength(readinessSha256, 32) ||
+    !isUint8ArrayWithByteLength(activationSha256, 32) ||
+    !isUint8ArrayWithByteLength(headSha256, 32)) return storedState(row.revisionId);
+  const digests = { readinessSha256, activationSha256, headSha256 };
   if (row.readinessContractVersion === 1 &&
     row.writePolicySetSha256 === null && row.writeOwnershipSha256 === null &&
     row.relationSetReadinessSha256 === null && row.relationCount === null) {
     return Effect.succeed(Object.freeze({
+      ...digests,
       kind: "legacy" as const,
       commitment: Object.freeze({
         kind: "legacy" as const,
         contractVersion: 1 as const,
-        readinessSha256: encodeBytesToLowercaseHex(row.readinessSha256),
+        readinessSha256: encodeBytesToLowercaseHex(readinessSha256),
       }),
     }));
   }
@@ -605,10 +643,11 @@ function decodeHeadReadiness(
     isUint8ArrayWithByteLength(row.relationSetReadinessSha256, 32) &&
     validRelationCount(row.relationCount, row.readinessContractVersion === 3 ? 0 : 1)) {
     return Effect.succeed(Object.freeze({
+      ...digests,
       kind: "relation" as const,
       commitment: Object.freeze({
         ...policy,
-        readinessSha256: encodeBytesToLowercaseHex(row.readinessSha256),
+        readinessSha256: encodeBytesToLowercaseHex(readinessSha256),
         relationSetReadinessSha256:
           encodeBytesToLowercaseHex(row.relationSetReadinessSha256),
         relationCount: row.relationCount,
@@ -621,39 +660,43 @@ function decodeHeadReadiness(
 }
 
 function decodeActivationReadiness(
-  row: typeof fxSystemApplicationActivations.$inferSelect,
-): Effect.Effect<DecodedReadiness, ApplicationActiveHeadStateError> {
-  if (!isUint8ArrayWithByteLength(row.readinessSha256, 32) ||
-    !isUint8ArrayWithByteLength(row.activationRequestSha256, 32) ||
-    !isUint8ArrayWithByteLength(row.activationSha256, 32)) {
-    return storedState(row.revisionId);
-  }
+  row: RawApplicationActivationRow,
+): Effect.Effect<DecodedActivationReadiness, ApplicationActiveHeadStateError> {
+  const readinessSha256 = row.readinessSha256;
+  if (!isUint8ArrayWithByteLength(readinessSha256, 32)) return storedState(row.revisionId);
+  const activationRequestSha256 = row.activationRequestSha256;
+  if (!isUint8ArrayWithByteLength(activationRequestSha256, 32)) return storedState(row.revisionId);
+  const activationSha256 = row.activationSha256;
+  if (!isUint8ArrayWithByteLength(activationSha256, 32)) return storedState(row.revisionId);
+  const digests = { readinessSha256, activationRequestSha256, activationSha256 };
   if (row.readinessContractVersion === 1 &&
     row.writePolicySetSha256 === null && row.writeOwnershipSha256 === null &&
     isUint8ArrayWithByteLength(row.legacyReadinessSha256, 32) &&
-    bytesEqualFullScan(row.legacyReadinessSha256, row.readinessSha256) &&
+    bytesEqualFullScan(row.legacyReadinessSha256, readinessSha256) &&
     row.relationReadinessSha256 === null &&
     row.relationSetReadinessSha256 === null && row.relationCount === null) {
     return Effect.succeed(Object.freeze({
+      ...digests,
       kind: "legacy" as const,
       commitment: Object.freeze({
         kind: "legacy" as const,
         contractVersion: 1 as const,
-        readinessSha256: encodeBytesToLowercaseHex(row.readinessSha256),
+        readinessSha256: encodeBytesToLowercaseHex(readinessSha256),
       }),
     }));
   }
   const policy = decodePolicyCommitment(row);
   if (policy !== undefined && row.readinessContractVersion !== 1 && row.legacyReadinessSha256 === null &&
     isUint8ArrayWithByteLength(row.relationReadinessSha256, 32) &&
-    bytesEqualFullScan(row.relationReadinessSha256, row.readinessSha256) &&
+    bytesEqualFullScan(row.relationReadinessSha256, readinessSha256) &&
     isUint8ArrayWithByteLength(row.relationSetReadinessSha256, 32) &&
     validRelationCount(row.relationCount, row.readinessContractVersion === 3 ? 0 : 1)) {
     return Effect.succeed(Object.freeze({
+      ...digests,
       kind: "relation" as const,
       commitment: Object.freeze({
         ...policy,
-        readinessSha256: encodeBytesToLowercaseHex(row.readinessSha256),
+        readinessSha256: encodeBytesToLowercaseHex(readinessSha256),
         relationSetReadinessSha256:
           encodeBytesToLowercaseHex(row.relationSetReadinessSha256),
         relationCount: row.relationCount,
@@ -665,11 +708,7 @@ function decodeActivationReadiness(
   return storedState(row.revisionId);
 }
 
-function commonDigestsAreValid(...values: ReadonlyArray<unknown>): boolean {
-  return values.every(value => isUint8ArrayWithByteLength(value, 32));
-}
-
-function decodePolicyCommitment(row: Pick<typeof fxSystemApplicationActiveHeads.$inferSelect,
+function decodePolicyCommitment(row: Pick<RawApplicationActiveHeadRow,
   "readinessContractVersion" | "writePolicySetSha256" | "writeOwnershipSha256">) {
   if (row.readinessContractVersion === 2 && row.writePolicySetSha256 === null && row.writeOwnershipSha256 === null) {
     return { kind: "relation" as const, contractVersion: 2 as const };
@@ -704,11 +743,11 @@ const validateFrame = Effect.fn("ApplicationActiveHead.validateFrame")(
   },
 );
 
-function storedState(revisionId?: string) {
+function storedState(revisionId?: string | null) {
   return Effect.fail(new ApplicationActiveHeadStateError({
     reason: "storedState",
     retryable: false,
-    ...(revisionId === undefined ? {} : { revisionId }),
+    ...(revisionId === undefined || revisionId === null ? {} : { revisionId }),
   }));
 }
 

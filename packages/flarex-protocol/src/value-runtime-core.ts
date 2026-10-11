@@ -1,4 +1,5 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
 
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import type { Json } from "./json";
@@ -37,6 +38,62 @@ export function isCanonicalFlarexRuntimeObjectV1(
     !Array.isArray(value) &&
     !(value instanceof ArrayBuffer)
   );
+}
+
+/** Private ownership projection for an already normalized, exclusively owned
+ * runtime tree, including a detached copy whose containers need freezing again.
+ * This never validates foreign input or issues provenance. The canonical codec
+ * retains all value, depth, size and first-failure policy. Every read shares
+ * immutable branches and detaches binary-bearing branches from retained buffers. */
+export function createOwnedCanonicalFlarexRuntimeValueReaderV1(
+  value: CanonicalFlarexRuntimeValueV1,
+): () => CanonicalFlarexRuntimeValueV1 {
+  const detach = compileOwnedCanonicalBinaryProjection(value);
+  return detach === undefined ? () => value : detach;
+}
+
+/** Pure ownership mechanics for an already privately normalized runtime. This
+ * snapshots binary leaves and supplies defensive reads; it grants no codec,
+ * canonical-evidence or table-validation provenance. */
+export function createOwnedCanonicalFlarexRuntimeValueProjectionV1(value: CanonicalFlarexRuntimeValueV1) {
+  const checks: (() => boolean)[] = [];
+  const read = compileOwnedCanonicalBinaryProjection(value, checks) ?? (() => value);
+  return Object.freeze({ read, binaryMatches: () => checks.every(check => check()) });
+}
+
+function compileOwnedCanonicalBinaryProjection(
+  value: CanonicalFlarexRuntimeValueV1,
+  checks?: (() => boolean)[],
+): (() => CanonicalFlarexRuntimeValueV1) | undefined {
+  if (value instanceof ArrayBuffer) {
+    if (checks === undefined) return () => value.slice(0);
+    const owned = value.slice(0);
+    checks.push(() => bytesEqualFullScan(new Uint8Array(value), new Uint8Array(owned)));
+    return () => owned.slice(0);
+  }
+  if (Array.isArray(value)) {
+    const children = value.map((child: CanonicalFlarexRuntimeValueV1) =>
+      ({ value: child, detach: compileOwnedCanonicalBinaryProjection(child, checks) }));
+    Object.freeze(value);
+    if (children.every(child => child.detach === undefined)) return undefined;
+    return () => Object.freeze(children.map(child =>
+      child.detach === undefined ? child.value : child.detach()));
+  }
+  if (isCanonicalFlarexRuntimeObjectV1(value)) {
+    const children = Object.entries(value).map(([key, child]) =>
+      ({ key, value: child, detach: compileOwnedCanonicalBinaryProjection(child, checks) }));
+    Object.freeze(value);
+    if (children.every(child => child.detach === undefined)) return undefined;
+    return () => {
+      const projection: Record<string, CanonicalFlarexRuntimeValueV1> = {};
+      for (const child of children) Object.defineProperty(projection, child.key, {
+        enumerable: true,
+        value: child.detach === undefined ? child.value : child.detach(),
+      });
+      return Object.freeze(projection);
+    };
+  }
+  return undefined;
 }
 
 export const MIN_FLAREX_INT64_V1 = -(1n << 63n);

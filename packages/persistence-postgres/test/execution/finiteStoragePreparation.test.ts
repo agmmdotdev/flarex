@@ -24,12 +24,14 @@ import { prepareInstalledAttemptScopeAuthority } from "../../src/scope/scopeAuth
 import { createPostgresLocatedReadCommittedTransactionRunnerV1 } from "../../src/database/postgresLocatedReadCommitted";
 import type { LocatedScopeClockReader } from "../../src/scope/scopeAuthorityResolution";
 import { runEffect } from "../support/effectTestRuntime";
+import { readFiniteActiveApplicationPreparationState } from "../../src/application/activation/finiteIdentity";
+import { readFiniteMetadataSourcePreparation } from "../../src/execution/finiteMetadataDependencies";
 import { createMixedMutationProductFixture } from "../../../executor/test/performance/support/mixedMutationProductFixture";
 import { postgresUrl } from "../support/postgresHelpers";
 
 const locator: ScopePhysicalLocator = { kind: "shared_database", databaseKey: "prepared-database", schemaName: "capture_target" };
 const constructionDriver: Extract<FiniteStorageCaptureProfile, { kind: "installed" }>["driver"] = {
-  runImplicitReadEffect: () => Effect.die("Construction must never acquire a client"),
+  runImplicitCommandEffect: () => Effect.die("Construction must never acquire a client"),
 };
 
 /** A tiny installation-issuer fixture, not an installed serving database. It
@@ -71,9 +73,9 @@ async function installationFixture() {
 }
 
 describe("database-owned finite storage preparation", () => {
-  it("decodes all ten actual installed and full-artifact projections into one header and final bodies, refusing malformed layouts", async () => {
+  it("decodes all nine actual installed and full-artifact projections into one header and final bodies, refusing malformed layouts", async () => {
     const fixture = await installationFixture();
-    const kinds = ["rows", "indexPage", "indexRows", "ownership", "historicalIdentity", "transactionTime", "retirement",
+    const kinds = ["rows", "indexPage", "ownership", "historicalIdentity", "transactionTime", "retirement",
       "ownershipPolicyManifest", "ownershipUniqueClosure", "ownershipFence"] as const;
     try {
       const installation = await fixture.pair();
@@ -99,23 +101,20 @@ describe("database-owned finite storage preparation", () => {
               if (result < 0) throw new Error("Missing actual capture field: " + path.join("."));
               return result;
             };
-            const layout = { indexRows: kind === "indexRows", historicalIdentity: kind === "historicalIdentity", fullArtifact: profile.kind === "fullArtifact" };
+            const layout = { historicalIdentity: kind === "historicalIdentity", fullArtifact: profile.kind === "fullArtifact" };
             const mapper = compileFiniteCaptureResultMapper<Record<string, unknown>>(fields, layout);
             const first: unknown[] = fields.map(() => null);
             first[index("reason")] = "accepted";
             first[index("databaseNow")] = "10";
             first[index("servingCommitSeq")] = "2";
             first[index("retainedFloor")] = "0";
-            first[index("build", "startCommitSeq")] = "7";
             first[index("targetMetadataEpoch")] = "9";
             first[index("controlMetadataEpoch")] = "8";
             first[index("storagePresent")] = true;
             first[index("transactionTimestamp")] = "2026-10-08 00:00:00+00";
             first[index("exists")] = layout.historicalIdentity;
-            const bodyOrdinal = layout.indexRows ? index("raw", "index_ordinal") :
-              fields.findIndex(field => field.path[0] === "raw" && field.path[1] === "ordinal");
+            const bodyOrdinal = fields.findIndex(field => field.path[0] === "raw" && field.path[1] === "ordinal");
             if (bodyOrdinal >= 0) first[bodyOrdinal] = 1;
-            if (layout.indexRows) first[index("raw", "captureGroup")] = "index";
             const later: unknown[] = fields.map(() => null);
             later[index("storagePresent")] = true;
             later[index("exists")] = layout.historicalIdentity;
@@ -123,49 +122,38 @@ describe("database-owned finite storage preparation", () => {
               later[index("targetMetadataEpoch")] = "9";
               later[index("controlMetadataEpoch")] = "8";
             }
-            if (layout.indexRows) {
-              later[index("raw", "captureGroup")] = "row";
-              later[index("raw", "row_ordinal")] = 1;
-              later[index("raw", "row_rowPresent")] = true;
-            } else if (bodyOrdinal >= 0) later[bodyOrdinal] = 2;
+            if (bodyOrdinal >= 0) later[bodyOrdinal] = 2;
             const accepted = mapper([first, later]);
             expect(accepted.layoutFailure, profile.kind + ":" + kind).toBeUndefined();
-            expect(accepted.header).toMatchObject({ reason: "accepted", build: { startCommitSeq: 7n },
-              uniqueBuild: { scopeId: null }, indexMaintenance: { scopeId: null }, uniqueMaintenance: { scopeId: null }, frontier: { scopeUuid: null } });
-            expect(accepted.rawIndexRows).toHaveLength(layout.indexRows ? 1 : 0);
-            expect(accepted.rawRows).toHaveLength(layout.indexRows ? 1 : 2);
-            if (layout.indexRows) {
-              expect(accepted.rawIndexRows[0]).toHaveProperty("ordinal", 1);
-              expect(accepted.rawRows[0]).toHaveProperty("rowPresent", true);
-              expect(Object.keys(accepted.rawIndexRows[0]!)).toEqual(fields.filter(field => field.path[0] === "raw" && field.path[1]?.startsWith("index_"))
-                .map(field => field.path[1]!.slice(6)));
-              expect(Object.keys(accepted.rawRows[0]!)).toEqual(fields.filter(field => field.path[0] === "raw" && field.path[1]?.startsWith("row_"))
-                .map(field => field.path[1]!.slice(4)));
-            }
+            expect(accepted.header).toMatchObject({ reason: "accepted", servingCommitSeq: "2", retainedFloor: "0" });
+            expect(accepted.header).not.toHaveProperty("frontier");
+            for (const displaced of ["build", "uniqueBuild", "indexMaintenance", "uniqueMaintenance", "tableFrontier", "historicalChange"])
+              expect(fields.some(field => field.path[0] === displaced)).toBe(false);
+            const replacement = [...first]; replacement[index("reason")] = "attemptReplaced";
+            replacement[index("frontier", "attemptFence")] = "7";
+            expect(mapper([replacement]).header).toMatchObject({ reason: "attemptReplaced", frontier: { attemptFence: 7n } });
+            expect(accepted.rawRows).toHaveLength(2);
+            expect(Object.keys(accepted.rawRows[0]!)).toEqual(fields.filter(field => field.path[0] === "raw")
+              .map(field => field.path[1]!));
             const sentinel = [...first];
             sentinel[index("storagePresent")] = false;
             for (const [offset, field] of fields.entries()) if (field.path[0] === "raw") sentinel[offset] = null;
-            expect(mapper([sentinel])).toMatchObject({ layoutFailure: undefined, rawRows: [], rawIndexRows: [] });
-            expect(mapper([])).toMatchObject({ header: undefined, layoutFailure: undefined, rawRows: [], rawIndexRows: [] });
+            expect(mapper([sentinel])).toMatchObject({ layoutFailure: undefined, rawRows: [] });
+            expect(mapper([])).toMatchObject({ header: undefined, layoutFailure: undefined, rawRows: [] });
             const assertMalformed = (row: unknown[], previous?: unknown[]) =>
               expect(mapper(previous === undefined ? [row] : [previous, row]).layoutFailure, profile.kind + ":" + kind).toBeDefined();
             assertMalformed([...first, null]);
             assertMalformed(first.slice(0, -1));
-            assertMalformed(later.slice(0, index("build", "startCommitSeq")), first);
+            assertMalformed(later.slice(0, index("frontier", "attemptFence")), first);
             for (const marker of [undefined, null, "true", 1]) {
               const changed = [...first]; changed[index("storagePresent")] = marker; assertMalformed(changed);
             }
             const repeatedHeader = [...later]; repeatedHeader[index("reason")] = "accepted"; assertMalformed(repeatedHeader, first);
             const changedEpoch = [...later]; changedEpoch[index("targetMetadataEpoch")] = "changed"; assertMalformed(changedEpoch, first);
             const inactive = [...sentinel];
-            inactive[fields.findIndex(field => field.path[0] === "raw" && field.path[1] !== "captureGroup")] = 1;
+            inactive[fields.findIndex(field => field.path[0] === "raw")] = 1;
             assertMalformed(inactive);
-            if (layout.indexRows) {
-              const changed = [...first]; changed[index("raw", "captureGroup")] = "unknown"; assertMalformed(changed);
-              const inactiveRow = [...first]; inactiveRow[index("raw", "row_ordinal")] = 1; assertMalformed(inactiveRow);
-              const inactiveIndex = [...later]; inactiveIndex[index("raw", "index_ordinal")] = 1; assertMalformed(inactiveIndex, first);
-            }
-            const nativeFailure = [...first]; nativeFailure[index("build", "startCommitSeq")] = "invalid bigint";
+            const nativeFailure = [...first]; nativeFailure[index("frontier", "attemptFence")] = "invalid bigint";
             expect(() => mapper([nativeFailure])).toThrow(SyntaxError);
           }
         } finally { select.mockRestore(); }
@@ -177,7 +165,7 @@ describe("database-owned finite storage preparation", () => {
     const database = nodeDrizzle.mock({ schema: flarexSchema });
     const select = vi.spyOn(database, "select");
     createLocatedPointMutationSessionActivationTargetV1(database, locator);
-    expect(select).toHaveBeenCalledTimes(10);
+    expect(select).toHaveBeenCalledTimes(9);
     select.mockClear();
     createLocatedPointMutationSessionActivationTargetV1(database, { ...locator });
     expect(select).not.toHaveBeenCalled();
@@ -190,12 +178,12 @@ describe("database-owned finite storage preparation", () => {
     ]) {
       select.mockClear();
       createLocatedPointMutationSessionActivationTargetV1(database, changed);
-      expect(select).toHaveBeenCalledTimes(10);
+      expect(select).toHaveBeenCalledTimes(9);
     }
     const otherDatabase = nodeDrizzle.mock({ schema: flarexSchema });
     const otherSelect = vi.spyOn(otherDatabase, "select");
     createLocatedPointMutationSessionActivationTargetV1(otherDatabase, locator);
-    expect(otherSelect).toHaveBeenCalledTimes(10);
+    expect(otherSelect).toHaveBeenCalledTimes(9);
   });
 
   it("authenticates genuine installed preparation before reuse and isolates each installation issuer", async () => {
@@ -205,7 +193,7 @@ describe("database-owned finite storage preparation", () => {
       const profile = { kind: "installed", installation, driver: constructionDriver } as const;
       const select = vi.spyOn(fixture.database, "select");
       const first = Result.getOrThrow(bindFiniteStorageCaptureOwner(fixture.database, locator, profile));
-      expect(select).toHaveBeenCalledTimes(10);
+      expect(select).toHaveBeenCalledTimes(9);
       select.mockClear();
       const next = Result.getOrThrow(bindFiniteStorageCaptureOwner(fixture.database, { ...locator }, profile));
       expect(select).not.toHaveBeenCalled();
@@ -230,7 +218,7 @@ describe("database-owned finite storage preparation", () => {
       const otherInstallation = await fixture.pair();
       select.mockClear();
       Result.getOrThrow(bindFiniteStorageCaptureOwner(fixture.database, locator, { ...profile, installation: otherInstallation }));
-      expect(select).toHaveBeenCalledTimes(10);
+      expect(select).toHaveBeenCalledTimes(9);
     } finally { await fixture.client.close(); }
   });
 
@@ -264,6 +252,17 @@ describe("database-owned finite storage preparation", () => {
       });
       try {
         second = await first.openCompetingFiniteFixture(`prepared-plan-second-${driver}`);
+        for (const fixture of [first, second]) {
+          const active = readFiniteActiveApplicationPreparationState(fixture.preparedFiniteApplication);
+          if (active === undefined) throw new Error("Missing retained original Application generation");
+          const projection = await runEffect(fixture.prepared.lendFiniteMetadataProjection());
+          const source = Result.getOrThrow(readFiniteMetadataSourcePreparation(projection, fixture.prepared));
+          expect(source.schemaVersionId).toBe(fixture.logicalSchemaVersionId);
+          expect(source.schemaVersionId).not.toBe(fixture.schemaVersionId);
+          expect(source.boundApplicationProjection).toBeDefined();
+          expect(source.lifetime?.checkOpen).toBe(active.lifetime?.checkOpen);
+          expect(source.lifetime?.checkOpen).toBeTypeOf("function");
+        }
         const resource = first.currency.resource;
         const database = resource.target.drizzle;
         expect(resource.kind).toBe(driver);
@@ -298,7 +297,7 @@ describe("database-owned finite storage preparation", () => {
         // targets retain their original immutable plan rather than a cache lookup.
         select.mockClear();
         rebind({ ...physicalLocator, databaseKey: `${physicalLocator.databaseKey}-displaced` });
-        expect(compiledCaptures()).toBe(10);
+        expect(compiledCaptures()).toBe(9);
         expect(compiledAuthorities()).toBe(driver === "postgres" ? 2 : 0);
         select.mockRestore();
         if (resource.kind === "postgres") {

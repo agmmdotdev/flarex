@@ -29,7 +29,8 @@ import type {
 } from "../../../../persistence-postgres/test/application/applicationNativeMutationTestFixture";
 import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
-import { prepareFiniteApplicationMutationAdmission, readPreparedFiniteApplicationMutationInputs } from
+import { prepareFiniteApplicationMutationAdmission, prepareFiniteApplicationMutationSourceComposition,
+  readPreparedFiniteApplicationMutationInputs } from
   "../../../../persistence-postgres/src/application/applicationMutationAdmission";
 import {
   claimApplicationActiveSelection,
@@ -202,6 +203,12 @@ export interface MixedMutationProductFixtureHooks {
   /** Test observer installed after host/seeding construction, before genuine
    * Application preparation, aggregate entry and initial authentication. */
   readonly onPreparedContext?: (currency: CurrencyFixture) => Promise<MixedMutationPerformanceTrace | undefined>;
+  /** Select a genuine source before the original preparation generation
+   * compiles its ordered graph. Later entry hooks may not swap source loans. */
+  readonly selectFiniteProductSource?: (currency: CurrencyFixture) => ProductFixture["hostInput"]["logicalStorage"]["source"];
+  readonly onPreparedFiniteProductSource?: (context: Readonly<{ currency: CurrencyFixture;
+    catalog: PreparedLogicalStorageCatalog;
+    prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>> }>) => Effect.Effect<void>;
   readonly onFiniteEntryPrepared?: (preparation: Effect.Success<ReturnType<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>>) => void;
   readonly afterReplacementStep?: NonNullable<Parameters<typeof createPointMutationAttemptReplacementPortV1>[1]>["afterReplacementStep"];
   readonly transformFiniteEntrySources?: (participants: Parameters<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>[0]) =>
@@ -493,7 +500,10 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   if (sourceCatalog.status !== "prepared") throw new Error("Logical source catalog is not ready");
   const sourceConstruction = Object.freeze({ kind: "prepared" as const, catalog: sourceCatalog });
   const prepared = yield* prepareLogicalRelationalAdmission(sourcePorts,
-    application.uniqueConstraintEligibility, sourceLocation, product.hostInput.logicalStorage.source, sourceConstruction);
+    application.uniqueConstraintEligibility, sourceLocation,
+    input.hooks?.selectFiniteProductSource?.(currency) ?? product.hostInput.logicalStorage.source, sourceConstruction);
+  if (input.hooks?.onPreparedFiniteProductSource !== undefined)
+    yield* input.hooks.onPreparedFiniteProductSource({ currency, catalog: sourceCatalog, prepared });
   const payloadPrepared = compiledPayload === undefined ? undefined : yield*
     prepareLogicalDocumentSourceAdmission(sourcePorts, application.uniqueConstraintEligibility,
       sourceLocation, compiledPayload.sourceContract, sourceConstruction);
@@ -530,8 +540,11 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
       }),
     });
   const workflowSelections = workflowBinding?.sources.map(source => source.prepared) ?? [];
+  yield* prepareFiniteApplicationMutationSourceComposition(preparedAdmission,
+    [prepared, ...(payloadPrepared === undefined ? [] : [payloadPrepared]), ...workflowSelections]);
   return Object.freeze({ candidateSchemaWriteGuard, preparedAdmission, sourceCatalog, prepared, payloadPrepared, binding, eventPolicy, workflowBinding, workflowSelections });
-  }), { ...(currency.managedRead === undefined ? {} : { installation: currency.managedRead.readInstallation }),
+  }), { selection: { deploymentId: currency.deploymentId, scopeId: application.authority.scopeId },
+    ...(currency.managedRead === undefined ? {} : { installation: currency.managedRead.readInstallation }),
     candidateIssuer: application.sessionAuthority });
   return current;
   })));

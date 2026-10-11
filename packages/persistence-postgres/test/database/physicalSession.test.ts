@@ -1,12 +1,13 @@
 import { Cause, Clock, Context, Deferred, Effect, Exit, Fiber, Option, Tracer } from "effect";
 import { ExecutionDiagnostics, observeExecution } from "../../src/execution/diagnostics/operation";
 import { randomInt } from "node:crypto";
-import { sql } from "drizzle-orm";
+import { DrizzleQueryError, sql, type SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { TestClock } from "effect/testing";
 import { Client, Pool, type PoolClient } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { makePhysicalDeadlineOperations } from "../../src/database/physicalSession/deadline";
-import { makePhysicalSessionAccess } from "../../src/database/physicalSession/drizzle";
+import { makePhysicalSessionAccess, type NativePhysicalCommand } from "../../src/database/physicalSession/drizzle";
 import { makePhysicalConnectionIdentity } from "../../src/database/physicalSession/model";
 import {
   physicalSessionErrors,
@@ -26,6 +27,7 @@ import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { runEffect } from "../support/effectTestRuntime";
 import { createFileScopedPostgresFixture } from "../support/postgresHelpers";
 import type { FlarexMetadataDatabase } from "../../src/application/deployments";
+import { FiniteStorageCaptureError } from "../../src/execution/finiteStorageCapture";
 import { PhysicalSessionObservation, type PhysicalSessionObservationEvent } from "../../src/database/physicalSession/observation";
 
 const deadlines = makePhysicalDeadlineOperations(physicalSessionErrors);
@@ -33,6 +35,11 @@ const postgresUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_DATABASE_UR
 const artifactDeadlines = makePhysicalDeadlineOperations(
   catalogControlPhysicalErrors,
 );
+const commandDialect = new PgDialect();
+function fixedCommand(statement: SQL, mapResult: (rows: unknown[][]) => unknown[][] = rows => rows): NativePhysicalCommand<unknown[][]> {
+  return { statement: commandDialect.sqlToQuery(statement), orderedFields: undefined,
+    statementName: undefined, mapResult };
+}
 
 class PhysicalCallbackBusiness extends Context.Service<PhysicalCallbackBusiness, object>()("test/PhysicalCallbackBusiness") {}
 
@@ -249,7 +256,7 @@ it.each(["read", "initial", "recovery"] as const)(
   },
 );
 
-it.each(["read", "initial", "recovery"] as const)("destroys a checkout on %s view construction failure before BEGIN or callback", async profile => {
+it.each(["read", "command", "initial", "recovery"] as const)("destroys a checkout on %s view construction failure before BEGIN or callback", async profile => {
   const original = new Error("physical view construction fault");
   const release = vi.fn();
   const client: PoolClient = Object.assign(new Client(), { release });
@@ -263,13 +270,19 @@ it.each(["read", "initial", "recovery"] as const)("destroys a checkout on %s vie
   }, { access: checkedOut => {
     const views = access(checkedOut);
     return {
+      get session() { if (profile === "command") throw original; return views.session; },
       get database() { databaseRequests++; if (profile === "read") throw original; return views.database; },
       get transaction() { transactionRequests++; if (profile !== "read") throw original; return views.transaction; },
     };
   }, errors: physicalSessionErrors });
   const cause = await runEffect(Effect.gen(function* () {
-    const deadline = yield* deadlines.start(profile, 1000);
+    const deadline = yield* deadlines.start(profile === "command" ? "read" : profile, 1000);
     const work = () => Effect.sync(() => { callbacks++; });
+    if (profile === "command") {
+      const exit = yield* Effect.exit(physical.runImplicitCommandEffect({ deadline }, fixedCommand(sql`select 42`), {}));
+      if (Exit.isSuccess(exit)) throw new Error("Expected failed command session acquisition");
+      return exit.cause;
+    }
     if (profile === "read") {
       const exit = yield* Effect.exit(physical.runReadEffect({ deadline }, work));
       if (Exit.isSuccess(exit)) throw new Error("Expected failed physical read acquisition");
@@ -295,7 +308,7 @@ it.each(["read", "initial", "recovery"] as const)("destroys a checkout on %s vie
     expect(issue.phase).toBe("acquire");
     expect(issue.cause).toBe(original);
   }
-  expect([databaseRequests, transactionRequests]).toEqual(profile === "read" ? [1, 0] : [0, 1]);
+  expect([databaseRequests, transactionRequests]).toEqual(profile === "read" ? [1, 0] : profile === "command" ? [0, 0] : [0, 1]);
   expect(callbacks).toBe(0);
   expect(query).not.toHaveBeenCalled();
   expect(release).toHaveBeenCalledExactlyOnceWith(true);
@@ -373,16 +386,13 @@ it.each([false, true])("refuses an unconnected implicit transport before callbac
     options: { ssl: false },
     connect: callback => callback(undefined, client, release),
   };
-  let callbacks = 0;
+  const mapper = vi.fn((rows: unknown[][]) => rows);
   const physical = makePostgresPhysicalSessionDriver(pool, {
     access: makePhysicalSessionAccess(flarexSchema), errors: physicalSessionErrors,
   });
   const exit = await runEffect(Effect.gen(function* () {
     const deadline = yield* deadlines.start("read", 1000);
-    return yield* Effect.exit(physical.runImplicitReadEffect({ deadline }, () => {
-      callbacks++;
-      return Effect.succeed(undefined);
-    }));
+    return yield* Effect.exit(physical.runImplicitCommandEffect({ deadline }, fixedCommand(sql`select 42`, mapper), {}));
   }));
   expect(Exit.isFailure(exit)).toBe(true);
   if (Exit.isFailure(exit)) {
@@ -398,7 +408,7 @@ it.each([false, true])("refuses an unconnected implicit transport before callbac
       }
     } else expect(exit.cause.reasons).toHaveLength(1);
   }
-  expect(callbacks).toBe(0);
+  expect(mapper).not.toHaveBeenCalled();
   expect(query).not.toHaveBeenCalled();
   expect(release).toHaveBeenCalledExactlyOnceWith(true);
 });
@@ -414,6 +424,7 @@ describePostgres("physical session owner composition", () => {
       const requested = { database: 0, transaction: 0 };
       requests.push(requested);
       return {
+        get session() { return views.session; },
         get database() { requested.database++; return views.database; },
         get transaction() { requested.transaction++; return views.transaction; },
       };
@@ -450,7 +461,7 @@ describePostgres("physical session owner composition", () => {
     const pool = new Pool({ connectionString: postgresUrl ?? undefined, max: 1, ssl: false,
       ...(timeout === undefined ? {} : { statement_timeout: timeout }),
       ...(startupOptions === undefined ? {} : { options: startupOptions }) });
-    let callbacks = 0;
+    const mapper = vi.fn((rows: unknown[][]) => rows);
     try {
       const client = await pool.connect();
       client.release();
@@ -460,10 +471,7 @@ describePostgres("physical session owner composition", () => {
       });
       const exit = await runEffect(Effect.gen(function* () {
         const deadline = yield* deadlines.start("read", 1000);
-        return yield* Effect.exit(physical.runImplicitReadEffect({ deadline }, () => {
-          callbacks++;
-          return Effect.succeed(undefined);
-        }));
+        return yield* Effect.exit(physical.runImplicitCommandEffect({ deadline }, fixedCommand(sql`select 42`, mapper), {}));
       }));
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
@@ -474,7 +482,7 @@ describePostgres("physical session owner composition", () => {
           expect(issue.cause).toMatchObject({ message: expect.stringContaining("startup statement_timeout") });
         }
       }
-      expect(callbacks).toBe(0);
+      expect(mapper).not.toHaveBeenCalled();
       expect(query).not.toHaveBeenCalled();
       expect(pool.totalCount).toBe(0);
     } finally { await pool.end(); }
@@ -486,7 +494,7 @@ describePostgres("physical session owner composition", () => {
         const pool = new Pool({ connectionString: postgresUrl ?? undefined, max: 1,
           ssl: refusal === "tls" ? { rejectUnauthorized: false } : false, statement_timeout: 30_000 });
         let acquired: PoolClient | undefined;
-        let callbacks = 0;
+        const mapper = vi.fn((rows: unknown[][]) => rows);
         const phases: string[] = [];
         const access = makePhysicalSessionAccess(flarexSchema);
         try {
@@ -515,11 +523,7 @@ describePostgres("physical session owner composition", () => {
           );
           const exit = await runEffect(Effect.gen(function* () {
             const deadline = yield* deadlines.start("read", 1000);
-            return yield* Effect.exit(physical.runImplicitReadEffect({ deadline }, database => {
-              callbacks++;
-              return Effect.tryPromise({ try: () => database.execute(sql`select pg_sleep(30)`),
-                catch: cause => new PhysicalSessionResourceIssue({ phase: "read", cause }) });
-            }));
+            return yield* Effect.exit(physical.runImplicitCommandEffect({ deadline }, fixedCommand(sql`select pg_sleep(30)`, mapper), {}));
           }));
           expect(Exit.isFailure(exit)).toBe(true);
           if (Exit.isFailure(exit)) {
@@ -535,7 +539,7 @@ describePostgres("physical session owner composition", () => {
             }
           }
           expect(acquired).toBeDefined();
-          expect(callbacks).toBe(0);
+          expect(mapper).not.toHaveBeenCalled();
           expect(query).not.toHaveBeenCalled();
           expect(phases).toEqual(["quarantine:before", "quarantine:after"]);
           expect(pool.totalCount).toBe(0);
@@ -546,9 +550,29 @@ describePostgres("physical session owner composition", () => {
 
   it("settles a fixed implicit read without changing connection settings", async () => {
     const pool = new Pool({ connectionString: postgresUrl ?? undefined, max: 1, statement_timeout: 30_000 });
+    let nativeTransportCalls = 0;
+    let observedClient: PoolClient | undefined;
+    let originalQuery: PoolClient["query"] | undefined;
+    pool.once("connect", client => {
+      observedClient = client;
+      originalQuery = client.query;
+      client.query = new Proxy(client.query, { apply(query, receiver, args: unknown[]) {
+        nativeTransportCalls++;
+        return Reflect.apply(query, receiver, args);
+      } });
+    });
+    const viewsRequested: string[] = [];
     const phases: string[] = [];
+    const access = makePhysicalSessionAccess(flarexSchema);
     const physical = makePostgresPhysicalSessionDriver(pool, {
-      access: makePhysicalSessionAccess(flarexSchema), errors: physicalSessionErrors,
+      access: client => {
+        const views = access(client);
+        return {
+          get session() { viewsRequested.push("session"); return views.session; },
+          get database(): typeof views.database { throw new Error("Fixed commands must not construct a database view"); },
+          get transaction(): typeof views.transaction { throw new Error("Fixed commands must not construct a transaction view"); },
+        };
+      }, errors: physicalSessionErrors,
     }, { lifecycleFault: ({ phase, edge }) => phases.push(`${phase}:${edge}`) });
     try {
       const before = await pool.query<{ timeout: string; pid: number }>(
@@ -557,18 +581,137 @@ describePostgres("physical session owner composition", () => {
       expect(before.rows[0]?.timeout).toBe("30s");
       const observed = await runEffect(Effect.gen(function* () {
         const deadline = yield* deadlines.start("read", 1000);
-        return yield* physical.runImplicitReadEffect({ deadline }, database =>
-          Effect.tryPromise({ try: () => database.execute(sql`select 41 + 1 as value`),
-            catch: cause => new PhysicalSessionResourceIssue({ phase: "read", cause }) }));
+        return yield* physical.runImplicitCommandEffect({ deadline }, fixedCommand(sql`select ${sql.placeholder("value")}::integer + 1 as value`), { value: 41 });
       }));
-      expect(observed).toMatchObject({ rows: [{ value: 42 }] });
+      expect(observed).toEqual([[42]]);
+      expect(viewsRequested).toEqual(["session", "session"]);
       expect(phases.some(phase => /configure|reset|begin|commit|rollback/i.test(phase))).toBe(false);
       expect(phases).toContain("release:after");
       expect(pool.totalCount - pool.idleCount).toBe(0);
+      expect(nativeTransportCalls).toBe(2);
       const after = await pool.query<{ timeout: string; pid: number }>(
         "select current_setting('statement_timeout') as timeout, pg_backend_pid() as pid",
       );
       expect(after.rows).toEqual(before.rows);
+    } finally {
+      if (observedClient !== undefined && originalQuery !== undefined) observedClient.query = originalQuery;
+      await pool.end();
+    }
+  });
+
+  it.each([
+    ["prepare", false], ["mapper", false], ["driver", false],
+    ["prepare", true], ["mapper", true], ["driver", true],
+  ] as const)("quarantines fixed command %s failure with cleanup fault %s while preserving its owner's native cause", async (failure, failCleanup) => {
+    const pool = new Pool({ connectionString: postgresUrl ?? undefined, max: 1, statement_timeout: 30_000 });
+    const original = new Error(`fixed ${failure} failure`);
+    const cleanupFailure = new Error("fixed command quarantine release fault");
+    const commandFailure = vi.fn((cause: unknown) => new FiniteStorageCaptureError({ reason: "resourceFailure", cause }));
+    const access = makePhysicalSessionAccess(flarexSchema);
+    const preparationFailures: (() => void)[] = [];
+    let queryCalls = 0;
+    let nativeTransportFailure: unknown;
+    const phases: string[] = [];
+    pool.once("connect", client => {
+      client.query = new Proxy(client.query, { apply(query, receiver, args: unknown[]) {
+        queryCalls++;
+        const result: unknown = Reflect.apply(query, receiver, args);
+        if (result instanceof Promise) void result.catch((cause: unknown) => { nativeTransportFailure = cause; });
+        return result;
+      } });
+    });
+    const physical = makePostgresPhysicalSessionDriver<PhysicalSessionResourceIssue | FiniteStorageCaptureError,
+      PhysicalSessionDeadlineIssue>(pool, { access: client => {
+      const views = access(client);
+      if (failure === "prepare") {
+        const preparation = vi.spyOn(views.session, "prepareQuery").mockImplementation(() => { throw original; });
+        preparationFailures.push(() => preparation.mockRestore());
+      }
+      return views;
+    }, errors: physicalSessionErrors, commandFailure }, { lifecycleFault: ({ phase, edge }) => {
+      phases.push(`${phase}:${edge}`);
+      if (failCleanup && phase === "quarantine" && edge === "after") throw cleanupFailure;
+    } });
+    try {
+      const command = fixedCommand(failure === "driver" ? sql`select 1 / 0` : sql`select 42`, rows => {
+        if (failure === "mapper") throw original;
+        return rows;
+      });
+      const exit = await runEffect(Effect.gen(function* () {
+        const deadline = yield* deadlines.start("read", 1000);
+        return yield* Effect.exit(physical.runImplicitCommandEffect({ deadline }, command, {}));
+      }));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const issues = exit.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error);
+        expect(issues).toHaveLength(failure === "prepare" ? 1 : 2);
+        expect(commandFailure).toHaveBeenCalledTimes(1);
+        expect(issues[0]).toBe(commandFailure.mock.results[0]?.value);
+        expect(issues[0]).toBeInstanceOf(FiniteStorageCaptureError);
+        if (issues[0] instanceof FiniteStorageCaptureError) {
+          expect(issues[0].reason).toBe("resourceFailure");
+          if (failure === "driver") {
+            expect(issues[0].cause).toBeInstanceOf(DrizzleQueryError);
+            if (issues[0].cause instanceof DrizzleQueryError) expect(issues[0].cause.cause).toBe(nativeTransportFailure);
+            expect(nativeTransportFailure).toMatchObject({ code: "22012" });
+          } else {
+            expect(issues[0].cause).toBe(original);
+            expect(nativeTransportFailure).toBeUndefined();
+          }
+          expect(issues[0].cause).toBe(commandFailure.mock.calls[0]?.[0]);
+        }
+        if (failure !== "prepare") {
+          expect(issues[1]).toBeInstanceOf(PhysicalSessionResourceIssue);
+          if (issues[1] instanceof PhysicalSessionResourceIssue) {
+            expect(issues[1].phase).toBe("read");
+            expect(issues[1].cause).toBe(failure === "driver" ? nativeTransportFailure : original);
+          }
+        }
+        const cleanupDefects = exit.cause.reasons.filter(Cause.isDieReason).map(reason => reason.defect);
+        expect(cleanupDefects).toHaveLength(failCleanup ? 1 : 0);
+        if (failCleanup) {
+          expect(cleanupDefects[0]).toBeInstanceOf(PhysicalSessionCleanupDefect);
+          if (cleanupDefects[0] instanceof PhysicalSessionCleanupDefect)
+            expect(cleanupDefects[0].cause).toBe(cleanupFailure);
+        }
+      }
+      expect(queryCalls).toBe(failure === "prepare" ? 0 : 1);
+      expect(phases).toContain("quarantine:after");
+      expect(pool.totalCount).toBe(0);
+    } finally {
+      for (const restore of preparationFailures) restore();
+      await pool.end();
+    }
+  });
+
+  it("closes escaped ordinary callback queries before their transport", async () => {
+    const pool = new Pool({ connectionString: postgresUrl ?? undefined, max: 1 });
+    let escapedDatabase: FlarexMetadataDatabase | undefined;
+    let transportCalls = 0;
+    pool.once("connect", client => {
+      client.query = new Proxy(client.query, { apply(query, receiver, args: unknown[]) {
+        transportCalls++;
+        return Reflect.apply(query, receiver, args);
+      } });
+    });
+    const physical = makePostgresPhysicalSessionDriver(pool, { access: makePhysicalSessionAccess(flarexSchema), errors: physicalSessionErrors });
+    try {
+      await runEffect(Effect.gen(function* () {
+        const deadline = yield* deadlines.start("read", 1000);
+        return yield* physical.runReadEffect({ deadline }, database => {
+          escapedDatabase = database;
+          return Effect.tryPromise({ try: () => database.execute(sql`select 42`),
+            catch: cause => new PhysicalSessionResourceIssue({ phase: "read", cause }) });
+        });
+      }));
+      const escaped = escapedDatabase;
+      if (escaped === undefined) throw new Error("Missing ordinary callback database view");
+      const before = transportCalls;
+      await expect(escaped.execute(sql`select 99`)).rejects.toMatchObject({
+        cause: { message: "PostgreSQL physical session callback work is closed." },
+      });
+      expect(transportCalls).toBe(before);
+      expect(pool.totalCount - pool.idleCount).toBe(0);
     } finally { await pool.end(); }
   });
 
@@ -590,15 +733,8 @@ describePostgres("physical session owner composition", () => {
     }, { lifecycleFault: ({ phase, edge }) => phases.push(`${phase}:${edge}`), observation: () => observation });
     try {
       const exit = await runEffect(Effect.gen(function* () {
-        const started = yield* Deferred.make<void>();
         const deadline = yield* deadlines.start("read", 10000);
-        const fiber = yield* physical.runImplicitReadEffect({ deadline }, database => Effect.gen(function* () {
-          const pending = Promise.resolve(database.execute(sql`select pg_sleep(30)`));
-          yield* Deferred.succeed(started, undefined);
-          return yield* Effect.tryPromise({ try: () => pending,
-            catch: cause => new PhysicalSessionResourceIssue({ phase: "read", cause }) });
-        })).pipe(Effect.forkScoped);
-        yield* Deferred.await(started);
+        const fiber = yield* physical.runImplicitCommandEffect({ deadline }, fixedCommand(sql`select pg_sleep(30)`), {}).pipe(Effect.forkScoped);
         yield* Effect.tryPromise({ try: async () => {
           for (let index = 0; index < 100; index++) {
             const active = await observer.query<{ active: boolean }>(
@@ -666,17 +802,10 @@ describePostgres("physical session owner composition", () => {
       await blocker.query("select pg_advisory_lock($1::bigint)", [blockingKey]);
       const startedAt = performance.now();
       const exit = await runEffect(Effect.gen(function* () {
-        const started = yield* Deferred.make<void>();
         const deadline = yield* deadlines.start("read", 10_000);
-        const fiber = yield* physical.runImplicitReadEffect({ deadline }, database => Effect.gen(function* () {
-          const pending = Promise.resolve(database.execute(sql`
-            select pg_advisory_xact_lock_shared(${sharedKey}::bigint), pg_advisory_xact_lock(${blockingKey}::bigint)
-          `));
-          yield* Deferred.succeed(started, undefined);
-          return yield* Effect.tryPromise({ try: () => pending,
-            catch: cause => new PhysicalSessionResourceIssue({ phase: "read", cause }) });
-        })).pipe(Effect.forkScoped);
-        yield* Deferred.await(started);
+        const fiber = yield* physical.runImplicitCommandEffect({ deadline }, fixedCommand(sql`
+          select pg_advisory_xact_lock_shared(${sharedKey}::bigint), pg_advisory_xact_lock(${blockingKey}::bigint)
+        `), {}).pipe(Effect.forkScoped);
         yield* Effect.tryPromise({ try: async () => {
           for (let index = 0; index < 100; index++) {
             const locks = await observer.query<{ held: boolean; blocked: boolean }>(
