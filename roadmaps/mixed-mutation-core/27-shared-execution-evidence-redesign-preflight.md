@@ -1,5 +1,30 @@
 # Shared execution evidence redesign
 
+## Current Decision: Cost Inventory Before Further Implementation
+
+The owner requests an exact work inventory and ranked proposal covering
+publication, repeated finite captures and client CPU, followed by discussion
+before implementation. This instruction supersedes automatic continuation of
+the implementation approvals recorded below. The connected replacement is
+committed; complete native-relative performance acceptance remains unmet.
+
+The [cost inventory and ranked proposal](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md)
+owns measured counts, source-derived internal work, fresh CPU evidence and its
+limits. The recommended direction is a connected publication-first correction
+across coverage, materialization and ordinary/finite consumers. Ordered final
+coverage verification is a concrete batching candidate. Retain full stored
+proofs, immediate post-write checks, failure order, locks and durable records.
+Reduced internal statement executions are a hypothesis to validate, not a
+complete performance deliverable or a claim of saved milliseconds.
+
+Finite rows and complete index selections already have root-owned reuse. A
+bounded demand identity/frontier ledger must establish actual duplicates or
+independent demands before assigning capture savings. CPU profiles identify
+sampled locations; neither an Effect/Drizzle percentage nor a repeated value
+visitor proves redundant work. Further runtime changes await discussion of the
+concrete contract, consumers, validation and removal gates. Existing native
+CPU/latency targets and the separate standalone-read pause remain unchanged.
+
 ## Connected Root, Storage Frontier And Contribution Replacement
 
 Status: selected for implementation under standing core-redesign approval.

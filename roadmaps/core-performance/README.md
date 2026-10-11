@@ -1,11 +1,17 @@
 # Core Performance
 
-Status: **the connected standalone/mixed mutation candidate remains uncommitted
-and is paused at the owner's request for discussion. The current responsible-core
+Status: **the connected standalone/mixed mutation replacement is committed
+and further implementation is paused at the owner's request for discussion. The current responsible-core
 correction passes its affected correctness and review gates, but complete matched
 measurements still fail every fixed CPU and latency gate.** The local standalone-read
 implementation and consumer cutover are complete; its separate read-tuning pause
 remains in place. Standalone mutations are part of the active connected redesign.
+The current deliverable is the [publication/capture/CPU cost inventory and ranked proposal](../../packages/medusa-adapter/benchmarks/core-performance/native-business/cost-inventory-proposal.md).
+Its publication-first recommendation requires discussion before implementation;
+the [current preflight decision](../mixed-mutation-core/27-shared-execution-evidence-redesign-preflight.md#current-decision-cost-inventory-before-further-implementation)
+supersedes automatic continuation of earlier correction approvals. Exact work
+counts, source-derived internal repetition and sampled CPU locations remain
+distinct from causal latency savings and complete performance acceptance.
 The installation interlock, query-required preparation and independent direct
 read capabilities are implemented. The full latency/scaling targets below remain
 unproven; accepting current latency does not claim those targets were met.

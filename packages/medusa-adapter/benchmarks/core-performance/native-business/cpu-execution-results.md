@@ -1,5 +1,9 @@
 # Shared execution CPU correction checkpoint
 
+The successor [cost inventory and ranked proposal](./cost-inventory-proposal.md)
+adds the reconciled exchange/work ledger and fresh root-only CPU profiles.
+Further implementation is paused for the owner's discussion of that proposal.
+
 ## Current local readiness and authentic interpretation measurement
 
 The connected correction replaces three pure readiness RPCs with ordered local
@@ -15,8 +19,8 @@ Affected strict checks, owner and consumer correctness proofs on PGlite and
 ordinary-role PostgreSQL, source guards, lint and both final source reviews pass.
 The current mixed consumer rerun is focused; it does not replace the earlier full
 mixed cohort. **Complete performance acceptance still fails for every graph.
-The connected candidate remains uncommitted and is paused at the owner's request
-for discussion.** The intermittent 123-row Currency-initialization publication
+The connected replacement is now committed; further implementation is paused at
+the owner's request for discussion.** The intermittent 123-row Currency-initialization publication
 timeout remains unresolved; passing reruns did not establish a fix or cause.
 
 The [complete current report](../../../../../work/validation/shared-execution-evidence/native-local-program/results.md)
