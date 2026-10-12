@@ -1,0 +1,4030 @@
+{
+  "control": {
+    "runId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9",
+    "addedMs": {
+      "count": 15,
+      "mean": 120.8,
+      "median": 125,
+      "min": 31,
+      "max": 188
+    },
+    "addedUserMs": {
+      "count": 15,
+      "mean": 115.46666666666667,
+      "median": 125,
+      "min": 31,
+      "max": 234
+    },
+    "addedSystemMs": {
+      "count": 15,
+      "mean": 5.333333333333333,
+      "median": 0,
+      "min": -46,
+      "max": 47
+    },
+    "gates": [
+      {
+        "name": "sourceStability",
+        "passed": true,
+        "detail": "Authored package code, locks and loaded native sources remain stable"
+      },
+      {
+        "name": "settingsStability",
+        "passed": true,
+        "detail": "Ordinary-role durable settings are retained before and after"
+      },
+      {
+        "name": "cleanup",
+        "passed": true,
+        "detail": "Owned command resources drained"
+      }
+    ],
+    "sources": {
+      "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "files": 6962
+    },
+    "pairs": [
+      {
+        "index": 5,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:5",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:5",
+        "process": {
+          "nativeUserMicroseconds": 0,
+          "nativeSystemMicroseconds": 46000,
+          "flarexUserMicroseconds": 265000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 265000,
+          "addedSystemMicroseconds": -30000,
+          "addedTotalMicroseconds": 235000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 0,
+          "nativeSystemMicroseconds": 46000,
+          "flarexUserMicroseconds": 234000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 234000,
+          "addedSystemMicroseconds": -46000,
+          "addedTotalMicroseconds": 188000
+        }
+      },
+      {
+        "index": 6,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:6",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:6",
+        "process": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 203000,
+          "flarexSystemMicroseconds": 47000,
+          "addedUserMicroseconds": 156000,
+          "addedSystemMicroseconds": 47000,
+          "addedTotalMicroseconds": 203000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 156000,
+          "flarexSystemMicroseconds": 47000,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 47000,
+          "addedTotalMicroseconds": 172000
+        }
+      },
+      {
+        "index": 7,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:7",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:7",
+        "process": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 156000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 140000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 140000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 109000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 109000
+        }
+      },
+      {
+        "index": 8,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:8",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:8",
+        "process": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 140000,
+          "flarexSystemMicroseconds": 15000,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 15000,
+          "addedTotalMicroseconds": 140000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 141000
+        }
+      },
+      {
+        "index": 9,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:9",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:9",
+        "process": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 141000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 141000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 32000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 140000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 140000
+        }
+      },
+      {
+        "index": 10,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:10",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:10",
+        "process": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 15000,
+          "addedUserMicroseconds": 110000,
+          "addedSystemMicroseconds": 15000,
+          "addedTotalMicroseconds": 125000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 140000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 109000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 125000
+        }
+      },
+      {
+        "index": 11,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:11",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:11",
+        "process": {
+          "nativeUserMicroseconds": 32000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 63000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 31000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 31000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 62000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 31000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 31000
+        }
+      },
+      {
+        "index": 12,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:12",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:12",
+        "process": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 125000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 125000
+        }
+      },
+      {
+        "index": 13,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:13",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:13",
+        "process": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 156000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 125000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 32000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 157000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 125000
+        }
+      },
+      {
+        "index": 14,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:14",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:14",
+        "process": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 126000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 126000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 125000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 125000
+        }
+      },
+      {
+        "index": 15,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:15",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:15",
+        "process": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 141000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 126000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 126000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 110000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 94000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 94000
+        }
+      },
+      {
+        "index": 16,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:16",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:16",
+        "process": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 203000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 187000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 203000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 172000,
+          "flarexSystemMicroseconds": 16000,
+          "addedUserMicroseconds": 156000,
+          "addedSystemMicroseconds": 16000,
+          "addedTotalMicroseconds": 172000
+        }
+      },
+      {
+        "index": 17,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:17",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:17",
+        "process": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 140000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 93000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 93000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 94000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 94000
+        }
+      },
+      {
+        "index": 18,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:18",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:18",
+        "process": {
+          "nativeUserMicroseconds": 15000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 156000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 141000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 141000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 16000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 125000,
+          "flarexSystemMicroseconds": 0,
+          "addedUserMicroseconds": 109000,
+          "addedSystemMicroseconds": 0,
+          "addedTotalMicroseconds": 109000
+        }
+      },
+      {
+        "index": 19,
+        "nativeRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:native:19",
+        "flarexRequestId": "5736f3fd-feb4-4e69-b57e-3b5b2042abb9:flarex:19",
+        "process": {
+          "nativeUserMicroseconds": 47000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 63000,
+          "flarexSystemMicroseconds": 31000,
+          "addedUserMicroseconds": 16000,
+          "addedSystemMicroseconds": 31000,
+          "addedTotalMicroseconds": 47000
+        },
+        "thread": {
+          "nativeUserMicroseconds": 31000,
+          "nativeSystemMicroseconds": 0,
+          "flarexUserMicroseconds": 62000,
+          "flarexSystemMicroseconds": 31000,
+          "addedUserMicroseconds": 31000,
+          "addedSystemMicroseconds": 31000,
+          "addedTotalMicroseconds": 62000
+        }
+      }
+    ]
+  },
+  "observed": {
+    "runId": "fb487683-814c-4cd4-8a0f-b36a280f58bd",
+    "observerOn": {
+      "count": 12,
+      "mean": 154.58333333333334,
+      "median": 155.5,
+      "min": 125,
+      "max": 187
+    },
+    "observerOff": {
+      "count": 12,
+      "mean": 132.75,
+      "median": 132,
+      "min": 62,
+      "max": 203
+    },
+    "allSelectedSelf": {
+      "calls": {
+        "count": 12,
+        "mean": 25537,
+        "median": 25537,
+        "min": 25537,
+        "max": 25537
+      },
+      "selfMs": {
+        "count": 12,
+        "mean": 110.0034583331241,
+        "median": 107.67735000000539,
+        "min": 105.48579999954381,
+        "max": 123.38710000050196
+      },
+      "inclusiveMs": {
+        "count": 12,
+        "mean": 235.34989166677283,
+        "median": 231.3523000006171,
+        "min": 225.34259999956703,
+        "max": 259.239500001524
+      }
+    },
+    "groups": {
+      "generator.next": {
+        "calls": {
+          "count": 12,
+          "mean": 17157,
+          "median": 17157,
+          "min": 17157,
+          "max": 17157
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 73.91277499995704,
+          "median": 72.17044999938662,
+          "min": 70.6038000004919,
+          "max": 84.18300000036834
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 142.75062500001027,
+          "median": 140.063699999635,
+          "min": 136.50700000024517,
+          "max": 159.19180000117922
+        }
+      },
+      "schema.factory": {
+        "calls": {
+          "count": 12,
+          "mean": 26,
+          "median": 26,
+          "min": 26,
+          "max": 26
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.02609166666297824,
+          "median": 0.022299999982351437,
+          "min": 0.018600000024889596,
+          "max": 0.051300000021001324
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.02609166666297824,
+          "median": 0.022299999982351437,
+          "min": 0.018600000024889596,
+          "max": 0.051300000021001324
+        }
+      },
+      "schema.parse": {
+        "calls": {
+          "count": 12,
+          "mean": 4800,
+          "median": 4800,
+          "min": 4800,
+          "max": 4800
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 18.176558333401772,
+          "median": 17.918150000230526,
+          "min": 17.344199999730336,
+          "max": 19.949899999934132
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 18.41004166673156,
+          "median": 18.146600000320177,
+          "min": 17.568199999732315,
+          "max": 20.24529999990773
+        }
+      },
+      "fn.Error": {
+        "calls": {
+          "count": 12,
+          "mean": 893,
+          "median": 893,
+          "min": 893,
+          "max": 893
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 6.544958333409643,
+          "median": 6.546150000023772,
+          "min": 6.310100000016973,
+          "max": 7.059800000133691
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 6.544958333409643,
+          "median": 6.546150000023772,
+          "min": 6.310100000016973,
+          "max": 7.059800000133691
+        }
+      },
+      "fn.invoke": {
+        "calls": {
+          "count": 12,
+          "mean": 758,
+          "median": 758,
+          "min": 758,
+          "max": 758
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 2.9245416666162782,
+          "median": 2.8687499997686245,
+          "min": 2.8217000001313863,
+          "max": 3.371600000275066
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 8.794783333322508,
+          "median": 8.793199999912758,
+          "min": 8.510400000115624,
+          "max": 9.257800000123098
+        }
+      },
+      "result.gen": {
+        "calls": {
+          "count": 12,
+          "mean": 1768,
+          "median": 1768,
+          "min": 1768,
+          "max": 1768
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 8.047649999797917,
+          "median": 7.885599999790429,
+          "min": 7.669599999615457,
+          "max": 9.008600000015576
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 57.77779166665399,
+          "median": 56.75519999990502,
+          "min": 55.087200000009034,
+          "max": 63.21900000036112
+        }
+      },
+      "fn.definition": {
+        "calls": {
+          "count": 12,
+          "mean": 135,
+          "median": 135,
+          "min": 135,
+          "max": 135
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.3708833332784707,
+          "median": 0.35664999988512136,
+          "min": 0.3453999998018844,
+          "max": 0.5009000000281958
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.045599999981884,
+          "median": 1.0315499999851454,
+          "min": 0.9857999999367166,
+          "max": 1.1624000000592787
+        }
+      }
+    },
+    "phases": {
+      "request admission": {
+        "calls": {
+          "count": 12,
+          "mean": 1132,
+          "median": 1132,
+          "min": 1132,
+          "max": 1132
+        },
+        "selectedSelfMs": {
+          "count": 12,
+          "mean": 7.769150000052226,
+          "median": 7.5185000000856235,
+          "min": 6.976900000096066,
+          "max": 10.180099999983213
+        }
+      },
+      "portable runtime execution": {
+        "calls": {
+          "count": 12,
+          "mean": 18503,
+          "median": 18503,
+          "min": 18503,
+          "max": 18503
+        },
+        "selectedSelfMs": {
+          "count": 12,
+          "mean": 76.62024999980834,
+          "median": 75.57869999950344,
+          "min": 72.82599999954982,
+          "max": 85.28040000092005
+        }
+      },
+      "runtime result validation": {
+        "calls": {
+          "count": 12,
+          "mean": 8,
+          "median": 8,
+          "min": 8,
+          "max": 8
+        },
+        "selectedSelfMs": {
+          "count": 12,
+          "mean": 0.05843333334026587,
+          "median": 0.055050000017217826,
+          "min": 0.05340000000433065,
+          "max": 0.06990000001678709
+        }
+      },
+      "finite freeze and validation": {
+        "calls": {
+          "count": 12,
+          "mean": 72,
+          "median": 72,
+          "min": 72,
+          "max": 72
+        },
+        "selectedSelfMs": {
+          "count": 12,
+          "mean": 1.717633333339715,
+          "median": 1.6853499999997439,
+          "min": 1.6034000000508968,
+          "max": 2.047199999986333
+        }
+      },
+      "authoritative publication": {
+        "calls": {
+          "count": 12,
+          "mean": 5796,
+          "median": 5796,
+          "min": 5796,
+          "max": 5796
+        },
+        "selectedSelfMs": {
+          "count": 12,
+          "mean": 23.753691666606755,
+          "median": 23.575849999855564,
+          "min": 22.930000000080327,
+          "max": 25.682399999641348
+        }
+      },
+      "complete call cleanup": {
+        "calls": {
+          "count": 12,
+          "mean": 26,
+          "median": 26,
+          "min": 26,
+          "max": 26
+        },
+        "selectedSelfMs": {
+          "count": 12,
+          "mean": 0.0842999999767926,
+          "median": 0.08430000000953441,
+          "min": 0.0645999999542255,
+          "max": 0.1270999999542255
+        }
+      }
+    },
+    "phaseCpu": {
+      "request admission": {
+        "count": 12,
+        "mean": 15.5,
+        "median": 15.5,
+        "min": 0,
+        "max": 31
+      },
+      "portable runtime execution": {
+        "count": 12,
+        "mean": 122.5,
+        "median": 125,
+        "min": 93,
+        "max": 156
+      },
+      "runtime result validation": {
+        "count": 12,
+        "mean": 0,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "finite freeze and validation": {
+        "count": 12,
+        "mean": 2.5833333333333335,
+        "median": 0,
+        "min": 0,
+        "max": 16
+      },
+      "authoritative publication": {
+        "count": 12,
+        "mean": 40.25,
+        "median": 39,
+        "min": 30,
+        "max": 63
+      },
+      "complete call cleanup": {
+        "count": 12,
+        "mean": 0,
+        "median": 0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "byOwner": [
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:601:consumeAccessMetadataResult",
+        "calls": {
+          "count": 12,
+          "mean": 413,
+          "median": 413,
+          "min": 413,
+          "max": 413
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 2.7348083333757436,
+          "median": 2.7319500000958215,
+          "min": 2.6306999999651453,
+          "max": 2.9081000001897337
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 4.400758333364744,
+          "median": 4.363250000074913,
+          "min": 4.2739999999903375,
+          "max": 4.693700000192621
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:589:consumeTableMetadataResult",
+        "calls": {
+          "count": 12,
+          "mean": 861,
+          "median": 861,
+          "min": 861,
+          "max": 861
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 2.725475000029595,
+          "median": 2.688350000018545,
+          "min": 2.532400000243797,
+          "max": 2.9748000001272885
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 2.8415083333469133,
+          "median": 2.8061999999845284,
+          "min": 2.641400000269641,
+          "max": 3.103100000109407
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1610:readRelationalSelection",
+        "calls": {
+          "count": 12,
+          "mean": 330,
+          "median": 330,
+          "min": 330,
+          "max": 330
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 2.1358083332561364,
+          "median": 2.083149999809393,
+          "min": 2.023499999733758,
+          "max": 2.58369999997376
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 4.796216666623271,
+          "median": 4.715949999896111,
+          "min": 4.528099999806727,
+          "max": 5.695200000074692
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1.ts:176:lowerCanonicalAppUniqueConstraintV1Result",
+        "calls": {
+          "count": 12,
+          "mean": 211,
+          "median": 211,
+          "min": 211,
+          "max": 211
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 2.014116666690825,
+          "median": 1.98259999990114,
+          "min": 1.8889000001800014,
+          "max": 2.2556999999505933
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 2.4902750000037486,
+          "median": 2.446300000032352,
+          "min": 2.3480000001727603,
+          "max": 2.7875999999814667
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:229:context",
+        "calls": {
+          "count": 12,
+          "mean": 214,
+          "median": 214,
+          "min": 214,
+          "max": 214
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.5579083333226056,
+          "median": 1.5103000000381144,
+          "min": 1.442499999946449,
+          "max": 2.0477999997965526
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.5579083333226056,
+          "median": 1.5103000000381144,
+          "min": 1.442499999946449,
+          "max": 2.0477999997965526
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/finiteStorageCapture.ts:360:run",
+        "calls": {
+          "count": 12,
+          "mean": 344,
+          "median": 344,
+          "min": 344,
+          "max": 344
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.446066666651556,
+          "median": 1.4691999999195104,
+          "min": 1.3250000000116415,
+          "max": 1.6376999998756219
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 4.156441666643029,
+          "median": 4.124900000009802,
+          "min": 3.8861000001779757,
+          "max": 4.588900000075228
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": {
+          "count": 12,
+          "mean": 315,
+          "median": 315,
+          "min": 315,
+          "max": 315
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.4102833333320934,
+          "median": 1.3907999999864842,
+          "min": 1.3608999998687068,
+          "max": 1.5116999999299878
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.8428666666974702,
+          "median": 1.813099999955739,
+          "min": 1.784299999999348,
+          "max": 1.9516000000148779
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/materialization/materialization.ts:713:materializeAcceptedApplicationPublicationRows",
+        "calls": {
+          "count": 12,
+          "mean": 14,
+          "median": 14,
+          "min": 14,
+          "max": 14
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.3913999999798154,
+          "median": 1.398499999944761,
+          "min": 1.2840000000142027,
+          "max": 1.5270000000309665
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.5251416666639368,
+          "median": 1.5293999999848893,
+          "min": 1.4081000000005588,
+          "max": 1.6938000000081956
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/journal/finiteRoot.ts:899:freezeFiniteRootEffect",
+        "calls": {
+          "count": 12,
+          "mean": 3,
+          "median": 3,
+          "min": 3,
+          "max": 3
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.3649666666606208,
+          "median": 1.3255500000013853,
+          "min": 1.2723000000260072,
+          "max": 1.6332999999867752
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.39480833333558,
+          "median": 1.3544000000110827,
+          "min": 1.3019999999960419,
+          "max": 1.6659999999974389
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+        "calls": {
+          "count": 12,
+          "mean": 180,
+          "median": 180,
+          "min": 180,
+          "max": 180
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.3513166666780307,
+          "median": 1.3804999999483698,
+          "min": 1.1787000000476837,
+          "max": 1.4706999999471009
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.5980666666716086,
+          "median": 1.635450000059791,
+          "min": 1.4014000000461238,
+          "max": 1.7294999998994172
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1477:withAccessCandidates",
+        "calls": {
+          "count": 12,
+          "mean": 334,
+          "median": 334,
+          "min": 334,
+          "max": 334
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.2910916667109025,
+          "median": 1.2804000000614906,
+          "min": 1.1139000001130626,
+          "max": 1.4156000000075437
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.3248583333746258,
+          "median": 1.3168000000659958,
+          "min": 1.1521000001084758,
+          "max": 1.4470000000146683
+        }
+      },
+      {
+        "name": "result.gen|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:589:consumeTableMetadataResult",
+        "calls": {
+          "count": 12,
+          "mean": 287,
+          "median": 287,
+          "min": 287,
+          "max": 287
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.243858333297491,
+          "median": 1.229600000064238,
+          "min": 1.2018000000389293,
+          "max": 1.3302999998995801
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 4.085366666644404,
+          "median": 4.045100000017555,
+          "min": 3.8883999999961816,
+          "max": 4.433400000008987
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1206:historicalUniqueSelection",
+        "calls": {
+          "count": 12,
+          "mean": 114,
+          "median": 114,
+          "min": 114,
+          "max": 114
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.1692083333048988,
+          "median": 1.150199999960023,
+          "min": 1.0824999999022111,
+          "max": 1.274699999994482
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.744691666654641,
+          "median": 1.703399999969406,
+          "min": 1.633099999948172,
+          "max": 1.9732000000076368
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownSync:79",
+        "calls": {
+          "count": 12,
+          "mean": 485,
+          "median": 485,
+          "min": 485,
+          "max": 485
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.1005166667249189,
+          "median": 1.0839999999225256,
+          "min": 1.0675000000046566,
+          "max": 1.1885000001057051
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.1005166667249189,
+          "median": 1.0839999999225256,
+          "min": 1.0675000000046566,
+          "max": 1.1885000001057051
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/materialization/settlementPlan.ts:81:prepareDeveloperIndexKeyPairsResult",
+        "calls": {
+          "count": 12,
+          "mean": 95,
+          "median": 95,
+          "min": 95,
+          "max": 95
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.0474083333150095,
+          "median": 1.031649999829824,
+          "min": 0.9327000000339467,
+          "max": 1.2038000001193723
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.2860249999976077,
+          "median": 1.2682000000058906,
+          "min": 1.1543999999848893,
+          "max": 1.4781000000220956
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:711:prepareAppIndexKeyTransitionAcceptanceInTransactionEffect",
+        "calls": {
+          "count": 12,
+          "mean": 46,
+          "median": 46,
+          "min": 46,
+          "max": 46
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 1.0353749999752229,
+          "median": 1.0220999999874039,
+          "min": 0.9650999998120824,
+          "max": 1.2735999999276828
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.34945833334253,
+          "median": 1.3326000000306522,
+          "min": 1.258499999938067,
+          "max": 1.5968999999313382
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/database/physicalSession/postgres.ts:179:runReadOperation",
+        "calls": {
+          "count": 12,
+          "mean": 228,
+          "median": 228,
+          "min": 228,
+          "max": 228
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.9270750000093054,
+          "median": 0.9382500000720029,
+          "min": 0.7823000000207685,
+          "max": 1.0531000000919448
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.9270750000093054,
+          "median": 0.9382500000720029,
+          "min": 0.7823000000207685,
+          "max": 1.0531000000919448
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:415",
+        "calls": {
+          "count": 12,
+          "mean": 106,
+          "median": 106,
+          "min": 106,
+          "max": 106
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.9109333333047592,
+          "median": 0.8969499999002437,
+          "min": 0.8143999999156222,
+          "max": 1.043399999878602
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.9109333333047592,
+          "median": 0.8969499999002437,
+          "min": 0.8143999999156222,
+          "max": 1.043399999878602
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:153:enter",
+        "calls": {
+          "count": 12,
+          "mean": 716,
+          "median": 716,
+          "min": 716,
+          "max": 716
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.8523749999900853,
+          "median": 0.8626999999614782,
+          "min": 0.7894999998825369,
+          "max": 0.9111000001867069
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.8523749999900853,
+          "median": 0.8626999999614782,
+          "min": 0.7894999998825369,
+          "max": 0.9111000001867069
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1509:captureIndexReadDefinitionResult",
+        "calls": {
+          "count": 12,
+          "mean": 306,
+          "median": 306,
+          "min": 306,
+          "max": 306
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.8281916667171269,
+          "median": 0.8219000000317465,
+          "min": 0.7628000000404427,
+          "max": 0.8945000002713641
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.0323833333835257,
+          "median": 1.0225499999869498,
+          "min": 0.9552000000403496,
+          "max": 1.1146000001754146
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownSync:47",
+        "calls": {
+          "count": 12,
+          "mean": 524,
+          "median": 524,
+          "min": 524,
+          "max": 524
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.8073416666387251,
+          "median": 0.7952999998015002,
+          "min": 0.7749000000621891,
+          "max": 0.8775999999052146
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.8073416666387251,
+          "median": 0.7952999998015002,
+          "min": 0.7749000000621891,
+          "max": 0.8775999999052146
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1613:decodeRangeReadInputResult",
+        "calls": {
+          "count": 12,
+          "mean": 208,
+          "median": 208,
+          "min": 208,
+          "max": 208
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.771791666715823,
+          "median": 0.7690500001408509,
+          "min": 0.7308999999368098,
+          "max": 0.8575000001728768
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.9227250000452234,
+          "median": 1.9050499999939348,
+          "min": 1.806100000074366,
+          "max": 2.126700000182609
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownSync:48",
+        "calls": {
+          "count": 12,
+          "mean": 149,
+          "median": 149,
+          "min": 149,
+          "max": 149
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.7588666666548912,
+          "median": 0.7727000000595581,
+          "min": 0.6596000000863569,
+          "max": 0.8894999999029096
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.9632583333174504,
+          "median": 0.9642000000458211,
+          "min": 0.8566000000864733,
+          "max": 1.1509999999107094
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1023:readFiniteIndexPage",
+        "calls": {
+          "count": 12,
+          "mean": 130,
+          "median": 130,
+          "min": 130,
+          "max": 130
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.7357083333590708,
+          "median": 0.7340000000112923,
+          "min": 0.6878000001597684,
+          "max": 0.7914000000455417
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.0426666666874855,
+          "median": 1.0458000000435277,
+          "min": 0.9767000001011183,
+          "max": 1.1067999999941094
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/frameworks/commerceTransaction/borrowedWorkflowAttempt.ts:169:invoke",
+        "calls": {
+          "count": 12,
+          "mean": 99,
+          "median": 99,
+          "min": 99,
+          "max": 99
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.7304000000003725,
+          "median": 0.7120500000091852,
+          "min": 0.6648999999306398,
+          "max": 0.8303999999479856
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.8203083333331355,
+          "median": 0.8019499999572872,
+          "min": 0.7520999999542255,
+          "max": 0.921799999952782
+        }
+      },
+      {
+        "name": "generator.next|packages/medusa-adapter/src/workflow-value.ts:9:captureWorkflowValue",
+        "calls": {
+          "count": 12,
+          "mean": 84,
+          "median": 84,
+          "min": 84,
+          "max": 84
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.7146499999713948,
+          "median": 0.7058499999984633,
+          "min": 0.6760999999969499,
+          "max": 0.769799999994575
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.7146499999713948,
+          "median": 0.7058499999984633,
+          "min": 0.6760999999969499,
+          "max": 0.769799999994575
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:157:visit",
+        "calls": {
+          "count": 12,
+          "mean": 279,
+          "median": 279,
+          "min": 279,
+          "max": 279
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.6678666667467041,
+          "median": 0.6596000001154607,
+          "min": 0.6288000000495231,
+          "max": 0.7390000002633315
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 3.194575000048644,
+          "median": 3.1833999999798834,
+          "min": 2.9379000000626547,
+          "max": 3.568100000033155
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:850:projectedOutput",
+        "calls": {
+          "count": 12,
+          "mean": 108,
+          "median": 108,
+          "min": 108,
+          "max": 108
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.6561666666614959,
+          "median": 0.6347499999974389,
+          "min": 0.6120999999984633,
+          "max": 0.8061000000598142
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.6561666666614959,
+          "median": 0.6347499999974389,
+          "min": 0.6120999999984633,
+          "max": 0.8061000000598142
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:173:operation",
+        "calls": {
+          "count": 12,
+          "mean": 489,
+          "median": 489,
+          "min": 489,
+          "max": 489
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.6471250000225458,
+          "median": 0.6424999999799184,
+          "min": 0.6219999998866115,
+          "max": 0.6983000000036554
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.6471250000225458,
+          "median": 0.6424999999799184,
+          "min": 0.6219999998866115,
+          "max": 0.6983000000036554
+        }
+      },
+      {
+        "name": "result.gen|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:601:consumeAccessMetadataResult",
+        "calls": {
+          "count": 12,
+          "mean": 158,
+          "median": 158,
+          "min": 158,
+          "max": 158
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.6429583333010669,
+          "median": 0.6330999999627238,
+          "min": 0.6024000000033993,
+          "max": 0.6855000000359723
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 5.043716666665811,
+          "median": 4.990350000000035,
+          "min": 4.8996999998926185,
+          "max": 5.372000000003027
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:771:compileRelationalRead",
+        "calls": {
+          "count": 12,
+          "mean": 164,
+          "median": 164,
+          "min": 164,
+          "max": 164
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.6341666666545885,
+          "median": 0.629750000029162,
+          "min": 0.5903999999136431,
+          "max": 0.6944000001822133
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 4.625158333312963,
+          "median": 4.561199999981909,
+          "min": 4.304599999857601,
+          "max": 5.11659999989206
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:336",
+        "calls": {
+          "count": 12,
+          "mean": 122,
+          "median": 122,
+          "min": 122,
+          "max": 122
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.630583333332955,
+          "median": 0.6266999999934342,
+          "min": 0.605200000005425,
+          "max": 0.6781000000919448
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.630583333332955,
+          "median": 0.6266999999934342,
+          "min": 0.605200000005425,
+          "max": 0.6781000000919448
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:117:prepareLogicalRelationalRead",
+        "calls": {
+          "count": 12,
+          "mean": 156,
+          "median": 156,
+          "min": 156,
+          "max": 156
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.5954583333150367,
+          "median": 0.6108499999609194,
+          "min": 0.5029000001813984,
+          "max": 0.6463000000658212
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 3.0333166666532634,
+          "median": 3.013149999984307,
+          "min": 2.8462000001163688,
+          "max": 3.355699999985518
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1241:prepareUniqueStorageSelection",
+        "calls": {
+          "count": 12,
+          "mean": 114,
+          "median": 114,
+          "min": 114,
+          "max": 114
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.5774499999703645,
+          "median": 0.5753000000695465,
+          "min": 0.5317999999824679,
+          "max": 0.641899999929592
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.6226583333154849,
+          "median": 0.6178500000678468,
+          "min": 0.5735999999451451,
+          "max": 0.6933999999746447
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:337",
+        "calls": {
+          "count": 12,
+          "mean": 85,
+          "median": 85,
+          "min": 85,
+          "max": 85
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.5756749999988339,
+          "median": 0.5718499999929918,
+          "min": 0.5520999999862397,
+          "max": 0.6292999999568565
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.5756749999988339,
+          "median": 0.5718499999929918,
+          "min": 0.5520999999862397,
+          "max": 0.6292999999568565
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:814:decodeMembershipPositionsEffect",
+        "calls": {
+          "count": 12,
+          "mean": 296,
+          "median": 296,
+          "min": 296,
+          "max": 296
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.5583583332906225,
+          "median": 0.5552999999636086,
+          "min": 0.531499999910011,
+          "max": 0.5988999999681255
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.4591833333009465,
+          "median": 1.460399999996298,
+          "min": 1.4144000000378583,
+          "max": 1.5253000001248438
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownSync:78",
+        "calls": {
+          "count": 12,
+          "mean": 382,
+          "median": 382,
+          "min": 382,
+          "max": 382
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.5417083333632036,
+          "median": 0.5417000000961707,
+          "min": 0.52360000005865,
+          "max": 0.5771999999706168
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.5417083333632036,
+          "median": 0.5417000000961707,
+          "min": 0.52360000005865,
+          "max": 0.5771999999706168
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/journal/participantOperations.ts:1548:runAdmittedOperationEffect",
+        "calls": {
+          "count": 12,
+          "mean": 35,
+          "median": 35,
+          "min": 35,
+          "max": 35
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.5369750000112011,
+          "median": 0.5355500000005122,
+          "min": 0.48460000003979076,
+          "max": 0.6398999999510124
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.7462666666591152,
+          "median": 0.7349499999763793,
+          "min": 0.6777000000001863,
+          "max": 0.8691999999718973
+        }
+      },
+      {
+        "name": "generator.next|packages/medusa-adapter/src/query/projection.ts:118:projectRows",
+        "calls": {
+          "count": 12,
+          "mean": 52,
+          "median": 52,
+          "min": 52,
+          "max": 52
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.5200166666775962,
+          "median": 0.5035500000303728,
+          "min": 0.4647000000550179,
+          "max": 0.663799999965704
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.6499916666822779,
+          "median": 0.637300000016694,
+          "min": 0.5850000000500586,
+          "max": 0.8201999999728287
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/finiteStorageCapture.ts:467:accepted",
+        "calls": {
+          "count": 12,
+          "mean": 190,
+          "median": 190,
+          "min": 190,
+          "max": 190
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.490883333345361,
+          "median": 0.5011000000595232,
+          "min": 0.40220000004046597,
+          "max": 0.5575999999127816
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.1032083333496605,
+          "median": 1.1137000000089756,
+          "min": 0.9388000000180909,
+          "max": 1.2281999999977415
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownSync:77",
+        "calls": {
+          "count": 12,
+          "mean": 61,
+          "median": 61,
+          "min": 61,
+          "max": 61
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.48832500001905527,
+          "median": 0.48350000008940697,
+          "min": 0.44930000002204906,
+          "max": 0.5677999999752501
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.48832500001905527,
+          "median": 0.48350000008940697,
+          "min": 0.44930000002204906,
+          "max": 0.5677999999752501
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:414",
+        "calls": {
+          "count": 12,
+          "mean": 39,
+          "median": 39,
+          "min": 39,
+          "max": 39
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.48485000000194606,
+          "median": 0.4793000000354368,
+          "min": 0.45159999998577405,
+          "max": 0.5647000000171829
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.48485000000194606,
+          "median": 0.4793000000354368,
+          "min": 0.45159999998577405,
+          "max": 0.5647000000171829
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:338",
+        "calls": {
+          "count": 12,
+          "mean": 1,
+          "median": 1,
+          "min": 1,
+          "max": 1
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.48172500000024837,
+          "median": 0.47319999999308493,
+          "min": 0.46150000000488944,
+          "max": 0.5393999999942025
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.48172500000024837,
+          "median": 0.47319999999308493,
+          "min": 0.46150000000488944,
+          "max": 0.5393999999942025
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:84",
+        "calls": {
+          "count": 12,
+          "mean": 228,
+          "median": 228,
+          "min": 228,
+          "max": 228
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.4794500000134576,
+          "median": 0.47575000004144385,
+          "min": 0.4661000000924105,
+          "max": 0.5174000000406522
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.4794500000134576,
+          "median": 0.47575000004144385,
+          "min": 0.4661000000924105,
+          "max": 0.5174000000406522
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:115:check",
+        "calls": {
+          "count": 12,
+          "mean": 766,
+          "median": 766,
+          "min": 766,
+          "max": 766
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.4678333332910067,
+          "median": 0.4518999998617801,
+          "min": 0.38950000003387686,
+          "max": 0.5745000000315486
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.4678333332910067,
+          "median": 0.4518999998617801,
+          "min": 0.38950000003387686,
+          "max": 0.5745000000315486
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/installation/frameworkSchema/privateCanonicalValue.ts:70:capturePrivateCanonicalValue",
+        "calls": {
+          "count": 12,
+          "mean": 27,
+          "median": 27,
+          "min": 27,
+          "max": 27
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.46457500001755153,
+          "median": 0.4621999999944819,
+          "min": 0.4218000000255415,
+          "max": 0.5076000000408385
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.46457500001755153,
+          "median": 0.4621999999944819,
+          "min": 0.4218000000255415,
+          "max": 0.5076000000408385
+        }
+      },
+      {
+        "name": "fn.Error|call:FlarexValue.canonicalizeV1",
+        "calls": {
+          "count": 12,
+          "mean": 42,
+          "median": 42,
+          "min": 42,
+          "max": 42
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.4642833333139909,
+          "median": 0.459450000023935,
+          "min": 0.42639999990933575,
+          "max": 0.5102999999799067
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.4642833333139909,
+          "median": 0.459450000023935,
+          "min": 0.42639999990933575,
+          "max": 0.5102999999799067
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:334:captureLogicalRelationalCanonicalRow",
+        "calls": {
+          "count": 12,
+          "mean": 32,
+          "median": 32,
+          "min": 32,
+          "max": 32
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.4496166666613135,
+          "median": 0.43644999998650746,
+          "min": 0.39169999994919635,
+          "max": 0.5536000000138301
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.4496166666613135,
+          "median": 0.43644999998650746,
+          "min": 0.39169999994919635,
+          "max": 0.5536000000138301
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2286:close",
+        "calls": {
+          "count": 12,
+          "mean": 28,
+          "median": 28,
+          "min": 28,
+          "max": 28
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.44918333332558785,
+          "median": 0.4532499999841093,
+          "min": 0.411099999997532,
+          "max": 0.4985999999771593
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.4977999999876677,
+          "median": 0.4984000000040396,
+          "min": 0.45629999999073334,
+          "max": 0.5590999999840278
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:2187:prepareActivity",
+        "calls": {
+          "count": 12,
+          "mean": 52,
+          "median": 52,
+          "min": 52,
+          "max": 52
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.4283333333490494,
+          "median": 0.41439999998692656,
+          "min": 0.3858000000473112,
+          "max": 0.5203000000183238
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.9573500000030132,
+          "median": 0.9401499999657972,
+          "min": 0.8812000001053093,
+          "max": 1.1542000000044936
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:354:captureLogicalRelationalActivityJson",
+        "calls": {
+          "count": 12,
+          "mean": 68,
+          "median": 68,
+          "min": 68,
+          "max": 68
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.41920833333279006,
+          "median": 0.411500000016531,
+          "min": 0.3853999999410007,
+          "max": 0.5066999999980908
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.41920833333279006,
+          "median": 0.411500000016531,
+          "min": 0.3853999999410007,
+          "max": 0.5066999999980908
+        }
+      },
+      {
+        "name": "generator.next|packages/medusa-adapter/src/write/replace.ts:26:replaceGraphRows",
+        "calls": {
+          "count": 12,
+          "mean": 116,
+          "median": 116,
+          "min": 116,
+          "max": 116
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.4161166666696469,
+          "median": 0.40509999995992985,
+          "min": 0.3861999999935506,
+          "max": 0.4785000000556465
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.440358333333279,
+          "median": 0.4311499999530497,
+          "min": 0.4105999999883352,
+          "max": 0.5032000000501284
+        }
+      },
+      {
+        "name": "result.gen|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1509:captureIndexReadDefinitionResult",
+        "calls": {
+          "count": 12,
+          "mean": 102,
+          "median": 102,
+          "min": 102,
+          "max": 102
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.4072666666385582,
+          "median": 0.40135000002919696,
+          "min": 0.38639999979932327,
+          "max": 0.44949999994423706
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.439650000022084,
+          "median": 1.430549999953655,
+          "min": 1.3568000001105247,
+          "max": 1.5641000001196517
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:335",
+        "calls": {
+          "count": 12,
+          "mean": 161,
+          "median": 161,
+          "min": 161,
+          "max": 161
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.39578333333217114,
+          "median": 0.39375000004656613,
+          "min": 0.37829999992391095,
+          "max": 0.42279999997117557
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.39578333333217114,
+          "median": 0.39375000004656613,
+          "min": 0.37829999992391095,
+          "max": 0.42279999997117557
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:196:lowerLogicalCanonicalUniqueKey",
+        "calls": {
+          "count": 12,
+          "mean": 126,
+          "median": 126,
+          "min": 126,
+          "max": 126
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.3915250000136439,
+          "median": 0.3815000000613509,
+          "min": 0.3479999999690335,
+          "max": 0.4392000001244014
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 2.7232166666835838,
+          "median": 2.677350000027218,
+          "min": 2.5755999999819323,
+          "max": 3.0440000000962755
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/unique/appUniqueKeys.ts:1380:{ identity, scope, canonical }",
+        "calls": {
+          "count": 12,
+          "mean": 60,
+          "median": 60,
+          "min": 60,
+          "max": 60
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.3854666666641909,
+          "median": 0.37989999989804346,
+          "min": 0.34930000005988404,
+          "max": 0.42810000001918525
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.5252666666832132,
+          "median": 0.5275999999721535,
+          "min": 0.4723000000376487,
+          "max": 0.5864999999903375
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownSync:39",
+        "calls": {
+          "count": 12,
+          "mean": 158,
+          "median": 158,
+          "min": 158,
+          "max": 158
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.38444999998561497,
+          "median": 0.3769000000174856,
+          "min": 0.3568999998969957,
+          "max": 0.4412000000156695
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.38444999998561497,
+          "median": 0.3769000000174856,
+          "min": 0.3568999998969957,
+          "max": 0.4412000000156695
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+        "calls": {
+          "count": 12,
+          "mean": 112,
+          "median": 112,
+          "min": 112,
+          "max": 112
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.38289166671044467,
+          "median": 0.3813500000251224,
+          "min": 0.3381999999546679,
+          "max": 0.43240000007790513
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.6078333333510576,
+          "median": 0.6046500000229571,
+          "min": 0.5483999999123625,
+          "max": 0.6834000000380911
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:314:canonicalizeLogicalRelationalRow",
+        "calls": {
+          "count": 12,
+          "mean": 21,
+          "median": 21,
+          "min": 21,
+          "max": 21
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.3783749999941695,
+          "median": 0.3729999999777647,
+          "min": 0.33150000002933666,
+          "max": 0.5171000000555068
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.3783749999941695,
+          "median": 0.3729999999777647,
+          "min": 0.33150000002933666,
+          "max": 0.5171000000555068
+        }
+      },
+      {
+        "name": "generator.next|packages/medusa-adapter/src/write/replace.ts:58:load",
+        "calls": {
+          "count": 12,
+          "mean": 47,
+          "median": 47,
+          "min": 47,
+          "max": 47
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.37750000000111567,
+          "median": 0.37250000000494765,
+          "min": 0.34720000001834705,
+          "max": 0.4116999999823747
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.37750000000111567,
+          "median": 0.37250000000494765,
+          "min": 0.34720000001834705,
+          "max": 0.4116999999823747
+        }
+      },
+      {
+        "name": "result.gen|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:157:visit",
+        "calls": {
+          "count": 12,
+          "mean": 106,
+          "median": 106,
+          "min": 106,
+          "max": 106
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.37420833328481723,
+          "median": 0.3652500000389409,
+          "min": 0.34969999999157153,
+          "max": 0.42659999994793907
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 3.5687833333334615,
+          "median": 3.550299999937124,
+          "min": 3.2919000000838423,
+          "max": 3.964999999894644
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/commit/point/preparation.ts:489:prepareFiniteCommitCommand",
+        "calls": {
+          "count": 12,
+          "mean": 22,
+          "median": 22,
+          "min": 22,
+          "max": 22
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.37220833334868075,
+          "median": 0.3567500000499422,
+          "min": 0.31720000007771887,
+          "max": 0.4793000000936445
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.5320416666775903,
+          "median": 0.5118000000074971,
+          "min": 0.45940000006521586,
+          "max": 0.643800000048941
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/preparation/boundedRequestLifetime.ts:172:operation",
+        "calls": {
+          "count": 12,
+          "mean": 326,
+          "median": 326,
+          "min": 326,
+          "max": 326
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.36844999999690725,
+          "median": 0.36604999998235144,
+          "min": 0.34929999995802063,
+          "max": 0.3911999999108957
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.36844999999690725,
+          "median": 0.36604999998235144,
+          "min": 0.34929999995802063,
+          "max": 0.3911999999108957
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1902:relationalChange",
+        "calls": {
+          "count": 12,
+          "mean": 70,
+          "median": 70,
+          "min": 70,
+          "max": 70
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.35689166667119326,
+          "median": 0.350849999973434,
+          "min": 0.3091000000567874,
+          "max": 0.41160000006493647
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.5132333333337252,
+          "median": 0.5042999999714084,
+          "min": 0.446600000053877,
+          "max": 0.6207000001013512
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/execution/journal/participantOperations.ts:1379:runAdmittedOperationEffect",
+        "calls": {
+          "count": 12,
+          "mean": 60,
+          "median": 60,
+          "min": 60,
+          "max": 60
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.3537333333612575,
+          "median": 0.35510000002977904,
+          "min": 0.3233000000473112,
+          "max": 0.38050000005750917
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 1.0539833333483937,
+          "median": 1.0537500000427826,
+          "min": 0.9877000000269618,
+          "max": 1.1420999999827472
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/materialization/publicationAcceptance.ts:183:preparePublicationAcceptance",
+        "calls": {
+          "count": 12,
+          "mean": 5,
+          "median": 5,
+          "min": 5,
+          "max": 5
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.352266666663733,
+          "median": 0.34654999996564584,
+          "min": 0.32389999998849817,
+          "max": 0.3947000000043772
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.4198583333357722,
+          "median": 0.41410000000178115,
+          "min": 0.389999999984866,
+          "max": 0.4651000000158092
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1018:consumeCurrentAppIndexPagesInTransactionEffect",
+        "calls": {
+          "count": 12,
+          "mean": 118,
+          "median": 118,
+          "min": 118,
+          "max": 118
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.3520250000037777,
+          "median": 0.34590000002935994,
+          "min": 0.32339999987743795,
+          "max": 0.38650000010966323
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.4894166666684517,
+          "median": 0.4820500000132597,
+          "min": 0.45649999994202517,
+          "max": 0.5416000000986969
+        }
+      },
+      {
+        "name": "schema.parse|decodeUnknownResult:49",
+        "calls": {
+          "count": 12,
+          "mean": 221,
+          "median": 221,
+          "min": 221,
+          "max": 221
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.3474749999877531,
+          "median": 0.3346499999752268,
+          "min": 0.3284999999741558,
+          "max": 0.43129999993834645
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.3474749999877531,
+          "median": 0.3346499999752268,
+          "min": 0.3284999999741558,
+          "max": 0.43129999993834645
+        }
+      },
+      {
+        "name": "generator.next|packages/flarex-protocol/src/admitted-framework-operation-v1.ts:67:encodeAdmittedFrameworkOperationV1Result",
+        "calls": {
+          "count": 12,
+          "mean": 28,
+          "median": 28,
+          "min": 28,
+          "max": 28
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.34285833335767774,
+          "median": 0.33115000004909234,
+          "min": 0.315900000045076,
+          "max": 0.41240000001562294
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.5132166666759682,
+          "median": 0.49975000001722947,
+          "min": 0.4701999999815598,
+          "max": 0.5987999999779277
+        }
+      },
+      {
+        "name": "generator.next|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalRows.ts:52:prepareLogicalRelationalRowValues",
+        "calls": {
+          "count": 12,
+          "mean": 33,
+          "median": 33,
+          "min": 33,
+          "max": 33
+        },
+        "selfMs": {
+          "count": 12,
+          "mean": 0.34105000001727603,
+          "median": 0.337000000057742,
+          "min": 0.3202000000164844,
+          "max": 0.38780000002589077
+        },
+        "inclusiveMs": {
+          "count": 12,
+          "mean": 0.38723333334807347,
+          "median": 0.3827999999994063,
+          "min": 0.3628000000171596,
+          "max": 0.4382000000332482
+        }
+      }
+    ],
+    "schemaRows": [
+      {
+        "key": "decodeUnknownSync:79|packages/persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1.ts:176:lowerCanonicalAppUniqueConstraintV1Result",
+        "calls": 136,
+        "results": {
+          "string": 1632
+        }
+      },
+      {
+        "key": "decodeUnknownSync:79|outsideGenerator",
+        "calls": 111,
+        "results": {
+          "string": 1332
+        }
+      },
+      {
+        "key": "decodeUnknownSync:79|packages/persistence-postgres/src/storage/materialization/settlementPlan.ts:81:prepareDeveloperIndexKeyPairsResult",
+        "calls": 109,
+        "results": {
+          "string": 1308
+        }
+      },
+      {
+        "key": "decodeUnknownResult:415|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:157:visit",
+        "calls": 106,
+        "results": {
+          "Success": 1272
+        }
+      },
+      {
+        "key": "decodeUnknownResult:267|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1613:decodeRangeReadInputResult",
+        "calls": 104,
+        "results": {
+          "Success": 1248
+        }
+      },
+      {
+        "key": "decodeUnknownSync:80|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1613:decodeRangeReadInputResult",
+        "calls": 104,
+        "results": {
+          "string": 1248
+        }
+      },
+      {
+        "key": "decodeUnknownResult:259|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1509:captureIndexReadDefinitionResult",
+        "calls": 102,
+        "results": {
+          "Success": 1224
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:711:prepareAppIndexKeyTransitionAcceptanceInTransactionEffect",
+        "calls": 100,
+        "results": {
+          "string": 1200
+        }
+      },
+      {
+        "key": "decodeUnknownResult:336|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:601:consumeAccessMetadataResult",
+        "calls": 83,
+        "results": {
+          "Success": 996
+        }
+      },
+      {
+        "key": "decodeUnknownResult:335|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:601:consumeAccessMetadataResult",
+        "calls": 82,
+        "results": {
+          "Success": 984
+        }
+      },
+      {
+        "key": "decodeUnknownSync:51|outsideGenerator",
+        "calls": 80,
+        "results": {
+          "object": 960
+        }
+      },
+      {
+        "key": "decodeUnknownSync:52|outsideGenerator",
+        "calls": 80,
+        "results": {
+          "object": 960
+        }
+      },
+      {
+        "key": "decodeUnknownEffect:369|packages/persistence-postgres/src/execution/finiteStorageCapture.ts:467:accepted",
+        "calls": 76,
+        "results": {
+          "Success": 912
+        }
+      },
+      {
+        "key": "decodeUnknownSync:80|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1206:historicalUniqueSelection",
+        "calls": 76,
+        "results": {
+          "string": 912
+        }
+      },
+      {
+        "key": "decodeUnknownResult:84|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1539:prepareIndexReadDefinitionEffect",
+        "calls": 76,
+        "results": {
+          "Success": 912
+        }
+      },
+      {
+        "key": "decodeUnknownSync:78|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": 70,
+        "results": {
+          "string": 840
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:450:prepareDecodedAppIndexRevisionApplicationEffect",
+        "calls": 70,
+        "results": {
+          "string": 840
+        }
+      },
+      {
+        "key": "decodeUnknownSync:78|packages/persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1.ts:176:lowerCanonicalAppUniqueConstraintV1Result",
+        "calls": 65,
+        "results": {
+          "string": 780
+        }
+      },
+      {
+        "key": "decodeUnknownResult:266|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:814:decodeMembershipPositionsEffect",
+        "calls": 64,
+        "results": {
+          "Success": 768
+        }
+      },
+      {
+        "key": "decodeUnknownSync:78|outsideGenerator",
+        "calls": 64,
+        "results": {
+          "string": 768
+        }
+      },
+      {
+        "key": "decodeUnknownResult:268|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:814:decodeMembershipPositionsEffect",
+        "calls": 64,
+        "results": {
+          "Success": 768
+        }
+      },
+      {
+        "key": "decodeUnknownSync:78|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:814:decodeMembershipPositionsEffect",
+        "calls": 64,
+        "results": {
+          "string": 768
+        }
+      },
+      {
+        "key": "decodeUnknownSync:78|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:711:prepareAppIndexKeyTransitionAcceptanceInTransactionEffect",
+        "calls": 64,
+        "results": {
+          "string": 768
+        }
+      },
+      {
+        "key": "decodeUnknownEffect:274|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1018:consumeCurrentAppIndexPagesInTransactionEffect",
+        "calls": 52,
+        "results": {
+          "Success": 624
+        }
+      },
+      {
+        "key": "decodeUnknownResult:84|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:711:prepareAppIndexKeyTransitionAcceptanceInTransactionEffect",
+        "calls": 50,
+        "results": {
+          "Success": 600
+        }
+      },
+      {
+        "key": "decodeUnknownResult:84|packages/persistence-postgres/src/storage/materialization/materialization.ts:713:materializeAcceptedApplicationPublicationRows",
+        "calls": 50,
+        "results": {
+          "Success": 600
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/commit/point/preparation.ts:489:prepareFiniteCommitCommand",
+        "calls": 46,
+        "results": {
+          "string": 552
+        }
+      },
+      {
+        "key": "decodeUnknownResult:337|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:601:consumeAccessMetadataResult",
+        "calls": 44,
+        "results": {
+          "Success": 528
+        }
+      },
+      {
+        "key": "decodeUnknownSync:80|outsideGenerator",
+        "calls": 42,
+        "results": {
+          "string": 504
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/storage/materialization/settlementPlan.ts:81:prepareDeveloperIndexKeyPairsResult",
+        "calls": 41,
+        "results": {
+          "string": 492
+        }
+      },
+      {
+        "key": "decodeUnknownSync:77|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1206:historicalUniqueSelection",
+        "calls": 40,
+        "results": {
+          "object": 480
+        }
+      },
+      {
+        "key": "decodeUnknownSync:78|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+        "calls": 40,
+        "results": {
+          "string": 480
+        }
+      },
+      {
+        "key": "decodeUnknownResult:414|packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:117:prepareLogicalRelationalRead",
+        "calls": 39,
+        "results": {
+          "Success": 468
+        }
+      },
+      {
+        "key": "decodeUnknownResult:336|packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:612:matchesFiniteMetadataDependencyObservation",
+        "calls": 39,
+        "results": {
+          "Success": 468
+        }
+      },
+      {
+        "key": "decodeUnknownResult:337|packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:612:matchesFiniteMetadataDependencyObservation",
+        "calls": 39,
+        "results": {
+          "Success": 468
+        }
+      },
+      {
+        "key": "decodeUnknownEffect:569|packages/persistence-postgres/src/execution/finiteStorageCapture.ts:467:accepted",
+        "calls": 38,
+        "results": {
+          "Success": 456
+        }
+      },
+      {
+        "key": "decodeUnknownEffect:570|packages/persistence-postgres/src/execution/finiteStorageCapture.ts:467:accepted",
+        "calls": 38,
+        "results": {
+          "Success": 456
+        }
+      },
+      {
+        "key": "decodeUnknownSync:79|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1206:historicalUniqueSelection",
+        "calls": 38,
+        "results": {
+          "string": 456
+        }
+      },
+      {
+        "key": "decodeUnknownResult:272|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:655:acceptPreparedAppIndexKeyTransitionResult",
+        "calls": 36,
+        "results": {
+          "Success": 432
+        }
+      },
+      {
+        "key": "decodeUnknownResult:335|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:589:consumeTableMetadataResult",
+        "calls": 35,
+        "results": {
+          "Success": 420
+        }
+      },
+      {
+        "key": "decodeUnknownResult:259|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": 35,
+        "results": {
+          "Success": 420
+        }
+      },
+      {
+        "key": "decodeUnknownResult:266|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": 35,
+        "results": {
+          "Success": 420
+        }
+      },
+      {
+        "key": "decodeUnknownSync:79|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": 35,
+        "results": {
+          "string": 420
+        }
+      },
+      {
+        "key": "decodeUnknownResult:268|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": 35,
+        "results": {
+          "Success": 420
+        }
+      },
+      {
+        "key": "decodeUnknownResult:260|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": 35,
+        "results": {
+          "Success": 420
+        }
+      },
+      {
+        "key": "decodeUnknownResult:265|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1300:captureAppendInputResult",
+        "calls": 35,
+        "results": {
+          "Success": 420
+        }
+      },
+      {
+        "key": "decodeUnknownResult:49|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1189:locate",
+        "calls": 34,
+        "results": {
+          "Success": 408
+        }
+      },
+      {
+        "key": "decodeUnknownSync:39|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1258:read",
+        "calls": 27,
+        "results": {
+          "number": 324
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1258:read",
+        "calls": 27,
+        "results": {
+          "string": 324
+        }
+      },
+      {
+        "key": "decodeUnknownResult:49|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1258:read",
+        "calls": 27,
+        "results": {
+          "Success": 324
+        }
+      },
+      {
+        "key": "decodeUnknownSync:48|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1258:read",
+        "calls": 27,
+        "results": {
+          "string": 324
+        }
+      },
+      {
+        "key": "decodeUnknownResult:265|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1745:prepareAppIndexSnapshotReadResult",
+        "calls": 26,
+        "results": {
+          "Success": 312
+        }
+      },
+      {
+        "key": "decodeUnknownResult:84|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:1745:prepareAppIndexSnapshotReadResult",
+        "calls": 26,
+        "results": {
+          "Success": 312
+        }
+      },
+      {
+        "key": "decodeUnknownResult:84|packages/persistence-postgres/src/execution/finiteStorageCapture.ts:401:{ rows, index, tableId, snapshot }",
+        "calls": 26,
+        "results": {
+          "Success": 312
+        }
+      },
+      {
+        "key": "decodeUnknownResult:335|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1023:readFiniteIndexPage",
+        "calls": 24,
+        "results": {
+          "Success": 288
+        }
+      },
+      {
+        "key": "decodeUnknownSync:39|packages/persistence-postgres/src/storage/materialization/materialization.ts:722:intrinsicPreparation",
+        "calls": 24,
+        "results": {
+          "number": 288
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/storage/materialization/materialization.ts:722:intrinsicPreparation",
+        "calls": 24,
+        "results": {
+          "string": 288
+        }
+      },
+      {
+        "key": "decodeUnknownResult:49|packages/persistence-postgres/src/storage/materialization/materialization.ts:722:intrinsicPreparation",
+        "calls": 24,
+        "results": {
+          "Success": 288
+        }
+      },
+      {
+        "key": "decodeUnknownSync:48|packages/persistence-postgres/src/storage/materialization/materialization.ts:722:intrinsicPreparation",
+        "calls": 24,
+        "results": {
+          "string": 288
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|outsideGenerator",
+        "calls": 22,
+        "results": {
+          "string": 264
+        }
+      },
+      {
+        "key": "decodeUnknownSync:77|outsideGenerator",
+        "calls": 21,
+        "results": {
+          "object": 252
+        }
+      },
+      {
+        "key": "decodeUnknownEffect:276|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2008:decodeRangeRowEffect",
+        "calls": 20,
+        "results": {
+          "Success": 240
+        }
+      },
+      {
+        "key": "decodeUnknownResult:262|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+        "calls": 20,
+        "results": {
+          "Success": 240
+        }
+      },
+      {
+        "key": "decodeUnknownSync:79|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+        "calls": 20,
+        "results": {
+          "string": 240
+        }
+      },
+      {
+        "key": "decodeUnknownResult:265|packages/persistence-postgres/src/storage/indexes/appIndexEntries.ts:2085:captureRangeRowResult",
+        "calls": 20,
+        "results": {
+          "Success": 240
+        }
+      },
+      {
+        "key": "decodeUnknownSync:39|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+        "calls": 18,
+        "results": {
+          "number": 216
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+        "calls": 18,
+        "results": {
+          "string": 216
+        }
+      },
+      {
+        "key": "decodeUnknownResult:49|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+        "calls": 18,
+        "results": {
+          "Success": 216
+        }
+      },
+      {
+        "key": "decodeUnknownSync:48|packages/persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts:1038:readFiniteIndexRows",
+        "calls": 18,
+        "results": {
+          "string": 216
+        }
+      },
+      {
+        "key": "decodeUnknownSync:47|packages/persistence-postgres/src/storage/documents/appRows.ts:1200:prepareAppRowRevisionApplicationEffect",
+        "calls": 18,
+        "results": {
+          "string": 216
+        }
+      }
+    ],
+    "gates": [
+      {
+        "name": "sourceStability",
+        "passed": true,
+        "detail": "Authored package code, locks and loaded native sources remain stable"
+      },
+      {
+        "name": "settingsStability",
+        "passed": true,
+        "detail": "Ordinary-role durable settings are retained before and after"
+      },
+      {
+        "name": "cleanup",
+        "passed": true,
+        "detail": "Owned command resources drained"
+      }
+    ],
+    "sources": {
+      "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "files": 6962
+    },
+    "generatorApis": {
+      "Result.gen": {
+        "nextCallsPerWorkflow": 5507,
+        "selectedSelfMeanMs": 25.26780833348433,
+        "owners": 116
+      },
+      "Effect.gen": {
+        "nextCallsPerWorkflow": 4453,
+        "selectedSelfMeanMs": 20.022674999907988,
+        "owners": 128
+      },
+      "Effect.fnUntraced": {
+        "nextCallsPerWorkflow": 5348,
+        "selectedSelfMeanMs": 18.28736666658368,
+        "owners": 124
+      },
+      "Effect.fn": {
+        "nextCallsPerWorkflow": 1849,
+        "selectedSelfMeanMs": 10.334924999981016,
+        "owners": 195
+      }
+    },
+    "schemaOwnerHints": {
+      "39": {
+        "tag": "Number",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/catalog.ts:25:44"
+      },
+      "47": {
+        "tag": "String",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/app-document-id.ts:31:43"
+      },
+      "48": {
+        "tag": "String",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/app-document-id.ts:43:45"
+      },
+      "49": {
+        "tag": "Number",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/app-document-id.ts:46:43"
+      },
+      "77": {
+        "tag": "Union",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/ordered-index.ts:126:58"
+      },
+      "78": {
+        "tag": "String",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/ordered-index.ts:142:55"
+      },
+      "79": {
+        "tag": "String",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/ordered-index.ts:150:50"
+      },
+      "84": {
+        "tag": "String",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/flarex-protocol/src/index-definition.ts:72:10"
+      },
+      "335": {
+        "tag": "BigInt",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:38:41"
+      },
+      "336": {
+        "tag": "Objects",
+        "fields": [
+          "namespace",
+          "ownerKey",
+          "contractKey"
+        ],
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:39:32"
+      },
+      "337": {
+        "tag": "Objects",
+        "fields": [
+          "kind",
+          "namespace",
+          "ownerKey",
+          "contractKey",
+          "capturedWatermark",
+          "observed"
+        ],
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:40:43"
+      },
+      "338": {
+        "tag": "Arrays",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/execution/finiteMetadataDependencies.ts:41:48"
+      },
+      "414": {
+        "tag": "Objects",
+        "fields": [
+          "fields",
+          "predicate",
+          "skip",
+          "take",
+          "order"
+        ],
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:41:31"
+      },
+      "415": {
+        "tag": "Union",
+        "firstFactory": "    at C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/packages/persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts:42:27"
+      }
+    }
+  },
+  "focused": {
+    "runId": "361736a7-6f40-46d2-805e-30a7394ff300",
+    "observerOn": {
+      "count": 6,
+      "mean": 122,
+      "median": 109,
+      "min": 108,
+      "max": 156
+    },
+    "observerOff": {
+      "count": 6,
+      "mean": 104.16666666666667,
+      "median": 109,
+      "min": 63,
+      "max": 157
+    },
+    "owners": {
+      "finiteMetadataContractKey": {
+        "calls": {
+          "count": 6,
+          "mean": 935,
+          "median": 935,
+          "min": 935,
+          "max": 935
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.5518999999500618,
+          "median": 1.5563499999188934,
+          "min": 1.4198999999644002,
+          "max": 1.650300000081188
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.5518999999500618,
+          "median": 1.5563499999188934,
+          "min": 1.4198999999644002,
+          "max": 1.650300000081188
+        }
+      },
+      "logicalMetadataDependencyIdentity": {
+        "calls": {
+          "count": 6,
+          "mean": 6475,
+          "median": 6475,
+          "min": 6475,
+          "max": 6475
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 4.126716666465654,
+          "median": 4.0805499997368315,
+          "min": 4.005300000673742,
+          "max": 4.310699999216013
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 4.126716666465654,
+          "median": 4.0805499997368315,
+          "min": 4.005300000673742,
+          "max": 4.310699999216013
+        }
+      },
+      "captureFiniteMetadataDependency": {
+        "calls": {
+          "count": 6,
+          "mean": 207,
+          "median": 207,
+          "min": 207,
+          "max": 207
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.4297833333936676,
+          "median": 1.434800000184623,
+          "min": 1.3840000001509907,
+          "max": 1.484800000107498
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.5696999999939483,
+          "median": 1.5747500000616128,
+          "min": 1.5185000000637956,
+          "max": 1.6234999999869615
+        }
+      },
+      "recordDecodedMetadataDependency": {
+        "calls": {
+          "count": 6,
+          "mean": 901,
+          "median": 901,
+          "min": 901,
+          "max": 901
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.4272333331694729,
+          "median": 1.4301999997842358,
+          "min": 1.373699999821838,
+          "max": 1.4818999998897198
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.9165999999362004,
+          "median": 1.9217999999091262,
+          "min": 1.8528999998088693,
+          "max": 1.9894999998650746
+        }
+      },
+      "retainMetadataKey": {
+        "calls": {
+          "count": 6,
+          "mean": 933,
+          "median": 933,
+          "min": 933,
+          "max": 933
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 2.0433333333639894,
+          "median": 2.020299999807321,
+          "min": 1.9892000003019348,
+          "max": 2.130100000256789
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 3.094033333335877,
+          "median": 3.0745000000242726,
+          "min": 3.030200000066543,
+          "max": 3.1905000002734596
+        }
+      },
+      "finiteMetadataTableKey": {
+        "calls": {
+          "count": 6,
+          "mean": 614,
+          "median": 614,
+          "min": 614,
+          "max": 614
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.357566666760249,
+          "median": 1.3228999999337248,
+          "min": 1.2905000000755535,
+          "max": 1.5097999999998137
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 4.040016666668332,
+          "median": 4.020599999923434,
+          "min": 3.8609999998443527,
+          "max": 4.329500000094413
+        }
+      },
+      "consumeLogicalDocumentRootMetadataDependency": {
+        "calls": {
+          "count": 6,
+          "mean": 899,
+          "median": 899,
+          "min": 899,
+          "max": 899
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 2.8059833335755684,
+          "median": 2.7821000000767526,
+          "min": 2.629000000335509,
+          "max": 3.116100000414008
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 9.800450000018222,
+          "median": 9.738200000138022,
+          "min": 9.591499999922235,
+          "max": 10.241099999992002
+        }
+      },
+      "consumeMetadataResult": {
+        "calls": {
+          "count": 6,
+          "mean": 893,
+          "median": 893,
+          "min": 893,
+          "max": 893
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.1009666666577687,
+          "median": 1.092599999938102,
+          "min": 1.0785000000614673,
+          "max": 1.1385000001610024
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 10.811900000017582,
+          "median": 10.755149999982677,
+          "min": 10.602999999988242,
+          "max": 11.284200000169221
+        }
+      },
+      "consumeTableMetadataResult": {
+        "calls": {
+          "count": 6,
+          "mean": 287,
+          "median": 287,
+          "min": 287,
+          "max": 287
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.7623000000409472,
+          "median": 1.7520999999469495,
+          "min": 1.682800000271527,
+          "max": 1.8603999998158542
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 11.64980000003925,
+          "median": 11.595800000031886,
+          "min": 11.298200000135694,
+          "max": 12.399400000016612
+        }
+      },
+      "matchesFiniteMetadataDependencyObservation": {
+        "calls": {
+          "count": 6,
+          "mean": 694,
+          "median": 694,
+          "min": 694,
+          "max": 694
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 2.2131000000808854,
+          "median": 2.209250000079919,
+          "min": 2.1630999999761116,
+          "max": 2.285200000143959
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 2.940149999969435,
+          "median": 2.9364000000059605,
+          "min": 2.865699999703793,
+          "max": 3.0249999999432475
+        }
+      },
+      "prepareLogicalRelationalRead": {
+        "calls": {
+          "count": 6,
+          "mean": 39,
+          "median": 39,
+          "min": 39,
+          "max": 39
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 2.335566666656329,
+          "median": 2.3078999999925145,
+          "min": 2.295999999914784,
+          "max": 2.4733999999880325
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 2.335566666656329,
+          "median": 2.3078999999925145,
+          "min": 2.295999999914784,
+          "max": 2.4733999999880325
+        }
+      },
+      "finiteMetadataAccessKey": {
+        "calls": {
+          "count": 6,
+          "mean": 255,
+          "median": 255,
+          "min": 255,
+          "max": 255
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 0.4854166665536468,
+          "median": 0.4757999999128515,
+          "min": 0.46110000005865004,
+          "max": 0.545999999914784
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 2.125783333233509,
+          "median": 2.1086499999291846,
+          "min": 2.055099999794038,
+          "max": 2.2131999998819083
+        }
+      },
+      "consumeAccessMetadataResult": {
+        "calls": {
+          "count": 6,
+          "mean": 158,
+          "median": 158,
+          "min": 158,
+          "max": 158
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.0752500000999134,
+          "median": 1.067000000119151,
+          "min": 1.0472000001027482,
+          "max": 1.1410999999570777
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 6.943150000025828,
+          "median": 6.931750000054308,
+          "min": 6.744000000006054,
+          "max": 7.1759999999922
+        }
+      },
+      "lowerCanonicalAppUniqueConstraintV1Result": {
+        "calls": {
+          "count": 6,
+          "mean": 73,
+          "median": 73,
+          "min": 73,
+          "max": 73
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 2.0838666666725962,
+          "median": 2.0544499999523396,
+          "min": 2.0311000000074273,
+          "max": 2.2470000000757864
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 2.0838666666725962,
+          "median": 2.0544499999523396,
+          "min": 2.0311000000074273,
+          "max": 2.2470000000757864
+        }
+      },
+      "finiteMetadataDefinitionKey": {
+        "calls": {
+          "count": 6,
+          "mean": 64,
+          "median": 64,
+          "min": 64,
+          "max": 64
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 0.14273333333282304,
+          "median": 0.14404999995531398,
+          "min": 0.11570000005303882,
+          "max": 0.16350000006787013
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 0.45636666669330833,
+          "median": 0.4441999999944528,
+          "min": 0.4296000000758795,
+          "max": 0.5134000000252854
+        }
+      },
+      "captureIndexReadDefinitionResult": {
+        "calls": {
+          "count": 6,
+          "mean": 102,
+          "median": 102,
+          "min": 102,
+          "max": 102
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 0.8398999999565907,
+          "median": 0.8262499999727879,
+          "min": 0.8088999999745283,
+          "max": 0.92639999986568
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 0.8398999999565907,
+          "median": 0.8262499999727879,
+          "min": 0.8088999999745283,
+          "max": 0.92639999986568
+        }
+      },
+      "decodeRangeReadInputResult": {
+        "calls": {
+          "count": 6,
+          "mean": 52,
+          "median": 52,
+          "min": 52,
+          "max": 52
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 0.7446500000539041,
+          "median": 0.7379000000291853,
+          "min": 0.7049000000697561,
+          "max": 0.7841999999800464
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.259850000022804,
+          "median": 1.2387500000404543,
+          "min": 1.201400000063586,
+          "max": 1.372700000021723
+        }
+      },
+      "captureRangeRowResult": {
+        "calls": {
+          "count": 6,
+          "mean": 20,
+          "median": 20,
+          "min": 20,
+          "max": 20
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.3450833333275416,
+          "median": 1.3594999999986612,
+          "min": 1.2712999999639578,
+          "max": 1.4083000000027823
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.3450833333275416,
+          "median": 1.3594999999986612,
+          "min": 1.2712999999639578,
+          "max": 1.4083000000027823
+        }
+      },
+      "captureAppendInputResult": {
+        "calls": {
+          "count": 6,
+          "mean": 35,
+          "median": 35,
+          "min": 35,
+          "max": 35
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.2137666666628018,
+          "median": 1.219199999977718,
+          "min": 1.163300000000163,
+          "max": 1.245100000014645
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.2137666666628018,
+          "median": 1.219199999977718,
+          "min": 1.163300000000163,
+          "max": 1.245100000014645
+        }
+      }
+    },
+    "labels": {
+      "metadata.template|hit": {
+        "count": 6,
+        "mean": 850,
+        "median": 850,
+        "min": 850,
+        "max": 850
+      },
+      "metadata.root|first": {
+        "count": 6,
+        "mean": 205,
+        "median": 205,
+        "min": 205,
+        "max": 205
+      },
+      "metadata.root|repeat": {
+        "count": 6,
+        "mean": 694,
+        "median": 694,
+        "min": 694,
+        "max": 694
+      },
+      "metadata.match|issued": {
+        "count": 6,
+        "mean": 655,
+        "median": 655,
+        "min": 655,
+        "max": 655
+      },
+      "metadata.template|miss": {
+        "count": 6,
+        "mean": 83,
+        "median": 83,
+        "min": 83,
+        "max": 83
+      },
+      "metadata.match|foreign": {
+        "count": 6,
+        "mean": 39,
+        "median": 39,
+        "min": 39,
+        "max": 39
+      }
+    },
+    "selectedSelfMs": {
+      "count": 6,
+      "mean": 30.08511666677441,
+      "median": 29.89410000004864,
+      "min": 29.355800000441377,
+      "max": 31.157600000042294
+    },
+    "gates": [
+      {
+        "name": "sourceStability",
+        "passed": true,
+        "detail": "Authored package code, locks and loaded native sources remain stable"
+      },
+      {
+        "name": "settingsStability",
+        "passed": true,
+        "detail": "Ordinary-role durable settings are retained before and after"
+      },
+      {
+        "name": "cleanup",
+        "passed": true,
+        "detail": "Owned command resources drained"
+      }
+    ],
+    "sources": {
+      "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "files": 6962
+    },
+    "instrumentation": "Original complete pure function bodies forwarded. No per-generator, Schema or function-stack observer. Nested whole-owner timers subtract selected children. Branch counters use existing local values after original private-map lookups. Half the pairs disable numeric leaf timers. All validation and ordering retained; envelopes remain elapsed measurements, not exclusive CPU or proven savings."
+  },
+  "methodology": {
+    "full": "Forwarding proxies around original authored generator factories and iterator next/throw/return. Original Result.gen and selected original Schema factories/parsers and Effect.fn construction are retained. Synchronous nested timers subtract measured children; no suspended wait is timed as a generator body. These elapsed envelopes include observer cost and preemption and are not exclusive CPU. Half the pairs disable numeric leaf timers but keep wrappers. No production source or checks changed.",
+    "meaning": "Synchronous elapsed envelopes are neither exclusive CPU attribution nor measured savings. Full probe Result.gen self time includes iterator-proxy/timer scaffolding outside body timers. All generator body time includes uninstrumented required business/encoding/driver work. No native leaf subtraction is performed. Schema Effect parsers cover immediate invocation only. Schema identity hints name the first factory, not all consumers of a shared schema. Source files unchanged; test-only forwarding observers can alter stack shape and JIT behavior.",
+    "calibration": "Balanced observed/off assignments within each process; Windows counter quantization and small groups prevent subtracting observer differences from owner envelopes. Light lane removes deep clocks but retains numeric branch/call counters and forwarding wrappers."
+  },
+  "light": {
+    "runId": "8f1c5f7a-e562-47a8-8728-d4b25646b72a",
+    "observerOn": {
+      "count": 6,
+      "mean": 130.33333333333334,
+      "median": 125.5,
+      "min": 109,
+      "max": 156
+    },
+    "observerOff": {
+      "count": 6,
+      "mean": 122.66666666666667,
+      "median": 125,
+      "min": 79,
+      "max": 157
+    },
+    "owners": {
+      "consumeTableMetadataResult": {
+        "calls": {
+          "count": 6,
+          "mean": 287,
+          "median": 287,
+          "min": 287,
+          "max": 287
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 6.76955000003727,
+          "median": 6.5770500000799075,
+          "min": 6.319699999978184,
+          "max": 7.9302000000097905
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 6.76955000003727,
+          "median": 6.5770500000799075,
+          "min": 6.319699999978184,
+          "max": 7.9302000000097905
+        }
+      },
+      "prepareLogicalRelationalRead": {
+        "calls": {
+          "count": 6,
+          "mean": 39,
+          "median": 39,
+          "min": 39,
+          "max": 39
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 2.2433833333185853,
+          "median": 2.2134499999447144,
+          "min": 2.108300000007148,
+          "max": 2.541300000033516
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 2.2433833333185853,
+          "median": 2.2134499999447144,
+          "min": 2.108300000007148,
+          "max": 2.541300000033516
+        }
+      },
+      "consumeAccessMetadataResult": {
+        "calls": {
+          "count": 6,
+          "mean": 158,
+          "median": 158,
+          "min": 158,
+          "max": 158
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 4.797799999984515,
+          "median": 4.730799999997544,
+          "min": 4.4537999999156455,
+          "max": 5.506000000015774
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 4.797799999984515,
+          "median": 4.730799999997544,
+          "min": 4.4537999999156455,
+          "max": 5.506000000015774
+        }
+      },
+      "lowerCanonicalAppUniqueConstraintV1Result": {
+        "calls": {
+          "count": 6,
+          "mean": 73,
+          "median": 73,
+          "min": 73,
+          "max": 73
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 2.06605000001097,
+          "median": 2.041350000006787,
+          "min": 1.9795000000012806,
+          "max": 2.215699999971548
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 2.06605000001097,
+          "median": 2.041350000006787,
+          "min": 1.9795000000012806,
+          "max": 2.215699999971548
+        }
+      },
+      "captureIndexReadDefinitionResult": {
+        "calls": {
+          "count": 6,
+          "mean": 102,
+          "median": 102,
+          "min": 102,
+          "max": 102
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 0.8420666666825127,
+          "median": 0.8248499999681371,
+          "min": 0.7897000000521075,
+          "max": 0.918199999978242
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 0.8420666666825127,
+          "median": 0.8248499999681371,
+          "min": 0.7897000000521075,
+          "max": 0.918199999978242
+        }
+      },
+      "decodeRangeReadInputResult": {
+        "calls": {
+          "count": 6,
+          "mean": 52,
+          "median": 52,
+          "min": 52,
+          "max": 52
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 0.7071166666743617,
+          "median": 0.6958999999988009,
+          "min": 0.6247000000003027,
+          "max": 0.8339000000269152
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.2074000000017502,
+          "median": 1.171699999998964,
+          "min": 1.0960999999952037,
+          "max": 1.4051000000181375
+        }
+      },
+      "captureRangeRowResult": {
+        "calls": {
+          "count": 6,
+          "mean": 20,
+          "median": 20,
+          "min": 20,
+          "max": 20
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.3293000000145792,
+          "median": 1.3313000000198372,
+          "min": 1.2695000000239816,
+          "max": 1.3739999999961583
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.3293000000145792,
+          "median": 1.3313000000198372,
+          "min": 1.2695000000239816,
+          "max": 1.3739999999961583
+        }
+      },
+      "captureAppendInputResult": {
+        "calls": {
+          "count": 6,
+          "mean": 35,
+          "median": 35,
+          "min": 35,
+          "max": 35
+        },
+        "selfMs": {
+          "count": 6,
+          "mean": 1.1748499999957858,
+          "median": 1.1574500000060652,
+          "min": 1.1164999999455176,
+          "max": 1.304199999984121
+        },
+        "inclusiveMs": {
+          "count": 6,
+          "mean": 1.1748499999957858,
+          "median": 1.1574500000060652,
+          "min": 1.1164999999455176,
+          "max": 1.304199999984121
+        }
+      }
+    },
+    "labels": {
+      "call|finiteMetadataContractKey": {
+        "count": 6,
+        "mean": 935,
+        "median": 935,
+        "min": 935,
+        "max": 935
+      },
+      "call|captureFiniteMetadataDependency": {
+        "count": 6,
+        "mean": 207,
+        "median": 207,
+        "min": 207,
+        "max": 207
+      },
+      "call|logicalMetadataDependencyIdentity": {
+        "count": 6,
+        "mean": 6475,
+        "median": 6475,
+        "min": 6475,
+        "max": 6475
+      },
+      "call|recordDecodedMetadataDependency": {
+        "count": 6,
+        "mean": 901,
+        "median": 901,
+        "min": 901,
+        "max": 901
+      },
+      "call|finiteMetadataTableKey": {
+        "count": 6,
+        "mean": 614,
+        "median": 614,
+        "min": 614,
+        "max": 614
+      },
+      "call|retainMetadataKey": {
+        "count": 6,
+        "mean": 933,
+        "median": 933,
+        "min": 933,
+        "max": 933
+      },
+      "metadata.template|hit": {
+        "count": 6,
+        "mean": 850,
+        "median": 850,
+        "min": 850,
+        "max": 850
+      },
+      "call|consumeLogicalDocumentRootMetadataDependency": {
+        "count": 6,
+        "mean": 899,
+        "median": 899,
+        "min": 899,
+        "max": 899
+      },
+      "metadata.root|first": {
+        "count": 6,
+        "mean": 205,
+        "median": 205,
+        "min": 205,
+        "max": 205
+      },
+      "call|consumeMetadataResult": {
+        "count": 6,
+        "mean": 893,
+        "median": 893,
+        "min": 893,
+        "max": 893
+      },
+      "metadata.root|repeat": {
+        "count": 6,
+        "mean": 694,
+        "median": 694,
+        "min": 694,
+        "max": 694
+      },
+      "call|matchesFiniteMetadataDependencyObservation": {
+        "count": 6,
+        "mean": 694,
+        "median": 694,
+        "min": 694,
+        "max": 694
+      },
+      "metadata.match|issued": {
+        "count": 6,
+        "mean": 655,
+        "median": 655,
+        "min": 655,
+        "max": 655
+      },
+      "call|finiteMetadataAccessKey": {
+        "count": 6,
+        "mean": 255,
+        "median": 255,
+        "min": 255,
+        "max": 255
+      },
+      "metadata.template|miss": {
+        "count": 6,
+        "mean": 83,
+        "median": 83,
+        "min": 83,
+        "max": 83
+      },
+      "call|finiteMetadataDefinitionKey": {
+        "count": 6,
+        "mean": 64,
+        "median": 64,
+        "min": 64,
+        "max": 64
+      },
+      "metadata.match|foreign": {
+        "count": 6,
+        "mean": 39,
+        "median": 39,
+        "min": 39,
+        "max": 39
+      }
+    },
+    "gates": [
+      {
+        "name": "sourceStability",
+        "passed": true,
+        "detail": "Authored package code, locks and loaded native sources remain stable"
+      },
+      {
+        "name": "settingsStability",
+        "passed": true,
+        "detail": "Ordinary-role durable settings are retained before and after"
+      },
+      {
+        "name": "cleanup",
+        "passed": true,
+        "detail": "Owned command resources drained"
+      }
+    ],
+    "sources": {
+      "before": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "after": "9093619ed1550ef5ad8d538df0cb5292844d0c69107a926f8d80cbc45795561f",
+      "files": 6962
+    },
+    "tableAccessMetadataSelfMs": {
+      "count": 6,
+      "mean": 11.567350000021785,
+      "median": 11.31225000001723,
+      "min": 10.77349999989383,
+      "max": 13.436200000025565
+    },
+    "instrumentation": "Original complete pure function bodies forwarded. No per-generator, Schema or function-stack observer. Nested whole-owner timers subtract selected children. Branch counters use existing local values after original private-map lookups. Half the pairs disable numeric leaf timers. Light lane times only eight outer pure owners and counts deeper functions. All validation and ordering retained; envelopes remain elapsed measurements, not exclusive CPU or proven savings."
+  },
+  "provenance": {
+    "head": "11d1382b2",
+    "installedEffect": "4.0.0-rc.112",
+    "typescriptAst": "@typescript/typescript6@6.0.3",
+    "observerChecks": 2,
+    "ownedRuntimeChanges": [],
+    "scripts": {
+      "observer.ts": "7822c3ad78a83f01bb6f70510a42d21b327fb7859fbddc82cdf97e6d20cd5548",
+      "probe.ts": "ef3dd582c53730a269d484304b4a72d2c13ad20fb86f880a2d180749cfc84d96",
+      "composition.config.ts": "6d0d8976704f814ca81617dff84e6f4be58e1df8dc55b2e236fcf667956cc9e0",
+      "composition.test.ts": "0f4395064376d11cb91ea1cb9ba3dd0db4d7804d78637614e249387f6651e59f",
+      "focused.config.ts": "c2acdb37429fd4e4e25be86de08b961ea16f7e5e4c64d97ebeab50566cc6a495",
+      "focused.test.ts": "b49a250cabee257436be181e747dd417f00a4352b0b2d301077f5ac5152e33ec",
+      "control.config.ts": "fae31bd4df681106ccd0092a79e7c18c38760574eb0ec0d705dc59fc985d02fa",
+      "control.test.ts": "50a7aa0944b2f83306cae50b8db807be51849a7e541350fdbaaefd981798fd41",
+      "observer.config.ts": "d92335c814556f3c073f76175cd0279e3ebf4dda2c6b3d1248d3ee0e33046f07",
+      "observer.test.ts": "8ccda31fc062c90e1683a674d81dea2f11be812642a1f6f2f78f5e8ba5db5b6f",
+      "analyze.mjs": "7d45ea37581f816412e68a7258cc2708f505f7ac6c16e7b54a16a65ca2623fa7",
+      "analyze-focused.mjs": "3b0686b92c896fe0a8d4c915234384d4efa50f348cde6b4ca9b3ced4e4fe1ddd",
+      "compact-light.mjs": "d5548ad9b53e6ed32f8e8e0204002749ab035b84260f8c76156267cb058096ad"
+    },
+    "loaded": {
+      "flarex-protocol/src/commit-protocol.ts": {
+        "originalHash": "9cc86c6d3424f4a59d0df016f80144ecc09740b5189449f9c126e0af66011a0d",
+        "transformedHash": "193aa11d79d995ea25d56de076999abe0dee53d4a8acfeca2020e605e7295f06",
+        "names": [
+          "logicalMetadataDependencyIdentity"
+        ]
+      },
+      "persistence-postgres/src/storage/indexes/appIndexEntries.ts": {
+        "originalHash": "e4de65508dbf9013b7ed76bac01aad005ce007c23b6d2703f06f942fb5a720d3",
+        "transformedHash": "fb5cd34ac1e3514210659c7df66397b085eca1248349d50f3e7988bbfb47a85f",
+        "names": [
+          "captureAppendInputResult",
+          "captureIndexReadDefinitionResult",
+          "decodeRangeReadInputResult",
+          "captureRangeRowResult"
+        ]
+      },
+      "persistence-postgres/src/execution/finiteMetadataDependencies.ts": {
+        "originalHash": "32045bdfd98d335b4b3b580cb35b9519d2acc6880b86bbb74777699bd9d3e06c",
+        "transformedHash": "4f24a4851c9eeda06a08d46af37b5912bd6c6616e27cc95835a85ef0ef129cca",
+        "names": [
+          "finiteMetadataContractKey",
+          "retainMetadataKey",
+          "finiteMetadataTableKey",
+          "finiteMetadataDefinitionKey",
+          "finiteMetadataAccessKey",
+          "captureFiniteMetadataDependency",
+          "matchesFiniteMetadataDependencyObservation"
+        ]
+      },
+      "persistence-postgres/src/storage/unique/appUniqueConstraintCommitV1.ts": {
+        "originalHash": "7cb869ce3d97221b19aae47c4511027b52e1ee8bd8742987eabd57ac6cc34709",
+        "transformedHash": "6f0dbbb44ed937797f6c64322acfda28a0a48a1540f1b45b4b405a6e0253ada0",
+        "names": [
+          "lowerCanonicalAppUniqueConstraintV1Result"
+        ]
+      },
+      "persistence-postgres/src/storage/documents/logicalDocuments/relationalQuery.ts": {
+        "originalHash": "4bcebe245c19e2261cd33dae5f87130ed8c89aca76f80171852ca62c52ee1e60",
+        "transformedHash": "a7ebc3b6d5abbce9a1f86237a70f9b58e43001e1cba241fbf6a16de6797cf365",
+        "names": [
+          "prepareLogicalRelationalRead"
+        ]
+      },
+      "persistence-postgres/src/storage/documents/logicalDocuments/rootEvaluator.ts": {
+        "originalHash": "a6e1f6604303133f2f52d3f4861e92f4a09f35c508516d9b995ea2f807b96cb8",
+        "transformedHash": "a3e69abe3a87b1ad5eae4d20a11bd283eed53e24165588839d2dde206aef571d",
+        "names": [
+          "recordDecodedMetadataDependency",
+          "consumeLogicalDocumentRootMetadataDependency"
+        ]
+      },
+      "persistence-postgres/src/storage/documents/logicalDocuments/workingSet.ts": {
+        "originalHash": "b69d369eb830b7cfbcf48a32bce10de00551313a5fa1a2d18bf644e7914657d2",
+        "transformedHash": "6605c6ed1b24850d39e24c7e333cf7c21d70ab00180d50111d8ef731e5d9fc30",
+        "names": [
+          "consumeMetadataResult",
+          "consumeTableMetadataResult",
+          "consumeAccessMetadataResult"
+        ]
+      }
+    }
+  },
+  "validation": {
+    "completeCampaigns": 4,
+    "successfulRequests": 166,
+    "observerTests": 2,
+    "ordinaryRole": {
+      "name": "flarex_cpu_fixture",
+      "superuser": false,
+      "fsync": "on",
+      "synchronousCommit": "on",
+      "fullPageWrites": "on",
+      "otherClientsAfter": 0
+    },
+    "postgres": {
+      "port": 56434,
+      "stopped": true,
+      "listenersAfter": 0
+    },
+    "newWorktrees": 0,
+    "retainedRuntimeChanges": 0
+  }
+}
